@@ -4,3 +4,6 @@
   charts in one Excel file (was 10).
 - "What changed in this file" shows up to 40,000 characters of changes at once (was 8,000), and the AI can read the
   rest of a longer change.
+- On a server with less memory, these limits are lower, and the AI says the file is too big for this server. When
+  many large files are being worked on at once, the AI says the server is busy and to try again in a minute. One
+  chat keeps up to 100 MB of pages and dashboards with their versions.

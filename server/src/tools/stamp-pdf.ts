@@ -24,6 +24,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { ext, officeWorkerWrite } from '../files/extract'
 import { PDF_OUTPUT_MAX } from '../files/pdf-pages'
+import { assertGuestOutput, PDF_GATE, pdfInputMax, tooLargeText } from '../files/big-inputs'
 import { decodeStampResult, encodeStampRequest, imageKind, PDF_STAMP_MODE, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_MAX, STAMP_PDF_MAX, type StampReport } from '../files/pdf-stamp'
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
@@ -86,11 +87,23 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const src = authorize(fx, rules, c.user, a.file_path, 'read')
   if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
   if (ext(src.rel) !== 'pdf') throw new ToolError(`stamp_pdf puts an image on a PDF; '${src.rel}' is not a .pdf`)
-  if (checkRegular(src.abs).size > STAMP_PDF_MAX) throw new ToolError(`'${src.rel}' is larger than ${STAMP_PDF_MAX / 1024 / 1024} MB, too large to stamp here`)
+  // the PDF tools' limit on this server (lower where the office worker has less memory, files/big-inputs.ts)
+  const max = Math.min(STAMP_PDF_MAX, pdfInputMax())
+  const pdfSize = checkRegular(src.abs).size
+  if (pdfSize > max) throw new ToolError(tooLargeText(src.rel, max, STAMP_PDF_MAX, 'a PDF to stamp'))
   const img = authorize(fx, rules, c.user, a.image, 'read')
   if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
-  if (checkRegular(img.abs).size > STAMP_IMAGE_MAX) throw new ToolError(`'${img.rel}' is larger than ${STAMP_IMAGE_MAX / 1024 / 1024} MB; use a smaller picture`)
-  const pdf = readRegular(src.abs, STAMP_PDF_MAX, src.st).bytes
+  const imgSize = checkRegular(img.abs).size
+  if (imgSize > STAMP_IMAGE_MAX) throw new ToolError(`'${img.rel}' is larger than ${STAMP_IMAGE_MAX / 1024 / 1024} MB; use a smaller picture`)
+  // their room in the PDF tools' gate before the bytes are read, kept until the result is placed
+  const release = await PDF_GATE.enter(pdfSize + imgSize, c.signal)
+  try { return await stamp(ctx, files, c, a, src, img, max) } finally { release() }
+}
+
+async function stamp(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input, src: ReturnType<typeof authorize>, img: ReturnType<typeof authorize>, max: number): Promise<StampedPdf> {
+  const fx = files.fx
+  const rules = files.rules()
+  const pdf = readRegular(src.abs, max, src.st).bytes
   const picture = readRegular(img.abs, STAMP_IMAGE_MAX, img.st).bytes
   ctx.files.quarantine.assertBytes(pdf)
   ctx.files.quarantine.assertBytes(picture)
@@ -127,6 +140,7 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
   let r: ReturnType<typeof decodeStampResult>
   try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
   if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')
+  assertGuestOutput(ctx.db, c.user.id, r.file.length, out.rel)
 
   // the new file carries the PDF's and the image's bytes: asked like make_file's sources
   if (out.rel !== src.rel) await confirmSources(ctx, files, c, out.rel, out.segs, [src.rel, img.rel])

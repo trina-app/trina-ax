@@ -25,7 +25,8 @@ import { ext } from '../files/extract'
 import { heicRefusal, heicToJpeg, isHeic } from '../files/heic-preview'
 import type { ToolCtx } from '../files/service'
 import { readRegular } from '../files/store'
-import { imageSlot } from '../files/vision'
+import { imageSlot, VISION_PARALLEL } from '../files/vision'
+import { ByteGate, helperBudgetMiB, inputMaxFor, PHOTO_MIB_PER_MB, tooLargeText } from '../files/big-inputs'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { skillRootOf } from '../skills/guard'
@@ -59,6 +60,12 @@ const RESIZE_OUTPUT_MAX = 48 * 1024 * 1024
 /** one photo's time (measured: a 147 MB PNG to under 2 MB took 10-15 s) */
 export const RESIZE_TIMEOUT_MS = 120_000
 const RESIZE_RSS_MIB = 1536
+/** the largest photo on this server: RESIZE_INPUT_MAX, lower where the helper has less memory (files/big-inputs.ts; a
+ * 1 GB converter budget: 128 MB, 512 MB: 64 MB) */
+export const photoInputMax = (budgetMiB = helperBudgetMiB(RESIZE_RSS_MIB)) => inputMaxFor(budgetMiB, PHOTO_MIB_PER_MB, RESIZE_INPUT_MAX)
+/** photo bytes in this process at once: one photo per image conversion slot; eight more wait, the next is told the
+ * server is busy */
+export const PHOTO_GATE = new ByteGate(() => VISION_PARALLEL * photoInputMax(), 8)
 const PHOTO_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
 /** the options number of the helper: details + 4 * format + 16 * upright (safeops.ResizeOptions) */
 const DETAILS = { keep: 0, location: 1, all: 2 } as const
@@ -120,6 +127,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
   // every photo authorized first: a path the person cannot open stops the call before any work
   const photos: Photo[] = []
   const skipped: string[] = []
+  const photoMax = photoInputMax()
   let total = 0
   for (const p of a.paths) {
     const r = authorize(fx, rules, c.user, p, 'read')
@@ -128,7 +136,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     const name = r.segs[r.segs.length - 1]!
     if (!PHOTO_EXT.has(ext(name))) { skipped.push(`'${r.rel}' is not a JPEG, PNG, WebP or HEIC photo; only those can be made smaller here`); continue }
     const st = checkRegular(r.abs)
-    if (st.size > RESIZE_INPUT_MAX) { skipped.push(`'${r.rel}' is larger than ${RESIZE_INPUT_MAX / 1048576} MB, too large to work on here`); continue }
+    if (st.size > photoMax) { skipped.push(tooLargeText(r.rel, photoMax, RESIZE_INPUT_MAX, 'one photo')); continue }
     total += st.size
     if (total > RESIZE_TOTAL_MAX) throw new ToolError(`these photos are more than ${RESIZE_TOTAL_MAX / 1048576} MB together; work on fewer at a time`)
     photos.push({ rel: r.rel, segs: r.segs, abs: r.abs, st, name })
@@ -170,51 +178,55 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
     const details = DETAILS[a.remove_details ?? 'keep']
     for (const [i, ph] of photos.entries()) {
       c.signal?.throwIfAborted()
-      const bytes = readRegular(ph.abs, RESIZE_INPUT_MAX, ph.st).bytes
-      ctx.files.quarantine.assertBytes(bytes)
-      const heic = isHeic(ph.name)
-      let input: Uint8Array = bytes
-      let before = dims(displaySize(bytes))
-      if (heic) {
-        // decoded first (its declared size checked before any decoder runs), as upright JPEG pixels with the details
-        const refused = heicRefusal(bytes)
-        if (refused) { skipped.push(refused === 'too_large' ? `'${ph.rel}' is too large to work on here (over 50 megapixels or a side over 65,535 pixels)` : `'${ph.rel}' is damaged and could not be read`); continue }
-        if (!tools.heic.heifDec && !tools.heic.imageIo) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
-        let decoded: Buffer | null = null
-        try {
-          decoded = await imageSlot(() => heicToJpeg(bytes, tools.heic, c.signal, { keepMeta: true, maxPx: 16384, outputMax: RESIZE_INPUT_MAX }), c.signal)
-        } catch (e) {
-          c.signal?.throwIfAborted()
-          skipped.push(e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? `'${ph.rel}' took too long or needed too much memory to make smaller` : `'${ph.rel}' is damaged and could not be read`)
-          continue
+      // the photo's room in PHOTO_GATE before its bytes are read (one photo of this call at a time)
+      const release = await PHOTO_GATE.enter(ph.st.size, c.signal)
+      try {
+        const bytes = readRegular(ph.abs, photoMax, ph.st).bytes
+        ctx.files.quarantine.assertBytes(bytes)
+        const heic = isHeic(ph.name)
+        let input: Uint8Array = bytes
+        let before = dims(displaySize(bytes))
+        if (heic) {
+          // decoded first (its declared size checked before any decoder runs), as upright JPEG pixels with the details
+          const refused = heicRefusal(bytes)
+          if (refused) { skipped.push(refused === 'too_large' ? `'${ph.rel}' is too large to work on here (over 50 megapixels or a side over 65,535 pixels)` : `'${ph.rel}' is damaged and could not be read`); continue }
+          if (!tools.heic.heifDec && !tools.heic.imageIo) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
+          let decoded: Buffer | null = null
+          try {
+            decoded = await imageSlot(() => heicToJpeg(bytes, tools.heic, c.signal, { keepMeta: true, maxPx: 16384, outputMax: RESIZE_INPUT_MAX }), c.signal)
+          } catch (e) {
+            c.signal?.throwIfAborted()
+            skipped.push(e instanceof ToolError && /stopped \((?!workdir\))/.test(e.message) ? `'${ph.rel}' took too long or needed too much memory to make smaller` : `'${ph.rel}' is damaged and could not be read`)
+            continue
+          }
+          if (!decoded) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
+          input = decoded
+          before = dims(imageSize(decoded))
         }
-        if (!decoded) { skipped.push(`'${ph.rel}' ${NO_HEIC}`); continue }
-        input = decoded
-        before = dims(imageSize(decoded))
-      }
-      const format = FORMAT[a.format ?? (heic ? 'jpeg' : 'auto')]
-      const options = details + 4 * format + (heic ? 16 : 0)
-      const r = await imageSlot(() => runIsolated({
-        cmd: tools.normalizer!, args: ['resize', String(side), String(width), String(permille), String(maxBytes), String(options)], stdin: input,
-        timeoutMs: RESIZE_TIMEOUT_MS, maxRssMiB: RESIZE_RSS_MIB, maxStdout: RESIZE_OUTPUT_MAX + 1, signal: c.signal,
-        // the Go runtime collects before it nears the memory limit (review: a 50 MP photo peaked at 1555 MiB without it)
-        env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
-      }), c.signal)
-      if (r.killed === 'aborted') c.signal?.throwIfAborted()
-      if (r.killed) { skipped.push(r.killed === 'workdir' ? `'${ph.rel}' is damaged and could not be read` : `'${ph.rel}' took too long or needed too much memory to make smaller`); continue }
-      if (r.code !== 0) { skipped.push(refusal(r.stderr.trim().split('\n')[0] ?? '', ph.rel, before, bytes.length, maxBytes)); continue }
-      const out = r.stdout
-      const jpeg = out.length > 3 && out[0] === 0xff && out[1] === 0xd8 && out[2] === 0xff
-      const png = out.length > 8 && out.readUInt32BE(0) === 0x89504e47
-      if (!jpeg && !png) { skipped.push(`'${ph.rel}' is damaged and could not be read`); continue }
-      const e = png ? 'png' : ext(ph.name) === 'jpeg' ? 'jpeg' : 'jpg'
-      const meta = detailsLine(r.stderr) ?? { details: 'none', location: 'none' }
-      // replace writes the copy under the original's name: only when the content is that name's format (a PNG named
-      // .jpg would get PNG bytes back under .jpg)
-      if (replace && (png !== (ext(ph.name) === 'png'))) { skipped.push(`'${ph.rel}' holds a ${png ? 'PNG' : 'JPEG'} picture under another format's name, so it was not replaced; leave replace out to save a copy next to it`); continue }
-      const produced = path.join(work, `${i}.${e}`)
-      fs.writeFileSync(produced, out, { flag: 'wx', mode: 0o600 })
-      done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp', fromHeic: heic, bigger: out.length >= bytes.length, meta })
+        const format = FORMAT[a.format ?? (heic ? 'jpeg' : 'auto')]
+        const options = details + 4 * format + (heic ? 16 : 0)
+        const r = await imageSlot(() => runIsolated({
+          cmd: tools.normalizer!, args: ['resize', String(side), String(width), String(permille), String(maxBytes), String(options)], stdin: input,
+          timeoutMs: RESIZE_TIMEOUT_MS, maxRssMiB: RESIZE_RSS_MIB, maxStdout: RESIZE_OUTPUT_MAX + 1, signal: c.signal,
+          // the Go runtime collects before it nears the memory limit (review: a 50 MP photo peaked at 1555 MiB without it)
+          env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
+        }), c.signal)
+        if (r.killed === 'aborted') c.signal?.throwIfAborted()
+        if (r.killed) { skipped.push(r.killed === 'workdir' ? `'${ph.rel}' is damaged and could not be read` : `'${ph.rel}' took too long or needed too much memory to make smaller`); continue }
+        if (r.code !== 0) { skipped.push(refusal(r.stderr.trim().split('\n')[0] ?? '', ph.rel, before, bytes.length, maxBytes)); continue }
+        const out = r.stdout
+        const jpeg = out.length > 3 && out[0] === 0xff && out[1] === 0xd8 && out[2] === 0xff
+        const png = out.length > 8 && out.readUInt32BE(0) === 0x89504e47
+        if (!jpeg && !png) { skipped.push(`'${ph.rel}' is damaged and could not be read`); continue }
+        const e = png ? 'png' : ext(ph.name) === 'jpeg' ? 'jpeg' : 'jpg'
+        const meta = detailsLine(r.stderr) ?? { details: 'none', location: 'none' }
+        // replace writes the copy under the original's name: only when the content is that name's format (a PNG named
+        // .jpg would get PNG bytes back under .jpg)
+        if (replace && (png !== (ext(ph.name) === 'png'))) { skipped.push(`'${ph.rel}' holds a ${png ? 'PNG' : 'JPEG'} picture under another format's name, so it was not replaced; leave replace out to save a copy next to it`); continue }
+        const produced = path.join(work, `${i}.${e}`)
+        fs.writeFileSync(produced, out, { flag: 'wx', mode: 0o600 })
+        done.push({ ph, produced, e, before, after: `${dims(displaySize(out))}, ${human(out.length)}; was ${before}, ${human(bytes.length)}`, fromWebp: ext(ph.name) === 'webp', fromHeic: heic, bigger: out.length >= bytes.length, meta })
+      } finally { release() }
     }
     if (!done.length) throw new ToolError(`nothing was made smaller: ${skipped.join('; ')}`)
 

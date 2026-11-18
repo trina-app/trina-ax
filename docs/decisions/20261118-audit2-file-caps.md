@@ -45,9 +45,29 @@ Plan: docs/AGENTS/plan/20261118-1705-audit2-file-caps.md.
   limit, the AI is told to split it over several artifacts or save it as a file.
 - **make_file charts: 10 -> 50 per workbook** (`MAKE_FILE_CHARTS_MAX`, the schema and the writer share it). The
   HYPERLINK/INDIRECT formula rule is unchanged (owner decision).
+- **Review of the PR (memory, guests):**
+  - The PDF tools and resize_images read their inputs into the server process before a worker slot, and nothing bounded
+    the line, so many large calls at once could hold gigabytes. Now a byte gate (`files/big-inputs.ts ByteGate`)
+    reserves a call's bytes before anything is read and holds them until the result is placed. The PDF tools (edit,
+    merge, split, stamp) share one gate: at most two office workers' worth (2 x the PDF limit) in the process, four calls
+    wait in line, and the next is told the server is busy and to try again in a minute. Photos get one gate of three
+    conversion slots x the photo limit, eight calls waiting. The first in line goes first, so a large call is never
+    passed by small ones forever.
+  - The limits follow the memory the helper really has: the converter cgroup's budget on production Linux
+    (`convBudgetMiB`: a quarter of the machine or plan, 512-1536 MiB), else the helper's own limit. PDFs take 12 MiB per
+    MB (measured about 10), photos 8 MiB per MB. That gives a 512 MiB budget 42 MB / 64 MB, 1 GiB 85 MB / 128 MB, and
+    1.5 GiB or more 100 MB / 150 MB (the measured ceilings stay the most). Over a lower limit, the AI is told the file is
+    too big for this server's memory, what larger servers take, and that a smaller or split file works. That replaces
+    a vague out-of-memory failure from the worker.
+  - The artifact list read every version's content only to size it. It now takes `length(CAST(content AS BLOB))` from
+    the database. One chat keeps at most 100 MB of artifact versions together: every version is stored whole, so 200
+    versions of a 10 MB page would be 2 GB. 100 MB is ten full-size pages or hundreds of usual ones. Over it, nothing is
+    saved and the AI is told to save the page as a file in the team folder, or to suggest a new chat.
+  - A guest keeps no PDF the tools made that is larger than the team's guest file limit (100 MB or 1 GB,
+    `uploads/guest-limit.ts`). The AI is told to work on fewer pages.
 - **Also found:** a PDF result over 50 MB is still refused by the per-answer write cap (`maxWriteBytesPerTurn`,
   50 MB) until PR #1284 raises it to 1 GB; that cap is its own audit item (first audit #5).
 - **Tests:** tests/unit/c-audit2-file-caps.test.ts (a 70 MB PDF edited, a 40 MB photo reaches the helper, versions in
-  parts, a 5 MB artifact, 50 charts), tests/unit/b-chat-rooms-save.test.ts (a 60 MB room file saved whole),
+  parts, a 5 MB artifact, 50 charts; the gate, budget-derived limits, the per-chat artifact cap and sizes, guest output), tests/unit/b-chat-rooms-save.test.ts (a 60 MB room file saved whole),
   tests/unit/c-integrations-attach.test.ts (18 MB, 20 files), native resize_test.go `TestResizeInputLimit`.
 - **Version impact:** patch.

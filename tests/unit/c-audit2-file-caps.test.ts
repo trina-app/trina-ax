@@ -5,6 +5,10 @@
 // - read with versions: changes up to 40,000 characters at once (8,000 before) and an offset to read on;
 // - artifact: 10 MB (2 MB before);
 // - make_file: 50 charts per workbook (10 before).
+// Review of the PR: the bytes are reserved in a gate before they are read (calls at once hold at most slots x limit,
+// a few wait, the rest are told the server is busy); the limits follow the converters' memory budget (a small server
+// gets smaller limits, said so); a chat keeps at most 100 MB of artifact versions; a guest keeps no PDF over their
+// file limit.
 // A room file over 50 MB saved by the AI: tests/unit/b-chat-rooms-save.test.ts. Team files on a mail (18 MB, 20 files):
 // tests/unit/c-integrations-attach.test.ts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
@@ -13,6 +17,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { concatTransformationMatrix, drawObject, PDFDocument, PDFName, PDFRawStream, popGraphicsState, pushGraphicsState } from 'pdf-lib'
 import { MakeFileInput, MAKE_FILE_CHARTS_MAX } from '@mycel/shared'
+import { uuidv7 } from '@mycel/shared/api'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makeCApp, jsonBody, sha256hex, type CApp, type Person } from '../lib/c-app'
 import { PDF_OUTPUT_MAX, PDF_PAGES_INPUT_MAX } from '../../server/src/files/pdf-pages'
@@ -22,6 +27,9 @@ import { RESIZE_INPUT_MAX, RESIZE_TIMEOUT_MS } from '../../server/src/tools/resi
 import { VERSION_DIFF_MAX_CHARS, versionDiffPart } from '../../server/src/files/service'
 import { MAX_ARTIFACT_BYTES } from '../../server/src/tools/artifact'
 import { CHARTS_MAX, placeCharts } from '../../server/src/tools/xlsx-chart'
+import { assertGuestOutput, BUSY_TEXT, ByteGate, PDF_GATE, pdfInputMax, tooLargeText } from '../../server/src/files/big-inputs'
+import { photoInputMax } from '../../server/src/tools/resize-images'
+import { MAX_ARTIFACT_BYTES_PER_CHAT } from '../../server/src/tools/artifact'
 
 setDefaultTimeout(120_000)
 
@@ -185,5 +193,111 @@ describe('make_file charts (TC-4978)', () => {
     const sheets = [{ name: 'Sheet1', rows: [['a', 'b'], ['x', 1], ['y', 2], ['z', 3]] }]
     expect(placeCharts(fifty, sheets)).toHaveLength(50)
     expect(() => placeCharts([...fifty, chart(50)], sheets)).toThrow('at most 50 charts per file')
+  })
+})
+
+describe('memory: limits follow the server, bytes reserved before they are read (PR review)', () => {
+  const MB = 1024 * 1024
+  test('a small converter budget gets smaller limits; the measured ceilings stay the most', () => {
+    expect(pdfInputMax(512)).toBe(42 * MB)
+    expect(pdfInputMax(1024)).toBe(85 * MB)
+    expect(pdfInputMax(1536)).toBe(100 * MB)
+    expect(pdfInputMax(4096)).toBe(100 * MB)
+    expect(photoInputMax(512)).toBe(64 * MB)
+    expect(photoInputMax(1024)).toBe(128 * MB)
+    expect(photoInputMax(1536)).toBe(150 * MB)
+    // said as the server's own limit when memory sets it, plainly otherwise
+    expect(tooLargeText('a.pdf', 42 * MB, 100 * MB, 'one PDF call')).toContain("the most this server's memory allows")
+    expect(tooLargeText('a.pdf', 100 * MB, 100 * MB, 'one PDF call')).toBe("'a.pdf' is larger than 100 MB, too large to work on here")
+  })
+
+  test('ByteGate: never more than its budget held; the first in line goes first; a full line is told busy', async () => {
+    const g = new ByteGate(() => 100, 2)
+    const order: string[] = []
+    const a = await g.enter(60)
+    const b = g.enter(60).then((r) => { order.push('b'); return r })
+    const c = g.enter(30).then((r) => { order.push('c'); return r })
+    await Bun.sleep(10)
+    // 60 held; b does not fit, and c (which would) does not pass it
+    expect(g.stats()).toEqual({ used: 60, waiting: 2 })
+    await expect(g.enter(1)).rejects.toThrow(BUSY_TEXT)
+    a()
+    const rb = await b
+    const rc = await c
+    expect(order).toEqual(['b', 'c'])
+    expect(g.stats().used).toBe(90)
+    rb(); rc(); rb()
+    expect(g.stats()).toEqual({ used: 0, waiting: 0 })
+    // larger than the whole budget: takes all of it (never stuck)
+    const all = await g.enter(1000)
+    expect(g.stats().used).toBe(100)
+    all()
+    // a caller that gives up leaves the line
+    const hold = await g.enter(100)
+    const ac = new AbortController()
+    const gone = g.enter(10, ac.signal)
+    ac.abort()
+    await expect(gone).rejects.toBeDefined()
+    expect(g.stats().waiting).toBe(0)
+    hold()
+  })
+
+  test('a PDF call waits for room before it reads its file; with the line full it is told the server is busy', async () => {
+    put('groups/marketing/pdfs/small.pdf', await scanPdf(1))
+    const hold = await PDF_GATE.enter(Number.MAX_SAFE_INTEGER)
+    let finished = false
+    const waiting = call('alice', 'split_pdf', { file_path: 'groups/marketing/pdfs/small.pdf', every: 1 }).then((r) => { finished = true; return r })
+    await Bun.sleep(200)
+    expect(finished).toBe(false)
+    expect(PDF_GATE.stats().waiting).toBe(1)
+    // three more fill the line of four; the fifth is refused at once
+    const more = [1, 2, 3].map(() => call('alice', 'split_pdf', { file_path: 'groups/marketing/pdfs/small.pdf', every: 1 }))
+    await Bun.sleep(100)
+    const busy = await call('alice', 'split_pdf', { file_path: 'groups/marketing/pdfs/small.pdf', every: 1 })
+    expect(busy.isError).toBe(true)
+    expect(busy.text).toContain('working on other large files')
+    hold()
+    const r = await waiting
+    expect(r.isError).toBe(false)
+    for (const m of await Promise.all(more)) expect(m.isError).toBe(false)
+    expect(PDF_GATE.stats()).toEqual({ used: 0, waiting: 0 })
+    for (const f of fs.readdirSync(file('groups/marketing/pdfs'))) fs.rmSync(file(`groups/marketing/pdfs/${f}`), { force: true })
+  })
+})
+
+describe('artifacts: list sizes from the database, at most 100 MB per chat (PR review)', () => {
+  test('the list gives the right sizes; over the chat cap nothing is saved and the AI is told what to do', async () => {
+    expect(MAX_ARTIFACT_BYTES_PER_CHAT).toBe(100 * 1024 * 1024)
+    const chat = A.chat('alice')
+    const turn = A.turn('alice', chat)
+    const h = makeHandler(A.ctx.files, A.ctx.db, A.toolCtx('alice', turn))
+    const art = async (args: Record<string, unknown>) => {
+      const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'artifact', arguments: args } })
+      return { text: r.result.content[0].text as string, isError: !!r.result.isError }
+    }
+    expect((await art({ action: 'create', key: 'one', type: 'markdown', content: '# 안녕 report' })).isError).toBe(false)
+    // 98 MiB of versions already in this chat (written directly: the tool takes 10 MB at a time)
+    A.ctx.db.query("INSERT INTO artifacts (id, chat_id, message_id, key, version, type, title, language, content, created_at) VALUES (?, ?, NULL, 'big', 1, 'html', NULL, NULL, hex(zeroblob(49 * 1024 * 1024)), ?)").run(uuidv7(), chat, new Date().toISOString())
+    const over = await art({ action: 'create', key: 'two', type: 'html', content: 'x'.repeat(3 * 1024 * 1024) })
+    expect(over.isError).toBe(true)
+    expect(over.text).toContain('at most 100 MB')
+    expect(over.text).toContain('Save this page as a file')
+    const got = await A.json(`/api/chats/${chat}/artifacts`, { as: 'alice' })
+    expect({ status: got.status, body: got.status === 200 ? null : got.body }).toEqual({ status: 200, body: null })
+    const rows = got.body as { items: { key: string; versions: { size: number }[] }[] }
+    const sizes = Object.fromEntries(rows.items.map((i) => [i.key, i.versions[0]!.size]))
+    expect(sizes).toEqual({ one: Buffer.byteLength('# 안녕 report'), big: 98 * 1024 * 1024 })
+  })
+})
+
+describe('guests: a new PDF is held to the guest file limit (PR review)', () => {
+  test('over the limit for a guest, nothing for a member', () => {
+    const MB = 1024 * 1024
+    expect(() => assertGuestOutput(A.ctx.db, 'erin', 150 * MB, 'shared/x.pdf')).not.toThrow()
+    A.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'erin'").run()
+    try {
+      expect(() => assertGuestOutput(A.ctx.db, 'erin', 99 * MB, 'shared/x.pdf')).not.toThrow()
+      expect(() => assertGuestOutput(A.ctx.db, 'erin', 101 * MB, 'shared/x.pdf')).toThrow('as a guest the user can keep files of at most 100 MB')
+    } finally { A.ctx.db.query("UPDATE users SET guest = 0 WHERE id = 'erin'").run() }
   })
 })
