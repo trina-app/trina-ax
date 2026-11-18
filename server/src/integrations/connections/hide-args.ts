@@ -43,6 +43,7 @@ const KEEP: Record<string, readonly string[]> = {
   resize_images: ['paths', 'longest_side', 'width', 'max_mb', 'preset'],
   unzip_file: ['path', 'list_only'],
   comment_docx: ['file_path'],
+  edit_office: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
   move_files: ['paths'],

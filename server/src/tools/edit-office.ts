@@ -1,0 +1,225 @@
+// edit_office (limits audit 2026-11-18 #2, QA TC-4906; plan docs/AGENTS/plan/20261118-1041-office-edit-in-place.md):
+// the AI changes an existing Word, Excel or PowerPoint file in place, as Claude Code does with python-docx / openpyxl
+// through a shell. Before, it could only rebuild the file from Markdown or CSV with make_file, which lost every style,
+// picture, chart, comment and tracked change. The document is changed in the office worker (files/office-edit.ts and
+// files/docx-edit.ts, xlsx-edit.ts, pptx-edit.ts: this process parses no document). Saved like edit_hwp and comment_docx:
+// - read first: the file must be the version the AI read in this turn (else: read it again);
+// - without `output`, a new version of the same file (the old bytes in its history), a conflict copy if someone saved
+//   it meanwhile; with `output`, a new file, and the document is its source (make_file's wider-audience check). A
+//   replacement picture is a source too, in place as well;
+// - not under skills/ (a skill is Markdown, not an Office file; no skill-save card covers this tool);
+// - checked before anything is placed, not on the worker's word: the zip's parts outside the edit keep their
+//   compressed bytes (read here from the central directory without expanding anything), only parts of the kinds an
+//   edit may touch changed, and a fresh worker reads the old and the new file: every changed XML part is well-formed,
+//   and the text reads as before except what the changes report (paragraphs; every cell of every sheet).
+import fs from 'node:fs'
+import path from 'node:path'
+import { z } from 'zod'
+import { fileShareUrl } from '@mycel/shared/api'
+import type { AppContext } from '../context'
+import { ext, officeWorkerWrite } from '../files/extract'
+import {
+  frame, OFFICE_EDIT_LIMITS, OFFICE_EDIT_MAX, OFFICE_EDIT_MODE, OFFICE_VERIFY_MODE, unframe, type EditReport, type OfficeKind,
+} from '../files/office-edit-check'
+import type { ToolCtx } from '../files/service'
+import { readRegular, sha256 } from '../files/store'
+import { entryData, readCentral, ZipProblem } from '../files/zip-guard'
+import { authorize } from '../policy/authorize'
+import { ToolError } from '../policy/errors'
+import { inSkills } from '../skills/guard'
+import { componentC } from '../team-files/component'
+import { checkRegular } from '../team-files/place'
+import { makeWorkDir } from './isolate'
+import { cellValue, confirmSources, placeProduced } from './make-file'
+import type { ToolRegistry } from './registry'
+
+export const EDIT_OFFICE_TOOL = 'edit_office'
+const text = (max: number) => z.string().max(max)
+const occ = { occurrence: z.number().int().min(1).max(100_000).optional().describe('Which place (1-based, reading order) when the text is in several'), all: z.boolean().optional().describe('Every place the text is in') }
+const cellV = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()])
+export const EditOfficeInput = z.strictObject({
+  file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this turn first)'),
+  changes: z.array(z.union([
+    z.strictObject({
+      find: text(5000).min(1).describe('Exact text from ONE paragraph (Word, PowerPoint), as read shows it, without Markdown marks'),
+      replace: text(20_000).describe('The new text; it takes the formatting of the text it replaces'),
+      slide: z.number().int().min(1).max(10_000).optional().describe('PowerPoint: only on this slide'),
+      ...occ,
+    }),
+    z.strictObject({ insert_paragraph: z.strictObject({ after: text(5000).min(1).optional(), before: text(5000).min(1).optional(), text: text(20_000), occurrence: occ.occurrence }).describe('Word: new paragraphs (one per line) after or before the paragraph holding this text, in its style') }),
+    z.strictObject({ delete_paragraph: z.strictObject({ text: text(5000).min(1), occurrence: occ.occurrence }).describe('Word: delete the paragraph holding this text') }),
+    z.strictObject({ table_cell: z.strictObject({ table: z.number().int().min(1), row: z.number().int().min(1), column: z.number().int().min(1), value: text(20_000) }).describe('Word: set a table cell\'s text (1-based; tables in reading order)') }),
+    z.strictObject({ add_rows: z.strictObject({ table: z.number().int().min(1), after_row: z.number().int().min(1), rows: z.array(z.array(text(20_000)).max(200)).min(1).max(500) }).describe('Word: new rows after row after_row, in its look') }),
+    z.strictObject({ delete_rows: z.strictObject({ table: z.number().int().min(1), rows: z.array(z.number().int().min(1)).min(1).max(500) }).describe('Word: delete table rows') }),
+    z.strictObject({ cell: z.strictObject({ sheet: text(200).optional().describe('Sheet name (default: the first sheet)'), ref: text(20).min(2).describe('Cell address such as B7'), value: cellV.describe('A number, text, true/false, null to empty it, or a formula starting with "=" ("\'=" keeps text)') }).describe('Excel: set one cell; it keeps its style') }),
+    z.strictObject({ append_rows: z.strictObject({ sheet: text(200).optional(), rows: z.array(z.array(cellV).max(1000)).min(1).max(5000) }).describe('Excel: rows after the last row, from the column where the last row starts, in the last row\'s style') }),
+    z.strictObject({ shape_text: z.strictObject({ slide: z.number().int().min(1), shape: z.union([text(200).min(1), z.number().int().min(1)]).describe('"title", "subtitle", "body", the shape\'s name, or its number among the slide\'s text shapes'), text: text(20_000).describe('One paragraph per line') }).describe('PowerPoint: set the whole text of one shape') }),
+    z.strictObject({ duplicate_slide: z.strictObject({ slide: z.number().int().min(1), after: z.number().int().min(0).optional().describe('Put the copy after this slide (0 = first; default: right after the slide)') }) }),
+    z.strictObject({ add_slide: z.strictObject({ layout: text(200).min(1).describe('A layout name of the deck, e.g. "Title and Content"'), after: z.number().int().min(0).optional().describe('Default: at the end'), title: text(5000).optional(), body: text(20_000).optional().describe('One paragraph per line') }) }),
+    z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or GIF in the team folder') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
+  ])).min(1).max(OFFICE_EDIT_LIMITS.changes).describe('Applied together, each to the file as you read it (slide, table and row numbers as read; never the result of another change in the same call)'),
+  output: z.string().min(1).max(1000).optional().describe('Save as a new file (same format) instead of a new version of file_path'),
+})
+type Input = z.output<typeof EditOfficeInput>
+
+export const EDIT_OFFICE_DESCRIPTION =
+  'Change an existing Word (.docx), Excel (.xlsx) or PowerPoint (.pptx) file in place: everything you do not change (styles, fonts, pictures, charts, ' +
+  'comments, tracked changes, other sheets and slides) stays exactly as it was. Use it whenever the person wants an existing Office file changed; ' +
+  'use make_file only for a new file or when they ask to rebuild one. Read the file in this turn first. ' +
+  'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows. ' +
+  'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row); rows are never inserted in the middle. ' +
+  'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +
+  'PowerPoint: find/replace (optionally on one slide), shape_text, duplicate_slide, add_slide (from a layout), replace_picture. ' +
+  'Slide, table and row numbers are as you read them, never after another change in the same call. When a change cannot be made exactly, ' +
+  'nothing is saved and the reason says what to give instead (shape, layout and picture names are listed there). ' +
+  'Without `output` the result is a new version of the same file (the previous one stays in its history).'
+
+const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
+/** where an `output` saves: the source's format ("x" and "x/" save x.docx for a .docx) */
+export const editOfficeOutput = (o: string, src: string) => { const x = ext(src); return ext(o) === x ? o : `${o.replace(/\/+$/, '')}.${x}` }
+
+/** the parts an edit of each kind may change, add or remove; everything else must keep its bytes */
+const MAY: Record<OfficeKind, { changed: RegExp; added: RegExp | null; removed: RegExp | null }> = {
+  docx: { changed: /^word\/[^/]+\.xml$/, added: null, removed: null },
+  xlsx: { changed: /^(xl\/(workbook\.xml|worksheets\/[^/]+\.xml|tables\/[^/]+\.xml|_rels\/workbook\.xml\.rels)|\[Content_Types\]\.xml)$/, added: null, removed: /^xl\/calcChain\.xml$/ },
+  pptx: { changed: /^(ppt\/(presentation\.xml|_rels\/presentation\.xml\.rels|slides\/slide\d+\.xml|slides\/_rels\/slide\d+\.xml\.rels)|\[Content_Types\]\.xml)$/, added: /^ppt\/(slides\/slide\d+\.xml|slides\/_rels\/slide\d+\.xml\.rels|media\/image\d+\.(png|jpeg|gif))$/, removed: null },
+}
+
+/** Why the new zip is not the old one with only the reported parts changed, or null. Reads only the two central
+ * directories and compares compressed bytes: nothing is expanded in this process. */
+export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Array, r: Pick<EditReport, 'changed' | 'added' | 'removed'>): string | null {
+  let ea: ReturnType<typeof readCentral>, eb: ReturnType<typeof readCentral>
+  try { ea = readCentral(a); eb = readCentral(b) } catch (e) { return e instanceof ZipProblem ? `the zip: ${e.why}` : 'the zip' }
+  const name = (e: (typeof ea)[number]) => new TextDecoder().decode(e.nameBytes)
+  const A = new Map(ea.map((e) => [name(e), e])), B = new Map(eb.map((e) => [name(e), e]))
+  const may = MAY[kind]
+  for (const n of r.changed) if (!may.changed.test(n) || !A.has(n) || !B.has(n)) return `a part that is not changed here: ${n}`
+  for (const n of r.added) if (!may.added?.test(n) || A.has(n) || !B.has(n)) return `a part that is not added here: ${n}`
+  for (const n of r.removed) if (!may.removed?.test(n) || !A.has(n) || B.has(n)) return `a part that is not removed here: ${n}`
+  const changed = new Set(r.changed), added = new Set(r.added), removed = new Set(r.removed)
+  for (const n of B.keys()) if (!A.has(n) && !added.has(n)) return `a new part ${n}`
+  for (const [n, e] of A) {
+    if (changed.has(n) || removed.has(n)) continue
+    const f = B.get(n)
+    if (!f) return `the part ${n} is missing`
+    if (f.method !== e.method || f.crc !== e.crc || f.csize !== e.csize || f.usize !== e.usize) return `the part ${n} changed`
+    if (!Buffer.from(entryData(a, e)).equals(Buffer.from(entryData(b, f)))) return `the part ${n} changed`
+  }
+  return null
+}
+
+export interface EditedOffice { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; report: EditReport; kind: OfficeKind }
+
+/** Excel values as make_file reads them (tools/make-file.ts cellValue): "1,234" a number, "007" text, a formula checked
+ * (nothing that reaches outside the workbook), "=3 days" text. */
+function excelValue(v: unknown, i: number): unknown {
+  if (typeof v !== 'string') return v
+  const cv = cellValue(v)
+  if (typeof cv === 'number') return cv
+  if (typeof cv === 'string') return cv.trim().startsWith('=') ? `'${cv}` : cv
+  if ('error' in cv) throw new ToolError(`change ${i + 1}: ${cv.error}; nothing was saved. Start the value with '= to keep it as text.`)
+  return `=${cv.formula}`
+}
+
+export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise<EditedOffice> {
+  const files = componentC(ctx).files
+  const fx = files.fx
+  const src = authorize(fx, files.rules(), c.user, a.file_path, 'read')
+  if (src.st!.isDirectory()) throw new ToolError(`'${src.rel}' is a folder`, 'is_folder')
+  const kind = KIND[ext(src.rel)]
+  if (!kind) throw new ToolError(`edit_office changes .docx, .xlsx and .pptx files only${/^(doc|xls|ppt|odt|ods|odp)$/.test(ext(src.rel)) ? ' (this older or OpenDocument format cannot be changed here; offer to make a new .docx, .xlsx or .pptx with make_file)' : ''}; use edit for text files, edit_hwp for Hangul documents and make_file for new documents`)
+  if (checkRegular(src.abs).size > OFFICE_EDIT_MAX) throw new ToolError(`'${src.rel}' is larger than ${OFFICE_EDIT_MAX / 1024 / 1024} MB, too large to change here`)
+  const { bytes } = readRegular(src.abs, OFFICE_EDIT_MAX, src.st)
+  const seen = c.files.readHashes.get(src.rel)
+  if (!seen) throw new ToolError(`read '${src.rel}' first (with read) before changing it`, 'not_read')
+  if (seen !== sha256(bytes)) throw new ToolError(`'${src.rel}' was changed after you read it; read it again and give the changes for what it says now`, 'conflict')
+  const outRel = a.output === undefined ? src.rel : editOfficeOutput(a.output, src.rel)
+  if (inSkills(outRel)) throw new ToolError('Office files cannot be saved in a skills folder (skills/: skills and rules people\'s AI follow); give another output')
+  const out = authorize(fx, files.rules(), c.user, outRel, 'write', { mustExist: a.output === undefined, createDirs: true })
+  if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`, 'is_folder')
+  const inPlace = out.rel === src.rel
+
+  // the changes as the worker gets them: Excel values read as make_file reads them, pictures as their bytes
+  const images: Buffer[] = []
+  const imagePaths: string[] = []
+  const changes = a.changes.map((ch, i) => {
+    const x = ch as Record<string, any>
+    if (kind !== 'xlsx' && (x.cell || x.append_rows)) throw new ToolError(`change ${i + 1}: cell and append_rows are for Excel workbooks`)
+    if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents`)
+    if (kind !== 'pptx' && (x.shape_text || x.duplicate_slide || x.add_slide || x.replace_picture || x.slide !== undefined)) throw new ToolError(`change ${i + 1}: ${x.slide !== undefined ? 'slide' : Object.keys(x)[0]} is for PowerPoint decks`)
+    if (kind === 'xlsx' && typeof x.find === 'string') throw new ToolError(`change ${i + 1}: in a workbook, set cells with cell (find and replace is for Word and PowerPoint)`)
+    if (x.cell) return { cell: { ...x.cell, value: excelValue(x.cell.value, i) } }
+    if (x.append_rows) return { append_rows: { ...x.append_rows, rows: x.append_rows.rows.map((r: unknown[]) => r.map((v) => excelValue(v, i))) } }
+    if (x.replace_picture) {
+      const img = authorize(fx, files.rules(), c.user, x.replace_picture.image, 'read')
+      if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
+      if (checkRegular(img.abs).size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the image is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
+      images.push(readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes)
+      imagePaths.push(img.rel)
+      return { replace_picture: { ...x.replace_picture, image: images.length - 1 } }
+    }
+    return x
+  })
+  // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
+  // the worker runs, in place too, as comment_docx does
+  await confirmSources(ctx, files, c, out.rel, out.segs, [...(inPlace ? [] : [src.rel]), ...imagePaths])
+
+  const answer = await officeWorkerWrite(OFFICE_EDIT_MODE, frame({ kind, changes }, [bytes, ...images]), c.signal)
+  let report: EditReport, file: Uint8Array
+  try {
+    const r = unframe<EditReport>(answer)
+    report = r.json
+    file = r.blobs[0]!
+    if (!file || !Array.isArray(report.notes) || !Array.isArray(report.changed) || !Array.isArray(report.added) || !Array.isArray(report.removed)) throw new Error('bad')
+  } catch { throw new ToolError('the Office editor gave a damaged answer; nothing was saved') }
+  const parts = officePartsMismatch(kind, bytes, file, report)
+  if (parts) throw new ToolError(`the changed file did not read back as expected (${parts}); nothing was saved`)
+  try {
+    await officeWorkerWrite(OFFICE_VERIFY_MODE, frame({ kind, changed: report.changed, added: report.added, notes: report.notes, cells: report.cells ?? [] }, [bytes, file]), c.signal)
+  } catch (e) {
+    if (!(e instanceof ToolError)) throw e
+    throw new ToolError(e.message.includes('nothing was saved') ? e.message : `the changed file did not pass the checks (${e.message.slice(0, 300)}); nothing was saved`)
+  }
+
+  const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
+  try {
+    const produced = path.join(work, `out.${kind}`)
+    fs.writeFileSync(produced, file, { flag: 'wx', mode: 0o600 })
+    const made = await placeProduced(ctx, files, c, out.segs, produced, EDIT_OFFICE_TOOL)
+    return { path: made.path, size: made.size, sha256: made.sha256, conflictCopyOf: made.conflictCopyOf, source: src.rel, inPlace, report, kind }
+  } finally { fs.rmSync(work, { recursive: true, force: true }) }
+}
+
+const APP: Record<OfficeKind, string> = { docx: 'Word', xlsx: 'Excel', pptx: 'PowerPoint' }
+export function editOfficeText(r: EditedOffice): string {
+  const link = `[${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
+  const where = r.conflictCopyOf
+    ? `'${r.conflictCopyOf}' was changed by someone else in the meantime, so the result was saved as '${r.path}' and the original left as it was. Tell the user about both.`
+    : r.inPlace ? `Saved a new version of ${r.path}; the previous version is in its file history. Link for the user: ${link}`
+    : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
+  const q = (s: string) => JSON.stringify(s.length > 160 ? s.slice(0, 160) + '…' : s)
+  const lines = r.report.notes.slice(0, 200).map((n) => {
+    const after = n.after?.length ? n.after.filter((t) => t !== '').map(q).join(' / ') : ''
+    return `- change ${n.change + 1}, ${n.where}${n.before !== undefined ? `: ${q(n.before)}${after ? ` -> ${after}` : ' (removed)'}` : after ? `: ${after}` : ''}`
+  })
+  if (r.report.notes.length > 200) lines.push(`- … and ${r.report.notes.length - 200} more`)
+  const calc = r.kind === 'xlsx' ? ' Formulas are calculated again when the file is opened in Excel or LibreOffice; until then a preview shows a formula cell as its formula.' : ''
+  return `${where}\n${lines.join('\n')}\nThe file was read back: the changes are there and everything else reads as before; the rest of the file is unchanged.${calc} Layout in ${APP[r.kind]} is not checked.`
+}
+
+export function registerEditOffice(ctx: AppContext, reg: ToolRegistry): void {
+  reg.register({
+    name: EDIT_OFFICE_TOOL,
+    description: EDIT_OFFICE_DESCRIPTION,
+    input: EditOfficeInput,
+    describe: (a) => `${EDIT_OFFICE_TOOL} ${a.file_path}${a.output ? ` -> ${a.output}` : ''} (${a.changes.length} changes)`,
+    async run(a, t) {
+      const r = await editOffice(ctx, t, a)
+      return {
+        text: editOfficeText(r),
+        summary: `${EDIT_OFFICE_TOOL} ${r.source} -> ${r.path} ${r.size}B ${a.changes.length} changes${r.inPlace ? ' (new version)' : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`,
+        structured: { path: r.path, size: r.size, sha256: r.sha256 },
+      }
+    },
+  })
+}

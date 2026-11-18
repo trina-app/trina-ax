@@ -24,6 +24,7 @@ import { htmlPdfUnavailable } from '../files/html-pdf'
 import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
 import { registerCommentDocx } from './comment-docx'
+import { registerEditOffice } from './edit-office'
 import { registerHiggsfield } from './higgsfield'
 import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
@@ -86,7 +87,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
-      OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
+      OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. To change an existing .docx, .xlsx or .pptx, use edit_office (it keeps the file's formatting) rather than rebuilding it here. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
@@ -331,6 +332,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // Word comments on an existing .docx (tools/comment-docx.ts)
   registerCommentDocx(ctx, reg)
   exposeToTurns('comment_docx')
+  // an existing Word, Excel or PowerPoint file changed in place (tools/edit-office.ts)
+  registerEditOffice(ctx, reg)
+  exposeToTurns('edit_office')
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
   // moving, copying and renaming any kind of file (tools/file-moves.ts)
   registerFileMoveTools(ctx, reg)
