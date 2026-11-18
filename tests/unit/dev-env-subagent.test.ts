@@ -29,7 +29,9 @@ const fake: SrtSystem = {
     let resolve!: FakeRun['resolve']
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     runs.set(spec.runId, { spec, settings: JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')), state: 'active', resolve })
-    const m = /^echo (.*)$/.exec(spec.command)
+    // (a shared run's command starts with the check of its pinned entries, srt/mounts.ts entryGuard, #1329: the AI's
+    // command is the last line)
+    const m = /^echo (.*)$/.exec(spec.command.split('\n').pop()!)
     if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); runs.get(spec.runId)!.state = 'gone'; resolve({ code: 0, signal: null }) })
     return { pid: 999_999, exited }
   },
@@ -113,7 +115,10 @@ describe('a sub-agent runs commands (box_shell)', () => {
       const c = last()
       expect(c).not.toBe(m)
       expect(readable(c).sort()).toEqual(readable(m).sort().map((p) => p.replace(m.spec.runId, c.spec.runId)).sort())
-      expect(c.settings.filesystem.denyRead).toContain(abs(`${P.folderPath}/secret`))
+      // the sub-folder only alice may open is not there for either (#1329: the view leaves it out, entry by entry,
+      // instead of a deny inside a folder given whole)
+      const secret = abs(`${P.folderPath}/secret`)
+      for (const r of [m, c]) expect(readable(r).filter((p) => p === secret || p.startsWith(secret + '/') || p === abs(P.folderPath))).toEqual([])
       expect(readable(c).some((p) => p.startsWith(abs('users')))).toBe(false)
     })()
   })

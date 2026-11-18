@@ -421,7 +421,7 @@ export class MakeFile {
           // office worker with a real XML parser. Written under a name pandoc could not plant.
           if (a.format === 'docx' || a.format === 'pptx') {
             const got = readOutput(work, path.basename(produced), MAX_DOCX)
-            if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+            if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : got.why === 'not_regular' ? 'the converter left a link or a special file instead of the document (symbolic links are not followed); nothing was saved' : 'the converter produced no file')
             let bytes: Uint8Array = new Uint8Array(got.bytes)
             if (a.format === 'docx' && (marks.size || a.page)) bytes = finishDocx(bytes, marks, a.page)
             const checked = await officeWorkerWrite(a.format === 'docx' ? DOCX_LINK_CHECK_MODE : PPTX_LINK_CHECK_MODE, bytes, c.signal)
