@@ -1,0 +1,90 @@
+// Apps on the person's own computer as connectors (docs/decisions/20261118-local-app-connectors.md). Such a connection
+// is an ordinary personal MCP connection (store.ts Row) with `local_app` set (migration 364): what the desktop app runs
+// there. Its calls never reach the network: McpClient's transport (`send`) hands each JSON-RPC message to the local
+// relay (realtime/local-relay.ts), which sends it to the one desktop window of the turn (or of the Settings check); the
+// desktop app passes it to the program and sends the program's answer back. The server keeps the command's shape only,
+// never a setting's value; the desktop app asks once on the computer before it runs a command, and again when the
+// command changes.
+import type { Database } from 'bun:sqlite'
+import { LocalAppSpec, type IntegrationKind, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { PRODUCT } from '@mycel/shared'
+import { getTeamSettings } from '../../admin/settings'
+import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
+import type { LocalRelay } from '../../realtime/local-relay'
+import type { Row } from './store'
+
+/** a local connection's `url`: a placeholder under the reserved .invalid name (RFC 6761), never used to connect */
+export const LOCAL_URL_ORIGIN = 'https://local-app.invalid'
+export const localUrl = (id: string) => `${LOCAL_URL_ORIGIN}/${id}`
+
+/** The spec a row holds (null: not a local connection, or a value that is not one: the column is ours alone). */
+export function localSpecOf(row: Pick<Row, 'local_app'>): LocalAppSpec | null {
+  if (!row.local_app) return null
+  try { const r = LocalAppSpec.safeParse(JSON.parse(row.local_app)); return r.success ? r.data : null } catch { return null }
+}
+export const isLocal = (row: Pick<Row, 'local_app'>) => !!row.local_app
+
+/** The kind the API shows: a local connection is 'local', whatever its stored `kind`. */
+export const kindOf = (row: Pick<Row, 'kind' | 'local_app'>): IntegrationKind => (row.local_app ? 'local' : row.kind)
+
+/** the team's "Apps on your computer" switch (TeamSettings.localApps; on unless an admin turned it off) */
+export const localOn = (db: Database) => getTeamSettings(db).localApps !== false
+
+/** Where a local call goes: the desktop window of the turn or of the Settings check, and its turn (null: a check). */
+export interface LocalVia { windowId: string; turnId: string | null }
+
+/** The desktop window a turn was sent from, when it was the desktop app (turns.window_id, client_kind). */
+export function turnWindow(db: Database, turnId: string): string | null {
+  const t = db.query('SELECT window_id, client_kind FROM turns WHERE id = ?').get(turnId) as { window_id: string | null; client_kind: string | null } | null
+  return t && t.client_kind === 'desktop' && t.window_id ? t.window_id : null
+}
+
+/** Why a local call did not run, with words for the AI (never a setting's value) and the reason stored on the
+ * connection (text.ts: local_offline, local_declined, local_failed). */
+export class LocalError extends Error {
+  name = 'LocalError'
+  constructor(readonly failure: LocalFailure | 'offline', message: string) { super(message) }
+  get reason(): 'local_offline' | 'local_declined' | 'local_failed' {
+    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : 'local_failed'
+  }
+}
+
+const desktop = `the ${PRODUCT.displayName} desktop app`
+/** For the AI, in words it can pass on: the app runs only from the desktop app on the person's computer. */
+export const offlineWords = (name: string) =>
+  `${name} is an app on the user's own computer, and you can use it only when they write from ${desktop} on that computer. This message came from somewhere else (the web, the phone app, or a desktop window that is not connected now), so nothing ran. Tell them so in one or two plain sentences, and that it works when they send the message from ${desktop} on that computer.`
+
+function errorOf(name: string, r: LocalResult): LocalError {
+  const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
+  switch (r.failure) {
+    case 'not_desktop': return new LocalError('not_desktop', offlineWords(name))
+    case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)
+    case 'root': return new LocalError('root', `${desktop} on the user's computer runs with administrator (root) rights, and it never starts ${name} then. Nothing ran.`)
+    case 'too_old': return new LocalError('too_old', `${desktop} on the user's computer is too old for apps on the computer. Ask them to update it; nothing ran.`)
+    case 'start_failed': return new LocalError('start_failed', `${name} could not start on the user's computer${detail ? `: ${detail}` : ''}. The user can check it in Settings › Connectors › ${name}.`)
+    default: return new LocalError('failed', `${name} on the user's computer did not answer${detail ? `: ${detail}` : ''}.`)
+  }
+}
+
+/** McpClient's `send` for a local connection: one JSON-RPC message per request through the local relay, the program's
+ * answer as an HTTP-like answer McpClient reads (JSON, or 202 for a notification). A check's or a call's deadline (the
+ * request's `long`) is the relay's limit; Stop (the request's signal) ends it there and tells the desktop app. */
+export function localTransport(o: { relay: LocalRelay; userId: string; via: LocalVia; row: Pick<Row, 'id' | 'name'>; spec: LocalAppSpec }) {
+  return async (_url: string, r: NetRequest): Promise<NetResponse> => {
+    let message: Record<string, unknown>
+    try { message = JSON.parse(r.body?.toString('utf8') ?? '') } catch { throw new LocalError('failed', `${o.row.name}: the message could not be read`) }
+    const deadline = r.long?.deadline ?? Date.now() + TIMEOUT_MS
+    const timeoutMs = Math.max(1000, deadline - Date.now())
+    if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name))
+    const res = await o.relay.call({ userId: o.userId, windowId: o.via.windowId, turnId: o.via.turnId, connectionId: o.row.id, name: o.row.name, spec: o.spec, message, timeoutMs, signal: r.signal })
+    if (!res.ok) {
+      if (r.signal?.aborted) throw new NetError('timeout')
+      if (!res.failure && /did not answer in time$/.test(res.error ?? '')) throw new NetError(r.long?.reason ?? 'timeout')
+      if (!res.failure && /^local_unavailable/.test(res.error ?? '')) throw new LocalError('offline', offlineWords(o.row.name))
+      throw errorOf(o.row.name, res)
+    }
+    const body = res.message ? Buffer.from(JSON.stringify(res.message)) : Buffer.alloc(0)
+    if (r.maxBytes && body.length > r.maxBytes) return { status: 200, headers: { 'content-type': 'application/json' }, body: body.subarray(0, r.maxBytes), truncated: true }
+    return { status: res.message ? 200 : 202, headers: { 'content-type': 'application/json' }, body, truncated: false }
+  }
+}

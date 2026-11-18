@@ -4414,6 +4414,7 @@ export class TurnExec {
     this.finishStep('held answers', () => this.dropHeldAnswers())
     for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('local relay', () => this.rt.localRelay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     const db = this.rt.db
@@ -4468,6 +4469,7 @@ export class TurnExec {
     this.content = this.redact(this.content)
     for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('local relay', () => this.rt.localRelay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)

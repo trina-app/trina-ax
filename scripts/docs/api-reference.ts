@@ -18,6 +18,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   FILES: 'Files',
   ARTIFACTS: 'Artifacts',
   JOBS: 'Jobs',
+  LOCAL_APPS: 'Apps on your computer',
   BROWSER: 'In-app browser',
   ADMIN: 'Admin',
   CREDENTIALS: 'AI connections',

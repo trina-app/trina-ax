@@ -223,6 +223,9 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
     // the person's own connection that needs a new sign-in or key: anyone else's is the same as none
     const r = getRow(db, a.data.connection)
     if (!r || r.scope !== 'personal' || r.owner_user_id !== viewer.id) return early('No card: there is no such connection of this person. Use the id listed under "Connected services".', 'no connection')
+    // an app on the person's computer has no sign-in or key, and only the person sets its command, in Settings on
+    // that computer (docs/decisions/20261118-local-app-connectors.md): never a card
+    if (r.local_app) return early(`${r.name} is an app on the person's computer: it has no sign-in or key, and only the person sets it up, in ${SCREEN.connectors(L, r.name)} in the desktop app on that computer. No card was shown.`, 'app on the computer')
     if (r.google_app) return early(`${r.name} signs in again on its own page: the person can do it in ${SCREEN.connectors(L, r.name)} (Reconnect). No card was shown.`, 'google app')
     if (r.template_id) return early(`"${r.name}" is made from a team template: call connect_service with template "${r.template_id}" instead.`, 'from template')
     if (offByTeam(db, r)) return early(ownOff(r.name, viewer, L), 'personal connections off')

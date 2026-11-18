@@ -2,7 +2,7 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type RemoteIntegrationKind as IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /** how the connection proves who it is: sign in at the service (an API: with your own app), a key, or nothing */
@@ -74,8 +74,10 @@ export function emptyForm(kind: IntegrationKind = 'mcp', access: IntegrationAcce
 
 /** the form for editing `i` (no key in it: a stored key stays on the server) */
 export function formFrom(i: Integration): IntegrationForm {
+  // an app on the computer is never edited here (it has no address, key or sign-in): its own page changes it
+  const kind = i.kind === 'local' ? 'mcp' : i.kind
   return {
-    kind: i.kind,
+    kind,
     name: i.name,
     url: i.url,
     method: i.auth === 'oauth' ? 'oauth' : i.auth === 'none' ? 'none' : 'key',
@@ -86,7 +88,7 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
-    ...appFields(i.oauthClient, i.kind, i.auth),
+    ...appFields(i.oauthClient, kind, i.auth),
   }
 }
 

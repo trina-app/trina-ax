@@ -1,0 +1,14 @@
+-- min_compatible_reader: 1
+-- Component C: apps on the person's own computer as connectors (docs/decisions/20261118-local-app-connectors.md,
+-- server/src/integrations/connections/local.ts).
+--   integrations.local_app: what the desktop app runs on its owner's computer (shared/src/api/local-apps.ts
+--     LocalAppSpec as JSON: the program, its arguments, the names of its settings without their values, and for a CLI
+--     the tools it is wrapped as). It is an ordinary personal MCP connection (the write card, the per-tool switches,
+--     audit) whose calls go only through the local relay to the desktop window of the turn; its `url` is a
+--     placeholder under the reserved .invalid name and is never used to connect. The API calls it kind 'local'. NULL:
+--     any other connection, as before. (The `kind` column's CHECK lists only 'mcp' and 'http', and a table is never
+--     rebuilt, so the app is a column of its own, like google_app in 341.) A change of it moves `version`, which the
+--     safe-operations policy trigger already audits.
+-- Additive only (reader 1): an older build ignores the column. It would list such a connection as the member's own
+-- MCP connection whose address never resolves (.invalid), so nothing is sent anywhere and nothing runs.
+ALTER TABLE integrations ADD COLUMN local_app TEXT;
