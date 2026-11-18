@@ -33,7 +33,8 @@ out, tests, version impact):
 
 - `# <title>`: the decision in one line, as people will quote it (`docs/decisions/20261116-….md "<title>"`).
 - `- Date:` the same day as the file name, `YYYY-MM-DD`.
-- `- Status:` `accepted`, `superseded` (followed by a link to the file that replaces it) or `dropped`.
+- `- Status:` `accepted`, `proposed` (a direction the owner wants written down, not built or scheduled yet),
+  `superseded` (followed by a link to the file that replaces it) or `dropped`.
 - `- Supersedes:` `none`, or links to what this replaces: another file here, or an old entry in the archive by its
   heading's anchor, e.g. [Docs-only pull requests](../DECISIONS.md#docs-only-pull-requests-run-only-the-doc-checks-cidocs-only-fast-2026-11-13-product-owner)
   (`../DECISIONS.md#<anchor>`; copy it from the heading's link on GitHub). Old entries are not edited to point back;
