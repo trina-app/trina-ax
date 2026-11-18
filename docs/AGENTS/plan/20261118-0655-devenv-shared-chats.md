@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18
 - Branch: `feat/devenv-shared-chats`
-- Status: in progress
+- Status: done
 - Where: trina-ax server/src/devenv (Team AX core). Why: the dev environment and the shared-chat gate are core code.
 - Version impact: minor, a shared chat can now run commands (owner decision 11-18, QA TC-4848)
 
@@ -53,4 +53,7 @@ tests/unit/dev-env-shared-chat.test.ts, under Bun 1.3.12. Real srt runs need Lin
 
 ## Result
 
-(at the end)
+Built as planned. Differences: the decision is a new file (docs/decisions/20261118-devenv-shared-chats.md, the repo
+rule), not a section in docs/DECISIONS.md; what a run may read joins the answer's record before it starts (a record
+that fails stops the run); the shared-chat instructions drop "the dev environment" from what is not available when
+box_shell is offered. Credential cards: off (login commands refused, no card). No new i18n keys or migration.
