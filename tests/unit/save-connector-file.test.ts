@@ -9,6 +9,8 @@ import * as XLSX from 'xlsx'
 import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow } from '../lib/fake-google-apps'
 import { FakeGoogleDrive, DRIVE_CONFIG, membersMayConnect } from '../lib/fake-google-drive'
+import { FakeServices, MCP_KEY } from '../lib/fake-services'
+import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { googleAppsOf } from '../../server/src/integrations/google-apps/service'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
@@ -188,5 +190,35 @@ describe('Google Drive files', () => {
     fake.blobs.set('huge', { owner: 'alice', name: 'huge.zip', mime: 'application/zip', bytes: new Uint8Array(33 * 1024 * 1024) })
     const r = await save({ file: 'drive:huge' }).result
     expect(r.isError).toBe(true)
+  })
+})
+
+describe('a file in another connection\'s answer', () => {
+  let A: CApp, fake: FakeServices
+  const quote = xlsx()
+  beforeAll(async () => {
+    A = await makeCApp('save-connector-mcp')
+    fake = new FakeServices()
+    fake.tools = [{ name: 'export_quote', description: 'Export the quote', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }]
+    fake.results = { export_quote: { content: [{ type: 'resource', resource: { uri: 'file:///exports/Quote%20Q4.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', blob: quote.toString('base64') } }] } }
+    integrationsOf(A.ctx, { net: fake.net() })
+    const c = await A.json('/api/integrations', { method: 'POST', as: 'alice', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'mcp', name: 'Quotes', url: `${fake.base}/mcp-key`, auth: 'bearer', secret: MCP_KEY }) })
+    expect(c.body.status).toBe('connected')
+  })
+  afterAll(async () => { fake?.stop(); await A?.close() })
+
+  test('an Office file save_url refuses is saved as it is, named by its address', async () => {
+    const chat = A.chat('alice'), turnId = A.turn('alice', chat)
+    const built = integrationToolProvider(A.ctx).build({ userId: 'alice', chatId: chat, turnId, browser: false, scheduled: false })
+    const files = { user: A.ctx.files.principal('alice'), turnId, files: new TurnFiles() } as TurnToolContext['files']
+    const tc: TurnToolContext = { turnId, chatId: chat, userId: 'alice', messageId: 'm', locale: 'en', signal: new AbortController().signal, files }
+    const r = await (built.tools.find((t) => t.name === 'my_quotes__export_quote') as TurnTool).call({}, tc)
+    const text = r.content.map((c) => (c.type === 'text' ? c.text : '')).join('')
+    expect(text).toContain('save_connector_file')
+    const handle = /(mcp-file:[A-Za-z0-9_-]{22})/.exec(text)![1]
+    const saved = await toolRegistry(A.ctx.files).call('save_connector_file', { file: handle }, ctxOf(A, 'alice', turnId))
+    expect(saved.isError).not.toBe(true)
+    expect(saved.structured).toMatchObject({ path: 'users/alice/downloads/Quote Q4.xlsx' })
+    expect(teamFile(A, 'users/alice/downloads/Quote Q4.xlsx').equals(quote)).toBe(true)
   })
 })
