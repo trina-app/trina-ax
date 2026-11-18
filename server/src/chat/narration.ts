@@ -99,11 +99,20 @@ const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
 const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|the (?:line|row|note|entry|item)|a (?:line|row|note|bullet)|one line)\s+)?(?:under|below|beneath|after|before|above|into|at the (?:end|top|bottom|start) of)\b/i
+/** The AI thinking aloud about how it works ("That folder is listed as read-only, but I should call the tool and let the
+ * server decide.", 2026-11-18 TC-4865: it paraphrased the write-access rule of the instructions): a plan of its own
+ * ("I should / I need to / I'll / let me") to call or try the tool, or the exact access phrases ("let the server
+ * decide", "listed as read-only"). Not "The server checks the token." or "I need to call the vendor." (review of
+ * #1272). Checked before REPORT, whose "should" would keep it. */
+const META = /\b(?:i\s+(?:should|must|need\s+to|will|am\s+going\s+to)|i'll|i'm\s+going\s+to|let\s+me)\s+(?:just\s+)?(?:call|try|attempt|use|run)\s+(?:the|this|that)\s+(?:tool|write|edit|save)\b|\blet\s+the\s+server\s+decide\b|\b(?:listed|marked)\s+as\s+read-only\b/i
 /** A note about the work, in no fixed opening (whole piece, names and `code` taken out): an order or plan of its own,
- * "the user", or a short line (100 characters at most) that names the work in a note's shape. */
+ * "the user", the AI's thoughts about its tools (META), or a short line (100 characters at most) that names the work in
+ * a note's shape. */
 const isWorkNote = (t: string) => {
   t = t.trim()
-  if (TO_PEOPLE.test(t) || REPORT.test(t) || isTitle(t)) return false
+  if (TO_PEOPLE.test(t) || isTitle(t)) return false
+  if (META.test(t)) return true
+  if (REPORT.test(t)) return false
   if (ORDER_TO_PEOPLE.test(t) && !NOTE_ORDER.test(t) && !SELF_ORDER.test(t)) return false
   return SELF_ORDER.test(t) || NOTE_ORDER.test(t) || OWN_PLAN.test(t) || THE_USER.test(t) || ((PLACE_ORDER.test(t) || (WORK_NOUN.test(t) && NOTE_MARK.test(t))) && t.length <= 100)
 }
@@ -164,7 +173,7 @@ const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|(?<!\b(?:pag
 
 /** The piece is surely not a status line, so it can go out now. partial: the piece is still coming (its last word may
  * be a file name not yet whole, its opening not yet known). */
-function mustKeep(piece: string, script: AnswerScript, partial = false, notes = false, said = ''): boolean {
+function mustKeep(piece: string, script: AnswerScript, partial = false, notes = false, said = '', lead = false): boolean {
   piece = plainPunct(piece)
   const t = piece.trim()
   if (t.length > NARRATION_MAX_CHARS) return true
@@ -184,6 +193,9 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   if (CONTENT_LINE.test(t)) return true
   // still coming: "…, so I'll …" may be on its way, so only the whole piece decides
   // a work note (2026-11-17) only before a real call, whose arguments were checked (not on thinking, a stop or an error)
+  // lead: a first line above the answer's own text (NarrationHold.dropLeadingNote) is only ever a status opening or the
+  // AI thinking aloud about its tools (META), never judged by the wider work-note rules (review of #1272)
+  if (lead) return !partial && !STATUS_OPENING.test(t) && !META.test(withoutNames(withoutTheirWords(t, said, false).text))
   if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)))) return true
   return false
 }
@@ -249,7 +261,28 @@ export class NarrationHold {
     if (!this.script || this.decided) return t
     this.buf += t
     if (!mustKeep(this.buf, this.script, true, false, this.said)) return ''
+    this.dropLeadingNote()
     return this.release()
+  }
+
+  /**
+   * One piece may hold a note line and then the answer itself, with no call between them: "That folder is listed as
+   * read-only, but I should call the tool and let the server decide.\n\n폴더에 쓸 권한이 없어서 …" (2026-11-18 TC-4865,
+   * Korean answer). Once the answer's own script follows a whole first line in Latin letters, that line alone is
+   * dropped when it is a status opening or the AI thinking aloud about its tools (META), never by the wider work-note
+   * rules, so a report above the answer ("No files found.", "Two rows were added.") stays.
+   */
+  private dropLeadingNote() {
+    const script = this.script!
+    const m = /^(\s*)([^\n]+)\n/.exec(this.buf)
+    if (!m) return
+    const rest = this.buf.slice(m[0].length)
+    if (!SCRIPT_LETTER[script].test(rest) || SCRIPT_LETTER[script].test(m[2]!)) return
+    const line = m[2]!
+    if (!/[A-Za-z]/.test(line) || mustKeep(line, script, false, false, this.said, true) || copied(line, undefined, this.message)) return
+    this.buf = rest.replace(/^\s+/, '')
+    if (this.lead === null) this.lead = m[1]!
+    this.dropped++
   }
 
   /** A tool call ends the piece: '' when it was a status line, else what was held. input: the call's arguments, when

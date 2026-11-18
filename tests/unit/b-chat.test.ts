@@ -595,8 +595,11 @@ describe('instructions', () => {
 })
 
 describe('write access', () => {
-  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07)', () => {
-    expect(WRITE_ACCESS_RULE).toContain('call write or edit and let the server decide')
+  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07), without narrating the rule (TC-4865)', () => {
+    expect(WRITE_ACCESS_RULE).toContain('just call write, edit or the tool that saves it')
+    expect(WRITE_ACCESS_RULE).toContain('do not mention this rule')
+    // nothing in it to paraphrase as a plan ("I should call the tool and let the server decide")
+    expect(WRITE_ACCESS_RULE).not.toMatch(/let the server decide/i)
     expect(WRITE_ACCESS_RULE).toContain('do not refuse on your own guess')
     expect(WRITE_ACCESS_RULE).toContain('do not save a copy somewhere else unless they ask')
     for (const t of [FILE_TOOLS.write, FILE_TOOLS.edit]) expect(t.description).toContain('The server checks access on each call')

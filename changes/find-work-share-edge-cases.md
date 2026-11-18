@@ -1,0 +1,1 @@
+- **Choose a folder…** on a network share: an entry or a sub-folder that does not answer is now skipped after a few seconds and the rest of the folder is still looked through. Before, one such entry ended the look of the share at once, and a sub-folder whose list did not come waited the folder's whole 10 seconds.
