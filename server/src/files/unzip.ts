@@ -1,7 +1,7 @@
 // What is inside a zip, as the AI's unzip_file (tools/unzip.ts) will save it: every entry's name decoded, its path
-// checked and cut into folder names, junk left out, and the limits applied, before anything is written. Nothing here
-// touches the disk; the tool inflates one entry at a time (inflateEntry) and places each file through the normal
-// checks.
+// checked and cut into folder names, junk left out, and the limits applied, before anything is written (planZip writes
+// nothing). The tool then streams one entry at a time into a work file (inflateEntryToFile), inside a server-wide unzip
+// slot (unzipSlot: each call holds its zip in memory), and places each file through the normal checks.
 // - Names: UTF-8 when the zip says so (flag bit 11) or carries an Info-ZIP Unicode path whose CRC matches the name;
 //   otherwise UTF-8 when the bytes are valid UTF-8, else CP949 (zips made on Korean Windows without the UTF-8 flag;
 //   WHATWG "euc-kr" is Windows' code page 949). Then NFC (macOS zips write decomposed Hangul) and "\" read as "/".
@@ -10,10 +10,9 @@
 // - Skipped and named: links and device files (only plain files and folders come out of a zip here), names the team
 //   folder does not take (policy/names.ts badSegment), a path that appears twice or is both a file and a folder.
 // - Left out silently: macOS and Windows junk (__MACOSX/, ._*, .DS_Store, Thumbs.db, desktop.ini).
+import fs from 'node:fs'
 import zlib from 'node:zlib'
-import { promisify } from 'node:util'
 import { badSegment, foldKey } from '../policy/names'
-import { crc32 as crc32Js } from './zip-write'
 import { entryData, readCentral, ZIP_RATIO_FROM, ZIP_RATIO_MAX, ZIP_TOTAL_MAX, ZipProblem, type ZipEntry } from './zip-guard'
 
 /** the zip file itself (it is read into memory) and all of its files together, uncompressed */
@@ -48,10 +47,7 @@ const UTF8 = new TextDecoder('utf-8', { fatal: true })
 const UTF8_LOOSE = new TextDecoder('utf-8')
 const CP949 = new TextDecoder('euc-kr')
 
-const crc32 = (b: Uint8Array): number => {
-  const z = zlib as unknown as { crc32?: (d: Uint8Array) => number }
-  return z.crc32 ? z.crc32(b) >>> 0 : crc32Js(b)
-}
+const crc32 = (b: Uint8Array, prev = 0): number => (zlib as unknown as { crc32: (d: Uint8Array, v?: number) => number }).crc32(b, prev) >>> 0
 
 /** The Info-ZIP Unicode path extra field (0x7075): its UTF-8 name when its CRC is that of the raw name. */
 function unicodePath(e: ZipEntry): string | null {
@@ -152,24 +148,89 @@ export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPla
   return { files, folders, skipped, junk, top, total }
 }
 
-const inflateRaw = promisify(zlib.inflateRaw) as (b: Uint8Array, o: zlib.ZlibOptions) => Promise<Buffer>
-
-/** One entry's bytes, inflated on the zlib thread pool with a hard output cap; its real size and CRC must match the
- * directory. Throws a ZipProblem. */
-export async function inflateEntry(bytes: Uint8Array, e: ZipEntry): Promise<Buffer> {
-  const data = entryData(bytes, e)
-  let out: Buffer
-  if (e.method === 0) {
-    if (e.csize !== e.usize) throw new ZipProblem('damaged', 'stored entry with two sizes')
-    out = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-  } else {
-    if (e.usize > ZIP_RATIO_FROM && e.usize > e.csize * ZIP_RATIO_MAX) throw new ZipProblem('complex', `a part expands more than ${ZIP_RATIO_MAX} times`)
-    try { out = await inflateRaw(data, { maxOutputLength: Math.max(e.usize, 1) }) } catch (err) {
-      if ((err as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw new ZipProblem('complex', 'a part is larger than its header says')
-      throw new ZipProblem('damaged', 'bad compressed data')
-    }
-  }
-  if (out.length !== e.usize) throw new ZipProblem('damaged', 'a part is not the size its header says')
-  if (crc32(out) !== e.crc) throw new ZipProblem('damaged', 'a part does not match its checksum')
-  return out
+/** The plan without the zip's bytes (an entry's name and extra field point into them), so the zip can be let go while
+ * the person answers a card; extraction reads the zip again. */
+export function detachPlan(p: ZipPlan): ZipPlan {
+  const none = new Uint8Array(0)
+  return { ...p, files: p.files.map((f) => ({ ...f, entry: { ...f.entry, nameBytes: none, extra: none } })) }
 }
+
+/**
+ * One entry streamed into a new file `dest` (made here, never there before): inflated on the zlib thread pool chunk by
+ * chunk, so a call holds the zip and a chunk, never a whole inflated entry. Its real size may not pass the size the
+ * directory declares (counted as it streams) and must end equal to it, with a matching CRC. Throws a ZipProblem (the
+ * partial file is removed).
+ */
+export async function inflateEntryToFile(bytes: Uint8Array, e: ZipEntry, dest: string, signal?: AbortSignal): Promise<number> {
+  const data = entryData(bytes, e)
+  const fd = fs.openSync(dest, 'wx', 0o600)
+  let open = true
+  const close = () => { if (open) { open = false; fs.closeSync(fd) } }
+  let n = 0
+  let crc = 0
+  try {
+    if (e.method === 0) {
+      if (e.csize !== e.usize) throw new ZipProblem('damaged', 'stored entry with two sizes')
+      for (let off = 0; off < data.length;) off += fs.writeSync(fd, data, off, Math.min(1 << 20, data.length - off))
+      n = data.length
+      crc = crc32(data)
+    } else {
+      if (e.usize > ZIP_RATIO_FROM && e.usize > e.csize * ZIP_RATIO_MAX) throw new ZipProblem('complex', `a part expands more than ${ZIP_RATIO_MAX} times`)
+      await new Promise<void>((resolve, reject) => {
+        const inf = zlib.createInflateRaw({ chunkSize: 64 * 1024 })
+        let failed = false
+        const fail = (err: Error) => { if (failed) return; failed = true; inf.destroy(); reject(err) }
+        const onAbort = () => fail(new ZipProblem('damaged', 'stopped'))
+        signal?.addEventListener('abort', onAbort, { once: true })
+        inf.on('data', (chunk: Buffer) => {
+          if (failed) return
+          n += chunk.length
+          if (n > e.usize) { fail(new ZipProblem('complex', 'a part is larger than its header says')); return }
+          crc = crc32(chunk, crc)
+          try { for (let off = 0; off < chunk.length;) off += fs.writeSync(fd, chunk, off, chunk.length - off) } catch (err) { fail(err as Error) }
+        })
+        inf.on('error', () => fail(new ZipProblem('damaged', 'bad compressed data')))
+        inf.on('end', () => { signal?.removeEventListener('abort', onAbort); if (!failed) resolve() })
+        inf.end(data)
+      })
+    }
+    if (n !== e.usize) throw new ZipProblem('damaged', 'a part is not the size its header says')
+    if (crc !== e.crc) throw new ZipProblem('damaged', 'a part does not match its checksum')
+    return n
+  } catch (err) {
+    close()
+    fs.rmSync(dest, { force: true })
+    throw err
+  } finally { close() }
+}
+
+// ---------------- one or two unzips at a time on the server ----------------
+/** unzips that may run at once (each holds its zip in memory, up to UNZIP_ZIP_MAX) and how long another waits */
+export const UNZIP_LIMITS = { parallel: 2, waitMs: 20_000 }
+let unzipRunning = 0
+const unzipWaiting: (() => void)[] = []
+
+/** A server-wide unzip slot; the returned function gives it back. Waits up to UNZIP_LIMITS.waitMs, then throws a
+ * ZipProblem of kind 'busy'. */
+export function unzipSlot(signal?: AbortSignal): Promise<() => void> {
+  return new Promise((resolve, reject) => {
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      unzipRunning--
+      const next = unzipWaiting.shift()
+      if (next) next()
+    }
+    const grant = () => { unzipRunning++; resolve(release) }
+    if (unzipRunning < UNZIP_LIMITS.parallel) { grant(); return }
+    const go = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); grant() }
+    const drop = (err: Error) => { const i = unzipWaiting.indexOf(go); if (i >= 0) unzipWaiting.splice(i, 1); clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(err) }
+    const timer = setTimeout(() => drop(new ZipProblem('busy', 'other zips are being unzipped')), UNZIP_LIMITS.waitMs)
+    const onAbort = () => drop(new ZipProblem('damaged', 'stopped'))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    unzipWaiting.push(go)
+  })
+}
+/** tests: the slots' state */
+export const _unzipSlotsForTest = () => ({ running: unzipRunning, waiting: unzipWaiting.length })

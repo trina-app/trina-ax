@@ -22,7 +22,7 @@ export const isZip = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] =
 /** Why a zip cannot be opened: too large or complex (zip64, limits), damaged, or encrypted. checkZip turns it into its
  * refusal text; the AI's unzip_file (tools/unzip.ts) into its own. */
 export class ZipProblem extends Error {
-  constructor(readonly kind: 'complex' | 'damaged' | 'encrypted', readonly why: string) { super(why); this.name = 'ZipProblem' }
+  constructor(readonly kind: 'complex' | 'damaged' | 'encrypted' | 'busy', readonly why: string) { super(why); this.name = 'ZipProblem' }
 }
 
 /** One entry of the central directory, its sizes checked against the limits (not yet inflated). */

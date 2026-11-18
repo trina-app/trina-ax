@@ -12,7 +12,7 @@ import { UnzipFileInput } from '@mycel/shared'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { crc32 } from '../../server/src/files/zip-write'
-import { decodeName, planZip } from '../../server/src/files/unzip'
+import { _unzipSlotsForTest, decodeName, inflateEntryToFile, planZip, unzipSlot, UNZIP_LIMITS } from '../../server/src/files/unzip'
 import { ROOM_FILE_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, namedPaths } from '../../server/src/rooms/ai-tools'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { stepLabel } from '@mycel/shared'
@@ -294,17 +294,73 @@ describe('the folder rules', () => {
     expect(fs.existsSync(file('groups/marketing/skills'))).toBe(false)
     expect(r.text).toMatch(/skills\/evil\/SKILL\.md: it would land in a skills folder/)
   })
-  test('the per-turn file count is checked before anything is written', async () => {
-    put(`${D}/many.zip`, zip(Array.from({ length: 5 }, (_, i) => ({ name: `f${i}.txt`, data: String(i) }))))
+  test('a zip of more files than the turn may write one by one is unzipped (the zip\'s own limits are the cap); the reply stays short', async () => {
+    put(`${D}/big-project.zip`, zip(Array.from({ length: 300 }, (_, i) => ({ name: `${['docs', 'photos', 'sheets'][i % 3]}/f${i}.txt`, data: String(i) }))))
     const cfg = A.ctx.engineConfig as { maxFilesWrittenPerTurn: number }
     const was = cfg.maxFilesWrittenPerTurn
     cfg.maxFilesWrittenPerTurn = 3
     try {
-      const r = await turn('alice')('unzip_file', { path: `${D}/many.zip` })
-      expect(r.isError).toBe(true)
-      expect(r.text).toContain('has 5 files, more than the 3 files')
-      expect(fs.existsSync(file(`${D}/many`))).toBe(false)
+      const call = turn('alice')
+      const r = await call('unzip_file', { path: `${D}/big-project.zip` })
+      expect(r.isError, r.text.slice(0, 500)).toBe(false)
+      expect(r.text).toContain('300 files saved')
+      expect(r.text).toContain('By folder:\n- docs/: 100 files')
+      expect(r.text).not.toContain('f299.txt')
+      expect(r.text.length).toBeLessThan(1500)
+      expect(fs.readdirSync(file(`${D}/big-project/photos`)).length).toBe(100)
+      // the turn's own file count is untouched: the AI can still save its files in this answer
+      const w = await call('write', { file_path: `${D}/after-unzip.md`, content: 'ok' })
+      expect(w.isError, w.text).toBe(false)
+      // every file still went through the save checks: one file event each
+      expect(events(call.turnId).filter((e) => e.path.startsWith(`${D}/big-project/`) && e.path.endsWith('.txt')).length).toBe(300)
     } finally { cfg.maxFilesWrittenPerTurn = was }
+  })
+  test('one answer may unzip at most the zip limits in all (here: 5,000 files), so unzipping again and again stops', async () => {
+    put(`${D}/k3.zip`, zip(Array.from({ length: 3000 }, (_, i) => ({ name: `f${i}.txt`, data: 'x', stored: true }))))
+    const call = turn('alice')
+    expect((await call('unzip_file', { path: `${D}/k3.zip` })).isError).toBe(false)
+    const again = await call('unzip_file', { path: `${D}/k3.zip` })
+    expect(again.isError).toBe(true)
+    expect(again.text).toContain('5000 unzipped files in this answer')
+    expect(fs.existsSync(file(`${D}/k3 (2)`))).toBe(false)
+    // a new answer starts again
+    expect((await turn('alice')('unzip_file', { path: `${D}/k3.zip`, list_only: true })).isError).toBe(false)
+  })
+})
+
+describe('the server holds at most a few zips at a time', () => {
+  test('a busy server waits briefly, then says plainly to try again; a slot that frees up in time is used', async () => {
+    put(`${D}/slot.zip`, zip([{ name: 's.txt', data: 's' }]))
+    const was = { ...UNZIP_LIMITS }
+    UNZIP_LIMITS.parallel = 1; UNZIP_LIMITS.waitMs = 300
+    try {
+      const held = await unzipSlot()
+      const busy = await turn('alice')('unzip_file', { path: `${D}/slot.zip` })
+      expect(busy.isError).toBe(true)
+      expect(busy.text).toContain('unzipping other files right now')
+      expect(busy.text).toContain('try again in a moment')
+      expect(fs.existsSync(file(`${D}/slot`))).toBe(false)
+      UNZIP_LIMITS.waitMs = 5000
+      const waiting = turn('alice')('unzip_file', { path: `${D}/slot.zip` })
+      await new Promise((r) => setTimeout(r, 100))
+      expect(_unzipSlotsForTest().waiting).toBe(1)
+      held()
+      const r = await waiting
+      expect(r.isError, r.text).toBe(false)
+      expect(read(`${D}/slot/s.txt`)).toBe('s')
+      expect(_unzipSlotsForTest()).toEqual({ running: 0, waiting: 0 })
+    } finally { Object.assign(UNZIP_LIMITS, was) }
+  })
+  test('an entry is streamed to its file: a part larger than its header stops there and leaves no file', async () => {
+    const z = zip([{ name: 'big.bin', data: Buffer.alloc(2 * 1024 * 1024, 1), usize: 1024 }])
+    const plan = planZip(z)
+    const dest = path.join(A.data, 'stream-test.bin')
+    await expect(inflateEntryToFile(z, plan.files[0]!.entry, dest)).rejects.toThrow('larger than its header')
+    expect(fs.existsSync(dest)).toBe(false)
+    const ok = zip([{ name: 'ok.bin', data: Buffer.alloc(300_000, 2) }])
+    expect(await inflateEntryToFile(ok, planZip(ok).files[0]!.entry, dest)).toBe(300_000)
+    expect(fs.readFileSync(dest).equals(Buffer.alloc(300_000, 2))).toBe(true)
+    fs.rmSync(dest)
   })
 })
 

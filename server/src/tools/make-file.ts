@@ -728,8 +728,10 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
 
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
  * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
- * card over 1 GB and the disk check bounds (tools/save-url.ts). `detail`: more for the file event (the source URL). */
-export interface PlaceOptions { turnBytes?: boolean; detail?: Record<string, unknown> }
+ * card over 1 GB and the disk check bounds (tools/save-url.ts). `turnFiles: false`: the file does not count against the
+ * turn's file count (maxFilesWrittenPerTurn): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
+ * answer (tools/unzip.ts). `detail`: more for the file event (the source URL). */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown> }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   const cfg = ctx.engineConfig
@@ -774,14 +776,14 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       conflictOf = rel0
     }
   }
-  if (!c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
+  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)
   consumeSkillApproval(c, rel0)
   const rel = target.join('/')
   if (counted) c.files.bytesWritten += size
-  c.files.filesWritten.add(rel)
+  if (po.turnFiles !== false) c.files.filesWritten.add(rel)
   c.files.readHashes.set(rel, sha)
   // made by the AI here (not a copy of someone's file from the web or a room): stamp_pdf / edit_pdf may change it in place
   if (MADE_BY.has(tool)) c.files.madeHashes.set(rel, sha); else c.files.madeHashes.delete(rel)

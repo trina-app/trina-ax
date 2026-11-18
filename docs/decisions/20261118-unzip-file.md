@@ -21,10 +21,15 @@ Plan: docs/AGENTS/plan/20261118-0700-unzip-file.md.
   when the bytes are valid UTF-8; else CP949 (Korean Windows without the flag). NFC, "\" read as "/".
 - **Refused, nothing saved:** an absolute path or ".." in any entry (a zip made to write outside its folder), zip64,
   encryption, a damaged directory, more than 5,000 entries, more than 200 MB unzipped (the zip-guard limit), a zip file
-  over 200 MB, an entry that expands more than 100 times above 10 MB, more files than the turn may still write
-  (`maxFilesWrittenPerTurn`, default 200; checked before anything is written). The unzipped bytes do not count against
-  the per-turn byte limit (`maxWriteBytesPerTurn`, 50 MB): the person asked for this zip, as for save_url downloads;
-  instead all unzip calls of one answer together may save at most 200 MB.
+  over 200 MB, an entry that expands more than 100 times above 10 MB. Those zip limits are also the cap per answer:
+  all unzip calls of one answer together save at most 200 MB and 5,000 files. The unzipped files do not count against
+  the turn's write limits one by one (`maxWriteBytesPerTurn` 50 MB, `maxFilesWrittenPerTurn` 200): a project zip of 300
+  files is normal (coordinator, PR #1262). Every file still goes through the save checks (write access, skills, the
+  wider-audience check, file event).
+- **Memory:** at most two unzips run at once on the server (`UNZIP_LIMITS`); another waits up to 20 s, then the AI
+  says plainly to try again in a moment. The zip is read inside the slot and let go before any card, and read again
+  (same sha256, or refused) for the extraction; each entry is streamed to its work file chunk by chunk, so a call holds
+  the zip and a chunk, never a whole inflated entry.
 - **Skipped and named:** links and device files, names the team folder does not take, a name that appears twice or is
   both a file and a folder, more than 30 folders deep. Left out silently: `__MACOSX/`, `._*`, `.DS_Store`, `Thumbs.db`,
   `desktop.ini`.
