@@ -37,12 +37,30 @@ Answer with the JSON object only.`
  * a judge that saw only the actions called the team time zone, the dev environment's absence and "Slack is not added"
  * made up (ADM-05.member, ADM-07.member, CON-04.member, 2026-11-17), and set_title a rename nobody asked for
  * (CHT-04.how). Facts of this fixture and server: fixture/seed.ts TEAM_ZONE, the install table in README.md. */
-export function givenFacts(c: Case): string {
+export function givenFacts(c: Case, r?: Pick<CaseResult, 'startedAt'>): string {
+  // the server gives the AI the time of day as well as the date (server/src/chat/prompt.ts timeLine): "it's already
+  // night" at 23:52 in Seoul was called invented (EDIT-17, dev f394c9258, 2026-11-17)
+  // in the zone the turn was sent with (lib/run-case.ts: the case's device zone, else the team's)
+  const zone = c.timeZone ?? TEAM_ZONE
+  const now = r?.startedAt ? localNow(new Date(r.startedAt), zone) : null
   return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
-false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
+false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${now ? `the current date and time in ${zone}, the zone the person's device sent (when this case started: ${now}), so "it's morning/night already" is a fact it has; ` : ''}${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
 is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
 name, role and groups; today's date. (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
-at its start, as it does for every new chat: not a rename and not an action the person had to ask for.`
+at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
+What the AI can do when asked, with no action in this turn (offering it is not a false claim): read a file's earlier
+versions, who saved each and what changed (its read action does that); move, copy or rename files, chat attachments
+included, into folders the person may change. It cannot press Restore on a version for the person.
+Cards: a [server] card is the app's own confirmation (the AI cannot write one): the person saw what it showed (for a room
+post: the room, how many people are there and the whole text) and the answer shown is what the person pressed, their own
+choice. An [ai] card is the
+AI's question to the person; the answer shown is the person's reply.`
+}
+
+/** "Tuesday 2026-11-17 23:52" in the zone */
+export function localNow(d: Date, zone: string): string {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'long', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value]))
+  return `${p.weekday} ${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}`
 }
 
 const SCHEMA = {
@@ -81,7 +99,7 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
   return [
     RUBRIC,
     '',
-    givenFacts(c),
+    givenFacts(c, r),
     '',
     `## Case ${c.id}: ${c.title}`,
     `Asked by: ${c.as} (${people})`,

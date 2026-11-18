@@ -90,7 +90,7 @@ import { roomRefsForModel, roomRefsOf, type SkillWritePreview } from '@mycel/sha
 import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../proxy/model-proxy'
 import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
-import { limitFallbackOn } from '../admin/engine-choice'
+import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { runApiAgent } from '../engine/api-agent'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
@@ -843,7 +843,9 @@ export class TurnExec {
     // where things are in the app (chat/app-map.ts): none for a guest or a scheduled run (nobody to point anywhere);
     // guest AI by the install, as Admin says it (routes/credentials.ts guestAiUnavailable), not by this turn's engine
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
-      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office }
+      : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office,
+          // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
+          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }) }
     const runKind = runKindOf(rt.ctx.config)
     // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
     // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
