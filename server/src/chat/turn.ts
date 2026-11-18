@@ -43,7 +43,7 @@ import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
-import { textTokens } from '../files/vision'
+import { sessionPicturesKept, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -143,7 +143,7 @@ import { membersView } from './project-access'
 import { carriedReads, compactionsIn, forgetSessionText, mayCarryReads, saveReads, sessionDroppedText } from './carried-reads'
 import { ensureSummary, hashChain, HISTORY_SUMMARY_TOOL, lookupSummary, markSummaryFailed, summaryAi, summaryLines, summaryMode, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
 import { ownerId } from '../file-list/engine-reader'
-import { slimSession } from './session-slim'
+import { sessionPictures, slimSession } from './session-slim'
 
 export { noSearchPath } from './search-path'
 
@@ -1258,6 +1258,14 @@ export class TurnExec {
         this.files.engineSession(sid, resume)
         const resumedStash = resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null
         this.compactionsBefore = resumedStash ? compactionsIn(resumedStash) : 0
+        // the pictures the resumed session brings along count against this answer's caps (files/vision.ts): taken at
+        // the first launch only, later launches of this turn resume what it already counted
+        if (!this.files.carriedKnown) {
+          this.files.carriedKnown = true
+          const carried = resumedStash ? sessionPictures(resumedStash) : { count: 0, bytes: 0 }
+          this.files.carriedImages = carried.count
+          this.files.carriedBytes = carried.bytes
+        }
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoveries && !resume ? `${answerSoFar()}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
           stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
@@ -4503,7 +4511,13 @@ export class TurnExec {
     if (slim.removed) this.rt.log.info('pictures taken out of the saved session', { turn: this.id, pictures: slim.removed })
     const bytes = slim.bytes
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
-    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
+    // a session that would carry more pictures into the next answer than half of what an answer may hold (after the
+    // slim above kept the newest turn's): the next answer starts fresh, from the chat's summary, so its pictures still
+    // fit under what the model proxy takes in (proxy/model-proxy.ts PROXY_BODY_MAX)
+    const kept = sessionPictures(bytes)
+    const tooManyPictures = !sessionPicturesKept(kept, turnImageCaps(this.rt.db, this.spec.turnId))
+    if (tooManyPictures) this.rt.log.info('saved session holds too many pictures: the next answer starts fresh', { turn: this.id, pictures: kept.count, bytes: kept.bytes })
+    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked || tooManyPictures) {
       // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
       // turn starts a fresh session from the DB history
       fs.rmSync(dir, { recursive: true, force: true })

@@ -755,7 +755,7 @@ async function modelImages(ctx: AppContext, tc: TurnToolContext, kept: Kept[]): 
     if (!k.meta.kind || !KINDS[k.meta.kind].image || k.bytes.length > VISION_INPUT_MAX) continue
     let jpeg: Buffer
     try { jpeg = await normalizeForModel(k.bytes, ctx.files.visionTools(), tc.signal) } catch { continue }
-    if (turn.imageCount >= caps.images || b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
+    if (turn.carriedImages + turn.imageCount >= caps.images || turn.carriedBytes + b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
     turn.imageCount++
     turn.imageBytes += jpeg.length
     out.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
