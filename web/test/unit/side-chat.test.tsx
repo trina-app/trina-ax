@@ -25,6 +25,7 @@ import { useRooms } from '../../src/store/rooms'
 import { sideChatOf, useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
+import { keepSideChatOpen, resetSideChatOpenForTest } from '../../src/lib/sideChatOpenKeep'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 import { CHAT, msg } from './fixtures'
 import { at, BEN, ME, message, room } from './rooms-fixtures'
@@ -1263,3 +1264,92 @@ test('a first read that cannot reach the server: the calm notice; a chat the per
     await m.unmount()
   }
 }, 10_000)
+
+/** a computer's window (min-width 768 px matches) while `fn` runs; the test DOM is a phone otherwise */
+async function onComputer<T>(fn: () => Promise<T>): Promise<T> {
+  const was = window.matchMedia
+  Object.assign(window, { matchMedia: (q: string) => ({ matches: q.includes('min-width'), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }) })
+  try { return await fn() } finally { Object.assign(window, { matchMedia: was }) }
+}
+const queueOne = (chatId: string) => localStorage.setItem(`mycel.queue:${ME.id}:${chatId}`, JSON.stringify({ v: 1, items: [{ id: uuidv7(), content: 'and who does it?', attachments: [], author: { id: ME.id, name: ME.name }, createdAt: at(2) }], paused: null, after: null }))
+
+test('a reload (QA TC-4963): on a computer the side chat opens by itself when a message of mine waits in it, with that message', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const q = msg({ chatId: id, role: 'user', content: 'what was decided?' })
+  turns[id] = [q, msg({ chatId: id, role: 'assistant', parentId: q.id, status: 'done', content: 'Wednesday.' })]
+  queueOne(id)
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  await onComputer(async () => {
+    const m = await roomPage()
+    try {
+      await m.until(() => !!m.find('side-chat-panel') && !!m.find('outbox-item'), 'the side chat, open by itself, with the waiting message')
+      expect(m.get('room-side-chat-button').getAttribute('aria-pressed')).toBe('true')
+    } finally {
+      await m.unmount()
+      useSendQueue.getState().reset()
+      localStorage.clear()
+    }
+  })
+})
+
+test('a reload (QA TC-4963): nothing waits and it was closed: it stays closed, and the server is not asked for the side chat', async () => {
+  signIn()
+  serve(uuidv7())
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  await onComputer(async () => {
+    const m = await roomPage()
+    try {
+      await m.until(() => !!m.find('room-message'), 'the room')
+      await m.settle()
+      expect(m.find('side-chat-panel')).toBeNull()
+      expect(calls.some((c) => c.path === '/api/chats' && c.search.includes('sideRoomId'))).toBe(false)
+    } finally { await m.unmount() }
+  })
+})
+
+test('a reload (QA TC-4963): open before it, it is open after it, on a phone too; closing it, or leaving the room, keeps it closed the next time', async () => {
+  signIn()
+  serve(null)
+  useRooms.setState({ rooms: [team], loaded: true })
+  // the tab had it open: what the room page wrote before the reload
+  keepSideChatOpen(ME.id, team.id, true)
+  resetSideChatOpenForTest()
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('side-chat-panel'), 'the side chat, open again (a phone)')
+    // ✕ closes it: not kept for the next reload
+    await m.click('room-side-chat-button')
+    await m.until(() => !m.find('side-chat-panel'), 'closed')
+    expect(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`)).toBeNull()
+    // ✦ opens it: kept; leaving the room closes it and forgets it
+    await openSide(m)
+    expect(JSON.parse(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`) ?? '[]')).toEqual([team.id])
+  } finally { await m.unmount() }
+  expect(sessionStorage.getItem(`mycel.sideChatOpen.${ME.id}`)).toBeNull()
+})
+
+test('a phone (QA TC-4963): a waiting message alone does not cover the room with the side chat; ✦ opens it on that chat', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  turns[id] = [msg({ chatId: id, role: 'user', content: 'what was decided?' })]
+  queueOne(id)
+  useRooms.setState({ rooms: [team], loaded: true })
+  resetSideChatOpenForTest()
+  const m = await roomPage()
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await m.settle()
+    expect(m.find('side-chat-panel')).toBeNull()
+    await m.click('room-side-chat-button')
+    await m.until(() => !!m.find('outbox-item'), 'the side chat on the chat the message waits in')
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
+  }
+})
