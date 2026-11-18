@@ -11,7 +11,7 @@ import { FakeServices } from '../lib/fake-services'
 import { bigCatalog, TOOL_150, TOOL_151 } from '../lib/big-catalog'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { MAX_TOOLS } from '../../server/src/integrations/connections/mcp'
-import { CALL_TOOL, FIND_TOOLS, integrationToolProvider, MAX_TURN_TOOL_CHARS, MAX_TURN_TOOLS } from '../../server/src/integrations/connections/tools'
+import { CALL_TOOL, CONNECTION_RESULT, FIND_TOOLS, integrationToolProvider, MAX_TURN_TOOL_CHARS, MAX_TURN_TOOLS } from '../../server/src/integrations/connections/tools'
 import { checkArgs, CHECK_STEPS, deferredLines, DEFERRED_LIST_BUDGET, matchTools, toolTokens } from '../../server/src/integrations/connections/deferred'
 import { recordSent } from '../../server/src/tools/connection-urls'
 import { TurnFiles } from '../../server/src/files/service'
@@ -103,7 +103,7 @@ describe('a turn that cannot carry them all', () => {
     const a = turn('alice')
     const own = [...a.tools.keys()].filter((n) => n.startsWith('my_studio__'))
     expect(own).toEqual([])
-    expect([...a.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL])
+    expect([...a.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL, CONNECTION_RESULT])
     // what every model request of the answer carries for this connection, before and after
     const all = bigCatalog().reduce((n, t) => n + t.name.length + JSON.stringify(t.inputSchema).length + t.description.length, 0)
     expect(all).toBeGreaterThan(MAX_TURN_TOOL_CHARS)
@@ -276,7 +276,7 @@ describe('a tool turned off is unreachable', () => {
     const team = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Team studio', url: `${fake.base}/mcp-open?teamstudio`, auth: 'none', access: { everyone: false, groups: [], users: ['erin'] } })).body
     try {
       const e = turn('erin')
-      expect([...e.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL])
+      expect([...e.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL, CONNECTION_RESULT])
       expect((await e.call(FIND_TOOLS, { query: 'analyze video' })).text).toContain(`team_teamstudio__${TOOL_150}`)
       await A.json(`/api/integrations/${team.id}`, { method: 'PATCH', as: 'carol', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ access: { everyone: false, groups: [], users: [] } }) })
       expect((await e.call(FIND_TOOLS, { query: 'analyze video' })).text).toContain('No tool to look up matches')

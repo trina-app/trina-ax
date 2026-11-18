@@ -55,6 +55,7 @@ export const WAIT_MAX_MS = 24 * 3600_000
 export const JOB_MAX_SEC = 6 * 3600
 export const SERVER_MAX_SEC = 8 * 3600
 export const LOG_MAX_BYTES = 64 << 20
+/** a command's stdout and stderr each: its first and last half of this (readEnds) */
 const OUT_READ = 64 << 10
 const TAIL_BYTES = 4 << 10
 /** a dev server under this CPU share for idleStopMin stops (reason idle) */
@@ -494,6 +495,41 @@ function readHead(file: string, max: number): { text: string; cut: boolean } {
   } finally { fs.closeSync(fd) }
 }
 
+/** A command's output as the AI gets it (limits audit 1 #21): all of it up to `head + tail` bytes, else its first `head`
+ * and its last `tail` bytes with a line that says how much was left out in between, so the error a long build prints
+ * at its end is there. Neither part ends inside a UTF-8 character; the tail starts at a line when one is near. */
+export function readEnds(file: string, head: number, tail: number): { text: string; cut: boolean } {
+  let fd: number
+  try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return { text: '', cut: false } }
+  try {
+    const size = fs.fstatSync(fd).size
+    if (size <= head + tail) {
+      const all = Buffer.alloc(size)
+      const n = fs.readSync(fd, all, 0, size, 0)
+      return { text: all.subarray(0, n).toString('utf8'), cut: false }
+    }
+    const a = Buffer.alloc(head)
+    const na = fs.readSync(fd, a, 0, head, 0)
+    const b = Buffer.alloc(tail)
+    const nb = fs.readSync(fd, b, 0, tail, size - tail)
+    let start = a.subarray(0, na)
+    // a character cut at the end of the first part: its lead byte and what came of it are left out
+    let k = start.length
+    while (k > 0 && k > start.length - 4 && (start[k - 1]! & 0xc0) === 0x80) k--
+    const lead = k > 0 ? start[k - 1]! : 0
+    const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+    if (start.length - (k - 1) < need) start = start.subarray(0, k - 1)
+    let end = b.subarray(0, nb)
+    let j = 0
+    while (j < end.length && j < 4 && (end[j]! & 0xc0) === 0x80) j++
+    end = end.subarray(j)
+    const nl = end.indexOf(0x0a)
+    if (nl >= 0 && nl < 512) end = end.subarray(nl + 1)
+    const left = size - start.length - end.length
+    return { text: `${start.toString('utf8')}\n… (${left} bytes in the middle of this output were left out; the end follows) …\n${end.toString('utf8')}`, cut: true }
+  } finally { fs.closeSync(fd) }
+}
+
 function readTail(file: string, max: number): string {
   let fd: number
   try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return '' }
@@ -610,7 +646,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       if (u.result === 'oom-kill') oom = true
       if (u.state === 'failed') await c.system.forget(runId)
       const code = readExit(exitFile)
-      const so = readHead(out, OUT_READ), se = readHead(err, OUT_READ)
+      const so = readEnds(out, OUT_READ / 2, OUT_READ / 2), se = readEnds(err, OUT_READ / 2, OUT_READ / 2)
       const signal = a.stopReason === 'timeout' ? 'timeout' : a.stopReason === 'setting' ? 'setting' : a.stopReason ? 'stopped' : oom ? 'oom' : ''
       return { ok: true as const, value: { ev: 'exit' as const, code: code ?? ended.code ?? 137, signal, stdout: so.text, stderr: se.text, truncated: so.cut || se.cut, ms: Date.now() - started } }
     } catch (e) {

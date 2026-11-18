@@ -57,7 +57,7 @@ describe('tools made per person', () => {
   test('the owner gets her connections\' tools and api_request; others do not; an admin is not a user of a team connection', () => {
     const a = turn('alice')
     expect([...a.tools.keys()]).toEqual(['my_tasks__search_tasks', 'my_tasks__create_task', 'my_tasks__inject', 'my_tasks__rpc_fail',
-      'team_teamboard__search_tasks', 'team_teamboard__create_task', 'team_teamboard__inject', 'team_teamboard__rpc_fail', 'api_request'])
+      'team_teamboard__search_tasks', 'team_teamboard__create_task', 'team_teamboard__inject', 'team_teamboard__rpc_fail', 'api_request', 'connection_result'])
     expect(a.tools.get('my_tasks__create_task')!.description).toStartWith('[Tasks, personal connection] Create a task: Create a task')
     expect(a.tools.get('my_tasks__create_task')!.description).toContain('Changes something')
     expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
@@ -610,8 +610,34 @@ describe('api_request', () => {
     expect(fake.seen.some((s) => s.path.includes('steal'))).toBe(false)
     const big = await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/big' })
     expect(big.text).toContain('(cut at 1 MB)')
-    expect(big.text).toContain(`(cut to ${MAX_RESULT_CHARS} characters)`)
     expect(big.text.length).toBeLessThan(MAX_RESULT_CHARS + 1000)
+    // the rest of it, not cut without a way on (limits audit 1 #13): connection_result in parts, until the end
+    const first = big.text.match(/\(characters 0-40000 of (\d+); read on with connection_result \{"id": "(r\d+)", "offset": 40000\}\)/)
+    expect(first).not.toBeNull()
+    const [, total, id] = first! as unknown as [string, string, string]
+    const inner = (t: string) => t.slice(t.indexOf('>\n') + 2, t.lastIndexOf('\n</external_data>'))
+    const requests = fake.seen.length
+    let all = inner(big.text), offset = 40_000, parts = 1
+    for (;;) {
+      const r = await a.call('connection_result', { id, offset })
+      expect(r.isError).toBe(false)
+      expect(r.text).toStartWith(`Answer ${id} from AI PM, read on (characters ${offset}-`)
+      expect(r.text).toContain('<external_data source="AI PM">')
+      all += inner(r.text); parts++
+      const next = r.text.match(/"offset": (\d+)\}\)/)
+      if (!next) { expect(r.text.split('\n')[0]).toEndWith(`of ${total}, the end)`); break }
+      offset = Number(next[1])
+    }
+    expect(all.length).toBe(Number(total))
+    expect(parts).toBe(Math.ceil(Number(total) / MAX_RESULT_CHARS))
+    // no service was called for it
+    expect(fake.seen.length).toBe(requests)
+    expect((await a.call('connection_result', { id, offset: Number(total) + 5 })).text).toContain('is past its end')
+    expect((await a.call('connection_result', { id: 'r999', offset: 0 })).isError).toBe(true)
+    expect((await a.call('connection_result', { id: '../x', offset: 0 })).text).toContain('Invalid input')
+    // another answer (another person's or the next one) does not reach it
+    expect(turn('bob').tools.has('connection_result')).toBe(false)
+    expect((await turn('alice').call('connection_result', { id, offset: 40_000 })).text).toContain(`No answer "${id}" is kept`)
     expect((await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/image' })).text).toContain('binary content')
     const inj = await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/inject' })
     expect(inj.text.match(/<\/external_data>/g)).toHaveLength(1)

@@ -80,7 +80,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
-  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
+  + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
  * command and its output, so it sees only what all of them may open; foreground commands only; no login. */
@@ -94,7 +94,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
   + 'No jobs and no dev servers here (job and background are refused): each command must finish within its time limit (default 120 s, at most 1800 s). For longer work the person can ask in a chat of their own. '
   + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  + 'One command at a time per folder; only the first 32 KiB of stdout and of stderr come back. '
+  + 'One command at a time per folder; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so). '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
@@ -125,7 +125,15 @@ export function foreignLines(f: { items: ForeignChange[]; total: number }): stri
   return lines.join('\n')
 }
 
-const clip = (s: string) => (s.length > OUT_SHOWN ? s.slice(0, OUT_SHOWN) + '\n(cut)' : s)
+/** what the AI gets of a stdout or stderr: its first and last half of OUT_SHOWN, never only the start (limits audit 1 #21:
+ * the error at the end of a long build was lost) */
+export const clip = (s: string) => {
+  if (s.length <= OUT_SHOWN) return s
+  let head = s.slice(0, OUT_SHOWN / 2), tail = s.slice(-OUT_SHOWN / 2)
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
+  if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
+  return `${head}\n… (${s.length - head.length - tail.length} characters in the middle left out; the end follows) …\n${tail}`
+}
 
 export interface BoxShellHost {
   ctx: AppContext

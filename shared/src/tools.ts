@@ -392,8 +392,13 @@ export const ConnectServiceOutput = z.union([
 ])
 
 // Web search is Claude Code's built-in WebSearch (runs on Anthropic's side). We keep only our own fetch.
-export const WebFetchInput = z.strictObject({ url: z.string().url().max(4000), maxChars: z.number().int().min(100).max(200000).optional() })
-export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean() })
+export const WebFetchInput = z.strictObject({
+  url: z.string().url().max(4000),
+  maxChars: z.number().int().min(100).max(200000).optional(),
+  // a long page read on from this character (limits audit 1 #14): the result's first line gives the next offset
+  offset: z.number().int().min(0).max(100_000_000).optional(),
+})
+export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean(), offset: z.number().optional(), total: z.number().optional() })
 /** save_url (server/src/tools/save-url.ts): a file from the web, or one a connected service returned inline
  * (mcp-file:<id>), saved into the team folder. */
 export const SaveUrlInput = z.strictObject({

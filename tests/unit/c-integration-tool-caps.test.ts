@@ -34,7 +34,9 @@ describe('a connection keeps every tool its service lists', () => {
     expect(r.body.toolsTotal).toBeUndefined()
     expect(fake.seen.filter((s) => s.path === '/mcp-open' && s.body.includes('tools/list')).length).toBe(4)
     const built = prompt('alice')
-    expect(built.tools).toHaveLength(150)
+    // and connection_result, to read on in a long answer of any of them (limits audit 1 #13)
+    expect(built.tools).toHaveLength(151)
+    expect(built.tools.at(-1)!.name).toBe('connection_result')
     expect(built.prompt).toContain('- Big (personal connection): 150 tools named my_big__…\n')
   })
 
