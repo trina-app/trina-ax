@@ -388,7 +388,7 @@ test('a file preview beside both: the page shows thread and side chat; Esc close
   await expect(thread).toBeVisible()
 
   // the desktop app's smallest window with a preview: no room for two panels, the side chat is over the thread
-  await thread.getByTestId('room-link').click()
+  await thread.getByTestId('app-link-chip').click()
   await expect(page.getByTestId('file-panel')).toBeVisible()
   await page.setViewportSize({ width: 900, height: 700 })
   await expect(pageEl).toHaveAttribute('data-columns', 'one')
