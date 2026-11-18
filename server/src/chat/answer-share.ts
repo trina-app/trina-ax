@@ -78,6 +78,8 @@ import { tr } from './i18n'
 import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
+import { ownPaste } from './own-paste'
+import { roomMessagesSeen } from './read-rooms'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
 export const LINKS_PER_TOKEN = 10
@@ -175,7 +177,7 @@ export function useOf(db: Database, chatId: string, ids: readonly string[], desc
   const unended = ids.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (${ids.map(() => '?').join(',')}) AND status IN ('queued','running','interrupted') LIMIT 1`).get(...ids)
   const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   // the chat read a room's messages and the scope does not show which: nobody else is taken to have seen them
-  const roomsUnseen = !!chat?.rooms_seen && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
+  const roomsUnseen = roomMessagesSeen(chat?.rooms_seen) && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
   return { answers: [...ids], files, other, known, roomsUnseen }
 }
 
@@ -349,7 +351,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
  * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
  * places they may look themselves.
  */
-export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string) {
+export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string, o: { own?: boolean } = {}) {
   const db = ctx.db
   const roomId = typeof to === 'string' ? to : null
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
@@ -363,7 +365,8 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
     : [...new Set(to.people)].filter((id) => id !== userId).sort()
   // a guest in the audience: what the answers read from skills/ counts too (withSkillReads)
   const sender = loadPrincipal(db, userId)
-  const use = withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
+  // `own`: the text is the person's own paste (checkShare): the branch's reads are not in it, its links still are (A)
+  const use = o.own ? { answers: [], files: [], other: [], known: true, roomsUnseen: false } : withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
   const onBranch = new Set(use.answers)
   // the hash rule looks at what turns on this branch saved
   const pc = provenanceChecker(ctx, userId, audience, use.answers)
@@ -600,7 +603,10 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
   if (budget) for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
-  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at))
+  // the person's own words (own_words) that are a stretch of their own message here, as they wrote it (chat/own-paste.ts,
+  // docs/decisions/20261118-dm-own-paste.md): nothing the chat read is in them, so what it read is not counted
+  const own = !!b.plain && ownPaste(ctx.db, userId, answer.messageId, answer.content) === body
+  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at), { own })
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
   if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
