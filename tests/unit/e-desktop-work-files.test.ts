@@ -569,6 +569,46 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
     expect(r.files.map((x) => x.name)).toContain('Board deck.pptx')
   })
 
+  // Mac QA of the picked-folder look (2026-11-18): one sub-folder's lstat (its date, for the walk's order) never answered
+  // while its 39 siblings answered in 15 ms; the look waited the whole folder time (10 s) and gave no files at all
+  const hung = (o: { serial: boolean; listHangs: boolean }) => test(`a folder whose date never answers is skipped; its siblings' files come back (${o.serial ? 'one call at a time' : 'in parallel'}${o.listHangs ? ', its listing hangs too' : ''})`, async () => {
+    const subs = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [`Folder ${i}`, dir({ [`Doc ${i}.pdf`]: file(5000) }, Date.UTC(2026, 9, 1 + (i % 28)))]))
+    const f = fakeFs(home({ Picked: dir(subs) }))
+    const dateCalls: string[] = []
+    const fs: WorkFs = {
+      ...f.fs,
+      lstat: (p) => {
+        if (/\/Folder \d+$/.test(p)) dateCalls.push(p)
+        return p.endsWith('/Folder 7') ? new Promise(() => {}) : new Promise((ok) => setTimeout(ok, 15)).then(() => f.fs.lstat(p))
+      },
+      readdir: (p, max) => (o.listHangs && p.endsWith('/Folder 7') ? new Promise(() => {}) : f.fs.readdir(p, max)),
+    }
+    const picked: WorkRoot = { id: 'documents', path: '/Users/alex/Picked', oneDrive: false }
+    const t0 = Date.now()
+    const r = await lookRoots([picked], fs, { platform: 'darwin', newId: () => `id${n++}`, index: async () => null, deadline: Date.now() + 10_000, ...(o.serial ? { serial: true } : {}) })
+    expect(Date.now() - t0).toBeLessThan(6000)
+    const siblings = Array.from({ length: 40 }, (_, i) => `Doc ${i}.pdf`).filter((x) => x !== 'Doc 7.pdf')
+    const listed = f.calls.filter((c) => c.startsWith('readdir /Users/alex/Picked/'))
+    if (o.serial) {
+      // one call at a time: no more folder dates after the one that hung, and that folder is not asked again (cut)
+      expect(dateCalls.at(-1)).toBe('/Users/alex/Picked/Folder 7')
+      expect(listed).not.toContain('readdir /Users/alex/Picked/Folder 7')
+      expect(r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+      expect(r.files.map((x) => x.name).sort()).toEqual(siblings.sort())
+    } else if (o.listHangs) {
+      // its listing waited only a moment, after all the others, and is skipped (cut)
+      expect(r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+      expect(r.files.map((x) => x.name).sort()).toEqual(siblings.sort())
+    } else {
+      // only its date hung: it is walked after all the others, and its own file comes back too
+      expect(listed.at(-1)).toBe('readdir /Users/alex/Picked/Folder 7')
+      expect(r.files.map((x) => x.name).sort()).toEqual([...siblings, 'Doc 7.pdf'].sort())
+    }
+  }, 15_000)
+  hung({ serial: false, listHangs: false })
+  hung({ serial: false, listHangs: true })
+  hung({ serial: true, listHangs: false })
+
   test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; a tiny note is listed for search', async () => {
     const NOW = Date.UTC(2026, 10, 15)
     const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))

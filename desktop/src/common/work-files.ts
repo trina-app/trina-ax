@@ -96,6 +96,10 @@ export const READ_MS = 60_000
 export const CLOUD_HINT_MS = 1500
 /** Every later call gets the time left for the folder, but at least this (a call answered in time is never cut short). */
 const CALL_MIN_MS = 1000
+/** A folder's lstat that only orders the walk (its date), or that only tells a Windows link from a real file, waits this
+ * long at most: one that does not answer is skipped (the folder goes last), and never holds the rest of the walk until
+ * the folder's time is up (one hung entry among forty answering ones once gave no files at all). */
+const STAT_MS = 1500
 
 /** One file of a look, as the session keeps it: where it was found and what it was then. */
 interface Found {
@@ -139,7 +143,9 @@ export interface ScanOptions {
   /** the roots looked at before this call (their sameKey real paths): a folder of the walk that is one is skipped */
   earlier?: readonly string[]
   /** a network share or another volume the person picked: one file system call at a time (a share that hangs then holds
-   * one of the system's few file threads, not sixteen), and the first that does not answer ends the walk (cut) */
+   * one of the system's few file threads, not sixteen), and the first listing, file lstat or Windows link lstat that does
+   * not answer ends the walk (cut); a folder's date that does not answer stops the ordering (the rest of the folders are
+   * walked as listed) and that folder is not asked again (cut) */
   serial?: boolean
   /** files listed before this call: by identity (dev:ino) and by path (sameKey); shared across calls */
   seen?: Set<string>
@@ -192,6 +198,11 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     const start = now()
     const left = () => Math.min(lim.rootMs, lim.totalMs - spent) - (now() - start)
     const inTime = <T,>(q: Promise<T>) => within(q, Math.max(CALL_MIN_MS, left()))
+    const statInTime = <T,>(q: Promise<T>) => within(q, Math.min(STAT_MS, Math.max(CALL_MIN_MS, left())))
+    // a picked share whose folder date did not answer: the rest of the walk is not ordered (no more such calls)
+    let unordered = false
+    // the folders whose date did not answer in time (their parts joined): likely stuck, so never waited on for long again
+    const slow = new Set<string>()
     let docs = 0
     let reported = 0
     const report = (force = false) => {
@@ -208,11 +219,16 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       const dir = queue.pop()!
       let entries = dir.entries
       if (!entries) {
+        // a folder whose date did not answer: a picked share (one call at a time) is not asked again (cut); elsewhere its
+        // listing gets STAT_MS too, and one that does not answer then is skipped (cut), the rest of the walk goes on
+        const stuck = slow.has(dir.parts.join('\0'))
+        if (stuck && o.serial) { r.cut = true; continue }
         try {
-          entries = await inTime(fs.readdir(join(p, real, ...dir.parts), Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked))))
+          const list = fs.readdir(join(p, real, ...dir.parts), Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
+          entries = await (stuck ? statInTime(list) : inTime(list))
         } catch (e) {
           // a folder that does not answer in time ends this root's look (cut); any other error skips that folder
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (stuck) continue; end = true; break }
           continue
         }
         // a program's or a code project's folder (its .dll files, package.json, bin and lib): not entered further, and
@@ -234,7 +250,11 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         let kind = e.kind
         // Windows lists every reparse point as a link, OneDrive's online-only files too: lstat tells a real link
         if (kind === 'link' && p === 'win32') {
-          try { kind = (await inTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch { continue }
+          // one that does not answer is skipped; on a picked share (one call at a time) it ends the walk, as a file's does
+          try { kind = (await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch (x) {
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+            continue
+          }
         }
         if (kind === 'dir') {
           // a browser's "Save page as" folder (its page saved beside it): never entered
@@ -274,17 +294,28 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         })
       }
       const next = dirs.filter((d) => !cloud.has(join(p, real, ...d)))
-      // each folder's date (its lstat, 16 at a time) orders the walk; one that does not answer goes last
+      // each folder's date (its lstat, 16 at a time, each within STAT_MS) orders the walk; one that does not answer is
+      // skipped and goes last, and the folders beside it are still walked (a hung lstat never ends the walk: a folder
+      // whose listing does not answer does, keeping what was found)
       const step = o.serial ? 1 : 16
-      for (let i = 0; i < next.length && !end; i += step) {
-        if (left() <= 0) break
+      const undated: string[][] = []
+      let i = 0
+      for (; i < next.length && !end && !unordered; i += step) {
+        if (left() <= 0 || o.stopped?.()) break
         const b = next.slice(i, i + step)
         let stuck = false
-        const st = await Promise.all(b.map((d) => inTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => { if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') stuck = true; return null })))
-        b.forEach((d, j) => queue.push({ parts: d, mtimeMs: st[j]?.mtimeMs ?? 0 }))
-        // a picked share that stops answering: nothing more is asked of it
-        if (stuck && o.serial) { r.cut = true; end = true }
+        const st = await Promise.all(b.map((d) => statInTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => {
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')) }
+          return null
+        })))
+        b.forEach((d, j) => { const m = st[j]?.mtimeMs; if (m === undefined) undated.push(d); else queue.push({ parts: d, mtimeMs: m }) })
+        // a picked share (one call at a time) that did not answer one: no more dates are asked of it, the rest of its
+        // folders are walked in the order listed
+        if (stuck && o.serial) unordered = true
       }
+      // the folders with no date (not asked: the share stopped answering or the time ran out; then the ones that did not
+      // answer, last of all): still walked, after the dated ones of their level
+      for (const d of [...next.slice(i), ...undated]) queue.push({ parts: d, mtimeMs: -Infinity })
       let halt = false
       // the documents found in this folder are all checked, even when a limit ended the folder's listing (end): only Stop,
       // the time and a drive that stops answering end the checks themselves

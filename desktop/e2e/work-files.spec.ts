@@ -16,8 +16,8 @@ const exec = promisify(execFile)
 
 const QUOTE = 'QUOTE'.padEnd(4096, '.')
 
-/** A made-up home: Documents with work files, a link to home and one to the made-up secret; a big Downloads (over 5,000
- * documents: cut); app data; the secret. */
+/** A made-up home: Documents with work files, a link to home and one to the made-up secret; a big Downloads (600
+ * documents in one folder: cut, one folder lists at most 400); app data; the secret. */
 function fakeHome(dir: string): string {
   const home = join(dir, 'home')
   mkdirSync(join(home, 'Documents', 'company'), { recursive: true })
@@ -30,7 +30,7 @@ function fakeHome(dir: string): string {
   writeFileSync(join(home, 'Documents', 'node_modules', 'readme.md'), 'R')
   mkdirSync(join(home, 'Downloads'))
   const report = 'R'.repeat(3000)
-  for (let i = 0; i < 5100; i++) writeFileSync(join(home, 'Downloads', `report-${i}.txt`), report)
+  for (let i = 0; i < 600; i++) writeFileSync(join(home, 'Downloads', `report-${i}.txt`), report)
   mkdirSync(join(home, 'Library', 'Application Support'), { recursive: true })
   mkdirSync(join(home, '.aws'))
   writeFileSync(join(home, '.aws', 'credentials'), 'FAKE-SECRET-FOR-THIS-TEST')
@@ -62,10 +62,11 @@ test('the app asks first, looks without following links, and reads only ids of i
     expect(asked[0].promises.map((p: { text: string }) => p.text)).toContain("To help you pick, file names may go to your team's AI")
     expect(asked[0].fine).toContain('Nothing here is moved or changed.')
     expect([asked[0].yes, asked[0].no]).toEqual(['Find work files', 'Not now'])
-    // Documents, the home folder as Desktop (never looked at), a big Downloads (cut at 5,000 documents)
+    // Documents, the home folder as Desktop (never looked at), a big Downloads: one folder lists at most 400 documents
+    // (WORK_FILES_LIMITS.folderDocs, MAN-057), the rest of it is cut
     expect(out.roots).toEqual([{ id: 'documents', state: 'ok', cut: false }, { id: 'desktop', state: 'home', cut: false }, { id: 'downloads', state: 'ok', cut: true }])
     expect(out.names).toEqual(['Quote template.xlsx', 'company/proposal.pdf', 'notes.txt'])
-    expect(out.downloadsListed).toBe(5000)
+    expect(out.downloadsListed).toBe(400)
     expect(out.leaksPath).toBe(false)
     expect(out.progress).toBe(true)
     // reads: an id of the look; never a made-up id, a path, or another origin
