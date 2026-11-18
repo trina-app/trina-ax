@@ -20,6 +20,7 @@ import RoomPage from '../../src/pages/Room'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { aiName } from '../../src/lib/tabs'
 import { useChats } from '../../src/store/chats'
+import { useSendQueue } from '../../src/store/sendQueue'
 import { useRooms } from '../../src/store/rooms'
 import { sideChatOf, useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
@@ -1086,6 +1087,85 @@ test('a thread beside the side chat: both show; the box\'s chip names the thread
     expect(m.find('room-thread')).not.toBeNull()
   } finally {
     await m.unmount()
+  }
+})
+
+test('after a reload: a side chat with messages kept waiting in this browser opens again with them (QA TC-4912)', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id)
+  const q = msg({ chatId: id, role: 'user', content: 'what was decided?' })
+  turns[id] = [q, msg({ chatId: id, role: 'assistant', parentId: q.id, status: 'done', content: 'Wednesday.' })]
+  localStorage.setItem(`mycel.queue:${ME.id}:${id}`, JSON.stringify({ v: 1, items: [{ id: uuidv7(), content: 'and who does it?', attachments: [], author: { id: ME.id, name: ME.name }, createdAt: at(2), lead: withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, '', () => 't').trimEnd() }], paused: null, after: null }))
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    // not a new chat: the one they wait in, the message under it with its thread; it waits for "Send now" (typed long ago)
+    await m.until(() => !!m.find('outbox-item'), 'the waiting message')
+    expect(m.find('side-chat-empty')).toBeNull()
+    expect(m.get('outbox-item').querySelector('[data-testid="user-quote-thread"]')).not.toBeNull()
+    expect(m.find('outbox-send-now')).not.toBeNull()
+    await m.click('outbox-send-now')
+    await m.until(() => !!sentTo(id), 'sent')
+    expect((sentTo(id)!.body as { content: string }).content).toBe(withThread({ rootId: root.id, author: BEN.name, at: root.createdAt }, 'and who does it?', () => 't'))
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
+  }
+})
+
+test('sent while an answer runs: the message waits under the chat with the thread it was about, can be edited, stays when the panel closes and opens again, and goes with its thread line when the answer ends (QA TC-4912)', async () => {
+  signIn()
+  const { made } = serve(null, [], { turns: true })
+  useRooms.setState({ rooms: [team], loaded: true })
+  const m = await roomPage()
+  const sent = () => calls.filter((c) => c.method === 'POST' && /^\/api\/chats\/[^/]+\/messages$/.test(c.path)).map((c) => (c.body as { content: string }).content)
+  const time = (iso: string) => formatDateTime(iso, 'en')
+  const beside = { rootId: root.id, author: BEN.name, at: root.createdAt }
+  try {
+    await m.until(() => !!m.find('room-message'), 'the room')
+    await openSide(m)
+    await act(async () => { await go(`/rooms/${team.id}/t/${root.id}`) })
+    await m.until(() => !!m.find('side-chat-thread-chip'), 'the thread chip')
+    await askInSide(m, 'what was decided?')
+    // the answer runs: send is "send when the answer is done", not off
+    await m.type('side-chat-input', 'and who does it?')
+    expect(m.get('side-chat-input').getAttribute('placeholder')).toBe(en('outbox.placeholder'))
+    expect(m.get('side-chat-send').hasAttribute('disabled')).toBe(false)
+    expect(m.get('side-chat-send').getAttribute('aria-label')).toBe(en('outbox.sendLater'))
+    await m.click('side-chat-send')
+    await m.until(() => !!m.find('outbox-item'), 'the message waiting')
+    expect(sent()).toHaveLength(1)
+    expect(boxText(m)).toBe('')
+    expect(m.get('outbox-status').textContent).toContain(en('outbox.waitingOne'))
+    // the thread it was about shows on it, as on the sent bubble
+    expect(m.get('outbox-item').querySelector('[data-testid="user-quote-thread"]')).not.toBeNull()
+    expect(m.get('outbox-text').textContent).toContain('and who does it?')
+    expect(m.get('outbox-text').textContent!.includes('thread_id')).toBe(false)
+    // edited: the text alone (the thread stays on it)
+    await m.click('outbox-edit')
+    expect((m.get('outbox-edit-input') as unknown as { value: string }).value).toBe('and who does it?')
+    await m.type('outbox-edit-input', 'and who does it by Friday?')
+    await m.click('outbox-save')
+    await m.until(() => !m.find('outbox-edit-input'), 'the edit saved')
+    // closed and opened again while the answer runs: the same chat, the message still waiting (kept in this browser too)
+    await m.click('side-chat-close')
+    await m.until(() => !m.find('side-chat-panel'), 'the side chat closed')
+    expect(localStorage.getItem(`mycel.queue:${ME.id}:${made}`)).toContain('and who does it by Friday?')
+    await act(async () => { await go(`/rooms/${team.id}`) })
+    await openSide(m)
+    await m.until(() => !!m.find('outbox-item'), 'the message still waiting')
+    expect(sent()).toHaveLength(1)
+    // the answer ends: it goes by itself, under the thread it was asked about, though that thread is closed now
+    answerEnds(made)
+    await m.until(() => sent().length === 2, 'the waiting message sent')
+    expect(sent()[1]).toBe(withThread(beside, 'and who does it by Friday?', time))
+    await m.until(() => !m.find('outbox-item'), 'nothing waiting')
+    expect(localStorage.getItem(`mycel.queue:${ME.id}:${made}`)).toBeNull()
+  } finally {
+    await m.unmount()
+    useSendQueue.getState().reset()
+    localStorage.clear()
   }
 })
 
