@@ -7,6 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EngineStatus } from '@mycel/shared/api'
+import { writeApiEngine } from '../../server/src/engine/api-agent'
 import { checkEngine, classifyFailure, failedCheck, supportDetail, SUPPORT_DETAIL_MAX, T, type EngineEnv } from '../../server/src/admin/engines'
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'engine-plain-'))
@@ -68,6 +69,76 @@ describe('a failed engine check shows a plain line', () => {
     expect(d).not.toContain('sk-test-12345678')
     expect(d).toContain('~/.claude')
     expect(supportDetail('   ')).toBeUndefined()
+  })
+
+  describe('supportDetail masks each kind of secret (review of #1255)', () => {
+    const d = (x: string) => supportDetail(x)!
+    test('1. credentials in an address', () => {
+      const out = d('fetch https://user:p4ss@proxy.example.com/v1 and http://tok@host.example/x')
+      expect(out).toContain('https://[hidden]@proxy.example.com/v1')
+      expect(out).toContain('http://[hidden]@host.example/x')
+      expect(out).not.toMatch(/p4ss|user:|tok@/)
+    })
+    test('2. secret fields with any prefix: camelCase, kebab-case, upper snake, quoted values', () => {
+      const out = d('{"refreshToken":"r1 secret value","accessToken":"abc"} x-api-key: kkkkk OPENAI_API_KEY=oooo client_secret=ssss "password": "a b c"')
+      for (const leak of ['r1 secret value', 'abc', 'kkkkk', 'oooo', 'ssss', 'a b c']) expect(out).not.toContain(leak)
+      expect(out).toContain('refreshToken')
+      expect(out).toContain('OPENAI_API_KEY=[hidden]')
+      // usage counts are not secrets: a name must END in the secret word
+      expect(d('"input_tokens":100,"output_tokens":20')).toBe('"input_tokens":100,"output_tokens":20')
+    })
+    test('3. Authorization Basic / Bearer: the credential itself goes', () => {
+      expect(d('Authorization: Basic dXNlcjpwYXNz')).not.toContain('dXNlcjpwYXNz')
+      expect(d('sent Basic dXNlcjpwYXNz to it')).toBe('sent Basic [hidden] to it')
+      expect(d('header Bearer abc.def')).toBe('header Bearer [hidden]')
+      expect(d('authorization=Bearer abcdefgh12345678')).not.toContain('abcdefgh12345678')
+    })
+    test('4. Cookie / Set-Cookie to the end of the line', () => {
+      const out = d('Set-Cookie: sid=abc; Path=/; HttpOnly\nCookie: a=1; b=2\nnext line')
+      expect(out).not.toMatch(/sid=abc|HttpOnly|a=1|b=2/)
+      expect(out).toContain('next line')
+    })
+    test('5. home folders on every system, names with spaces', () => {
+      const out = d('C:/Users/name/a D:\\Users\\jo smith\\x "E:\\Users\\Kim Lee" /root/.claude /var/root/y /private/var/root/z /home/someone/w /Users/someone/v')
+      for (const leak of ['name/a', 'jo smith', 'Kim Lee', '/root', '/var/root', 'someone']) expect(out).not.toContain(leak)
+      expect(out).toContain('~\\x')
+      expect(out.startsWith('~/a ')).toBe(true)
+      expect(out).toContain('~/.claude')
+    })
+    test('6. email addresses', () => {
+      const out = d('{"loggedIn":true,"email":"kim.lee+ai@acme-corp.example.com"} owner jo@acme.io')
+      expect(out).not.toMatch(/kim\.lee|acme-corp|jo@acme/)
+      expect(out).toContain('[email]')
+    })
+    test('7. token-like runs go; snake_case words stay readable', () => {
+      const out = d('{"type":"content_block_start","event":"message_delta_stream_event"} id cd44f44b-1111-2222-3333-444455556666 tok AbCdEfGhIjKlMnOpQrStUvWx b64 QWxhZGRpbjpvcGVuIHNlc2FtZQ+/AbCdEfGh==')
+      expect(out).toContain('content_block_start')
+      expect(out).toContain('message_delta_stream_event')
+      for (const leak of ['cd44f44b', 'AbCdEfGhIjKlMnOpQrStUvWx', 'QWxhZGRpbjpvcGVu']) expect(out).not.toContain(leak)
+    })
+  })
+
+  describe('the API engine: a timeout and an address that does not answer have different lines', () => {
+    const real = globalThis.fetch
+    afterAll(() => { globalThis.fetch = real })
+    const api = async (thrown: Error) => {
+      globalThis.fetch = (async () => { throw thrown }) as unknown as typeof fetch
+      const d = fs.mkdtempSync(path.join(dir, 'api-'))
+      writeApiEngine(d, { baseUrl: 'http://127.0.0.1:9/v1', model: 'm', label: 'QA API', key: 'sk-test-12345678' })
+      try { return await checkEngine('api', { dataDir: d } as EngineEnv, true, 'en') } finally { globalThis.fetch = real }
+    }
+    test('a timeout says it took too long, with the engine name', async () => {
+      const s = await api(Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' }))
+      expect(s).toMatchObject({ status: 'error', detail: 'Checking QA API took too long. Try Check again in a moment.' })
+      expect(EngineStatus.safeParse(s).success).toBe(true)
+    })
+    test('no answer says the address could not be reached; the provider error is only in errorDetail, without the key', async () => {
+      const s = await api(new TypeError('fetch failed', { cause: new Error('connect ECONNREFUSED 127.0.0.1:9 key sk-test-12345678') }))
+      expect(s).toMatchObject({ status: 'error', detail: T.apiUnreachable!.en })
+      expect(s.detail).not.toContain('ECONNREFUSED')
+      expect(s.errorDetail).toContain('ECONNREFUSED')
+      expect(s.errorDetail).not.toContain('sk-test-12345678')
+    })
   })
 
   test('every plain line has all six languages and no raw placeholder left', () => {

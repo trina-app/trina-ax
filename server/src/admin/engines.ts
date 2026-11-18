@@ -18,7 +18,6 @@ import { credentialsOf } from '../credentials/store'
 import { resolveLayout } from '../system/layout'
 import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
-import { maskTokenLike } from '../credentials/login'
 import { CODEX_PROD_BETA } from '../chat/engines'
 import { readApiEngine, redact } from '../engine/api-agent'
 import { apiEngineFetch } from '../system/egress'
@@ -103,19 +102,47 @@ const hostT = (env: EngineEnv): typeof t => {
 
 /** The longest errorDetail (the cleaned engine output behind the card's "Show details") */
 export const SUPPORT_DETAIL_MAX = 600
-const SECRET_PAIR = /\b(pass(?:word|phrase)?|token|access_token|refresh_token|id_token|secret|client_secret|api[_-]?key|authorization|cookie)(["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[^\s"',}]+/gi
+// The rules of supportDetail, in order. A secret field is a name that ENDS in a secret word, with any prefix
+// (refreshToken, x-api-key, OPENAI_API_KEY), so usage counts such as input_tokens stay; a quoted value goes whole.
+const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:)?\/\/[^\s/@:"'`]+(?::[^\s/@"'`]*)?@/gi
+const COOKIE_LINE = /\b((?:set-)?cookie)\b(["']?\s*[:=])[^\n]*/gi
+const SECRET_PAIR = /\b([A-Za-z0-9_-]*(?:pass|password|passphrase|passwd|pwd|token|secret|key|apikey|auth|authorization|credential|credentials|cookie))(["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|(?:(?:Bearer|Basic)\s+)?(?![{\s])[^\s"',}]+)/gi
+const AUTH_SCHEME: readonly [RegExp, string][] = [
+  [/\bBearer\s+[^\s"',}]+/gi, 'Bearer [hidden]'],
+  [/\bBasic\s+[A-Za-z0-9+/=._~-]{6,}/gi, 'Basic [hidden]'],
+]
+const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g
+const HOME_PATHS: readonly RegExp[] = [
+  // Windows first (C:/Users/… would otherwise leave "C:"): either slash, a name with spaces up to the next slash or quote
+  /\b[A-Za-z]:[\\/]{1,2}Users[\\/]{1,2}[^\\/"'`\n]+/gi,
+  /(?:\/private)?\/var\/root\b/g,
+  /(?<![\w.~-])\/root\b/g,
+  /\/(?:Users|home)\/[^/\s"'`]+/g,
+]
+const mixedCase = (m: string) => /[a-z]/.test(m) && /[A-Z]/.test(m)
+/** token-like runs: 20+ characters with a digit or mixed case (snake_case words such as content_block_start stay
+ * readable), and mixed-case base64-like runs of 24+ */
+const maskRuns = (s: string) => s
+  .replace(/[A-Za-z0-9_-]{20,}/g, (m) => (/\d/.test(m) || mixedCase(m) ? '[hidden]' : m))
+  .replace(/[A-Za-z0-9+/]{24,}={0,2}/g, (m) => (mixedCase(m) ? '[hidden]' : m))
 /**
- * An engine's raw output, for support only (never the card's line): keys, bearer tokens, secret fields and token-like
- * runs masked, a home folder shown as ~, cut to SUPPORT_DETAIL_MAX. undefined when nothing is left.
+ * An engine's raw output, for support only (never the card's line): the key, credentials in addresses, secret fields,
+ * Authorization schemes, cookies, emails and token-like runs masked, home folders shown as ~, cut to
+ * SUPPORT_DETAIL_MAX. undefined when nothing is left.
  */
 export function supportDetail(raw: string | null | undefined, key: string | null = null): string | undefined {
   let s = (raw ?? '').trim()
   if (!s) return undefined
-  s = redact(s, key).replace(SECRET_PAIR, '$1$2[hidden]')
+  s = redact(s, key)
+    .replace(URL_CREDENTIALS, '$1//[hidden]@')
+    .replace(COOKIE_LINE, '$1$2 [hidden]')
+    .replace(SECRET_PAIR, '$1$2[hidden]')
+  for (const [re, to] of AUTH_SCHEME) s = s.replace(re, to)
+  s = s.replace(EMAIL, '[email]')
   const home = os.homedir()
   if (home && home.length > 1) s = s.split(home).join('~')
-  s = s.replace(/\/(?:Users|home)\/[^/\s"'`]+/g, '~').replace(/\b[A-Za-z]:\\(?:\\)?Users\\(?:\\)?[^\\\s"'`]+/gi, '~')
-  s = maskTokenLike(s)
+  for (const re of HOME_PATHS) s = s.replace(re, '~')
+  s = maskRuns(s)
   return s.length > SUPPORT_DETAIL_MAX ? `${s.slice(0, SUPPORT_DETAIL_MAX)}…` : s
 }
 

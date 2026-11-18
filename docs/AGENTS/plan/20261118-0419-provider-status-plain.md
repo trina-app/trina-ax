@@ -47,7 +47,9 @@ The raw text came from `server/src/admin/engines.ts`: the `error` line ("Could n
 200 characters of the engine's stdout/stderr into `detail` when `claude auth status --json` (or `--version`) did not
 answer as expected; in local CLI mode on a QA copy the engine printed stream events there. Now `failedCheck()` gives
 the plain line (checkFailed / checkTimeout / checkNetwork, or the engine's own sign-in line), `supportDetail()` cleans
-the output (api-agent `redact`, secret fields, home folders as ~, `maskTokenLike`, 600 characters) into `errorDetail`,
+the output into `errorDetail` (api-agent `redact`; after review: credentials in addresses, secret fields with any
+prefix, Authorization Basic/Bearer, cookie lines, emails, home folders on Mac/Linux/Windows and /root as ~, and its own
+token-run masker that keeps snake_case words readable; 600 characters),
 and the card shows it behind "Show details" with a copy button (`components/SupportDetails.tsx`). The API engine's
 "could not be reached" line no longer carries the provider's error either. The add-account check and Settings › AI
 return reason codes only, so they needed nothing. As planned otherwise.
