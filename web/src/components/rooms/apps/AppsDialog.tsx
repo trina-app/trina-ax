@@ -22,7 +22,7 @@ import { Link } from 'react-router-dom'
 import { limitResetText } from '@mycel/shared'
 import { ROOM_APP_NAME_MAX, roomAppFormsScript, type RoomApp, type RoomAppCard, type RoomAppList } from '@mycel/shared/api'
 import { api, API, errorText } from '../../../lib/api'
-import { squarePhoto } from '../../../lib/avatar'
+import { PHOTO_ACCEPT, squarePhoto } from '../../../lib/avatar'
 import { dateBucket, formatNumber, formatShortDateTime, intlTag } from '../../../lib/format'
 import { appStatus, FORM_SERVICES, isPreset, kindOf, MORE_SERVICES, needsOf, notSetUp, NOTHING_YET, PICKER_GROUPS, serviceOf, signingOf, switchesOf, type AppService } from '../../../lib/roomApps'
 import { useLocale, useT } from '../../../i18n'
@@ -31,7 +31,8 @@ import { useRoomApps, type AppsStart } from '../../../store/roomApps'
 import { isOwner, useMe } from '../../../store/session'
 import { toast } from '../../../store/ui'
 import { ListRow } from '../../list/List'
-import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, TextAction } from '../../ui'
+import { Button, confirmDialog, IconButton, inputCls, Modal, Skeleton, Switch, TextAction, useMediaQuery } from '../../ui'
+import { useDevicePick } from '../../DevicePick'
 import { EmojiPanel } from '../../EmojiPicker'
 import { AppCardText } from '../AppCard'
 import { MenuButton, type MenuItem } from '../MenuButton'
@@ -461,10 +462,13 @@ function IconField({ roomId, app }: { roomId: string; app: RoomApp }) {
     URL.revokeObjectURL(p.url)
     await run(() => api.call(API.putRoomAppIcon, { params, query: { type: p.type }, body: p.blob }))
   }
+  // a phone: 사진 보관함 and 파일 in place of the upload row (components/DevicePick.tsx), never iOS's raw menu
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const device = useDevicePick({ onFiles: (f) => void upload(f[0]), accept: PHOTO_ACCEPT, camera: false, testIds: 'apps-icon' })
   const items: MenuItem[] = [
-    { label: t('roomApps.iconUpload'), icon: <ImageUp size={14} aria-hidden />, onSelect: () => file.current?.click(), testId: 'apps-icon-upload' },
-    { label: t('roomApps.iconEmoji'), icon: <Smile size={14} aria-hidden />, onSelect: () => setPicking(true), testId: 'apps-icon-emoji' },
-    ...(app.icon ? [{ label: t('roomApps.iconRemove'), icon: <X size={14} aria-hidden />, onSelect: () => void run(() => api.call(API.deleteRoomAppIcon, { params })), testId: 'apps-icon-remove' }] : []),
+    ...(phone ? device.items : [{ label: t('roomApps.iconUpload'), icon: <ImageUp size={14} aria-hidden />, onSelect: () => file.current?.click(), testId: 'apps-icon-upload' }]),
+    { label: t('roomApps.iconEmoji'), icon: <Smile size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => setPicking(true), testId: 'apps-icon-emoji' },
+    ...(app.icon ? [{ label: t('roomApps.iconRemove'), icon: <X size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => void run(() => api.call(API.deleteRoomAppIcon, { params })), testId: 'apps-icon-remove' }] : []),
   ]
   return (
     <div ref={row} className="flex items-center gap-3" data-testid="apps-icon">
@@ -478,7 +482,8 @@ function IconField({ roomId, app }: { roomId: string; app: RoomApp }) {
         items={busy ? items.map((it) => ({ ...it, disabled: true })) : items}
         testId="apps-icon-change"
       />
-      <input ref={file} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} data-testid="apps-icon-file" />
+      <input ref={file} type="file" accept={PHOTO_ACCEPT} className="hidden" onChange={(e) => void upload(e.target.files?.[0])} data-testid="apps-icon-file" />
+      {phone && device.inputs}
       {picking && (
         <EmojiPanel
           anchor={row.current}

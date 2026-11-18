@@ -102,7 +102,7 @@ function render() {
         },
         '⚙',
       ),
-      h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.close'), title: tr('pane.close'), onclick: () => ui.pane.close() }, '✕'),
+      h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.close'), title: tr('pane.close'), 'data-testid': 'pane-close', onclick: () => ui.pane.close() }, '✕'),
     ),
     h(
       'div',
@@ -110,6 +110,8 @@ function render() {
       h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.back'), title: tr('pane.back'), onclick: () => ui.pane.history('back') }, '←'),
       h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.forward'), title: tr('pane.forward'), onclick: () => ui.pane.history('forward') }, '→'),
       h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.reload'), title: tr('pane.reload'), onclick: () => ui.pane.history('reload') }, '↻'),
+      // the page on screen in the person's own browser (web addresses only; the main process checks it again)
+      h('button', { class: 'icon', type: 'button', 'aria-label': tr('pane.openExternal'), title: tr('pane.openExternal'), 'data-testid': 'pane-open-external', disabled: !canOpenOutside(tab), onclick: () => ui.pane.openExternal() }, '↗'),
       h(
         'form',
         {
@@ -177,6 +179,11 @@ function render() {
 function tabLabel(t: DesktopPaneState['tabs'][number]): string {
   if (isBlankPage(t.url) && (!t.title || isBlankPage(t.title))) return tr('pane.newTab')
   return t.title || t.url
+}
+
+/** a page with a web address is on screen (not an empty tab, not a sign-in popup) */
+function canOpenOutside(t: DesktopPaneState['tabs'][number] | undefined): boolean {
+  return !!t && !t.popup && /^https?:\/\//i.test(t.url)
 }
 
 async function toggleSites(open = !showSites) {
