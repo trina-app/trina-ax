@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 한 번 설정하면, 팀 전체가 써요
 
+**AI 계정 하나로 팀 모두가 써요.** Claude나 OpenAI API 키 하나(또는 약관이 허용하는 요금제)를 연결하면 팀 전체가 그걸로 물어요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.
+
 한 사람이 팀 서버에 한 번 설정하면, 모두의 AI가 첫 질문부터 그걸 써요. 브라우저에서도 앱에서도요. 다른 사람은 Claude Code를 깔거나 스킬을 복사할 필요가 없어요. 많아야 자기 계정에 로그인하는 정도예요.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-ko-dark.webp"><img src="docs/images/readme/v4/set-up-once-ko-light.webp" width="100%" alt="한 사람이 AI 계정, Google, 앱, 회사 API, Slack, 스킬, 팀 파일을 트리나 서버에 한 번 설정하면, 맥의 Alex, 아이폰의 Mina, Windows의 Sam, 브라우저의 Leo, 안드로이드의 Jordan 모두의 AI가 그걸 써요."></picture>
@@ -46,6 +48,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 </table>
 
 ## 모두가 이걸로 하는 일
+
+**슬랙 같은 팀 채팅.** 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.
+
+<img src="docs/site/images/chats/room.webp" width="100%" alt="Marketing 채널: Jordan을 부른 메시지, 답글 2개가 달린 스레드, 옆 채팅에서 보낸 트리나의 답">
 
 **어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
 
@@ -82,6 +88,16 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
 - **앱:** [맥, 아이폰, 안드로이드, Windows](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)
+
+<b>Docker로 직접 설치</b> (리눅스, 또는 OrbStack을 쓰는 맥)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # 링크를 열어 소유자 계정을 만들어요
+```
+
+리눅스 설치보다 새 방식이라 덜 시험했어요. Ubuntu 24.04 서버는 먼저 호스트 설정 하나가 필요해요. [Docker 안내](docs/INSTALL-DOCKER.md)
 
 <b>10분 만에 내 컴퓨터에서 써 보기</b> (가상 팀, AI 꺼짐)
 

@@ -64,3 +64,7 @@ Out:
   `docs/images/readme/v4/connected-apps.webp`: "Applies to everyone", Google apps "One setup, then every member just
   signs in", Slack, Notion, Linear, Atlassian, Canva, "Add one by its address") across the full width; the team drive
   and team skills sit under it. The add-an-app dialog is no longer in the README.
+- Follow-up (founder, 11/18): "One AI account for the whole team" opens the set-up-once section; "Team chat, like
+  Slack" (channels, private channels, DMs, group chats, threads, @mentions; `chats/room.webp`) opens what everyone does;
+  Get started shows the three Docker commands (clone, `docker compose up`, setup link) with the guide's caveat (newer
+  and less tested than Linux; Ubuntu 24.04 needs a host setting).
