@@ -26,7 +26,15 @@
   separate "can't tell" card (`unsureGate`): Allow once (the rest of the answer), Always in this chat (that tool of that
   connection as it is now, `chat_card_approvals` kind `shared_unsure_tool`) or Don't run. The two cards stay apart, so a
   real change's card never offers Always and an Always on the "can't tell" card is final for that tool (the owner: no
-  caps after an Always). Some reads now ask (`get_post`, `list_shared_files`): accepted, a card is the safe side. The
+  caps after an Always). A look-up whose change words are only nouns (`get_post`, `list_pull_requests`,
+  `get_payment`, `list_commits`) gets the "can't tell" card too, never a read (second review round, `nounRead`): it
+  starts with a strict read verb (a service prefix only without a change word), has no joining word (and, then, or,
+  plus, also, n, after, before, via, to, into, while, but, else, with), no second read verb, after the verb no plain
+  change verb (also with re- or un-) except a noun-verb (post, share, reply, merge, schedule, order, draft, update,
+  invite, run…) as the last word or before an attribute word (id, url, status, comments, count, details, requests…),
+  and no change verb glued to more letters but its simple endings (-s, -ed, -ing, -er, -ment, -ion, -al); a title
+  with a change word must pass the same test. Two-step and glued names (`fetch_and_post_message`, `get_or_create_user`,
+  `slack_get_send_message`, `getsend`) stay changes. The
   AI's tool list, find_tools and call_tool say the same. A Google app keeps Trina's own list (`google-apps/catalog.ts`).
   First version (bd90411aa): a list of change words in the name. The review probed about 300 names; `resend_invoice`
   got through call_tool with no card, so the default was flipped to "a read only when the name plainly looks".

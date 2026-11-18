@@ -72,7 +72,8 @@ export function readVerb(name: string): boolean {
  * How a call of this tool counts in this turn. Not marked read-only by the service: a change. Outside a shared chat, or
  * a Google app (Trina's own list): the mark. In a shared chat: a read only when the name is plain ASCII after NFKC
  * (a name with invisible characters is a change), its verb is a strict read verb and neither name nor title holds a change word; a
- * marked tool with no change word whose verb is not known is 'unsure'; anything else is a change.
+ * marked tool with no change word whose verb is not known, or a look-up whose change words are only nouns (nounRead),
+ * is 'unsure'; anything else is a change.
  */
 export function readKind(shared: boolean, row: { google_app?: string | null }, t: Pick<RemoteTool, 'name' | 'title' | 'readOnly'>): ReadKind {
   if (!t.readOnly) return 'change'
@@ -80,8 +81,53 @@ export function readKind(shared: boolean, row: { google_app?: string | null }, t
   const name = plainName(t.name)
   // a name with characters that do not show, or that is not plain ASCII after NFKC, is not judged by its look
   if (!name || name !== t.name.normalize('NFKC') || !/^[\x21-\x7e]+$/.test(name)) return 'change'
-  if (namedAsChange(name) || namedAsChange(t.title)) return 'change'
+  if (namedAsChange(name) || namedAsChange(t.title)) {
+    // a look-up whose change word is only a noun ("get_post", "list_pull_requests"): the "can't tell" card, never a read
+    // (security review of #1328: the write card for every such read broke "no caps after an Always")
+    const title = t.title ? plainName(t.title) : ''
+    if (title && namedAsChange(title) && !nounRead(nameWords(title))) return 'change'
+    return nounRead(nameWords(name)) ? 'unsure' : 'change'
+  }
   return readVerb(name) ? 'read' : 'unsure'
+}
+
+/** Words that join a second step ("fetch_and_post", "get_or_create", "list_users_to_notify"). */
+const JOIN = new Set(['and', 'then', 'or', 'plus', 'also', 'n', 'after', 'before', 'via', 'to', 'into', 'while', 'but', 'else', 'with'])
+/** Change verbs as a whole word, also with re- or un- ("resend", "unsubscribe"). */
+const BARE = new Set([
+  'send', 'delete', 'remove', 'erase', 'purge', 'wipe', 'destroy', 'execute', 'invoke', 'trigger', 'submit', 'revoke', 'grant',
+  'approve', 'transfer', 'refund', 'publish', 'upload', 'write', 'overwrite', 'replace', 'insert', 'upsert', 'modify', 'mutate',
+  'subscribe', 'kill', 'terminate', 'drop', 'forward', 'reply', 'respond', 'notify', 'broadcast', 'dispatch', 'create', 'update',
+  'pay', 'run', 'merge', 'archive', 'trash', 'rename', 'invite', 'cancel', 'move', 'copy', 'post', 'share', 'commit', 'push',
+  'deploy', 'schedule', 'save', 'sync', 'charge', 'order', 'set', 'put', 'add', 'edit', 'patch', 'tweet', 'vote', 'sign', 'book',
+  'buy', 'sell', 'call', 'emit',
+].flatMap((v) => [v, 're' + v, 'un' + v]))
+/** Change verbs that are also nouns: a noun as the last word or before an ATTR word ("get_post", "get_post_comments"). */
+const NOUN_VERBS = new Set(['post', 'share', 'reply', 'merge', 'schedule', 'sync', 'charge', 'order', 'commit', 'tweet', 'vote', 'book', 'call', 'draft', 'update', 'invite', 'run', 'copy', 'sign'])
+const ATTR = new Set(['id', 'ids', 'url', 'urls', 'status', 'details', 'detail', 'info', 'count', 'comments', 'history', 'stats', 'metadata', 'by', 'at', 'link', 'links', 'content', 'body', 'data', 'settings', 'items', 'title', 'request', 'requests', 'code', 'date', 'time'])
+/** Endings that make a change verb a noun or a state ("posts", "postal", "created", "payment") */
+const INFLECTION = /^(s|es|d|ed|ing|er|ers|ment|ments|ion|ions|al|age|able)$/
+const CHANGE_PARTS_SET = CHANGE_PARTS
+
+/**
+ * A look-up whose change words are only nouns (the security review's narrow rule): it starts with a strict read verb
+ * (after a service prefix with no change word), has no word that joins a second step and no second read verb, and after
+ * the verb no change verb (also with re- or un-) except a noun-verb as the last word or before an attribute word; no
+ * change verb glued to more letters ("sendmessage") but its simple endings; no word holding two change parts.
+ */
+export function nounRead(w: readonly string[]): boolean {
+  const at = READ_VERBS.has(w[0] ?? '') ? 0 : w.length > 2 && READ_VERBS.has(w[1]!) ? 1 : -1
+  if (at < 0 || w.length < at + 2) return false
+  if (at === 1 && namedAsChange(w[0])) return false
+  if (w.some((x) => JOIN.has(x))) return false
+  const rest = w.slice(at + 1)
+  if (rest.some((x) => READ_VERBS.has(x))) return false
+  for (let i = 0; i < rest.length; i++) {
+    const x = rest[i]!
+    if (BARE.has(x) && !(NOUN_VERBS.has(x) && (i === rest.length - 1 || ATTR.has(rest[i + 1]!)))) return false
+    for (const v of BARE) if (x.length > v.length && x.startsWith(v) && !INFLECTION.test(x.slice(v.length))) return false
+  }
+  return !rest.some((x) => CHANGE_PARTS_SET.filter((p) => x.includes(p)).length > 1)
 }
 
 /** A call that only reads with no card of its own (readKind 'read'). */

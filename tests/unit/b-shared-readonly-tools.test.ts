@@ -185,6 +185,27 @@ describe('the name check (read-mark.ts)', () => {
     expect(readsHere(true, {}, { name: 'search_tasks', title: null, readOnly: true })).toBe(true)
     expect(readsHere(true, {}, { name: 'scrape_as_markdown', title: null, readOnly: true })).toBe(false)
   })
+  // ordinary look-ups whose change word is only a noun (security review of #1328, second round)
+  const NOUN_READS = ['get_post', 'get_posts', 'list_shared_files', 'list_shared_drives', 'get_created_at', 'get_updated_at', 'list_pull_requests', 'list_webhooks', 'get_payment', 'list_charges', 'get_open_issues', 'list_commits', 'get_releases', 'list_deployments', 'get_schedule', 'list_notifications', 'get_attachments', 'list_connections', 'get_assignees', 'list_subscriptions', 'get_saved_searches', 'list_merge_requests', 'get_replies', 'get_invites', 'get_completed_tasks', 'list_installed_apps', 'get_reminders', 'get_reservations', 'get_last_login', 'get_embeddings', 'get_postal_code', 'get_enabled_features', 'get_status_updates', 'list_requests', 'get_post_comments', 'get_draft', 'list_drafts', 'search_by_creator', 'get_sql_schema', 'query_sql']
+  // two steps, a second verb, or a verb glued to more letters: they stay changes
+  const TWO_STEP = ['fetch_and_post_message', 'get_and_send', 'readAndForward', 'search_and_reply', 'download_and_share', 'fetch_and_merge', 'get_or_create_user', 'getOrCreate', 'find_or_create_contact', 'search_then_reply', 'get_post_and_delete', 'getThenSend', 'lookup_plus_send', 'list_users_to_notify', 'fetch_send_message', 'get_send', 'getsend', 'get_resend', 'get_resend_count', 'read_and_delete_mail', 'get_post_then_publish', 'query_to_update', 'listAndRemove', 'fetch_n_post', 'get_x_send', 'list_delete', 'find_remove_duplicates', 'get_message_send', 'get_postandsend', 'getPostAndSend', 'fetch_post_send', 'get_unsubscribe', 'fetch_create', 'fetchAndUpdate', 'get_pay', 'list_cancel', 'get_post_reply', 'x_get_send', 'slack_get_send_message', 'get_message_to_send', 'get_upsert', 'fetchsend', 'getandpost', 'fetch_postmessage', 'get_sendmessage', 'retrieve_and_publish', 'post_get_comments', 'send_get_status']
+
+  test("40 noun-reads get the \"can't tell\" card (Always in this chat), never a read and never the write card", () => {
+    expect(NOUN_READS.length).toBe(40)
+    for (const n of NOUN_READS) expect([n, kind(n)]).toEqual([n, 'unsure'])
+  })
+  test('no probe name and no two-step or glued name moves: each stays a change', () => {
+    for (const n of [...PROBE.filter((x) => x !== 'export_to_drive'), ...TWO_STEP]) expect([n, kind(n)]).toEqual([n, 'change'])
+    // (export_to_drive has no change word and no known verb: the "can't tell" card, as before)
+    expect(kind('export_to_drive')).toBe('unsure')
+  })
+  test('a title with a change word must pass the same test', () => {
+    expect(kind('get_post', 'Send a post')).toBe('change')
+    expect(kind('get_post', 'Get post')).toBe('unsure')
+    expect(kind('get_item', 'Get and delete an item')).toBe('change')
+    expect(kind('get_post\u200b')).toBe('change')
+    expect(readKind(true, {}, { name: 'get_post', title: null, readOnly: false })).toBe('change')
+  })
   test('plainName: NFKC and no invisible characters', () => {
     expect(plainName('ｓｅｎｄ')).toBe('send')
     expect(plainName('s​end⁠')).toBe('send')
