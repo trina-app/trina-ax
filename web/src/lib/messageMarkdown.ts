@@ -80,11 +80,13 @@ interface Node {
 function split(value: string, found: Found[], inLink: boolean): Node[] {
   const out: Node[] = []
   // (lines of only blank-looking characters in a row, "a\n\u3000\n\u3000\n…": at most MAX_BLANK_LINES, as between blocks)
+  // (the last line of a piece is not empty: a link, a mention or formatting goes on after it on the same line)
   let empty = 0
   const words = (s: string) => {
-    s.split('\n').forEach((line, i) => {
+    const lines = s.split('\n')
+    lines.forEach((line, i) => {
       if (i > 0) {
-        if (isBlankLine(line)) {
+        if (i < lines.length - 1 && isBlankLine(line)) {
           if (++empty > MAX_BLANK_LINES) return
         } else empty = 0
         out.push({ type: 'break' })

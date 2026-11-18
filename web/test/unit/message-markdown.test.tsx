@@ -592,6 +592,13 @@ test('lines of only U+3000 or NBSP are blank lines: counted and capped like empt
     expect(capBlankLines(`a\n${(ch + '\n').repeat(20)}b`)).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
     expect(capBlankLines(`a\n${ch}\n${ch}\nb`)).toBe(`a\n${ch}\n${ch}\nb`)
   }
+  // a blank-looking line that a link, a mention or formatting goes on from is not empty: the cap counts only the empty
+  // ones before it, and the link stays on its own line
+  for (const tail of ['\u3000https://e.com', '\u3000@Cy Park', '\u3000**bold**']) {
+    const h = words('a\n' + '\u3000\n'.repeat(5) + tail, [CY.id])
+    expect(h.match(/<br\/>/g)?.length).toBe(6)
+    expect(h).toMatch(/<br\/>\n\u3000(<a |<span class="font-medium|<strong>)/)
+  }
   // a message of nothing but them still shows (nothing to space out)
   expect(words('　\n\n　')).toContain('<p>　</p>')
   // other text with an NBSP is words, not a blank line
