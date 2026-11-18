@@ -95,6 +95,8 @@ export const SUN_PATH_MAX = 107
 /** The unix sockets srt 0.0.81 makes in TMPDIR for its network bridge (linux-sandbox-utils.js
  * initializeLinuxNetworkBridge: claude-http-<16 hex>.sock and claude-socks-<16 hex>.sock). */
 export const srtSocketPaths = (tmp: string) => ['claude-http-', 'claude-socks-'].map((p) => path.join(tmp, `${p}${'0'.repeat(16)}.sock`))
+/** srt's sockets in `tmp` that would not fit a unix socket path */
+export const srtSocketProblems = (tmp: string): string[] => srtSocketPaths(tmp).filter((sp) => Buffer.byteLength(sp) > SUN_PATH_MAX).map((sp) => `srt's socket path is too long (${Buffer.byteLength(sp)} bytes, at most ${SUN_PATH_MAX}): ${sp}`)
 /** the logs of a run: in a shared chat one folder per command (chat-logs/<chat>/<run>), else the person's */
 export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatLogs(base, o.sharedChat), sharedRunId(o)) : personLogs(base, o.userId))
 /** The work folder of a shared chat with no project, for one audience (`audienceKey`, sharedWorkKey): a chat's private
@@ -352,10 +354,12 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
   // Linux: srt's bridge sockets in TMPDIR must fit a unix socket path, else every command fails with "Failed to create
   // bridge sockets" (QA TC-4848); refused here with the reason instead
-  if (platform === 'linux') {
+  // (on a Linux host only: the sockets are made on this machine; the tests of a fake Linux system on a Mac have long
+  // temp folders and make no sockets)
+  if (platform === 'linux' && process.platform === 'linux') {
     let tmp = ''
     try { tmp = runTmp(i.base, i) } catch { out.push('a shared chat\'s run has no run id') }
-    if (tmp) for (const sp of srtSocketPaths(tmp)) if (Buffer.byteLength(sp) > SUN_PATH_MAX) out.push(`srt's socket path is too long (${Buffer.byteLength(sp)} bytes, at most ${SUN_PATH_MAX}): ${sp}`)
+    if (tmp) out.push(...srtSocketProblems(tmp))
   }
   // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
   const n = s.network

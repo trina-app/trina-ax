@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { runEnv, settingsProblems, srtSettings } from '../../server/src/devenv/srt/config'
+import { runEnv, settingsProblems, srtSettings, srtSocketProblems } from '../../server/src/devenv/srt/config'
 import * as config from '../../server/src/devenv/srt/config'
 import type { FolderView } from '../../server/src/devenv/srt/access'
 
@@ -42,7 +42,11 @@ describe('srt\'s socket paths on a production base', () => {
   })
   test('a base too long for srt\'s sockets: the run is refused with the reason, not by srt', () => {
     const base = `/var/lib/${'x'.repeat(70)}`
+    const tmp = runEnv({ base, userId: USER, teamRoot: `${base}/team`, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN }).TMPDIR!
+    expect(srtSocketProblems(tmp).length).toBe(2)
+    expect(srtSocketProblems(runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN }).TMPDIR!)).toEqual([])
+    // on a Linux host settingsProblems says so (the sockets are made on this machine)
     const input = { base, id: 'mycel', teamRoot: `${base}/team`, userId: USER, view: VIEW, start: 'projects/one', work: null, network: 'open' as const, extraDomains: [], denyHosts: [], denyAddrs: [], platform: 'linux' as const, sharedChat: CHAT, runId: RUN }
-    expect(settingsProblems(srtSettings(input), input).some((p) => p.includes('socket path is too long'))).toBe(true)
+    if (process.platform === 'linux') expect(settingsProblems(srtSettings(input), input).some((p) => p.includes('socket path is too long'))).toBe(true)
   })
 })
