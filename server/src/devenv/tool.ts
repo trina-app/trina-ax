@@ -23,7 +23,7 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
+import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import path from 'node:path'
@@ -209,6 +209,12 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, folder: o.tracked ? 'project' : 'work', background: background || !!jobName, ...(jobName ? { job: jobName } : {}), runner: 'srt',
     result, changed: w.changes.length, background_changes: w.background.length, conflicts: w.conflicts,
   } })
+  // a shared chat: the answer names only paths the run could see (a save by someone else in a folder some people here
+  // cannot open lands in the same window); the audit line above keeps them all
+  if (h.shared) {
+    const see = sharedVisible(ctx, space)
+    w = { ...w, changes: w.changes.filter((c) => see(c.path)), background: w.background.filter((c) => see(c.path)), conflicts: w.conflicts.filter(see) }
+  }
   if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
   const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }
   if (out.kind === 'job' && out.r.ok) {
@@ -336,7 +342,9 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   }
   const notes: string[] = []
   if (tracked) {
-    const foreign = changesByOthers(ctx, tracked, h.userId)
+    let foreign = changesByOthers(ctx, tracked, h.userId)
+    // a shared chat: only changes in folders this run may see, and no count of the others (sharedVisible)
+    if (h.shared) { const see = sharedVisible(ctx, space); const items = foreign.items.filter((c) => see(c.path)); foreign = { ...foreign, items, total: items.length } }
     if (usesCredentials(data.command) && foreign.total > 0) {
       const ok = await h.confirm(
         `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
@@ -348,7 +356,8 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     } else if (firstCall && foreign.total > 0) {
       notes.push(`Changed by other people since this person's last command:\n${foreignLines(foreign)}`)
     }
-    if (firstCall) {
+    // other people's jobs and dev servers (their names): never in a shared chat
+    if (firstCall && !h.shared) {
       const others = othersInProject(ctx, tracked.id, h.userId)
       if (others.length) notes.push('Other people\'s jobs and dev servers in this project (they keep running):\n' + others.slice(0, 20).map((r) => `  ${r.kind} ${r.name}${r.position ? ` (waiting, position ${r.position})` : ''}, by ${r.by}`).join('\n'))
     }

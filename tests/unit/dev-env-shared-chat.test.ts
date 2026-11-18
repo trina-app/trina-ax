@@ -10,7 +10,8 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { _active, setSrtSystem, type SharedRun } from '../../server/src/devenv/srt/runner'
-import { chatHome, chatLogs, personHome, personLogs, unitName } from '../../server/src/devenv/srt/config'
+import { chatHome, chatLogs, chatWork, personHome, personLogs, sharedWork, sharedWorkKey, unitName } from '../../server/src/devenv/srt/config'
+import { peopleAudience } from '../../server/src/chat/chat-audience'
 import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { pollSrt } from '../../server/src/devenv/jobs'
@@ -54,7 +55,7 @@ function sharedRun(audience: string[], within: string | null, noted: { folders: 
 }
 const confirms: string[] = []
 const shell = (userId: string, shared: SharedRun | undefined, chatId = chat, signal = new AbortController().signal) =>
-  boxShellTool({ ctx: h.ctx, project: shared?.within === null ? null : P, userId, turnId: 't-' + crypto.randomUUID(), chatId, signal, redact: (s) => s,
+  boxShellTool({ ctx: h.ctx, project: shared ? (shared.within === null ? null : P) : chatId === chat ? P : null, userId, turnId: 't-' + crypto.randomUUID(), chatId, signal, redact: (s) => s,
     confirm: async (q) => { confirms.push(q); return 'run' }, ...(shared ? { shared } : {}) })
 const abs = (rel: string) => path.join(team, rel)
 const fsOf = (r: FakeRun) => r.settings.filesystem
@@ -106,8 +107,8 @@ describe('a shared project chat', () => {
     expect(done.data.message.content).toContain('hi')
     const r = last()
     expect(r.spec.cwd).toBe(fs.realpathSync(abs(P.folderPath)))
-    // the turn ran it as a shared chat's run: the chat's home
-    expect(r.spec.env.HOME).toBe(chatHome(base, chat))
+    // the turn ran it as a shared chat's run: a home of this command in the chat's folder
+    expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
     expect(fsOf(r).allowWrite).toContain(abs(P.folderPath))
     expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
@@ -126,8 +127,8 @@ describe('a shared project chat', () => {
     expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
     expect(readable(r)).not.toContain(abs('users/alice'))
     expect(readable(r)).not.toContain(abs('shared'))
-    expect(r.spec.env.HOME).toBe(chatHome(base, chat))
-    expect(r.spec.env.TRINA_LOGS).toBe(chatLogs(base, chat))
+    expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
+    expect(r.spec.env.TRINA_LOGS).toBe(path.join(chatLogs(base, chat), r.spec.runId))
     expect(readable(r)).not.toContain(personHome(base, 'alice'))
     expect(readable(r)).not.toContain(personLogs(base, 'alice'))
     expect(Object.values(r.spec.env).some((v) => v.includes(personHome(base, 'alice')))).toBe(false)
@@ -167,6 +168,60 @@ describe('a shared project chat', () => {
     await pollSrt(h.ctx)
     expect(stops).toHaveLength(1)
     expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
+  })
+
+  // review 4: a rule change (here bob taken out of the project) is checked at once through the access hook
+  test('the project\'s people change while a command runs: it stops at once, with no wait for the poll', async () => {
+    const cmd = shell('alice', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'sleep', timeout_sec: 60 })
+    await Bun.sleep(150)
+    expect(last().state).toBe('active')
+    const access = await h.api('dana').call(API.getProjectAccess, { params: { id: P.id } })
+    await h.api('dana').call(API.putProjectParticipants, { params: { id: P.id }, body: { participants: [user('alice')], expectedHash: access.rulesHash } })
+    try {
+      await Bun.sleep(300)
+      expect(stops).toHaveLength(1)
+      expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
+    } finally {
+      const a = await h.api('dana').call(API.getProjectAccess, { params: { id: P.id } })
+      await h.api('dana').call(API.putProjectParticipants, { params: { id: P.id }, body: { participants: [user('alice'), user('bob')], expectedHash: a.rulesHash } })
+    }
+  })
+
+  // review 3: the notes go to everyone in the chat
+  test('notes name no path in a folder some people here cannot open, and no other person\'s jobs', async () => {
+    const at = new Date().toISOString()
+    const ev = h.ctx.db.query("INSERT INTO file_events (user_id, path, action, at) VALUES ('dana', ?, 'update', ?)")
+    ev.run(`${P.folderPath}/secret/plan-SECRETNAME.md`, at)
+    ev.run(`${P.folderPath}/visible-OPENNAME.md`, at)
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at) VALUES (?, 'bob', NULL, ?, 't0', 'job', 'bob-PRIVATEJOB', 'x', ?, '', 'running', ?)")
+      .run(crypto.randomUUID(), P.id, abs(P.folderPath), at)
+    // a file someone saved in the restricted folder between two commands, and one the command's window catches
+    const tool = shell('alice', sharedRun(['alice', 'bob'], P.folderPath))
+    const first = out(await tool.call({ command: 'echo 1' }))
+    expect(first).toContain('visible-OPENNAME.md')
+    expect(first).not.toContain('SECRETNAME')
+    expect(first).not.toContain('PRIVATEJOB')
+    expect(first).not.toMatch(/and \d+ more/)
+    fs.writeFileSync(abs(`${P.folderPath}/secret/between-SECRETNAME.md`), 'x')
+    fs.writeFileSync(abs(`${P.folderPath}/between-OPENNAME.md`), 'x')
+    const second = out(await tool.call({ command: 'echo 2' }))
+    expect(second).toContain('between-OPENNAME.md')
+    expect(second).not.toContain('SECRETNAME')
+    // her own chat (not shared): the same notes name everything, as before
+    h.ctx.db.query("DELETE FROM dev_env_runs").run()
+  })
+
+  // review 5: the reason a run is refused names folders (personal ones too): only in the log in a shared chat
+  test('refused settings: a generic reason in a shared chat', async () => {
+    const id = crypto.randomUUID()
+    // a connected folder's source over the projects: every run that reads a project is refused by the settings check
+    h.ctx.db.query('INSERT INTO connected_folders (id, name, source) VALUES (?, ?, ?)').run(id, 'nas-test', abs('projects'))
+    try {
+      const t = out(await shell('alice', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo x' }))
+      expect(t).toContain('refused settings (see the server log)')
+      expect(t).not.toContain(team)
+      expect(runs.size).toBe(0)
+    } finally { h.ctx.db.query('DELETE FROM connected_folders WHERE id = ?').run(id) }
   })
 
   test('someone who cannot be loaded, or the person no longer in the chat: nothing runs', async () => {
@@ -215,7 +270,7 @@ describe('a chat shared with people and groups', () => {
     const people = (await h.api('alice').call(API.createChat, { body: {} })).id
     await shell('alice', sharedRun(['alice', 'bob'], null), people).call({ command: 'echo ok' })
     const r = last()
-    const work = path.join(base, 'devenv/work', people)
+    const work = sharedWork(base, people, sharedWorkKey(['alice', 'bob']))
     expect(r.spec.cwd).toBe(fs.realpathSync(work))
     expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
     expect(fsOf(r).allowWrite).toContain(work)
@@ -224,6 +279,78 @@ describe('a chat shared with people and groups', () => {
     expect(readable(r)).not.toContain(abs('groups/finance'))
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
     expect(readable(r)).not.toContain(abs(`${P.folderPath}/secret`))
-    expect(r.spec.env.HOME).toBe(chatHome(base, people))
+    expect(r.spec.env.HOME).toBe(path.join(chatHome(base, people), r.spec.runId))
+  })
+
+  // review 1: a chat's private work folder may hold copies of the person's own files
+  test('a private chat that becomes shared: its private work folder is never mounted in a shared run', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await shell('alice', undefined, c).call({ command: 'echo private' })
+    const priv = chatWork(base, c)
+    expect(last().spec.cwd).toBe(fs.realpathSync(priv))
+    fs.writeFileSync(path.join(priv, 'copy-of-diary.md'), 'PRIVATE')
+    await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo shared' })
+    const r = last()
+    expect(r.spec.cwd).not.toBe(fs.realpathSync(priv))
+    expect(r.spec.cwd.startsWith(fs.realpathSync(path.join(base, 'devenv', 'work-shared')))).toBe(true)
+    expect(readable(r).some((p) => p === priv || p.startsWith(priv + '/'))).toBe(false)
+    expect(fs.existsSync(path.join(r.spec.cwd, 'copy-of-diary.md'))).toBe(false)
+  })
+
+  // review 2: what a run left behind must not reach a later, wider audience
+  test('a new person in the chat gets an empty work folder; the same people get theirs again', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await shell('alice', sharedRun(['alice'], null), c).call({ command: 'echo 1' })
+    const alone = last().spec.cwd
+    fs.writeFileSync(path.join(alone, 'from-alice-alone.md'), 'x')
+    await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo 2' })
+    const both = last().spec.cwd
+    expect(both).not.toBe(alone)
+    expect(fs.readdirSync(both)).toEqual([])
+    await shell('alice', sharedRun(['bob', 'alice'], null), c).call({ command: 'echo 3' })
+    expect(last().spec.cwd).toBe(both)
+  })
+
+  test('the people change between choosing the work folder and the run: nothing runs', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    let n = 0
+    const moving: SharedRun = { within: null, audience: () => (n++ === 0 ? ['alice'] : ['alice', 'bob']), noteReads: () => true }
+    expect(out(await shell('alice', moving, c).call({ command: 'echo x' }))).toContain('the people of this chat changed')
+    expect(runs.size).toBe(0)
+  })
+
+  test('the home and logs of a shared chat\'s command are its own, and gone when it ends', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const tool = shell('alice', sharedRun(['alice', 'bob'], null), c)
+    await tool.call({ command: 'echo 1' })
+    const first = last().spec
+    await tool.call({ command: 'echo 2' })
+    const second = last().spec
+    expect(second.env.HOME).not.toBe(first.env.HOME)
+    expect(second.env.TMPDIR).not.toBe(first.env.TMPDIR)
+    for (const sp of [first, second]) {
+      expect(fs.existsSync(sp.env.HOME!)).toBe(false)
+      expect(fs.existsSync(sp.env.TRINA_LOGS!)).toBe(false)
+    }
+  })
+
+  // review 4: the change is checked at once, not at the next poll
+  test('someone is added to the chat while a command runs: it stops at once', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const put = async (ids: string[]) => {
+      const subjects = ids.map((id) => ({ subjectType: 'user' as const, subjectId: id }))
+      let r = await h.api('alice').call(API.putChatAudience, { params: { id: c }, body: { subjects } })
+      if (r.status === 'confirm') r = await h.api('alice').call(API.putChatAudience, { params: { id: c }, body: { subjects, confirmKey: r.confirmKey } })
+      expect(r.status).toBe('saved')
+    }
+    await put(['bob'])
+    const live: SharedRun = { within: null, audience: () => peopleAudience(h.ctx.db, { id: c, user_id: 'alice' }), noteReads: () => true }
+    const cmd = shell('alice', live, c).call({ command: 'sleep', timeout_sec: 60 })
+    await Bun.sleep(150)
+    expect(last().state).toBe('active')
+    await put(['bob', 'erin'])
+    await Bun.sleep(300)
+    expect(stops).toHaveLength(1)
+    expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
   })
 })

@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import path from 'node:path'
 import { atLeast, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedReadable, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { chatHome, chatLogs, personHome, personLogs, runEnv, settingsProblems, srtSettings } from '../../server/src/devenv/srt/config'
+import { chatHome, chatLogs, personHome, personLogs, runEnv, settingsProblems, sharedWork, sharedWorkKey, srtSettings } from '../../server/src/devenv/srt/config'
 import { ruleWorld } from '../lib/rule-world'
 
 const who = (id: string, role: Principal['role'] = 'member', groups: string[] = []): Principal => ({ id, name: id, role, groups })
@@ -38,6 +38,7 @@ function expected(p: Principal, audience: Principal[], within: string | null, re
 const projectView = (p: Principal, audience: Principal[]) => sharedFolderView(RULES, p, { start: F }, { audience, within: F })
 const peopleView = (p: Principal, audience: Principal[]) => sharedFolderView(RULES, p, { start: null }, { audience, within: null })
 const at = (v: FolderView, rel: string) => viewAccess(v, rel)
+const folderViewOf = (): FolderView => ({ read: ['shared'], write: ['users/alice'], denyRead: ['users'], denyWrite: [] })
 
 describe('a shared project chat', () => {
   test('alice with bob: the project folder only, without the folder bob cannot open; she writes where she may', () => {
@@ -113,16 +114,19 @@ describe('a chat shared with people and groups', () => {
 })
 
 describe('the settings and environment of a shared run', () => {
-  const base = '/var/lib/mycel', teamRoot = '/var/lib/mycel/team', chat = 'chat_1'
-  const input = (view: FolderView, start: string | null, sharedChat: string | null) => ({
-    base, id: 'mycel', teamRoot, userId: 'alice', view, start, work: start === null ? path.join(base, 'devenv/work', chat) : null, network: 'open' as const,
-    extraDomains: [], denyHosts: ['team.example.com'], denyAddrs: [], platform: 'linux' as const, ...(sharedChat ? { sharedChat } : {}),
+  const base = '/var/lib/mycel', teamRoot = '/var/lib/mycel/team', chat = 'chat_1', runId = 'abcdefgh12345678'
+  const home = path.join(chatHome(base, chat), runId), logs = path.join(chatLogs(base, chat), runId)
+  const input = (view: FolderView, start: string | null, sharedChat: string | null, work?: string) => ({
+    base, id: 'mycel', teamRoot, userId: 'alice', view, start, work: start === null ? work ?? path.join(base, 'devenv/work', chat) : null, network: 'open' as const,
+    extraDomains: [], denyHosts: ['team.example.com'], denyAddrs: [], platform: 'linux' as const, ...(sharedChat ? { sharedChat, runId } : {}),
   })
   test('the chat\'s home and logs, not the person\'s; no personal folder readable; the settings pass their check', () => {
     const i = input(projectView(alice, [alice, bob]), F, chat)
     const s = srtSettings(i)
-    expect(s.filesystem.allowWrite).toContain(chatHome(base, chat))
-    expect(s.filesystem.allowRead).toContain(chatLogs(base, chat))
+    // a home and logs of this command alone
+    expect(s.filesystem.allowWrite).toContain(home)
+    expect(s.filesystem.allowRead).toContain(logs)
+    expect(s.filesystem.allowWrite).not.toContain(chatHome(base, chat))
     const all = [...new Set([...s.filesystem.allowRead, ...s.filesystem.allowWrite])]
     expect(all).not.toContain(personHome(base, 'alice'))
     expect(all).not.toContain(personLogs(base, 'alice'))
@@ -144,13 +148,30 @@ describe('the settings and environment of a shared run', () => {
     expect(settingsProblems(srtSettings(mine), mine).filter((p) => p.includes('shared chat'))).toEqual([])
   })
   test('the environment names the chat\'s folders and nothing of the person', () => {
-    const env = runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat })
-    expect(env.HOME).toBe(chatHome(base, chat))
-    expect(env.TRINA_LOGS).toBe(chatLogs(base, chat))
-    expect(env.npm_config_cache.startsWith(chatHome(base, chat))).toBe(true)
+    const env = runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId })
+    expect(env.HOME).toBe(home)
+    expect(env.TMPDIR).toBe(path.join(home, 'tmp'))
+    expect(env.TRINA_LOGS).toBe(logs)
+    expect(env.npm_config_cache.startsWith(home)).toBe(true)
+    // a shared chat's run with no run id: refused (no shared home to fall back to)
+    expect(() => runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat })).toThrow()
     expect(Object.values(env).some((v) => v.includes('alice'))).toBe(false)
     // her own chat: her home, as before
     expect(runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux' }).HOME).toBe(personHome(base, 'alice'))
+  })
+  test('a shared run never gets the chat\'s private work folder, only its own for the people who see it now', () => {
+    const view = peopleView(alice, [alice, bob])
+    const priv = input(view, null, chat)
+    expect(settingsProblems(srtSettings(priv), priv).some((p) => p.includes('work folder is not in'))).toBe(true)
+    expect(settingsProblems(srtSettings(priv), priv).some((p) => p.includes('a private work folder is readable in a shared chat'))).toBe(true)
+    const own = input(view, null, chat, sharedWork(base, chat, sharedWorkKey(['alice', 'bob'])))
+    expect(settingsProblems(srtSettings(own), own)).toEqual([])
+    // the key: the same people, the same folder; anyone more, another one
+    expect(sharedWorkKey(['bob', 'alice'])).toBe(sharedWorkKey(['alice', 'bob']))
+    expect(sharedWorkKey(['alice'])).not.toBe(sharedWorkKey(['alice', 'bob']))
+    // and a private run never gets a shared chat's folder
+    const wrong = input(folderViewOf(), null, null, sharedWork(base, chat, sharedWorkKey(['alice'])))
+    expect(settingsProblems(srtSettings(wrong), wrong).some((p) => p.includes('work folder is not in'))).toBe(true)
   })
   test('macOS: every personal folder is hidden by name, her own too', () => {
     const i = { ...input(projectView(alice, [alice, bob]), F, chat), platform: 'darwin' as const }

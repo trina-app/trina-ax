@@ -1,6 +1,7 @@
 // The parts of a run on srt with no side effects (docs/research/srt-dev-env.md section 2): the srt settings file, the
 // environment of the run, the arguments of a run unit (trina-dev@<runId>.service) and the argv of an older install's
 // `systemd-run --scope`. Tests check each one (tests/unit/dev-env-srt.test.ts).
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
@@ -61,6 +62,8 @@ export function devenvPaths(base: string) {
     work: path.join(root, 'work'),
     /** HOME, TMPDIR and caches of the runs of one shared chat (docs/decisions/20261118-devenv-shared-chats.md) */
     chatHome: path.join(root, 'chat-home'),
+    /** the work folders of shared chats with no project, one per chat and audience (sharedWork): never the private one */
+    workShared: path.join(root, 'work-shared'),
     /** the output files of the commands of one shared chat */
     chatLogs: path.join(root, 'chat-logs'),
   }
@@ -74,9 +77,19 @@ export const chatHome = (base: string, chatId: string) => path.join(devenvPaths(
 /** the output files of a shared chat's commands */
 export const chatLogs = (base: string, chatId: string) => path.join(devenvPaths(base).chatLogs, safeId(chatId))
 /** the home of a run: the shared chat's, else the person's */
-export const runHome = (base: string, o: { userId: string; sharedChat?: string | null }) => (o.sharedChat ? chatHome(base, o.sharedChat) : personHome(base, o.userId))
-/** the logs of a run: the shared chat's, else the person's */
-export const runLogs = (base: string, o: { userId: string; sharedChat?: string | null }) => (o.sharedChat ? chatLogs(base, o.sharedChat) : personLogs(base, o.userId))
+export interface RunOwnerPaths { userId: string; sharedChat?: string | null; runId?: string }
+const sharedRunId = (o: RunOwnerPaths) => { if (!o.runId || !RUN_ID_RE.test(o.runId)) throw new Error('a run of a shared chat needs its run id'); return o.runId }
+/** the home of a run: in a shared chat a fresh folder per command (chat-home/<chat>/<run>, removed when it ends: nothing
+ * one audience's run left there reaches a later one), else the person's */
+export const runHome = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatHome(base, o.sharedChat), sharedRunId(o)) : personHome(base, o.userId))
+/** the logs of a run: in a shared chat one folder per command (chat-logs/<chat>/<run>), else the person's */
+export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatLogs(base, o.sharedChat), sharedRunId(o)) : personLogs(base, o.userId))
+/** The work folder of a shared chat with no project, for one audience (`audienceKey`, sharedWorkKey): a chat's private
+ * work folder (chatWork) is never mounted in a shared run (it may hold copies of the person's own files), and a new
+ * audience gets an empty folder (nothing an earlier, smaller audience's run copied there reaches someone new). */
+export const sharedWork = (base: string, chatId: string, audienceKey: string) => path.join(devenvPaths(base).workShared, safeId(chatId), safeId(audienceKey))
+/** the key of an audience: the same people, the same key */
+export const sharedWorkKey = (audience: readonly string[]) => crypto.createHash('sha256').update([...new Set(audience)].sort().join('\n')).digest('hex').slice(0, 32)
 /** the work folder of a chat with no project (read and write); removed when the chat is purged */
 export const chatWork = (base: string, chatId: string) => path.join(devenvPaths(base).work, safeId(chatId))
 
@@ -167,6 +180,8 @@ export interface SettingsInput {
   /** a run of this shared chat (docs/decisions/20261118-devenv-shared-chats.md): the home and logs are the chat's, not
    * the person's, and no personal folder is readable, the person's own included. Absent: a run of the person's own chat */
   sharedChat?: string | null
+  /** the run's id: the per-command home and logs of a shared chat's run */
+  runId?: string
   network: 'open' | 'offline'
   /** the team's extra domains (devEnv.team) */
   extraDomains: readonly string[]
@@ -267,7 +282,7 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat' | 'runId'>): string[] {
   const out: string[] = []
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
@@ -288,7 +303,9 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     if (!hidden(s, src)) out.push(`a connected folder's source is not hidden: ${src}`)
     for (const r of s.filesystem.allowRead) if (inside(r, src)) out.push(`a path in a connected folder's source is readable: ${r}`)
   }
-  if (i.work !== null && !inside(i.work, devenvPaths(i.base).work)) out.push(`the work folder is not in the base folder's devenv/work: ${i.work}`)
+  // a shared chat's work folder is never the private one (devenv/work), and a private run never gets a shared one
+  const workRoot = i.sharedChat ? path.join(devenvPaths(i.base).workShared, i.sharedChat) : devenvPaths(i.base).work
+  if (i.work !== null && (i.work === workRoot || !inside(i.work, workRoot))) out.push(`the work folder is not in the base folder's ${path.relative(i.base, workRoot)}: ${i.work}`)
   /** a path a run may get: a team folder (not .system, not another person's personal folder), the home, the work folder */
   const allowed = (p: string, extra: string[]) => {
     if (p === home || (i.work !== null && p === i.work) || extra.includes(p)) return true
@@ -311,6 +328,7 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     const given = [...s.filesystem.allowRead, ...s.filesystem.allowWrite]
     for (const r of given) if (inside(r, users)) out.push(`a personal folder is readable in a shared chat: ${r}`)
     for (const r of given) if (inside(r, devenvPaths(i.base).home) || inside(r, devenvPaths(i.base).logs)) out.push(`a person's home or logs are readable in a shared chat: ${r}`)
+    for (const r of given) if (inside(r, devenvPaths(i.base).work)) out.push(`a private work folder is readable in a shared chat: ${r}`)
     if (start !== null) for (const r of given) if (inside(r, i.teamRoot) && !inside(r, start)) out.push(`a team folder outside the project folder is readable in a shared chat: ${r}`)
   }
   // a host secret in /etc must not be given back
@@ -342,7 +360,7 @@ export function resolveRunCwd(root: string, rel: string): string | null {
   } catch { return null }
 }
 
-export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null }
+export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string }
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */

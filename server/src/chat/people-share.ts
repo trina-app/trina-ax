@@ -48,6 +48,8 @@ import { isPeopleRow, peopleAudience, rememberAudience, resolveSubjects, subject
 import { tr } from './i18n'
 import { notificationsOf } from '../notifications/service'
 import { chatFilesOf } from './chat-files'
+import { pollSrt } from '../devenv/jobs'
+import { devEnvFlag } from '../devenv/setting'
 
 const isAdmin = (role: string | undefined) => role === 'owner' || role === 'admin'
 const subjectKey = (s: AudienceSubject) => `${s.type}:${s.id}`
@@ -393,6 +395,9 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
         newPeople: newPeople.length, lost: lost.length, ...(everyone ? { private: true } : {}), confirmed: body.confirmKey !== undefined,
       } })
     })()
+    // a command running in this chat now is checked against its new people at once, not at the next poll
+    // (devenv/srt/runner.ts: any change of a shared chat's people stops its running command)
+    if (devEnvFlag()) void pollSrt(ctx, { chatId: r.id }).catch(() => {})
     // the private session's stash (its instructions held the memories): the next turn starts from the visible transcript
     if (first) fs.rmSync(path.join(ctx.config.dataDir, 'sessions', r.id), { recursive: true, force: true })
     // the creator's earlier computer uploads: copied to the chat's own files so everyone in it sees them (S6). A copy

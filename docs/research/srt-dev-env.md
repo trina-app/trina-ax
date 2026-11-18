@@ -97,8 +97,10 @@ A shared chat (a team project's chat, shared by default since 2026-11-13, or a c
 the dev environment too (`docs/decisions/20261118-devenv-shared-chats.md`). Everyone in it sees the command and its
 output, so its run is fenced: it reads only folders that the person AND everyone who sees the chat now may read (the
 project folder of a project chat; any common team folder, read-only, in a people chat), writes only in the project
-folder where the person may write, never a personal folder (the person's own neither), with a home and logs per chat.
-No jobs, dev servers or login commands there. The view is built again for every command and checked while it runs.
+folder where the person may write, never a personal folder (the person's own neither), with a home and logs per command
+(removed when it ends) and, in a people chat, a work folder per chat and set of people (never the private one). No
+jobs, dev servers or login commands there. The view is built again for every command and checked while it runs (at once
+after an access change).
 
 ### 0.4 Per person, per chat, per team
 
@@ -106,7 +108,8 @@ No jobs, dev servers or login commands there. The view is built again for every 
 |---|---|
 | HOME, TMPDIR, caches (`<base>/devenv/home/<userId>`) | person |
 | logs, command output, exit files (`<base>/devenv/logs/<userId>`, `$TRINA_LOGS`) | person: another person's job log can hold text from folders this person cannot open |
-| HOME, caches and command output of a shared chat's runs (`<base>/devenv/chat-home/<chatId>`, `<base>/devenv/chat-logs/<chatId>`) | chat (section 0.3a) |
+| HOME, caches and command output of a shared chat's runs (`<base>/devenv/chat-home/<chatId>/<runId>`, `<base>/devenv/chat-logs/<chatId>/<runId>`) | command, removed when it ends (section 0.3a) |
+| work folder of a shared chat with no project (`<base>/devenv/work-shared/<chatId>/<key of its people>`) | chat and its people (section 0.3a) |
 | log names of jobs and dev servers | person |
 | waiting jobs: at most 3 | person |
 | one foreground command at a time | root folder (the change window needs it) |
