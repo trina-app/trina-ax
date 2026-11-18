@@ -21,7 +21,7 @@
   settings, masters and layouts as they are, so before it runs the template is checked in the office worker
   (`files/office-template.ts`) and refused, naming the reason, when it has a Word field that runs or fetches something
   (DDE, DDEAUTO, INCLUDETEXT, INCLUDEPICTURE, INCLUDE, IMPORT, LINK, DATABASE, MACROBUTTON, ...; complex fields joined
-  across runs and simple ones, in any part under `word/`), a relationship to something outside the file other than a
+  across runs and simple ones, in every XML part of the package wherever it is: `_rels/.rels` and `[Content_Types].xml` can put the main document anywhere), a relationship to something outside the file other than a
   plain hyperlink (an attached template, a linked picture, an OLE object, a frame, a subdocument), an embedded object or
   control, or macros. Refused rather than stripped: the person learns which file is unsafe, and a cleaned copy would
   silently differ from the template they named. Every `.rels` part and every part under `word/` is read with saxes, namespaces resolved

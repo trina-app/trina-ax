@@ -5,11 +5,11 @@
 // unsafe and why):
 // - a Word field that runs or fetches something (DDE, DDEAUTO, INCLUDETEXT, INCLUDEPICTURE, INCLUDE, IMPORT, LINK,
 //   DATABASE, MACROBUTTON, ...), as a complex field (w:instrText, a field's pieces joined) or a simple one
-//   (w:fldSimple w:instr), in any XML part under word/ (document, headers, footers, notes, glossary);
+//   (w:fldSimple w:instr), in any XML part of the package wherever it is (document, headers, footers, notes, glossary);
 // - a relationship to something outside the file (TargetMode="External": an attached template, a linked picture, an
 //   OLE object, a frame, a subdocument, ...) other than a plain hyperlink, in any .rels part;
 // - an embedded object or control (oleObject, package, control, ActiveX) and macros (vbaProject.bin).
-// Every .rels part and every part under word/ is read with saxes (namespaces resolved): any quoting, spacing or prefix
+// Every .rels part and every XML part of a .docx is read with saxes (namespaces resolved): any quoting, spacing or prefix
 // is seen for what it is, and a part that is not well-formed or has a DTD is refused.
 // The template is untrusted, so this runs only in the office worker (office-worker.ts), never in the server process.
 import { SaxesParser, type SaxesTagNS } from 'saxes'
@@ -93,6 +93,13 @@ export function relationships(xml: string, part = 'part', what = 'file'): { type
   return out
 }
 
+/** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
+function looksXml(d: Uint8Array): boolean {
+  let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0
+  while (i < d.length && (d[i] === 0x20 || d[i] === 0x09 || d[i] === 0x0a || d[i] === 0x0d)) i++
+  return d[i] === 0x3c
+}
+
 export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): void {
   const what = kind === 'docx' ? 'Word file' : 'PowerPoint file'
   if (!isZip(bytes)) bad(what, 'it is not a zip container')
@@ -113,7 +120,9 @@ export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): v
         if (r.external && r.type !== 'hyperlink') bad(what, `it refers to something outside the file (${r.type || 'a relationship'} in ${e.name}), which would be fetched when a new file is opened`)
       }
     }
-    if (kind === 'docx' && /^word\/.*\.xml$/i.test(e.name)) {
+    // every XML part, wherever it is and whatever its name: _rels/.rels and [Content_Types].xml can put the main
+    // document or a header anywhere in the package (security review); a part is XML when it starts with "<"
+    if (kind === 'docx' && !/\.rels$/i.test(e.name) && looksXml(e.data)) {
       const hit = fieldWords(text(e.data), e.name, what).find((w) => UNSAFE_FIELDS.has(w))
       if (hit) bad(what, `${e.name} has a ${hit} field, which runs or fetches something when the file is opened`)
     }

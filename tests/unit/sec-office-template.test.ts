@@ -85,6 +85,10 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr = 'DDEAUTO c:\\a "b"'/></w:p></w:hdr>`))).toThrow(/DDEAUTO/)
     expect(() => checkOfficeTemplate('docx', hdr(`<q:hdr xmlns:q="${W}"><q:p><q:r><q:fldChar q:fldCharType='begin'/></q:r><q:r><q:instrText>INCLUDE</q:instrText></q:r><q:r><q:instrText>PICTURE "http://x/a.png"</q:instrText></q:r><q:r><q:fldChar q:fldCharType = "end"/></q:r></q:p></q:hdr>`))).toThrow(/INCLUDEPICTURE/)
     expect(() => checkOfficeTemplate('docx', hdr(`<hdr xmlns="http://purl.oclc.org/ooxml/wordprocessingml/main" xmlns:s="http://purl.oclc.org/ooxml/wordprocessingml/main"><p><fldSimple s:instr="LINK Excel.Sheet x"/></p></hdr>`))).toThrow(/LINK/)
+    // a part outside word/ (the main document can be anywhere, named by _rels/.rels and [Content_Types].xml)
+    const moved = addPart(base, 'custom/body.dat', `<w:document xmlns:w="${W}"><w:body><w:p><w:fldSimple w:instr="INCLUDETEXT &quot;http://x/a.docx&quot;"/></w:p></w:body></w:document>`)
+    expect(() => checkOfficeTemplate('docx', moved)).toThrow(/custom\/body\.dat has a INCLUDETEXT field/)
+    expect(() => checkOfficeTemplate('docx', addPart(base, 'docProps/extra.xml', `<x:root xmlns:x="${W}"><x:r><x:fldChar x:fldCharType="begin"/><x:instrText>DDEAUTO a b</x:instrText><x:fldChar x:fldCharType="end"/></x:r></x:root>`))).toThrow(/DDEAUTO/)
     // the same field name in another namespace is not a Word field
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })
