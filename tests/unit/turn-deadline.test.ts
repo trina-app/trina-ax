@@ -173,13 +173,16 @@ test('real API agent: a model request that never answers is aborted at a stall, 
 })
 
 test('the API engine\'s stream chunks are signs of life: a slow but steady answer is not a stall', async () => {
-  const f = setup(500)
+  // The guard looks once a second and counts silence in real time, so a loaded CI runner can delay a timer by a
+  // second or more. The stall limit (1.5 s) is therefore far above the chunk gap (100 ms), and the stream (2.6 s)
+  // outlasts the limit, so the guard looks at least once after the limit has passed and only the chunks keep it quiet.
+  const f = setup(1500)
   const enc = new TextEncoder()
   const chunk = (o: unknown) => enc.encode(`data: ${JSON.stringify(o)}\n\n`)
   const fetchFn = (async () => new Response(new ReadableStream({
     async start(c) {
-      // about 2.4 s of chunks that give no event of their own (like a tool call's arguments), then the answer
-      for (let i = 0; i < 6; i++) { c.enqueue(chunk({ choices: [{ delta: {} }] })); await Bun.sleep(400) }
+      // about 2.6 s of chunks that give no event of their own (like a tool call's arguments), then the answer
+      for (let i = 0; i < 26; i++) { c.enqueue(chunk({ choices: [{ delta: {} }] })); await Bun.sleep(100) }
       c.enqueue(chunk({ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }))
       c.close()
     },
