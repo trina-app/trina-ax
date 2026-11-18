@@ -35,6 +35,7 @@ import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewS
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 import { newId } from '../db'
+import { hideProxyLogin } from './srt/proxy-login'
 
 export const BOX_SHELL_TOOL = 'box_shell'
 
@@ -156,8 +157,9 @@ type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
   const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
-  parts.push(e.stdout ? `--- stdout ---\n${clip(e.stdout)}` : '--- stdout: empty ---')
-  if (e.stderr) parts.push(`--- stderr ---\n${clip(e.stderr)}`)
+  // srt's proxy login (srt/proxy-login.ts: per run, useless outside it) never reaches the AI, so never a chat
+  parts.push(e.stdout ? `--- stdout ---\n${clip(hideProxyLogin(e.stdout))}` : '--- stdout: empty ---')
+  if (e.stderr) parts.push(`--- stderr ---\n${clip(hideProxyLogin(e.stderr))}`)
   if (e.truncated) parts.push('(output cut)')
   if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
