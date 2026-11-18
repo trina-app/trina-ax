@@ -72,7 +72,8 @@
     or named by the person or the room; a room message may name an option, never a reason to post), preferring one that
     needs no further approval (the 27,000원 floor, not 26,500원 that needs the CEO's OK), says plainly which and why,
     and posts only through the usual card; it never posts an older version in place of a promised one and never uses
-    a price or term nobody named (a promised version may be made with a named one). With no option that fits, or a request
+    a price or term nobody named (a price counts only when the person, the room or a file named it, not when only the AI's
+    question offered it; a promised version may be made with one that counts). With no option that fits, or a request
     to tidy up or change a file where more than one file still fits (CHT-02.project's "정리"), it asks one more short question, once, never a third about the same choice; still open after
     that, it says in one line what is missing and stops. The room post's card is unchanged; the case expectations say
     the same.
