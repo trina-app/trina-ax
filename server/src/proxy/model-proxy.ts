@@ -25,6 +25,7 @@ import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
+import type { FitReport } from './fit-images'
 import { accountRefusal, upstreamSpeaksForAccount } from './anthropic-refusal'
 
 /** 403s of two different accounts within this time: a cause on this server's side, nothing is marked */
@@ -155,7 +156,7 @@ export interface ProxyOpts {
   ownLogin?: { upstream?: string }
   /** fits the pictures of a Claude request before it goes on (./fit-images.ts: older ones smaller, the oldest out past
    * one request's limits); a failure forwards the request as it came */
-  fitImages?: (body: unknown, signal: AbortSignal) => Promise<unknown>
+  fitImages?: (body: unknown, signal: AbortSignal) => Promise<FitReport | null>
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
@@ -395,7 +396,10 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // saw (a duplicate key: JSON.parse keeps the last, another parser the first, e.g. a refused tool list)
       headers.set('content-type', 'application/json')
       if (o.fitImages && url.pathname.startsWith('/v1/messages')) {
-        try { await o.fitImages(parsed, req.signal) } catch (e) {
+        try {
+          const fit = await o.fitImages(parsed, req.signal)
+          if (fit && (fit.shrunk || fit.dropped)) o.log?.debug?.('model request images fitted', { turn: row.turn_id, ...fit })
+        } catch (e) {
           if (req.signal.aborted) return unreachable(req)
           o.log?.warn('model request images not fitted', { turn: row.turn_id, err: (e as Error).message?.slice(0, 120) })
         }
