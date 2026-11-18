@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 21:59
 - Branch: `feat/devenv-shared-jobs-mac-localhost`
-- Status: in progress
+- Status: done
 - Where: public trina-ax, `server/src/devenv/`, `scripts/dev-env/srt/srt-mac.mjs`, `native/cmd/mycel-sandbox/`. Why: the
   dev environment is Team AX core (docs/REPOSITORY-RULES.md).
 - Version impact: minor (shared chats can start jobs and dev servers; a later command reaches the chat's dev server)
@@ -56,4 +56,9 @@ Security: shared chats and the sandbox (independent review follows). Migration n
 
 ## Result
 
-(at the end)
+Built as planned. Shared chats' jobs and dev servers carry `shared_key` and the access hash (migration 421); the tracker
+rebuilds the chat's people from the chat (`devenv/shared-chat.ts`). On macOS the reach list carries the run id of each
+target, checked right before the new run's slot state is written, and a slot a living run may reach is never given out
+(a race found while writing it). The Linux bridge is checked on the spike VM (P8); the Docker suite checks the logs
+folders per audience (S16) and that runs do not reach each other without it (L1). No real-AI check: this Mac has no
+srt install, so box_shell is not offered on a local server. PR: see the branch.
