@@ -45,6 +45,7 @@ Pulls if the host allows it. Behind a local `cloudflared` tunnel the peer is loo
 | | `RELAY_WINDOW` | 262144 | per-stream window |
 | | `RELAY_CLIENT_WS_CAP` | 4194304 | browser WebSocket backlog cap (close 1009) |
 | | `RELAY_RESERVED` | | extra reserved names, comma separated |
+| | `RELAY_SELF_NAMES` | `relay` | host labels that are the relay's own address (`relay.<domain>`), comma separated; a second relay under the same domain uses its own, e.g. `relay-us`. They are reserved as team names |
 | | `RELAY_GRACE_MS` | 10000 | SIGTERM: time for running HTTP streams |
 | `--open-registration` | `RELAY_OPEN_REGISTRATION` | 1 with `--dev`, else **0** | public self-registration with proof of work; 0 = only claim codes (and the operator API) |
 | `--tls-cert`, `--tls-key` | `RELAY_TLS_CERT`, `RELAY_TLS_KEY` | | the relay terminates TLS (Cloudflare Origin CA certificate, PEM) |

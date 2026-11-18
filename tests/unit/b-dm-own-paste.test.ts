@@ -102,6 +102,14 @@ describe('the person\'s own paste', () => {
     expect((await lastDm())!.body).toBe(EMAIL)
   })
 
+  test('with a mention (#1278): the "@Name" goes before the paste and the paste still counts as her own', async () => {
+    const r = await turn([EMAIL, '', '이거 Erin에게 보내줘', fake({ tool: 'room_read', args: { room: marketing } }), post({ room: 'Erin', text: EMAIL, own_words: true, mention: ['Erin Yoo'] })].join('\n'), 'send')
+    expect(JSON.parse(r.content)).toMatchObject({ status: 'sent', room_id: dm })
+    const m = (await lastDm())!
+    expect(m.body).toBe(`@Erin Yoo ${EMAIL}`)
+    expect(m.mentions.map((x) => (typeof x === 'string' ? x : (x as { id: string }).id))).toContain('erin')
+  })
+
   test('an AI-written message with nothing of a room in it, after only a name lookup: goes on the card, no "conversation" source line', async () => {
     const r = await turn(['Erin에게 요약 보내줘', fake({ tool: 'rooms', args: {} }), post({ room: 'Erin', text: 'Summary: patch the servers by Dec 1.' })].join('\n'), 'send')
     expect(JSON.parse(r.content)).toMatchObject({ status: 'sent' })

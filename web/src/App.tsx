@@ -23,6 +23,7 @@ import { useProjectPage } from './store/projectPage'
 import { useTeamFiles } from './store/teamFiles'
 import { useChatGroups } from './store/chatGroups'
 import { useNavFolders } from './store/navFolders'
+import { useLinkNames } from './store/linkNames'
 import { useAiAccess } from './store/aiAccess'
 import { useWelcome } from './store/welcome'
 import { useMemberWelcome } from './store/memberWelcome'
@@ -153,6 +154,8 @@ function dropPersonStores() {
   useProjectPage.getState().reset()
   useChatGroups.getState().reset()
   useNavFolders.getState().reset()
+  // the names of app links in messages, as the server gave them to this person (store/linkNames.ts)
+  useLinkNames.getState().reset()
   useAiAccess.getState().reset()
   useWelcome.getState().reset()
   useMemberWelcome.getState().reset()

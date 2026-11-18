@@ -665,7 +665,10 @@ export class Rooms {
   /** Send as `userId` (the author is always the signed-in person). Same clientMessageId again: the first message. A
    * With threadRootId it is a reply in that message's thread (see the top of this file).
    * `answer` (chat/answer-share.ts only, never a request's body): the message carries an answer of my own AI chat. It
-   * mentions nobody (nor "@전체", whatever its text says: "@Name" in the answer is the AI's words), and never quotes a message (replyToId); it may be a reply in a thread (a side
+   * mentions nobody (nor "@전체", whatever its text says: "@Name" in the answer is the AI's words), unless the AI's
+   * post_to_room sent it (`via: 'ai'`): then the people it picked from the room's members on the server's records, kept
+   * as for any send (docs/decisions/20261118-ai-post-real-mentions.md), and "@전체" by the same rule as a person's, read
+   * in the person's own part of it. It never quotes a message (replyToId); it may be a reply in a thread (a side
    * chat's answer to a question about a message: threadRootId, never "also to the room"); its files are linked files
    * attached.
    * `carried` (connectors/remote-mcp/rooms.ts only): what an AI app's connection had read, kept for later members. */
@@ -679,7 +682,10 @@ export class Rooms {
     // a reply goes in a thread or quotes (an older app), never both; "also to the room" is a thread reply's
     if (b.threadRootId && b.replyToId) fail('validation', undefined, { fields: { 'body.replyToId': 'not with threadRootId' } })
     if (b.alsoInRoom && !b.threadRootId) fail('validation', undefined, { fields: { 'body.alsoInRoom': 'only with threadRootId' } })
-    if (b.mentionsAll && !answer) this.mayMentionAll(room, userId, b.body, o.locale)
+    // (the AI's post_to_room: its mentions are the person's, in their own part of the message, before the AI's quote)
+    const aiPost = answer?.via === 'ai'
+    const mayMention = !answer || aiPost
+    if (b.mentionsAll && mayMention) this.mayMentionAll(room, userId, answer && !answer.plain ? b.body.slice(0, answer.at) : b.body, o.locale)
     if (!answer) this.takeSendToken(userId)
     if (b.replyToId) {
       const q = messageRow(this.db, roomId, b.replyToId)
@@ -692,7 +698,7 @@ export class Rooms {
       if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
     if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
-    const mentions = answer ? [] : this.validMentions(roomId, userId, b.mentions)
+    const mentions = mayMention ? this.validMentions(roomId, userId, b.mentions, aiPost) : []
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
@@ -718,10 +724,10 @@ export class Rooms {
       // join the room later (rooms/history.ts)
       this.db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, reply_to_id, mentions, client_id, created_at, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, source_scope, link_previews)
         VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, roomId, seq, userId, b.body, b.replyToId ?? null, JSON.stringify(mentions), b.clientMessageId, now, root?.id ?? null, root?.seq ?? null, root && b.alsoInRoom ? 1 : 0,
-        b.mentionsAll && !answer ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
+        b.mentionsAll && mayMention ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}) } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}), ...(mentions.length ? { mentions: mentions.length } : {}), ...(b.mentionsAll && aiPost ? { mentionsAll: true } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)
@@ -1033,10 +1039,12 @@ export class Rooms {
     if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
   }
 
-  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */
-  private validMentions(roomId: string, userId: string, ids: readonly string[]): string[] {
+  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. `active`:
+   * also only active accounts (the AI's post_to_room, whose card may have waited while someone's account was turned off). */
+  private validMentions(roomId: string, userId: string, ids: readonly string[], active = false): string[] {
     const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
-    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id))
+    const ok = (id: string) => !active || !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id)
+    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id) && ok(id))
   }
 
   // ---------------- reading ----------------

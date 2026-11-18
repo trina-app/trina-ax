@@ -8,8 +8,10 @@
 // reply. The checks below are the same for both: the audience is every member of the room (a reply is seen by everyone
 // who sees its root, never more).
 // It is posted through Rooms.send, so the sending budget (429), notices, events and "the same clientMessageId again is
-// the first message" are a message's. It mentions nobody and never calls the room's AI, whatever the answer's text
-// says ("@트리나", "@Name" in it are the AI's words). The author is the person; editing it is refused, deleting works.
+// the first message" are a message's. The button's share mentions nobody and never calls the room's AI, whatever the
+// answer's text says ("@트리나", "@Name" in it are the AI's words); the AI's post_to_room passes the people it may
+// mention, picked by the server among the room's members (chat/post-mentions.ts). The author is the person; editing it
+// is refused, deleting works.
 //
 // Before it goes, two questions, asked apart and only when one applies (otherwise it goes at once):
 // A. Access: the files the answer, as the room gets it, links to or shows (answerFilePaths). For each, how many members
@@ -489,7 +491,10 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
   return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
 
-export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean }
+export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean
+  /** post_to_room only (never from a request): the person's own paste in the text (chat/own-paste.ts) and the "@Name"s
+   * of the people mentioned that the server put before it */
+  pasted?: { head: string; text: string } }
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
@@ -497,7 +502,8 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   if (message.role !== 'assistant') fail('validation', tr('answerShareNotReady', locale), { fields: { 'params.messageId': 'not an answer' } })
   const content = redactorFor(ctx, userId).hide(message.content ?? '')
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
-  const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, b, locale)
+  // (the share button never carries a paste: that is post_to_room's alone)
+  const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)
   if (p.status === 'sent') return p
   // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
   // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
@@ -572,7 +578,7 @@ export type PendingShare = Omit<PreparedShare, 'room' | 'me'> & { room: { id: st
  * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
  * `o.budget`: false only for post_to_room's 1:1 chat just made on the yes, whose check before it took the budget.
  */
-export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain' | 'pasted'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
   const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
   if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
@@ -592,7 +598,7 @@ export async function prepareShare(ctx: AppContext, userId: string, chatId: stri
 
 /** The budget and the check of prepareShare, for a room (its id) or a 1:1 chat not made yet (its people): the message's
  * body, the check, and the key under `keyRoom` (keyRoomOf). */
-async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
+async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain' | 'pasted'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
   const rooms = roomsOf(ctx)
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   if (budget) rooms.takeSendToken(userId)
@@ -605,7 +611,8 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
   if (budget) for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
   // the person's own words (own_words) that are a stretch of their own message here, as they wrote it (chat/own-paste.ts,
   // docs/decisions/20261118-dm-own-paste.md): nothing the chat read is in them, so what it read is not counted
-  const own = !!b.plain && ownPaste(ctx.db, userId, answer.messageId, answer.content) === body
+  const own = !!b.plain && !!b.pasted && ownPaste(ctx.db, userId, answer.messageId, b.pasted.text) === b.pasted.text
+    && body === (b.pasted.head ? `${b.pasted.head} ${b.pasted.text}` : b.pasted.text)
   const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at), { own })
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
@@ -621,7 +628,7 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
  * same checks with the other person as the audience, and nothing made. The chat is made only after the person's yes
  * (Rooms.openDm); prepareShare then runs on it, and its key is this one's when nothing changed (keyRoomOf).
  */
-export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean }, locale: Locale): Promise<PendingShare> {
+export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean; pasted?: ShareAnswerInput['pasted'] }, locale: Locale): Promise<PendingShare> {
   if (confidentialChat(ctx.db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
   const keyRoom = keyRoomOfPair(userId, b.otherId)
   const r = await checkShare(ctx, userId, chatId, answer, b, { people: [b.otherId] }, keyRoom, locale)
@@ -644,8 +651,9 @@ export async function shareChoice(ctx: AppContext, userId: string, p: PreparedSh
  * chose) or an older client's number; nothing applies now: it goes at once (also after a "confirm"). Anything changed
  * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so);
  * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
+ * `mentions` / `mentionsAll`: only with `via: 'ai'` (the people the card named; Rooms.send keeps only room members).
  */
-export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean; mentions?: readonly string[]; mentionsAll?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
   const rooms = roomsOf(ctx)
   const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
@@ -690,7 +698,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
+    const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind
