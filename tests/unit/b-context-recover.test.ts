@@ -29,12 +29,17 @@ describe('what counts as a full conversation', () => {
       "Codex ran out of room in the model's context window. Start a new thread", 'request_too_large']) expect(classifyError(m)).toBe('context')
     expect(classifyError('API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}')).toBe('rate_limit')
     expect(classifyError('request 4290 failed')).toBe('crash')
+    // per-minute token limits are rate limits, not a full conversation (no useless fresh start)
+    for (const m of ['too many tokens per minute', 'Request too large for gpt-4o in organization org-x on tokens per min (TPM): Limit 30000, Requested 41000.',
+      'API Error: 400 {"error":{"message":"rate limit: too many tokens"}}']) expect(classifyError(m)).toBe('rate_limit')
     // the old matcher ended these answers with "continue in a new chat"
     for (const m of ['Execution context was destroyed, most likely because of a navigation', 'tool failed: missing field "context"', 'MCP error: invalid context id'])
       expect(classifyError(m)).toBe('crash')
     expect(errorOf(400, '{"error":"prompt is too long"}').code).toBe('context')
     expect(errorOf(400, '{"error":"invalid context id"}').code).toBe('provider_error')
     expect(errorOf(400, '{"error":{"message":"This model\'s maximum context length is 128000 tokens"}}').code).toBe('context')
+    for (const b of ['{"error":{"message":"too many tokens per minute"}}', '{"error":{"message":"Request too large for gpt-4o on tokens per min (TPM): Limit 30000"}}'])
+      expect(errorOf(400, b).code).not.toBe('context')
     // ordinary 400s that only say "too long" or "maximum ... tokens"
     for (const b of ['{"error":{"message":"Invalid \'tools[3].function.name\': string too long. Expected a string with maximum length 64"}}',
       '{"error":"max_tokens: maximum allowed tokens is 4096"}', '{"error":"description too long"}']) expect(errorOf(400, b).code).toBe('provider_error')

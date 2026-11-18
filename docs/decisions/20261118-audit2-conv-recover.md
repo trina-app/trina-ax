@@ -18,7 +18,10 @@ Plan: docs/AGENTS/plan/20261118-1130-audit2-conv-recover.md.
   tested before the limit check, and the limit's "429" must be a word of its own: "Prompt is too long: 214290 tokens"
   was a rate limit (review of #1294). The API engine's `errorOf` uses the same pattern plus "maximum context length",
   "prompt / input is too long" and "exceeds the context", for a 400 / 413 or an error inside the stream; a bare "too
-  long" (a tool name) or "maximum … tokens" (max_tokens over the cap) is a provider error.
+  long" (a tool name) or "maximum … tokens" (max_tokens over the cap) is a provider error. A per-minute token limit is a rate
+  limit, never a full conversation, though it says "too many tokens" or "request too large" (text with "per min",
+  "TPM", "per minute" or "rate limit": OpenAI's "Request too large for gpt-4o … on tokens per min"), so it never
+  starts a useless fresh session.
 - **Rule, Claude Code:** Claude Code still compacts its own session first. When it ends with that error anyway (its
   compaction could not make room, or one result was too big), the turn starts a fresh session in the same answer: the
   chat's history window in the instructions with the summary of the older part (#1283: before the first fresh start

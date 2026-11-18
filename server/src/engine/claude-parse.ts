@@ -7,6 +7,12 @@ import type { AgentStats, EngineEvent, EngineErrorCode } from '@mycel/shared'
  * context window"; Claude Code "Conversation too long"; Anthropic's request_too_large: a fresh start sends less) */
 export const CONTEXT_FULL = /prompt is too long|context[ _](window|length|limit)|context_length_exceeded|maximum context|too many tokens|conversation (is )?too long|request_too_large|request too large/
 
+/** a per-minute token limit (Anthropic / OpenAI TPM: "too many tokens per minute", "Request too large for gpt-4o on
+ * tokens per min"): a rate limit, never a full conversation, though it says "too many tokens" or "request too large" */
+const PER_MINUTE = /per min|\btpm\b|per minute|rate.?limit/
+/** the text says the conversation does not fit (CONTEXT_FULL), and is not a per-minute limit */
+export const contextFull = (text: string): boolean => { const m = text.toLowerCase(); return CONTEXT_FULL.test(m) && !PER_MINUTE.test(m) }
+
 export function classifyError(msg: string): EngineErrorCode {
   const m = msg.toLowerCase()
   // the error class or the leading text, never a number inside an id (a request_id with "401" in it is not a sign-in error)
@@ -15,8 +21,8 @@ export function classifyError(msg: string): EngineErrorCode {
   // only what the providers say when the conversation does not fit (limits audit 2 #13): "context" alone matched any
   // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full.
   // Before the limit check: a token count such as "214290 tokens" holds "429"
-  if (CONTEXT_FULL.test(m)) return 'context'
-  if (/rate.?limit|\b429\b|overloaded|usage limit|quota/.test(m)) return 'rate_limit'
+  if (contextFull(m)) return 'context'
+  if (/rate.?limit|\b429\b|overloaded|usage limit|quota/.test(m) || PER_MINUTE.test(m)) return 'rate_limit'
   if (/refus/.test(m)) return 'refused'
   if (/timed? ?out|timeout/.test(m)) return 'timeout'
   return 'crash'
