@@ -24,13 +24,12 @@ import { ext, officeWorkerScript } from '../files/extract'
 import { DATA_EXT, DATA_QUERY_MODE, SHEET_EXT, sqlName, type DataQueryRequest, type DataQueryResponse, type TableInfo } from '../files/data-query'
 import { TOOL_ERROR_EXIT } from '../files/office-parse'
 import type { ToolCtx } from '../files/service'
-import { readRegular } from '../files/store'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment } from '../policy/names'
 import { inSkills } from '../skills/guard'
 import { inProcessParseMax, readMaxBytes } from '../system/limits'
-import { checkRegular } from '../team-files/place'
+import { checkRegular, openChecked } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir, runIsolated } from './isolate'
 import { confirmSources, placeProduced } from './make-file'
@@ -55,6 +54,8 @@ export const DATA_LIMITS = {
   saveFiles: 200,
   /** files of one split */
   splitFiles: 100,
+  /** SQLite's memory cap inside the worker where its build honours it (files/data-query.ts SQLITE_HEAP_MIB); sorts and groups stay in memory, under rssMiB */
+  sqliteHeapMiB: 1536,
 }
 
 export const QUERY_DATA_DESCRIPTION = 'Calculate over data files in the team folder with SQL: totals, counts, averages, pivots (GROUP BY), ' +
@@ -85,23 +86,61 @@ export interface QueryDataResult {
 // ---------------------------------------------------------------- the server-wide slot
 
 let running = 0
-const waiting: (() => void)[] = []
-/** One of DATA_LIMITS.parallel places; waits up to DATA_LIMITS.waitMs, then ToolError 'busy'. */
-export function dataSlot(signal?: AbortSignal): Promise<() => void> {
+/** the people with a query running: one at a time each, so one person's calls (or sub-agents) never take every place */
+const runningFor = new Set<string>()
+const waiting: { who: string; go: () => void }[] = []
+/** the first one waiting whose person has no query running gets the free place */
+function wakeNext() {
+  if (running >= DATA_LIMITS.parallel) return
+  const i = waiting.findIndex((w) => !runningFor.has(w.who))
+  if (i >= 0) waiting.splice(i, 1)[0]!.go()
+}
+/** One of DATA_LIMITS.parallel places, at most one per person (`who`); waits up to DATA_LIMITS.waitMs, then ToolError
+ * 'busy'. */
+export function dataSlot(who: string, signal?: AbortSignal): Promise<() => void> {
   return new Promise((resolve, reject) => {
     let released = false
-    const release = () => { if (released) return; released = true; running--; waiting.shift()?.() }
-    const grant = () => { running++; resolve(release) }
+    const release = () => { if (released) return; released = true; running--; runningFor.delete(who); wakeNext() }
+    const grant = () => { running++; runningFor.add(who); resolve(release) }
     if (signal?.aborted) { reject(signal.reason ?? new Error('aborted')); return }
-    if (running < DATA_LIMITS.parallel) { grant(); return }
-    const go = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); grant() }
-    const drop = (e: unknown) => { const i = waiting.indexOf(go); if (i >= 0) waiting.splice(i, 1); clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(e) }
-    const timer = setTimeout(() => drop(new ToolError('other data work is running on the team\'s app right now, so this was not done and nothing was saved. Tell the user in plain words to try again in a moment', 'busy')), DATA_LIMITS.waitMs)
+    if (running < DATA_LIMITS.parallel && !runningFor.has(who)) { grant(); return }
+    const entry = { who, go: () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); grant() } }
+    const drop = (e: unknown) => { const i = waiting.indexOf(entry); if (i >= 0) waiting.splice(i, 1); clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(e) }
+    const timer = setTimeout(() => drop(new ToolError(runningFor.has(who)
+      ? 'another data calculation of this person is still running, so this one was not done and nothing was saved. Run the calculations one after the other'
+      : 'other data work is running on the team\'s app right now, so this was not done and nothing was saved. Tell the user in plain words to try again in a moment', 'busy')), DATA_LIMITS.waitMs)
     const onAbort = () => drop(signal!.reason ?? new Error('aborted'))
     signal?.addEventListener('abort', onAbort, { once: true })
-    waiting.push(go)
+    waiting.push(entry)
   })
 }
+
+/** A team file copied into the work folder chunk by chunk (reads and writes on the I/O threads, never the whole file in
+ * the server's memory), hashed on the way, from the very file authorize checked (openChecked: same device and inode). */
+async function copyIn(abs: string, st: fs.Stats, max: number, to: string, signal?: AbortSignal): Promise<{ sha256: string; size: number }> {
+  const { fd } = openChecked(abs, st)
+  const hash = crypto.createHash('sha256')
+  const out = await fs.promises.open(to, 'wx', 0o600)
+  let size = 0
+  try {
+    const buf = Buffer.alloc(COPY_CHUNK)
+    for (;;) {
+      signal?.throwIfAborted()
+      const { bytesRead } = await readAt(fd, buf, size)
+      if (bytesRead <= 0) break
+      size += bytesRead
+      if (size > max) throw new ToolError('file is too large')
+      hash.update(buf.subarray(0, bytesRead))
+      await out.write(buf, 0, bytesRead)
+    }
+  } finally {
+    await out.close()
+    try { fs.closeSync(fd) } catch {}
+  }
+  return { sha256: hash.digest('hex'), size }
+}
+const COPY_CHUNK = 4 * 1024 * 1024
+const readAt = (fd: number, buf: Buffer, pos: number) => new Promise<{ bytesRead: number }>((res, rej) => fs.read(fd, buf, 0, buf.length, pos, (e, n) => (e ? rej(e) : res({ bytesRead: n }))))
 
 // ---------------------------------------------------------------- inputs and outputs
 
@@ -131,18 +170,31 @@ function resolveInputs(files: TeamFiles, c: ToolCtx, paths: string[]): Input[] {
   return out
 }
 
-/** where each result file goes: save_as, or for a split "<name> - <value>.<ext>" ({value} in save_as is replaced) */
-export function splitTarget(saveAs: string, value: string | null, index: number): string {
+/**
+ * Where each result file goes: save_as, or for a split "<name> - <value>.<ext>" ({value} in save_as is replaced). A
+ * name the team folder does not take (a reserved name like "CON", nothing left of the value) becomes
+ * "<name> - value <index>". `used` (lower case, NFC) holds the names this call already gave: a clash gets " 2", " 3" ...
+ */
+export function splitTarget(saveAs: string, value: string | null, index: number, used?: Set<string>): string {
   const slash = saveAs.lastIndexOf('/')
   const dir = slash >= 0 ? saveAs.slice(0, slash + 1) : ''
   const name = saveAs.slice(slash + 1)
   if (value === null) return saveAs
   const dot = name.lastIndexOf('.')
   const stem = name.slice(0, dot), extn = name.slice(dot)
-  let file = stem.includes('{value}') ? stem.replace(/\{value\}/g, value) + extn : `${stem} - ${value}${extn}`
-  if (badSegment(file)) file = `${stem.replace(/\{value\}/g, '')} - ${index}${extn}`
+  const make = (v: string) => (stem.includes('{value}') ? stem.replace(/\{value\}/g, v).trim() + extn : `${stem} - ${v}${extn}`)
+  let file = value ? make(value) : ''
+  if (!value || badSegment(file)) file = `${stem.replace(/\{value\}/g, '').replace(/\s+/g, ' ').trim().replace(/[ -]+$/, '') || 'result'} - value ${index}${extn}`
+  const key = (f: string) => f.normalize('NFC').toLowerCase()
+  if (used) {
+    const base = file.slice(0, file.length - extn.length)
+    for (let k = 2; used.has(key(file)); k++) file = `${base} ${k}${extn}`
+    used.add(key(file))
+  }
   return dir + file
 }
+/** two team paths name the same file (letter case and Unicode forms as the file layer folds them) */
+const sameFile = (a: string, b: string) => a.normalize('NFC').toLowerCase() === b.normalize('NFC').toLowerCase()
 
 // ---------------------------------------------------------------- the tool
 
@@ -164,6 +216,10 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     const t = authorize(fx, rules, c.user, probe, 'write', { mustExist: false, createDirs: true })
     if (t.exists && t.st!.isDirectory()) throw new ToolError(`'${t.rel}' is a folder`, 'is_folder')
     saveAs = a.split_by !== undefined ? [...t.segs.slice(0, -1), a.save_as.split('/').at(-1)!].join('/') : t.rel
+    // the inputs are never changed: a result never goes over one of them (they count as read in this turn, so the save
+    // would replace the file instead of making a conflict copy)
+    const over = inputs.find((x) => sameFile(x.rel, t.rel))
+    if (a.split_by === undefined && over) throw new ToolError(`save_as is '${over.rel}', one of the files the data comes from, which is never changed; nothing was done. Save the result under a new name (for example "${over.rel.replace(/(\.[^./]+)$/, ' (result)$1')}")`)
     if (inSkills(saveAs)) throw new ToolError('a result cannot be saved into a skills folder; pick another folder')
     // the wider-audience check for the inputs' content at the result's folder, before the query runs: a "no" costs
     // nothing (every file of a split goes into this same folder)
@@ -176,7 +232,7 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   try {
     let response: DataQueryResponse
-    const release = await dataSlot(c.signal)
+    const release = await dataSlot(c.user.id, c.signal)
     try {
       // the inputs again, as the file layer resolves them now (a card may have been open for minutes), copied into the
       // work folder one by one: the worker sees only these copies
@@ -188,11 +244,10 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
       }
       for (const [i, x] of now.entries()) {
         if (x.rel !== inputs[i]!.rel) throw new ToolError(`'${inputs[i]!.rel}' changed while this call waited, so nothing was done. Try again`)
-        const { bytes } = readRegular(x.abs, x.max, x.st)
-        ctx.files.quarantine.assertBytes(bytes)
-        const hash = crypto.createHash('sha256').update(bytes).digest('hex')
         const file = `in-${i + 1}.${x.ext}`
-        fs.writeFileSync(path.join(work, file), bytes, { flag: 'wx', mode: 0o600 })
+        // streamed and hashed on the way (a 200 MB file never sits whole in the server's memory or blocks it)
+        const { sha256: hash } = await copyIn(x.abs, x.st, x.max, path.join(work, file), c.signal)
+        if (ctx.files.quarantine.hasHash(hash)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
         // its content reaches the model through the result: read like a read (scope, hashes, the answer's sources)
         c.files.readHashes.set(x.rel, hash)
         c.files.readPaths.add(x.rel)
@@ -200,6 +255,7 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
         req.inputs.push({ file, name: x.rel, ext: x.ext, table: x.table })
       }
       const inBytes = now.reduce((n, x) => n + x.size, 0)
+      req.heapMiB = DATA_LIMITS.sqliteHeapMiB
       response = await runDataWorker(work, req, inBytes, c.signal)
     } finally { release() }
 
@@ -210,10 +266,15 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     const bytesOf = (o: { file: string }) => checkRegular(path.join(work, o.file)).size
     const total = outs.reduce((n, o) => n + bytesOf(o), 0)
     if (!guest && c.files.dataSavedBytes + total > DATA_LIMITS.saveBytes) throw new ToolError(`the result is ${human(total)}, more than the ${human(DATA_LIMITS.saveBytes)} that can still be saved in this answer, so nothing was saved. Tell the user; a narrower query (fewer columns or rows) fits`)
+    const used = new Set<string>()
     for (const [i, o] of outs.entries()) {
       if (c.signal?.aborted) { result.failed.push({ name: o.value ?? saveAs, why: 'stopped' }); continue }
-      const target = splitTarget(saveAs, o.value, i + 1)
+      const target = splitTarget(saveAs, o.value, i + 1, used)
       try {
+        // a split file whose name is one of the inputs: never saved over it
+        const at = authorize(fx, files.rules(), c.user, target, 'write', { mustExist: false, createDirs: true }).rel
+        const over = inputs.find((x) => sameFile(x.rel, at))
+        if (over) throw new ToolError(`it would replace '${over.rel}', one of the files the data comes from, which is never changed`)
         const made = await placeProduced(ctx, files, c, target.split('/'), path.join(work, o.file), 'query_data', undefined, { turnBytes: guest, turnFiles: guest, detail: { from: inputs[0]!.rel, files: inputs.slice(1, 51).map((x) => x.rel) } })
         if (!guest) { c.files.dataSavedBytes += made.size; c.files.dataSavedFiles++ }
         result.saved.push({ path: made.path, size: made.size, rows: o.rows, value: o.value, ...(made.conflictCopyOf ? { conflictCopyOf: made.conflictCopyOf } : {}) })

@@ -57,7 +57,12 @@ export interface DataQueryRequest {
   /** result rows sent back inline */
   show: number
   save?: { format: 'csv' | 'tsv' | 'xlsx'; splitBy?: string; maxFiles: number }
+  /** SQLite's own memory cap (MiB), where its build honours PRAGMA hard_heap_limit (see runDataQuery); sorting and
+   * grouping stay in memory (temp_store MEMORY), under the worker's memory watchdog in any case */
+  heapMiB?: number
 }
+/** the default of heapMiB: below the worker's 2 GB watchdog, leaving room for the parsers' own memory */
+export const SQLITE_HEAP_MIB = 1536
 export interface TableInfo {
   table: string
   source: string
@@ -228,11 +233,11 @@ type Encoding = 'utf-8' | 'utf-16le' | 'utf-16be' | 'euc-kr'
 
 const CHUNK = 1 << 20
 
-/** the file's text in pieces, decoded as `enc` (fatal for UTF-8: a wrong guess throws) */
+/** the file's text in pieces, decoded as `enc` (a byte that does not fit becomes U+FFFD) */
 function* textChunks(path: string, enc: Encoding): Generator<string> {
   const fd = fs.openSync(path, 'r')
   try {
-    const dec = new TextDecoder(enc, { fatal: enc === 'utf-8', ignoreBOM: false })
+    const dec = new TextDecoder(enc, { ignoreBOM: false })
     const buf = Buffer.alloc(CHUNK)
     for (;;) {
       const n = fs.readSync(fd, buf, 0, CHUNK, null)
@@ -245,13 +250,36 @@ function* textChunks(path: string, enc: Encoding): Generator<string> {
 }
 
 /** UTF-8 (with or without a BOM), UTF-16 by its BOM, else CP949 when the bytes are not valid UTF-8 */
-function sniffEncoding(path: string): Encoding {
-  const fd = fs.openSync(path, 'r')
-  const head = Buffer.alloc(4)
-  try { fs.readSync(fd, head, 0, 4, 0) } finally { fs.closeSync(fd) }
+/** bytes of the start of a file the encoding is judged on */
+const SNIFF_BYTES = 1 << 20
+
+/** The encoding of a text file, from its first MiB: UTF-16 by its BOM, or without one by the zero bytes of ASCII text
+ * (on odd places: little-endian, even: big-endian); else UTF-8 or CP949, whichever decodes the sample with fewer
+ * errors (UTF-8 on a tie, so plain ASCII stays UTF-8). A sample cut inside a character costs at most one error. */
+export function sniffEncodingOf(head: Uint8Array): Encoding {
   if (head[0] === 0xff && head[1] === 0xfe) return 'utf-16le'
   if (head[0] === 0xfe && head[1] === 0xff) return 'utf-16be'
-  try { for (const _ of textChunks(path, 'utf-8')) { /* validate */ } return 'utf-8' } catch { return 'euc-kr' }
+  if (head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) return 'utf-8'
+  const n = head.length - (head.length % 2)
+  if (n >= 4) {
+    let even = 0, odd = 0
+    for (let i = 0; i < n; i += 2) { if (head[i] === 0) even++; if (head[i + 1] === 0) odd++ }
+    const pairs = n / 2
+    if (odd > pairs * 0.3 && even < pairs * 0.05) return 'utf-16le'
+    if (even > pairs * 0.3 && odd < pairs * 0.05) return 'utf-16be'
+  }
+  const errors = (enc: Encoding) => { let k = 0; for (const ch of new TextDecoder(enc).decode(head)) if (ch === '\uFFFD') k++; return k }
+  const u = errors('utf-8')
+  if (u === 0) return 'utf-8'
+  return errors('euc-kr') < u ? 'euc-kr' : 'utf-8'
+}
+
+function sniffEncoding(path: string): Encoding {
+  const fd = fs.openSync(path, 'r')
+  const head = Buffer.alloc(SNIFF_BYTES)
+  let got = 0
+  try { got = fs.readSync(fd, head, 0, SNIFF_BYTES, 0) } finally { fs.closeSync(fd) }
+  return sniffEncodingOf(head.subarray(0, got))
 }
 
 /** the delimiter the first record uses most (outside quotes): , tab ; or | */
@@ -472,16 +500,25 @@ export function checkedSql(sql: string): string {
 /** a result cell for the AI: long text cut (the saved file keeps all of it) */
 const shown = (v: unknown) => (typeof v === 'string' && v.length > CELL_CHARS_MAX ? v.slice(0, CELL_CHARS_MAX) + '…' : v instanceof Uint8Array ? `(${v.byteLength} bytes)` : v)
 
-function csvField(v: unknown, delim: string): string {
+/** A CSV / TSV field. Text that a spreadsheet app would take for a formula (= + - @, a tab or a CR first) gets a "'" in
+ * front, so a cell of an uploaded file never runs as a formula when the saved result is opened; numbers stay as they are. */
+export function csvField(v: unknown, delim: string): string {
   if (v === null || v === undefined) return ''
-  const s = v instanceof Uint8Array ? Buffer.from(v).toString('base64') : String(v)
+  let s = v instanceof Uint8Array ? Buffer.from(v).toString('base64') : String(v)
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s
   return s.includes(delim) || s.includes('"') || s.includes('\n') || s.includes('\r') ? '"' + s.replace(/"/g, '""') + '"' : s
 }
 
-/** a file name part for a split value: what the team folder takes in a name */
+// what a team-folder name may not hold (policy/names.ts badSegment; not imported: the worker bundle stays free of the
+// shared index): control characters, invisible and direction marks, look-alike and Windows-illegal characters
+const NAME_BAD = /[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180b-\u180f\u200b-\u200f\u202a-\u202e\u2060-\u206f\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff0-\ufffb／＼∕⁄⧸⧹∖﹨╱╲〳〵<>:"|?*\\/]|[\u{e0000}-\u{e0fff}]/gu
+/** a file name part for a split value: what the team folder takes in a name ('' when nothing is left; the server then
+ * names the file by its number) */
 export function splitName(v: unknown): string {
   const s = v === null || v === undefined || v === '' ? 'blank' : String(v)
-  return s.normalize('NFC').replace(/[\u0000-\u001f\u007f/\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[. ]+$/, '').slice(0, 80) || 'blank'
+  let out = s.normalize('NFC').replace(NAME_BAD, '-').replace(/\s+/g, ' ').trim().replace(/^\.+/, '')
+  out = [...out].slice(0, 80).join('').replace(/[. ]+$/, '').trim()
+  return out
 }
 
 interface Out { file: string; value: string | null; rows: number; fd?: number; buf?: string[]; grid?: unknown[][] }
@@ -507,9 +544,25 @@ class OutputSet {
     this.outs.set(key, o)
     return o
   }
+  /** split value (by its exact value; an empty cell apart from the text "blank") -> its name part, unique in this call
+   * whatever the letter case: a clash gets " 2", " 3" ... */
+  private names = new Map<string, string>()
+  private usedNames = new Set<string>()
+  private nameFor(v: unknown): { key: string; value: string } {
+    const key = v === null || v === undefined || v === '' ? '\u0000empty' : `${typeof v === 'number' ? 'n' : 's'}:${String(v)}`
+    let name = this.names.get(key)
+    if (name === undefined) {
+      const base = splitName(v)
+      name = base
+      for (let k = 2; this.usedNames.has(name.normalize('NFC').toLowerCase()); k++) name = `${base || 'value'} ${k}`
+      this.usedNames.add(name.normalize('NFC').toLowerCase())
+      this.names.set(key, name)
+    }
+    return { key, value: name }
+  }
   add(row: unknown[]) {
     let key = '', value: string | null = null
-    if (this.splitBy !== null) { const v = row[this.splitBy]; value = splitName(v); key = value.toLowerCase() }
+    if (this.splitBy !== null) ({ key, value } = this.nameFor(row[this.splitBy]))
     const o = this.open(key, value)
     o.rows++
     if (o.grid) {
@@ -554,7 +607,16 @@ export function runDataQuery(req: DataQueryRequest, dir = process.cwd()): DataQu
     db.run('PRAGMA journal_mode = OFF')
     db.run('PRAGMA synchronous = OFF')
     db.run('PRAGMA cache_size = -131072')
-    db.run('PRAGMA temp_store = FILE')
+    // sorts, groups and temporary tables in memory: a temporary file would be unlinked at once, where the work folder's
+    // disk cap (tools/isolate.ts dirBytes) never sees it (a cross join sorted by random() wrote 2.3 GB in 20 s). In memory
+    // they count against the worker's memory watchdog (2 GB, tools/isolate.ts maxRssMiB), which stops such a query. The
+    // heap limits below make SQLite fail first with "out of memory" where its build keeps memory statistics; Bun's
+    // bundled SQLite 3.51 ignores them (PRAGMA hard_heap_limit reads back 0, checked 2026-11-18), so there the
+    // watchdog is the cap
+    db.run('PRAGMA temp_store = MEMORY')
+    const heap = Math.max(16, Math.min(SQLITE_HEAP_MIB, req.heapMiB ?? SQLITE_HEAP_MIB)) * 1024 * 1024
+    db.run(`PRAGMA soft_heap_limit = ${Math.floor(heap * 0.8)}`)
+    db.run(`PRAGMA hard_heap_limit = ${heap}`)
     const tables: TableInfo[] = []
     const skippedSheets: DataQueryResponse['skippedSheets'] = []
     const headerRow = req.headerRow ?? 1
@@ -607,7 +669,10 @@ export function runDataQuery(req: DataQueryRequest, dir = process.cwd()): DataQu
 
 /** a result value: NULL as null, a computed decimal without float noise (0.1 + 0.2 is 0.3, not 0.30000000000000004) */
 const tidy = (v: unknown) => (v === undefined ? null : typeof v === 'number' && !Number.isInteger(v) && Number.isFinite(v) ? Number(v.toPrecision(15)) : typeof v === 'bigint' ? Number(v) : v)
-const sqlError = (e: unknown) => String((e as Error)?.message ?? e).replace(/^SQLiteError:\s*/, '').slice(0, 400)
+const sqlError = (e: unknown) => {
+  const m = String((e as Error)?.message ?? e).replace(/^SQLiteError:\s*/, '').slice(0, 400)
+  return /out of memory/i.test(m) ? `it needed more memory than a query may use here (${m}); a narrower query (a filter, fewer columns, GROUP BY instead of every row, no join of every row with every row) can work` : m
+}
 /** the tables and columns, for a query that did not run */
 export function tablesHint(tables: TableInfo[]): string {
   return 'Tables: ' + tables.map((t) => `${sqlName(t.table)} (${t.columns.map((c) => `${sqlName(c.name)} ${c.type}`).join(', ')})`).join('; ')

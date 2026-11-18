@@ -12,8 +12,9 @@ import { QueryDataInput, stepLabel } from '@mycel/shared'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
-import { checkedSql, columnNames, CsvParser, numberKind, runDataQuery, sniffDelimiter, splitName } from '../../server/src/files/data-query'
-import { DATA_LIMITS, dataSlot, splitTarget } from '../../server/src/tools/query-data'
+import { checkedSql, columnNames, csvField, CsvParser, numberKind, runDataQuery, sniffDelimiter, sniffEncodingOf, splitName } from '../../server/src/files/data-query'
+import { DATA_LIMITS, dataSlot, runDataWorker, splitTarget } from '../../server/src/tools/query-data'
+import { isolation, makeWorkDir } from '../../server/src/tools/isolate'
 import { ROOM_FILE_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, OWN_WORDS_TOOLS, namedPaths } from '../../server/src/rooms/ai-tools'
 import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
 import { QUERY_DATA_RULE } from '../../server/src/chat/prompt'
@@ -121,7 +122,32 @@ describe('the parts', () => {
     expect(splitTarget('a/{value} sales.xlsx', 'South', 1)).toBe('a/South sales.xlsx')
     expect(splitTarget('a/sales.csv', null, 0)).toBe('a/sales.csv')
     expect(splitName('A/B: C?')).toBe('A-B- C-')
+    expect(splitName('a\u202eb\u200bc')).toBe('a-b-c')
+    expect(splitName('x. ')).toBe('x')
+    expect(splitName('...')).toBe('')
     expect(splitName(null)).toBe('blank')
+    // a name the team folder does not take, or nothing left: "<name> - value <index>"; names given twice get a number
+    expect(splitTarget('a/{value}.csv', 'CON', 4)).toBe('a/result - value 4.csv')
+    expect(splitTarget('a/sales.csv', '', 2)).toBe('a/sales - value 2.csv')
+    expect(splitTarget('a/{value}.csv', '', 3)).toBe('a/result - value 3.csv')
+    const used = new Set<string>()
+    expect(splitTarget('a/s.csv', 'Seoul', 1, used)).toBe('a/s - Seoul.csv')
+    expect(splitTarget('a/s.csv', 'seoul', 2, used)).toBe('a/s - seoul 2.csv')
+  })
+  test('CSV output: text that looks like a formula gets a quote mark; numbers do not', () => {
+    for (const t of ['=1+1', '+cmd', '-2+3', '@SUM(A1)', '\tx', '\rx']) expect(csvField(t, ',').replace(/^"|"$/g, '').startsWith("'")).toBe(true)
+    expect(csvField(-5, ',')).toBe('-5')
+    expect(csvField('plain', ',')).toBe('plain')
+    expect(csvField('=HYPERLINK("x")', ',')).toBe('"\'=HYPERLINK(""x"")"')
+  })
+  test('the encoding from a sample: UTF-8, CP949, UTF-16 with and without a BOM', () => {
+    expect(sniffEncodingOf(Buffer.from('a,b\n한글,1\n'))).toBe('utf-8')
+    expect(sniffEncodingOf(Uint8Array.from([0x61, 0x2c, 0x62, 0x0a, 0xb0, 0xad, 0xb3, 0xb2, 0x2c, 0x31]))).toBe('euc-kr')
+    expect(sniffEncodingOf(Buffer.from('store,amount\nGangnam,3\n', 'utf16le'))).toBe('utf-16le')
+    expect(sniffEncodingOf(Buffer.from('store,amount\nGangnam,3\n', 'utf16le').swap16())).toBe('utf-16be')
+    expect(sniffEncodingOf(Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('a', 'utf16le')]))).toBe('utf-16le')
+    // a UTF-8 sample cut inside a character is still UTF-8
+    expect(sniffEncodingOf(Buffer.from('가나다라마바사'.repeat(50)).subarray(0, 100))).toBe('utf-8')
   })
   test('the query runs read-only over the loaded copies only', () => {
     const dir = fs.mkdtempSync(path.join(A.ctx.config.dataDir, 'dq-'))
@@ -326,12 +352,87 @@ describe('limits', () => {
   test('a busy server waits, then says to try again', async () => {
     const was = { ...DATA_LIMITS }
     DATA_LIMITS.parallel = 1; DATA_LIMITS.waitMs = 100
-    const held = await dataSlot()
+    const held = await dataSlot('someone-else')
     try {
       const r = await turn('alice')('query_data', { paths: [`${D}/small.csv`] })
       expect(r.isError).toBe(true)
       expect(r.text).toContain('try again in a moment')
     } finally { held(); Object.assign(DATA_LIMITS, was) }
+  })
+})
+
+describe('the review cases', () => {
+  test('one query at a time per person: a second one of the same person waits, another person goes ahead', async () => {
+    const was = { ...DATA_LIMITS }
+    DATA_LIMITS.parallel = 2; DATA_LIMITS.waitMs = 150
+    const alice = A.ctx.files.principal('alice').id
+    const held = await dataSlot(alice)
+    try {
+      const mine = await turn('alice')('query_data', { paths: [`${D}/small.csv`] })
+      expect(mine.isError).toBe(true)
+      expect(mine.text).toContain('another data calculation of this person is still running')
+      put('groups/finance/q.csv', 'a\n1\n')
+      const other = await turn('bob')('query_data', { paths: ['groups/finance/q.csv'] })
+      expect(other.isError, other.text).toBe(false)
+    } finally { held(); Object.assign(DATA_LIMITS, was) }
+  })
+  test('save_as one of the inputs is refused; a split file named like an input is not saved over it', async () => {
+    const before = fs.readFileSync(file(`${D}/small.csv`), 'utf8')
+    const r = await turn('alice')('query_data', { paths: [`${D}/small.csv`], sql: 'SELECT store FROM data', save_as: `${D}/SMALL.csv` })
+    expect(r.isError).toBe(true)
+    expect(r.text).toContain('never changed')
+    put(`${D}/sp/x - Busan.csv`, 'keep\n')
+    const s2 = await turn('alice')('query_data', { paths: [`${D}/small.csv`, `${D}/sp/x - Busan.csv`], sql: 'SELECT * FROM t1', save_as: `${D}/sp/x.csv`, split_by: 'store' })
+    expect(s2.isError, s2.text).toBe(false)
+    expect(s2.text).toContain('NOT saved (1)')
+    expect(fs.readFileSync(file(`${D}/sp/x - Busan.csv`), 'utf8')).toBe('keep\n')
+    expect(fs.readFileSync(file(`${D}/small.csv`), 'utf8')).toBe(before)
+  })
+  test('split values: an empty cell and the text "blank" stay apart, letter-case twins get a number, a formula-looking cell is quoted', async () => {
+    put(`${D}/odd.csv`, 'k,v\n,1\nblank,2\nSeoul,3\nseoul,4\n=cmd,5\n')
+    const r = await turn('alice')('query_data', { paths: [`${D}/odd.csv`], sql: 'SELECT * FROM data', save_as: `${D}/odd/o.csv`, split_by: 'k' })
+    expect(r.isError, r.text).toBe(false)
+    expect(fs.readdirSync(file(`${D}/odd`)).sort()).toEqual(['o - =cmd.csv', 'o - Seoul.csv', 'o - blank 2.csv', 'o - blank.csv', 'o - seoul 2.csv'])
+    expect(csvLines(`${D}/odd/o - =cmd.csv`)[1]).toBe("'=cmd,5")
+  })
+  test('WITH ... INSERT / DELETE / UPDATE never change anything', async () => {
+    const before = fs.readFileSync(file(`${D}/small.csv`), 'utf8')
+    for (const sql of ['WITH a AS (SELECT 1) INSERT INTO data VALUES (\'x\', 1)', 'WITH a AS (SELECT 1) DELETE FROM data', 'WITH a AS (SELECT 1) UPDATE data SET amount = 0', 'SELECT 1; DELETE FROM data']) {
+      const r = await turn('alice')('query_data', { paths: [`${D}/small.csv`], sql })
+      expect(r.isError, sql).toBe(true)
+    }
+    const after = await turn('alice')('query_data', { paths: [`${D}/small.csv`], sql: 'SELECT COUNT(*) n FROM data' })
+    expect(resultRows(after.text)[1]).toEqual(['3'])
+    expect(fs.readFileSync(file(`${D}/small.csv`), 'utf8')).toBe(before)
+  })
+  test.skipIf(isolation() === 'none')('the worker cannot read outside its work folder through the real sandbox (a link to a team file)', async () => {
+    put('groups/finance/secret.csv', 'x\nCANARY-FIN-7731\n')
+    const work = makeWorkDir(path.join(A.ctx.config.dataDir, 'work'))
+    try {
+      fs.symlinkSync(file('groups/finance/secret.csv'), path.join(work, 'in-1.csv'))
+      const p = runDataWorker(work, { inputs: [{ file: 'in-1.csv', name: 'x.csv', ext: 'csv', table: 'data' }], sql: 'SELECT * FROM data', show: 5 }, 100)
+      let text = ''
+      try { text = JSON.stringify(await p) } catch (e) { text = String((e as Error).message) }
+      expect(text).not.toContain('CANARY-FIN-7731')
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  })
+  test('a cross join sorted by random() is stopped by the memory cap, without filling the disk', async () => {
+    const work = makeWorkDir(path.join(A.ctx.config.dataDir, 'work'))
+    const was = { ...DATA_LIMITS }
+    DATA_LIMITS.rssMiB = 400
+    const free = () => { const f = fs.statfsSync(work); return f.bavail * f.bsize }
+    const start = free()
+    let low = start
+    const watch = setInterval(() => { try { low = Math.min(low, free()) } catch {} }, 50)
+    try {
+      fs.writeFileSync(path.join(work, 'in-1.csv'), 'a\n' + Array.from({ length: 20_000 }, (_, i) => i).join('\n') + '\n')
+      const t0 = Date.now()
+      const err = await runDataWorker(work, { inputs: [{ file: 'in-1.csv', name: 'n.csv', ext: 'csv', table: 'data' }], sql: 'SELECT x.a, y.a FROM data x, data y ORDER BY random()', show: 5 }, 120_000).then(() => null, (e) => e as Error)
+      expect(err?.message ?? '').toMatch(/memory/)
+      expect(Date.now() - t0).toBeLessThan(DATA_LIMITS.timeoutMs)
+      // nothing near the 2.3 GB the old temp files took; the work folder holds only the database
+      expect(start - low).toBeLessThan(200 * 1024 * 1024)
+    } finally { clearInterval(watch); Object.assign(DATA_LIMITS, was); fs.rmSync(work, { recursive: true, force: true }) }
   })
 })
 
