@@ -53,24 +53,52 @@ function cost(s: string, from: number, to: number) { let t = 0; for (let i = fro
 
 const num = (n: number) => n.toLocaleString('en-US')
 
-/** The lines of `text` (\n or \r\n), without the empty one after a last line break. Never changed by the readers
- * (ReadViews keeps them for the next read). */
-export function splitLines(text: string): string[] {
-  const lines = text.includes('\r') ? text.split(/\r?\n/) : text.split('\n')
-  if (lines.length && lines[lines.length - 1] === '') lines.pop()
-  return lines
+/** Lines a read numbers: by index, `at(i)` is line i + 1 without its line break. */
+export interface LineSource { readonly length: number; at(i: number): string | undefined }
+
+/**
+ * The lines of a text (\n or \r\n, without the empty one after a last line break) as the text itself plus where each
+ * line starts: one string and 4 bytes a line, not a string a line (a Bun string costs ~30-40 bytes, so a pretty view of
+ * `[1,1,1,…]` as an array of lines was about 10 times its text; security review of TC-4950). A line is cut out when
+ * read.
+ */
+export class LineIndex implements LineSource {
+  readonly length: number
+  private readonly starts: Uint32Array
+  constructor(readonly text: string) {
+    let n = 0
+    for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) n++
+    // the text after the last line break is a line unless it is empty
+    const last = text.length > 0 && !text.endsWith('\n')
+    this.length = n + (last ? 1 : 0)
+    this.starts = new Uint32Array(this.length + 1)
+    let k = 1
+    for (let i = text.indexOf('\n'); i >= 0 && k <= this.length; i = text.indexOf('\n', i + 1)) this.starts[k++] = i + 1
+    // the end of the last line: one past it, as if a line break followed
+    this.starts[this.length] = last ? text.length + 1 : text.length
+  }
+  at(i: number): string | undefined {
+    if (i < 0 || i >= this.length) return undefined
+    const a = this.starts[i]!
+    let b = this.starts[i + 1]! - 1
+    // \r\n: the \r goes with the line break (a \r at the very end, with no \n after it, stays)
+    if (b < this.text.length && b > a && this.text.charCodeAt(b - 1) === 13) b--
+    return this.text.slice(a, b)
+  }
+  /** UTF-16 units held (the text, and the index at 2 units a line) */
+  get units() { return this.text.length + this.starts.length * 2 }
 }
 
 /** Text as numbered lines (cat -n), from `offset` (1-based line), `limit` lines (default 2000), from `char_offset` in
  * the first line. A line that does not fit what is left of one call comes back in pieces: "[characters a–b of n]". */
-export function numberedLines(rel: string, text: string | readonly string[], a: ReadLinesArgs, view: ReadLinesView = {}, converted = false): ReadLinesOut {
-  const lines = typeof text === 'string' ? splitLines(text) : text
+export function numberedLines(rel: string, text: string | LineSource, a: ReadLinesArgs, view: ReadLinesView = {}, converted = false): ReadLinesOut {
+  const lines = typeof text === 'string' ? new LineIndex(text) : text
   const off = a.offset ?? 1, lim = a.limit ?? 2000
   const again = view.again ?? ''
   if (!lines.length) return { text: '(empty file)', summary: `read ${rel} -> empty`, shown: 0 }
   if (off > lines.length) throw new ToolError(`offset ${off} is past the end of the file (${lines.length} lines)`)
   let start = a.char_offset ?? 0
-  const first = lines[off - 1]!
+  const first = lines.at(off - 1)!
   if (start > 0 && start >= first.length) throw new ToolError(`char_offset ${start} is past the end of line ${off} (${num(first.length)} characters)`)
   // a start inside a surrogate pair (an emoji) goes back to the pair's start
   if (start > 0 && start < first.length && isLowSurrogate(first.charCodeAt(start)) && isHighSurrogate(first.charCodeAt(start - 1))) start--
@@ -80,7 +108,7 @@ export function numberedLines(rel: string, text: string | readonly string[], a: 
   /** where the next call starts when this one stopped before `end` */
   let next: { line: number; char: number } | null = null
   for (let i = off - 1; i < end; i++, start = 0) {
-    const l = lines[i]!
+    const l = lines.at(i)!
     const n = i + 1
     // the budget is spent (also by many empty lines): the next call starts here
     if (out.length && (chars <= 8 || tokens <= 3)) { next = { line: n, char: start }; break }
@@ -100,7 +128,7 @@ export function numberedLines(rel: string, text: string | readonly string[], a: 
   }
   let more = ''
   if (next && next.char > 0) {
-    more = `\n… (line ${next.line} goes on: it has ${num(lines[next.line - 1]!.length)} characters and this read showed it up to character ${num(next.char)}. ` +
+    more = `\n… (line ${next.line} goes on: it has ${num(lines.at(next.line - 1)!.length)} characters and this read showed it up to character ${num(next.char)}. ` +
       `Nothing is cut: read again with offset=${next.line} char_offset=${next.char}${again} for the rest. The file has ${num(lines.length)} lines.)`
   } else if (next) {
     more = `\n… (one read shows about ${num(READ_TEXT_CHARS)} characters; ${num(lines.length)} lines in total. Read again with offset=${next.line}${again} for the rest.)`
@@ -141,12 +169,12 @@ export function exactJson(text: string): unknown | undefined {
 const REFORMATTED = 'This is a reformatted view: values are as written, only spaces and line breaks are added. To edit the file, read it with pretty=false and copy old_string from the raw text.'
 
 /** a view of a text that reads as other lines than the file's (pretty JSON) */
-export interface Pretty { lines: readonly string[]; view: ReadLinesView }
+export interface Pretty { lines: LineIndex; view: ReadLinesView }
 /** What one text gives a read, worked out once: ReadViews keeps it for the next reads of the same bytes (QA TC-4950).
  * Every field is filled when first needed and never changed after. */
 export interface TextMemo {
   /** the text's lines */
-  raw?: readonly string[]
+  raw?: LineIndex
   /** has the text a line over PRETTY_JSON_LINE? */
   long?: boolean
   /** the .json view: null when the JSON does not re-serialise exactly (shown raw) */
@@ -154,7 +182,7 @@ export interface TextMemo {
   /** the .jsonl view */
   jsonl?: Pretty
 }
-export const memoLines = (text: string, m: TextMemo) => (m.raw ??= splitLines(text))
+export const memoLines = (text: string, m: TextMemo) => (m.raw ??= new LineIndex(text))
 
 /**
  * The pretty-printed view of a .json file (or of each record of a .jsonl file), when it is asked for (`pretty: true`)
@@ -162,7 +190,7 @@ export const memoLines = (text: string, m: TextMemo) => (m.raw ??= splitLines(te
  * exactly as written is reformatted (exactJson). Null: the raw text. `memo` keeps what is worked out for the next reads
  * of the same text.
  */
-export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { pretty?: boolean }, memo: TextMemo = {}): { text: string | readonly string[]; view: ReadLinesView } | null {
+export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { pretty?: boolean }, memo: TextMemo = {}): { text: LineSource; view: ReadLinesView } | null {
   if (a.pretty === false || !prettyAllowed(rel) || text.length > PRETTY_JSON_MAX) return null
   if (isJson(rel)) {
     const auto = a.pretty === undefined && a.offset === undefined && a.char_offset === undefined && (memo.long ??= hasLongLine(text))
@@ -177,15 +205,18 @@ export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { p
   if (!a.pretty) return null
   if (!memo.jsonl) {
     const raw = memoLines(text, memo)
+    // one string per record, joined once (never a spread of a record's lines: a record of a million values overflowed
+    // the stack, security review of TC-4950)
     const out: string[] = []
-    raw.forEach((l, i) => {
-      if (!l.trim()) { out.push(`// line ${i + 1} of the file`); return }
+    for (let i = 0; i < raw.length; i++) {
+      const l = raw.at(i)!
+      if (!l.trim()) { out.push(`// line ${i + 1} of the file`); continue }
       const v = exactJson(l)
-      if (v === undefined) { out.push(`// line ${i + 1} of the file (raw: reformatting it would change it)`, l); return }
-      out.push(`// line ${i + 1} of the file`, ...JSON.stringify(v, null, 2).split('\n'))
-    })
+      if (v === undefined) { out.push(`// line ${i + 1} of the file (raw: reformatting it would change it)`, l); continue }
+      out.push(`// line ${i + 1} of the file`, JSON.stringify(v, null, 2))
+    }
     const head = `(${rel}: ${num(raw.length)} JSON lines, each shown pretty-printed under "// line N of the file". ${REFORMATTED} Line numbers below are of this view: to go on, read with pretty=true and offset.)`
-    memo.jsonl = { lines: out, view: { head, again: ' pretty=true', pretty: true } }
+    memo.jsonl = { lines: new LineIndex(out.join('\n')), view: { head, again: ' pretty=true', pretty: true } }
   }
   return { text: memo.jsonl.lines, view: memo.jsonl.view }
 }
@@ -202,7 +233,7 @@ function hasLongLine(text: string): boolean {
   }
 }
 
-/** lines of a text, counted as splitLines counts them */
+/** lines of a text, counted as LineIndex counts them */
 function lineCount(text: string): number {
   let n = 0
   for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) n++
@@ -214,7 +245,7 @@ function jsonPretty(rel: string, text: string): Pretty | null {
   const v = exactJson(text)
   if (v === undefined) return null
   // JSON.stringify writes a line break in a string as \n, so the view's lines are its \n
-  const lines = JSON.stringify(v, null, 2).split('\n')
+  const lines = new LineIndex(JSON.stringify(v, null, 2))
   const rawN = lineCount(text)
   const head = `(${rel}: ${num(text.length)} characters of JSON on ${rawN === 1 ? 'one line' : `${num(rawN)} lines`}, shown pretty-printed as ${num(lines.length)} lines. ${REFORMATTED} ` +
     `Line numbers below are of this view: to go on, read with pretty=true and offset. In the raw text (pretty=false) grep's line numbers and character positions apply.)`
@@ -222,15 +253,16 @@ function jsonPretty(rel: string, text: string): Pretty | null {
 }
 
 /** the most UTF-16 units of text (and of its views) ReadViews keeps in all */
-export const READ_VIEWS_UNITS = 96 * 1024 * 1024
+export const READ_VIEWS_UNITS = 64 * 1024 * 1024
 /** a kept text not read again for this long is let go */
 export const READ_VIEWS_TTL_MS = 10 * 60_000
 
 interface ViewEntry { text: string; memo: TextMemo; at: number; units: number; views: string }
-/** units a memo holds (each view about its text's size) */
+/** units a memo holds: the text, and each view's text and line index (the raw lines share the text, so only their
+ * index counts) */
 function units(e: ViewEntry): number {
-  const sum = (l: readonly string[] | undefined) => { let n = 0; if (l) for (const x of l) n += x.length + 1; return n }
-  return e.text.length + sum(e.memo.raw) + sum(e.memo.json?.lines) + sum(e.memo.jsonl?.lines)
+  const v = (l: LineIndex | undefined) => (l ? l.units : 0)
+  return e.text.length + (e.memo.raw ? v(e.memo.raw) - e.text.length : 0) + v(e.memo.json?.lines) + v(e.memo.jsonl?.lines)
 }
 
 /**

@@ -69,9 +69,11 @@ void ENGINE_BUILTIN_ALLOWED
  * Windows-1252) would lose all its non-ASCII characters, so these tools refuse it and do not convert it silently.
  * The AI can write a new UTF-8 copy under another name. Office and binary files have their own checks.
  */
-function refuseLegacyText(rel: string, cur: Uint8Array) {
-  // UTF-16 text reads as text (files/extract.ts utf16Text) but is written back as UTF-8: refused like a legacy encoding
-  if (utf16Text(cur) !== null) throw new ToolError(`'${rel}' is UTF-16 text. The AI cannot change it, because the change would be saved in another encoding (UTF-8) that the programs using this file may not read. Write a new UTF-8 copy under another name instead.`, 'legacy_encoding')
+function refuseLegacyText(rel: string, cur: Uint8Array, tool: 'edit' | 'write') {
+  // UTF-16 text reads as text (files/extract.ts utf16Text) but is written back as UTF-8: refused like a legacy encoding.
+  // write replaces a file whose UTF-16 is only guessed (no byte-order mark) as before; an edit never changes one
+  const kind = utf16Kind(cur.subarray(0, 8000))
+  if (kind && (tool === 'edit' || kind.startsWith('bom')) && utf16Text(cur) !== null) throw new ToolError(`'${rel}' is UTF-16 text. The AI cannot change it, because the change would be saved in another encoding (UTF-8) that the programs using this file may not read. Write a new UTF-8 copy under another name instead.`, 'legacy_encoding')
   if (cur.subarray(0, 8000).includes(0) || isUtf8(cur)) return
   throw new ToolError(`'${rel}' is in a legacy encoding (${isLegacyKorean(cur) ? 'Korean CP949 / EUC-KR' : 'not UTF-8'}). ` +
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
@@ -639,6 +641,10 @@ export class FileService {
     const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
     // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
     if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
+    // a kept text skips extractText, so its checks run here first: quarantined output is never shown (also not from
+    // the cache), and a stopped turn stops
+    this.quarantine.assertBytes(bytes)
+    ctx.signal?.throwIfAborted()
     const hash = sha256(bytes)
     // the text and its views of these very bytes, kept from an earlier piece of the same file (QA TC-4950)
     const { text, memo, done } = await this.readViews.get(r.rel, hash, () => extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal))
@@ -1574,7 +1580,7 @@ export class FileService {
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs, undefined, r.st).bytes
-      if (tool === 'write') refuseLegacyText(r.rel, cur)
+      if (tool === 'write') refuseLegacyText(r.rel, cur, 'write')
       const before = seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
@@ -1605,7 +1611,7 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
     const cur = readRegular(r.abs, undefined, r.st).bytes
-    refuseLegacyText(r.rel, cur)
+    refuseLegacyText(r.rel, cur, 'edit')
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     const before = ctx.files.readHashes.get(r.rel)
     if (!before) throw new ToolError(`read '${r.rel}' first (with read) before editing it`, 'not_read')

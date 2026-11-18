@@ -368,7 +368,7 @@ const CONTROL = /[\u0000-\u0008\u000E-\u001F]/
 /**
  * Is this the head of a UTF-16 text file? 'bom' with a byte-order mark (ripgrep reads such a file as text, and so does
  * read). 'le' / 'be' without one, when it is plainly UTF-16: zero bytes on one side of the pairs only (the ASCII
- * characters) and no control characters; ripgrep takes such a file for binary and skips it. Null otherwise.
+ * characters), in at least one pair in 16, and no control characters; ripgrep takes such a file for binary and skips it. Null otherwise.
  */
 export function utf16Kind(head: Uint8Array): 'bom-le' | 'bom-be' | 'le' | 'be' | null {
   if (head.length >= 2 && head[0] === 0xff && head[1] === 0xfe) return 'bom-le'
@@ -377,8 +377,10 @@ export function utf16Kind(head: Uint8Array): 'bom-le' | 'bom-be' | 'le' | 'be' |
   if (n < 4) return null
   let even = 0, odd = 0
   for (let i = 0; i < n; i += 2) { if (head[i] === 0) even++; if (head[i + 1] === 0) odd++ }
-  // a binary file has zero bytes on both sides; a UTF-16 one only on the high byte of its ASCII characters
-  const le = odd > 0 && even === 0, be = even > 0 && odd === 0
+  // a binary file has zero bytes on both sides; a UTF-16 one only on the high byte of its ASCII characters, and many:
+  // at least one pair in 16 (one stray zero byte in ASCII text is not UTF-16; security review of TC-4950)
+  const enough = Math.max(2, Math.ceil(n / 2 / 16))
+  const le = odd >= enough && even === 0, be = even >= enough && odd === 0
   if (!le && !be) return null
   const t = decodeUtf16(head.subarray(0, n), le ? 'utf-16le' : 'utf-16be', true)
   return t !== null && !CONTROL.test(t) ? (le ? 'le' : 'be') : null

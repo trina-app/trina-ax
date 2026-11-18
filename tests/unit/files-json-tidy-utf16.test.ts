@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeEnv } from '../lib/env'
-import { exactJson, numberedLines, prettyJsonView, ReadViews, READ_TEXT_CHARS, type TextMemo } from '../../server/src/files/read-lines'
+import { exactJson, LineIndex, numberedLines, prettyJsonView, ReadViews, READ_TEXT_CHARS, type TextMemo } from '../../server/src/files/read-lines'
 import { utf16Kind, utf16Text } from '../../server/src/files/extract'
 
 const env = makeEnv('unit-files-json-tidy-utf16')
@@ -93,6 +93,7 @@ describe('read: a long JSON file is reformatted once, then read piece by piece',
     expect(memo.json!.lines.length).toBe(3)
     numberedLines('a.json', memo.json!.lines, { offset: 3 }, v.view)
     expect(memo.json!.lines.length).toBe(3)
+    expect(memo.json!.lines.at(2)).toBe('}')
     // an offset without pretty: the raw text
     expect(prettyJsonView('a.json', long, { offset: 1 }, memo)).toBeNull()
     const bad = '{"n":12345678901234567890,"p":"' + 'q'.repeat(3_000) + '"}\r\n'
@@ -200,5 +201,69 @@ describe('UTF-16 text: read shows it, grep finds it or says why not', () => {
     expect(w.isError).toBe(true)
     expect(w.text).toContain('is UTF-16 text')
     expect(fs.readFileSync(path.join(T, 'shared/u16c/w.txt')).equals(le('hello wide\n'))).toBe(true)
+  })
+})
+
+describe('security review of TC-4950', () => {
+  test('LineIndex gives the lines a split gave (\\n, \\r\\n, a last line without a break, empty lines)', () => {
+    for (const t of ['', '\n', 'a', 'a\n', 'a\r\nb', 'a\r\nb\r\n', '\n\nx\n\n', 'x\r', 'a\rb\nc', '\r\n']) {
+      const want = t.split(/\r?\n/); if (want.length && want.at(-1) === '') want.pop()
+      const li = new LineIndex(t)
+      expect(Array.from({ length: li.length }, (_, i) => li.at(i))).toEqual(want)
+    }
+  })
+
+  test('60 pretty views of [1,1,1,…] stay under 300 MB of heap (the cache counts each line)', async () => {
+    const c = env.ctx('alice')
+    const body = '[' + Array(400_000).fill('1').join(',') + ']'
+    for (let i = 0; i < 60; i++) put(`shared/heap/f${i}.json`, body.slice(0, -1) + `,${i}]`)
+    Bun.gc(true)
+    const before = process.memoryUsage().heapUsed
+    for (let i = 0; i < 60; i++) {
+      const r = await env.files.call('read', { file_path: `shared/heap/f${i}.json` }, c)
+      expect(r.text.slice(0, 300)).toContain('shown pretty-printed as 400,003 lines')
+    }
+    Bun.gc(true)
+    const grown = process.memoryUsage().heapUsed - before
+    console.log(`heap grown by ${Math.round(grown / 1048576)} MB for 60 views, ${env.files.readViews.size} kept`)
+    expect(grown).toBeLessThan(300 * 1024 * 1024)
+    // and the cache still holds some of them
+    expect(env.files.readViews.size).toBeGreaterThan(3)
+  }, 120_000)
+
+  test('a JSONL record of a million numbers is shown pretty, no stack overflow', async () => {
+    put('shared/jl/big.jsonl', JSON.stringify({ v: Array(1_000_000).fill(7) }) + '\n{"b":2}\n')
+    const r = await env.files.call('read', { file_path: 'shared/jl/big.jsonl', pretty: true, limit: 4 }, env.ctx('alice'))
+    expect(r.isError).toBeFalsy()
+    expect(r.text).toContain('// line 1 of the file')
+    expect(r.text).toContain('     3\t  "v": [')
+  })
+
+  test('ASCII with one zero byte is not UTF-16; write replaces a UTF-16 guess without a byte-order mark', async () => {
+    const one = Buffer.from('plain ASCII text, '.repeat(12) + '\0' + 'more text after it\n')
+    expect(utf16Kind(one)).toBeNull()
+    expect(utf16Kind(Buffer.from('ab\0cdefgh'))).toBeNull()
+    const plain = le('Report line one\r\nline two with more words\r\n', false)
+    expect(utf16Kind(plain)).toBe('le')
+    const c = env.ctx('alice')
+    put('shared/u16w/guess.txt', plain)
+    expect((await env.files.call('read', { file_path: 'shared/u16w/guess.txt' }, c)).text).toContain('line two with more words')
+    const w = await env.files.call('write', { file_path: 'shared/u16w/guess.txt', content: 'now UTF-8\n' }, c)
+    expect(w.isError).toBeFalsy()
+    expect(fs.readFileSync(path.join(T, 'shared/u16w/guess.txt'), 'utf8')).toBe('now UTF-8\n')
+  })
+
+  test('a kept text is not shown once its bytes are quarantined; a stopped turn stops', async () => {
+    const c = env.ctx('alice')
+    const text = 'held text '.repeat(4_000)
+    put('shared/q/held.txt', text)
+    expect((await env.files.call('read', { file_path: 'shared/q/held.txt' }, c)).text).toContain('held text')
+    expect(env.files.readViews.size).toBe(1)
+    env.files.quarantine.add(Buffer.from(text), 'image')
+    const r = await env.files.call('read', { file_path: 'shared/q/held.txt' }, c)
+    expect(r.isError).toBe(true)
+    expect(r.text).not.toContain('held text')
+    const ac = new AbortController(); ac.abort()
+    await expect(env.files.read({ ...env.ctx('alice'), signal: ac.signal } as any, { file_path: 'shared/tidy/c.json' })).rejects.toThrow()
   })
 })
