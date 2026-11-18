@@ -248,22 +248,24 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
 export const OFFICE_WRITE_MAX = 64 * 1024 * 1024
 
 /** The bytes of a file the office worker makes (mode `hwpx-write`: make_file's Hangul document, files/hwpx-write.ts),
- * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message. */
-export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
+ * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message.
+ * maxOut: the largest answer (the PDF tools take larger files: pdf-pages.ts PDF_OUTPUT_MAX); a larger request gets more
+ * time, as a read does (officeWorkerTimeoutMs). */
+export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal, maxOut = OFFICE_WRITE_MAX): Promise<Buffer> {
   const script = await officeWorkerScript()
   const timeoutMs = officeWorkerTimeoutMs(request.byteLength)
   return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, mode], stdin: request, readPaths: [path.dirname(script)],
-      timeoutMs, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      timeoutMs, maxStdout: maxOut, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
       env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     const failed = (why: string) => new ToolError(`the document could not be made (${why}); nothing was saved`)
     if (r.killed === 'timeout') throw failed(`it took longer than ${timeoutMs / 1000} s`)
     if (r.killed === 'memory') throw failed(`it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
-    if (r.killed === 'output') throw failed(`the file would be larger than ${OFFICE_WRITE_MAX / 1024 / 1024} MB`)
+    if (r.killed === 'output') throw failed(`the file would be larger than ${maxOut / 1024 / 1024} MB`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 1500))
     if (r.code !== 0) throw failed(r.code === null || r.code >= 128 ? 'the writer ran out of memory or time' : `office writer: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
     return r.stdout

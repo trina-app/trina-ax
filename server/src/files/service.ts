@@ -380,8 +380,24 @@ export interface VersionReads {
   places(userId: string, versionId: string): string[]
 }
 
-/** read with `versions`: the most text of the changes shown */
-export const VERSION_DIFF_MAX_CHARS = 8000
+/** read with `versions`: the most text of the changes shown in one read; `offset` (a line of the changes) reads on
+ * (second limits audit N39: 8,000 with no read-on before) */
+export const VERSION_DIFF_MAX_CHARS = 40_000
+/** The changes from line `offset` (1-based) of the whole diff: whole lines up to `max` characters (a single longer line
+ * cut), the line to read on from (null: the end) and how many lines there are. */
+export function versionDiffPart(text: string, offset = 1, max = VERSION_DIFF_MAX_CHARS): { text: string; next: number | null; lines: number } {
+  const all = text.split('\n')
+  const out: string[] = []
+  let used = 0
+  let i = Math.max(1, offset) - 1
+  for (; i < all.length; i++) {
+    const l = all[i]!
+    if (out.length && used + l.length + 1 > max) break
+    out.push(l.length > max ? `${l.slice(0, max)}…` : l)
+    used += l.length + 1
+  }
+  return { text: out.join('\n'), next: i < all.length ? i + 1 : null, lines: all.length }
+}
 /** ...and the most text of either side that is compared at all (above it: "too large to compare") */
 export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
 /** ...and the most bytes of a plain text file (either side) that are read for it */
@@ -727,12 +743,18 @@ export class FileService {
         if (now.length > VERSION_DIFF_TEXT_MAX || before.length > VERSION_DIFF_TEXT_MAX) {
           diff = `Changes (${label}): the file is too large to compare here; only the list above.`
         } else {
-          const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
+          const d = lineDiff(before, now, Number.MAX_SAFE_INTEGER)
+          const part = versionDiffPart(d.text, a.offset)
+          // where this part is in the changes, and how to read on (the same call with offset)
+          const at = a.offset && a.offset > 1 ? `; lines ${a.offset}-${part.next ? part.next - 1 : part.lines} of ${part.lines} lines of changes` : ''
+          const more = part.next ? `; cut at line ${part.next - 1} of ${part.lines}: for the rest, the same read with offset: ${part.next}` : ''
           diff = d.added + d.removed === 0
             ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
-            : d.approximate
-              ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole (cut) as removed then added, so counts are not meaningful:\n${d.text}`
-              : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+            : a.offset && a.offset > part.lines
+              ? `Changes (${label}): offset ${a.offset} is past the end; the changes have ${part.lines} lines.`
+              : d.approximate
+                ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole as removed then added, so counts are not meaningful${at}${more}:\n${part.text}`
+                : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${at}${more}):\n${part.text}`
         }
       } catch (e) {
         if (!(e instanceof ToolError)) throw e
