@@ -17,7 +17,9 @@ summary over it had to be typed into `content`; and the AI cannot type 1.7 milli
 
 - make_file takes `source` (a .csv/.tsv) and `content` together for format xlsx: the CSV is the first sheet, named after
   the file without its extension, and each Markdown table of `content` is another sheet (a summary with
-  `=SUMIFS(sales!E:E,…)`). Any other format still takes exactly one; `content` without a pipe table is refused.
+  `=SUMIFS(sales!E:E,…)`). Any other format still takes exactly one; `content` without a pipe table is refused. The
+  CSV and `content` share one 10 MB cap. A file name over 31 characters is cut for the sheet (Excel's limit); the result
+  then names the sheet, so the AI fixes its formulas.
 - The description says it: a big workbook is made from the CSV as `source`, never retyped or sampled, up to 10 MB.
 - Not changed: an .xlsx is not a `source` (convert to CSV first is not offered either); conditional formatting (N3).
 
@@ -32,8 +34,12 @@ used (pandoc does not read them as the title either), so a file without a Title 
 
 A formula cell with a stored result reads `=SUM(B2:B9) → 1770` (files/office-parse.ts formulasWithValues): the formula,
 then the value as the file shows it (an error too: `=B2/0 → #DIV/0!`). A formula over 300 characters is cut with "…".
-Cells without a formula are unchanged, and a formula without a stored result still reads `=SUM(B2:E2)`. The text cache
-format goes to 7 (6 stays usable and is made again in the background), so grep finds formulas too.
+Cells without a formula are unchanged, and a formula without a stored result still reads `=SUM(B2:E2)`. One read adds
+at most 4 MB of formula text (FORMULA_TEXT_MAX), and never so much that the text passes OFFICE_TEXT_MAX: a sheet past
+that shows its values, as before, and one labelled line at the end says so (`=== Sheet 'X' shows values only: its N
+formula cells are too many to show next to them ===`). So a formula-heavy workbook that read before still reads. The
+text cache format goes to 7; format-6 text stays usable, and only .docx/.xlsx/.xls/.ods text is made again in the
+background (a PDF's or deck's text, OCR included, did not change and is kept).
 
 PR #1290 adds a streaming reader for big .xlsx files (sheet-stream.ts) and its own one-sheet path (sheetRangeText); both
 need `formulasWithValues` (or the same text) after `formulaStubsAsText` once both are merged.
@@ -47,6 +53,11 @@ need `formulasWithValues` (or the same text) after `formulaStubsAsText` once bot
   25,000 for a tool result, and end with the exact next call: `offset=N`. Both tools take a new optional `offset` (skip
   N output lines or entries). A single grep line longer than the budget comes back cut, with a note. The file screen's
   content search has no budget.
+- Paging needs one order: with `offset` or a budget, ripgrep runs with `--sort path` (its threads give files in any
+  order; paging 1,500 files without it showed about 1,150 of them). A later page extracts no office text before its
+  answer, so the office pass reads the same text as the page before it, and it does not list big files again.
+- Place labels (`[sheet '매출' A12:F12]`) are added after ripgrep: lines past the budget are dropped again after
+  labelling, with their files and hits, and the offset reads on from there.
 - read: PR #1282 (28,000 characters). glob returns at most 100 paths (no change). Left: Google Drive's read gives up to
   100,000 characters (40,000 by default) with no offset, which can pass 25,000 tokens in Korean (finding N18).
 
@@ -54,9 +65,9 @@ need `formulasWithValues` (or the same text) after `formulaStubsAsText` once bot
 
 | What | Before | Now |
 |---|---|---|
-| office worker read or write (xlsx/xls/ods/hwp/hwpx, docx/pptx extras, hwpx and PDF tools) | 60 s | 180 s + 2 s per MB, at most 10 min |
+| office worker read or write (xlsx/xls/ods/hwp/hwpx, docx/pptx extras, hwpx and PDF tools) | 60 s | 60 s + 4 s per MB (32 MB: 188 s), at most 10 min |
 | pandoc (docx/pptx/odt) and pdftotext reads | 20 s | 60 s + 2 s per MB, at most 5 min |
-| office workers at once | 2 | half the CPU budget, 2 to 6; with a plan at most its converter memory / 512 MB (never below 2) |
+| office workers at once | 2 | half the CPU budget, 2 to 6; at most its converter memory / 512 MB with a plan, a quarter of the machine's memory / 2 GB without one (never below 2) |
 
 The memory caps stay: each worker 2,048 MB RSS, and the converter cgroup's memory.max for all of them together, so more
 workers never take more memory. Background work still takes at most one worker. PR #1290 scales the same timeout
@@ -64,12 +75,15 @@ workers never take more memory. Background work still takes at most one worker. 
 
 ## TC-4924: box_shell only when the dev environment works
 
-A turn offers box_shell only when `srtProblem()` is empty (devenv/srt/runner.ts devEnvDownReason; cached 1-10 min; a
-check that takes over 3 s counts as working, as before). When the team setting is on but the install is broken, the AI
+A turn offers box_shell only when `srtProblem()` is empty (devenv/srt/runner.ts devEnvDownReason). The self-test is
+cached (a failure 1 min, a pass 10 min); one runs at a time and every caller shares it, and while it runs again the
+last result is served, so the state does not flap and answers do not wait. Only the very first check can be slow: one
+over 3 s is "not known yet" and the previous answer stands (none yet: offered, as before). When the team setting is on but the install is broken, the AI
 is told once in its instructions, in plain words, which work cannot be done and not to say "try again in a few minutes".
 An owner or admin is pointed to Admin › Settings › Dev environment; a member (and every shared chat) is told the
 owner or an admin can see the reason, with no technical details. The admin page shows the reason under "This server
-cannot run dev environments", and the server logs each new reason once.
+cannot run dev environments", and the server logs each new reason once. The project page's availability no longer
+sends that reason (server paths) to members: only owners and admins get it.
 
 ## TC-4926: the sub-agent sentence from the tool list
 

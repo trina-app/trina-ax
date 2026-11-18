@@ -83,14 +83,15 @@ export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 32 MB); downl
  * applies on production Linux as well), workers at the same time (the rest wait), and how many of them background work
  * may take (officeWorkerSlot). The time grows with the file (officeWorkerTimeoutMs); memory does not: the caps bound
  * what a big file may take, the clock only stops a stuck one (QA TC-4923: 60 s stopped big workbooks on a busy server). */
-export const OFFICE_WORKER_TIMEOUT_MS = 180_000
+export const OFFICE_WORKER_TIMEOUT_MS = 60_000
 export const OFFICE_WORKER_TIMEOUT_MAX_MS = 600_000
 /** more time per MB of input past the base */
-const OFFICE_WORKER_MS_PER_MB = 2_000
+const OFFICE_WORKER_MS_PER_MB = 4_000
 export const OFFICE_WORKER_RSS_MIB = 2048
 export const OFFICE_WORKERS_BACKGROUND_MAX = 1
 
-/** The office worker's wall clock for an input of `bytes`: 180 s, 2 s more per MB, at most 10 minutes. */
+/** The office worker's wall clock for an input of `bytes`: 60 s, 4 s more per MB (a 32 MB workbook: 188 s), at most 10
+ * minutes. A small file keeps the old 60 s, so a stuck one still ends soon. */
 export function officeWorkerTimeoutMs(bytes: number): number {
   return Math.min(OFFICE_WORKER_TIMEOUT_MAX_MS, OFFICE_WORKER_TIMEOUT_MS + Math.ceil(Math.max(0, bytes) / (1024 * 1024)) * OFFICE_WORKER_MS_PER_MB)
 }
@@ -104,14 +105,15 @@ let workersMaxOverride: number | null = null
 /** Tests: a fixed number of office workers at the same time (null: back to officeWorkersMax's own). */
 export function setOfficeWorkersMaxForTests(n: number | null) { workersMaxOverride = n }
 
-/** Office workers at the same time: half the CPU budget (system/limits.ts cpuBudget), at least 2, at most 6. With a
- * plan, also no more than its converter memory (convMiB) holds at 512 MB each, but never below 2: the converter
- * cgroup's memory.max bounds them all together, so more workers never take more memory than before. */
+/** Office workers at the same time: half the CPU budget (system/limits.ts cpuBudget), at least 2, at most 6, and no
+ * more than the memory holds: with a plan its converter memory (convMiB) at 512 MB each, without one a quarter of the
+ * machine's memory at OFFICE_WORKER_RSS_MIB each. Never below 2 (the old number): the converter cgroup's memory.max
+ * bounds them all together where it applies. */
 export function officeWorkersMax(): number {
   if (workersMaxOverride !== null) return workersMaxOverride
   const plan = currentPlan()
   const byCpu = Math.floor(cpuBudget() / 2)
-  const byMemory = plan ? Math.floor(planLimits(plan).convMiB / 512) : Infinity
+  const byMemory = plan ? Math.floor(planLimits(plan).convMiB / 512) : Math.floor(os.totalmem() / (1024 * 1024) * 0.25 / OFFICE_WORKER_RSS_MIB)
   return Math.max(2, Math.min(6, byCpu, byMemory))
 }
 

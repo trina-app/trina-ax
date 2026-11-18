@@ -76,7 +76,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; csvSheet?: string }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -290,6 +290,8 @@ export class MakeFile {
       const x = ext(r.rel)
       if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf")')
       const { bytes } = readRegular(r.abs, MAX_SOURCE, r.st)
+      // one cap for the CSV and the sheets added to it
+      if (a.content !== undefined && bytes.length + Buffer.byteLength(a.content) > MAX_SOURCE) throw new ToolError('the CSV and content are too large together (max 10 MB); nothing was saved')
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
       baseDir = r.segs.slice(0, -1)
@@ -313,7 +315,9 @@ export class MakeFile {
       let formulas: number | undefined
       let stored = 0
       let charts = 0
-      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts }
+      /** the CSV sheet's name when it is not the file's name (cut at 31 characters, or characters Excel refuses) */
+      let csvSheet: string | undefined
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts; csvSheet = x.csvSheet }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -377,7 +381,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}) } : made
+      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...(csvSheet ? { csvSheet } : {}) } : made
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -601,7 +605,7 @@ export class MakeFile {
   /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have
    * their result stored, and the number of charts. */
   /** `csvFirst`: the CSV `text` is a sheet named `name`, followed by the Markdown tables of `more` */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], csvFirst?: { name: string; more: string }): Promise<{ formulas: number; stored: number; charts: number }> {
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], csvFirst?: { name: string; more: string }): Promise<{ formulas: number; stored: number; charts: number; csvSheet?: string }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -649,7 +653,8 @@ export class MakeFile {
     if (charts.length) placeCharts(charts, written)
     await wb.xlsx.writeFile(out)
     if (charts.length) fs.writeFileSync(out, addCharts(new Uint8Array(fs.readFileSync(out)), charts, written))
-    return { formulas, stored, charts: charts.length }
+    const csvSheet = csvFirst && written[0] && written[0].name !== csvFirst.name ? written[0].name : undefined
+    return { formulas, stored, charts: charts.length, ...(csvSheet ? { csvSheet } : {}) }
   }
 
   /** `sources`: the team files whose bytes are in the output (the source, embedded images, a template). The event says

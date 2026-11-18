@@ -144,10 +144,14 @@ const idleSince = new Map<string, { usec: number; at: number; since: number | nu
 const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
 /** the time of the last preview request of a run (a previewed dev server is not idle) */
 const lastPreview = new Map<string, number>()
-function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; _resetQueue() }
+function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
+/** the self-test that runs now (every caller waits for the same one: no stampede when the cache runs out) */
+let selfTestRun: Promise<string> | null = null
+/** bumped by reset(): a self-test started before it does not write its result after it */
+let selfTestGen = 0
 export function planState(c = srtConfig()): PlanState {
   if (configOverride && configOverride.plan !== undefined) return { ok: true, plan: configOverride.plan }
   if (planCache && Date.now() - planCache.at < 30_000) return planCache.state
@@ -173,26 +177,35 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
     for (const f of [SRT_PATHS.node, SRT_PATHS.cli, SRT_PATHS.runWrap]) if (!fs.existsSync(f)) return `${f} is missing: run scripts/dev-env/srt/install-srt.sh`
     for (const b of ['bwrap', 'socat', 'rg']) if (!['/usr/bin', '/bin', '/usr/local/bin'].some((d) => fs.existsSync(path.join(d, b)))) return `${b} is missing`
   }
-  // a failed check is tried again after a minute: an update brings the server before install-srt.sh's new root files
-  if (!selfTest || Date.now() - selfTest.at > (selfTest.problem ? 60_000 : 10 * 60_000)) selfTest = { at: Date.now(), problem: await c.system.selfTest(c.id) }
+  // a failed check is tried again after a minute: an update brings the server before install-srt.sh's new root files.
+  // One self-test at a time; while it runs again, the last result is served (only the very first check is waited for)
+  if (!selfTest || Date.now() - selfTest.at > (selfTest.problem ? 60_000 : 10 * 60_000)) {
+    if (!selfTestRun) {
+      const gen = selfTestGen
+      selfTestRun = Promise.resolve().then(() => c.system.selfTest(c.id)).catch((e) => String(e))
+        .then((problem) => { if (gen === selfTestGen) { selfTest = { at: Date.now(), problem }; selfTestRun = null } return problem })
+    }
+    if (!selfTest) return await selfTestRun
+  }
   return selfTest.problem
 }
 
-/** the last reason devEnvDownReason logged (one warning per new reason, not one per answer) */
+/** the last answer of devEnvDownReason ('' = working): logged once per new reason, and kept while a check is late */
 let loggedDown = ''
 /**
  * Why the dev environment cannot run a command now ('' = it can), for a turn deciding whether to offer box_shell (QA
- * TC-4924). srtProblem is cached (a failed self-test is tried again after a minute, a good one after ten); a check that
- * takes longer than `waitMs` (the first self-test after a start) counts as working, as before this check: the tool then
- * says what is wrong. A new reason is logged once, for whoever runs the server.
+ * TC-4924). srtProblem is cached and serves its last result while it checks again, so only the first check after a
+ * start can be slow: a check that takes longer than `waitMs` is "not known yet" and the answer before it stands (none
+ * yet: working, as before this check; the tool then says what is wrong). A new reason is logged once.
  */
 export async function devEnvDownReason(log?: { warn(m: string, d?: object): void }, waitMs = 3_000): Promise<string> {
   let timer: ReturnType<typeof setTimeout> | undefined
-  const late = new Promise<string>((r) => { timer = setTimeout(() => r(''), waitMs) })
-  const why = await Promise.race([srtProblem().catch((e) => String(e)), late]).finally(() => clearTimeout(timer))
-  if (why && why !== loggedDown) log?.warn('dev environment is on but not working; box_shell is not offered', { reason: why.slice(0, 500) })
-  loggedDown = why
-  return why
+  const late = new Promise<null>((r) => { timer = setTimeout(() => r(null), waitMs) })
+  const got = await Promise.race([srtProblem().catch((e) => String(e)), late]).finally(() => clearTimeout(timer))
+  if (got === null) return loggedDown
+  if (got && got !== loggedDown) log?.warn('dev environment is on but not working; box_shell is not offered', { reason: got.slice(0, 500) })
+  loggedDown = got
+  return got
 }
 
 // ---------------- the folder access of a person ----------------

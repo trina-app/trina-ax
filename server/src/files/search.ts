@@ -163,6 +163,8 @@ export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
 const UPGRADABLE_VERSIONS = new Set(['5', '6'])
+/** the formats whose text format 7 changed (a Word title; spreadsheet formulas) */
+const V7_CHANGED = new Set(['docx', 'xlsx', 'xls', 'ods'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -251,7 +253,9 @@ export class OfficeCache {
   }
   /** the file's cached text is of the current format (text kept from an upgradable older format is fresh, not current) */
   current(rel: string): boolean {
-    return (this.provenance(rel) as { format?: string } | null)?.format === TEXT_CACHE_VERSION
+    const format = (this.provenance(rel) as { format?: string } | null)?.format
+    // format 7 changed only Word and spreadsheet text: a PDF's or a deck's format-6 text (OCR included) is not made again
+    return format === TEXT_CACHE_VERSION || (format === '6' && !V7_CHANGED.has(rel.slice(rel.lastIndexOf('.') + 1).toLowerCase()))
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   /** the place index of a large text (files/place-index.ts) */
@@ -694,6 +698,9 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
   const nameGlob = o.glob && !o.glob.includes('/') ? o.glob : null
   const common: string[] = [...RG_BASE]
+  // paged results (the AI's grep: offset and budget) must come in the same order every call: ripgrep's threads give
+  // files in any order, so offset=N would skip some and repeat others
+  if (o.offset !== undefined || o.budget) common.push('--sort', 'path')
   if (o.type) common.push('--type', o.type)
   common.push(o.ignoreCase ? '-i' : '-s')
   if (o.fixed) common.push('-F')
@@ -724,20 +731,37 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let offsetSkipped = 0
   let budgetCut = false
   let usedChars = 0, usedTokens = 0
+  /** for each line of `out`: its file and its index in `hits` (-1: none), so a cut after the place labels keeps both right */
+  const meta: { real: string | null; hit: number }[] = []
   /** true: shown; false: the result is full (stop); null: left out for `offset` (go on) */
-  const push = (s: string): boolean | null => {
+  const push = (s: string, real: string | null = null): boolean | null => {
     if (o.offset && offsetSkipped < o.offset) { offsetSkipped++; return null }
     if (out.length >= o.limit) { truncated = true; return false }
     if (o.budget) {
       const t = textTokens(s) + 1
       if (usedChars + s.length + 1 > o.budget.chars || usedTokens + t > o.budget.tokens) {
         // one line longer than the whole budget: its start, so the result is never empty
-        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); usedChars = o.budget.chars }
+        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); meta.push({ real: null, hit: -1 }); usedChars = o.budget.chars }
         truncated = true; budgetCut = true; return false
       }
       usedChars += s.length + 1; usedTokens += t
     }
-    out.push(s); return true
+    out.push(s); meta.push({ real, hit: -1 }); return true
+  }
+  /** The place labels (added after ripgrep) make lines longer: the lines past the budget are dropped again, with their
+   * files and hits, and the result says the offset that reads on from there. */
+  const reCut = () => {
+    if (!o.budget) return
+    let chars = 0, tokens = 0, keep = 0
+    for (; keep < out.length; keep++) {
+      const l = out[keep]!, c = l.length + 1, t = textTokens(l) + 1
+      if (keep > 0 && (chars + c > o.budget.chars || tokens + t > o.budget.tokens)) break
+      chars += c; tokens += t
+    }
+    if (keep >= out.length) return
+    out.length = keep; meta.length = keep; truncated = true; budgetCut = true
+    files.clear(); for (const x of meta) if (x.real) files.add(x.real)
+    hits.length = meta.reduce((n, x) => Math.max(n, x.hit + 1), 0)
   }
   /** what the end of a cut result says: the next call (budget), or narrow the search (head_limit) */
   const cutNote = () => budgetCut
@@ -767,17 +791,17 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (push('--') === false) return false
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
-      const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
+      const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`, m.real)
       if (pushed) {
         files.add(m.real)
-        if (j.type === 'match') hits.push({ path: m.shown, line: ln, text })
+        if (j.type === 'match') { hits.push({ path: m.shown, line: ln, text }); meta[out.length - 1]!.hit = hits.length - 1 }
         if (placing && structureOf(m.real)) placed.push({ out: out.length - 1, hit: j.type === 'match' ? hits.length - 1 : -1, real: m.real, line: ln, sep, text })
       }
       return pushed !== false
     }
     const parts = rec.split('\0')
     const m = map(parts[0].replace(/^\n/, '')); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
-    const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
+    const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown, m.real)
     if (pushed) files.add(m.real)
     return pushed !== false
   }
@@ -907,8 +931,10 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   if (!truncated && !o.type) {
     // strictTime: extraction that is not done at the deadline goes on in the background
     if (o.strictTime && deadline - Date.now() <= 0) return stopped()
+    // a later page (offset) extracts nothing before its answer: it reads the same office text as the page before it,
+    // so the order the offset counts in stays the same
     const ref = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel),
-      { budget: o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
+      { budget: o.offset ? 0 : o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
     stats.officePending = ref.pending
     stats.officeNotQueued = ref.notQueued
     stats.officeRetryLater = ref.retryLater
@@ -957,6 +983,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       }
     }
   }
+  reCut()
   truncated ||= admissionLimited
   let text = out.join('\n') || 'No matches'
   if (admissionLimited) text += '\n' + (d.fx.quarantine ? safeText(d.fx.quarantine.db, d.user.id, 'searchLimit') : SAFE_OPS_TEXT.searchLimit.en)
@@ -966,7 +993,8 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   if (stats.officeRetryLater) text += `\n(${stats.officeRetryLater} office documents were not searched: reading their text took too long (a busy server or a very complex file); search again in a few minutes)`
   if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
   // files over the size limit were not searched: said with their names, and that read opens them (QA TC-4921)
-  const big = o.reportBig && !o.signal?.aborted ? await bigFiles(d, roots, excludes, { nameGlob, pathGlob, type: o.type }, Math.min(5_000, Math.max(1_000, deadline - Date.now()))) : { names: [], count: 0 }
+  // once per search (its first page): a later page does not list the folders again
+  const big = o.reportBig && !o.offset && !o.signal?.aborted ? await bigFiles(d, roots, excludes, { nameGlob, pathGlob, type: o.type }, Math.min(5_000, Math.max(1_000, deadline - Date.now()))) : { names: [], count: 0 }
   stats.big = big.count
   if (big.count) text += `\n(${big.count} file${big.count === 1 ? ' was' : 's were'} not searched because ${big.count === 1 ? 'it is' : 'they are'} over ${RG_MAX_FILE / 1024 / 1024} MB: ${big.names.join(', ')}${big.count > big.names.length ? ` and ${big.count - big.names.length} more` : ''}. Read ${big.count === 1 ? 'it' : 'them'} directly with read (offset and limit) to look inside.)`
   return { text, truncated, timedOut, stats, files, hits, big: big.names }

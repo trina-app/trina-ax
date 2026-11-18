@@ -943,7 +943,10 @@ describe('the team setting', () => {
     setSrtSystem(fake, { base: devBase, id: 'mycel', plan: STARTER })
     const r = await h.api('alice').call(API.devEnv, { params: { id: falconId } })
     expect(r.availability).toMatchObject({ available: false, reason: 'platform' })
-    expect(r.availability.detail).toContain('polkit')
+    // the reason names server paths: an admin sees it, a member does not (QA TC-4924 review)
+    expect(r.availability.detail).toBeUndefined()
+    const admin = await h.api('carol').call(API.devEnvTeam, {})
+    expect(admin.availability!.detail).toContain('polkit')
   })
   test('off: the tool says so and runs nothing', async () => {
     turnOnTeam({ enabled: false })

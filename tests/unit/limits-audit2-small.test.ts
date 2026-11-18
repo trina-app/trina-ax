@@ -5,6 +5,8 @@
 // while the dev environment works, TC-4926 the sub-agent sentence follows PARENT_ONLY_TOOLS.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
+import os from 'node:os'
+import { setSystemTime } from 'bun:test'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 import ExcelJS from '../../server/node_modules/exceljs'
@@ -13,14 +15,15 @@ import { MakeFileInput } from '@mycel/shared'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { which } from '../../server/src/config'
 import { converterReadTimeoutMs, extractText, officeWorkersMax, officeWorkerTimeoutMs, setOfficeWorkersMaxForTests } from '../../server/src/files/extract'
-import { sheetText } from '../../server/src/files/office-parse'
+import { formulasWithValues, sheetText } from '../../server/src/files/office-parse'
+import { OfficeCache } from '../../server/src/files/search'
 import { listPage, TOOL_TEXT_BUDGET } from '../../server/src/files/tool-budget'
 import { textTokens } from '../../server/src/files/vision'
 import { setPlanForTests } from '../../server/src/system/limits'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { BROWSER_TOOL_NAMES } from '../../server/src/realtime/browser-tools'
 import { devEnvDownRule, PARENT_ONLY_WORDS, subagentLacks, subagentRule } from '../../server/src/chat/prompt'
-import { setSrtSystem } from '../../server/src/devenv/srt/runner'
+import { devEnvDownReason, setSrtSystem } from '../../server/src/devenv/srt/runner'
 import type { SrtSystem } from '../../server/src/devenv/srt/system'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
@@ -103,6 +106,24 @@ describe('TC-4918 formulas are read next to their values', () => {
     // plain values stay as they were
     expect(text).toContain('a\t100\t')
   })
+  test('too much formula text: that sheet shows its values, with one labelled line saying so', () => {
+    const rows: (string | number)[][] = [['a', 'b', 'total']]
+    for (let i = 2; i <= 400; i++) rows.push([i, 2, 0])
+    const ws = XLSX.utils.aoa_to_sheet(rows)
+    for (let i = 2; i <= 400; i++) ws[`C${i}`] = { t: 'n', v: i * 2, f: `A${i}*B${i}` }
+    const small = XLSX.utils.aoa_to_sheet([['x', 'y'], [1, 0]])
+    small.B2 = { t: 'n', v: 2, f: 'A2*2' }
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Big'); XLSX.utils.book_append_sheet(wb, small, 'Small')
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+    const text = sheetText(bytes, 1_000)
+    expect(text).toContain('400\t2\t800\n') // values only on the big sheet
+    expect(text).not.toContain('=A400*B400')
+    expect(text).toContain('=A2*2 → 2') // the small one still fits
+    expect(text.trim().split('\n').at(-1)).toBe("=== Sheet 'Big' shows values only: its 399 formula cells are too many to show next to them ===")
+    expect(sheetText(bytes)).toContain('=A400*B400 → 800')
+    const one = { '!data': [[{ t: 'n', v: 1 }, { t: 'n', v: 2, f: 'A1*2' }]], '!ref': 'A1:B1' } as unknown as XLSX.WorkSheet
+    expect(formulasWithValues(one, 3)).toMatchObject({ shown: false, cells: 1 })
+  })
   test('an Excel file with a shared formula: each cell shows its own formula', async () => {
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Q3')
@@ -162,10 +183,51 @@ describe('TC-4921 grep and list say what they left out', () => {
   })
 })
 
+describe('TC-4921 paging and place labels', () => {
+  test('grep pages through 1,500 files: every file exactly once, in the same order each call', async () => {
+    for (let i = 0; i < 1500; i++) put(`users/alice/PAGE/d${i % 30}/note-${String(i).padStart(4, '0')}.txt`, 'needle\n')
+    const seen: string[] = []
+    let offset: number | undefined
+    for (let page = 0; page < 20; page++) {
+      const r = await call('alice', 'grep', { pattern: 'needle', path: 'users/alice/PAGE', head_limit: 5000, ...(offset !== undefined ? { offset } : {}) })
+      expect(r.text.length).toBeLessThan(30_000)
+      seen.push(...r.text.split('\n').filter((l) => l.startsWith('users/alice/PAGE/')))
+      const m = /offset=(\d+)/.exec(r.text)
+      if (!m) break
+      offset = Number(m[1])
+    }
+    expect(seen.length).toBe(1500)
+    expect(new Set(seen).size).toBe(1500)
+  })
+  test('Korean sheet rows with their place labels stay under the budget', async () => {
+    const rows: string[][] = [['항목', '설명', '금액']]
+    for (let i = 0; i < 3000; i++) rows.push([`매출 항목 ${i}`, '지역별 월간 매출 합계와 비고', String(i * 1000)])
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), '지역별 매출 보고서')
+    put('users/alice/KO/report.xlsx', new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })))
+    const r = await call('alice', 'grep', { pattern: '매출 항목', path: 'users/alice/KO', output_mode: 'content', head_limit: 5000 })
+    expect(r.text).toContain("[시트 '지역별 매출 보고서'") // alice reads Korean
+    expect(textTokens(r.text)).toBeLessThan(25_000)
+    expect(r.text).toMatch(/offset=\d+/)
+  })
+  test('the format-7 rebuild makes Word and spreadsheet text again, not PDFs', () => {
+    const dir = fs.mkdtempSync(path.join(A.data, 'cache7-'))
+    const cache = new OfficeCache(dir, { root: A.team, caseInsensitive: false } as never, { pandoc: null, pdftotext: null })
+    for (const rel of ['a/scan.pdf', 'a/deck.pptx', 'a/memo.docx', 'a/book.xlsx']) {
+      fs.mkdirSync(path.dirname(cache.cachePath(rel)), { recursive: true })
+      fs.writeFileSync(cache.cachePath(rel), 'text')
+      fs.writeFileSync(cache.cachePath(rel) + '.source.json', JSON.stringify({ source: 'x', text: 'y', format: '6' }))
+    }
+    expect(cache.current('a/scan.pdf')).toBe(true)
+    expect(cache.current('a/deck.pptx')).toBe(true)
+    expect(cache.current('a/memo.docx')).toBe(false)
+    expect(cache.current('a/book.xlsx')).toBe(false)
+  })
+})
+
 describe('TC-4923 office time limits follow the file size', () => {
   test('read and write limits grow with the input; the converters too', () => {
-    expect(officeWorkerTimeoutMs(0)).toBe(180_000)
-    expect(officeWorkerTimeoutMs(32 * 1024 * 1024)).toBe(244_000)
+    expect(officeWorkerTimeoutMs(0)).toBe(60_000)
+    expect(officeWorkerTimeoutMs(32 * 1024 * 1024)).toBe(188_000)
     expect(officeWorkerTimeoutMs(1024 * 1024 * 1024)).toBe(600_000)
     expect(converterReadTimeoutMs(1024)).toBe(62_000)
     expect(converterReadTimeoutMs(500 * 1024 * 1024)).toBe(300_000)
@@ -176,6 +238,9 @@ describe('TC-4923 office time limits follow the file size', () => {
     expect(officeWorkersMax()).toBeLessThanOrEqual(6)
     setPlanForTests({ format: 1, cpuCores: 16, memoryMiB: 4096, reserveMiB: 1024, maxConcurrency: 3, convMemoryMaxMiB: 1024 } as never)
     try { expect(officeWorkersMax()).toBe(2) } finally { setPlanForTests(undefined) }
+    // no plan: also no more than a quarter of the machine's memory holds at 2 GB each (6 x 2 GB on a 16 GB Mac before)
+    setPlanForTests(null)
+    try { expect(officeWorkersMax()).toBeLessThanOrEqual(Math.max(2, Math.floor(os.totalmem() / 1024 / 1024 * 0.25 / 2048))) } finally { setPlanForTests(undefined) }
   })
 })
 
@@ -225,6 +290,30 @@ describe('TC-4924 box_shell only while the dev environment works', () => {
     const c2 = (await h.api('alice').call(API.createChat, { body: {} })).id
     const tools = await ask(h, ws, 'alice', c2, fakeMsg({ echo: 'tools' }))
     expect(tools.done.content).toContain('box_shell')
+  })
+  test('the health check: one self-test at a time, the last result while it runs again, a late check changes nothing', async () => {
+    let calls = 0
+    let release: (v: string) => void = () => {}
+    const slow: SrtSystem = { ...fake, selfTest: () => { calls++; return new Promise<string>((r) => { release = r }) } }
+    const cfg = { base: fs.mkdtempSync(path.join(A.data, 'srt-')), id: 'mycel', plan: { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' } } as const
+    setSrtSystem(slow, cfg as never)
+    // the first check is late: not known yet, so nothing is taken away (as before the check)
+    expect(await Promise.all([devEnvDownReason(undefined, 30), devEnvDownReason(undefined, 30)])).toEqual(['', ''])
+    expect(calls).toBe(1)
+    release('bwrap is missing'); await Bun.sleep(5)
+    expect(await devEnvDownReason(undefined, 30)).toBe('bwrap is missing')
+    expect(calls).toBe(1)
+    // a minute later the failed check runs again; while it runs the last answer stands
+    const t0 = Date.now()
+    setSystemTime(new Date(t0 + 61_000))
+    try {
+      expect(await devEnvDownReason(undefined, 30)).toBe('bwrap is missing')
+      expect(await devEnvDownReason(undefined, 30)).toBe('bwrap is missing')
+      expect(calls).toBe(2)
+      release(''); await Bun.sleep(5)
+      expect(await devEnvDownReason(undefined, 30)).toBe('')
+    } finally { setSystemTime() }
+    setSrtSystem(fake, cfg as never)
   })
   test('an owner or admin is told where the reason is', () => {
     expect(devEnvDownRule('staff', 'en')).toContain('Dev environment')
