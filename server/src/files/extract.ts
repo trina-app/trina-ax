@@ -196,7 +196,8 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, e, ...askArg], stdin: bytes, readPaths: [path.dirname(script)],
       timeoutMs, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
-      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength) },
+      // OFFICE_DEADLINE_MS: the worker's end, so the charts of a workbook give way to its sheets (office-parse.ts withCharts)
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength), OFFICE_DEADLINE_MS: String(Date.now() + timeoutMs) },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${timeoutMs / 1000} s`).message)

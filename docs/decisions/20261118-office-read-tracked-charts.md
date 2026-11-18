@@ -31,8 +31,23 @@
 - **Safety:** the same linear tag scans as the other ooxml.ts parts; attribute and cell text is put on one line, so a
   series name, title, author or deleted text cannot start a section label or a `# sheet:` line. The text is file
   content, never instructions, like the rest of a file.
-- **Cache:** TEXT_CACHE_VERSION 6 → 7; format 6 text is still right (it only lacks the new sections), so it is kept
-  and made again in the background like format 5 (`UPGRADABLE_VERSIONS`). The folder version stays 5.
+- **Bounds (review of #1316):** every workbook, relationship, drawing and chart part is inflated on first use and read
+  once (a sheet, drawing or chart named again is skipped); at most 4,096 `<sheet>` tags and 1,000 charts; 10 s for the
+  charts, and never past the worker's own end (extract.ts passes it as `OFFICE_DEADLINE_MS`; 3 s are kept for the
+  answer), else a labelled "not read" line. A stored part must be the size it declares, an inflated one exactly its
+  declared size (as checkZip). A chart whose part is missing, damaged or too large gets its own line; only the
+  workbook-wide limits stop all charts. Tracked changes: a mark writes `[kind: ` only when its first text comes, and
+  each paragraph counts its open marks, so the scan stays linear (no copy of a long line per empty mark, no scan of
+  the open marks per paragraph).
+- **Repeated sheets:** a workbook that names one sheet part many times made SheetJS read it again for each name (2,000
+  names took over 60 s and lost the text, with or without charts). Such a workbook now goes to the streaming reader
+  (sheet-stream.ts `repeatsSheetParts`), which does not read sheet relationships and keeps to its overview limits;
+  it still gives the sheet under each name, as it did for big workbooks.
+- **Cell text:** a line of sheet text that starts with `=== ` gets a space in front (ooxml.ts `quoteLines`, as for
+  pandoc's body text), so a cell cannot end a sheet in files/locations.ts or forge the chart section.
+- **Cache:** TEXT_CACHE_VERSION 6 → 7. Only .docx and .xlsx text changed, so a file of another type with format 6 is
+  still current (`CHANGED_IN_7`); a .docx or .xlsx of format 6 is kept and made again in the background like format 5
+  (`UPGRADABLE_VERSIONS`). The folder version stays 5.
 - **Tests:** tests/unit/office-tracked-charts.test.ts (pandoc-made .docx with `.insertion` / `.deletion` spans;
   SheetJS workbooks with make_file's chart writer, an openpyxl-style chart, a 2 MB+ workbook through the streaming
   reader, places, forged labels, a linear-time case).

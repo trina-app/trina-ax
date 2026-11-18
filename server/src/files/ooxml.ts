@@ -253,39 +253,56 @@ const CHANGE_MARK: Record<string, string> = { 'w:ins': 'inserted', 'w:del': 'del
  * paragraph mark, a run property change) is left out.
  */
 export function trackedChanges(doc: string): { text: string; who: string }[] {
-  const lines: { text: string; who: Set<string>; changed: boolean }[] = []
+  // `marks`: open marks on this paragraph (its text is kept until they close)
+  const lines: { text: string; who: Set<string>; changed: boolean; marks: number }[] = []
   const open: number[] = [] // line index of each open paragraph
-  const marks: { line: number; at: number }[] = [] // open change marks: the line and where its text starts
+  // open change marks, innermost last: the line, the kind, who made it, and whether its `[kind: ` is written yet. A mark
+  // is written when its first text comes, so a mark without text never costs a copy of the line.
+  const marks: { line: number; kind: string; who: string; started: boolean }[] = []
   let inText = false
   let last = 0
+  /** Text for the innermost paragraph: first the opening of each mark of it that waits for text (the open marks at
+   * the top of the stack, back to the first one that is written or on another line), oldest first. */
+  const add = (line: number, text: string) => {
+    const l = lines[line]!
+    let i = marks.length
+    while (i > 0 && !marks[i - 1]!.started && marks[i - 1]!.line === line) i--
+    for (; i < marks.length; i++) {
+      const m = marks[i]!
+      m.started = true
+      l.text += `[${m.kind}: `
+      if (m.who) l.who.add(m.who)
+    }
+    l.text += text
+  }
   for (const t of tags(doc)) {
-    const cur = open.length ? lines[open.at(-1)!] : undefined
-    if (inText && cur && t.start > last) cur.text += unescapeXml(doc.slice(last, t.start))
+    const at = open.length ? open.at(-1)! : -1
+    if (inText && at >= 0 && t.start > last) { const run = unescapeXml(doc.slice(last, t.start)); if (run) add(at, run) }
     last = t.end
     const kind = CHANGE_MARK[t.name]
     if (t.name === 'w:p') {
       if (t.close) {
-        // the text of an unchanged paragraph is not kept
+        // the text of an unchanged paragraph without open marks is not kept
         const i = open.pop()
-        if (i !== undefined && !lines[i]!.changed && !marks.some((m) => m.line === i)) lines[i]!.text = ''
-      } else if (!t.selfClose) { open.push(lines.length); lines.push({ text: '', who: new Set(), changed: false }) }
+        if (i !== undefined && !lines[i]!.changed && !lines[i]!.marks) lines[i]!.text = ''
+      } else if (!t.selfClose) { open.push(lines.length); lines.push({ text: '', who: new Set(), changed: false, marks: 0 }) }
     } else if (t.name === 'w:t' || t.name === 'w:delText') inText = !t.close && !t.selfClose
-    else if ((t.name === 'w:tab' || t.name === 'w:br' || t.name === 'w:cr') && cur && !t.close) cur.text += t.name === 'w:tab' ? '\t' : ' '
+    else if ((t.name === 'w:tab' || t.name === 'w:br' || t.name === 'w:cr') && at >= 0 && !t.close) add(at, t.name === 'w:tab' ? '\t' : ' ')
     else if (kind && !t.selfClose) {
       if (!t.close) {
-        // a mark outside a paragraph keeps its place on the stack, so its end tag closes it and not another one
-        if (!cur) { marks.push({ line: -1, at: 0 }); continue }
-        cur.text += `[${kind}: `
-        marks.push({ line: open.at(-1)!, at: cur.text.length })
+        // a mark outside a paragraph keeps its place on the stack (written, so no text waits for it), so its end tag
+        // closes it and not another one
+        if (at < 0) { marks.push({ line: -1, kind, who: '', started: true }); continue }
         const who = [attr(t.head, 'w:author'), attr(t.head, 'w:date')?.slice(0, 10)].filter(Boolean).map((v) => oneLine(v!)).join(', ')
-        if (who) cur.who.add(who)
+        marks.push({ line: at, kind, who, started: false })
+        lines[at]!.marks++
       } else {
         const m = marks.pop()
         if (!m || m.line < 0) continue
         const line = lines[m.line]!
-        // a mark without text is taken out again; one with text closes and marks its paragraph as changed
-        if (line.text.length === m.at) line.text = line.text.slice(0, m.at - CHANGE_MARK[t.name]!.length - 3)
-        else { line.text += ']'; line.changed = true }
+        line.marks--
+        // a mark that got text closes and marks its paragraph as changed; one without text leaves nothing
+        if (m.started) { line.text += ']'; line.changed = true }
       }
     }
   }
@@ -491,71 +508,121 @@ export function pptxExtraText(bytes: Uint8Array): string {
 
 // ---------------- .xlsx ----------------
 
-/** a chart, drawing or relationship part of a workbook that is larger than this is not read */
+/** a part of a workbook that the charts need (workbook, relationships, drawings, charts) larger than this is not read */
 const XLSX_CHART_PART_MAX = 16 * 1024 * 1024
 /** inflated bytes of those parts out of one workbook */
 const XLSX_CHART_TOTAL_MAX = 64 * 1024 * 1024
 /** the declared size of a workbook that may still be read here (sheet-stream.ts STREAM_TOTAL_MAX): only the few parts
- * below are inflated */
+ * the charts need are inflated */
 const XLSX_DECLARED_MAX = 4096 * 1024 * 1024
+/** `<sheet>` tags of the workbook that are looked at (a real workbook has far fewer; each sheet part is read once) */
+const XLSX_SHEET_TAGS_MAX = 4096
+/** charts described out of one workbook */
+const XLSX_CHARTS_MAX = 1000
+/** wall clock for the charts of one workbook: well inside the worker's own time limit, so the sheets' text is never
+ * lost to it (office-parse.ts withCharts gives a labelled line instead) */
+export const XLSX_CHARTS_TIME_MS = 10_000
 
 /** The label of the chart section of a workbook's text (files/locations.ts: the lines after it belong to no sheet). */
 export const XLSX_CHARTS_LABEL = `${SECTION_MARK}Excel charts (charts drawn on the sheets above, with the cells they show) ===`
 
-/** The chart section of a workbook's text, or the line that says it was not read (office-parse.ts withCharts). */
+/** The chart section of a workbook's text, or the line that says it was not read (office-parse.ts withCharts). A cell
+ * line of the workbook never starts with `=== ` (office-parse.ts quotes it), so only these lines match. */
 export const XLSX_CHARTS_SECTION = /^=== (?:Excel charts \(|The charts of this workbook were not read \().* ===$/
 
-/** The parts a workbook's charts need (workbook, sheet relationships, drawings, charts), inflated one by one. A large
- * workbook is not read whole for them: its sheets stay compressed. */
-function chartParts(bytes: Uint8Array): Parts {
-  const need = /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|(worksheets|chartsheets|drawings)\/_rels\/[^/]+\.rels|drawings\/[^/]+\.xml|charts\/chart\d*\.xml)$/
-  const out: Parts = new Map()
-  let entries: ZipEntry[]
-  try { entries = readCentral(bytes, { total: XLSX_DECLARED_MAX, entries: ZIP_ENTRIES_MAX }) } catch { throw new ToolError('the file could not be opened') }
-  let total = 0
-  for (const e of entries) {
-    const name = new TextDecoder('utf-8').decode(e.nameBytes).replace(/^\/+/, '')
-    if (!need.test(name) || e.usize > XLSX_CHART_PART_MAX) continue
-    total += e.usize
-    if (total > XLSX_CHART_TOTAL_MAX) throw new ToolError(`its chart parts are over ${XLSX_CHART_TOTAL_MAX / 1024 / 1024} MB`)
-    try {
-      const data = entryData(bytes, e)
-      out.set(name, e.method === 0 ? data : new Uint8Array(zlib.inflateRawSync(data, { maxOutputLength: Math.max(e.usize, 1) })))
-    } catch { throw new ToolError('a chart part is damaged') }
+/** A limit of the whole workbook's charts (size, time): every chart stops, the section says so. */
+class ChartsStop extends ToolError {}
+
+/**
+ * The parts of a workbook, each inflated when it is first asked for and kept: a large workbook is not read whole for
+ * its charts, its sheets stay compressed. Each part at most XLSX_CHART_PART_MAX, all of them XLSX_CHART_TOTAL_MAX, a
+ * stored part must be the size it says (as checkZip), an inflated one may not pass its declared size. A part that is too
+ * large or damaged throws a ToolError.
+ */
+class LazyParts extends Map<string, Uint8Array> {
+  private index = new Map<string, ZipEntry>()
+  private total = 0
+  constructor(private bytes: Uint8Array) {
+    super()
+    let entries: ZipEntry[]
+    try { entries = readCentral(bytes, { total: XLSX_DECLARED_MAX, entries: ZIP_ENTRIES_MAX }) } catch { throw new ToolError('the file could not be opened') }
+    for (const e of entries) this.index.set(new TextDecoder('utf-8').decode(e.nameBytes).replace(/^\/+/, ''), e)
   }
-  return out
+  override has(name: string) { return this.index.has(name) }
+  override get(name: string): Uint8Array | undefined {
+    const kept = super.get(name)
+    if (kept) return kept
+    const e = this.index.get(name)
+    if (!e) return undefined
+    if (e.usize > XLSX_CHART_PART_MAX) throw new ToolError(`a part is over ${XLSX_CHART_PART_MAX / 1024 / 1024} MB`)
+    this.total += e.usize
+    if (this.total > XLSX_CHART_TOTAL_MAX) throw new ChartsStop(`its chart parts are over ${XLSX_CHART_TOTAL_MAX / 1024 / 1024} MB`)
+    let out: Uint8Array
+    try {
+      const data = entryData(this.bytes, e)
+      if (e.method === 0) {
+        if (e.csize !== e.usize) throw new Error('stored entry with two sizes')
+        out = data
+      } else {
+        out = new Uint8Array(zlib.inflateRawSync(data, { maxOutputLength: Math.max(e.usize, 1) }))
+        if (out.byteLength !== e.usize) throw new Error('a part is not the size its header says')
+      }
+    } catch { throw new ToolError('a chart part is damaged') }
+    super.set(name, out)
+    return out
+  }
 }
 
 /**
  * The charts of an .xlsx, sheet by sheet in the workbook's order and in the order each sheet's drawing places them:
  * type, title, and every series with the cells of its name, categories and values and their cached values (Excel stores
  * the values it last drew). '' when the workbook has no charts. SheetJS and the streaming reader give only cells.
+ * Every part is read and scanned at most once (a sheet, drawing or chart named again is skipped), so the time is
+ * linear in the parts; past XLSX_CHARTS_TIME_MS it stops with a ToolError. A chart whose part is missing or cannot be
+ * read gets its own line.
  */
-export function xlsxChartsText(bytes: Uint8Array): string {
+export function xlsxChartsText(bytes: Uint8Array, o: { timeMs?: number } = {}): string {
   if (!isZip(bytes)) return ''
-  const p = chartParts(bytes)
+  const deadline = Date.now() + (o.timeMs ?? XLSX_CHARTS_TIME_MS)
+  const late = () => { if (Date.now() > deadline) throw new ChartsStop(`reading them took longer than ${Math.round((o.timeMs ?? XLSX_CHARTS_TIME_MS) / 1000)} s`) }
+  const p = new LazyParts(bytes)
   const wb = xmlOf(p, 'xl/workbook.xml')
-  if (!wb || ![...p.keys()].some((k) => k.startsWith('xl/charts/'))) return ''
-  const wbRels = rels(p, 'xl/workbook.xml')
-  const seen = new Set<string>()
+  if (!wb) return ''
+  const relsMemo = new Map<string, ReturnType<typeof rels>>()
+  const relsOf = (part: string) => { let r = relsMemo.get(part); if (!r) { r = rels(p, part); relsMemo.set(part, r) } return r }
+  const wbRels = relsOf('xl/workbook.xml')
+  const seen = new Set<string>() // sheet, drawing and chart parts already read
   const lines: string[] = []
+  let sheetTags = 0
   for (const t of tags(wb)) {
     if (t.close || t.name.slice(t.name.indexOf(':') + 1) !== 'sheet') continue
+    if (++sheetTags > XLSX_SHEET_TAGS_MAX || lines.length >= XLSX_CHARTS_MAX) break
+    late()
     const rid = /\sr:id="([^"]*)"/.exec(t.head)?.[1] ?? /\s\w+:id="([^"]*)"/.exec(t.head)?.[1]
     const sheet = rid ? wbRels.get(unescapeXml(rid)) : undefined
-    if (!sheet) continue
+    if (!sheet || seen.has(sheet.target)) continue
+    seen.add(sheet.target)
     const name = oneLine(attr(t.head, 'name') ?? '').trim()
     const where = `${sheet.type.endsWith('/chartsheet') ? 'on chart sheet' : 'on sheet'} "${name}"`
-    for (const drawing of [...rels(p, sheet.target).values()].filter((v) => v.type.endsWith('/drawing')).map((v) => v.target)) {
-      const dxml = xmlOf(p, drawing)
+    for (const v of relsOf(sheet.target).values()) {
+      if (!v.type.endsWith('/drawing') || seen.has(v.target)) continue
+      seen.add(v.target)
+      late()
+      const dxml = xmlOf(p, v.target)
       if (!dxml) continue
       const pos = idPositions(dxml)
-      const charts = [...rels(p, drawing).entries()].filter(([, v]) => v.type.endsWith('/chart'))
+      const charts = [...relsOf(v.target).entries()].filter(([, r]) => r.type.endsWith('/chart'))
         .sort(([a], [b]) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity))
-      for (const target of new Set(charts.map(([, v]) => v.target))) {
-        if (seen.has(target) || !p.has(target)) continue
-        seen.add(target)
-        lines.push(chartText(xmlOf(p, target) ?? '', { ranges: true, where }))
+      for (const [, c] of charts) {
+        if (seen.has(c.target) || lines.length >= XLSX_CHARTS_MAX) continue
+        seen.add(c.target)
+        late()
+        if (!p.has(c.target)) { lines.push(`- A chart ${where} was not read (its part is missing from the file)`); continue }
+        try { lines.push(chartText(xmlOf(p, c.target) ?? '', { ranges: true, where })) } catch (e) {
+          // the whole workbook's limits (size, time) stop all charts; one damaged or too large chart only itself
+          if (e instanceof ChartsStop) throw e
+          lines.push(`- A chart ${where} was not read (${e instanceof ToolError ? e.message : 'the reader failed'})`)
+        }
       }
     }
   }

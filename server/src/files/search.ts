@@ -161,6 +161,9 @@ export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
 const UPGRADABLE_VERSIONS = new Set(['5', '6'])
+/** format 7 changed only the text of .docx and .xlsx files (tracked changes, charts): another file of format 6 is still
+ * current, so a PDF, deck or Hangul file is not made again */
+const CHANGED_IN_7 = /\.(?:docx|xlsx)$/i
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -249,7 +252,8 @@ export class OfficeCache {
   }
   /** the file's cached text is of the current format (text kept from an upgradable older format is fresh, not current) */
   current(rel: string): boolean {
-    return (this.provenance(rel) as { format?: string } | null)?.format === TEXT_CACHE_VERSION
+    const format = (this.provenance(rel) as { format?: string } | null)?.format
+    return format === TEXT_CACHE_VERSION || (format === '6' && !CHANGED_IN_7.test(rel))
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   /** the place index of a large text (files/place-index.ts) */

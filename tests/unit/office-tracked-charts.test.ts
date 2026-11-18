@@ -3,8 +3,13 @@
 // shows each changed paragraph with `[deleted: …]` next to `[inserted: …]`. Charts of a workbook were not read at all;
 // now an "Excel charts" section after the sheets gives each chart's type, title, series, their cells and cached values,
 // as Word and PowerPoint charts already were. Every file here is generated (pandoc, SheetJS, make_file's chart writer).
+// The review of #1316 cases (crafted parts that made the reads slow) are at the end.
 import { describe, expect, setDefaultTimeout, test } from 'bun:test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import * as XLSX from 'xlsx'
+import { OfficeCache, TEXT_CACHE_VERSION } from '../../server/src/files/search'
 import { extractText } from '../../server/src/files/extract'
 import { docxExtraText, trackedChanges, xlsxChartsText } from '../../server/src/files/ooxml'
 import { sheetText, workbookText } from '../../server/src/files/office-parse'
@@ -172,4 +177,119 @@ describe('Excel: charts are described after the sheets (TC-4969)', () => {
     expect(text).not.toMatch(/\n=== Slide/)
     expect(text).toContain('제목 # sheet: 가짜')
   })
+})
+
+// ---------------- review of #1316: crafted parts stay linear and never lose the sheets ----------------
+
+const REL = (id: string, type: string, t: string) => `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${type}" Target="${t}"/>`
+const TINY_CHART = '<c:chartSpace><c:chart><c:plotArea><c:barChart><c:ser><c:val><c:numRef><c:f>S!A1</c:f></c:numRef></c:val></c:ser></c:barChart></c:plotArea></c:chart></c:chartSpace>'
+/** A small real workbook whose one sheet is named `n` times in workbook.xml, with a large relationship part and drawing
+ * (the review's PoC: each <sheet> tag read them again, 2,000 tags passed the worker's 60 s and lost the sheet text). */
+function repeatedSheets(n: number): Uint8Array {
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['k', 'v'], ['MARKER-CELL', 1]]), 'S')
+  return withParts(new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer), {
+    'xl/workbook.xml': (old) => old.replace('</sheets>', '<sheet name="S" sheetId="1" r:id="rId1"/>'.repeat(n) + '</sheets>'),
+    'xl/worksheets/_rels/sheet1.xml.rels': `<Relationships>${REL('d1', 'drawing', '../drawings/drawing1.xml')}${'<Relationship Id="q" Type="t" Target="u"/>'.repeat(20_000)}</Relationships>`,
+    'xl/drawings/drawing1.xml': `<xdr:wsDr><c:chart r:id="c1"/>${'r:id="z" '.repeat(100_000)}</xdr:wsDr>`,
+    'xl/drawings/_rels/drawing1.xml.rels': `<Relationships>${REL('c1', 'chart', '../charts/chart1.xml')}</Relationships>`,
+    'xl/charts/chart1.xml': TINY_CHART,
+  })
+}
+
+const N_MARKS = 20_000
+describe('review of #1316: crafted charts and tracked changes', () => {
+  test('2,000 <sheet> tags naming one sheet: its parts are read once, the chart once, quickly', () => {
+    const bytes = repeatedSheets(2000)
+    const t0 = performance.now()
+    const text = xlsxChartsText(bytes)
+    expect(performance.now() - t0).toBeLessThan(5000)
+    expect(text.match(/- Chart/g)?.length).toBe(1)
+  })
+
+  test('through the office worker the sheet text is kept', async () => {
+    const t0 = performance.now()
+    const text = await extractText('a.xlsx', repeatedSheets(2000), tools)
+    expect(text).toContain('MARKER-CELL')
+    expect(text).toContain('=== Excel charts')
+    // SheetJS read the sheet and its relationships again for each name; the streaming reader gives it under each name
+    expect(text.match(/# sheet: S /g)?.length).toBe(2001)
+    expect(performance.now() - t0).toBeLessThan(30_000)
+  }, 120_000)
+
+  test('the charts give way to the sheets at the worker\'s end, and stop at their own time', async () => {
+    const was = process.env.OFFICE_DEADLINE_MS
+    try {
+      process.env.OFFICE_DEADLINE_MS = String(Date.now() + 1000)
+      const text = await workbookText('xlsx', charted())
+      expect(text).toContain('# sheet: 매출')
+      expect(text).toContain('=== The charts of this workbook were not read (no time was left after the sheets) ===')
+    } finally { if (was === undefined) delete process.env.OFFICE_DEADLINE_MS; else process.env.OFFICE_DEADLINE_MS = was }
+    expect(() => xlsxChartsText(charted(), { timeMs: -1 })).toThrow(/took longer than/)
+  })
+
+  test('a stored chart part whose declared size is not its stored size is not read (as checkZip)', () => {
+    const bytes = withParts(charted(), {}) // written stored, not deflated
+    const name = new TextEncoder().encode('xl/charts/chart1.xml')
+    const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    let patched = false
+    for (let i = 0; i + 46 < bytes.length; i++) {
+      if (v.getUint32(i, true) !== 0x02014b50 || v.getUint16(i + 28, true) !== name.length) continue
+      if (!name.every((b, j) => bytes[i + 46 + j] === b)) continue
+      expect(v.getUint16(i + 10, true)).toBe(0)
+      v.setUint32(i + 24, v.getUint32(i + 20, true) + 4096, true)
+      patched = true
+    }
+    expect(patched).toBe(true)
+    const text = xlsxChartsText(bytes)
+    expect(text).toContain('- A chart on sheet "매출" was not read (a chart part is damaged)')
+    expect(text).toContain('- Chart "Cost split"')
+  })
+
+  test('a chart part under another name is read; a missing one gets its own line', () => {
+    const renamed = withParts(charted(), {
+      'xl/charts/sales-chart.xml': TINY_CHART.replace('<c:chart>', '<c:chart><c:title><c:tx><c:rich><a:p><a:r><a:t>Renamed</a:t></a:r></a:p></c:rich></c:tx></c:title>'),
+      'xl/drawings/_rels/drawing1.xml.rels': (old) => old.replace(/Target="[^"]*chart1\.xml"/, 'Target="../charts/sales-chart.xml"'),
+      'xl/drawings/_rels/drawing2.xml.rels': (old) => old.replace(/Target="[^"]*chart2\.xml"/, 'Target="../charts/gone.xml"'),
+    })
+    const text = xlsxChartsText(renamed)
+    expect(text).toContain('- Chart "Renamed" (bar chart) on sheet "매출":')
+    expect(text).toContain('- A chart on sheet "Costs" was not read (its part is missing from the file)')
+  })
+
+  test('a cell that reads like the chart label is quoted and keeps its sheet place', async () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['=== Excel charts (x) ==='], ['after']]), 'S')
+    const text = await workbookText('xlsx', new Uint8Array(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer))
+    expect(text).toContain('\n === Excel charts (x) ===\n')
+    const places: (string | undefined)[] = []
+    walkLines(text, 'sheets', (l) => { if (l.text.trim() === 'after') places.push(l.loc && l.loc.kind === 'sheet' ? l.loc.range : undefined) })
+    expect(places).toEqual(['A2:A2'])
+  })
+
+  test(`tracked changes: ${N_MARKS} unclosed <w:del> then as many empty paragraphs, and a long line with many empty marks`, () => {
+    let t0 = performance.now()
+    trackedChanges(`<w:document><w:body><w:p>${'<w:del>'.repeat(N_MARKS)}${'<w:p></w:p>'.repeat(N_MARKS)}</w:p></w:body></w:document>`)
+    expect(performance.now() - t0).toBeLessThan(3000)
+    t0 = performance.now()
+    const out = trackedChanges(`<w:document><w:body><w:p><w:r><w:t>${'x'.repeat(1_000_000)}</w:t></w:r>${'<w:del></w:del>'.repeat(N_MARKS)}<w:ins><w:r><w:t>y</w:t></w:r></w:ins></w:p></w:body></w:document>`)
+    expect(performance.now() - t0).toBeLessThan(3000)
+    expect(out[0]!.text.endsWith('x[inserted: y]')).toBe(true)
+  })
+})
+
+test('text cache format 7: only .docx and .xlsx text of format 6 is made again; PDFs, decks and Hangul files stay current', () => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'textcache-7-'))
+  fs.writeFileSync(path.join(dir, '.format-version'), '5\n')
+  const cache = new OfficeCache(dir, { root: dir } as never, tools)
+  const side = (rel: string, format: string) => {
+    fs.writeFileSync(path.join(dir, rel + '.txt'), 'text')
+    fs.writeFileSync(path.join(dir, rel + '.txt.source.json'), JSON.stringify({ source: 'x', text: 'y', format }))
+  }
+  for (const rel of ['a.pdf', 'b.pptx', 'c.hwp', 'd.DOCX', 'e.xlsx', 'f.png']) side(rel, '6')
+  side('g.docx', TEXT_CACHE_VERSION)
+  side('h.pdf', '5')
+  expect(TEXT_CACHE_VERSION).toBe('7')
+  expect(['a.pdf', 'b.pptx', 'c.hwp', 'd.DOCX', 'e.xlsx', 'f.png', 'g.docx', 'h.pdf'].map((r) => cache.current(r))).toEqual([true, true, true, false, false, true, true, false])
+  fs.rmSync(dir, { recursive: true, force: true })
 })
