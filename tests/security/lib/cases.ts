@@ -226,6 +226,8 @@ export const SPECS: Record<string, Spec> = {
   listMessages: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages`), scope: 'own-alice-chat' },
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
+  // how many of my messages wait in a shared chat (chat/shared-waiting.ts): a chat of one person keeps nothing
+  putChatWaiting: { build: (c, w) => c.put(`/api/chats/${w.ids.chatA}/waiting`, { count: 1 }), scope: 'own-alice-chat' },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
   // threads on AI answers (chat/threads.ts): alice's chat is private, so it has no thread (a 404 for alice too, after the
