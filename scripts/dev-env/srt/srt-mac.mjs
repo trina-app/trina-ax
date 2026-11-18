@@ -7,7 +7,10 @@
 // runner writes allowLocalBinding false (config.ts), so srt allows only its own proxy ports, and this file adds the
 // run's own port (TRINA_PREVIEW_PORT, one port per slot, from the runner):
 //   - bind and accept on that port only (a run cannot take another run's port or a server port first);
-//   - connect to that port on localhost only (a command can test its own dev server).
+//   - connect to that port on localhost (a command can test its own dev server);
+//   - connect to the ports in TRINA_REACH_PORTS on localhost: the runner names there the ports of the chat's own running
+//     jobs and dev servers that this run may reach (srt/runner.ts reachTargets), and keeps their slots from other runs
+//     while this one lives (system-mac.ts). Never bind or accept on them. Nothing else on localhost.
 // It also denies kern.proc.all (the list of every process on the Mac; srt allows it, engine.sb denies it).
 // SBPL applies the last rule that matches, so the rules go after srt's rules of the same kind.
 //
@@ -26,13 +29,29 @@ export const OPEN_LOCALHOST = '(allow network-outbound (remote ip "localhost:*")
  * (to /private/...) can be followed. Only the link itself; what it points to keeps srt's read rules. */
 export const END_RULES = '\n; Trina (srt-mac.mjs): follow the links /etc, /var and /tmp\n(allow file-read-metadata (literal "/etc") (literal "/var") (literal "/tmp"))\n'
 
-/** The network rules for one run. port: 1024-65535, or null (a run with no port: no bind, no connect) */
-export function extraRules(port) {
+/** The network rules for one run. port: 1024-65535, or null (a run with no port: no bind, no connect). reach: the
+ * ports of the chat's own jobs and dev servers (reachPortsOf): connect only */
+export function extraRules(port, reach = []) {
   const out = ['; Trina (srt-mac.mjs): the own port of the run only; no list of every process', '(deny sysctl-read (sysctl-name-prefix "kern.proc.all"))']
   if (port !== null) {
     out.push(`(allow network-bind (local ip "*:${port}"))`, `(allow network-inbound (local ip "*:${port}"))`, `(allow network-outbound (remote ip "localhost:${port}"))`)
   }
+  for (const p of reach) {
+    if (!Number.isInteger(p) || p < 1024 || p > 65535 || p === port) throw new Error(`srt-mac: bad reach port ${String(p).slice(0, 20)}`)
+    out.push(`(allow network-outbound (remote ip "localhost:${p}"))`)
+  }
   return out.join('\n') + '\n'
+}
+
+/** The ports in TRINA_REACH_PORTS ("47902,47905"), or none. At most 8; anything else than plain ports in range is an
+ * error (fail closed: the run does not start). */
+export function reachPortsOf(v, own) {
+  if (v === undefined || v === '') return []
+  const parts = String(v).split(',')
+  if (parts.length > 8) throw new Error('srt-mac: too many TRINA_REACH_PORTS')
+  const out = parts.map((x) => portOf(x))
+  if (out.some((p) => p === null || p === own) || new Set(out).size !== out.length) throw new Error(`srt-mac: bad TRINA_REACH_PORTS ${String(v).slice(0, 60)}`)
+  return out
 }
 
 /** The run's port from the environment, or null. Anything else than a plain number in range is an error. */
@@ -65,7 +84,7 @@ export function words(s) {
 }
 
 /** Add the rules to the wrapped command (a shell string that holds the profile). Throws when the shape is unexpected. */
-export function patch(wrapped, port) {
+export function patch(wrapped, port, reach = []) {
   const w = words(wrapped)
   // the parse must give back exactly srt's string, else the words are not what srt meant
   if (quote(w) !== wrapped) throw new Error('srt-mac: srt\'s command does not parse back to itself')
@@ -75,7 +94,7 @@ export function patch(wrapped, port) {
   const parts = profile.split(MARK)
   if (!profile.startsWith('(version 1)') || parts.length !== 2) throw new Error(`srt-mac: srt's profile has ${parts.length - 1} network sections, expected 1`)
   if (profile.includes(OPEN_LOCALHOST)) throw new Error('srt-mac: srt allows every localhost port (allowLocalBinding must be false)')
-  w[at + 2] = parts[0] + MARK + extraRules(port) + parts[1] + END_RULES
+  w[at + 2] = parts[0] + MARK + extraRules(port, reach) + parts[1] + END_RULES
   return quote(w)
 }
 
@@ -87,8 +106,9 @@ if (!isMain) {
 } else if (process.argv[2] !== '--self-test') {
   if (process.platform !== 'darwin') { console.error('srt-mac: macOS only'); process.exit(2) }
   const port = portOf(process.env.TRINA_PREVIEW_PORT)
+  const reach = reachPortsOf(process.env.TRINA_REACH_PORTS, port)
   const wrap = SandboxManager.wrapWithSandbox.bind(SandboxManager)
-  SandboxManager.wrapWithSandbox = async (...args) => patch(await wrap(...args), port)
+  SandboxManager.wrapWithSandbox = async (...args) => patch(await wrap(...args), port, reach)
   await import('./full.mjs')
 } else {
   const bad = []
@@ -97,6 +117,9 @@ if (!isMain) {
   if (words(p)[7] !== "echo 'hi' $x" || !words(p)[4].includes("Bob's") || !words(p)[4].endsWith(END_RULES)) bad.push('words')
   if (!p.includes('(allow network-outbound (remote ip "localhost:47901"))')) bad.push('port rule')
   if (!p.includes('kern.proc.all')) bad.push('kern.proc.all')
+  const r = patch(sample, 47901, [47903])
+  if (!r.includes('(allow network-outbound (remote ip "localhost:47903"))') || r.includes('(local ip "*:47903")')) bad.push('reach rule')
+  for (const v of ['47901', '80', '47902,47902', '1,2,3,4,5,6,7,8,9', '47902;x']) { try { reachPortsOf(v, 47901); bad.push(`reach ${v}`) } catch {} }
   for (const t of [sample.replace(MARK, '\n'), sample.replace('(deny default)', `(deny default)${MARK}`), sample.replace('localhost:4100"', 'localhost:*"'), sample.replace('/usr/bin/sandbox-exec', '/tmp/x'), sample + ' "x"']) { try { patch(t, 1); bad.push('accepted a bad command') } catch {} }
   for (const v of ['80', '70000', '1e4', ' 4000', '4000;']) { try { portOf(v); bad.push(`port ${v}`) } catch {} }
   console.log(bad.length ? `bad: ${bad.join(', ')}` : 'ok')

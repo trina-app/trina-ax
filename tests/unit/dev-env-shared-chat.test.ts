@@ -128,7 +128,9 @@ describe('a shared project chat', () => {
     expect(readable(r)).not.toContain(abs('users/alice'))
     expect(readable(r)).not.toContain(abs('shared'))
     expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
-    expect(r.spec.env.TRINA_LOGS).toBe(path.join(chatLogs(base, chat), r.spec.runId))
+    // the logs folder of the chat's people and their view (config.ts sharedLogs), not of one command
+    expect(r.spec.env.TRINA_LOGS!.startsWith(chatLogs(base, chat) + '/')).toBe(true)
+    expect(r.spec.env.TRINA_LOGS).not.toContain(r.spec.runId)
     expect(readable(r)).not.toContain(personHome(base, 'alice'))
     expect(readable(r)).not.toContain(personLogs(base, 'alice'))
     expect(Object.values(r.spec.env).some((v) => v.includes(personHome(base, 'alice')))).toBe(false)
@@ -264,11 +266,11 @@ describe('a shared project chat', () => {
     expect(runs.size).toBe(0)
   })
 
-  test('no jobs or dev servers, no login commands (and no card for them); no job results of the person', async () => {
+  // jobs and dev servers do run in a shared chat now (dev-env-shared-jobs.test.ts)
+  test('no login commands (and no card for them); no job results of the person', async () => {
     const s = sharedRun(['alice', 'bob'], P.folderPath)
-    expect(out(await shell('alice', s).call({ command: 'npm run build', job: true }))).toContain('jobs and dev servers do not run in a shared chat')
-    expect(out(await shell('alice', s).call({ command: 'npm run dev', background: true, port: 3000 }))).toContain('jobs and dev servers do not run in a shared chat')
     expect(out(await shell('alice', s).call({ command: 'git push origin main' }))).toContain('do not run in a shared chat')
+    expect(out(await shell('alice', s).call({ command: 'git push origin main', job: true }))).toContain('do not run in a shared chat')
     expect(confirms).toEqual([])
     expect(runs.size).toBe(0)
     // a job alice ran in her own chat earlier: its result is not told here
@@ -395,7 +397,7 @@ describe('a chat shared with people and groups', () => {
     expect(runs.size).toBe(0)
   })
 
-  test('the home and logs of a shared chat\'s command are its own, and gone when it ends', async () => {
+  test('the home and temp folder of a shared chat\'s command are its own, and gone when it ends; its logs folder is the chat\'s people\'s', async () => {
     const c = (await h.api('alice').call(API.createChat, { body: {} })).id
     const tool = shell('alice', sharedRun(['alice', 'bob'], null), c)
     await tool.call({ command: 'echo 1' })
@@ -406,9 +408,12 @@ describe('a chat shared with people and groups', () => {
     expect(second.env.TMPDIR).not.toBe(first.env.TMPDIR)
     for (const sp of [first, second]) {
       expect(fs.existsSync(sp.env.HOME!)).toBe(false)
-      expect(fs.existsSync(sp.env.TRINA_LOGS!)).toBe(false)
       expect(fs.existsSync(sp.env.TMPDIR!)).toBe(false)
+      // the command's own output files are gone from it
+      expect(fs.readdirSync(sp.env.TRINA_LOGS!).filter((f) => f.includes(sp.runId))).toEqual([])
     }
+    // the same people: the same logs folder (a job's log there is read by their next command)
+    expect(second.env.TRINA_LOGS).toBe(first.env.TRINA_LOGS)
   })
 
   // review 4: the change is checked at once, not at the next poll

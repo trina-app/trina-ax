@@ -137,8 +137,9 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     res.removedBytes += bytes
   }
 
-  // a shared chat's runs have a home and logs per command (srt/config.ts runHome), removed when the command ends: one
-  // left by a crash goes after TMP_KEEP_DAYS, never while the chat has a run
+  // a shared chat's runs have a home per run (srt/config.ts runHome), removed when the run ends, and a logs folder per
+  // set of people and view (sharedLogs: its jobs' logs): one left by a crash, or a logs folder unused that long, goes
+  // after TMP_KEEP_DAYS, never while the chat has a run
   for (const top of [p.chatHome, p.chatLogs]) {
     for (const c of await ls(top)) {
       if (!c.isDirectory() || !SAFE_ID_RE.test(c.name)) continue
