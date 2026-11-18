@@ -5532,6 +5532,13 @@ export const ko = {
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "팀원 초대",
   "teamMenu.switch": "다른 팀으로 전환",
+  "teamSwitch.body": "내가 속한 다른 팀을 열거나 초대 링크로 새 팀에 들어가요. 이 팀에서는 로그인된 채로 있어요.",
+  "teamSwitch.label": "팀 주소 또는 초대 링크",
+  "teamSwitch.open": "열기",
+  "teamSwitch.problem.invalid": "팀 주소가 아니에요. 초대받은 주소 그대로 입력해 주세요. 예: {example}",
+  "teamSwitch.problem.email": "이메일 주소가 아니라 팀 주소를 입력해 주세요.",
+  "teamSwitch.problem.link": "초대 링크가 잘렸어요. 링크 전체를 복사해서 다시 붙여 넣어 주세요.",
+  "teamSwitch.problem.insecure": "팀의 https:// 주소를 입력해 주세요.",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "채팅에서 AI가 내 앱과 서비스를 쓸 수 있게 해요.",
   "connectorsPage.addCustom": "직접 커넥터 추가",

@@ -164,11 +164,13 @@ describe('Rail', () => {
     }
   })
 
-  test("a member's logo and team name are not a button; Admin is nowhere on the rail", async () => {
+  // the owner 2026-11-18: a member's logo opens the team menu too (다른 팀으로 전환), with no admin item in it
+  test("a member's logo is the team menu's button (closed); Admin is nowhere on the rail", async () => {
     const m = await draw('member', '/files')
     try {
-      expect(m.container.querySelector('[data-testid="team-menu"]')).toBeNull()
-      expect(m.get('team-header').textContent).toContain('Acme')
+      expect(m.get('team-menu').tagName.toLowerCase()).toBe('button')
+      expect(m.get('team-menu').textContent).toContain('Acme')
+      expect(m.find('team-dropdown')).toBeNull()
       expect(m.get('rail-files').getAttribute('aria-current')).toBe('page')
       expect(m.container.textContent).not.toContain(ko('sidebar.admin'))
     } finally {

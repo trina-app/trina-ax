@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
-import { openAdmin, showPanel, teamHeader, teamMenuButton } from './nav'
+import { openAdmin, showPanel, teamMenuButton } from './nav'
 import { DICTS, translate } from '../../src/i18n'
 import { PRODUCT } from '@mycel/shared'
 import { CSRF_HEADER, ERROR_MESSAGES } from '@mycel/shared/api'
@@ -238,9 +238,11 @@ test('members cannot open admin screens', async ({ page }) => {
   await reset(page)
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await expect(page.getByRole('link', { name: '관리자' })).toHaveCount(0)
-  // no team menu either: a member's header is the team's name only
-  await expect(teamHeader(page)).toBeVisible()
-  await expect(teamMenuButton(page)).toHaveCount(0)
+  // the team menu opens (Switch team, owner 2026-11-18) with no Invite or Admin item in it
+  await teamMenuButton(page).click()
+  await expect(page.getByTestId('team-menu-switch')).toBeVisible()
+  for (const item of ['team-menu-invite', 'team-menu-admin']) await expect(page.getByTestId(item)).toHaveCount(0)
+  await page.keyboard.press('Escape')
   // an /admin link says the page is for admins, with a way Home (QA TC-272), not a silent Home
   await page.goto('/admin/members')
   await expect(page.getByTestId('admin-only')).toContainText('관리자만 볼 수 있어요')

@@ -5533,6 +5533,13 @@ export const en: Record<MessageKey, string> = {
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invite people",
   "teamMenu.switch": "Switch team",
+  "teamSwitch.body": "Open another team you belong to, or join one with an invite link. You stay signed in to this team.",
+  "teamSwitch.label": "Team address or invite link",
+  "teamSwitch.open": "Open",
+  "teamSwitch.problem.invalid": "That isn't a team address. Type it as it appears in your invitation, such as {example}.",
+  "teamSwitch.problem.email": "Type the team's address, not your email address.",
+  "teamSwitch.problem.link": "This invite link is cut off. Copy all of it and paste it again.",
+  "teamSwitch.problem.insecure": "Use the team's https:// address.",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Let the AI use your apps and services in your chats.",
   "connectorsPage.addCustom": "Add custom connector",

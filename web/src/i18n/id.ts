@@ -5532,6 +5532,13 @@ export const id: Record<MessageKey, string> = {
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Undang orang",
   "teamMenu.switch": "Ganti tim",
+  "teamSwitch.body": "Buka tim lain tempat Anda bergabung, atau bergabung ke tim dengan tautan undangan. Anda tetap masuk di tim ini.",
+  "teamSwitch.label": "Alamat tim atau tautan undangan",
+  "teamSwitch.open": "Buka",
+  "teamSwitch.problem.invalid": "Itu bukan alamat tim. Ketik seperti yang tertulis di undangan Anda, misalnya {example}.",
+  "teamSwitch.problem.email": "Ketik alamat tim, bukan alamat email Anda.",
+  "teamSwitch.problem.link": "Tautan undangan ini terpotong. Salin seluruhnya lalu tempel lagi.",
+  "teamSwitch.problem.insecure": "Gunakan alamat https:// tim.",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Biarkan AI menggunakan aplikasi dan layanan Anda di chat.",
   "connectorsPage.addCustom": "Tambah konektor sendiri",

@@ -356,9 +356,9 @@ export async function openTeamMenu(page: Page): Promise<Locator> {
   return menu
 }
 
-/** The team menu's button itself (to check a member has none). */
+/** The team menu's button itself (every role has it in a browser). */
 export const teamMenuButton = (page: Page) => page.getByTestId('team-menu')
-/** A member's plain team header (no menu): the logo and the name. */
+/** The plain team header (no menu: a member in a phone app without its team screen): the logo and the name. */
 export const teamHeader = (page: Page) => page.getByTestId('team-header')
 /** The team's logo on top of the rail (36 px). */
 export const teamLogo = (page: Page) => page.getByTestId('sidebar-logo')

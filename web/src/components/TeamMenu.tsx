@@ -1,13 +1,14 @@
 // The team menu on top of the rail (components/rail/Rail.tsx; docs/DECISIONS.md "The team menu", "Computers: an icon
-// rail with labels"): the team's logo (Admin › Team settings, or the product's mark) with its name small under it. For
-// owners and admins it is a button that opens a menu to its right: the team again with its address (GET /api/me
-// team.address, when the server knows one), then "Invite people" (the invite endpoints are admins' only) and "Admin".
-// Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. A member has neither item, so for
-// them it is the team's logo and name, not a button (a menu with no items would be a dead end). Keyboard as in the
-// profile menu: the first item takes focus, arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and
-// a click outside close it. Phones (below 768 px) have the team's row with Invite and Admin on the 나 tab. In the desktop
-// app the menu ends with "다른 팀으로 전환" for every role (lib/teamSwitch.ts: the app's own list of teams), so there a
-// member's logo is a button too.
+// rail with labels"; docs/decisions/20261118-team-menu-for-members.md): the team's logo (Admin › Team settings, or the
+// product's mark) with its name small under it, a button for every role that opens a menu to its right: the team again
+// with its address (GET /api/me team.address, when the server knows one), then for owners and admins only "Invite
+// people" (the invite endpoints are admins' only) and "Admin", then "Switch team" for everyone (lib/teamSwitch.ts: the
+// desktop app's team screen, the phone app's, or in a plain browser a dialog that opens another team's address or an
+// invite link). Nothing personal: Settings and Sign out are the photo's menu at the rail's bottom. Only a phone app
+// without its team screen, at a computer's width, gives a member no item: there it is the team's logo and name, not a
+// button (a menu with no items would be a dead end). Keyboard as in the profile menu: the first item takes focus,
+// arrows, Home and End move, Esc closes it and gives the keyboard back, Tab and a click outside close it. Phones (below
+// 768 px) have the team's row with Invite, Admin and Switch team on the 나 tab.
 import clsx from 'clsx'
 import { ArrowLeftRight, Shield, UserPlus } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
@@ -41,8 +42,7 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
-  // the desktop app (or the phone app at a computer's width) holds several teams: "다른 팀으로 전환" for everyone, so a
-  // member gets the menu too; a plain browser is one team per address
+  // "다른 팀으로 전환" for everyone: the desktop app's or phone app's team screen, a plain browser's dialog
   const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
   const addressId = useId()
