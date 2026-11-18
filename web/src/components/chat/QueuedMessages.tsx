@@ -11,6 +11,7 @@ import { Button, IconButton, inputCls, useAnnounce } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
+import { UserText } from './Messages'
 
 export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: string; onFocusComposer: () => void }) {
   const t = useT()
@@ -164,9 +165,14 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
           </div>
         </form>
       ) : (
-        item.content && (
+        (item.content || item.lead) && (
           <div className="max-w-full min-w-0 rounded-3xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-reading leading-7 text-muted max-md:leading-reading" data-testid="outbox-text">
-            <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+            {/* a side chat's thread line or quoted message: on top, as the bubble will show it once it is sent */}
+            {item.lead ? (
+              <UserText content={`${item.lead}\n\n${item.content}`} clamp quotes />
+            ) : (
+              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+            )}
           </div>
         )
       )}
