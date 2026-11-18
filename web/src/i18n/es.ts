@@ -5485,6 +5485,13 @@ export const es: Record<MessageKey, string> = {
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "Invitar a personas",
   "teamMenu.switch": "Cambiar de equipo",
+  "teamSwitch.body": "Abra otro equipo al que pertenece o únase a uno con un enlace de invitación. Sigue con la sesión iniciada en este equipo.",
+  "teamSwitch.label": "Dirección del equipo o enlace de invitación",
+  "teamSwitch.open": "Abrir",
+  "teamSwitch.problem.invalid": "Eso no es una dirección de equipo. Escríbala tal como aparece en su invitación, por ejemplo {example}.",
+  "teamSwitch.problem.email": "Escriba la dirección del equipo, no su correo electrónico.",
+  "teamSwitch.problem.link": "Este enlace de invitación está incompleto. Cópielo entero y péguelo de nuevo.",
+  "teamSwitch.problem.insecure": "Use la dirección https:// del equipo.",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "Deje que la IA use sus apps y servicios en sus chats.",
   "connectorsPage.addCustom": "Añadir conector propio",

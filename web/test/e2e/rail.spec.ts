@@ -205,11 +205,13 @@ test('owner: the logo opens the team menu (Invite, Admin); the photo menu has st
   await expect(menu).not.toContainText(t['sidebar.admin'])
 })
 
-test('member: the logo and team name are not a button; no Admin anywhere on the rail; same places', async ({ page }) => {
+test('member: the logo opens the team menu with Switch team only; no Admin anywhere on the rail; same places', async ({ page }) => {
   await start(page, 1280, MEMBER)
-  await expect(page.getByTestId('team-menu')).toHaveCount(0)
-  await expect(page.getByTestId('team-header')).toContainText('Acme')
+  await expect(page.getByTestId('team-menu')).toContainText('Acme')
   await expect(page.getByTestId('rail')).not.toContainText(t['sidebar.admin'])
+  await page.getByTestId('team-menu').click()
+  await expect(page.getByTestId('team-dropdown').getByRole('menuitem')).toHaveText([t['teamMenu.switch']])
+  await page.keyboard.press('Escape')
   await page.getByTestId('account-menu').click()
   await expect(page.getByTestId('account-role')).toHaveText(t['role.member'])
   await page.keyboard.press('Escape')
