@@ -310,7 +310,9 @@ const BLOCK_TAGS = ['memories_about_the_user', 'company_profile', 'project_instr
 // session resumed from before still has instructions that name it, so file text still cannot open or close it
 // "< /tag", "<\u200b/tag", "</ tag": spaces and format characters (zero-width ones) between "<", "/" and the name count
 // too (review of wave 1: document text now reaches the message without anyone asking for it)
-const BLOCK_TAG_RE = new RegExp(`<[\\s\\p{Cf}]*(/?)[\\s\\p{Cf}]*(${BLOCK_TAGS.join('|')})\\b`, 'giu')
+// the name ends at whitespace, a format character, ">", "/" or the end: "<chat-widget>" or "<chat.x>" in a file is
+// not one of ours and stays as written (the AI may copy it into an edit)
+const BLOCK_TAG_RE = new RegExp(`<[\\s\\p{Cf}]*(/?)[\\s\\p{Cf}]*(${BLOCK_TAGS.join('|')})(?=[\\s\\p{Cf}>/]|$)`, 'giu')
 /** Text placed inside one of our blocks can't close it (or open another): "<tag" / "</tag" lose their bracket. */
 export function neutralizeTags(s: string): string {
   return s.replace(BLOCK_TAG_RE, (_m, slash: string, name: string) => `‹${slash}${name}`)
@@ -390,9 +392,10 @@ export function historyWindow(history: { role: 'user' | 'assistant'; content: st
 
 /** A summary's text as the instructions carry it: no format characters (zero-width ones), no tag of ours, and nothing
  * that could pose as the recent section or as a transcript line: "User:" / "Assistant:" at a line start, "The most
- * recent messages, word for word", the "the person asking you now" label (chat/shared.ts labelledTranscript). */
+ * recent messages, word for word", the "the person asking you now" label (chat/shared.ts labelledTranscript). NFKC
+ * first, so full-width letters ("Ｕｓｅｒ：") cannot slip past the line rewrites. */
 export function summaryForPrompt(text: string): string {
-  return neutralizeTags(text.replace(/\p{Cf}/gu, '').trim())
+  return neutralizeTags(text.normalize('NFKC').replace(/\p{Cf}/gu, '').trim())
     .replace(/the\s+person\s+asking\s+you\s+now/giu, 'the person who asked then')
     .split('\n')
     .map((l) => /^\s*(user|assistant)\s*:/iu.test(l) ? l.replace(/^(\s*)(user|assistant)(\s*):/iu, '$1($2)$3') : l)
