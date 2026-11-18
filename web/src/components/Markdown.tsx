@@ -18,6 +18,9 @@ import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
 import { footnotesTooHeavy, lineEnds, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
+import { useLinkHosts } from './rooms/MessageLinkChip'
+import { AppLinkChip } from './AppLinkChip'
+import { appLinkRef, labelIsAddress } from '../lib/appLinks'
 import { previewKind } from '../lib/preview'
 import type { SourceLoc } from '@mycel/shared/api'
 import { openFilePreview, openTeamFile, type PreviewFile } from '../lib/sidePanel'
@@ -404,18 +407,7 @@ const origin = () => (typeof location === 'undefined' ? 'http://localhost' : loc
 const COMPONENTS: Components = {
   table: ({ children }) => <CopyableTable>{children}</CopyableTable>,
   td: ({ node, className, ...props }) => <td {...props} className={clsx(className, isNumberCell(cellText(node)) && 'whitespace-nowrap tabular-nums') || undefined} />,
-  a: ({ href, children }) => {
-    const l = classifyLink(href, origin())
-    if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
-    if (l.kind === 'app') return <AppLink href={l.href}>{children}</AppLink>
-    if (l.kind === 'external')
-      return (
-        <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer">
-          {children}
-        </a>
-      )
-    return <span>{children}</span>
-  },
+  a: ({ href, children }) => <AnswerLink href={href}>{children}</AnswerLink>,
   pre: ({ node, children }) => {
     const c = codeOf(node)
     if (!c) return <pre className="overflow-x-auto">{children}</pre>
@@ -429,6 +421,34 @@ const COMPONENTS: Components = {
     if (k.kind === 'external') return <ExternalImage href={k.href} host={k.host} alt={alt} />
     return <span className="text-faint">[{alt}]</span>
   },
+}
+
+/** The text of a link's label when it is only text (an autolinked address is one string, or an array of one). */
+const labelText = (children: ReactNode): string | null => (typeof children === 'string' ? children : Array.isArray(children) && children.length === 1 && typeof children[0] === 'string' ? children[0] : null)
+
+/** A link in an answer. A bare address of something in this app (a chat, a project, a conversation, a file link, a
+ * folder or a file) is a chip with its name for this viewer (AppLinkChip.tsx); a link with its own words keeps them. In
+ * a room (OpenableFiles set) a team file keeps its lock-or-copy rule (TeamFileLink). */
+function AnswerLink({ href, children }: { href: string | undefined; children: ReactNode }) {
+  const hosts = useLinkHosts()
+  const openable = useContext(OpenableFiles)
+  const label = labelText(children)
+  const app = href && label !== null && labelIsAddress(label, href) ? appLinkRef(href, hosts, origin()) : null
+  if (app && !(app.kind === 'file' && openable !== null)) return <AppLinkChip link={app} />
+  return <AnswerLinkPlain href={href}>{children}</AnswerLinkPlain>
+}
+
+function AnswerLinkPlain({ href, children }: { href: string | undefined; children: ReactNode }) {
+  const l = classifyLink(href, origin())
+  if (l.kind === 'team-file') return <TeamFileLink path={l.path} at={l.at}>{children}</TeamFileLink>
+  if (l.kind === 'app') return <AppLink href={l.href}>{children}</AppLink>
+  if (l.kind === 'external')
+    return (
+      <a href={l.href} target="_blank" rel="noopener noreferrer nofollow" referrerPolicy="no-referrer">
+        {children}
+      </a>
+    )
+  return <span>{children}</span>
 }
 /** An assistant answer's Markdown: the top-level quotes labelQuotes named get a copy button each; other quotes stay
  * plain quotes, as in files, docs, artifacts and the rest of the app. */

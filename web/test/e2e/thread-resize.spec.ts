@@ -177,7 +177,7 @@ test('a file preview beside the thread leaves the room 420 px and the thread 320
   await page.setViewportSize({ width: 1440, height: 900 })
   const origin = new URL(test.info().project.use.baseURL!).origin
   await openThread(page, `보고서 여기 있어요: ${origin}/files/view?path=marketing%2Fplan.md`)
-  await page.getByTestId('room-thread').getByTestId('room-link').click()
+  await page.getByTestId('room-thread').getByTestId('app-link-chip').click()
   await expect(page.getByTestId('file-panel')).toContainText('launch')
   await expect(page.getByTestId('panel-divider')).toBeVisible()
   await expect(page.getByTestId('thread-divider')).toBeVisible()

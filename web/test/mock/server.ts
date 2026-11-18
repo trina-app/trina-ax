@@ -6496,6 +6496,40 @@ export class MockServer {
   // saves here too (putChatAudience, with its confirm; putProjectParticipants); Decline says nothing. Never for guests.
   accessRequests: { id: string; kind: 'chat' | 'project'; targetId: string; userId: string; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   readonly accessRequestsInstalled = this.installAccessRequests()
+  // named app links (server/src/link-names/resolve.ts): each link named by asking the page's own mock answer as the
+  // caller (getChat, getProject without manage, getRoom, sharedFile open, tree for a folder, the file's own access); no
+  // access and not there both name nothing
+  readonly linkNamesInstalled = this.installLinkNames()
+  private installLinkNames() {
+    const h = this.handlers
+    const ctxOf = (u: User, params: Record<string, string>, query: Record<string, string> = {}): Ctx => ({ user: u, params, query, body: undefined, req: new Request('http://mock.local/') })
+    h.linkNames = async (c) => {
+      const links = (c.body as { links: { kind: string; id: string }[] }).links
+      const seen = new Set<string>()
+      const items: { kind: string; id: string; name: string | null; folder?: true; room?: unknown }[] = []
+      for (const l of links) {
+        const key = `${l.kind}:${l.id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        let named: { name: string | null; folder?: true; room?: unknown } = { name: null }
+        try {
+          if (l.kind === 'chat') named = { name: ((await h.getChat!(ctxOf(c.user, { id: l.id }))) as { title: string }).title }
+          else if (l.kind === 'project') named = { name: ((await h.getProject!(ctxOf(c.user, { id: l.id }))) as { name: string }).name }
+          else if (l.kind === 'room') {
+            const r = (await h.getRoom!(ctxOf(c.user, { id: l.id }))) as { kind: string; name: string | null; peers: unknown[]; memberCount: number }
+            named = { name: r.name ?? '', room: { kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount } }
+          } else if (l.kind === 'share' && c.user.role !== 'guest') {
+            const v = (await h.sharedFile!(ctxOf(c.user, { id: l.id }))) as { status: string; name?: string; kind?: string }
+            if (v.status === 'open') named = { name: v.name ?? null, ...(v.kind === 'folder' ? { folder: true as const } : {}) }
+          } else if ((l.kind === 'file' || l.kind === 'folder') && this.files.has(l.id) && this.access(l.id, c.user) !== 'none') {
+            named = { name: l.id.slice(l.id.lastIndexOf('/') + 1) }
+          }
+        } catch { named = { name: null } }
+        items.push({ kind: l.kind, id: l.id, ...named })
+      }
+      return { items }
+    }
+  }
 
   fileOwner(path: string): string | null {
     if (path.startsWith('users/')) return path.split('/')[1] ?? null

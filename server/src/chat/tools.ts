@@ -166,7 +166,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const cards = new Map<string, NonNullable<TurnTool['card']>>()
   const templateWrites = new Set<string>()
   /** a room session's connection tools: the asker's own Google apps (integrations/connections/tools.ts) */
-  const add = (t: Tool): boolean => {
+  const add = (t: Tool, o: { connection?: boolean } = {}): boolean => {
     // a company profile draft (onboarding/draft.ts): web_fetch is its only tool besides the refused file tools, and a
     // draft from pasted text has none
     if (exec.profileDraft && (t.name !== 'web_fetch' || exec.profileDraft.scope.source !== 'website')) return false
@@ -180,8 +180,10 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     if (guest && GUEST_ROOM_TOOLS.has(t.name) && !guestInRoom) return false
     // ...and none of its words about what only team members have (Admin, plugins, skills, the browser)
     if (guest) t = { ...t, description: guestToolDescription(t.description) }
-    // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts)
-    if (exec.shared && !SHARED_TOOLS.has(t.name)) return false
+    // a shared project chat (chat/shared.ts): its allowlist (rooms/ai-tools.ts), and the connection tools built for it
+    // (each call behind the asker's card where some people here could not see the answer:
+    // docs/decisions/20261118-shared-chat-connections.md)
+    if (exec.shared && !SHARED_TOOLS.has(t.name) && !o.connection) return false
     if (t.name in FILE_TOOLS || tools.has(t.name)) { exec.rt.log.warn('turn tool name taken, skipped', { tool: t.name }); return false }
     tools.set(t.name, t)
     if (t.label) labels.set(t.name, t.label.bind(t))
@@ -273,12 +275,17 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // every tool a provider added (they act at outside services): their arguments have stored keys hidden (hideKeys)
   const outside = new Set<string>()
   const providers = exec.rt.ctx.services.turnToolProviders ?? []
-  for (const p of confidential || exec.restricted || exec.shared || guest ? [] : providers) {
+  // a shared chat: only the connections' provider, in its shared mode (the asker's card before a call some people here
+  // could not see the answer of; no team connection while a guest is here; docs/decisions/20261118-shared-chat-connections.md).
+  // Slack reading stays off there
+  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? providers.filter((p) => p.name === 'integrations') : providers
+  const sharedConn = exec.shared ? exec.sharedConnections() : undefined
+  for (const p of offered) {
     let built: ReturnType<typeof p.build>
-    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule' }) }
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
-      if (!add(wrapRegistered(exec, t))) continue
+      if (!add(wrapRegistered(exec, t), { connection: !!sharedConn })) continue
       outside.add(t.name)
       if (t.label) labels.set(t.name, t.label.bind(t))
       if (t.card) cards.set(t.name, t.card.bind(t))
@@ -346,7 +353,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (early) return { ...text(early.text, true), summary: early.summary }
       // a shared project chat: a search without a path looks in the project folder; then what the call would read that
       // some of the chat's people cannot read waits for the person's yes (chat/turn.ts confirmSharedRead)
-      if (exec.shared) {
+      // (a connection's tool names no team path: its own card comes from the tool, integrations/connections/tools.ts
+      // sharedGate, before anything is fetched)
+      if (exec.shared && !outside.has(name)) {
         // a chat shared with people and groups: a search without a path only where everyone in it may read, else refused
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { ...text(noPlace, true), summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
