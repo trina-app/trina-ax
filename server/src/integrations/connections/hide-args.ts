@@ -44,6 +44,7 @@ const KEEP: Record<string, readonly string[]> = {
   unzip_file: ['path', 'list_only'],
   make_zip: ['paths'],
   comment_docx: ['file_path'],
+  edit_office: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
   move_files: ['paths'],

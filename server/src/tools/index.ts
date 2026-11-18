@@ -26,6 +26,7 @@ import { extractText } from '../files/extract'
 import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
 import { registerCommentDocx } from './comment-docx'
+import { registerEditOffice } from './edit-office'
 import { registerHiggsfield } from './higgsfield'
 import { registerPromoVideo } from '../promo-video/tool'
 import { registerIntroDeck } from '../intro-deck/tool'
@@ -351,6 +352,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // Word comments on an existing .docx (tools/comment-docx.ts)
   registerCommentDocx(ctx, reg)
   exposeToTurns('comment_docx')
+  // an existing Word, Excel or PowerPoint file changed in place (tools/edit-office.ts)
+  registerEditOffice(ctx, reg)
+  exposeToTurns('edit_office')
   for (const name of C_TOOL_NAMES) exposeToTurns(name)
   // moving, copying and renaming any kind of file (tools/file-moves.ts)
   registerFileMoveTools(ctx, reg)

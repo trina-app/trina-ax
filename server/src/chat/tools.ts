@@ -4,6 +4,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
+import { editOfficeOutput } from '../tools/edit-office'
 import { chatFileOffered, chatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
@@ -534,6 +535,11 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   }
   // comment_docx (tools/comment-docx.ts): the document itself, or a new .docx made from it
   if (name === 'comment_docx' && typeof a.file_path === 'string') return typeof a.output === 'string' ? { target: commentDocxOutput(a.output), extra: [a.file_path] } : { target: a.file_path, extra: [] }
+  // edit_office (tools/edit-office.ts): the file itself, or a new file made from it; a replacement picture's bytes too
+  if (name === 'edit_office' && typeof a.file_path === 'string') {
+    const pics = Array.isArray(a.changes) ? a.changes.flatMap((c) => { const img = (c as { replace_picture?: { image?: unknown } })?.replace_picture?.image; return typeof img === 'string' ? [img] : [] }) : []
+    return typeof a.output === 'string' ? { target: editOfficeOutput(a.output, a.file_path), extra: [a.file_path, ...pics] } : { target: a.file_path, extra: pics }
+  }
   return undefined
 }
 
