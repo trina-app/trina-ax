@@ -1,14 +1,15 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
 // make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), stamp_pdf
 // (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
-// (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos). Inputs are the shared contracts
+// (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos), unzip_file (tools/unzip.ts: the files of a zip). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, ResizeImagesInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
 import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
 import { RESIZE_IMAGES_DESCRIPTION, resizeImages, resizeResultText } from './resize-images'
+import { UNZIP_FILE_DESCRIPTION, unzipFile, unzipResultText, unzipSummary } from './unzip'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import { fileSharesOf } from '../files/shares'
@@ -34,7 +35,7 @@ import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -214,6 +215,18 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         summary: `resize_images ${r.made.map((m) => `${m.src} -> ${m.made.path} ${m.made.size}B${m.made.conflictCopyOf ? ' (conflict copy)' : ''}`).join(', ')}${r.skipped.length ? ` (${r.skipped.length} not done)` : ''}`.slice(0, 1000),
         structured: { paths: r.made.map((m) => m.made.path) },
       }
+    },
+  })
+
+  // the files of a zip into a folder (tools/unzip.ts, QA TC-4847)
+  reg.register({
+    name: 'unzip_file',
+    description: UNZIP_FILE_DESCRIPTION,
+    input: UnzipFileInput,
+    describe: (a) => `unzip_file ${a.path}${a.list_only ? ' (list only)' : a.to_folder ? ` -> ${a.to_folder}` : ''}`,
+    async run(a, t) {
+      const r = await unzipFile(ctx, c.files, t, a)
+      return { text: unzipResultText(r), summary: unzipSummary(r), structured: { folder: r.folder, paths: r.saved.map((s) => s.path), failed: r.failed } }
     },
   })
 

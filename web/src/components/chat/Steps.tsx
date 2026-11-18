@@ -56,7 +56,7 @@ export function subtaskStats(sub: Step['subtask'], t: TFunction): string {
  * its failure changed nothing. */
 const lookedUp = (s: Step) => s.kind === 'web_search' || s.kind === 'thinking' || (s.kind === 'tool' && !!s.tool && (READ_ONLY_TOOLS.has(s.tool) || REMOVED_READ_ONLY_TOOLS.has(s.tool)))
 /** Tools that save a file: one that worked makes up for another that failed. */
-const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images'])
+const SAVE_TOOLS = new Set(['write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file'])
 /** What a later step must have done to make up for a failed one that changed something: the same tool (a save tool for a
  * save, a browser step for a browser step). */
 const family = (s: Step) => (s.tool && SAVE_TOOLS.has(s.tool) ? 'save' : s.kind !== 'tool' ? `kind:${s.kind}` : `tool:${s.tool ?? ''}`)

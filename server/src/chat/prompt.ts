@@ -849,6 +849,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('edit_hwp') ? EDIT_HWP_RULE : '',
     has.has('edit_pdf') || has.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     has.has('resize_images') ? RESIZE_IMAGES_RULE : '',
+    has.has('unzip_file') ? UNZIP_FILE_RULE : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
@@ -900,6 +901,8 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
 export const PDF_TOOLS_RULE = 'To change an existing PDF, use the PDF tools; each saves a new PDF next to the original and never overwrites it, except a PDF you made yourself in this turn, which edit_pdf and stamp_pdf change in place (make a quote where it belongs, then stamp it there): edit_pdf to remove, keep (extract), reorder, rotate or insert pages, stamp a seal or logo, add a line of text, a watermark or page numbers; merge_pdfs to join PDFs in order; split_pdf to cut one into parts; stamp_pdf for a seal, signature or logo alone. They work on scanned PDFs too. Replace the original only when the user explicitly asks for that. To place a seal or text next to something on the page, look at that page first (read with pages and as_images), and look at the changed page before you answer. Ask for a seal or logo image only when none can be found in the team folder.'
 /** smaller copies of photos (tools/resize-images.ts, QA TC-4539) */
 export const RESIZE_IMAGES_RULE = 'To make photos smaller (fewer pixels or a smaller file: "for email", "for the web", "1200 px wide", "under 2MB"), use resize_images, also for iPhone (HEIC) photos; it saves new copies next to the originals and never overwrites them. The copies keep the photo details (time taken, camera, location); remove the location or all details (remove_details) only when the user asks for that. In the answer, give each copy\'s new pixel size and file size, link it by its name, say the original is untouched, and say what the result says about the details and the format, nothing more.'
+/** the files of a zip (tools/unzip.ts, QA TC-4847: the AI said it could not unzip and asked the person to do it) */
+export const UNZIP_FILE_RULE = 'To unzip a .zip file ("unzip it", "extract it", "what is in this zip"), use unzip_file; never tell the user to unzip it themselves and upload the files again. It saves the files into a new folder next to the zip unless the user names another folder, and never saves over existing files. In the answer, link the folder, say how many files were saved with a short list (a summary for many), and plainly name any file that was not saved and why.'
 export const EDIT_HWP_RULE = 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.'
 
 /** save_url, like Claude Code's `curl -o`, and the one thing about previews the AI cannot see for itself */
@@ -1021,6 +1024,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('edit_hwp') ? EDIT_HWP_RULE : '',
     tools.has('edit_pdf') || tools.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     tools.has('resize_images') ? RESIZE_IMAGES_RULE : '',
+    tools.has('unzip_file') ? UNZIP_FILE_RULE : '',
     // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('delete_files') ? (i.guest ? GUEST_DELETE_RULE : DELETE_RULE) : '',

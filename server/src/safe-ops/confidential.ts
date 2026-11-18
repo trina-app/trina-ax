@@ -15,6 +15,7 @@ const LOCAL_TOOLS = new Set([
   'merge_pdfs',
   'split_pdf',
   'resize_images',
+  'unzip_file',
   'share_file',
   'remember',
   'forget',
