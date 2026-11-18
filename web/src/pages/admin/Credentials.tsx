@@ -7,18 +7,19 @@
 // accounts by provider, when the team allows it. A Claude subscription and a ChatGPT plan connect with a sign-in in
 // the browser (one button; docs/DECISIONS.md "Claude 구독 연결: 브라우저에서"); the old terminal paste for Claude stays
 // folded under a small disclosure.
-import { ExternalLink, MoreHorizontal, Plug, Plus, Trash2 } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { ExternalLink, GripVertical, MoreHorizontal, Plug, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DuplicateCredentialParams, LoginBusyParams, type Credential, type EngineId, type CredentialAssignment, type CredentialKind, type CredentialLogin, type CredentialLoginKind, type CredentialsResponse, type Group, type User } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
+import { dropIndex, moveItem, priorityPatches } from '../../lib/reorder'
 import { formatDateTime, formatNumber, formatUsd } from '../../lib/format'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { isAdmin, isOwner, useMe, useMeStrict } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { credentialLogin } from '../../store/live'
 import { toast } from '../../store/ui'
-import { Badge, Button, CopyButton, Field, IconButton, Modal, SignInLinks, confirmDialog, inputCls, useMediaQuery } from '../../components/ui'
+import { Badge, Button, CopyButton, Field, IconButton, Modal, SignInLinks, confirmDialog, inputCls, useAnnounce, useMediaQuery } from '../../components/ui'
 import { Card, Loadable, useAction, useActionOk, useLoad } from './common'
 import { CREDENTIAL_PROBLEMS } from './overview'
 import { LogoTile } from '../../components/integrations/ConnectorsView'
@@ -26,6 +27,9 @@ import { useAdminGroups, useAdminRead, useAdminUsers } from '../../store/adminPe
 
 const FAMILY: Record<'claude' | 'codex', CredentialKind[]> = { claude: ['anthropic-oauth', 'anthropic-api-key'], codex: ['chatgpt', 'openai-api-key'] }
 const SUBSCRIPTION = new Set<CredentialKind>(['anthropic-oauth', 'chatgpt'])
+const familyOf = (kind: CredentialKind): Family => (FAMILY.claude.includes(kind) ? 'claude' : 'codex')
+/** the team's accounts of one provider, in the order the list shows them (the server's: priority, then date added) */
+const teamOfFamily = (fam: Family) => (x: Credential) => x.scope === 'team' && FAMILY[fam].includes(x.kind)
 /** Company API keys lead the team form; personal subscriptions lead a member's form (D1). */
 const KIND_ORDER: CredentialKind[] = ['anthropic-api-key', 'anthropic-oauth', 'openai-api-key', 'chatgpt']
 const PERSONAL_KIND_ORDER: CredentialKind[] = ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key']
@@ -91,17 +95,33 @@ export function useTeamCredentials() {
     if (!(await confirmDialog({ title: t('credentials.deleteConfirm', { label: c.label }), body, confirm: t('common.delete'), danger: true }))) return
     if (await actOk(() => api.call(API.deleteCredential, { params: { id: c.id } }))) void state.reload()
   }
-  /** move a team connection up / down within its engine: priorities 10, 20, 30 … in the new order */
+  /** while a new order is being saved (the handles wait) */
+  const [ordering, setOrdering] = useState(false)
+  /** put a team connection at position `to` of its provider's list: the list shows the new order at once, then saves it
+   * as priorities 10, 20, 30 … (lib/reorder.ts), one PATCH per row whose number changes, and reads the list again.
+   * Dragging a row and Move up / Move down both come here. */
+  const reorder = async (d: CredentialsResponse, c: Credential, to: number) => {
+    const inList = teamOfFamily(familyOf(c.kind))
+    const list = d.items.filter(inList)
+    const from = list.findIndex((x) => x.id === c.id)
+    if (from < 0 || to < 0 || to >= list.length || to === from) return
+    const patches = priorityPatches(moveItem(list, from, to))
+    const pr = new Map(patches.map((x) => [x.id, x.priority]))
+    const next = moveItem(list, from, to).map((x) => (pr.has(x.id) ? { ...x, priority: pr.get(x.id)! } : x))
+    let k = 0
+    state.setData({ ...d, items: d.items.map((x) => (inList(x) ? next[k++]! : x)) })
+    setOrdering(true)
+    try {
+      for (const x of patches) if (!(await act(() => api.call(API.updateCredential, { params: { id: x.id }, body: { priority: x.priority } })))) break
+    } finally {
+      setOrdering(false)
+      void state.reload()
+    }
+  }
+  /** move a team connection one place up / down within its provider (the ⋯ menu) */
   const move = async (d: CredentialsResponse, c: Credential, dir: -1 | 1) => {
-    const fam = (FAMILY.claude.includes(c.kind) ? FAMILY.claude : FAMILY.codex)
-    const list = d.items.filter((x) => x.scope === 'team' && fam.includes(x.kind))
-    const i = list.findIndex((x) => x.id === c.id)
-    const j = i + dir
-    if (i < 0 || j < 0 || j >= list.length) return
-    const next = [...list]
-    ;[next[i], next[j]] = [next[j]!, next[i]!]
-    for (const [n, x] of next.entries()) if (x.priority !== (n + 1) * 10) await act(() => api.call(API.updateCredential, { params: { id: x.id }, body: { priority: (n + 1) * 10 } }))
-    void state.reload()
+    const i = d.items.filter(teamOfFamily(familyOf(c.kind))).findIndex((x) => x.id === c.id)
+    if (i >= 0) await reorder(d, c, i + dir)
   }
   const target = (c: Credential) => c.scope === 'personal' ? t('credentials.target.personal', { name: c.owner?.name ?? '' })
     : !c.assignments.length ? t('credentials.target.team') : c.assignments.map((a) => a.name).join(', ')
@@ -117,7 +137,7 @@ export function useTeamCredentials() {
       {editing && <EditCredential c={editing} groups={groups.data ?? []} users={users.data ?? []} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void state.reload() }} />}
     </>
   )
-  return { me, owner, users, state, act, check, patch, remove, move, target, checking, setAdding, setEditing, setReplacing, dialogs }
+  return { me, owner, users, state, act, check, patch, remove, move, reorder, ordering, target, checking, setAdding, setEditing, setReplacing, dialogs }
 }
 export type TeamCredentials = ReturnType<typeof useTeamCredentials>
 
@@ -134,13 +154,107 @@ export function addAccountBelow(tc: TeamCredentials, fam: Family): boolean {
 }
 
 /** One provider's accounts inside its row in Admin › AI providers, in the order they are used, with Add account
- * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them. */
+ * (the owner; it opens the same dialog as before, for this provider's kinds only). Admins see and re-check them.
+ * The owner and admins change the order by dragging a row's handle (mouse or touch), with the keyboard on the handle
+ * (Space picks the row up, the arrow keys move it, Space drops it, Escape puts it back), or with Move up / Move down in
+ * the ⋯ menu; every way saves through tc.reorder. Under a list of two or more, one plain line says how the order is used. */
 export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family }) {
   const t = useT()
+  const announce = useAnnounce()
+  const help = useId()
+  const ul = useRef<HTMLUListElement>(null)
+  /** the row being moved */
+  const [drag, setDragState] = useState<Drag | null>(null)
+  // the same, read by a blur that comes while the list is redrawn (the moved row's handle loses focus then)
+  const dragNow = useRef<Drag | null>(null)
+  const setDrag = (v: Drag | null) => { dragNow.current = v; setDragState(v) }
+  /** the handle to focus again once the list shows the new order (a keyboard drop) */
+  const refocus = useRef<string | null>(null)
+  useEffect(() => {
+    if (!refocus.current) return
+    const el = ul.current?.querySelector<HTMLElement>(`[data-id="${refocus.current}"] [data-testid="credential-drag"]`)
+    if (el && document.activeElement !== el) el.focus()
+    refocus.current = null
+  })
   const d = tc.state.data
   if (!d) return null
-  const list = d.items.filter((x) => x.scope === 'team' && FAMILY[fam].includes(x.kind))
+  const list = d.items.filter(teamOfFamily(fam))
   const kinds = d.allowedKinds.filter((k) => FAMILY[fam].includes(k))
+  const sortable = tc.owner && list.length > 1
+  const tiers = list.some((x) => x.assignments.length > 0)
+  const total = list.length
+  const measure = () => {
+    const rows = [...(ul.current?.children ?? [])].map((el) => el.getBoundingClientRect())
+    return { heights: rows.map((r) => r.height), mids: rows.map((r) => r.top + r.height / 2) }
+  }
+  const pick = (c: Credential, from: number, startY: number | null) => {
+    setDrag({ id: c.id, from, to: from, dy: startY === null ? null : 0, startY: startY ?? 0, ...measure() })
+    if (startY === null) announce(t('credentials.dragPicked', { label: c.label, n: from + 1, total }))
+  }
+  const drop = (c: Credential) => {
+    const drag = dragNow.current
+    if (!drag) return
+    setDrag(null)
+    if (drag.to === drag.from) { announce(t('credentials.dragCancelled', { label: c.label, n: drag.from + 1 })); return }
+    announce(t('credentials.dragDropped', { label: c.label, n: drag.to + 1, total }))
+    if (drag.dy === null) refocus.current = c.id
+    void tc.reorder(d, c, drag.to)
+  }
+  const cancel = (c: Credential) => {
+    const drag = dragNow.current
+    if (!drag) return
+    setDrag(null)
+    announce(t('credentials.dragCancelled', { label: c.label, n: drag.from + 1 }))
+  }
+  /** how far row i is shifted while another row is moved over it, or the moved row itself */
+  const shift = (i: number): number => {
+    if (!drag) return 0
+    const { from, to, heights } = drag
+    if (i === from) {
+      if (drag.dy !== null) return drag.dy
+      const sum = (a: number, b: number) => heights.slice(a, b).reduce((x, y) => x + y, 0)
+      return to > from ? sum(from + 1, to + 1) : -sum(to, from)
+    }
+    if (from < to && i > from && i <= to) return -heights[from]!
+    if (to < from && i >= to && i < from) return heights[from]!
+    return 0
+  }
+  const handle = (c: Credential, i: number): RowHandle | undefined => sortable ? {
+    label: t('credentials.dragHandle', { label: c.label }),
+    describedBy: help,
+    picked: drag?.id === c.id,
+    disabled: tc.ordering,
+    onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      if (e.button !== 0 || tc.ordering) return
+      e.preventDefault()
+      e.currentTarget.setPointerCapture(e.pointerId)
+      pick(c, i, e.clientY)
+    },
+    onPointerMove: (e: ReactPointerEvent<HTMLButtonElement>) => {
+      if (drag?.id !== c.id || drag.dy === null) return
+      const dy = e.clientY - drag.startY
+      setDrag({ ...drag, dy, to: dropIndex(drag.mids, drag.from, drag.mids[drag.from]! + dy) })
+    },
+    onPointerUp: () => { if (drag?.id === c.id && drag.dy !== null) drop(c) },
+    onPointerCancel: () => { if (drag?.id === c.id && drag.dy !== null) setDrag(null) },
+    onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+      const held = drag?.id === c.id && drag.dy === null
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault()
+        if (held) drop(c)
+        else if (!tc.ordering) pick(c, i, null)
+      } else if (held && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault()
+        const to = Math.max(0, Math.min(total - 1, drag.to + (e.key === 'ArrowUp' ? -1 : 1)))
+        if (to !== drag.to) { setDrag({ ...drag, to }); announce(t('credentials.dragMoving', { label: c.label, n: to + 1, total })) }
+      } else if (held && e.key === 'Escape') {
+        e.preventDefault(); e.stopPropagation()
+        cancel(c)
+      }
+    },
+    // focus leaving a picked-up row puts it back (not the blur of a drop, when the list moves the row)
+    onBlur: () => { if (dragNow.current?.id === c.id && dragNow.current.dy === null) cancel(c) },
+  } : undefined
   return (
     <div className="mt-3 space-y-2 pl-12 max-md:pl-0" data-testid={`provider-accounts-${fam}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -150,32 +264,22 @@ export function ProviderAccounts({ tc, fam }: { tc: TeamCredentials; fam: Family
         )}
       </div>
       {!list.length ? <p className="text-xs text-faint" data-testid={`provider-none-${fam}`}>{t('providers.noAccounts')}</p> : (
-        <ul className="divide-y divide-line rounded-xl border border-line" data-testid={`credentials-${fam}`}>
+        <ul ref={ul} className="divide-y divide-line rounded-xl border border-line" data-testid={`credentials-${fam}`} data-dragging={drag ? '' : undefined}>
           {list.map((c, i) => (
-            <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} gateway={d.anthropicGateway}
+            <CredentialRow key={c.id} c={c} target={tc.target(c)} owner={tc.owner} checking={tc.checking === c.id} gateway={d.anthropicGateway} pricesAsOf={d.pricesAsOf}
               onCheck={() => tc.check(c)} onEdit={() => tc.setEditing(c)} onReplace={() => tc.setReplacing(c)} onRemove={() => tc.remove(c)}
               onToggle={() => tc.patch(c, { disabled: !c.disabled })}
-              onUp={i > 0 ? () => tc.move(d, c, -1) : undefined} onDown={i < list.length - 1 ? () => tc.move(d, c, 1) : undefined} />
+              onUp={i > 0 ? () => tc.move(d, c, -1) : undefined} onDown={i < list.length - 1 ? () => tc.move(d, c, 1) : undefined}
+              handle={handle(c, i)} shift={drag ? shift(i) : 0} moving={drag?.id === c.id} />
           ))}
         </ul>
       )}
-    </div>
-  )
-}
-
-/** "How order works": the order the accounts are tried in (and, on the list, how costs are estimated), behind one small
- * link under the providers instead of two lines of small print. */
-export function HowOrderWorks({ pricesAsOf }: { pricesAsOf?: string }) {
-  const t = useT()
-  const [open, setOpen] = useState(false)
-  const id = useId()
-  return (
-    <div className="mt-3 text-xs">
-      <button type="button" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}
-        className="touch-hit font-medium text-muted underline-offset-2 hover:text-ink hover:underline" data-testid="how-order-works">
-        {t(open ? 'common.less' : 'providers.howOrder')}
-      </button>
-      {open && <p id={id} className="mt-1 max-w-prose leading-relaxed text-faint" data-testid="credentials-order">{t('credentials.order')}{pricesAsOf && ` ${t('credentials.costNote', { date: pricesAsOf })}`}</p>}
+      {sortable && <p id={help} className="sr-only">{t('credentials.dragHelp')}</p>}
+      {list.length > 1 && (
+        <p className="max-w-prose text-xs leading-relaxed text-faint" data-testid="credentials-order">
+          {t('credentials.order')}{tiers && ` ${t('credentials.orderTiers')}`}
+        </p>
+      )}
     </div>
   )
 }
@@ -211,6 +315,18 @@ export function ProviderLogo({ mark, small }: { mark: ProviderMark; small?: bool
   return <span className="contents" data-testid="provider-logo" data-mark={mark}><LogoTile src={`/icons/connectors/${mark === 'claude' ? 'claude.svg' : 'codex.svg'}`} className={size} /></span>
 }
 
+/** A row being moved (ProviderAccounts): where it was (`from`), where it would land (`to`), how far the pointer moved
+ * it (`dy`; a keyboard move has none) from where it was picked up (`startY`), and each row's height and middle as laid
+ * out then. */
+type Drag = { id: string; from: number; to: number; dy: number | null; startY: number; heights: number[]; mids: number[] }
+
+/** A row's drag handle: its name, the keyboard help it points to, and the pointer and key handlers (ProviderAccounts). */
+type RowHandle = {
+  label: string; describedBy: string; picked: boolean; disabled: boolean
+  onPointerDown: (e: ReactPointerEvent<HTMLButtonElement>) => void; onPointerMove: (e: ReactPointerEvent<HTMLButtonElement>) => void
+  onPointerUp: () => void; onPointerCancel: () => void; onKeyDown: (e: ReactKeyboardEvent<HTMLButtonElement>) => void; onBlur: () => void
+}
+
 /** The short line under an account with a problem: what to do, as one link for the owner and admins ("Replace the key"),
  * or nothing when the state badge already says it (a limit, Reconnect's own button). */
 function fixOf(c: Credential): 'reconnect' | 'replace' | null {
@@ -221,13 +337,19 @@ function fixOf(c: Credential): 'reconnect' | 'replace' | null {
 /** One account: its mark, its name, its plan in short and one state; one short line when something needs doing. The
  * name opens the rest under it (who uses it, this month's use, when it was last used, the server's longer explanation).
  * Check again, move up / down and the rest are in the ⋯ menu. */
-export function CredentialRow({ c, target, owner, checking, personal, ownDelete, gateway, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown }: {
+export function CredentialRow({ c, target, owner, checking, personal, ownDelete, gateway, pricesAsOf, onCheck, onEdit, onReplace, onRemove, onToggle, onUp, onDown, handle, shift = 0, moving = false }: {
   c: Credential; target: string; owner: boolean; checking: boolean; personal?: boolean
   /** a member's own row (Settings): a delete button instead of the owner's menu */
   ownDelete?: boolean
   /** the server's Anthropic-compatible gateway: its key shows a plain mark, not Claude's */
   gateway?: Gateway
+  /** the date of the list prices an API key's cost is estimated with (its details say so) */
+  pricesAsOf?: string
   onCheck: () => void; onEdit: () => void; onReplace: () => void; onRemove: () => void; onToggle: () => void; onUp?: () => void; onDown?: () => void
+  /** the drag handle, where the order can be changed (ProviderAccounts) */
+  handle?: RowHandle
+  /** how far the row is moved on the screen while it or another row is dragged; `moving`: this is the row being moved */
+  shift?: number; moving?: boolean
 }) {
   const t = useT()
   const locale = useLocale()
@@ -240,9 +362,21 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
   const reconnectButton = !personal && c.state === 'needs_reconnect' && c.kind === 'chatgpt' && owner
   const item = 'block w-full px-3 py-1.5 text-left hover:bg-hover disabled:opacity-50'
   return (
-    <li className="px-3 py-2.5" data-testid="credential-row" data-kind={c.kind}>
-      <div className="flex items-center gap-3">
-        <ProviderLogo mark={markOfKind(c.kind, gateway)} small />
+    <li className={`relative px-3 py-2.5 ${moving ? 'z-1 rounded-xl bg-surface shadow-lg ring-1 ring-accent' : ''} ${shift && !moving ? 'transition-transform duration-150' : ''}`}
+      style={shift ? { transform: `translateY(${shift}px)` } : undefined} data-testid="credential-row" data-id={c.id} data-kind={c.kind} data-moving={moving ? '' : undefined}>
+      <div className={`flex items-center ${handle ? 'gap-2 max-md:gap-1.5' : 'gap-3'}`}>
+        {handle && (
+          // aria-disabled, not disabled, while a new order is saved: a disabled button would drop the keyboard's focus.
+          // no-tooltip: a drag handle; a tooltip would sit over the rows being dragged. The grip says it, its name and help say it to screen readers
+          <IconButton label={handle.label} tip={false} compact aria-describedby={handle.describedBy} aria-pressed={handle.picked} aria-disabled={handle.disabled || undefined}
+            className={`-ml-1.5 shrink-0 touch-none select-none ${handle.picked ? 'cursor-grabbing text-ink' : 'cursor-grab'}`}
+            onPointerDown={handle.onPointerDown} onPointerMove={handle.onPointerMove} onPointerUp={handle.onPointerUp} onPointerCancel={handle.onPointerCancel}
+            onKeyDown={handle.onKeyDown} onBlur={handle.onBlur} data-testid="credential-drag">
+            <GripVertical size={15} aria-hidden />
+          </IconButton>
+        )}
+        {/* a phone with the handle: the provider's mark goes (the row is under that provider already), the name keeps its room */}
+        <span className={handle ? 'contents max-md:hidden' : 'contents'}><ProviderLogo mark={markOfKind(c.kind, gateway)} small /></span>
         <div className="min-w-0 flex-1">
           <p className="flex min-w-0 items-baseline gap-x-2 text-sm">
             <button type="button" aria-expanded={open} aria-controls={open ? details : undefined} onClick={() => setOpen(!open)}
@@ -285,7 +419,7 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
         </div>
       </div>
       {open && (
-        <div id={details} className="mt-1.5 space-y-0.5 pl-10 text-xs text-faint max-md:pl-0" data-testid="credential-details">
+        <div id={details} className={`mt-1.5 space-y-0.5 text-xs text-faint max-md:pl-0 ${handle ? 'pl-16' : 'pl-10'}`} data-testid="credential-details">
           {c.detail && <p className="text-muted" data-testid="credential-detail">{c.detail}</p>}
           <p>
             {target} · {t('credentials.month', { tokens: formatNumber(c.month.tokens, locale) })}
@@ -294,6 +428,7 @@ export function CredentialRow({ c, target, owner, checking, personal, ownDelete,
           </p>
           {c.lastUsedAt && <p>{t('credentials.lastUsed', { date: formatDateTime(c.lastUsedAt, locale) })}</p>}
           {c.expiresAt && c.state === 'ok' && <p>{t('credentials.until', { date: formatDateTime(c.expiresAt, locale) })}</p>}
+          {apiKey && pricesAsOf && <p data-testid="credential-cost-note">{t('credentials.costNote', { date: pricesAsOf })}</p>}
         </div>
       )}
     </li>

@@ -24,7 +24,7 @@ import { useLocale, useT } from '../../i18n'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
-import { ENGINE_FAMILY, HowOrderWorks, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
+import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
 import { ExtLink } from '../../components/integrations/AppDetail'
 import { useEngines } from '../../store/engines'
 import { enginesChanged } from '../../store/live'
@@ -93,7 +93,6 @@ export default function Engines() {
                 addBelow={!!ENGINE_FAMILY[engine.id] && addAccountBelow(tc, ENGINE_FAMILY[engine.id]!)}
                 initiallyOpen checking={checking === engine.id} onCheck={() => void check(engine.id)} onToggle={(v) => void toggle(engine.id, v)} onApiSaved={apiSaved} />
             </ul>
-            {tc.state.data && ENGINE_FAMILY[engine.id] && <HowOrderWorks />}
           </section>
         ) : null}
       </Loadable>
@@ -130,7 +129,6 @@ export default function Engines() {
                 />
               ))}
             </ul>}
-            {tc.state.data && !phone && <HowOrderWorks pricesAsOf={tc.state.data.pricesAsOf} />}
           </>
         )}
       </Loadable>

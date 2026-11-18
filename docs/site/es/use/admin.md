@@ -75,7 +75,10 @@ Las personas que gestionan el servidor, su sistema operativo o su almacenamiento
 API) con su logotipo, su estado y un interruptor de activado/desactivado. Cuando algo falla, una línea corta debajo del
 nombre explica cómo arreglarlo. Debajo de Claude Code y Codex están las cuentas con las que responde el equipo, en el
 orden en que se prueban, cada una con su logotipo, su plan y su estado, y **Añadir cuenta** para el propietario y los
-administradores. **Cómo funciona el orden**, debajo de la lista, explica el orden.
+administradores. Se usa primero la primera cuenta que funcione; si una es rechazada o llega a su límite, se usa la
+siguiente. Para cambiar el orden, el propietario y los administradores arrastran una cuenta por su asa (⠿) de la
+izquierda, en un ordenador o en un teléfono. Con el teclado: vaya al asa con Tab, pulse Espacio para tomar la cuenta,
+las flechas para moverla, Espacio para soltarla y Escape para cancelar.
 
 Haga clic en el nombre de un motor para abrir sus detalles: cómo inicia sesión, todos los modelos, cuándo se comprobó por
 última vez, **Volver a comprobar** y, para el propietario y los administradores, el formulario del motor API. Haga clic en

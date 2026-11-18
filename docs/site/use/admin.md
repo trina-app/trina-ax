@@ -73,7 +73,10 @@ People who operate the server, its OS or its storage can read stored files and c
 **Admin › AI providers**, first in the Connections group, has one row per engine (Claude Code, Codex, API) with its
 logo, its state and an on/off switch. When something is wrong, one short line under the name says how to fix it.
 Under Claude Code and Codex are the accounts the team answers with, in the order they are tried, each with its logo,
-plan and state, and **Add account** for the owner and admins. **How order works** under the list explains the order.
+plan and state, and **Add account** for the owner and admins. The top working account is used first; if one is refused
+or at its limit, the next one is used. To change the order, the owner and admins drag an account by its handle (⠿) on
+the left, on a computer or a phone. With the keyboard: Tab to the handle, Space to pick the account up, the arrow keys to
+move it, Space to drop it, Escape to cancel.
 
 Click an engine's name to open its details: how it signs in, every model, when it was last checked, **Check again**,
 and for the owner and admins the API engine form. Click an account's name for who uses it, this month's use and when it
