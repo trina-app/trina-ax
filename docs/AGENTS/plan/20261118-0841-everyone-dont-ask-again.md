@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 08:41
 - Branch: `feat/everyone-dont-ask-again`
-- Status: in progress
+- Status: done
 - Where: web/ and shared/ (Team AX core). Why: room composer and per-person preferences are core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a small option on an existing question and a settings switch (no migration: prefs is JSON)
 
@@ -47,4 +47,8 @@ UserPrefs is a non-strict object, so it is kept.
 
 ## Result
 
-(to fill in)
+Built as planned. `prefs.mentionAllAsk` ('off' or absent; PATCH null clears it), the "Don't ask again" tick on the
+question line (on a phone the tick and the buttons take their own line under the question), the switch "Ask before
+notifying everyone" in Settings › Notifications › Conversations. `MENTION_ALL_CONFIRM` moved to web/src/lib/rooms.ts so
+the settings row can name the number without importing the composer. Only "@전체" has a question; no other
+mass-notify case exists. The PR link is in the pull request.
