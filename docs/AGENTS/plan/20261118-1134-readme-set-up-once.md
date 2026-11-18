@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 11:34
 - Branch: `docs/readme-set-up-once`
-- Status: in progress
+- Status: done
 - Where: trina-ax root READMEs and `docs/images/readme/v4/`. Why: the repository front page (docs only, no product code).
 - Version impact: none, README and images only.
 
@@ -48,8 +48,15 @@ Out:
 - Google sits in the "set up once" table: Drive shares with the team and one shared Google account for Gmail, Calendar,
   Docs and Sheets are admin features (docs/site/use/google-apps.md); each person can still connect their own.
 - Bright Data is named as an example of an MCP server added by its address (it is not in the app list).
-- "Session" for picking up a teammate's work, not "chat".
+- "Session" for picking up a teammate's work, not "chat" (the founder's word; Spanish says "sesión de trabajo" so it does not read as a login session).
 
 ## Result
 
-(filled in when done)
+- Five READMEs with the structure above; the part from "Trina provides the workspace" down is byte-identical to dev.
+- 25 images in `docs/images/readme/v4/` (3.4 MB). The film is a GitHub attachment posted in the PR, public without
+  sign-in (an attachment that is only uploaded, not posted, returns 404 to signed-out visitors).
+- An independent review checked every claim against docs/site. Fixed from it: the team dialog screenshot (the template
+  one said "each member adds their own"; now `connect/add-by-address-key.webp`), "the owner or an admin", Slack
+  answers only in channels it is invited to, "every file request" for the permission check, Korean 게스트, the Korean
+  security link.
+- `bun run check:prepush` OK; rendered on GitHub signed out in light and dark.
