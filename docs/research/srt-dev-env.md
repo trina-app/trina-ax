@@ -493,7 +493,9 @@ CREATE INDEX dev_env_jobs_waiting ON dev_env_jobs(started_at) WHERE state = 'wai
 
 - Each dev server is its own srt run in its own scope, with no time limit of its own.
 - Each srt run has its own network namespace and pid space. **A later command cannot reach the dev server.** The tool
-  text tells the AI to test in one command: `npm run dev & sleep 5; curl -s localhost:3000; kill %1`.
+  text tells the AI to test in one command: `npm run dev & sleep 5; curl -s localhost:3000; kill %1`. (Changed
+  2026-11-18: a later command of the same chat reaches it through `mycel-sandbox port-bridge`,
+  [decisions/20261118-devenv-shared-jobs-mac-localhost.md](../decisions/20261118-devenv-shared-jobs-mac-localhost.md).)
 - Idle stop: the tracker stops a dev server after `idleStopMin` (default 30) with no preview request and less than 2 %
   CPU (from `cpu.stat` of the scope). Reason `idle`, no notice.
 - Maximum life: 8 hours (`RuntimeMaxSec`). Reason `timeout`.

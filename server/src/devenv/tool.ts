@@ -21,9 +21,9 @@ import type { McpContent } from '../turns'
 import { audit } from '../admin/audit'
 import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
-import { newJobName, pollSrt, runResultsForAI } from './jobs'
+import { newJobName, pendingShared, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
+import { networkNow, noteSharedReads, othersInProject, personNetNow, reachSupported, reachTargets, runCommand, runNameInUse, sharedLogKey, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import path from 'node:path'
@@ -53,15 +53,17 @@ export const BoxShellInput = z.object({
 })
 export type BoxShellInput = z.infer<typeof BoxShellInput>
 
-/** The dev server part of the tool text: with a preview gateway, the person opens the dev server with the Preview
- * button (devenv/preview.ts); without one, only a test with curl in one command works. */
-/** How the AI starts and tests a dev server. macOS (a Mac team server): one localhost for the whole Mac, and a run may
- * listen on and reach only its own port, $PORT (srt-mac.mjs); the Preview button is Linux only (port-forward into the
- * run's network namespace). Linux: each run has its own localhost; with preview the person opens it from the step. */
-const MAC_DEV_SERVER_TEXT = 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port works), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). There is no preview link yet, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev -- --port $PORT & sleep 5; curl -s localhost:$PORT; kill %1. '
-const devServerText = (preview: boolean) => runPlatform() === 'darwin' ? MAC_DEV_SERVER_TEXT : preview
+/** How the AI starts and tests a dev server (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). macOS (a Mac
+ * team server): one localhost for the whole Mac; a run listens only on its own port, $PORT, and a later command of the
+ * same chat reaches the ports of the chat's own running jobs and dev servers, nothing else (srt-mac.mjs); the Preview
+ * button is Linux only. Linux: each run has its own localhost; with preview the person opens it from the step, and with
+ * the sandbox helper a later command reaches it at the port the AI named (mycel-sandbox port-bridge). */
+const MAC_DEV_SERVER_TEXT = 'For a dev server use background=true and make it listen on port $PORT (each command has its own; no other localhost port can listen), for example: npm run dev -- --port $PORT (Next.js reads PORT itself). The answer names that port: later box_shell commands in this chat reach the dev server at localhost:<that port> (for example curl -s localhost:<port>), and no other localhost port. There is no preview link yet. '
+const reachText = 'Later box_shell commands in this chat reach it at localhost:<port> (for example curl -s localhost:3000), as long as it runs; no other localhost port of the server. '
+const devServerText = (preview: boolean, reach: boolean = reachSupported()) => runPlatform() === 'darwin' ? MAC_DEV_SERVER_TEXT : preview
   ? 'For a dev server use background=true and set port to the port it listens on: the person gets a Preview button on this step and opens the app in their browser. Do not open the app yourself. '
-    + 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. '
+    + (reach ? reachText : 'A later command cannot reach the dev server: to test it yourself, start a second copy, call it and stop it in one command, for example: npm run dev -- --port 3001 & sleep 5; curl -s localhost:3001; kill %1. ')
+  : reach ? 'For a dev server use background=true and set port to the port it listens on. There is no preview link on this server. ' + reachText
   : 'For a dev server use background=true. There is no preview link on this server, and a later command cannot reach the dev server: to test it, start it, call it and stop it in one command, for example: npm run dev & sleep 5; curl -s localhost:3000; kill %1. '
 
 /** The tool text (docs/research/srt-dev-env.md section 7). The dev environment is not locked to a project: the command
@@ -84,7 +86,8 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
- * command and its output, so it sees only what all of them may open; foreground commands only; no login. */
+ * command and its output, so it sees only what all of them may open; no login. Jobs and dev servers too, with the same
+ * folders (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). */
 export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
   + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
   + (project
@@ -93,9 +96,12 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
-  + 'No jobs and no dev servers here (job and background are refused): each command must finish within its time limit (default 120 s, at most 1800 s). For longer work the person can ask in a chat of their own. '
+  + 'Jobs and dev servers run here too, with the same folders: everyone in this chat sees their results, and they stop when the people of this chat or what they may open change. '
   + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  + 'One command at a time per folder; only the first 32 KiB of stdout and of stderr come back. '
+  + devServerText(previewReady())
+  + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
+  + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends, the next box_shell call in this chat gives you its exit code and the end of its log. '
+  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
@@ -202,7 +208,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   const go = async (): Promise<Out> => {
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
-    if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
+    if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background', ...(input.port ? { port: input.port } : {}) }) }
     return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once] }) }
   }
   let w: Window & { value: Out }
@@ -244,8 +250,12 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const preview = previewReady()
     // the step shows the Preview button for the port the AI named (Step.devEnvRun kind server)
     if (preview && input.port) h.queueStep?.({ id: out.r.rowId, kind: 'server', state: 'started', position: null, port: input.port })
-    const head = !preview ? `Started in the background (log: ${log}). A later command cannot reach it; test it in one command with curl.`
-      : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it. If the page does not open, read the log. A later command cannot reach the dev server.`
+    // where later commands of this chat reach it (srt/runner.ts reachTargets): macOS its own $PORT, Linux the port named
+    const at = out.r.port
+    const later = at ? `Later box_shell commands in this chat reach it at localhost:${at} while it runs (for example curl -s localhost:${at}).` : 'A later command cannot reach it; test it in one command with curl.'
+    const head = runPlatform() === 'darwin' ? `Started in the background (log: ${log}), listening on $PORT, which is ${at ?? 'its own port'}. ${later}`
+      : !preview ? `Started in the background (log: ${log}). ${later}`
+      : input.port ? `Started in the background (log: ${log}). The person now has a Preview button for port ${input.port} on this step: tell them to press it${h.shared ? ' (everyone in this chat can open it)' : ''}. If the page does not open, read the log. ${later}`
       : `Started in the background (log: ${log}), with no port: the person has no Preview button. Stop it and start it again with port set to the port the dev server listens on.`
     return answer(h, { notes, head, started, exit: empty, w, background: true, what })
   }
@@ -311,9 +321,8 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
   if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
-  // a shared chat: no job or dev server (its row, log and notice are the person's), no command that would use a login
-  // (no card: a run holds no credentials anyway), checked before anything else runs
-  if (h.shared && (data.job || data.background)) return { ...text('Not started: jobs and dev servers do not run in a shared chat. Run the command without job and background, within its time limit (at most 1800 s), or tell the person to ask for it in a chat of their own.', true), summary: `${what} -> refused (job in a shared chat)` }
+  // a shared chat: no command that would use a login (no card: a run holds no credentials anyway), checked before
+  // anything else runs. Jobs and dev servers run there with the chat's view (srt/runner.ts sharedRowStart)
   // a sub-agent (QA TC-4911): foreground commands only; the main AI starts jobs and dev servers
   if (h.helper && (data.job || data.background)) return { ...text(HELPER_NO_JOB, true), summary: `${what} -> refused (job of a sub-agent)` }
   if (h.shared && usesCredentials(data.command)) return { ...text('Not run: commands that need a login (git push, npm publish, ssh ...) do not run in a shared chat. Tell the person to do it on their own computer.', true), summary: `${what} -> refused (login in a shared chat)` }
@@ -325,9 +334,16 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const background = !!data.background || !!data.job
   /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
   const jobNotes = async () => {
-    // a shared chat: none (a job's log is the person's, from a time the chat may not have been shared); a sub-agent:
-    // none (the main AI gets them on its next call: a result given to a helper would never reach it)
-    if (h.shared || h.helper) return []
+    // a sub-agent: none (the main AI gets them on its next call: a result given to a helper would never reach it)
+    if (h.helper) return []
+    if (h.shared) {
+      // a shared chat: the chat's jobs of the same people and view only (a person's own jobs never: their log is the
+      // person's), and only once what a run here may read joined this answer's record (as for a command)
+      await pollSrt(ctx, { chatId: h.chatId ?? '' }).catch(() => {})
+      const key = sharedLogKey(ctx, space)
+      if (!key || !pendingShared(ctx, h.chatId ?? null, key) || !noteSharedReads(ctx, space)) return []
+      return runResultsForAI(ctx, h.userId, h.chatId ?? null, key).map((n) => h.redact(n))
+    }
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
     return runResultsForAI(ctx, h.userId, h.chatId ?? null).map((n) => h.redact(n))
   }
@@ -355,7 +371,7 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const logInUse = background ? (jobName ?? data.log_name ?? 'background') : null
   if (logInUse) {
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
-    if (runNameInUse(ctx.db, h.userId, logInUse)) return { ...text(`Error: a job or dev server named ${logInUse} still runs for this person. Use another log_name, or wait for it to end.`, true), summary: `${what} -> job name in use` }
+    if (runNameInUse(ctx, space, logInUse)) return { ...text(`Error: a job or dev server named ${logInUse} still runs ${h.shared ? 'in this chat' : 'for this person'}. Use another log_name, or wait for it to end.`, true), summary: `${what} -> job name in use` }
   }
   const notes: string[] = []
   if (tracked) {
@@ -380,6 +396,9 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
       if (others.length) notes.push('Other people\'s jobs and dev servers in this project (they keep running):\n' + others.slice(0, 20).map((r) => `  ${r.kind} ${r.name}${r.position ? ` (waiting, position ${r.position})` : ''}, by ${r.by}`).join('\n'))
     }
   }
+  // the chat's own jobs and dev servers this command reaches on localhost (srt/runner.ts reachTargets)
+  const reach = reachTargets(ctx, space)
+  if (reach.length) notes.push(`This command can reach the running ${reach.length === 1 ? 'dev server' : 'dev servers'} of this chat: ${reach.map((t) => `${t.name} (${t.kind === 'job' ? 'a job' : 'a dev server'}) at localhost:${t.port}`).join(', ')}.`)
   if (data.request_sites?.length) {
     const asked = await askSites(h, data, once, denied)
     if (asked.refusal) return { ...text(h.redact([...notes, ...asked.notes, asked.refusal].join('\n')), true), summary: `${what} -> ${asked.summary}` }

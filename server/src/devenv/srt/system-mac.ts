@@ -118,7 +118,10 @@ export function realMacHost(): MacHost {
   }
 }
 
-interface SlotState { runId: string; account: string; port: number; exitFile: string; pid: number; at: number }
+interface SlotState { runId: string; account: string; port: number; exitFile: string; pid: number; at: number
+  /** the ports of other slots this run may connect to (SpawnSpec.reach): those slots are not given to another run while
+   * this one has processes */
+  reach?: number[] }
 
 const unitOf = (runId: string) => `trina-dev-${runId}.scope`
 const RUN_ID = /^[a-z0-9]{16}$/
@@ -154,16 +157,21 @@ export function macSystem(c: MacConfig, host: MacHost = (sharedHost ??= realMacH
    * given up only when every slot is taken. */
   async function pick(): Promise<{ account: string; index: number } | null> {
     const taken = new Map(states().map((s) => [s.account, s]))
+    // a slot whose port a living run may reach (a later command of the chat of its dev server) is never another run's:
+    // that run would reach the new one (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). A state of the
+    // last minute counts though its processes may not be there yet. Read again right before a slot is given (no await
+    // between): a run that wrote its reach while this pick waited on a stop is seen
+    const held = (index: number) => states().some((s) => s.reach?.includes(c.portBase + index + 1) && (Date.now() - s.at < 60_000 || procsOf(s.account).length > 0))
     let stale: { account: string; index: number; runId: string } | null = null
     for (const [index, account] of c.slots.entries()) {
-      if (uidOf(account) === null) continue
+      if (uidOf(account) === null || held(index)) continue
       const s = taken.get(account)
       const busy = procsOf(account).length > 0
       if (!s && !busy) return { account, index }
       if (!s && busy) { await stopAccount(account); continue }
       if (s && !busy && Date.now() - s.at > 60_000 && !stale) stale = { account, index, runId: s.runId }
     }
-    if (stale) { forget(stale.runId); return { account: stale.account, index: stale.index } }
+    if (stale && !held(stale.index)) { forget(stale.runId); return { account: stale.account, index: stale.index } }
     return null
   }
   function forget(runId: string) {
@@ -184,11 +192,15 @@ export function macSystem(c: MacConfig, host: MacHost = (sharedHost ??= realMacH
       if (!slot) throw new Error('busy: every dev slot account is in use; try again in a minute')
       const port = c.portBase + slot.index + 1
       await grant(s.writable ?? [])
-      const state: SlotState = { runId: s.runId, account: slot.account, port, exitFile: s.exitFile, pid: 0, at: Date.now() }
+      // the reach ports: each the port of the slot that the named run still has (checked right before this run's state
+      // is written, with no await between: a slot given to another run since has no state of the named run any more),
+      // never the run's own (srt-mac.mjs refuses anything else)
+      const reach = [...new Set((s.reach ?? []).filter((t) => t.port !== port && read(t.runId)?.port === t.port).map((t) => t.port))].slice(0, 8)
+      const state: SlotState = { runId: s.runId, account: slot.account, port, exitFile: s.exitFile, pid: 0, at: Date.now(), ...(reach.length ? { reach } : {}) }
       fs.writeFileSync(stateFile(s.runId), JSON.stringify(state), { mode: 0o600, flag: 'wx' })
       const out = openOut(s.stdoutFile), err = s.stderrFile === s.stdoutFile ? out : openOut(s.stderrFile)
       try {
-        const env = { ...s.env, PORT: String(port), TRINA_PREVIEW_PORT: String(port) }
+        const env = { ...s.env, PORT: String(port), TRINA_PREVIEW_PORT: String(port), ...(reach.length ? { TRINA_REACH_PORTS: reach.join(',') } : {}) }
         const limits = { ...s.limits, memoryMiB: Math.min(s.limits.memoryMiB, c.poolMiB), pids: Math.min(s.limits.pids, c.pidsMax) }
         const argv = macArgv({ account: slot.account, env, limits, poolMiB: c.poolMiB, exitFile: s.exitFile, settingsFile: s.settingsFile, command: s.command })
         const p = host.spawn(argv, { cwd: s.cwd, out, err })
