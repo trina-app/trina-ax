@@ -8,6 +8,8 @@ import { LocalRelay, LOCAL_NO_WINDOW, LOCAL_WINDOW_GONE } from '../../server/src
 import { BrowserRelay } from '../../server/src/realtime/browser-relay'
 import type { Hub } from '../../server/src/realtime/hub'
 import { silentLogger } from '../../server/src/log'
+import { CONFIRM_WAIT_MS, localTransport } from '../../server/src/integrations/connections/local'
+import { TIMEOUT_MS } from '../../server/src/integrations/connections/net'
 
 const TURN = '019a0000-0000-7000-8000-000000000001'
 const SPEC = { adapter: 'mcp' as const, command: 'aside', args: ['mcp'], env: [] }
@@ -126,6 +128,20 @@ describe('local relay', () => {
     f.frame('alice', { type: 'local.result', result: { callId: ev.data.call.callId, ok: true } })
     f.frame('alice', { type: 'browser.result', result: { callId: ev.data.call.callId, ok: true, content: [{ type: 'text', text: 'opened' }] } })
     expect(await p).toMatchObject({ ok: true, content: [{ type: 'text', text: 'opened' }] })
+    relay.close()
+  })
+  test('a client\'s initialize waits for the person on the computer (the one-time confirm), other messages a network\'s time', async () => {
+    const f = fakeHub()
+    const relay = new LocalRelay(f.hub, log, { sweepMs: 50 })
+    f.open('alice', 'win-desk-0001')
+    const send = localTransport({ relay, userId: 'alice', via: { windowId: 'win-desk-0001', turnId: TURN }, row: { id: 'c1', name: 'Aside' }, spec: SPEC })
+    const post = (m: Record<string, unknown>) => send('https://local-app.invalid/c1', { method: 'POST', headers: [], body: Buffer.from(JSON.stringify(m)) }).catch(() => null)
+    void post({ jsonrpc: '2.0', id: 'i1', method: 'initialize', params: {} })
+    void post({ jsonrpc: '2.0', id: 'l1', method: 'tools/list', params: {} })
+    const [init, list] = calls(f.sent)
+    const left = (c: { deadline: number }) => c.deadline - Date.now()
+    expect(left(init!)).toBeGreaterThan(CONFIRM_WAIT_MS - 5000)
+    expect(left(list!)).toBeLessThanOrEqual(TIMEOUT_MS)
     relay.close()
   })
 })

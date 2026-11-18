@@ -13,6 +13,10 @@ import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
 import type { LocalRelay } from '../../realtime/local-relay'
 import type { Row } from './store'
 
+/** how long a client's initialize waits: the desktop app may be asking the person first (a check's own deadline, 90 s,
+ * still ends it sooner) */
+export const CONFIRM_WAIT_MS = 3 * 60_000
+
 /** a local connection's `url`: a placeholder under the reserved .invalid name (RFC 6761), never used to connect */
 export const LOCAL_URL_ORIGIN = 'https://local-app.invalid'
 export const localUrl = (id: string) => `${LOCAL_URL_ORIGIN}/${id}`
@@ -73,7 +77,9 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
   return async (_url: string, r: NetRequest): Promise<NetResponse> => {
     let message: Record<string, unknown>
     try { message = JSON.parse(r.body?.toString('utf8') ?? '') } catch { throw new LocalError('failed', `${o.row.name}: the message could not be read`) }
-    const deadline = r.long?.deadline ?? Date.now() + TIMEOUT_MS
+    // the first message of a client (initialize) is the one the desktop app may hold while it asks the person on the
+    // computer (the one-time confirm): it waits as long as a person reads that window, not a network's 30 s
+    const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? CONFIRM_WAIT_MS : TIMEOUT_MS)
     const timeoutMs = Math.max(1000, deadline - Date.now())
     if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name))
     const res = await o.relay.call({ userId: o.userId, windowId: o.via.windowId, turnId: o.via.turnId, connectionId: o.row.id, name: o.row.name, spec: o.spec, message, timeoutMs, signal: r.signal })
