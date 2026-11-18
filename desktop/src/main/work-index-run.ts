@@ -83,10 +83,24 @@ export async function windowsIndex(roots: readonly string[], downloads: string |
   return look
 }
 
+/** How long one answer of windowsFixedDrives is used again: each PowerShell start is a process start on the app's main
+ * thread (QA TC-4813 measured 0.25-1.2 s of it in a wide look), and the fixed drives seldom change. A drive added
+ * meanwhile only counts as a network one (looked at one call at a time) until then. */
+const FIXED_DRIVES_MS = 5 * 60_000
+let fixedDrives: { at: number; drives: Promise<string[]> } | null = null
+
 /** Windows' fixed drives ("C:\\", "D:\\"): any other drive letter is a network or removable one. */
-export async function windowsFixedDrives(): Promise<string[]> {
-  try {
-    const out = await run('powershell.exe', powershellArgs("[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed'}|ForEach-Object{$_.Name}"), 5000)
-    return out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^[A-Z]:\\$/i.test(x))
-  } catch { return [] }
+export function windowsFixedDrives(): Promise<string[]> {
+  if (fixedDrives && Date.now() - fixedDrives.at < FIXED_DRIVES_MS) return fixedDrives.drives
+  const drives = (async () => {
+    try {
+      const out = await run('powershell.exe', powershellArgs("[System.IO.DriveInfo]::GetDrives()|Where-Object{$_.DriveType -eq 'Fixed'}|ForEach-Object{$_.Name}"), 5000)
+      return out.split(/\r?\n/).map((x) => x.trim()).filter((x) => /^[A-Z]:\\$/i.test(x))
+    } catch { return [] }
+  })()
+  const entry = { at: Date.now(), drives }
+  fixedDrives = entry
+  // no answer is not kept: the next look asks again
+  void drives.then((d) => { if (!d.length && fixedDrives === entry) fixedDrives = null })
+  return drives
 }

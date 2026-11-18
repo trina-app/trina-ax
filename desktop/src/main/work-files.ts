@@ -219,7 +219,9 @@ export class WorkFilesController {
         deadline: Date.now() + FALLBACK_LIMITS.rootMs,
         stopped: () => this.stopped || generation !== this.generation,
         onProgress: (p) => { if (generation === this.generation) this.o.progress(p) },
-        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),
+        // the person's own pick: a NAS or company share may be looked at (never an admin share, a device path or one
+        // that reaches home: opensHome shares)
+        allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform, { shares: true })),
         index: async () => (winCloud ? (await windowsIndex(roots.map((r) => r.path), null)).index : null),
         ...(winCloud ? { noWalk: () => true } : {}),
         ...(o.picked.serial ? { serial: true } : {}),
@@ -396,8 +398,10 @@ export class WorkFilesController {
       if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
       const realPicked = await realpath(picked).catch(() => null)
       const home = app.getPath('home')
-      // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused)
-      if (!realPicked || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform)) || pickRefused(realPicked, process.platform, await realpath(home).catch(() => home))) return { state: 'cancelled' }
+      // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused). A
+      // NAS or company share (\\nas\company, a mapped drive: realpath gives its network path) is fine; an admin share
+      // (C$, ADMIN$), a device path or a share that reaches home is not (common/folder-access.ts refusedShare)
+      if (!realPicked || (await opensHome(realPicked, FOLDER_SYSTEM, process.platform, { shares: true })) || pickRefused(realPicked, process.platform, await realpath(home).catch(() => home))) return { state: 'cancelled' }
       const realRoots = await Promise.all(roots.map((x) => realpath(x.path).catch(() => null)))
       const at = pickTarget(realPicked, realRoots, process.platform)
       const inRoot = at.root >= 0 ? roots[at.root]! : null

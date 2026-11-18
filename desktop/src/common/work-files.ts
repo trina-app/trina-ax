@@ -15,7 +15,7 @@ import type { WorkCloudProvider, WorkFileMeta, WorkFileRead, WorkFolderId, WorkR
 import { browserOwnerChange, type MeResult } from './browser-owner'
 import { isRecent, type IndexedFile } from './work-index'
 import { cloudProviderOf, placeOf, type Place } from './work-places'
-import { folderKey, macBlocked } from './folder-access'
+import { folderKey, isUncPath, macBlocked, refusedShare } from './folder-access'
 
 export type { Found }
 export const WORK_ROOTS: readonly WorkFolderId[] = ['documents', 'desktop', 'downloads']
@@ -755,22 +755,30 @@ export function scanAsk(raw: unknown): { wide: boolean; words: string[] } {
  * a dot folder, node_modules, an app bundle), or the system's own (Windows, Program Files, ProgramData, another
  * person's Users folder; a Mac's /System, /private, /usr, /Applications …). A Mac's cloud drives (~/Library/CloudStorage/…,
  * iCloud Drive's ~/Library/Mobile Documents/…) count from their own folder on. A drive's letter is no folder name.
- * `home`: the person's home folder (another person's is refused). */
+ * `home`: the person's home folder (another person's is refused). A network share (\\nas\company\…) counts from
+ * below its share name, as a drive from below its letter (a share of a drive's top holds Windows and Users too); a
+ * device path, an admin share (C$, ADMIN$) and WSL's are refused (common/folder-access.ts refusedShare). */
 export function pickRefused(path: string, platform: string, home?: string): boolean {
   const lib = platform === 'win32' ? win32 : posix
   const parts = lib.normalize(path).split(lib.sep).filter(Boolean)
   const low = parts.map((x) => x.toLowerCase())
+  let from = 0
   if (platform === 'win32') {
-    const top = low[0] && /^[a-z]:$/.test(low[0]) ? low[1] : low[0]
+    if (refusedShare(path, platform)) return true
+    // where the folders below a drive or a share start: after "C:", after "\\server\share"
+    const unc = isUncPath(path, platform)
+    const at = unc ? 2 : low[0] && /^[a-z]:$/.test(low[0]) ? 1 : 0
+    const top = low[at]
     if (top && /^(windows|program files( \(x86\))?|programdata|\$recycle\.bin|system volume information|recovery|perflogs)$/.test(top)) return true
     // C:\Users\other: only the person's own
-    const at = low[0] && /^[a-z]:$/.test(low[0]) ? 1 : 0
     if (low[at] === 'users' && low.length > at + 1 && home) {
       const own = lib.normalize(home).toLowerCase().split(lib.sep).filter(Boolean)
-      if (low[at + 1] !== own[at + 1] && !(own[at] === 'users' && low[at + 1] === 'public')) return true
+      const ownAt = own[0] && /^[a-z]:$/.test(own[0]) ? 1 : 0
+      if (low[at + 1] !== own[ownAt + 1] && !(own[ownAt] === 'users' && low[at + 1] === 'public')) return true
     }
+    // the server's name is no folder name
+    if (unc) from = 1
   }
-  let from = 0
   if (platform === 'darwin') {
     if (low[0] && /^(system|private|usr|bin|sbin|etc|var|tmp|cores|opt|applications|library|dev)$/.test(low[0])) return true
     if (low[0] === 'users' && low.length > 1 && home) {

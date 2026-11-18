@@ -8,23 +8,26 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs
 import { opendir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, refusedShare, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 
 /**
  * A made-up computer: every path is a string, nothing is read. realpath answers from `links` (else the path itself);
  * identity follows links as fs.stat does and gives every folder a number of its own (one disk, case ignored on macOS
  * and Windows), unless `ids` names one (an Error: the lookup failed or took too long).
  */
-function fakeSystem(home: string, platform: string, o: { links?: Record<string, string>; ids?: Record<string, FolderIdentity | Error>; realpathFails?: boolean } = {}): FolderSystem {
+function fakeSystem(home: string, platform: string, o: { links?: Record<string, string>; ids?: Record<string, FolderIdentity | Error>; realpathFails?: boolean; log?: string[] } = {}): FolderSystem {
   const key = (p: string) => (platform === 'linux' ? folderKey(p, platform) : folderKey(p, platform).toLowerCase())
   return {
     home: () => home,
     realpath: async (p) => {
+      o.log?.push(p)
       if (o.realpathFails) throw new Error('ENOENT')
       return o.links?.[p] ?? p
     },
     identity: async (p) => {
-      const named = o.ids?.[p]
+      o.log?.push(p)
+      // a share's top comes with or without its last separator (\\pc\share\)
+      const named = o.ids?.[p] ?? (/^[\\/]{2}[^\\/]+[\\/]+[^\\/]+[\\/]$/.test(p) ? o.ids?.[p.slice(0, -1)] : undefined)
       if (named instanceof Error) throw named
       if (named) return named
       const k = key(o.links?.[p] ?? p)
@@ -284,6 +287,125 @@ describe('never the home folder or a folder that holds it, whatever the path loo
     expect(await g.request(picked('C:\\Users\\Alex\\Documents\\Company'), ALLOWED)).toBe(true)
     // the same through the restricted folder: Documents is a junction onto the profile
     expect(await restrictedFolderAction(blocked('C:\\Data\\Alex'), ALLOWED, ['C:\\Users\\Alex\\Desktop', 'C:\\Data\\Alex', 'C:\\Users\\Alex\\Downloads'], 'win32', sys)).toBe('deny')
+  })
+
+  test('Windows, "Choose a folder…" (opensHome shares): a NAS or company share may be picked, never one that reaches home (QA TC-4813)', async () => {
+    const home = 'C:\\Users\\Alex'
+    const homeId = { dev: 3_029_372_109n, ino: 1_125_899_906_842_682n }
+    const usersId = { dev: 3_029_372_109n, ino: 1_125_899_906_842_600n }
+    const driveId = { dev: 3_029_372_109n, ino: 5n }
+    const sys = fakeSystem(home, 'win32', {
+      links: {
+        // a mapped drive: fs.realpath gives the share's network path
+        'Z:\\Team': '\\\\localhost\\TrinaQAShare\\Team',
+        'H:\\': '\\\\localhost\\c$\\Users\\Alex',
+        'Q:\\': '\\\\localhost\\ADMIN$',
+        // a junction on the share whose target is the profile (the server resolves it: the path stays a network path)
+        '\\\\localhost\\TrinaQAShare\\Back': '\\\\localhost\\TrinaQAShare\\Back',
+        // a local junction onto the profile
+        'C:\\Data\\Alex': home,
+      },
+      ids: {
+        [home]: homeId,
+        'C:\\Users': usersId,
+        'C:\\': driveId,
+        // shares of the profile, of Users and of the drive's top under names of their own: the same volume and file
+        '\\\\localhost\\Profile': homeId,
+        '\\\\PC\\Everyone': usersId,
+        '\\\\localhost\\CDrive': driveId,
+        '\\\\localhost\\TrinaQAShare\\Back': homeId,
+        // a NAS that gives no file number, and one that does not answer in time
+        '\\\\oldnas\\docs': { dev: 2_882_400_001n, ino: 0n },
+        '\\\\slow\\docs': new Error('the file system did not answer in time'),
+      },
+    })
+    const shares = { shares: true }
+    // a plain share folder, its top, a hidden company share, and a mapped drive onto a share: allowed
+    for (const path of ['\\\\localhost\\TrinaQAShare\\Team', '\\\\localhost\\TrinaQAShare', '\\\\nas\\company\\Sales', '//nas/company/Sales', '\\\\nas\\Finance$\\2026', 'Z:\\Team', '\\\\localhost\\Profile\\Documents', '\\\\localhost\\CDrive\\Work']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(false)
+    }
+    // the team page's folder window keeps refusing every network path (no `shares`)
+    expect(await opensHome('\\\\localhost\\TrinaQAShare\\Team', sys, 'win32')).toBe(true)
+    // admin shares, as written or behind a mapped drive: a drive's top, the profile, Windows itself
+    for (const path of ['\\\\localhost\\C$\\Users\\Alex', '\\\\host\\c$\\Users\\Alex\\Documents', '\\\\localhost\\C$', '\\\\host\\D$\\Work', '\\\\host\\ADMIN$', '\\\\host\\admin$\\System32', '\\\\host\\IPC$', '\\\\host\\print$', '\\\\host\\C$.\\Users', '\\\\host\\C$ ', 'H:\\', 'Q:\\']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(true)
+    }
+    // device paths, WSL's, and a path with no share
+    for (const path of ['\\\\?\\C:\\Users\\Alex\\Documents', '\\\\.\\C:\\', '\\\\?\\UNC\\localhost\\TrinaQAShare\\Team', '//?/C:/Work', '\\\\?\\Volume{0b1c}\\', '\\\\.\\pipe\\x', '\\\\wsl$\\Ubuntu\\home\\alex', '\\\\wsl.localhost\\Ubuntu\\home\\alex', '\\\\nas', '\\\\nas\\', '\\\\']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(true)
+    }
+    // a share that is the profile, Users or the drive's top under another name; a junction to home, on the share or local
+    for (const path of ['\\\\localhost\\Profile', '\\\\PC\\Everyone', '\\\\localhost\\CDrive', '\\\\localhost\\TrinaQAShare\\Back', 'C:\\Data\\Alex']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(true)
+    }
+    // a share whose identity cannot be told (0, or no answer in time) still refuses
+    expect(await opensHome('\\\\oldnas\\docs', sys, 'win32', shares)).toBe(true)
+    expect(await opensHome('\\\\slow\\docs', sys, 'win32', shares)).toBe(true)
+    // a home on a network path: nothing is allowed
+    expect(await opensHome('\\\\nas\\company\\Sales', fakeSystem('\\\\fs\\home$\\alex', 'win32'), 'win32', shares)).toBe(true)
+    // the folders inside home stay fine with shares on
+    expect(await opensHome('C:\\Users\\Alex\\Documents\\Company', sys, 'win32', shares)).toBe(false)
+    // only Windows has these rules: a Mac with shares on is unchanged
+    expect(refusedShare('//nas/C$', 'darwin')).toBe(false)
+    expect(await opensHome('/Volumes/NAS/Sales', MAC, 'darwin', shares)).toBe(false)
+    expect(await opensHome('/Users', MAC, 'darwin', shares)).toBe(true)
+  })
+
+  test('Windows, opensHome shares: a share under a name of its own that leads into the system, AppData or another person\'s profile', async () => {
+    const home = 'C:\\Users\\Alex'
+    const id = (ino: bigint) => ({ dev: 3_029_372_109n, ino })
+    const sys = fakeSystem(home, 'win32', {
+      ids: {
+        'C:\\Users': id(100n),
+        'C:\\Windows': id(200n),
+        'C:\\Windows\\System32': id(201n),
+        'C:\\Program Files': id(300n),
+        'C:\\ProgramData': id(400n),
+        'C:\\Users\\Alex\\AppData\\Roaming': id(500n),
+        'D:\\Apps': id(600n),
+        // \\pc\Everyone is C:\Users shared
+        '\\\\pc\\Everyone': id(100n),
+        // \\pc\WinDir is C:\Windows, \\pc\Roam is %APPDATA%, \\pc\Prog is Program Files
+        '\\\\pc\\WinDir': id(200n),
+        '\\\\pc\\Roam': id(500n),
+        '\\\\pc\\Prog': id(300n),
+        // a junction inside an ordinary share, resolved by the server: System32, and %APPDATA%
+        '\\\\pc\\Share\\sys': id(201n),
+        '\\\\pc\\Share\\x': id(500n),
+        // a folder the system names itself (sys.systemFolders), shared
+        '\\\\pc\\Apps': id(600n),
+      },
+    })
+    const withEnv: FolderSystem = { ...sys, systemFolders: () => ['D:\\Apps'] }
+    const shares = { shares: true }
+    for (const path of ['\\\\pc\\Everyone\\bo\\Documents', '\\\\pc\\Everyone\\bo', '\\\\pc\\WinDir\\System32', '\\\\pc\\WinDir', '\\\\pc\\Roam\\Microsoft', '\\\\pc\\Prog\\Acme', '\\\\pc\\Share\\sys', '\\\\pc\\Share\\x\\Slack']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(true)
+    }
+    expect(await opensHome('\\\\pc\\Apps\\Tool', withEnv, 'win32', shares)).toBe(true)
+    expect(await opensHome('\\\\pc\\Apps\\Tool', sys, 'win32', shares)).toBe(false)
+    // the person's own folder and Public through the share of C:\Users, and the share's other folders, are fine
+    for (const path of ['\\\\pc\\Everyone\\Alex\\Documents', '\\\\pc\\Everyone\\alex\\Desktop\\Q', '\\\\pc\\Everyone\\Public\\Documents', '\\\\pc\\Share\\Team', '\\\\pc\\Share']) {
+      expect(await opensHome(path, sys, 'win32', shares)).toBe(false)
+    }
+    // a folder above the pick on the share that cannot be told refuses
+    const shaky = fakeSystem(home, 'win32', { ids: { '\\\\nas\\company': new Error('the file system did not answer in time') } })
+    expect(await opensHome('\\\\nas\\company\\Sales', shaky, 'win32', shares)).toBe(true)
+  })
+
+  test('Windows: a network path that is refused as written asks nothing of the network', async () => {
+    const log: string[] = []
+    const sys = fakeSystem('C:\\Users\\Alex', 'win32', { log })
+    for (const path of ['\\\\nas\\company\\Sales', '//nas/company', '\\\\localhost\\C$\\Users\\Alex', '\\\\?\\C:\\Work', '\\\\wsl$\\Ubuntu\\home\\alex']) {
+      expect(await opensHome(path, sys, 'win32')).toBe(true)
+      expect(await new FolderGrants('win32', sys).request(picked(path), ALLOWED)).toBe(false)
+    }
+    for (const path of ['\\\\localhost\\C$\\Users\\Alex', '\\\\host\\ADMIN$', '\\\\?\\C:\\Work', '\\\\.\\C:\\', '\\\\wsl$\\Ubuntu\\home\\alex', '\\\\??\\x\\y']) {
+      expect(await opensHome(path, sys, 'win32', { shares: true })).toBe(true)
+    }
+    expect(log).toEqual([])
+    // a share that may be picked is asked (the person's pick already reached it)
+    expect(await opensHome('\\\\nas\\company\\Sales', sys, 'win32', { shares: true })).toBe(false)
+    expect(log).toContain('\\\\nas\\company\\Sales')
   })
 
   test('macOS and Linux: the same folder under another name is caught by its identity', async () => {
