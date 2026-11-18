@@ -441,9 +441,18 @@ describe('the 나 tab\'s list on a phone', () => {
     const app = await dialog()
     try {
       expect(app.find('settings-switch-team')).toBeNull()
+      // the app's config with its team screen arrives after the page loaded: the row comes, and it asks the app (no dialog)
+      const sent: string[] = []
+      g.ReactNativeWebView = { postMessage: (m: string) => sent.push(m) }
+      g.mycelMobile = { protocol: 1, appVersion: '1.0.9', platform: 'android', nonce: 'c'.repeat(64), generation: 1, capabilities: ['file-share-v1', 'external-oauth-v1', 'change-team-v1'] }
+      await act(async () => { window.dispatchEvent(new FakeEvent('mycel:mobile-ready') as never) })
+      await app.click(await app.until(() => app.find('settings-switch-team'), 'the row once the app said it has its team screen'))
+      await app.until(() => sent.some((m) => m.includes('change-team')), 'the app asked to change team')
+      expect(app.find('dialog-input')).toBeNull()
     } finally {
       await app.unmount()
       delete g.ReactNativeWebView
+      delete g.mycelMobile
     }
   })
 })

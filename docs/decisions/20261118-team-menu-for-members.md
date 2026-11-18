@@ -25,7 +25,9 @@
   a browser. A team page never learns the person's other teams, so the browser cannot show a list: typing or pasting
   the address (or the invite link people already have) is the one way that needs no new server data.
 - **Left out:** a list of the person's other teams in a browser (no cross-team data on a team server); creating a new
-  team from here (hosted sign-up lives on the website, in waiting-list mode); any server or permission change.
+  team from here (hosted sign-up lives on the website, in waiting-list mode); any server or permission change; a
+  Switch team action in ⌘K. Accepted: someone could tell a member to paste a look-alike address into Switch team; that
+  is no worse than sending them the link, and the dialog opens only what the person typed.
 - Tests: `web/test/unit/nav-menus.test.tsx` (member in a browser: the button, Switch team only, the dialog's errors and
   the address it opens; owner and admin: Invite, Admin, Switch team; the keyboard over three items; a phone app without
   its team screen: no button), `web/test/unit/team-switch.test.ts`, `web/test/unit/phone-nav.test.tsx`,

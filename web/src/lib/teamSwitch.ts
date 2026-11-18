@@ -18,7 +18,7 @@ export type TeamSwitchWay = 'desktop' | 'app' | 'browser'
 
 /** Inside the phone app's web view: its bridge object is there before the page's own script runs, the app's config may
  * come later (lib/mobile.ts mobileApp) */
-const inPhoneApp = () => typeof window !== 'undefined' && (!!mobileApp() || !!(window as { ReactNativeWebView?: unknown }).ReactNativeWebView)
+const inPhoneApp = () => typeof window !== 'undefined' && (!!mobileApp() || (window.top === window.self && !!(window as { ReactNativeWebView?: unknown }).ReactNativeWebView))
 
 /** How this window switches teams, or null (a phone app without its team screen: no item) */
 export function teamSwitchWay(): TeamSwitchWay | null {
@@ -73,7 +73,8 @@ async function switchInBrowser(): Promise<void> {
     label: t('teamSwitch.label'),
     placeholder: EXAMPLE,
     confirm: t('teamSwitch.open'),
-    maxLength: 2048,
+    // a whole pasted message with the link in it (a KakaoTalk bubble): as long as the parser reads
+    maxLength: 8192,
     validate: (v) => {
       const r = browserTeamTarget(v, host)
       return 'problem' in r && r.problem ? t(r.problem, { example: EXAMPLE }) : null
