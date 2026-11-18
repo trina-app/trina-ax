@@ -375,8 +375,7 @@ jobs:
     # mode full only, like the unit shards
     if: needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-24.04
-    # 20 + the browser tests' guard set (merge_group only, its own 10-minute cap: it can never time the job out)
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -480,26 +479,48 @@ jobs:
           # match has moved; English at /demo/, every other language at /demo/<locale>/
           DEMO_BASE=/demo/ bun run --cwd web build:demo
           for l in ko id ja es zh; do DEMO_LOCALE=$l DEMO_BASE=/demo/$l/ DEMO_OUT=dist-demo-$l bun run --cwd web build:demo || exit 1; done
-      # the relay suite runs in "typecheck, docs, native, relay" (full mode), which ends ~2 min before the unit shards; this job
-      # keeps ~3 min of room for an advisory step before it would outlast the longest shard
-      #
-      # ADVISORY: a guard set of the web browser tests (web/package.json e2e:guard; docs/RELEASE-CI.md "14."), on a
-      # queued entry only. continue-on-error: a red guard never fails this job, so the required check ("typecheck,
-      # native, unit, fast fuzz, web, relay") is decided as before; the step summary says pass/fail and lists the failed
-      # spec:line. Chromium, one worker (the mock team server holds shared state), against the build above. A phone's
-      # font as in feature-map.yml (Roboto as sans-serif and system-ui), so the specs that measure text against its box
-      # draw it as a phone does. Its own time cap, so a hung browser never takes the job past its timeout. To be made
-      # required after ~20 green queue runs (RELEASE-CI.md); until then a red guard is read, not waited on.
-      - name: Browser tests, guard set (advisory)
+      # the relay suite runs in "typecheck, docs, native, relay" (full mode), which ends ~2 min before the unit shards;
+      # the web browser tests' guard set runs in its own job (e2e-guard), so this job keeps its time
+
+  e2e-guard:
+    # ADVISORY: a guard set of the web browser tests (web/package.json e2e:guard; docs/RELEASE-CI.md "14.") on each
+    # queued entry. Its own job and not in `check`'s needs, so nothing requires it: a red guard never holds up a queued
+    # entry, and the required check ("typecheck, native, unit, fast fuzz, web, relay") is decided as before. To make it
+    # required (after ~20 green queue runs), add it to `check`'s needs and its result to the check step. The summary
+    # says pass/fail and lists the failed spec:line; a failure keeps the traces as an artifact.
+    # Chromium, one worker (the mock team server holds shared state), against its own web build. A phone's font as in
+    # feature-map.yml (Roboto as sans-serif and system-ui), so the specs that measure text against its box draw it as
+    # a phone does. No native build, HWP renderer or pandoc: the guard specs need none of them.
+    name: web e2e guard (advisory)
+    needs: scope
+    if: github.event_name == 'merge_group' && needs.scope.outputs.docs_only != 'true' && needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-24.04
+    # install + web build ~3 min, the guard ~3.5 min (its step has its own 10-minute cap)
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      # read only: a queued entry's cache is saved under its own ref and never read again (the repo's 10 GB of caches)
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-store-${{ runner.os }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile
+      - name: Web build
+        run: bun run build:web
+      - name: Browser tests, guard set
         id: e2e-guard
-        if: github.event_name == 'merge_group'
-        continue-on-error: true
         timeout-minutes: 10
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: ${{ runner.temp }}/e2e-guard.json
         run: |
           cd web
-          # Chromium's system packages and the phone font through apt, tried again as the Tools step does
+          # Chromium's system packages and the phone font through apt, tried again (the Ubuntu mirrors fail for a while)
           for try in 1 2 3 4 5; do
             bunx playwright install-deps chromium && sudo apt-get -o Acquire::Retries=3 install -y -qq --no-install-recommends fonts-roboto-unhinted && break
             [ "$try" = 5 ] && exit 1
@@ -512,19 +533,16 @@ jobs:
           bunx playwright install chromium
           bun run e2e:guard --reporter=line,json
       - name: Guard set in the run summary
-        if: ${{ !cancelled() && github.event_name == 'merge_group' && steps.e2e-guard.outcome != 'skipped' }}
-        continue-on-error: true
+        if: ${{ !cancelled() && steps.e2e-guard.outcome != 'skipped' }}
         env:
           OUTCOME: ${{ steps.e2e-guard.outcome }}
           REPORT: ${{ runner.temp }}/e2e-guard.json
         run: |
-          if [ "$OUTCOME" = success ]; then echo "### Browser tests, guard set (advisory): ✅ passed" >> "$GITHUB_STEP_SUMMARY"
-          else echo "### Browser tests, guard set (advisory): ❌ $OUTCOME (does not fail this job)" >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ "$OUTCOME" = success ]; then echo "### Web e2e guard set (advisory): ✅ passed" >> "$GITHUB_STEP_SUMMARY"
+          else echo "### Web e2e guard set (advisory): ❌ $OUTCOME (not a required check)" >> "$GITHUB_STEP_SUMMARY"; fi
           bun scripts/features/e2e-failures.ts "$REPORT" "guard set" >> "$GITHUB_STEP_SUMMARY"
-          [ "$OUTCOME" = success ] || echo "::warning::advisory browser tests (guard set): $OUTCOME, see the run summary and the web-e2e-guard-results artifact"
       - name: Guard set traces (on failure)
         if: ${{ !cancelled() && steps.e2e-guard.outcome == 'failure' }}
-        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: web-e2e-guard-results
