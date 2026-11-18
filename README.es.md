@@ -15,7 +15,7 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 </div>
 
-https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas</p>
 

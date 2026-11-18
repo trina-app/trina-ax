@@ -15,7 +15,7 @@
 
 </div>
 
-https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음</p>
 
