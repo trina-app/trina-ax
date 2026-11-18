@@ -50,7 +50,8 @@
   saved as a copy" told the others what was there.
 - **The extension a tool adds (security re-review of #1314):** `make_file` (its format), `edit_pdf`, `merge_pdfs`,
   `stamp_pdf` (".pdf"), `edit_hwp` (".hwp"/".hwpx" by its source) and `comment_docx` (".docx") write `output` with an
-  extension when it has none. The gate weighs that path, through `OUTPUT_PATH_OF` in `rooms/ai-tools.ts` (the same
+  extension when it has none; `resize_images` picks it from the copy's format, so the gate checks the typed path and
+  its stem with .jpg, .jpeg, .png and .webp, and asks when any of them is there. The gate weighs that path, through `OUTPUT_PATH_OF` in `rooms/ai-tools.ts` (the same
   functions the tools use, kept in `tools/make-file-path.ts` and `files/hwpx-check.ts`). Before, `output:
   "users/alice/hb"` over an existing `hb.pdf` asked nothing, and the answer said "'users/alice/hb.pdf' already exists
   … saved as a conflict copy" to everyone in the chat. This predates the save card.

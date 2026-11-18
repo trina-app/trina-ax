@@ -69,15 +69,18 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
 }
 
 /** The tools that add an extension to the `output` they are given, each by its own rule (make_file's format, ".pdf",
- * ".docx", Hangul's own): a shared chat's card weighs the path the tool will really write (security re-review of #1314:
+ * ".docx", Hangul's own; resize_images: every path it may write, the card asks when any of them is there): a shared
+ * chat's card weighs the path the tool will really write (security re-review of #1314:
  * "users/alice/hb" saved over an existing hb.pdf with no card, and the answer said it was there). */
-export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Record<string, unknown>) => string>> = {
+export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Record<string, unknown>) => string | readonly string[]>> = {
   make_file: (o, a) => (typeof a.format === 'string' ? makeFileOutputPath(o, a.format) : o),
   edit_pdf: (o) => pdfOutputPath(o),
   merge_pdfs: (o) => pdfOutputPath(o),
   stamp_pdf: (o) => stampOutputOf(o) ?? o,
   edit_hwp: (o, a) => hwpOutputPath(o, typeof a.file_path === 'string' ? a.file_path : ''),
   comment_docx: (o) => commentDocxOutput(o),
+  // the copy's own format picks its extension (tools/resize-images.ts): the typed path, or its stem with any of them
+  resize_images: (o) => { const stem = o.replace(/\/+$/, '').replace(/\.(jpe?g|png|webp|heic|heif)$/i, ''); return [o, ...['jpg', 'jpeg', 'png', 'webp'].map((e) => `${stem}.${e}`)] },
 }
 
 /** The tools of WRITE_TARGET_ARGS that save what they made or fetched: in a shared chat, a place there already that

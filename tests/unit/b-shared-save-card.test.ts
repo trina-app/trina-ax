@@ -164,8 +164,8 @@ describe('the save card', () => {
 
   // security re-review of #1314: tools that add an extension to `output` ("users/alice/hb" is written as hb.pdf, …):
   // the card weighs the path the tool really writes (OUTPUT_PATH_OF)
-  test('probes: an output without its extension, over a file that is there, asks (make_file, merge_pdfs, edit_pdf, stamp_pdf, edit_hwp, comment_docx)', async () => {
-    for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx']) fs.writeFileSync(path.join(aliceDir(), f), 'QA-SSC')
+  test('probes: an output without its extension, over a file that is there, asks (make_file, merge_pdfs, edit_pdf, stamp_pdf, edit_hwp, comment_docx, resize_images)', async () => {
+    for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx', 'pic.png']) fs.writeFileSync(path.join(aliceDir(), f), 'QA-SSC')
     const plugins = pluginsOf(h.ctx) as unknown as { hwpWriting: () => boolean }
     const hwpWriting = plugins.hwpWriting
     plugins.hwpWriting = () => true
@@ -180,14 +180,16 @@ describe('the save card', () => {
         { tool: 'stamp_pdf', args: { file_path: 'shared/handbook.pdf', image: 'shared/seal.png', output: out } },
         { tool: 'edit_hwp', args: { file_path: 'shared/form.hwpx', changes: [{ find: 'a', replace: 'b' }], output: out } },
         { tool: 'comment_docx', args: { file_path: 'shared/note.docx', comments: [{ on: 'a', text: 'b' }], output: out } },
+        // the copy's format picks the extension: "pic" over an existing pic.png
+        { tool: 'resize_images', args: { paths: ['shared/photo.jpg'], output: 'users/alice/pic' } },
       ]) {
         if (d.tool === 'comment_docx' && !SHARED_TOOLS.has('comment_docx')) continue
         const started = await send('alice', chat, fake({ ...d, sayResult: true }))
         const card = await cardOf('alice', started.turnId)
-        expect(card.question, d.tool).toContain('wants to save a file in your personal folder')
+        expect(card.question, d.tool).toContain(d.tool === 'resize_images' ? 'wants to save files in your personal folder' : 'wants to save a file in your personal folder')
         await answer('alice', started.turnId, card.requestId, 'skip')
         const done = await doneOf('alice', started.assistantMessage.id)
-        for (const s of ['already exists', 'conflict', 'hb.']) expect(done.content, `${d.tool} ${s}`).not.toContain(s)
+        for (const s of ['already exists', 'conflict', 'hb.', 'pic.']) expect(done.content, `${d.tool} ${s}`).not.toContain(s)
       }
       expect(listing()).toEqual(before)
       expectNothingForBob(JSON.stringify((await messages('bob', chat)).filter((m) => m.role === 'assistant')))
@@ -195,9 +197,10 @@ describe('the save card', () => {
       expect(OUTPUT_PATH_OF.make_file!(out, { format: 'pdf' })).toBe('users/alice/hb.pdf')
       expect(OUTPUT_PATH_OF.edit_hwp!(out, { file_path: 'shared/form.hwp' })).toBe('users/alice/hb.hwp')
       expect(OUTPUT_PATH_OF.comment_docx!(out + '/', {})).toBe('users/alice/hb.docx')
+      expect(OUTPUT_PATH_OF.resize_images!('users/alice/pic.webp', {})).toEqual(['users/alice/pic.webp', 'users/alice/pic.jpg', 'users/alice/pic.jpeg', 'users/alice/pic.png', 'users/alice/pic.webp'])
     } finally {
       plugins.hwpWriting = hwpWriting
-      for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx']) fs.rmSync(path.join(aliceDir(), f), { force: true })
+      for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx', 'pic.png']) fs.rmSync(path.join(aliceDir(), f), { force: true })
     }
   })
 

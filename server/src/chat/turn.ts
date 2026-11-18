@@ -3260,11 +3260,12 @@ export class TurnExec {
     // one ("already exists with almost the same name"), a file on the way ("not a folder"), a path that cannot be read.
     // Only a refusal for no access is new: the tool refuses it with the same words whether something is there or not.
     // (the path as the tool really writes it: an extension some tools add to `output`, OUTPUT_PATH_OF)
-    const asWritten = (k: string, v: string) => { const p = savePathArg(v); const f = k === 'output' ? OUTPUT_PATH_OF[tool] : undefined; return f ? f(p, a) : p }
-    const fresh = (k: string, v: string) => {
-      try { return !authorize(fx, rules, me, asWritten(k, v), 'write', { mustExist: false, createDirs: true }).exists }
+    // (several when the tool picks among them: resize_images; new only when every one of them is)
+    const asWritten = (k: string, v: string): string[] => { const p = savePathArg(v); const f = k === 'output' ? OUTPUT_PATH_OF[tool] : undefined; return f ? [f(p, a)].flat() : [p] }
+    const fresh = (k: string, v: string) => asWritten(k, v).every((p) => {
+      try { return !authorize(fx, rules, me, p, 'write', { mustExist: false, createDirs: true }).exists }
       catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
-    }
+    })
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
     // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
     const written = new Set<string>(), read = new Set<string>()
@@ -3276,7 +3277,7 @@ export class TurnExec {
       if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (w && fresh(k, v)) continue
       const from = out.length
-      for (const p of this.roomNames(w ? asWritten(k, v) : v)) note(p)
+      for (const p of this.roomNames(w ? asWritten(k, v)[0]! : v)) note(p)
       for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
     }
     const named = out.length
