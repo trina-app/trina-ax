@@ -90,33 +90,39 @@ export function pickMentions(people: readonly Mentionable[], refs: readonly stri
 /** One "@Name" found in a text: where it stands and whose it is (`all`: "@everyone"). */
 interface Token { start: number; end: number; id?: string; all?: boolean }
 
+/** Korean particles and honorifics that may follow a Hangul name ("@김하늘님", "@김하늘에게"): an honorific, then a
+ * particle, each at most once, with no letter after them ("@김민수님" is not 김민's) */
+const HANGUL_TAIL = /^(?:님|씨)?(?:께서|에게|한테|이랑|하고|께|이|가|은|는|을|를|의|도|랑|과|와|만)?(?![\p{L}\p{N}_])/u
+const LETTER = /[\p{L}\p{N}_]/u
+
 /**
- * The "@Name"s in a text that are exactly one of `people`'s names as the app shows them (never a
- * username: "@erin" of "@Erin Yo0" is not Erin Yoo), ignoring case, the longest first,
- * with no letter or digit right after (a Hangul name may take a particle). A name two of them share is no mention.
- * "@everyone" (and "@channel"/"@here") only with `allowAll`. `plain`: the other "@words", as written.
+ * The "@Name"s in a text that are exactly one of `people`'s names as the app shows them (never a username: "@erin" of
+ * "@Erin Yo0" is not Erin Yoo), ignoring case, the longest name first, with no letter or digit right after (after a
+ * Hangul name only a particle: HANGUL_TAIL). A name two of them share is plain text, and so is any shorter name inside
+ * it ("@Erin Yoo" with two Erin Yoos is never Erin's). "@everyone" (and "@channel"/"@here") only with `allowAll`.
+ * `plain`: the other "@words", as written.
  */
 export function textMentions(text: string, people: readonly Mentionable[], o: { allowAll: boolean }): { tokens: Token[]; plain: string[] } {
-  const names: { key: string; id: string }[] = []
-  const owners = new Map<string, Set<string>>()
+  const owners = new Map<string, { name: string; ids: Set<string> }>()
   for (const p of people) {
-    for (const n of [p.name.trim()].filter(Boolean)) {
-      // (compared without case only where that keeps the length: positions in the text must stay right)
-      const k = n.toLowerCase().length === n.length ? n.toLowerCase() : n
-      if (!owners.has(k)) owners.set(k, new Set())
-      owners.get(k)!.add(p.id)
-      names.push({ key: k, id: p.id })
-    }
+    const n = p.name.replace(/\s+/g, ' ').trim()
+    if (!n) continue
+    const k = n.toLowerCase()
+    if (!owners.has(k)) owners.set(k, { name: n, ids: new Set() })
+    owners.get(k)!.ids.add(p.id)
   }
-  const unique = names.filter((n) => owners.get(n.key)!.size === 1).sort((a, b) => b.key.length - a.key.length)
-  const lower = text.toLowerCase().length === text.length ? text.toLowerCase() : text
+  // every name, the longest first (a shared one too: it stops a shorter name from matching inside it)
+  const names = [...owners.values()].sort((a, b) => b.name.length - a.name.length)
+  // (compared at each position, so a character whose lower case is longer elsewhere in the text moves nothing)
+  const at = (i: number, n: string) => text.slice(i, i + n.length).toLowerCase() === n.toLowerCase()
+  const edge = (end: number, n: string) => (HANGUL_END.test(n) ? HANGUL_TAIL.test(text.slice(end)) : !LETTER.test(text[end] ?? ''))
   const tokens: Token[] = [], plain: string[] = []
   for (let i = text.indexOf('@'); i >= 0; i = text.indexOf('@', i + 1)) {
     if (!canStart(text, i)) continue
-    const hit = unique.find((n) => lower.startsWith(n.key, i + 1) && (HANGUL_END.test(n.key) || !/[\p{L}\p{N}_]/u.test(text[i + 1 + n.key.length] ?? '')))
-    if (hit) { tokens.push({ start: i, end: i + 1 + hit.key.length, id: hit.id }); i += hit.key.length; continue }
+    const hit = names.find((n) => at(i + 1, n.name) && edge(i + 1 + n.name.length, n.name))
+    if (hit && hit.ids.size === 1) { tokens.push({ start: i, end: i + 1 + hit.name.length, id: [...hit.ids][0]! }); i += hit.name.length; continue }
     const word = /^@[^\s@]{1,40}/u.exec(text.slice(i))?.[0] ?? ''
-    if (o.allowAll && word && broadcastIn(word)) {
+    if (!hit && o.allowAll && word && broadcastIn(word)) {
       const w = word.slice(1).replace(/[^\p{L}\p{N}_]+$/u, '')
       tokens.push({ start: i, end: i + 1 + w.length, all: true })
       continue
@@ -124,6 +130,24 @@ export function textMentions(text: string, people: readonly Mentionable[], o: { 
     if (word.length > 1) plain.push(word.replace(/[.,:;!?)\]}"'”’]+$/u, ''))
   }
   return { tokens, plain: [...new Set(plain)].filter((w) => w.length > 1) }
+}
+
+/** Does `said` (the asker's own words) name this person: their display name or username as whole words (a Hangul one
+ * followed only by a particle, HANGUL_TAIL: "김민수에게" does not name 김민), ignoring case? */
+export function namesPerson(said: string, p: Pick<Mentionable, 'name' | 'username'>): boolean {
+  const text = said.replace(/\s+/g, ' ')
+  const lower = text.toLowerCase()
+  for (const raw of [p.name, p.username]) {
+    const n = raw.replace(/\s+/g, ' ').trim()
+    if (n.length < 2) continue
+    const k = n.toLowerCase()
+    for (let i = lower.indexOf(k); i >= 0; i = lower.indexOf(k, i + 1)) {
+      if (lower.length !== text.length || LETTER.test(text[i - 1] ?? '')) continue
+      const end = i + n.length
+      if (HANGUL_END.test(n) ? HANGUL_TAIL.test(text.slice(end)) : !LETTER.test(text[end] ?? '')) return true
+    }
+  }
+  return false
 }
 
 /** The length of the run of mentions a text starts with ("@Erin Yoo, @Bob Lee: …"), and of the marks after them;

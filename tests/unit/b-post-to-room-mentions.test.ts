@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7, type Room, type RoomMessage } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
+import { dropAlways, keepAlways } from '../../server/src/chat/always-allow'
 
 setDefaultTimeout(60_000)
 const cm = () => 'cm-' + crypto.randomUUID()
@@ -142,6 +143,19 @@ describe('the AI\'s post mentions people of the room for real', () => {
     const admin = await last('bob', rooms.all)
     expect(admin.body).toBe('@전체\n\n공지입니다')
     expect(admin.mentionsAll).toBe(true)
+  })
+
+  test('"Always allow" on: a post with no mention goes with no card; one that mentions someone the asker did not name shows the card (no "Always allow" on it)', async () => {
+    keepAlways(h.ctx.db, 'bob', 'post_to_room', null)
+    try {
+      const quiet = await turn('bob', post({ room: rooms.all, text: 'no one tagged here' }))
+      expect(quiet.card).toBeNull()
+      expect(JSON.parse(quiet.content).status).toBe('sent')
+      const tagged = await turn('bob', post({ room: rooms.all, text: 'please look', mention: ['Erin Yoo'] }), 'send')
+      expect(tagged.card).not.toBeNull()
+      expect((tagged.card as unknown as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['send', 'no'])
+      expect((await last('erin', rooms.all)).mentions).toEqual(['erin'])
+    } finally { expect(dropAlways(h.ctx.db, 'bob', 'card:post_to_room')).toBe(true) }
   })
 
   test('the button\'s share of a finished answer still mentions nobody', async () => {

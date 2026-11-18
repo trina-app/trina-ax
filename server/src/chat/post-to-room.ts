@@ -55,7 +55,7 @@
 import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always-allow'
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, madeInTurn, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
-import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
+import { broadcastIn, leadingMentions, mentionablesOf, mentionableUser, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames } from './post-mentions'
 import { readRooms } from './read-rooms'
 import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
@@ -335,9 +335,10 @@ export function postToRoomTool(exec: TurnExec): Tool {
         if (!picked.ok) {
           const refs = (xs: readonly string[]) => xs.map((x) => `"${neutralizeTags(oneLine(x, 80))}"`).join(', ')
           if (picked.broadcast) return no(`Nothing was posted: everyone in ${titleAi} is mentioned only when the user's own message writes "@${roomMentionAllWord(L)}" (or "@everyone"). Call post_to_room again without it in mention, or ask the user whether to notify everyone there.`, 'refused: everyone not asked')
+          // (a shared chat: everyone there reads the result, and who is in a room is not theirs to learn from it)
+          if (exec.shared && (picked.unknown.length || picked.many.length)) return no('Nothing was posted: a name in mention could not be matched with exactly one person there. Ask the user for the person\'s full name, then call post_to_room again with it in mention (or without mention).', 'refused: mention not matched')
           if (picked.unknown.length) return no(`Nothing was posted: ${refs(picked.unknown)} ${picked.unknown.length === 1 ? 'is' : 'are'} not ${picked.unknown.length === 1 ? 'a person' : 'people'} in ${titleAi}, and only people there can be mentioned. Call post_to_room again without ${picked.unknown.length === 1 ? 'that name' : 'those names'} in mention, or ask the user who they mean.`, 'refused: mention not in the room')
           if (picked.many.length) {
-            if (exec.shared) return no(`Nothing was posted: several people in ${titleAi} fit ${refs(picked.many.map((m) => m.ref))}. Ask the user for the person's full name, then call post_to_room again with it in mention.`, 'refused: several people fit a mention')
             const lines = picked.many.flatMap((m) => m.people.slice(0, 10).map((t) => `- ${neutralizeTags(oneLine(t.name, 80))} (for "${neutralizeTags(oneLine(m.ref, 60))}") · mention="${PERSON_REF}${t.id}"`))
             return no(`Nothing was posted: several people in ${titleAi} fit ${refs(picked.many.map((m) => m.ref))}. Ask the user which one they mean (name them), then call post_to_room again with that mention:\n${lines.join('\n')}`, 'refused: several people fit a mention')
           }
@@ -348,7 +349,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const mentionAll = picked.all || inText.tokens.some((t) => t.all)
         if (mentionIds.length > POST_MENTIONS_MAX) return no(`Nothing was posted: one post mentions at most ${POST_MENTIONS_MAX} people. Mention fewer, or tell the user to mention everyone there themselves.`, 'refused: too many mentions')
         if (mentionAll && mine?.room.kind === 'all' && !isOwnerOrAdmin(db, spec.userId)) return no(`Nothing was posted: in the room for everyone only an owner or admin can mention everyone. Call post_to_room again without "@${roomMentionAllWord(L)}", or tell the user so.`, 'refused: everyone in the everyone room')
-        const mentionName = (id: string) => canMention.find((p) => p.id === id)?.name ?? ''
+        const mentionName = (id: string) => (canMention.find((p) => p.id === id)?.name ?? '').replace(/\s+/g, ' ').trim()
         const allWord = roomMentionAllWord(L)
         // the names go as the room shows a mention: "@Name" in the person's own words. Own words: the text keeps its
         // "@Name"s (each written as the exact name) and the others go before it; the AI's text: the "@Name"s it starts
@@ -365,8 +366,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
           head = mentionHead(mentionIds.map(mentionName), mentionAll ? allWord : null)
         }
         const ownNote = answerNote(a.data.note)
-        const note = answerNote([head, ownNote].filter(Boolean).join(' '))
-        if (head && note !== [head, ownNote].filter(Boolean).join(' ')) return no(`Nothing was posted: the mentions${ownNote ? ' with the note' : ''} are longer than the ${ANSWER_NOTE_MAX} characters of the user's line. Mention fewer people${ownNote ? ' or shorten the note' : ''} and call post_to_room again.`, 'refused: mentions too long')
+        const line = [head, ownNote].filter(Boolean).join(' ')
+        const note = answerNote(line)
+        if (head && line.length > ANSWER_NOTE_MAX) return no(`Nothing was posted: the mentions${ownNote ? ' with the note' : ''} are longer than the ${ANSWER_NOTE_MAX} characters of the user's line. Mention fewer people${ownNote ? ' or shorten the note' : ''} and call post_to_room again.`, 'refused: mentions too long')
         /** "@words" of the AI's text that mention nobody (a look-alike, a non-member): the result says so */
         const plainAts = inText.plain
         const size = (note ? note.length + 2 : 0) + content.trim().length
@@ -402,7 +404,9 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const menNames = menIds.map((id) => neutralizeTags(oneLine(nameOf(ctx, id) ?? '', 80))).filter(Boolean)
           const menWords = exec.shared ? `${menIds.length} ${menIds.length === 1 ? 'person' : 'people'}` : menNames.join(', ')
           const tagged = menIds.length || menAll ? ` It mentions ${[menIds.length ? menWords : '', menAll ? 'everyone there' : ''].filter(Boolean).join(' and ')}: they get a mention notice.` : ''
-          const untagged = plainAts.length ? ` ${plainAts.slice(0, 5).map((w) => `"${neutralizeTags(oneLine(w, 40))}"`).join(', ')} in the text stayed plain text (not a person in that room): nobody was tagged or notified by ${plainAts.length === 1 ? 'it' : 'them'}. Never say you tagged someone the result does not list under mentioned.` : ''
+          // (a shared chat: no word of which names are not in that room, for everyone there to read)
+          const untagged = plainAts.length && exec.shared ? ' Some "@" words in the text stayed plain text: nobody was tagged or notified by them. Never say you tagged someone the result does not list under mentioned.'
+            : plainAts.length ? ` ${plainAts.slice(0, 5).map((w) => `"${neutralizeTags(oneLine(w, 40))}"`).join(', ')} in the text stayed plain text (not a person in that room): nobody was tagged or notified by ${plainAts.length === 1 ? 'it' : 'them'}. Never say you tagged someone the result does not list under mentioned.` : ''
           detail = undefined
           // the card's lines: the posted message's own first words and the files that went with it (QA: the card was
           // nearly empty); the message as the room keeps it, so a link reads as its label
@@ -560,7 +564,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
-        const mentionsSaid = !mentionAll && mentionIds.every((id) => namedInFull(said, soleNames(db, id)))
+        const mentionsSaid = !mentionAll && mentionIds.every((id) => { const p = canMention.find((x) => x.id === id); return !!p && namesPerson(said, p) })
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
@@ -572,9 +576,13 @@ export function postToRoomTool(exec: TurnExec): Tool {
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && mentionsSaid && place
         // (where the choice counts, the card offers "Always allow" on its first showing; where it does not, the card shows.
         // Once on it is final, Rule A (#1143): a screen target only stops the explicit-ask skip above)
-        const place1 = alwaysOk ? exec.alwaysPlace?.() : null
+        // a post that mentions someone the asker's own words do not name (the AI picked them, or a name in a text it wrote
+        // from something someone else wrote), or everyone: the card shows, also under "Always allow", and offers no
+        // "Always allow" (who gets a notice is the person's to see; docs/decisions/20261118-ai-post-real-mentions.md)
+        const alwaysHereOk = alwaysOk && mentionsSaid
+        const place1 = alwaysHereOk ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
-        const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysOk) })
+        const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysHereOk) })
         byAlways = !explicit && alwaysHere(place1, all ? 'post_files' : 'post_to_room') === 'on'
         // the person said [보내기] on this card for this same room or thread earlier in this chat (chat/card-approvals.ts,
         // docs/decisions/20261117-card-approved-once-per-chat.md): a post of the AI's text, with no note, no files to

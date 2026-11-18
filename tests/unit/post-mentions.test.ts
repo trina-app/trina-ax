@@ -2,7 +2,7 @@
 // 20261118-ai-post-real-mentions.md): picked among the room's people only, an exact "@Name" in the text counts, any
 // other "@word" stays plain, "@everyone" only when allowed. Made-up names.
 import { describe, expect, test } from 'bun:test'
-import { broadcastIn, isBroadcastRef, leadingMentions, mentionHead, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames, type Mentionable } from '../../server/src/chat/post-mentions'
+import { broadcastIn, isBroadcastRef, leadingMentions, mentionHead, namesPerson, pickMentions, POST_MENTIONS_MAX, textMentions, withExactNames, type Mentionable } from '../../server/src/chat/post-mentions'
 
 const people: Mentionable[] = [
   { id: 'u1', name: 'Mira Santoso', username: 'mira' },
@@ -47,6 +47,25 @@ describe('textMentions (an "@Name" in the text)', () => {
     const t = textMentions('@Mlra Santoso @Mirabel @Ana Ruiz mail me at x@y.com @Lee', people, { allowAll: false })
     expect(t.tokens).toEqual([])
     expect(t.plain).toEqual(['@Mlra', '@Mirabel', '@Ana', '@Lee'])
+  })
+  test('a shorter name never matches inside a longer one: a shared full name, a Hangul name with more letters after it', () => {
+    const team: Mentionable[] = [
+      { id: 'e1', name: 'Erin', username: 'erin1' },
+      { id: 'e2', name: 'Erin Yoo', username: 'erin2' },
+      { id: 'e3', name: 'Erin Yoo', username: 'erin3' },
+      { id: 'k1', name: '김민', username: 'kmin' },
+    ]
+    const t = textMentions('@Erin Yoo hi, @김민수님 and @김민님 and @Erin.', team, { allowAll: false })
+    expect(t.tokens.map((x) => x.id)).toEqual(['k1', 'e1'])
+    expect(t.plain).toEqual(['@Erin', '@김민수님'])
+  })
+  test('namesPerson: the asker\'s own words name them in full (a Hangul name with a particle only)', () => {
+    expect(namesPerson('tell Mira Santoso in sales', people[0]!)).toBe(true)
+    expect(namesPerson('tell @mira about it', people[0]!)).toBe(true)
+    expect(namesPerson('tell Miranda', people[0]!)).toBe(false)
+    expect(namesPerson('김하늘님에게 전달해줘', people[2]!)).toBe(true)
+    expect(namesPerson('김하늘에게 전달해줘', people[2]!)).toBe(true)
+    expect(namesPerson('김민수에게 전달해줘', { name: '김민', username: 'kmin' })).toBe(false)
   })
   test('"@everyone" / "@channel" only when allowed', () => {
     expect(textMentions('@everyone look', people, { allowAll: false }).tokens).toEqual([])

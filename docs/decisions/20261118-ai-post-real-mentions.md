@@ -32,9 +32,17 @@
     `mentioned` (names; in a shared chat only how many) and `mentioned_everyone`, read from the stored message. The tool
     description and one prompt sentence tell the model to use `mention` and to say someone was tagged only when
     `mentioned` lists them.
-  - The explicit-ask skip (no card when the asker's message asked for exactly this post) applies with mentions only when
-    the asker's own words name each person, and never with "@everyone". "Always allow", shared chats (others see only
-    the verb), guests and scheduled runs (post_to_room off) are unchanged.
+  - The explicit-ask skip (no card when the asker's message asked for exactly this post) and "Always allow" apply to a
+    post with mentions only when the asker's own words name each person in full (display name or username as whole
+    words; a Hangul name followed only by a particle), and never with "@everyone". Otherwise the card shows, without
+    the "Always allow" button: who gets a notice is the person's to see, and the names may come from text someone else
+    wrote that the AI summarised. A post with no mention behaves as before.
+  - In a shared chat (everyone there reads the AI's results) the result gives only how many people were mentioned, and a
+    name that matches nobody or several people is refused with one neutral line, never which names are or are not in
+    the room. Others still see only the step's verb. Guests and scheduled runs (post_to_room off) are unchanged.
+  - A name in the text never matches inside a longer name: names are tried longest first, a name two members share
+    stays plain text (and stops a shorter one inside it), and Rooms.send drops an account turned off while the card
+    waited.
 - **Left out:** marking names inside the AI's quote; mentioning someone who is not in the room (they cannot see the
   post).
 - **Tests:** tests/unit/post-mentions.test.ts, tests/unit/b-post-to-room-mentions.test.ts,

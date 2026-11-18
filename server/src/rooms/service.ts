@@ -698,7 +698,7 @@ export class Rooms {
       if (!root) fail('validation', undefined, { fields: { 'body.threadRootId': 'not a message of this room to answer in a thread' } })
     }
     if (answer && (b.replyToId || b.alsoInRoom || answer.at < 0 || answer.at > b.body.length)) fail('validation')
-    const mentions = mayMention ? this.validMentions(roomId, userId, b.mentions) : []
+    const mentions = mayMention ? this.validMentions(roomId, userId, b.mentions, aiPost) : []
     const fileIds = [...new Set(b.fileIds)]
     if (fileIds.length) {
       const n = (this.db.query(`SELECT COUNT(*) n FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN (${fileIds.map(() => '?').join(',')})`).get(roomId, userId, ...fileIds) as { n: number }).n
@@ -1039,10 +1039,12 @@ export class Rooms {
     if (!roomMentionAllIn(body)) fail('validation', undefined, { fields: { 'body.mentionsAll': 'no @everyone mention in the text' } })
   }
 
-  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. */
-  private validMentions(roomId: string, userId: string, ids: readonly string[]): string[] {
+  /** The people picked as mentions, kept only when they are in the room (never myself), in the order given. `active`:
+   * also only active accounts (the AI's post_to_room, whose card may have waited while someone's account was turned off). */
+  private validMentions(roomId: string, userId: string, ids: readonly string[], active = false): string[] {
     const inRoom = new Set(members(this.db, roomId).map((m) => m.user_id))
-    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id))
+    const ok = (id: string) => !active || !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(id)
+    return [...new Set(ids)].filter((id) => id !== userId && inRoom.has(id) && ok(id))
   }
 
   // ---------------- reading ----------------
