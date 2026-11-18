@@ -32,6 +32,9 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:
+  // refuses in a shared chat)
+  'save_connector_file',
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts), and its copy into the team
   // folder behind the wider-audience card
   'chat_file', 'save_chat_file',

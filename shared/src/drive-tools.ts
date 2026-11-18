@@ -8,3 +8,12 @@ const Page = { driveId: DriveId.optional(), pageToken: z.string().min(1).max(409
 export const DriveSearchInput = z.object({ query: z.string().trim().min(1).max(500), ...Page }).strict()
 export const DriveListInput = z.object({ folderId: DriveId.default('root'), ...Page }).strict()
 export const DriveReadInput = z.object({ fileId: DriveId, maxChars: z.number().int().min(1).max(100_000).default(40_000), source: DriveSource.optional() }).strict()
+/** save_connector_file (server/src/tools/save-connector-file.ts): the original file a connected service gave, saved into
+ * the team folder as it is. `file`: an mcp-file:<id> handle (a Gmail attachment the AI read, a file in a connection's
+ * answer) or drive:<file id> (a Google Drive file; a Google document, sheet or presentation is saved as .docx, .xlsx or
+ * .pptx). */
+export const SaveConnectorFileInput = z.object({
+  file: z.string().trim().min(1).max(300).regex(/^(mcp-file:[A-Za-z0-9_-]{1,64}|drive:[A-Za-z0-9_-]{1,256})$/).describe('mcp-file:<id> (a Gmail attachment or a file a connected service returned) or drive:<file id> (a Google Drive file)'),
+  save_as: z.string().max(300).optional().describe('Team path to save to, e.g. "shared/contracts/quote.xlsx". A path ending in "/" keeps the file\'s own name. Default: users/<you>/downloads/ with the file\'s own name'),
+  source: DriveSource.optional().describe('For drive: only, as in drive_read'),
+}).strict()

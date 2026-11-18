@@ -1,4 +1,4 @@
-// Parts of .docx and .pptx files that pandoc's plain text drops: Word headers, footers and comments, PowerPoint
+// Parts of .docx and .pptx files that pandoc's plain text drops: Word headers, footers, comments and charts, PowerPoint
 // speaker notes and chart data (series names, categories, values). extract.ts adds this text after pandoc's body
 // text. The parsing expands untrusted zip and XML input, so it runs only in the office worker
 // (files/office-worker.ts), never in the server process. The zip is checked first (zip-guard.ts) and the text is
@@ -241,7 +241,7 @@ function commentAnchors(doc: string): Map<string, string> {
   return out
 }
 
-/** Headers, footers and comments of a .docx ('' when it has none). */
+/** Headers, footers, comments and chart data of a .docx ('' when it has none). */
 export function docxExtraText(bytes: Uint8Array): string {
   const p = parts(bytes, 'Word document')
   const sections: string[] = []
@@ -269,6 +269,15 @@ export function docxExtraText(bytes: Uint8Array): string {
       lines.push(quoteLine(`- Comment${who ? ` by ${who}` : ''}${on ? ` on "${oneLine(on)}"` : ''}:`) + `\n${indent(text, '    ')}`)
     }
     if (lines.length) sections.push(`${SECTION_MARK}Word comments (review notes in the margin) ===\n${lines.join('\n')}`)
+  }
+  // charts of the body in the order they are placed (pandoc gives no chart data, like a deck's)
+  const doc = xmlOf(p, 'word/document.xml')
+  if (doc) {
+    const pos = idPositions(doc)
+    const charts = [...rels(p, 'word/document.xml').entries()].filter(([, v]) => v.type.endsWith('/chart'))
+      .sort(([a], [b]) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity))
+    const lines = [...new Set(charts.map(([, v]) => v.target))].filter((t) => p.has(t)).map((t) => chartText(xmlOf(p, t) ?? ''))
+    if (lines.length) sections.push(`${SECTION_MARK}Word charts (the data of the charts in the body, in order) ===\n${lines.join('\n')}`)
   }
   return capped(sections)
 }

@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import { dropChatMedia } from '../integrations/connections/media'
 import { chatFilesOf } from './chat-files'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
@@ -40,6 +41,7 @@ import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
+import { SharedWaiting } from './shared-waiting'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -208,6 +210,8 @@ export class ChatRuntime {
   readonly presence: Presence
   /** what each open window shows now, in memory only (realtime/looking.ts): the AI's looking_at tool reads it */
   readonly looking: Looking
+  /** who has messages waiting in each shared chat, and since when (shared-waiting.ts): the order they go in */
+  readonly sharedWaiting = new SharedWaiting()
   readonly engines: EngineProvider
   /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
    * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */
@@ -566,6 +570,8 @@ export class ChatRuntime {
 
   /** Stop this person's running and queued turns in these chats (they lost the chats: stopTurnsIn). */
   stopUserTurnsIn(userId: string, chatIds: readonly string[]): number {
+    // their messages waiting there no longer hold a place in line (shared-waiting.ts)
+    this.sharedWaiting.dropUser(userId, chatIds)
     const lost = new Set(chatIds)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
@@ -922,6 +928,8 @@ export class ChatRuntime {
       if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
         throw new HttpError('conflict')
       queueSeq = this.queueStore.admit(o.userId)
+      // the next quiet moment gives the first in line a fresh grace period (shared-waiting.ts)
+      this.sharedWaiting.turnStarted(chat.id)
       if (o.user) {
         userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
@@ -1048,11 +1056,11 @@ export class ChatRuntime {
     return !(project.instructionsAuthor === userId && project.instructionsAuthored === project.instructions)
   }
   /** Messages of a branch up to `leafId` (inclusive), for a fresh engine session. */
-  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { role: 'user' | 'assistant'; content: string }[] {
+  history(leafId: string | null, shared: { runner: string; withheld: ReadonlySet<string> } | null = null): { id: string; role: 'user' | 'assistant'; content: string }[] {
     // a shared project chat (chat/shared.ts): who wrote each message, the attachments as the person whose turn it is
     // may see them now, and nothing of an answer hidden from them (chat/shared-answers.ts)
     if (shared) return labelledTranscript(this.store, leafId, shared.runner, shared.withheld)
-    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
+    return this.store.pathTo(leafId).filter((m) => m.content.trim() || m.role === 'user').map((m) => ({ id: m.id, role: m.role, content: m.role === 'user' ? composeMessage(m, this.store.attachmentsOf(m)) : m.content }))
   }
 
   siteGranted(userId: string, host: string): boolean {
@@ -1089,6 +1097,8 @@ export class ChatRuntime {
     // an old room AI session (chats.room_id, docs/DECISIONS.md "Room @트리나 code removed") is not one of the person's
     // chats (not in the Trina list)
     if (r?.room_id) return
+    // gone, in the trash or no longer shared: nobody's messages wait there any more (shared-waiting.ts)
+    if (!r || r.deleted_at || change === 'deleted' || !isSharedRow(r)) this.sharedWaiting.drop(chatId)
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
     if (r && isSharedRow(r)) {
@@ -1280,6 +1290,8 @@ export class ChatRuntime {
     })()
     // the files kept with a chat shared with people (chat/chat-files.ts): their rows went with the chat, their folder now
     try { chatFilesOf(this.ctx).removeChat(chatId) } catch (e) { this.log.warn('chat files not removed (the sweep tries again)', { err: e }) }
+    // the files its connections' answers and Gmail attachments left (integrations/connections/media.ts; else 24 hours)
+    try { dropChatMedia(this.ctx.engineConfig.dataDir, chatId) } catch (e) { this.log.warn('connection files not removed (the hourly sweep takes them)', { err: e }) }
   }
 
   /** Stop taking new turns and wait for the running ones (planned restart / update). */

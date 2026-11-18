@@ -48,6 +48,7 @@ const KEEP: Record<string, readonly string[]> = {
   move_files: ['paths'],
   copy_files: ['paths'],
   save_url: ['url'],
+  save_connector_file: ['file'],
   save_room_file: ['room', 'file'],
   save_chat_file: ['file'],
   generate_video: [],

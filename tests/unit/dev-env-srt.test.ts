@@ -14,7 +14,7 @@ import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
 import { CANARIES, EXPECTED } from '../lib/fixtures'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, runMayWrite, runSkillFolders, viewAccess, type FolderView } from '../../server/src/devenv/srt/access'
-import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
+import { DENIED_NAMES, DENIED_RANGES, DENIED_SYSTEM_PATHS, ETC_SECRETS, RUN_ID_RE, SYSTEM_READ_PATHS, isFull, SRT_PATHS, SRT_VERSION, TEMPLATE_UNIT_RE, UNIT_RE, chatWork, personHome, personLogs, projectHome, runEnv, runIdOfUnit, scopeArgv, serverFilesOutsideBase, settingsProblems, srtArgv, srtSettings, unitArgs, unitLimits, unitName } from '../../server/src/devenv/srt/config'
 import { effectiveLimits, parsePlan, sliceValues, type DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { _active, newRunId, readExit, setSrtSystem, teamHosts, WAIT_MAX_MS } from '../../server/src/devenv/srt/runner'
 import { _held, _heldSkills, holdPlaceholders, holdSkillFolders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
@@ -27,6 +27,7 @@ import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../s
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
+import { gitEnv } from '../../server/src/devenv/srt/git-guard'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(40_000)
@@ -353,7 +354,7 @@ describe('the srt settings file', () => {
   test('hides the base folder, users/ and .system/; gives back the person\'s folders, home and logs', () => {
     const s = srtSettings(input)
     expect(s.filesystem.denyRead).toEqual([BASE, '/etc/default/mycel', ...DENIED_SYSTEM_PATHS, `${TEAM}/users`, `${TEAM}/.system`, `${TEAM}/groups/marketing/salaries`])
-    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, ...SYSTEM_READ_PATHS])
+    expect(s.filesystem.allowRead).toEqual([`${TEAM}/shared`, `${TEAM}/skills`, `${TEAM}/groups/marketing`, `${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`, `${BASE}/devenv/logs/alice`, `${BASE}/devenv/bin`, ...SYSTEM_READ_PATHS])
     expect(s.filesystem.allowWrite).toEqual([`${TEAM}/projects/falcon`, `${TEAM}/users/alice`, `${BASE}/devenv/home/alice`])
     expect(s.filesystem.denyWrite).toEqual([`${TEAM}/projects/falcon/public`, `${TEAM}/projects/falcon/skills`, `${TEAM}/users/alice/skills`])
     expect(settingsProblems(s, input)).toEqual([])
@@ -511,7 +512,9 @@ describe('the srt settings file', () => {
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
-    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    // (and git's, npm's and Python's settings that run nothing by themselves: git-guard.ts gitEnv, QA TC-4939)
+    expect(Object.keys(e).filter((k) => !(k in gitEnv())).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    for (const [k, v] of Object.entries(gitEnv())) expect(e[k]).toBe(v)
     expect(e.HOME).toBe(personHome(BASE, 'alice'))
     expect(e.TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
     expect(e.CLAUDE_CODE_TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
@@ -997,7 +1000,8 @@ describe('a command follows the person, not the project', () => {
     const t = (r: string) => path.join(h.team, r)
     // Q0 (b): only the project folder is writable. Falcon is seen by bob (finance) and the admins too, so a folder they
     // may not read (groups/marketing, her own users/alice) is hidden in the run: nothing of it can be copied into falcon
-    expect(s.filesystem.allowWrite).toEqual([t(FALCON), personHome(devBase, 'alice')])
+    // a home of her own for this project folder (QA TC-4939, config.ts projectHome)
+    expect(s.filesystem.allowWrite).toEqual([t(FALCON), projectHome(devBase, 'alice', FALCON)])
     expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
     expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
@@ -1052,7 +1056,7 @@ describe('a command follows the person, not the project', () => {
     // groups/finance is writable for bob, but alice sees falcon and may not read groups/finance: hidden in this run
     expect(s.filesystem.allowWrite).not.toContain(path.join(h.team, 'groups/finance'))
     expect(s.filesystem.allowRead).not.toContain(path.join(h.team, 'groups/finance'))
-    expect([...runs.values()][0]!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
+    expect([...runs.values()][0]!.spec.env.HOME).toBe(projectHome(devBase, 'bob', FALCON))
   })
   test('a project folder the person cannot open: the run starts in the chat\'s work folder and the folder stays hidden', async () => {
     await shell('erin', falcon(), chatErin).call({ command: 'echo x' })
@@ -1076,7 +1080,7 @@ describe('a command follows the person, not the project', () => {
   test('the environment is the listed keys only: nothing from the server\'s environment', async () => {
     await alice().call({ command: 'echo x' })
     const env = [...runs.values()][0]!.spec.env
-    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux' }))
+    expect(env).toEqual(runEnv({ base: devBase, userId: 'alice', teamRoot: h.team, work: null, platform: 'linux', projectFolder: FALCON }))
     expect(JSON.stringify(env)).not.toContain('CANARY-ENV')
     expect(Object.keys(env).some((k) => k.startsWith('MYCEL'))).toBe(false)
   })
@@ -1231,7 +1235,7 @@ describe('jobs and the queue (per team)', () => {
     expect(rows()[0]!.exit_code).toBe(0)
     expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toMatchObject([{ user: 'alice', frame: { data: { link: `/c/${chatFalcon}` } } }])
     expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command).toBe('echo two')
-    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(personHome(devBase, 'bob'))
+    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(projectHome(devBase, 'bob', FALCON))
     finish(runIdOfRow(rows()[1]!), 0)
     await pollSrt(h.ctx)
     expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command).toBe('echo three hunter2')

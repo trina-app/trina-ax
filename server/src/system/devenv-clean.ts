@@ -162,6 +162,19 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     if (now - s.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', s.bytes, {})
   }
 
+  // the homes of a person's runs in a project folder (devenv/hp/<hash>, srt/config.ts projectHome): their names say
+  // nobody's runs, so only caches idle for CACHE_IDLE_DAYS go (a cache in use has new files)
+  for (const u of await ls(p.homeProject)) {
+    if (!u.isDirectory() || !/^[0-9a-f]{24}$/.test(u.name)) continue
+    const home = path.join(p.homeProject, u.name)
+    for (const rel of CACHE_ROOTS) {
+      const abs = path.join(home, rel)
+      if (!await plain(home, abs)) continue
+      const s = await scan(abs)
+      if (!s.truncated && now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, {})
+    }
+  }
+
   // caches and tmp of every person
   for (const u of await ls(p.home)) {
     if (!u.isDirectory() || !SAFE_ID_RE.test(u.name)) continue

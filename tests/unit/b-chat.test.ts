@@ -621,8 +621,9 @@ describe('codex', () => {
 
 describe('long conversations', () => {
   // docs/DECISIONS.md "Long conversations: say when the AI got only the recent part"
-  const long = 'L'.repeat(41_000)
-  test('Codex gets the history every turn: past 40,000 characters the answer says the AI got only the recent part', async () => {
+  // past the window (40,000 tokens: 160,000 Latin characters), and no AI for a summary in this test server
+  const long = 'L'.repeat(170_000)
+  test('Codex gets the history every turn: past the window, with no summary, the answer says the AI got only the recent part', async () => {
     const chat = await newChat('alice', { engine: 'codex' })
     const one = await ask(h, alice, 'alice', chat.id, `${long}\n` + fake({ say: 'read it' }))
     expect(one.done.historyTrimmed).toBeUndefined()
@@ -640,7 +641,7 @@ describe('long conversations', () => {
     const two = await ask(h, alice, 'alice', chat.id, 'second\n' + fake({ echo: 'resume' }))
     expect(two.done.content).toBe('resumed=true')
     expect(two.done.historyTrimmed).toBeUndefined()
-    // edit the second message: a new branch, a fresh session with the history before it (41,000 + characters)
+    // edit the second message: a new branch, a fresh session with the history before it (170,000 + characters)
     const edited = await h.api('alice').call(API.editMessage, { params: { id: chat.id, messageId: two.started.userMessage!.id }, body: { content: 'second, edited\n' + fake({ echo: 'resume' }), clientMessageId: cm(), attachmentIds: [] } })
     const e = await alice.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 20_000)
     expect(e.data.message.content).toBe('resumed=false')
