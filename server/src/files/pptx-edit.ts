@@ -166,6 +166,10 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
       const rels = readRels(pkg, s.part)
       const bad = rels?.rels.find((r) => NOT_COPIED.has(r.type))
       if (bad) refuse(`change ${i + 1}: slide ${s.n} has a ${bad.type.replace(/([A-Z])/g, ' $1').toLowerCase()} that a copy cannot share; duplicate it in PowerPoint`)
+      // a copy never makes a second thing that is fetched from outside the file (a linked picture, an outside object):
+      // only plain hyperlinks go along (QA TC-4948)
+      const outside = rels?.rels.find((r) => r.external && r.type !== 'hyperlink')
+      if (outside) refuse(`change ${i + 1}: slide ${s.n} uses a ${outside.type} from outside the file, which a copy would fetch again; duplicate it in PowerPoint`)
       const part = newSlidePart()
       // the slide as it is, with a new creation id (PowerPoint tells slides apart by it)
       const xml = xmls.get(s.part)!.replace(/(<p14:creationId\b[^>]*\bval=")\d+(")/, (_m, a: string, b: string) => `${a}${Math.floor(Math.random() * 4294967295)}${b}`)

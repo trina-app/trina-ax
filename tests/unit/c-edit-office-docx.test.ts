@@ -172,6 +172,20 @@ describe('edit_office: Word documents', () => {
     expect(editDocx(pkg, [{ find: 'Supply', replace: 'Service' }]).notes[0]).toMatchObject({ change: 0, before: 'Supply Contract', after: ['Service Contract'] })
   })
 
+  withPandoc('edit_office never writes a field (QA TC-4948): field-looking text stays text; a new paragraph or row copies no field', () => {
+    const field = '<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>'
+    const b = withPart(docx(CONTRACT), 'word/document.xml', (x) => x.replace('Paid on the 25th', `Paid on the 25th</w:t></w:r>${field}<w:r><w:t xml:space="preserve">`))
+    const before = (part(b, 'word/document.xml')!.match(/<w:instrText|<w:fldSimple/g) ?? []).length
+    const { file } = run(b, [
+      { find: 'Supply', replace: '{ DDEAUTO cmd "/c calc" } <w:instrText>DDE</w:instrText>' },
+      { insert_paragraph: { after: 'Article 3', text: 'new line' } },
+      { add_rows: { table: 1, after_row: 2, rows: [['DDEAUTO x', '1', '2']] } },
+    ])
+    const doc = part(file, 'word/document.xml')!
+    expect((doc.match(/<w:instrText|<w:fldSimple/g) ?? []).length).toBe(before)
+    expect(doc).toContain('&lt;w:instrText&gt;DDE&lt;/w:instrText&gt;')
+  })
+
   withPandoc('the verifier catches a paragraph changed that no change named', () => {
     const before = docx(CONTRACT)
     const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ find: 'Supply', replace: 'Service' }] }, [before])))

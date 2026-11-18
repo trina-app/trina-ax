@@ -38,6 +38,13 @@
   merged area, an array formula or a shared formula's first cell; a table header cell; a slide with a chart, diagram,
   object or media (duplicate only); a signed file; a file with macros; a DTD, comments or processing instructions in a
   part. Rows are never inserted in the middle of a sheet (every reference below would move).
+- **No new fields or outside links (QA TC-4948):** edit_office writes text only as escaped `w:t` / `a:t` content, so
+  field-looking text ("DDEAUTO ...", "<w:instrText>") stays text; a new paragraph, row or cell copies only paragraph
+  and run properties (`w:pPr` / `w:rPr`, without tracked-change marks), never fields, and a match inside a field is
+  refused. A duplicated slide refuses when the slide uses anything from outside the file other than a plain hyperlink
+  (a linked picture would be fetched again), as well as charts, objects and media. Fields and links already in the
+  person's own file stay as they are: it is their file, changed in place, as `copy_files` would keep them. Templates
+  for make_file are checked separately (docs/decisions/20261118-any-file-template.md).
 - **Left for later:** tracked changes made by the AI, inserting sheet rows in the middle, pictures in Word, deleting or
   moving slides, older formats (.doc/.xls/.ppt, audit #9), shared chats with people (comment_docx is not there either,
   audit #22), guests.

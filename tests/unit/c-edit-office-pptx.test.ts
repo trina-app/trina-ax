@@ -10,7 +10,7 @@ import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { which } from '../../server/src/config'
 import { officeEditRequest, officeVerifyRequest, frame, unframe, Pkg, type EditReport } from '../../server/src/files/office-edit'
 import { imageInfo, pptxParagraphTexts } from '../../server/src/files/pptx-edit'
-import { readZip } from '../../server/src/files/zip-write'
+import { readZip, writeZip } from '../../server/src/files/zip-write'
 import { readCentral, entryData } from '../../server/src/files/zip-guard'
 
 setDefaultTimeout(60_000)
@@ -110,6 +110,12 @@ describe('edit_office: PowerPoint decks', () => {
     const copyRels = report.added.find((n) => n.endsWith('.xml.rels'))!
     expect(part(file, copyRels)).not.toContain('notesSlide')
     expect(() => run(before, [{ add_slide: { layout: 'Nope' } }])).toThrow(/its layouts: .*Title and Content/)
+    // a slide with a picture linked from outside the file is not copied (QA TC-4948)
+    const link = '<Relationship Id="rIdL1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="http://evil.example/x.png" TargetMode="External"/>'
+    const linked = writeZip(readZip(before).map((e) => (/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(e.name) ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('</Relationships>', `${link}</Relationships>`)) } : e)))
+    expect(() => run(linked, [{ duplicate_slide: { slide: 2 } }])).toThrow(/image from outside the file/)
+    // a plain hyperlink goes along
+    expect(() => run(writeZip(readZip(before).map((e) => (/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(e.name) ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('</Relationships>', `${link.replace('/image"', '/hyperlink"')}</Relationships>`)) } : e))), [{ duplicate_slide: { slide: 2 } }])).not.toThrow()
     if (soffice) { const o = inOffice(file); expect(o.pages).toBe(5); if (o.text) expect(o.text).toContain('Budget') }
   })
 
