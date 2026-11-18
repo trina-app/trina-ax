@@ -44,4 +44,7 @@ the Docker suite (`bun run tests/linux/srt-run.ts`, colima).
 
 ## Result
 
-Built as planned.
+Built as planned, then changed after the security review of the first version: the one-time scan of repository
+configs before a run (bypassed by one-line sections, .git links, bare repositories, unlisted keys, its depth limits
+and settings written after the start) is replaced by a git wrapper first on the run's PATH that asks the real git on
+every call; safe.bareRepository=explicit joins the environment; a project folder's runs get a home of their own.

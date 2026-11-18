@@ -1,19 +1,21 @@
 // Git in a run (QA TC-4939). A project folder is writable by every member's runs, and srt write-protects .git/hooks and
-// .git/config only when .git is there as a run starts: a run that makes the repository (git init, git clone, also in a
-// sub-folder) can write its hooks and config, and a later run of another member that runs git there ran them (a
-// pre-commit hook, a filter driver), with that member's access and home. Two parts:
+// .git/config only when .git is there as a run starts: a run that makes a repository (git init, git clone, a bare
+// repository, in any sub-folder) can write its hooks and config, and a later git command of another member there ran
+// them (a pre-commit hook, a filter or diff driver), with that member's access and home. Three parts:
 //   - gitEnv (in every run's environment, srt/config.ts runEnv): git never runs a repository's hooks
-//     (core.hooksPath=/dev/null), its fsmonitor, a credential helper, a pager, an editor or an askpass program, and
-//     reads no global config from the run's home; npm and Python read nothing from the home either. Command-line
-//     config (GIT_CONFIG_COUNT) wins over a repository's own config.
-//   - gitConfigProblems (before every run, srt/runner.ts settingsFor): what the environment cannot switch off is a
-//     repository config that names a program by its own name (a filter, diff or merge driver, an include, a remote's
-//     upload-pack, core.sshCommand, gpg, a "!" alias). A run does not start while a repository in or above its folder
-//     has one; the person is told to remove it (fail closed). Ancestors count too: git looks for a repository upward.
-// Left as they are (a command runs the project's own code on purpose): package.json scripts, a project .npmrc, a
-// Makefile, a Python file. See docs/decisions/20261118-devenv-git-hooks.md.
-import fs from 'node:fs'
-import path from 'node:path'
+//     (core.hooksPath=/dev/null), its fsmonitor, a credential helper, a pager, an editor or an askpass program, uses no
+//     bare repository it was not pointed at (safe.bareRepository=explicit), and reads no global config from the run's
+//     home; npm, pip and Python read nothing from the home either. Command-line config (GIT_CONFIG_COUNT) wins over a
+//     repository's own config. These hold for every git, also one called by its full path.
+//   - the git wrapper (gitWrapperSource, first on the run's PATH as <base>/devenv/bin/git, server-owned and read-only in
+//     the run): on EVERY call it asks the real git for the repository's own config (local and worktree scope, includes
+//     followed, through .git links, gitdir: files and bare repositories: git's own parser) and the config of its
+//     submodules, and refuses the call when a setting names a program (dangerousGitSetting). So a setting written by
+//     another member's job after a run started is seen too.
+//   - Limits refuse: a submodule tree too deep or too wide stops the call.
+// Not covered: a command that calls git by its full path (/usr/bin/git) skips the wrapper (the environment's settings
+// still hold); git's own sub-processes (a recursing checkout) read the submodules' config without the wrapper, which
+// checked them before. See docs/decisions/20261118-devenv-git-hooks.md.
 
 /** git, npm and Python settings of every run: nothing from a repository or the home runs by itself. */
 export function gitEnv(): Record<string, string> {
@@ -25,6 +27,8 @@ export function gitEnv(): Record<string, string> {
     ['commit.gpgSign', 'false'],
     ['tag.gpgSign', 'false'],
     ['protocol.ext.allow', 'never'],
+    // a bare repository planted in a folder is used only when a command names it (--git-dir)
+    ['safe.bareRepository', 'explicit'],
   ]
   const out: Record<string, string> = { GIT_CONFIG_COUNT: String(cfg.length) }
   cfg.forEach(([k, v], i) => { out[`GIT_CONFIG_KEY_${i}`] = k; out[`GIT_CONFIG_VALUE_${i}`] = v })
@@ -39,89 +43,119 @@ export function gitEnv(): Record<string, string> {
   }
 }
 
-/** Does this git config text name a program the environment cannot switch off? The names of what it found. */
-export function dangerousGitConfig(text: string): string[] {
-  const found = new Set<string>()
-  let section = '', sub: string | null = null
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#') || line.startsWith(';')) continue
-    const head = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\]/.exec(line)
-    if (head) {
-      const parts = head[1]!.toLowerCase().split('.')
-      section = parts[0]!
-      sub = head[2] ?? (parts.length > 1 ? parts.slice(1).join('.') : null)
-      if (section === 'include' || section === 'includeif') found.add(section)
-      if (section === 'filter') found.add('filter')
-      if (section === 'gpg') found.add('gpg')
-      continue
-    }
-    const key = (/^([A-Za-z][A-Za-z0-9-]*)\s*(=|$)/.exec(line)?.[1] ?? '').toLowerCase()
-    const value = line.includes('=') ? line.slice(line.indexOf('=') + 1).trim() : ''
-    if (!key) continue
-    if (section === 'diff' && sub !== null && (key === 'command' || key === 'textconv')) found.add(`diff.${key}`)
-    if (section === 'diff' && sub === null && key === 'external') found.add('diff.external')
-    if (section === 'merge' && sub !== null && key === 'driver') found.add('merge.driver')
-    if (section === 'core' && (key === 'sshcommand' || key === 'gitproxy')) found.add(`core.${key}`)
-    if (section === 'remote' && (key === 'uploadpack' || key === 'receivepack')) found.add(`remote.${key}`)
-    if (section === 'alias' && /^"?!/.test(value)) found.add('alias')
-  }
-  return [...found]
+/**
+ * Does a setting of a repository's own config (key as git prints it, lower case except subsections) name a program
+ * that git would run? The name of the rule, or null. The settings the environment wins over (core.hooksPath,
+ * core.pager, core.editor, sequence.editor, core.askPass) are not counted; a non-boolean core.fsmonitor is.
+ */
+export function dangerousGitSetting(key: string, value: string): string | null {
+  const k = key.toLowerCase()
+  const parts = k.split('.')
+  const section = parts[0]!, last = parts[parts.length - 1]!
+  const sub = parts.length > 2
+  const bang = /^\s*!/.test(value)
+  if (section === 'filter') return 'filter'
+  if (section === 'diff' && sub && (last === 'textconv' || last === 'command')) return `diff.${last}`
+  if (k === 'diff.external') return 'diff.external'
+  if (section === 'merge' && sub && last === 'driver') return 'merge.driver'
+  if ((section === 'difftool' || section === 'mergetool') && sub && last === 'cmd') return `${section}.cmd`
+  if (k === 'core.sshcommand' || k === 'core.gitproxy' || k === 'core.alternaterefscommand') return k
+  if (k === 'core.fsmonitor' && !/^(true|false|yes|no|on|off|1|0)?$/i.test(value.trim())) return k
+  if (section === 'remote' && sub && (last === 'uploadpack' || last === 'receivepack')) return `remote.${last}`
+  if (section === 'gpg') return 'gpg'
+  if (section === 'credential' && last === 'helper' && value.trim() !== '') return 'credential.helper'
+  if (section === 'alias' && bang) return 'alias'
+  if (section === 'submodule' && sub && last === 'update' && bang) return 'submodule.update'
+  if (section === 'pager' && !/^(true|false|yes|no|on|off|1|0)?$/i.test(value.trim())) return 'pager'
+  if (k === 'interactive.difffilter') return k
+  if (section === 'trailer' && sub && (last === 'command' || last === 'cmd')) return 'trailer.command'
+  if (section === 'sendemail' && /smtpserver$/.test(last)) return 'sendemail.smtpserver'
+  if ((section === 'browser' || section === 'man') && sub && (last === 'cmd' || last === 'path')) return `${section}.cmd`
+  if (k === 'web.browser' || k === 'help.browser' || k === 'instaweb.httpd') return k
+  return null
 }
 
-const MAX_DEPTH = 8, MAX_ENTRIES = 50_000
-const SKIP = new Set(['node_modules', '.venv', 'venv', '__pycache__'])
-
-/** The config files of the repository that `dotGit` (a .git folder, or a .git file with "gitdir: …") stands for. */
-function configsOf(dotGit: string): string[] {
-  let dir = dotGit
-  try {
-    const st = fs.lstatSync(dotGit)
-    if (st.isSymbolicLink()) return []
-    if (st.isFile()) {
-      const m = /^gitdir:\s*(.+)$/m.exec(fs.readFileSync(dotGit, 'utf8').slice(0, 4096))
-      if (!m) return []
-      dir = path.resolve(path.dirname(dotGit), m[1]!.trim())
-    }
-  } catch { return [] }
-  const out = [path.join(dir, 'config'), path.join(dir, 'config.worktree')]
-  // a worktree's own folder names the repository's folder in commondir
-  try { out.push(path.join(path.resolve(dir, fs.readFileSync(path.join(dir, 'commondir'), 'utf8').trim()), 'config')) } catch {}
-  return out
-}
+/** The wrapper's limits: past them the call is refused (fail closed). */
+export const GIT_WRAPPER_LIMITS = { submodules: 200, depth: 8 }
 
 /**
- * The repositories in `root` (to MAX_DEPTH, not in node_modules or a virtualenv) and above it up to `top` whose config
- * names a program (dangerousGitConfig), as paths relative to `top` (or to `root` outside it) with what was found.
+ * The source of the git wrapper: a script for `node` (its absolute path, first line) that checks the repository of
+ * this call and then runs `realGit` with the same arguments, or refuses (exit 128, a line on stderr). The setting rules
+ * are dangerousGitSetting's, copied in as source.
  */
-export function gitConfigProblems(root: string, top: string): { repo: string; found: string[] }[] {
-  const out: { repo: string; found: string[] }[] = []
-  const rel = (p: string) => { const r = path.relative(p.startsWith(top + path.sep) || p === top ? top : root, p); return r === '' ? '.' : r }
-  const check = (dotGit: string) => {
-    const found = new Set<string>()
-    for (const f of configsOf(dotGit)) {
-      let text = ''
-      try { const st = fs.statSync(f); if (!st.isFile() || st.size > 1 << 20) { if (st.size > 1 << 20) found.add('too large'); continue } text = fs.readFileSync(f, 'utf8') } catch { continue }
-      for (const x of dangerousGitConfig(text)) found.add(x)
-    }
-    if (found.size) out.push({ repo: rel(path.dirname(dotGit)), found: [...found] })
+export function gitWrapperSource(o: { node: string; realGit: string }): string {
+  return `#!${o.node}
+// the dev environment's git guard (server/src/devenv/srt/git-guard.ts, generated): refuses a call when the repository's own config
+// names a program that git would run. Do not edit: the server writes this file again.
+'use strict'
+const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
+const path = require('node:path')
+const REAL = ${JSON.stringify(o.realGit)}
+const LIMITS = ${JSON.stringify(GIT_WRAPPER_LIMITS)}
+const dangerous = ${dangerousGitSetting.toString()}
+const args = process.argv.slice(2)
+// the global options before the command that say which repository this call is about
+const WITH_VALUE = new Set(['-C', '--git-dir', '--work-tree', '--namespace'])
+const where = []
+for (let i = 0; i < args.length; i++) {
+  const a = args[i]
+  if (!a.startsWith('-')) break
+  if (WITH_VALUE.has(a)) { where.push(a, args[i + 1] ?? ''); i++; continue }
+  if (/^--(git-dir|work-tree|namespace)=/.test(a) || a === '--bare') { where.push(a); continue }
+  if (a === '-c' || a === '--config-env') { i++; continue }
+}
+const run = (extra) => spawnSync(REAL, [...where, ...extra], { encoding: 'utf8', maxBuffer: 64 << 20 })
+const refuse = (why) => { process.stderr.write('git was refused: ' + why + '. The repository\\'s settings would run a program by themselves. Tell the person: someone who can open the folder must remove them from its .git/config in Files.\\n'); process.exit(128) }
+/** settings of one config listing (--null: [scope NUL] key LF value NUL) */
+const check = (out, scoped, at) => {
+  const f = out.split('\\0')
+  for (let i = 0; i < f.length; i++) {
+    let scope = 'local', kv = f[i]
+    if (scoped) { scope = f[i]; kv = f[++i] ?? '' }
+    if (!kv) continue
+    if (scope !== 'local' && scope !== 'worktree') continue
+    const nl = kv.indexOf('\\n')
+    const key = nl < 0 ? kv : kv.slice(0, nl), value = nl < 0 ? '' : kv.slice(nl + 1)
+    const d = dangerous(key, value)
+    if (d) refuse(d + ' (' + key + ')' + (at ? ' in ' + at : ''))
   }
-  // above the run's folder, up to the team folder (git looks upward for a repository)
-  for (let d = path.dirname(root); d.startsWith(top) && d !== path.dirname(top); d = path.dirname(d)) {
-    check(path.join(d, '.git'))
-    if (d === top) break
-  }
+}
+const listed = run(['config', '--list', '--show-scope', '--null', '--includes'])
+// not in a repository (or a config git cannot read: then git refuses the call itself)
+if (listed.status === 0) {
+  check(listed.stdout, true, '')
+  // submodules: their own config, absorbed ones in <common dir>/modules, the others in their folders
+  const common = run(['rev-parse', '--path-format=absolute', '--git-common-dir'])
   let seen = 0
-  const walk = (dir: string, depth: number) => {
-    let entries: fs.Dirent[]
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
-    for (const e of entries) {
-      if (++seen > MAX_ENTRIES) return
-      const p = path.join(dir, e.name)
-      if (e.name === '.git') { check(p); continue }
-      if (e.isDirectory() && !e.isSymbolicLink() && depth < MAX_DEPTH && !SKIP.has(e.name)) walk(p, depth + 1)
+  const walk = (dir, depth) => {
+    if (depth > LIMITS.depth) refuse('submodules nested too deep to check')
+    let names = []
+    try { names = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
+    if (names.some((e) => e.name === 'config' && e.isFile()) && names.some((e) => e.name === 'HEAD')) {
+      if (++seen > LIMITS.submodules) refuse('too many submodules to check')
+      const r = spawnSync(REAL, ['config', '--file', path.join(dir, 'config'), '--list', '--null'], { encoding: 'utf8' })
+      if (r.status === 0) check(r.stdout, false, 'a submodule')
+      else refuse('a submodule\\'s config could not be read')
+    }
+    for (const e of names) if (e.isDirectory() && !e.isSymbolicLink() && e.name !== 'objects' && e.name !== 'refs' && e.name !== 'logs') walk(path.join(dir, e.name), depth + 1)
+  }
+  if (common.status === 0) walk(path.join(common.stdout.trim(), 'modules'), 0)
+  const top = run(['rev-parse', '--show-toplevel'])
+  if (top.status === 0 && fs.existsSync(path.join(top.stdout.trim(), '.gitmodules'))) {
+    const ls = run(['ls-files', '--stage', '-z'])
+    for (const line of (ls.stdout || '').split('\\0')) {
+      if (!line.startsWith('160000 ')) continue
+      const p = path.join(top.stdout.trim(), line.slice(line.indexOf('\\t') + 1))
+      if (!fs.existsSync(path.join(p, '.git'))) continue
+      if (++seen > LIMITS.submodules) refuse('too many submodules to check')
+      const r = spawnSync(REAL, ['-C', p, 'config', '--list', '--show-scope', '--null', '--includes'], { encoding: 'utf8' })
+      if (r.status === 0) check(r.stdout, true, 'a submodule')
     }
   }
-  walk(root, 0)
-  return out
+}
+const r = spawnSync(REAL, args, { stdio: 'inherit' })
+if (r.error) { process.stderr.write('git: ' + r.error.message + '\\n'); process.exit(127) }
+process.exit(r.status ?? (r.signal ? 128 + 1 : 1))
+`
 }

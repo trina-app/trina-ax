@@ -155,8 +155,9 @@ Q0 is answered (owner, 2026-11-04): option (b), built in `srt/access.ts` (0.2). 
   cannot write (attack A28, A28b). The project folder itself stays shared among the people who may write it. That is
   the purpose of a project, the change window records each change there (who, which command), and srt's fixed denies
   (`.git/hooks`, `.git/config`, `.bashrc`, ...) hold in the starting folder. Those denies hold only for a `.git` that exists as a run starts
-  (QA TC-4939): since 2026-11-18 every run's git runs no repository hook and reads no global config, and a repository
-  whose config names a program stops the run (`docs/decisions/20261118-devenv-git-hooks.md`).
+  (QA TC-4939): since 2026-11-18 every run's git runs no repository hook and reads no global config, a git wrapper
+  refuses a call when the repository's settings name a program, and a project folder's runs have a home of their own
+  (`docs/decisions/20261118-devenv-git-hooks.md`).
 - **Data can leave through the allowed sites** (review, 2026-11-04). GitHub, npm and PyPI accept uploads. A prompt
   injection can give the AI a token of the attacker and have it `git push` or `npm publish` every file the person may
   read. The allowlist stops unknown hosts only. The warning text must say this.

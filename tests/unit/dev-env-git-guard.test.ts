@@ -1,75 +1,160 @@
 // Git in a run (QA TC-4939): a member's run that made a repository in the project folder could plant a hook or a
 // config program there, and another member's later git command ran it with that member's access and home. The fix
-// (server/src/devenv/srt/git-guard.ts): every run's environment switches off repository hooks and the programs git
-// takes from config where it can; a repository whose config names a program by its own name stops the run. The real
-// srt case is G1-G3 in tests/linux/srt-attack.ts.
+// (server/src/devenv/srt/git-guard.ts): every run's environment switches off repository hooks and what git takes from
+// config where it can, and a git wrapper first on the run's PATH asks the real git for the repository's settings on
+// every call and refuses one that names a program. Each bypass of the first version (review of #1297) is a case here
+// and in tests/linux/srt-attack.ts (G5-G11). Real git of this machine; the wrapper runs under node (or bun).
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { dangerousGitConfig, gitConfigProblems, gitEnv } from '../../server/src/devenv/srt/git-guard'
-import { runEnv } from '../../server/src/devenv/srt/config'
+import { dangerousGitSetting, gitEnv, gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { personHome, projectHome, runEnv } from '../../server/src/devenv/srt/config'
 
-const tmp = (p: string) => fs.mkdtempSync(path.join(os.tmpdir(), p))
-const git = (cwd: string, args: string[], env: Record<string, string>) => Bun.spawnSync(['git', ...args], { cwd, env: { PATH: process.env.PATH!, HOME: env.HOME ?? cwd, ...env } })
+const tmp = (p: string) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)))
+const which = (b: string) => new TextDecoder().decode(Bun.spawnSync(['/usr/bin/which', b]).stdout).trim()
+const REAL = which('git'), NODE = which('node') || process.execPath
+const BIN = tmp('gg-bin-')
+fs.writeFileSync(path.join(BIN, 'git'), gitWrapperSource({ node: NODE, realGit: REAL }), { mode: 0o755 })
+const dec = (b: Uint8Array) => new TextDecoder().decode(b)
+/** git as a run calls it: the wrapper first on PATH, the run's git settings */
+function runGit(cwd: string, args: string[], home: string) {
+  const r = Bun.spawnSync(['git', ...args], { cwd, env: { PATH: `${BIN}:${process.env.PATH}`, HOME: home, ...gitEnv() } })
+  return { code: r.exitCode, out: dec(r.stdout) + dec(r.stderr) }
+}
+/** the real git with no settings of ours: shows that a planted case really runs */
+const plainGit = (cwd: string, args: string[], home: string) => Bun.spawnSync([REAL, ...args], { cwd, env: { PATH: process.env.PATH!, HOME: home } })
+const COMMIT = ['-c', 'user.name=a', '-c', 'user.email=a@example.com', 'commit', '-q', '--allow-empty', '-m', 'x']
+function repo() {
+  const d = tmp('gg-repo-'), home = tmp('gg-home-')
+  plainGit(d, ['init', '-q'], home)
+  return { d, home, mark: path.join(home, 'RAN') }
+}
+const evil = (mark: string) => { const f = path.join(path.dirname(mark), 'evil.sh'); fs.writeFileSync(f, `#!/bin/sh\ntouch ${mark}\ncat\n`, { mode: 0o755 }); return f }
 
-describe('a repository hook never runs in a run', () => {
-  test('a planted pre-commit hook: plain git runs it, a run\'s environment does not', () => {
-    const d = tmp('gg-hook-'), home = tmp('gg-home-')
-    expect(git(d, ['init', '-q'], { HOME: home }).exitCode).toBe(0)
-    fs.writeFileSync(path.join(d, '.git/hooks/pre-commit'), `#!/bin/sh\ntouch "${home}/HOOK-RAN"\n`, { mode: 0o755 })
-    const commit = ['-c', 'user.name=a', '-c', 'user.email=a@example.com', 'commit', '-q', '--allow-empty', '-m', 'x']
-    // the hook works (so the test means something) ...
-    git(d, commit, { HOME: home })
-    expect(fs.existsSync(path.join(home, 'HOOK-RAN'))).toBe(true)
-    fs.rmSync(path.join(home, 'HOOK-RAN'))
-    // ... and not with a run's environment
-    const env = runEnv({ base: '/var/lib/mycel', userId: 'alice', teamRoot: '/var/lib/mycel/team', work: null, platform: 'linux' })
-    const r = git(d, commit, { ...gitEnv(), HOME: home, GIT_CONFIG_PARAMETERS: "'http.proxyAuthMethod=basic'" })
-    expect(r.exitCode).toBe(0)
-    expect(fs.existsSync(path.join(home, 'HOOK-RAN'))).toBe(false)
-    expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath')
-    expect(env.GIT_CONFIG_VALUE_0).toBe('/dev/null')
+describe('the environment of every run', () => {
+  test('a planted pre-commit hook: plain git runs it, a run\'s git does not (the repro)', () => {
+    const { d, home, mark } = repo()
+    fs.writeFileSync(path.join(d, '.git/hooks/pre-commit'), `#!/bin/sh\ntouch ${mark}\n`, { mode: 0o755 })
+    plainGit(d, COMMIT, home)
+    expect(fs.existsSync(mark)).toBe(true)
+    fs.rmSync(mark)
+    expect(runGit(d, COMMIT, home).code).toBe(0)
+    expect(fs.existsSync(mark)).toBe(false)
   })
-  test('a ~/.gitconfig in the run\'s home is not read', () => {
-    const d = tmp('gg-glob-'), home = tmp('gg-home2-')
-    git(d, ['init', '-q'], { HOME: home })
+  test('a ~/.gitconfig in the run\'s home is not read; npm, pip and Python read nothing from it; no bare repository by itself', () => {
+    const { d, home } = repo()
     fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = PLANTED\n')
-    expect(new TextDecoder().decode(git(d, ['config', 'user.name'], { HOME: home }).stdout)).toContain('PLANTED')
-    expect(new TextDecoder().decode(git(d, ['config', 'user.name'], { ...gitEnv(), HOME: home }).stdout)).not.toContain('PLANTED')
-  })
-  test('npm, pip and Python read nothing from the home', () => {
+    expect(dec(plainGit(d, ['config', 'user.name'], home).stdout)).toContain('PLANTED')
+    expect(runGit(d, ['config', 'user.name'], home).out).not.toContain('PLANTED')
     expect(gitEnv()).toMatchObject({ NPM_CONFIG_USERCONFIG: '/dev/null', PIP_CONFIG_FILE: '/dev/null', PYTHONNOUSERSITE: '1', GIT_CONFIG_GLOBAL: '/dev/null' })
+    const e = gitEnv()
+    const pairs = Array.from({ length: Number(e.GIT_CONFIG_COUNT) }, (_, i) => `${e[`GIT_CONFIG_KEY_${i}`]}=${e[`GIT_CONFIG_VALUE_${i}`]}`)
+    expect(pairs).toEqual(expect.arrayContaining(['core.hooksPath=/dev/null', 'safe.bareRepository=explicit', 'credential.helper=']))
+  })
+  test('the wrapper is first on a run\'s PATH', () => {
+    const env = runEnv({ base: '/var/lib/mycel', userId: 'alice', teamRoot: '/var/lib/mycel/team', work: null, platform: 'linux' })
+    expect(env.PATH.split(':')[0]).toBe('/var/lib/mycel/devenv/bin')
   })
 })
 
-describe('a repository config that names a program stops the run', () => {
-  test('what counts', () => {
-    expect(dangerousGitConfig('[filter "x"]\n\tclean = evil\n')).toEqual(['filter'])
-    expect(dangerousGitConfig('[diff "x"]\n\ttextconv = evil\n[diff]\n\texternal = evil\n').sort()).toEqual(['diff.external', 'diff.textconv'])
-    expect(dangerousGitConfig('[merge "x"]\n\tdriver = evil %A\n')).toEqual(['merge.driver'])
-    expect(dangerousGitConfig('[include]\n\tpath = ../../x\n[includeIf "gitdir:/"]\n\tpath = y\n').sort()).toEqual(['include', 'includeif'])
-    expect(dangerousGitConfig('[core]\n\tsshCommand = evil\n')).toEqual(['core.sshcommand'])
-    expect(dangerousGitConfig('[remote "o"]\n\turl = x\n\tuploadpack = evil\n')).toEqual(['remote.uploadpack'])
-    expect(dangerousGitConfig('[alias]\n\tst = !evil\n\tco = checkout\n')).toEqual(['alias'])
-    expect(dangerousGitConfig('[gpg]\n\tprogram = evil\n')).toEqual(['gpg'])
-    // an ordinary repository: nothing (the switches the environment wins over are not counted)
-    expect(dangerousGitConfig('[core]\n\trepositoryformatversion = 0\n\tfilemode = true\n\thooksPath = x\n\teditor = vim\n[remote "origin"]\n\turl = https://github.com/a/b\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n[branch "main"]\n\tremote = origin\n')).toEqual([])
+describe('the git wrapper refuses a repository whose settings name a program (review of #1297)', () => {
+  const refused = (r: { code: number | null; out: string }, what: string) => {
+    expect(r.code).toBe(128)
+    expect(r.out).toContain('git was refused')
+    expect(r.out).toContain(what)
+  }
+  test('G5: a section header and its setting on one line', () => {
+    const { d, home, mark } = repo()
+    fs.appendFileSync(path.join(d, '.git/config'), `[diff "x"] textconv = ${evil(mark)}\n`)
+    fs.writeFileSync(path.join(d, 'a.txt'), 'one\n'); fs.writeFileSync(path.join(d, '.gitattributes'), '*.txt diff=x\n')
+    plainGit(d, ['add', '.'], home); plainGit(d, COMMIT, home); fs.writeFileSync(path.join(d, 'a.txt'), 'two\n')
+    plainGit(d, ['diff'], home)
+    expect(fs.existsSync(mark)).toBe(true) // git reads it: the case is real
+    fs.rmSync(mark)
+    refused(runGit(d, ['diff'], home), 'diff.textconv')
+    expect(fs.existsSync(mark)).toBe(false)
   })
-  test('found in the folder, in a sub-folder, through a .git file and above the folder; not in node_modules', () => {
-    const top = tmp('gg-team-'), root = path.join(top, 'projects/one')
-    const repo = (dir: string, cfg: string) => { fs.mkdirSync(path.join(dir, '.git'), { recursive: true }); fs.writeFileSync(path.join(dir, '.git/config'), cfg) }
-    fs.mkdirSync(root, { recursive: true })
-    expect(gitConfigProblems(root, top)).toEqual([])
-    repo(root, '[core]\n\tbare = false\n')
-    expect(gitConfigProblems(root, top)).toEqual([])
-    repo(path.join(root, 'a/b'), '[filter "x"]\n\tsmudge = evil\n')
-    // a worktree-style .git file pointing at a repository elsewhere in the folder
-    fs.mkdirSync(path.join(root, 'w'), { recursive: true }); repo(path.join(root, 'hidden-repo'), '[diff "d"]\n\tcommand = evil\n')
-    fs.renameSync(path.join(root, 'hidden-repo/.git'), path.join(root, 'hidden-repo/gitdir')); fs.writeFileSync(path.join(root, 'w/.git'), 'gitdir: ../hidden-repo/gitdir\n')
-    repo(path.join(top, 'projects'), '[include]\n\tpath = x\n')
-    repo(path.join(root, 'node_modules/pkg'), '[filter "x"]\n\tclean = evil\n')
-    const got = gitConfigProblems(root, top).map((g) => g.repo).sort()
-    expect(got).toEqual(['projects', 'projects/one/a/b', 'projects/one/w'])
+  test('G6: .git is a link to a repository elsewhere', () => {
+    const { d: real, home, mark } = repo()
+    fs.appendFileSync(path.join(real, '.git/config'), `[filter "f"]\n\tclean = ${evil(mark)}\n`)
+    const d = tmp('gg-link-'); fs.symlinkSync(path.join(real, '.git'), path.join(d, '.git'))
+    refused(runGit(d, ['status'], home), 'filter')
+  })
+  test('G7: a bare repository folder: not used by itself, and refused when named', () => {
+    const d = tmp('gg-bare-'), home = tmp('gg-home-')
+    plainGit(d, ['init', '-q', '--bare', 'b.git'], home)
+    fs.appendFileSync(path.join(d, 'b.git/config'), '[core]\n\talternateRefsCommand = /bin/true\n')
+    const inside = runGit(path.join(d, 'b.git'), ['log'], home)
+    expect(inside.code).not.toBe(0)
+    refused(runGit(d, ['--git-dir=b.git', 'log'], home), 'core.alternaterefscommand')
+  })
+  test('G8: submodule.<name>.update = !command', () => {
+    const { d, home } = repo()
+    fs.appendFileSync(path.join(d, '.git/config'), '[submodule "s"]\n\tupdate = !touch /tmp/x\n')
+    refused(runGit(d, ['status'], home), 'submodule.update')
+  })
+  test('G9: core.alternateRefsCommand, a "!" alias, a credential helper, an include that brings a filter', () => {
+    for (const [cfg, what] of [['[core]\n\talternateRefsCommand = /bin/true\n', 'core.alternaterefscommand'], ['[alias]\n\tst = !touch /tmp/x\n', 'alias'], ['[credential]\n\thelper = !touch /tmp/x\n', 'credential.helper']] as const) {
+      const { d, home } = repo()
+      fs.appendFileSync(path.join(d, '.git/config'), cfg)
+      refused(runGit(d, ['status'], home), what)
+    }
+    const { d, home } = repo()
+    fs.writeFileSync(path.join(d, 'inc.cfg'), '[filter "f"]\n\tsmudge = /bin/true\n')
+    fs.appendFileSync(path.join(d, '.git/config'), '[include]\n\tpath = ../inc.cfg\n')
+    refused(runGit(d, ['status'], home), 'filter')
+  })
+  test('G10: no depth limit: a repository planted twelve folders down is checked when git is used there; an absorbed submodule\'s config too', () => {
+    const top = tmp('gg-deep-'), home = tmp('gg-home-')
+    const deep = path.join(top, ...Array.from({ length: 12 }, (_, i) => `d${i}`))
+    fs.mkdirSync(deep, { recursive: true })
+    plainGit(deep, ['init', '-q'], home)
+    fs.appendFileSync(path.join(deep, '.git/config'), '[filter "f"]\n\tclean = /bin/true\n')
+    refused(runGit(deep, ['status'], home), 'filter')
+    const { d } = repo()
+    fs.mkdirSync(path.join(d, '.git/modules/sub'), { recursive: true })
+    fs.writeFileSync(path.join(d, '.git/modules/sub/HEAD'), 'ref: refs/heads/main\n')
+    fs.writeFileSync(path.join(d, '.git/modules/sub/config'), '[filter "f"]\n\tclean = /bin/true\n')
+    refused(runGit(d, ['status'], home), 'a submodule')
+  })
+  test('G11: a setting written after the run started is seen at the next call', () => {
+    const { d, home } = repo()
+    expect(runGit(d, ['status'], home).code).toBe(0)
+    fs.appendFileSync(path.join(d, '.git/config'), '[filter "f"]\n\tclean = /bin/true\n')
+    refused(runGit(d, ['status'], home), 'filter')
+  })
+  test('an ordinary repository and no repository at all: git runs as usual, with its exit code', () => {
+    const { d, home } = repo()
+    plainGit(d, ['remote', 'add', 'origin', 'https://github.com/a/b'], home)
+    expect(runGit(d, ['status', '--short'], home).code).toBe(0)
+    expect(runGit(d, COMMIT, home).code).toBe(0)
+    expect(runGit(tmp('gg-none-'), ['status'], home).code).toBe(128)
+    expect(runGit(d, ['no-such-command'], home).code).toBe(1)
+  })
+})
+
+describe('what counts', () => {
+  test('dangerousGitSetting', () => {
+    const yes: [string, string][] = [['filter.x.clean', 'a'], ['diff.x.textconv', 'a'], ['diff.x.command', 'a'], ['diff.external', 'a'], ['merge.x.driver', 'a'],
+      ['difftool.x.cmd', 'a'], ['core.sshcommand', 'a'], ['core.gitproxy', 'a'], ['core.alternaterefscommand', 'a'], ['core.fsmonitor', '/x'], ['remote.o.uploadpack', 'a'],
+      ['gpg.program', 'a'], ['credential.https://x.helper', 'store'], ['alias.st', '!x'], ['submodule.s.update', '!x'], ['pager.log', 'less -R'], ['interactive.difffilter', 'a'], ['trailer.x.command', 'a']]
+    for (const [k, v] of yes) expect({ k, d: !!dangerousGitSetting(k, v) }).toEqual({ k, d: true })
+    const no: [string, string][] = [['core.hookspath', 'x'], ['core.editor', 'vim'], ['core.fsmonitor', 'true'], ['alias.co', 'checkout'], ['submodule.s.update', 'rebase'], ['pager.log', 'false'],
+      ['remote.origin.url', 'https://github.com/a/b'], ['credential.helper', ''], ['diff.renames', 'true'], ['user.name', 'a']]
+    for (const [k, v] of no) expect({ k, d: dangerousGitSetting(k, v) }).toEqual({ k, d: null })
+  })
+})
+
+describe('a project folder\'s runs have a home of their own (review of #1297)', () => {
+  test('per person and folder, never the home of the person\'s own chats', () => {
+    const base = '/var/lib/mycel', o = { base, userId: 'alice', teamRoot: `${base}/team`, work: null, platform: 'linux' as const }
+    const proj = runEnv({ ...o, projectFolder: 'projects/one' }).HOME
+    expect(proj).toBe(projectHome(base, 'alice', 'projects/one'))
+    expect(proj).not.toBe(personHome(base, 'alice'))
+    expect(proj.startsWith(personHome(base, 'alice'))).toBe(false)
+    expect(projectHome(base, 'alice', 'projects/two')).not.toBe(proj)
+    expect(projectHome(base, 'bob', 'projects/one')).not.toBe(proj)
+    expect(runEnv(o).HOME).toBe(personHome(base, 'alice'))
   })
 })

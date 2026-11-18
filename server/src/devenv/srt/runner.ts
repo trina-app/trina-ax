@@ -39,11 +39,11 @@ import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
-import { gitConfigProblems } from './git-guard'
+import { gitWrapperSource } from './git-guard'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -333,9 +333,24 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
 // ---------------- one run ----------------
 
 /** Whose home and logs a run uses: the shared chat's, or the person's. A shared run with no chat is refused. */
-function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId?: string): { userId: string; sharedChat: string | null; runId?: string } {
+function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared'> & { root?: string }, runId?: string, teamRoot?: string): { userId: string; sharedChat: string | null; runId?: string; projectFolder: string | null } {
   if (space.shared && !space.chatId) throw new Error('a run of a shared chat needs its chat')
-  return { userId: space.userId, sharedChat: space.shared ? space.chatId : null, ...(runId ? { runId } : {}) }
+  // a person's run that starts in a team folder (a project folder): a home of its own for that folder (config.ts
+  // projectHome; QA TC-4939), never the home of the person's own chats
+  const projectFolder = !space.shared && teamRoot && space.root && space.root.startsWith(teamRoot + path.sep) ? space.root.slice(teamRoot.length + 1) : null
+  return { userId: space.userId, sharedChat: space.shared ? space.chatId : null, ...(runId ? { runId } : {}), projectFolder }
+}
+
+/** The git wrapper (git-guard.ts) at <base>/devenv/bin/git, written when it is missing or differs. Server-owned and
+ * read-only in a run. */
+function writeGitWrapper(c: SrtConfig, platform: ReturnType<typeof runPlatform>) {
+  const dir = devenvPaths(c.base).bin, file = path.join(dir, 'git')
+  const src = gitWrapperSource({ node: SRT_PATHS.node, realGit: realGit(platform) })
+  try { if (fs.readFileSync(file, 'utf8') === src) return } catch {}
+  fs.mkdirSync(dir, { recursive: true, mode: 0o755 })
+  const tmp = `${file}.${process.pid}.${Date.now()}`
+  fs.writeFileSync(tmp, src, { mode: 0o755 })
+  fs.renameSync(tmp, file)
 }
 
 /** A shared chat's command ended: its own home and logs go (nothing of it reaches a later command). */
@@ -347,12 +362,13 @@ function dropSharedRun(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 's
 
 interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
 
-function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId: string) {
+function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'root'>, runId: string, teamRoot: string) {
   const p = devenvPaths(c.base)
-  for (const d of [p.root, p.run, p.home, p.logs]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
+  for (const d of [p.root, p.run, p.home, p.logs, p.homeProject]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
+  writeGitWrapper(c, runPlatform())
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
   // command: docs/decisions/20261118-devenv-shared-chats.md)
-  const o = runOwner(space, runId)
+  const o = runOwner(space, runId, teamRoot)
   if (o.sharedChat) for (const d of [p.chatHome, p.chatLogs, p.runTmp, path.join(p.chatHome, o.sharedChat), path.join(p.chatLogs, o.sharedChat)]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   const home = runHome(c.base, o), logs = runLogs(c.base, o)
   fs.mkdirSync(home, { recursive: true, mode: 0o700 })
@@ -416,21 +432,12 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const view = personView(ctx, space.userId, run, space.shared, scope)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
-  // a repository in or above the folder whose config names a program (a filter or diff driver, an include ...) that a
-  // git command here would run: no run until it is removed (QA TC-4939, git-guard.ts)
-  const git = gitConfigProblems(space.root, ctx.files.fx.root)
-  if (git.length) {
-    ctx.log?.warn?.('devenv: refused a run: git config names a program', { repos: git })
-    throw new Error(space.shared
-      ? 'a git repository in this folder has settings that would run a program by themselves (a filter, diff or merge driver, an include). Ask the person to remove them in a chat of their own'
-      : `a git repository has settings that would run a program by themselves: ${git.slice(0, 5).map((g) => `${g.repo} (${g.found.join(', ')})`).join('; ')}. Commands cannot change .git/config: tell the person that someone who can open that folder must remove those lines from its .git/config (or the .git folder) in Files, then try again`)
-  }
   const work = run.start === null ? space.root : null
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
   const input = {
-    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId,
+    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -451,7 +458,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
-  const p = prepare(c, s.space, s.runId)
+  const p = prepare(c, s.space, s.runId, ctx.files.fx.root)
   // the skill folders a run never writes are there while it lives, so srt mounts them read-only (placeholders.ts),
   // before the folder access is read
   let skills: string[] = []
@@ -469,7 +476,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
@@ -576,7 +583,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
   if (!slot.ok) return slot
   return withRootLock(o.space.root, async () => {
     const runId = newRunId()
-    const p = prepare(c, o.space, runId)
+    const p = prepare(c, o.space, runId, ctx.files.fx.root)
     const out = path.join(p.personLogs, `cmd-${runId}.out`), err = path.join(p.personLogs, `cmd-${runId}.err`), exitFile = path.join(p.personLogs, `${runId}.exit`)
     const started = Date.now()
     // the lists show this text to other people: the command with secrets hidden, as in a job's row
@@ -720,7 +727,7 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   const runId = newRunId()
   const log = logFile(c, row.user_id, row.name)
   const space = spaceOfRow(row)
-  prepare(c, space, runId)
+  prepare(c, space, runId, ctx.files.fx.root)
   rm(log)
   // from the view's making (spawnRun) until the row says running, the run counts as alive: a folder share added in
   // between would otherwise miss a run whose view lets it write there (alive.ts, files/folder-shares.ts)

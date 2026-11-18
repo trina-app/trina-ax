@@ -7,7 +7,7 @@ import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { _active, setSrtSystem } from '../../server/src/devenv/srt/runner'
-import { unitName } from '../../server/src/devenv/srt/config'
+import { personHome, projectHome, unitName } from '../../server/src/devenv/srt/config'
 import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { pollSrt } from '../../server/src/devenv/jobs'
@@ -89,23 +89,22 @@ describe('a running foreground command', () => {
   })
 })
 
-// QA TC-4939: a repository config that names a program stops the run; every run's git runs no repository hook
-describe('git in the project folder', () => {
-  test('a planted filter driver in the project\'s .git/config: no run, the reason named; without it the run has the git settings', async () => {
-    const dir = path.join(h.ctx.files.fx.root, P.folderPath, '.git')
-    fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, 'config'), '[filter "x"]\n\tclean = touch /tmp/evil\n')
-    try {
-      const r = out(await shell('alice', chatA).call({ command: 'echo hi' }))
-      expect(r).toContain('a git repository has settings that would run a program by themselves')
-      expect(r).toContain('filter')
-      expect(runs.size).toBe(0)
-    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+// QA TC-4939: every run's git runs no repository hook and goes through the git wrapper; a project folder's runs have a
+// home of their own (server/src/devenv/srt/git-guard.ts, config.ts projectHome)
+describe('git and the home in the project folder', () => {
+  test('the wrapper is written, read-only in the run and first on PATH; the run has the git settings; the project\'s own home', async () => {
     expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi')
-    const env = [...runs.values()].at(-1)!.spec.env
-    expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath')
-    expect(env.GIT_CONFIG_VALUE_0).toBe('/dev/null')
-    expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null')
+    const spec = [...runs.values()].at(-1)!.spec
+    const bin = path.join(base, 'devenv', 'bin')
+    expect(fs.readFileSync(path.join(bin, 'git'), 'utf8')).toContain("the dev environment's git guard")
+    expect(fs.statSync(path.join(bin, 'git')).mode & 0o111).not.toBe(0)
+    expect(spec.env.PATH!.split(':')[0]).toBe(bin)
+    expect(spec.env.GIT_CONFIG_KEY_0).toBe('core.hooksPath')
+    expect(spec.env.GIT_CONFIG_VALUE_0).toBe('/dev/null')
+    expect(spec.env.GIT_CONFIG_GLOBAL).toBe('/dev/null')
+    expect((spec.writable ?? []).some((w) => w === bin || w.startsWith(bin + '/'))).toBe(false)
+    // her project chat's run: a home for this project folder, not the home of her own chats
+    expect(spec.env.HOME).toBe(projectHome(base, 'alice', P.folderPath))
+    expect(spec.env.HOME).not.toBe(personHome(base, 'alice'))
   })
 })
-
