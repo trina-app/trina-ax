@@ -43,6 +43,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
@@ -347,7 +348,7 @@ export class MakeFile {
           // pptx: an explicit slide level, never pandoc's guess from the document shape (B-W24-1: one slide)
           if (shape) args.push(`--slide-level=${shape.level}`)
           if (a.template) {
-            const tpl = this.template(c, a.template, a.format, work)
+            const tpl = await this.template(c, a.template, a.format, work)
             sources.push(tpl.rel)
             args.push('--reference-doc', tpl.local)
           }
@@ -527,15 +528,20 @@ export class MakeFile {
     return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
 
-  private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
+  private async template(c: ToolCtx, tpl: string, format: string, work: string): Promise<{ local: string; rel: string }> {
     // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
+    // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
+    // fetches something, an external relationship or an embedded object would be in every new file, so the template
+    // is checked first in the office worker (files/office-template.ts, QA TC-4948), and the checked bytes are used
+    const bytes = readRegular(r.abs, 50 * 1024 * 1024, r.st).bytes
+    await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
     const local = freshName(work, 'template', format)
-    fs.copyFileSync(r.abs, path.join(work, local), fs.constants.COPYFILE_EXCL)
+    fs.writeFileSync(path.join(work, local), bytes, { flag: 'wx', mode: 0o600 })
     return { local, rel: r.rel }
   }
 
@@ -563,7 +569,9 @@ export class MakeFile {
     try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
   }
 
-  /** A .hwpx template the person can read: its bytes go to the office worker, which checks them as untrusted (files/hwpx-write.ts). */
+  /** A .hwpx template the person can read: its bytes go to the office worker, which checks them as untrusted (files/hwpx-write.ts).
+   * Only its header's style lists and its first section's page setup are used, never its text (so no field or link
+   * in it reaches the new file); scripts, OLE objects and addresses or paths in what is kept are refused there. */
   private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .hwpx file as the template`, 'is_folder')

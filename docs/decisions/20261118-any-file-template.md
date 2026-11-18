@@ -17,9 +17,19 @@
   wider-audience check of make_file applies: a template from a narrower folder saved where more people can read asks
   the person first in a chat, and is refused without a chat turn. `skills/` was never what kept another person's
   data out; folder rules and that check are.
+- **What a template may not hold (QA TC-4948):** pandoc copies a .docx / .pptx reference document's headers, footers,
+  settings, masters and layouts as they are, so before it runs the template is checked in the office worker
+  (`files/office-template.ts`) and refused, naming the reason, when it has a Word field that runs or fetches something
+  (DDE, DDEAUTO, INCLUDETEXT, INCLUDEPICTURE, INCLUDE, IMPORT, LINK, DATABASE, MACROBUTTON, ...; complex fields joined
+  across runs and simple ones, in any part under `word/`), a relationship to something outside the file other than a
+  plain hyperlink (an attached template, a linked picture, an OLE object, a frame, a subdocument), an embedded object or
+  control, or macros. Refused rather than stripped: the person learns which file is unsafe, and a cleaned copy would
+  silently differ from the template they named. Page numbers, dates and hyperlinks pass. A .hwpx template was already
+  safe here: only its header's style lists and its first section's page setup are used, never its text, and scripts,
+  OLE objects and addresses or paths in what is kept are refused (`files/hwpx-write.ts`).
 - **Guests:** they may use a file they can read (their project, their own folder); their tool text drops the
   `skills/` mention.
-- **Tests:** `c-tools` (a readable team document outside `skills/`, an unreadable one, a folder),
+- **Tests:** `sec-office-template` (each unsafe field, external and object relationship, macros, the tool path), `c-tools` (a readable team document outside `skills/`, an unreadable one, a folder),
   `c-make-file-hwpx` (the person's own .hwpx, someone else's own folder), `sec-make-file-images` (a template from a
   narrower team folder is a source), `b-guests-prompt` (the guest rewrite).
 - **Version impact:** patch.
