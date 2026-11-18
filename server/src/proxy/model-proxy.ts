@@ -67,6 +67,9 @@ export type ProxyTurnEvent =
   /** 'no_credit': an API key out of credit (held out); 'skip': refused for a reason that may not be the account's,
    * skipped in this turn only (nothing marked) */
   | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' | 'no_credit' | 'skip' }
+  /** the proxy itself refused a request (its forwarding rules, the peer check, a token for the other path): never the
+   * AI account's fault, so the turn does not switch accounts on the engine's error that follows */
+  | { type: 'refused'; reason: string }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
   /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
@@ -315,10 +318,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     // ChatGPT sign-in token (the engine's process passes the peer check, so the token has to say what it is for)
     if (row.family !== family) {
       refusedAudit(row, family === 'anthropic' ? 'not a Claude turn' : 'not a Codex turn', { path: path.slice(0, 120) })
+      o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'wrong_path' })
       return apiError(403, 'permission_error', `this token is not for the ${family === 'anthropic' ? 'Claude' : 'Codex'} path`)
     }
     if (o.peerCheck) {
-      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) {
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'peer' })
+        return apiError(403, 'permission_error', 'caller is not part of this turn')
+      }
     }
     return row
   }
@@ -349,6 +356,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: refused.slice(0, 200) })
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
       }
       // the lockdown of the turn's tools, for the main AI and every sub-agent alike: the answer stops (M1)

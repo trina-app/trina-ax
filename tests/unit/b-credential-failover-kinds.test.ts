@@ -196,6 +196,14 @@ describe('each kind of answer from the provider', () => {
       const c = (await h.api('dana').call(API.listCredentials, {})).items.find((x) => x.label === 'A')!
       expect(c.state).toBe('no_credit')
       expect(c.detail).toMatch(/크레딧/)
+      // Re-check after adding credit (the provider takes the key): the hold ends, never a bare limit left behind
+      modes[AKEY] = 'ok'
+      const checked = await h.api('dana').call(API.checkCredential, { params: { id: idOf('A') } })
+      expect(checked.state).toBe('ok')
+      const after = getRow(h.ctx.db, idOf('A'))!
+      expect([after.status_code, after.limited_until]).toEqual([null, null])
+      hits.length = 0
+      expect((await run()).content).toContain('answer by AKEY')
     } finally { setSetting(h.ctx.db, LIMIT_FALLBACK_KEY, false) }
   })
 })
@@ -226,10 +234,21 @@ describe('the turn-side skip', () => {
     }
   })
   test('two different accounts refused with a known 403 within minutes: this server\'s problem, the second is not marked', async () => {
-    // C3 got a known 403 a moment ago (above): C1's and C2's now count as server-wide
+    // its own first 403 (C1: marked when this test runs alone, only skipped after the C3 tests above), then C2's within
+    // the same minutes: C2 is never marked
     reset(); modes[T(1)] = '403plan'; modes[T(2)] = '403plan'
     const done = await run()
     expect(done.content).toContain('answer by TOK3')
-    unmarked('C1'); unmarked('C2')
+    expect(hits).toEqual([T(1), T(2), T(3)])
+    unmarked('C2')
+  })
+  test('the proxy\'s own refusal (its forwarding rules) with Claude Code\'s "Failed to authenticate" wording: the safety stop, no switch, nothing marked', async () => {
+    reset()
+    const done = await run({ model: 'hi', modelExtra: { mcp_servers: [{ type: 'url', url: 'https://mcp.example.com', name: 'x' }] }, cliAuthText: true })
+    expect(done.status).toBe('error')
+    expect(done.error?.params?.reason).toBe('lockdown')
+    expect(hits).toEqual([]) // nothing went to the model service
+    expect(done.steps.filter((s) => s.tool === 'engine').length).toBe(0)
+    for (const l of ['C1', 'C2', 'C3', 'C4']) unmarked(l)
   })
 })

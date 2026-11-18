@@ -21,8 +21,9 @@
     revoked): a Claude subscription account is marked refused with `plan_ended`; an API key with `upstream_403`.
   - Any other 403 from Anthropic (a region, an unexplained permission): the account is skipped for the rest of the turn.
     Nothing is marked, and the next turn tries it again.
-  - If two different accounts get an account-level 403 within 5 minutes, the cause is probably this server (its region or
-    IP), so nothing is marked and the accounts are only skipped.
+  - A burst of account-level 403s on different accounts is probably this server's problem (its region or IP): the first
+    account in the burst is marked, and any other account that gets one within 5 minutes of it is only skipped, not
+    marked.
   - 402 or 400 with `error.type` `billing_error`, or the exact phrase "credit balance is too low" (nothing looser, like
     the Codex path's `isCreditLimit`): a Claude subscription account is marked `plan_ended`. An API key is held out for an
     hour with its own reason, `no_credit` (state "Out of credit", detail "Out of API credit. Add credit at Anthropic…").
@@ -36,10 +37,16 @@
     yet, so a tool never runs twice on another account. It counts against the same cap of two switches per turn (D15).
   - `auth` from the engine needs the error class or the leading text (`authentication_error`, `Failed to authenticate`,
     `API Error: 401`, …). A "401" inside a request id no longer counts.
+  - The proxy's own refusals (its forwarding rules, the peer check, a token for the other path) tell the turn so
+    (`refused` event). The engine's error after one (Claude Code words it "Failed to authenticate. API Error: 403 …")
+    then ends the answer with the safety-stop message, with no account switch and no mark.
 - **D7/D8, narrowed:** a 403 to `count_tokens` (the free check that Add account and Re-check use) stays "unclear" for a
   Claude subscription token, as before. Only a 403 on `/v1/messages` that matches the rule above marks the account.
-- **Re-check can't clear `plan_ended`:** Re-check uses the free `count_tokens` call, which may still pass for an ended
-  subscription, so an admin reconnects (or removes) the account instead.
+- **Re-check and `plan_ended`:** Re-check uses the free `count_tokens` call. If it passes, the account is set back to ok
+  (an ended subscription may still pass, and its next real request marks it again). If it answers 403, the account stays
+  marked. The way out of an ended subscription is to reconnect an account with an active one, or remove it.
+- **Re-check and `no_credit`:** a pass ends the out-of-credit hold too (status code and hold time), so it never stays as
+  a bare limit. A key that is still out of credit is held again by its next request.
 - **State line:** `plan_ended` shows as "Refused" with "Claude refused this account: its subscription ended or its plan
   does not include Claude Code. Reconnect an account with an active subscription, or remove it."
 - **Left out:** no background health check of idle accounts. A status still changes only when an account is used.

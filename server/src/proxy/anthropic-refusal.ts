@@ -24,7 +24,8 @@ export type AccountRefusal =
 /** Anthropic's own wording for an account that may not use the API (permission_error / authentication_error) */
 const ACCOUNT_LEVEL = [
   /\b(organization|account) (has been |is )?(disabled|suspended|deactivated)\b/i,
-  /\bdoes not have access to claude( code)?\b/i,
+  // the account, not a model ("does not have access to Claude Opus 5" is a model-level 403)
+  /\bdoes not have access to claude( code)?(\.|$)/i,
   /\bclaude( code)? is not (included|available) (in|on|with) your (plan|subscription)\b/i,
   /\boauth (authentication|access) is (currently )?not allowed\b/i,
   /\boauth token has been revoked\b/i,

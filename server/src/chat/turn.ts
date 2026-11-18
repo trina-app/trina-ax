@@ -447,6 +447,9 @@ export class TurnExec {
   /** the attempt called a tool: a switch that is not the proxy's reading of the account (an unknown 403, an engine
    * sign-in error) must not run its tools again on another account */
   private attemptCalledTool = false
+  /** the model proxy itself refused a request of this attempt (its forwarding rules, the peer check): the engine's
+   * error that follows is that refusal, never the account's (no switch, the safety stop's words) */
+  private proxyRefused = false
   /** the AI connection of the latest attempt (audit of the Codex fallback) */
   private lastCredential: string | null = null
   /** this turn's tools (step labels of per-person tools) */
@@ -1061,6 +1064,7 @@ export class TurnExec {
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
         this.attemptCalledTool = false
+        this.proxyRefused = false
         // the attempt that answers says whether it reached the tool-call limit (not one that was switched or retried)
         this.limitReason = null
         // where this attempt's text starts: a refused attempt's text is discarded from here (below)
@@ -1124,7 +1128,8 @@ export class TurnExec {
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         // the engine says the account was refused but the proxy saw no refusal it knows (QA TC-4835): this account is
         // skipped for the rest of the turn and the next one answers; its state stays (only the proxy's reading marks it)
-        if (managed && err?.code === 'auth' && !this.attemptCalledTool && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
+        if (this.proxyRefused && (err || crashed)) { this.error = engineError('lockdown', spec.locale); break }
+        if (managed && err?.code === 'auth' && !this.proxyRefused && !this.attemptCalledTool && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
           this.credentialFailure = { id: this.lastCredential, reason: 'invalid', retryAt: null }
           if (this.switchCredential('claude-code', exclude)) { resume = false; sid = crypto.randomUUID(); attempt--; continue }
           this.credentialFailure = null
@@ -1361,6 +1366,7 @@ export class TurnExec {
     this.sign()
     // a model answer streams for this turn: only a sign of life (the stall guard)
     if (ev.type === 'activity') return
+    if (ev.type === 'refused') { this.proxyRefused = true; return }
     // the provider is busy and the engine tries again (QA TC-388): a line in the chat while it lasts
     if (ev.type === 'busy') return this.setBusy(ev.on)
     // what a Codex search asked for: for its step only, never the answer's outcome

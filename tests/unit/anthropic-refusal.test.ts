@@ -33,6 +33,9 @@ describe('accountRefusal: never marks', () => {
     expect(read(403, body('permission_error', 'Request not allowed'))).toEqual({ action: 'skip' })
     expect(read(403, body('permission_error', 'This service is not available in your region.'))).toEqual({ action: 'skip' })
     expect(read(403, body('permission_error', 'Your API key does not have permission to use the specified resource.'), 'anthropic-api-key')).toEqual({ action: 'skip' })
+    // a model the account may not use is not the account refused
+    expect(read(403, body('permission_error', 'Your account does not have access to Claude Opus 5.'))).toEqual({ action: 'skip' })
+    expect(read(403, body('permission_error', 'This organization does not have access to claude-opus-5-5'))).toEqual({ action: 'skip' })
   })
   test('an edge or proxy page (HTML, not Anthropic\'s error shape) changes nothing', () => {
     expect(read(403, '<html><head><title>Attention Required! | Cloudflare</title></head></html>')).toBeNull()
