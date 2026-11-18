@@ -187,11 +187,13 @@ export function unknownChanged(key: string, unknown: boolean): boolean {
   return true
 }
 
-/** free space a download must leave on the data disk: 10% of the disk, at least 5 GiB, at most 20 GiB (save_url, the
- * speech model's download) */
-export const DISK_RESERVE_MIN = 5 * 1024 ** 3
-export const DISK_RESERVE_MAX = 20 * 1024 ** 3
-export const DISK_RESERVE_FRACTION = 0.1
+/** The one free-space reserve: what the AI's writes (write, edit, make_file, box_shell: system/storage.ts
+ * simpleFloorBytes), a download (save_url) and the speech model's download must leave free on the disk: 5% of the disk,
+ * at least 2 GiB, at most 10 GiB (docs/decisions/20261118-limits-caps.md). The cap keeps a big disk usable: a 1.8 TB disk
+ * with 91 GB free (5% would be 92 GB) refused every AI write before it. */
+export const DISK_RESERVE_MIN = 2 * 1024 ** 3
+export const DISK_RESERVE_MAX = 10 * 1024 ** 3
+export const DISK_RESERVE_FRACTION = 0.05
 export function diskReserve(totalBytes: number): number {
-  return Math.min(DISK_RESERVE_MAX, Math.max(DISK_RESERVE_MIN, Math.floor(totalBytes * DISK_RESERVE_FRACTION)))
+  return Math.max(DISK_RESERVE_MIN, Math.min(DISK_RESERVE_MAX, Math.floor(totalBytes * DISK_RESERVE_FRACTION)))
 }

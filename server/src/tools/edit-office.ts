@@ -3,7 +3,7 @@
 // through a shell. Before, it could only rebuild the file from Markdown or CSV with make_file, which lost every style,
 // picture, chart, comment and tracked change. The document is changed in the office worker (files/office-edit.ts and
 // files/docx-edit.ts, xlsx-edit.ts, pptx-edit.ts: this process parses no document). Saved like edit_hwp and comment_docx:
-// - read first: the file must be the version the AI read in this turn (else: read it again);
+// - read first: the file must be the version the AI read in this chat (this answer or, unchanged, an earlier one: #1285) (else: read it again);
 // - without `output`, a new version of the same file (the old bytes in its history), a conflict copy if someone saved
 //   it meanwhile; with `output`, a new file, and the document is its source (make_file's wider-audience check). A
 //   replacement picture is a source too, in place as well;
@@ -39,7 +39,7 @@ const text = (max: number) => z.string().max(max)
 const occ = { occurrence: z.number().int().min(1).max(100_000).optional().describe('Which place (1-based, reading order) when the text is in several'), all: z.boolean().optional().describe('Every place the text is in') }
 const cellV = z.union([z.string().max(32_767), z.number(), z.boolean(), z.null()])
 export const EditOfficeInput = z.strictObject({
-  file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this turn first)'),
+  file_path: z.string().min(1).max(1000).describe('The .docx, .xlsx or .pptx to change (read it in this chat first)'),
   changes: z.array(z.union([
     z.strictObject({
       find: text(5000).min(1).describe('Exact text from ONE paragraph (Word, PowerPoint), as read shows it, without Markdown marks'),
@@ -66,7 +66,7 @@ type Input = z.output<typeof EditOfficeInput>
 export const EDIT_OFFICE_DESCRIPTION =
   'Change an existing Word (.docx), Excel (.xlsx) or PowerPoint (.pptx) file in place: everything you do not change (styles, fonts, pictures, charts, ' +
   'comments, tracked changes, other sheets and slides) stays exactly as it was. Use it whenever the person wants an existing Office file changed; ' +
-  'use make_file only for a new file or when they ask to rebuild one. Read the file in this turn first. ' +
+  'use make_file only for a new file or when they ask to rebuild one. Read the file in this chat first. ' +
   'Word: find/replace (exact text of one paragraph), insert_paragraph, delete_paragraph, table_cell, add_rows, delete_rows. ' +
   'Excel: cell (one cell: number, text, true/false, null, or a formula starting with "="), append_rows (after the last row); rows are never inserted in the middle. ' +
   'Formulas are calculated when the file is opened in Excel or LibreOffice. ' +

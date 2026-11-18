@@ -268,15 +268,15 @@ describe('size: no limit, a card over the line, the disk as the only hard stop',
     await expect(s.run(at('/big.png'), 'shared/big/c.png', { askAbove: 100_000 })).rejects.toThrow(/scheduled run.*skipped/)
     expect(s.cards.asked).toEqual([])
   })
-  test('the disk reserve: 10% of the disk, at least 5 GiB, at most 20 GiB', () => {
-    expect(diskReserve(20 * 1024 ** 3)).toBe(5 * 1024 ** 3)
-    expect(diskReserve(100 * 1024 ** 3)).toBe(10 * 1024 ** 3)
-    expect(diskReserve(2048 * 1024 ** 3)).toBe(20 * 1024 ** 3)
+  test('the disk reserve (one rule with the AI\'s writes): 5% of the disk, at least 2 GiB, at most 10 GiB', () => {
+    expect(diskReserve(20 * 1024 ** 3)).toBe(2 * 1024 ** 3)
+    expect(diskReserve(100 * 1024 ** 3)).toBe(5 * 1024 ** 3)
+    expect(diskReserve(2048 * 1024 ** 3)).toBe(10 * 1024 ** 3)
   })
   test('a download that would leave less than the reserve is refused up front, with words for the person', async () => {
     const s = setup('alice', { locale: 'ko' })
     s.allow(at('/big.png'))
-    const e = await s.run(at('/big.png'), 'shared/disk/a.png', { statfs: disk(() => 5 * 1024 ** 3 + 100_000, 40 * 1024 ** 3) }).catch((x) => x)
+    const e = await s.run(at('/big.png'), 'shared/disk/a.png', { statfs: disk(() => 5 * 1024 ** 3 + 100_000, 100 * 1024 ** 3) }).catch((x) => x)
     expect(e.message).toContain('too little free space')
     expect(e.message).toContain('서버 디스크 여유가 5.0 GB밖에 없어요. 이 파일(293 KB)을 받으면 디스크에 꼭 남겨 둬야 하는 5.0 GB보다 적게 남아서 받지 않았어요.')
     expect(has('shared/disk/a.png')).toBe(false)
@@ -286,7 +286,7 @@ describe('size: no limit, a card over the line, the disk as the only hard stop',
     const s = setup('alice', { locale: 'ko' })
     s.allow(at('/stream.png'))
     let calls = 0
-    const e = await s.run(at('/stream.png'), 'shared/disk/b.png', { roomStep: 60_000, statfs: disk(() => (++calls <= 2 ? 50 * 1024 ** 3 : 4 * 1024 ** 3), 40 * 1024 ** 3) }).catch((x) => x)
+    const e = await s.run(at('/stream.png'), 'shared/disk/b.png', { roomStep: 60_000, statfs: disk(() => (++calls <= 2 ? 50 * 1024 ** 3 : 4 * 1024 ** 3), 100 * 1024 ** 3) }).catch((x) => x)
     expect(e.message).toContain('받는 중에 서버 디스크 여유가 4.0 GB로 줄었어요')
     expect(has('shared/disk/b.png')).toBe(false)
     expect(workLeft()).toEqual([])

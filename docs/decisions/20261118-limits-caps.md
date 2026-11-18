@@ -22,8 +22,10 @@ description only then. Without safe operations a deck has no slide or picture ca
 The 50 MB / 200 files per answer was the disk guard of 2026-10-21. The disk is now kept by system/storage.ts
 assertStorageRoomForAI on every save of the AI: on Linux and wherever a plan applies, the plan's guard (reserve, cap,
 grace period); everywhere else (a Mac without a plan: the Office Mac, the desktop app), where that guard does nothing,
-a simple floor: the save is refused when it would leave less than max(2 GB, 5% of the disk) free (fresh statfs of the
-team folder). So these numbers only stop an AI writing in a loop.
+a simple floor: the save is refused when it would leave less than max(2 GiB, min(5% of the disk, 10 GiB)) free (fresh
+statfs of the team folder). The 10 GiB cap came in the 11-18 batch: without it a 1.8 TB disk with 91 GB free (5% is
+92 GB) refused every AI write. It is the one reserve rule (system/disk-stat.ts diskReserve), also used by save_url and
+the speech model's download, which kept 10% (5 to 20 GiB) before. So these numbers only stop an AI writing in a loop.
 Members: 1 GB and 2,000 files (`maxWriteBytesPerTurn`, `maxFilesWrittenPerTurn`). Guests keep 50 MB and 200
 (`guestMaxWriteBytesPerTurn`, `guestMaxFilesWrittenPerTurn`); one helper, files/turn-write-limits.ts, picks the pair by
 person (users.guest), for every check (files service, make_file's placeProduced, unzip_file for a guest, safe-ops

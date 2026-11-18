@@ -25,7 +25,7 @@
 - **Why not a live progress bar in the step:** a tool step has no progress channel to the app today; adding one is a
   change to the chat protocol and the web app for one rare state. The read's text carries the progress, and the
   prefetch makes the state rare.
-- **Disk:** the download needs the model's size plus the disk reserve save_url keeps (10% of the disk, 5 to 20 GB);
+- **Disk:** the download needs the model's size plus the disk reserve save_url keeps (5% of the disk, 2 to 10 GB: system/disk-stat.ts diskReserve, the one reserve rule since the 11-18 batch);
   short of it, it is refused before any byte. A damaged download names why (cut short, too long, other bytes) in the
   failure's reason, which the prefetch logs.
 - **Not changed:** voice input's own first-use progress; the hosted servers' OpenRouter path; the model choice.

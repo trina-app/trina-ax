@@ -40,7 +40,7 @@ import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { limitsActive, planDiskBytes, planManageUrl } from './limits'
 import { zonedParts } from './time-zone'
 import { cleanupAskedAt } from './storage-cleanup-asked'
-import { diskStat } from './disk-stat'
+import { diskReserve, diskStat } from './disk-stat'
 
 const MIB = 1024 * 1024
 export const RESERVE_MIN_BYTES = 512 * MIB
@@ -247,10 +247,9 @@ export function storageRefusesWrites(): boolean {
 }
 
 /** Free space the AI's writes always leave where the plan's guard does not decide (a Mac without a plan: Office Mac,
- * the desktop app): at least this much or 5% of the disk, whichever is more (docs/decisions/20261118-limits-caps.md) */
-export const SIMPLE_FLOOR_MIN_BYTES = 2 * 1024 ** 3
-export const SIMPLE_FLOOR_FRACTION = 0.05
-export function simpleFloorBytes(total: number): number { return Math.max(SIMPLE_FLOOR_MIN_BYTES, Math.floor(total * SIMPLE_FLOOR_FRACTION)) }
+ * the desktop app): the one reserve of system/disk-stat.ts diskReserve, max(2 GiB, min(5% of the disk, 10 GiB))
+ * (docs/decisions/20261118-limits-caps.md) */
+export const simpleFloorBytes = diskReserve
 
 /** Is there room for `bytes` more by the simple floor (fresh statfs of the team folder)? null when no guard is set up or
  * the disk cannot be read. */

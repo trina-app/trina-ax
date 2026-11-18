@@ -6,6 +6,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
+import { diskReserve } from '../../server/src/system/disk-stat'
 import { ALERT_KEY, NOTICE_KEY, assertStorageRoom, assertStorageRoomForAI, cappedSnapshot, simpleFloorBytes, configureStorageGuard, GRACE_KEY, GRACE_MS, GRACE_TOLD_KEY, levelOf, reserveBytes, snapshotOf, storageRoom, storageState, treeBytes, type GuardStore, type StatFs } from '../../server/src/system/storage'
 import type { AppConfig } from '../../server/src/app-config'
 import { openDb } from '../../server/src/db'
@@ -53,7 +54,7 @@ describe('levels and room', () => {
     expect(() => assertStorageRoom(GiB)).not.toThrow()
     setPlanForTests(undefined)
   })
-  test('a Mac without a plan: the AI\'s writes still keep max(2 GB, 5%) of the disk free (the simple floor); people\'s uploads are not refused by it', () => {
+  test('a Mac without a plan: the AI\'s writes still keep max(2 GB, min(5%, 10 GB)) of the disk free (the simple floor); people\'s uploads are not refused by it', () => {
     configureStorageGuard({ root: '/', statfs: () => s })
     setLimitsPlatformForTests('darwin')
     setPlanForTests(null)
@@ -73,6 +74,22 @@ describe('levels and room', () => {
     // no guard (no team disk known): no check
     configureStorageGuard(null)
     expect(() => assertStorageRoomForAI(1000 * GiB)).not.toThrow()
+    setPlanForTests(undefined)
+  })
+  test('the floor is capped at 10 GiB: a 1.8 TB disk with 91 GB free takes the AI\'s writes; a 20 GB disk with 1.5 GB free does not', () => {
+    const GB = 1000 ** 3
+    let s = disk(1.8e12, 1.8e12 - 91 * GB)
+    configureStorageGuard({ root: '/', statfs: () => s })
+    setLimitsPlatformForTests('darwin')
+    setPlanForTests(null)
+    expect(simpleFloorBytes(1.8e12)).toBe(10 * GiB)
+    expect(simpleFloorBytes(1.8e12)).toBe(diskReserve(1.8e12))
+    expect(() => assertStorageRoomForAI(0)).not.toThrow()
+    expect(() => assertStorageRoomForAI(50 * GB)).not.toThrow()
+    s = disk(20 * GB, 20 * GB - 1.5 * GB)
+    expect(() => assertStorageRoomForAI(0)).toThrow(ToolError)
+    expect(() => assertStorageRoomForAI(1)).toThrow(ToolError)
+    configureStorageGuard(null)
     setPlanForTests(undefined)
   })
   test('treeBytes counts what is on disk, without following links', async () => {
