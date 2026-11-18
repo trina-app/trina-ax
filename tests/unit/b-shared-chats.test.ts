@@ -503,7 +503,9 @@ describe('the read card', () => {
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
   test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create', 'box_shell']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    // commands: fenced to what everyone in the chat may read (docs/decisions/20261118-devenv-shared-chats.md)
+    expect(SHARED_TOOLS.has('box_shell')).toBe(true)
     const chat = await newShared()
     const r = await ask('alice', chat.id, fake({ echo: 'tools' }))
     const offered = r.done.content.split(',').map((t) => t.replace(/^mcp__team__/, ''))

@@ -81,7 +81,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/connectors/remote-mcp/tools.ts": { n: {"access": 1}, why: "a connector read with versions: an old place that is gone joins the scope only when the person may read it by the folder rules (the caller's own sight; fails closed, a share never widens it)" },
   "server/src/connectors/remote-mcp/upload.ts": { n: {"widening": 1, "access": 1, "users/": 1, "import:widening": 1}, why: "write/edit/upload_file go through widening; the access line: where the caller may write; users/: a personal skills folder" },
   "server/src/demo/replay.ts": { n: {"users/": 3}, why: "demo replay path swap" },
-  "server/src/devenv/srt/access.ts": { n: {"audienceOf": 2, "access": 1, "users/": 6}, why: "audienceOf counts share readers (W6); runMayWrite refuses shared folders (D11); users/ lines: a run sees only its own personal folder" },
+  "server/src/devenv/srt/access.ts": { n: {"audienceOf": 2, "access": 3, "users/": 7}, why: "audienceOf counts share readers (W6); runMayWrite refuses shared folders (D11); users/ lines: a run sees only its own personal folder; sharedAccess (a shared chat's run, decisions/20261118-devenv-shared-chats.md) hides users/ as a whole, so the folder shares (all under users/) never widen it and ignoring their readers can only hide more" },
   "server/src/devenv/srt/runner.ts": { n: {"activePeople": 1, "shareReaders": 1, "import:activePeople": 1, "import:shareReaders": 1}, why: "passes the shared folders and share readers to folderView" },
   "server/src/file-list/service.ts": { n: {"access": 1}, why: "the caller's own sight" },
   "server/src/file-list/units.ts": { n: {"users/": 7}, why: "the file lists are rendered per person by path" },

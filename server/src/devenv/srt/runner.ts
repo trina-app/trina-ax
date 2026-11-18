@@ -37,8 +37,9 @@ import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
-import { folderView, runSkillFolders, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatWork, devPlatform, type DevPlatform, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import type { Principal } from '../../policy/access'
+import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
+import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
@@ -60,7 +61,17 @@ const IDLE_CPU_SHARE = 0.02
 
 /** Where a run belongs and where it starts. root: the project folder (a project chat whose folder the person can
  * read), else the chat's work folder. */
-export interface Space { userId: string; chatId: string | null; projectId: string | null; root: string }
+/** A run of a shared chat (docs/decisions/20261118-devenv-shared-chats.md): who sees the chat now, read again for every
+ * command and every check while it runs (so someone who joins mid-answer narrows the next command and stops this one),
+ * and its project folder (null: a chat shared with people and groups). Only foreground commands: no row holds it. */
+export interface SharedRun {
+  audience(): readonly string[]
+  within: string | null
+  /** what a run is about to read (sharedReadable), with who sees the chat as its view was made: the answer records it
+   * (chat/shared-answers.ts). false: not recorded, and the run does not start */
+  noteReads(folders: readonly string[], audience: readonly string[]): boolean
+}
+export interface Space { userId: string; chatId: string | null; projectId: string | null; root: string; shared?: SharedRun }
 
 // ---------------- configuration ----------------
 
@@ -172,27 +183,81 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
 /** The person's view, with only the folders that exist now (srt skips what is not there; a folder that appears later
  * changes the hash, and the tracker then stops the person's jobs). With `run`, the view of a run that starts there
  * (access.ts: only the starting folder and the person's own folder are writable). Null: the person cannot be loaded. */
-export function personView(ctx: AppContext, userId: string, run?: RunWrites): FolderView | null {
+export function personView(ctx: AppContext, userId: string, run?: RunWrites, shared?: SharedRun, scope?: SharedScopeNow | null): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
-  // the person's shared folders are read-only in a run (access.ts; files/share-readers.ts)
-  const withShares = run ? { ...run, shared: ownSharedFolders(ctx.db, userId) } : undefined
-  const v = folderView(ctx.files.rules(), p, withShares, run?.start ? activePeople(ctx.db) : undefined, projectZoneFolders(root).map((z) => z.join('/')), (f) => shareReaders(ctx.db, f ? f.split('/') : []))
+  const zones = projectZoneFolders(root).map((z) => z.join('/'))
+  let v: FolderView
+  if (shared) {
+    // a shared chat: only what everyone who sees it now may read (access.ts sharedFolderView). Anyone who cannot be
+    // loaded, or the person no longer in it: no run (fail closed)
+    const s = run ? (scope ?? sharedScopeNow(ctx, shared)) : null
+    if (!s) return null
+    try { v = sharedFolderView(ctx.files.rules(), p, run!, s, zones) } catch { return null }
+  } else {
+    // the person's shared folders are read-only in a run (access.ts; files/share-readers.ts)
+    const withShares = run ? { ...run, shared: ownSharedFolders(ctx.db, userId) } : undefined
+    v = folderView(ctx.files.rules(), p, withShares, run?.start ? activePeople(ctx.db) : undefined, zones, (f) => shareReaders(ctx.db, f ? f.split('/') : []))
+  }
   const there = (rel: string) => { try { return fs.statSync(rel === '' ? root : path.join(root, rel)).isDirectory() } catch { return false } }
   return { read: v.read.filter(there), write: v.write.filter(there), denyRead: v.denyRead.filter(there), denyWrite: v.denyWrite.filter(there) }
 }
 
+/** Who sees a shared chat now, as principals. Null when anyone of them cannot be loaded (fail closed). */
+type SharedScopeNow = { audience: Principal[]; within: string | null }
+function sharedScopeNow(ctx: AppContext, shared: SharedRun): SharedScopeNow | null {
+  try {
+    const audience = shared.audience().map((id) => ctx.files.principal(id))
+    if (!audience.length || audience.some((q) => !q)) return null
+    return { audience: audience as Principal[], within: shared.within }
+  } catch { return null }
+}
+
+/** The work folder of a shared chat with no project now: keyed by its people and by the view a run there gets
+ * (config.ts sharedWorkKey; the view of everyone in it is the same whoever asks: a people chat writes no team folder).
+ * Null when the people cannot be loaded. */
+export function sharedWorkOf(ctx: AppContext, chatId: string, userId: string, shared: SharedRun, scope?: SharedScopeNow | null): string | null {
+  const s = scope ?? sharedScopeNow(ctx, shared)
+  if (!s) return null
+  let p: Principal | null = null
+  try { p = ctx.files.principal(userId) } catch {}
+  if (!p) return null
+  let v: FolderView
+  try { v = sharedFolderView(ctx.files.rules(), p, { start: null }, { audience: s.audience, within: null }, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/'))) } catch { return null }
+  return sharedWork(srtConfig().base, chatId, sharedWorkKey(s.audience.map((q) => q.id), viewHash(v)))
+}
+
+/** A shared chat's run: record what it may read for the answer (SharedRun.noteReads) before it starts. Throws when the
+ * record cannot be written. */
+function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedScopeNow | null) {
+  if (!space.shared) return
+  let p: Principal | null = null
+  try { p = ctx.files.principal(space.userId) } catch {}
+  if (!s || !p) throw new Error('the person cannot use the dev environment now')
+  const folders = sharedReadable(ctx.files.rules(), p, run, s, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/')))
+  if (!space.shared.noteReads(folders, s.audience.map((q) => q.id))) throw new Error('what this command may read could not be recorded')
+}
+
 /** The writable starting folder of a run in `space`: the project folder (team-relative), or null for the chat's work
  * folder (outside the team folder). */
+/** Is the root of this space the chat's work folder (the private one; a shared chat's: one of its own, sharedWork)? */
+function inWorkFolder(c: SrtConfig, space: Space): boolean {
+  if (!space.chatId) return false
+  if (!space.shared) return space.root === chatWork(c.base, space.chatId)
+  const top = path.join(devenvPaths(c.base).workShared, space.chatId)
+  return path.dirname(space.root) === top
+}
+
 function runWrites(ctx: AppContext, c: SrtConfig, space: Space): RunWrites {
-  if (space.chatId && space.root === chatWork(c.base, space.chatId)) return { start: null }
+  if (inWorkFolder(c, space)) return { start: null }
   const team = ctx.files.fx.root
   if (!space.root.startsWith(team + '/')) throw new Error('the person cannot open the folder of this chat now')
   return { start: space.root.slice(team.length + 1) }
 }
-const runHash = (view: FolderView, run: RunWrites) => viewHash(view, run.start ?? '')
+/** a shared chat's hash also holds who sees the chat: any change of its people stops a running command */
+const runHash = (view: FolderView, run: RunWrites, scope?: SharedScopeNow | null) => viewHash(view, (run.start ?? '') + (scope ? `\0${sharedWorkKey(scope.audience.map((q) => q.id))}` : ''))
 
 /** The hash a running job or dev server is checked against: the view of a run in this space, and whether the person
  * may still use the dev environment. */
@@ -200,14 +265,35 @@ export function accessHash(ctx: AppContext, space: Space): string {
   if (!mayUseDevEnv(ctx.db, ctx.files, space.userId)) return 'off'
   let run: RunWrites
   try { run = runWrites(ctx, srtConfig(), space) } catch { return 'off' }
-  const v = personView(ctx, space.userId, run)
-  return v ? runHash(v, run) : 'off'
+  const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
+  if (space.shared && !scope) return 'off'
+  const v = personView(ctx, space.userId, run, space.shared, scope)
+  return v ? runHash(v, run, scope) : 'off'
+}
+
+/** A shared chat's run: which team paths it may name now (access.ts sharedPathAccess: the rules for the person and
+ * everyone in the chat, and the path's folder on disk). The tool's notes (changes by other people, files changed in the
+ * background, conflict copies) name only those: they go to everyone in the chat. Not a shared run: every path. The
+ * people cannot be loaded: none. */
+export function sharedVisible(ctx: AppContext, space: Space): (rel: string) => boolean {
+  if (!space.shared) return () => true
+  let run: RunWrites, p: Principal | null = null
+  try { run = runWrites(ctx, srtConfig(), space); p = ctx.files.principal(space.userId) } catch { return () => false }
+  const scope = sharedScopeNow(ctx, space.shared)
+  if (!scope || !p) return () => false
+  const rules = ctx.files.rules(), root = ctx.files.fx.root
+  // by the rules for everyone in the chat, path by path (a renamed or trashed restricted folder has no entry in the
+  // run's view, whose folders are only those on disk), and only where the folder is on disk now
+  const onDisk = (rel: string) => { const d = path.posix.dirname(rel); try { return fs.lstatSync(d === '.' ? root : path.join(root, d)).isDirectory() } catch { return false } }
+  return (rel) => {
+    try { return onDisk(rel) && sharedPathAccess(rules, p!, run, scope, rel) !== 'none' } catch { return false }
+  }
 }
 
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
  * read. */
 export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: FolderView): boolean {
-  if (space.chatId && space.root === chatWork(c.base, space.chatId)) return true
+  if (inWorkFolder(c, space)) return true
   const team = ctx.files.fx.root
   if (space.root !== team && !space.root.startsWith(team + '/')) return false
   const rel = space.root === team ? '' : space.root.slice(team.length + 1)
@@ -215,30 +301,59 @@ export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: F
 }
 
 /** The root of a chat: the project folder when the chat has a project with a folder of its own that the person can
- * read, else the chat's work folder (made here). Null: no chat and no project folder. */
-export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null }): Space | null {
+ * read, else the chat's work folder (made here). Null: no chat and no project folder. A shared project chat
+ * (`shared.within`) runs only in its project folder (null when the person cannot read it now); a chat shared with
+ * people and groups only in its work folder. */
+export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | null; project: { id: string; folderPath: string } | null; shared?: SharedRun }): Space | null {
   const c = srtConfig()
   const view = personView(ctx, o.userId)
   if (!view) return null
-  if (o.project && o.project.folderPath !== '') {
-    const root = path.join(ctx.files.fx.root, o.project.folderPath)
-    if (viewAccess(view, o.project.folderPath) !== 'none' && fs.existsSync(root)) return { userId: o.userId, chatId: o.chatId, projectId: o.project.id, root }
+  const shared = o.shared ? { shared: o.shared } : {}
+  if (o.shared && !o.chatId) return null
+  const within = o.shared ? o.shared.within : o.project?.folderPath ?? null
+  if (within !== null && within !== '' && (!o.shared || o.project?.folderPath === within)) {
+    const root = path.join(ctx.files.fx.root, within)
+    if (viewAccess(view, within) !== 'none' && fs.existsSync(root)) return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root, ...shared }
   }
+  if (o.shared && o.shared.within !== null) return null
   if (!o.chatId) return null
-  const root = chatWork(c.base, o.chatId)
-  fs.mkdirSync(devenvPaths(c.base).work, { recursive: true, mode: 0o700 })
+  // a shared chat: a work folder of its own for the people who see it now (never the private one, sharedWork)
+  let root: string
+  if (o.shared) {
+    const w = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+    if (!w) return null
+    root = w
+  } else root = chatWork(c.base, o.chatId)
+  fs.mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 })
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
-  return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root }
+  return { userId: o.userId, chatId: o.chatId, projectId: o.project?.id ?? null, root, ...shared }
 }
 
 // ---------------- one run ----------------
 
+/** Whose home and logs a run uses: the shared chat's, or the person's. A shared run with no chat is refused. */
+function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId?: string): { userId: string; sharedChat: string | null; runId?: string } {
+  if (space.shared && !space.chatId) throw new Error('a run of a shared chat needs its chat')
+  return { userId: space.userId, sharedChat: space.shared ? space.chatId : null, ...(runId ? { runId } : {}) }
+}
+
+/** A shared chat's command ended: its own home and logs go (nothing of it reaches a later command). */
+function dropSharedRun(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId: string) {
+  if (!space.shared) return
+  const o = runOwner(space, runId)
+  for (const d of [runHome(c.base, o), runLogs(c.base, o)]) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
+}
+
 interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
 
-function prepare(c: SrtConfig, userId: string) {
+function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId: string) {
   const p = devenvPaths(c.base)
   for (const d of [p.root, p.run, p.home, p.logs]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
-  const home = personHome(c.base, userId), logs = personLogs(c.base, userId)
+  // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
+  // command: docs/decisions/20261118-devenv-shared-chats.md)
+  const o = runOwner(space, runId)
+  if (o.sharedChat) for (const d of [p.chatHome, p.chatLogs, path.join(p.chatHome, o.sharedChat), path.join(p.chatLogs, o.sharedChat)]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
+  const home = runHome(c.base, o), logs = runLogs(c.base, o)
   fs.mkdirSync(path.join(home, 'tmp'), { recursive: true, mode: 0o700 })
   fs.mkdirSync(logs, { recursive: true, mode: 0o750 })
   return { ...p, personHome: home, personLogs: logs }
@@ -288,9 +403,15 @@ const snapshotNow = (ctx: AppContext, userId: string): NetSnapshot => netSnapsho
 
 /** The settings of a run, checked; throws with the reason when the run must not start. `once`: the sites allowed once
  * for this run (the turn's, or the row's). */
-async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network: 'open' | 'offline', once: readonly string[] = []) {
+async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: string, network: 'open' | 'offline', once: readonly string[] = []) {
   const run = runWrites(ctx, c, space)
-  const view = personView(ctx, space.userId, run)
+  // a shared chat: what the run may read joins the answer's record first, with who sees the chat now
+  // (the view below is made for the same people as the record)
+  const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
+  // a shared chat's work folder belongs to the people it was made for: they changed since (spaceOf) -> no run
+  if (space.shared && run.start === null && (!scope || space.root !== sharedWorkOf(ctx, space.chatId!, space.userId, space.shared, scope))) throw new Error('the people of this chat changed; run the command again')
+  noteSharedRun(ctx, space, run, scope)
+  const view = personView(ctx, space.userId, run, space.shared, scope)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
   const work = run.start === null ? space.root : null
@@ -298,7 +419,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
   const input = {
-    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network,
+    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -310,12 +431,16 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, network:
   }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
-  if (problems.length) throw new Error(`refused settings: ${problems.join('; ')}`)
-  return { settings, work, hash: runHash(view, run), net: netSnapshot(input.extraDomains, person) }
+  if (problems.length) {
+    // a shared chat: the reason names folders (a personal folder too) and goes to everyone in it: the log only
+    if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
+    throw new Error(`refused settings: ${problems.join('; ')}`)
+  }
+  return { settings, work, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
-  const p = prepare(c, s.space.userId)
+  const p = prepare(c, s.space, s.runId)
   // the skill folders a run never writes are there while it lives, so srt mounts them read-only (placeholders.ts),
   // before the folder access is read
   let skills: string[] = []
@@ -323,7 +448,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   try {
-    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.network, s.once)
+    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
@@ -333,7 +458,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform() }),
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId }),
     limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
@@ -440,7 +565,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
   if (!slot.ok) return slot
   return withRootLock(o.space.root, async () => {
     const runId = newRunId()
-    const p = prepare(c, o.space.userId)
+    const p = prepare(c, o.space, runId)
     const out = path.join(p.personLogs, `cmd-${runId}.out`), err = path.join(p.personLogs, `cmd-${runId}.err`), exitFile = path.join(p.personLogs, `${runId}.exit`)
     const started = Date.now()
     // the lists show this text to other people: the command with secrets hidden, as in a job's row
@@ -475,6 +600,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
     } finally {
       active.delete(runId)
       rm(out); rm(err); rm(exitFile); rm(path.join(p.run, `${runId}.json`))
+      dropSharedRun(c, o.space, runId)
     }
   })
 }
@@ -520,8 +646,12 @@ function insertRow(ctx: AppContext, j: NewRow, kind: 'job' | 'server'): string {
   return id
 }
 
+/** A shared chat runs foreground commands only: a job's or dev server's row, log and notice are the person's. */
+export const SHARED_NO_BACKGROUND = 'jobs and dev servers do not run in a shared chat'
+
 /** Start a job, or put it in the queue. `shown` is the command with secrets hidden: the text of the row. */
 export async function submitJob(ctx: AppContext, j: NewRow): Promise<SubmitResult> {
+  if (j.space.shared) return { ok: false, message: SHARED_NO_BACKGROUND }
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
   const waiting = withoutTickets(ctx.db, openRuns(ctx.db, 'waiting'))
@@ -550,6 +680,7 @@ export function startServer(ctx: AppContext, j: NewRow): Promise<{ ok: true; row
   return oneStart(() => startServerNow(ctx, j))
 }
 async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
+  if (j.space.shared) return { ok: false, message: SHARED_NO_BACKGROUND }
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
   const servers = openRuns(ctx.db, 'running', 'server')
@@ -577,9 +708,9 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   if (command === null) { endRow(ctx, row.id, { code: null, reason: 'lost', tail: '', lastLine: '' }); return { ok: false, message: 'the command of this job is gone' } }
   const runId = newRunId()
   const log = logFile(c, row.user_id, row.name)
-  prepare(c, row.user_id)
-  rm(log)
   const space = spaceOfRow(row)
+  prepare(c, space, runId)
+  rm(log)
   // from the view's making (spawnRun) until the row says running, the run counts as alive: a folder share added in
   // between would otherwise miss a run whose view lets it write there (alive.ts, files/folder-shares.ts)
   const started = startingRun(row.user_id)
@@ -694,7 +825,8 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     if (a.kind !== 'command' || !a.access || a.stopReason) continue
     if (filter?.chatId && a.space.chatId !== filter.chatId) continue
     if (filter?.userId && a.space.userId !== filter.userId) continue
-    const key = `${a.space.userId}\0${a.space.root}`
+    // a shared chat's command: its own key (the view depends on who sees that chat)
+    const key = `${a.space.userId}\0${a.space.root}${a.space.shared ? `\0${a.space.chatId}` : ''}`
     if (!hashes.has(key)) hashes.set(key, accessHash(ctx, a.space))
     if (hashes.get(key) !== a.access) { a.stopReason = 'setting'; try { await c.system.stop(a.runId, a.pid) } catch (e) { ctx.log?.warn?.('devenv: stopping a command failed', { error: (e as Error).message }) } }
   }
@@ -907,7 +1039,10 @@ export function closeForwarders(runId: string) {
 
 /** The work folder of a chat goes with the chat (chat/forget.ts, after the purge). */
 export function forgetChatWork(chatId: string) {
-  try { fs.rmSync(chatWork(srtConfig().base, chatId), { recursive: true, force: true }) } catch {}
+  const base = srtConfig().base
+  let dirs: string[]
+  try { dirs = [chatWork(base, chatId), path.join(devenvPaths(base).workShared, chatWork(base, chatId).split(path.sep).pop()!), chatHome(base, chatId), chatLogs(base, chatId)] } catch { return }
+  for (const d of dirs) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
 }
 
 /** People and chats with a run now (this process's, or a waiting or running row), for the disk clean-up
