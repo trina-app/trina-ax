@@ -45,6 +45,9 @@ describe('open in your browser', () => {
     expect(win).toContain('chromeRecovery(')
     // the browser is drawn only under a live toolbar
     expect(win).toContain('!this.chromeDown')
+    // drawn again only once the toolbar drew its ✕, and the waiting questions are told again
+    expect(win).toMatch(/chromeUp\(\) \{[\s\S]*?this\.pane\?\.resendPrompts\(\)/)
+    expect(read('main/main.ts')).toContain('win!.chromeUp()')
     expect(read('main/main.ts')).toContain("'ui:pane-open-external'")
     expect(read('ui/pane.ts')).toContain('ui.pane.openExternal()')
   })

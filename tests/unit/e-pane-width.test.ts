@@ -134,7 +134,7 @@ describe('wiring', () => {
 
   test('the edge is never left hidden: a loaded toolbar is told again, an older answer never overrides a told width', () => {
     // (layout() tells the width; the browser is drawn again once its toolbar is back, common/pane-chrome.ts)
-    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{[\s\S]*?return\s*this\.chromeDown = false\s*this\.paneWidthTold = ''\s*this\.pane\?\.resendPrompts\(\)\s*this\.layout\(\)/)
+    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{[\s\S]*?this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
     expect(ui).toMatch(/ui\.pane\.onWidth\(\(w: PaneWidth\) => \{\s*widthTold = true\s*applyWidth\(w\)/)
     expect(ui).toContain('if (w && !widthTold) applyWidth(w)')
   })

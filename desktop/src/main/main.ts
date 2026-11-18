@@ -269,7 +269,12 @@ function registerIpc() {
     if (!fromChrome(e) || !a?.id) return
     win!.pane?.answer(String(a.id), a.decision === 'always' ? 'always' : a.decision === 'once' ? 'once' : 'deny')
   })
-  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
+  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => {
+    if (!fromChrome(e) || !Number.isFinite(h)) return
+    win!.pane?.setToolbarHeight(h)
+    // the toolbar rendered: the browser may be drawn under it (AppWindow.chromeUp)
+    win!.chromeUp()
+  })
   // the edge handle between the team page and the browser (AppWindow.paneDrag / paneKey)
   ipcMain.handle('ui:pane-width', (e) => (fromChrome(e) ? win!.paneWidth() : null))
   ipcMain.on('ui:pane-drag', (e, phase: unknown, edgeX: unknown) => {

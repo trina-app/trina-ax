@@ -93,25 +93,31 @@ test('the toolbar shows the page title and ✕; ✕ frees the space; the next pa
     await expect(c.getByTestId('pane-tab')).toContainText('Slow page')
     expect((await paneViews(app)).page!.width).toBe(open.page!.width)
 
-    // the toolbar's renderer ends: the page is not left on screen without it, and the toolbar comes back by itself
+    // the toolbar's renderer ends while the AI waits for the person's answer: the page is not left on screen without
+    // it (the team page takes the width until the toolbar is back), the toolbar comes back by itself, with the question
+    newTurn()
+    const asking = await call(ACME, 'navigate', { url: `${SHOP}/` })
+    await expect(c.getByTestId('permission-prompt')).toBeVisible()
     await app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getURL().endsWith('/pane.html'))!.forcefullyCrashRenderer())
-    // (Playwright keeps the crashed target: the reloaded toolbar is read through the main process)
-    const toolbar = () =>
-      app.evaluate(({ webContents }) => {
+    await expect.poll(async () => (await paneViews(app)).page?.width, { intervals: [20] }).toBe(1440)
+    // (Playwright keeps the crashed target: the reloaded toolbar is read and clicked through the main process)
+    const inToolbar = (js: string) =>
+      app.evaluate(({ webContents }, code) => {
         const w = webContents.getAllWebContents().find((x) => x.getURL().endsWith('/pane.html'))
-        return w && !w.isCrashed() && !w.isLoading()
-          ? w.executeJavaScript(`({ close: !!document.querySelector('[data-testid=pane-close]'), tab: document.querySelector('[data-testid=pane-tab]')?.textContent ?? '' })`)
-          : null
-      })
-    await expect.poll(toolbar, { timeout: 15_000 }).toEqual({ close: true, tab: expect.stringContaining('Slow page') })
+        return w && !w.isCrashed() && !w.isLoading() ? w.executeJavaScript(code) : null
+      }, js)
+    const toolbar = () => inToolbar(`({ close: !!document.querySelector('[data-testid=pane-close]'), tab: document.querySelector('[data-testid=pane-tab]')?.textContent ?? '', asks: !!document.querySelector('[data-testid=permission-prompt]') })`)
+    await expect.poll(toolbar, { timeout: 15_000 }).toEqual({ close: true, tab: expect.stringContaining('Slow page'), asks: true })
     await expect.poll(async () => (await paneViews(app)).tab?.visible).toBe(true)
     const again = await paneViews(app)
     expect(again.toolbar).not.toBeNull()
     expect(again.page!.width).toBe(open.page!.width)
+    // the question shown again is answered there, and the AI's step goes on
+    await inToolbar(`[...document.querySelectorAll('[data-testid=permission-prompt] button')].find((b) => b.textContent === '이번만 허용').click()`)
+    expect((await result(ACME, asking.callId)).result.ok).toBe(true)
+    await expect.poll(toolbar).toEqual({ close: true, tab: expect.stringContaining('Proto Shop'), asks: false })
     // and its ✕ still closes the browser
-    await app.evaluate(({ webContents }) =>
-      webContents.getAllWebContents().find((x) => x.getURL().endsWith('/pane.html'))!.executeJavaScript(`document.querySelector('[data-testid=pane-close]').click()`),
-    )
+    await inToolbar(`document.querySelector('[data-testid=pane-close]').click()`)
     await expect.poll(async () => (await paneViews(app)).page?.width).toBe(1440)
   } finally {
     await close(app)

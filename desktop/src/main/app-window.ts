@@ -219,6 +219,10 @@ export class AppWindow {
   private chromeDown = true
   private chromeFailures: number[] = []
   private chromeRetry?: ReturnType<typeof setTimeout>
+  /** the toolbar's current document: loaded, failed, and which one (a check that answers late is for an older one) */
+  private chromeLoaded = false
+  private chromeLoadFailed = false
+  private chromeNav = 0
   /** the computer's own use to the open team's server, while signed in (common/system-activity.ts ComputerReporter) */
   private readonly computerReporter = new ComputerReporter({
     team: () => (this.app && this.team && this.currentOrigin ? { origin: this.currentOrigin, signedIn: this.signedIn } : null),
@@ -339,24 +343,35 @@ export class AppWindow {
     void this.shell.webContents.loadURL(`${UI_ORIGIN}/welcome.html`)
     this.loadChrome()
     // a (re)loaded toolbar page knows nothing yet: tell it the edge again, also when the width has not changed since a
-    // message it may have missed while loading (else its edge could stay hidden until the width changes), and the
-    // questions waiting for the person (they are told only when they change). The browser is drawn from now on.
+    // message it may have missed while loading (else its edge could stay hidden until the width changes). The browser
+    // is drawn again only once the toolbar has drawn its ✕ (chromeUp), not when its page merely finished loading.
     this.chrome.webContents.on('did-finish-load', () => {
       // Chromium also finishes the error document after did-fail-load: that is not the toolbar
-      if (chromeLoadFailed || this.chrome.webContents.getURL() !== `${UI_ORIGIN}/pane.html`) return
-      this.chromeDown = false
+      if (this.chromeLoadFailed || this.chrome.webContents.getURL() !== `${UI_ORIGIN}/pane.html`) return
+      this.chromeLoaded = true
       this.paneWidthTold = ''
-      this.pane?.resendPrompts()
-      this.layout()
+      this.sendPaneWidth()
+      const nav = this.chromeNav
+      this.chrome.webContents
+        .executeJavaScript(`!!document.querySelector('#toolbar [data-testid="pane-close"]')`)
+        .then((drawn) => drawn === true && nav === this.chromeNav && this.chromeUp())
+        .catch(() => {})
+    })
+    // a new toolbar document (a load again, or any other reload of it): the browser waits for it to draw
+    this.chrome.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+      if (!isMainFrame || isInPlace) return
+      this.chromeNav++
+      this.chromeLoadFailed = false
+      this.chromeLoaded = false
+      if (!this.chromeDown) {
+        this.chromeDown = true
+        this.layout()
+      }
     })
     // the toolbar's page did not load or its renderer ended: load it again (common/pane-chrome.ts)
-    let chromeLoadFailed = false
-    this.chrome.webContents.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
-      if (isMainFrame && !isInPlace) chromeLoadFailed = false
-    })
     this.chrome.webContents.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
       if (!isMainFrame || code === -3) return
-      chromeLoadFailed = true
+      this.chromeLoadFailed = true
       this.chromeFailed(`load ${code}`)
     })
     this.chrome.webContents.on('render-process-gone', (_e, d) => {
@@ -1356,6 +1371,19 @@ export class AppWindow {
       this.chromeRetry = undefined
       this.loadChrome()
     }, CHROME_RELOAD_DELAY_MS)
+  }
+
+  /**
+   * The toolbar's page drew its controls (its ✕ is there; also told by every toolbar height it reports, main.ts): the
+   * browser is drawn from now on, and the questions waiting for the person are told again (they are told only when they
+   * change, so a toolbar loaded again would not have them).
+   */
+  chromeUp() {
+    if (!this.chromeDown || !this.chromeLoaded || this.chromeLoadFailed || this.win.isDestroyed()) return
+    this.chromeDown = false
+    this.paneWidthTold = ''
+    this.pane?.resendPrompts()
+    this.layout()
   }
 
   /** The browser opened while its toolbar is down and no load again is waiting: try it now. */
