@@ -12,7 +12,7 @@ Owner goal: the AI behaves like Claude Code; a hard cap that must stay pages or 
   the same answer only (integrations/connections/kept.ts): in memory, per turn and person (one store for every build
   of the turn's tools, so tools rebuilt by connect_service keep the same ids). A store is made only when an answer is
   kept and is removed when its turn ends. Ids are never reused on the server. At most 32 answers and 16 million
-  characters per turn (that turn's oldest go first); above 64 million for all running turns a new answer is not kept
+  characters per turn (that turn's oldest go first); once a person holds 16 million over all their running turns, or the server 64 million, a new answer is not kept
   (it is cut as before, and said), and no running turn's answers are dropped for another's. Nothing is written to disk. The first part's line says
   `(characters 0-40000 of N; read on with connection_result {"id": "r1", "offset": 40000})`.
   `connection_result` calls no service. Each call checks again what the original call checked: a running turn of this
