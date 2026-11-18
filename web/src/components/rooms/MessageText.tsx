@@ -176,7 +176,7 @@ function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words:
   const chip = {
     ...props,
     className: named ? CHIP : CHIP_UNNAMED,
-    title: named ? undefined : t('appLinks.noName'),
+    title: named || !answer ? undefined : t('appLinks.noName'),
     'data-testid': 'app-link-chip',
     'data-kind': link.kind,
     'data-named': named ? '' : undefined,
@@ -190,7 +190,7 @@ function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words:
         onClick={(e) => {
           if (held(e) || ownClick(e)) return
           e.preventDefault()
-          openTeamFile(link.path ?? link.id)
+          openTeamFile(link.path ?? link.id, link.at)
         }}
       >
         {body}

@@ -64,7 +64,8 @@ export function AppLinkChipBody({ link, answer, label }: { link: AppLinkRef; ans
   return (
     <>
       <Icon size={14} aria-hidden className="mr-1 inline-block shrink-0 align-[-2px]" />
-      {label}
+      {/* (a name in another script's direction never reorders the words around the chip) */}
+      <bdi>{label}</bdi>
     </>
   )
 }
@@ -89,7 +90,7 @@ export function AppLinkChip({ link }: { link: AppLinkRef }) {
   const to = useAppLinkTarget(link)
   const props = {
     className: clsx('not-prose', named ? CHIP : CHIP_UNNAMED),
-    title: named ? undefined : t('appLinks.noName'),
+    title: named || !answer ? undefined : t('appLinks.noName'),
     'data-testid': 'app-link-chip',
     'data-kind': link.kind,
     'data-named': named ? '' : undefined,
@@ -98,7 +99,7 @@ export function AppLinkChip({ link }: { link: AppLinkRef }) {
   if (!to) return <span {...props}>{body}</span>
   if (link.kind === 'file')
     return (
-      <a href={to} {...props} onClick={(e) => { if (ownClick(e)) return; e.preventDefault(); openTeamFile(link.path ?? link.id) }}>
+      <a href={to} {...props} onClick={(e) => { if (ownClick(e)) return; e.preventDefault(); openTeamFile(link.path ?? link.id, link.at) }}>
         {body}
       </a>
     )

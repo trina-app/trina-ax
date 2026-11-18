@@ -3,7 +3,7 @@
 // (POST /api/link-names) and where the chip opens inside the app. Only this page's host and the team address count
 // (lib/messageLinks.ts linkHosts): a look-alike address of another site stays the plain link it was. Pure:
 // test/unit/app-links.test.ts.
-import type { LinkNameKind } from '@mycel/shared/api'
+import type { LinkNameKind, SourceLoc } from '@mycel/shared/api'
 import { fileViewTarget } from './markdown'
 
 export interface AppLinkRef {
@@ -14,7 +14,13 @@ export interface AppLinkRef {
   to: string
   /** a file in Files: opened in the preview panel by its path (lib/sidePanel.ts openTeamFile), as a team-file link */
   path?: string
+  /** a file link's place in the file (a line, a page: lib/markdown.ts fileViewTarget), opened there */
+  at?: SourceLoc
 }
+
+/** The longest id the server names (shared/src/api/link-names.ts LinkNameRef; a team path is at most 1024 characters):
+ * a longer one stays the plain link, and never costs the other chips of its request their names. */
+const ID_MAX = 1024
 
 const ID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
 const CHAT = new RegExp(`^/c/(${ID})(?:/t/${ID})?/?$`)
@@ -52,7 +58,8 @@ export function appLinkRef(href: string, hosts: ReadonlySet<string>, origin: str
     if (!clean) return null
     const folderOnly = p === '/files'
     const target = folderOnly ? { kind: 'folder' as const, path: clean } : fileViewTarget(clean, u.searchParams)
-    if (target.kind === 'file') return { kind: 'file', id: target.path, to: `/files/view?path=${encodeURIComponent(target.path)}`, path: target.path }
+    if (target.path.length > ID_MAX) return null
+    if (target.kind === 'file') return { kind: 'file', id: target.path, to: target.at ? `/files/view${u.search}` : `/files/view?path=${encodeURIComponent(target.path)}`, path: target.path, ...(target.at ? { at: target.at } : {}) }
     return { kind: 'folder', id: target.path, to: `/files?path=${encodeURIComponent(target.path)}` }
   }
   return null

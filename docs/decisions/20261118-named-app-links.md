@@ -8,8 +8,9 @@
 - **Ask:** a link to something in our own app pasted into a message (`/c/<chat>`, `/f/<file link>`, a project, a folder
   or a file, a room) shows its name instead of the raw address, as Slack and Notion show internal links.
 - **Rule:** the web app draws a bare address on this page's host or the team address whose path is a known page as a
-  small inline chip (the place's icon and a name), still a link that opens inside the app. The name comes from
-  `POST /api/link-names` (`server/src/link-names/resolve.ts`), decided for the signed-in viewer on every ask with the
+  small inline chip (the place's icon and a name, its direction isolated), still a link that opens inside the app: in
+  people's messages, and in everything the shared Markdown renderer draws (AI answers, Markdown files in the preview,
+  artifacts, instructions). The name comes from `POST /api/link-names` (`server/src/link-names/resolve.ts`), decided for the signed-in viewer on every ask with the
   check the thing's own page makes, never a weaker one:
   - chat: `chatFor(…, 'view')` as `GET /api/chats/:id`, deleted chats left out; the title as that page shows it
     (stored connection secrets hidden).
@@ -19,8 +20,11 @@
     named as the rooms list names it to them.
   - file link (`/f/<token>`): the link page's own `open()`: a name only when the link opens for the viewer today (live,
     its file in place, by the folder rules or by a grant while its owner still edits the file). Never for a guest
-    (links give guests nothing). Stopped, dead, trashed or stale: no name, the owner included. `open()` changes
-    nothing; the page's "mark the shared-with-you notice read" is not called.
+    (links give guests nothing). Stopped, dead, trashed or stale: no name, the owner included. The page's "mark the
+    shared-with-you notice read" is not called. `open()` keeps its own upkeep, the same the link page and the Inbox
+    rows already run for anyone holding the link: a link whose file changed is checked again (its file read once and
+    pinned anew) or ended, and a folder link whose folder changed is ended or paused. A message with a `/f/` link
+    can therefore start that upkeep when it is first drawn; it needs the 22-character secret token and tells nothing.
   - folder / file in Files: `authorize()` as the Files screen (`list` for a folder, `read` for a regular file); a
     hidden or impossible name never.
   - Guests use the same checks with their own, narrower access.

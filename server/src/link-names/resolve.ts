@@ -10,7 +10,9 @@
 //   - share (/f/<token>):      the file link's own open() as its page (GET /api/files/shared/:id): a name only when it
 //                              opens for the caller today (a live link, its file in place, by the folder rules or a grant
 //                              while its owner still edits it; never for a guest; a dead, trashed or stale link: none).
-//                              open() changes nothing (the page's markRead is not called here)
+//                              The page's markRead is not called here; open() keeps its own upkeep (a link whose
+//                              file changed is checked and pinned again or ended, a folder link paused or ended), as
+//                              the link page and the Inbox rows run it for anyone holding the link
 //   - folder / file (/files?path=, /files/view?path=): authorize() as the Files screen ('list' for a folder as the
 //                              tree, 'read' for a regular file as the preview), and never a hidden name
 // Everything else (no access, not there, a malformed id, a check that throws) is `name: null`: the same answer, so a link
@@ -34,7 +36,7 @@ import { componentC } from '../team-files/component'
  * an emoji at the cut). An empty name stays empty (an untitled chat: the client says "chat"). */
 export function cleanName(s: string): string {
   // eslint-disable-next-line no-control-regex
-  const one = s.replace(/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]+/g, ' ').replace(/\s+/g, ' ').trim()
+  const one = s.replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g, ' ').replace(/\s+/g, ' ').trim()
   if (one.length <= LINK_NAME_MAX) return one
   return one.slice(0, LINK_NAME_MAX).replace(/[\ud800-\udbff]$/, '') + '…'
 }

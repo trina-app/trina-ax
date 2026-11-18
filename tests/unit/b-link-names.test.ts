@@ -197,7 +197,7 @@ describe('the batch', () => {
   })
 
   test('names are one plain line, cut at LINK_NAME_MAX', async () => {
-    expect(cleanName('a\nb‮c\td')).toBe('a b c d')
+    expect(cleanName('a\nb\u202Ec\u200Fd\te')).toBe('a b c d e')
     const long = cleanName('x'.repeat(500))
     expect(long.length).toBe(LINK_NAME_MAX + 1)
     expect(long.endsWith('…')).toBe(true)

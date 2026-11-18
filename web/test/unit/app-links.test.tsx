@@ -36,6 +36,9 @@ test('the app\'s own pages on this page\'s host or the team address; where each 
   expect(ref(`https://acme.example.com/f/${TOKEN}`)).toEqual({ kind: 'share', id: TOKEN, to: `/f/${TOKEN}` })
   expect(ref('https://acme.example.com/files/view?path=shared%2Freports%2Fweek%201.md')).toEqual({ kind: 'file', id: 'shared/reports/week 1.md', to: '/files/view?path=shared%2Freports%2Fweek%201.md', path: 'shared/reports/week 1.md' })
   expect(ref('https://acme.example.com/files?path=shared%2Freports')).toEqual({ kind: 'folder', id: 'shared/reports', to: '/files?path=shared%2Freports' })
+  // a file link's place in the file goes with it; a path longer than the server names stays the plain link
+  expect(ref('https://acme.example.com/files/view?path=docs%2Fhandbook.pdf&page=3')).toEqual({ kind: 'file', id: 'docs/handbook.pdf', to: '/files/view?path=docs%2Fhandbook.pdf&page=3', path: 'docs/handbook.pdf', at: { kind: 'page', page: 3 } })
+  expect(ref('https://acme.example.com/files/view?path=' + 'a/'.repeat(600) + 'b.txt')).toBeNull()
   // ids are compared in one letter case
   expect(ref(`https://acme.example.com/c/${C.toUpperCase()}`)?.id).toBe(C)
 })

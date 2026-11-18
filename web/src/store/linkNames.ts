@@ -66,9 +66,12 @@ function flush() {
       },
       () => {
         if (mine !== generation) return
-        // offline or refused: the generic words for now; asked again after a short while
-        const at = Date.now() - LINK_NAME_TTL_MS + 30_000
-        useLinkNames.setState((s) => ({ byKey: { ...s.byKey, ...Object.fromEntries(part.map(([k]) => [k, s.byKey[k] ?? { name: null, at }])) } }))
+        // offline or refused: the generic words for now (an answer still fresh stays; an old one is not shown on: the
+        // viewer may have lost access since), asked again after a short while
+        const now = Date.now()
+        const at = now - LINK_NAME_TTL_MS + 30_000
+        const kept = (a: LinkNameAnswer | undefined) => (a && now - a.at < LINK_NAME_TTL_MS ? a : { name: null, at })
+        useLinkNames.setState((s) => ({ byKey: { ...s.byKey, ...Object.fromEntries(part.map(([k]) => [k, kept(s.byKey[k])])) } }))
       },
     ).finally(() => {
       if (mine !== generation) return
