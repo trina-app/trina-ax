@@ -34,6 +34,7 @@ import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFail
 import { redirectGuard, webEcho } from './connection-urls'
 import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
+import { safeOpsEnabled } from '../safe-ops/runner'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
@@ -92,9 +93,11 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
         'With a team template whose outline numbers its headings, leave the numbers out of the headings. A .hwp cannot be written. To change an existing .hwp or .hwpx (fill in a form), use edit_hwp. ' : 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. ') +
       'pptx: ' + PPTX_FORMAT_HINT + ' When the user names a slide count, give `expected_slides` (and `expected_notes` for speaker notes); ' +
-      'the result states the real slide and notes counts: report those, never other numbers. ' +
-      'When safe operations are enabled, PPTX uses only the bundled reference: uploaded templates are deferred. ' +
-      'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.'
+      'the result states the real slide and notes counts: report those, never other numbers.' +
+      // only with safe operations on (MYCEL_SAFE_OPS_1A): their limits are checked in safe-ops/presentation.ts; without
+      // them a deck has no slide or image cap, so the sentence would make the AI split a 40-slide deck for nothing
+      (safeOpsEnabled() ? ' Safe operations are on: PPTX uses only the bundled reference (uploaded templates are not used). ' +
+        'Limits: 30 slides, 20 PNG/JPEG/WebP/HEIC images, 100,000 text characters. expected_layouts checks the bundled layout for each slide.' : '')
   reg.register({
     name: 'make_file',
     description: makeFileDescription(true, true),

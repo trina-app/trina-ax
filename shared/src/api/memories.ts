@@ -7,7 +7,7 @@ import { Memory } from './entities'
 
 /** One memory is one line of at most this many characters once runs of spaces and line breaks are folded into one
  * space: the AI's remember and the person's own (server/src/chat/prompt.ts cleanMemoryText). */
-export const MEMORY_TEXT_MAX = 300
+export const MEMORY_TEXT_MAX = 1000
 /** A memory the person writes or corrects in Settings › Memory. The server folds and checks the text like the AI's. */
 export const MemoryInput = z.object({ text: z.string().max(2000) }).strict()
 export type MemoryInput = z.infer<typeof MemoryInput>

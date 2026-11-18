@@ -2866,7 +2866,7 @@ export const ja: Record<MessageKey, string> = {
   'skills.issues.location': "SKILL.mdはskills/内の専用フォルダーに置いてください。深さは3階層までです。",
   'skills.issues.too_large': "ファイルが大きすぎます（最大128 KB）。",
   'skills.issues.too_many': "このフォルダーのファイルが1,000個を超えています。AIは名前順で最初の1,000個だけを読むため、残りはスキルとして使われません。古いスキルを削除するか、いくつかまとめてください。",
-  'skills.issues.too_many_rules': "チームルールのファイル（ヘッダーのない skills/*.md）が10個を超えています。AIはファイル名順で最初の10個だけに従い、残りは含まれていないと伝えられます。ルールを少ないファイルにまとめてください。",
+  'skills.issues.too_many_rules': "チームルールのファイル（ヘッダーのない skills/*.md）が50個を超えています。AIはファイル名順で最初の50個だけに従い、残りは含まれていないと伝えられます。ルールを少ないファイルにまとめてください。",
   'skills.aiList': "スキル{skills}個 · AIのリストに説明付き：{described}個 · 名前のみ：{nameOnly}個",
   'skills.aiListUnlisted': " · リスト外（AIが検索して見つけます）：{unlisted}個",
   'skills.aiListHint': "AIの指示に入るスキルの一覧は約8,000文字です。自分のスキルとよく使うスキルに先に説明が付き、AIはスキルを使うときに全文を読みます。",

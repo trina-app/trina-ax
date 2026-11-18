@@ -382,7 +382,7 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
-  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 150. Read when an
+  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 500. Read when an
    * answer starts, so a change applies to the next answer. Sub-agents keep MAX_SUBAGENT_TURNS each (chat/subagents.ts);
    * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
   get maxEngineTurns(): number {

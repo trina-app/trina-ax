@@ -72,6 +72,7 @@ import { publishArtifact } from '../safe-ops/publication'
 import { preparePresentation } from '../safe-ops/presentation'
 import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
+import { turnWriteLimits } from '../files/turn-write-limits'
 
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
@@ -729,18 +730,19 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
 const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf'])
 
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
- * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
+ * (turnWriteLimits bytes, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
  * card over 1 GB and the disk check bounds (tools/save-url.ts). `turnFiles: false`: the file does not count against the
- * turn's file count (maxFilesWrittenPerTurn): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
+ * turn's file count (turnWriteLimits files): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
  * answer (tools/unzip.ts). `detail`: more for the file event (the source URL). */
 export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown> }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
-  const cfg = ctx.engineConfig
+  // a guest has the smaller pair (files/turn-write-limits.ts)
+  const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
   const counted = po.turnBytes !== false
-  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', cfg.maxWriteBytesPerTurn, segs.join('/')))
+  if (counted && c.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -778,7 +780,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       conflictOf = rel0
     }
   }
-  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
+  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, target.join('/')))
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)

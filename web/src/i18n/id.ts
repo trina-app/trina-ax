@@ -2907,7 +2907,7 @@ export const id: Record<MessageKey, string> = {
   'skills.issues.location': 'Taruh SKILL.md di foldernya sendiri di dalam skills/, maksimal tiga tingkat.',
   'skills.issues.too_large': 'Berkas terlalu besar (maksimal 128 KB).',
   'skills.issues.too_many': 'Folder ini berisi lebih dari 1.000 berkas: AI hanya membaca 1.000 berkas pertama (menurut nama), jadi sisanya tidak dipakai sebagai skill. Hapus skill lama atau gabungkan beberapa.',
-  'skills.issues.too_many_rules': 'Ada lebih dari 10 berkas aturan tim (skills/*.md tanpa header): AI hanya mengikuti 10 berkas pertama menurut nama dan diberi tahu bahwa sisanya tidak disertakan. Gabungkan aturan ke lebih sedikit berkas.',
+  'skills.issues.too_many_rules': 'Ada lebih dari 50 berkas aturan tim (skills/*.md tanpa header): AI hanya mengikuti 50 berkas pertama menurut nama dan diberi tahu bahwa sisanya tidak disertakan. Gabungkan aturan ke lebih sedikit berkas.',
   'skills.aiList': 'Skill: {skills} · di daftar AI dengan deskripsi: {described} · hanya nama: {nameOnly}',
   'skills.aiListUnlisted': ' · tidak di daftar (AI menemukannya dengan mencari): {unlisted}',
   'skills.aiListHint': 'Instruksi AI memuat daftar skill sekitar 8.000 karakter. Skill pribadi Anda dan yang paling sering Anda pakai mendapat deskripsi lebih dulu; AI membaca isi lengkap skill saat memakainya.',

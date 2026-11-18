@@ -45,7 +45,8 @@ The AI can split a big request into sub-tasks, up to 4 at a time. A helper works
 
 | Limit | Default |
 |---|---|
-| Tool rounds per answer | 150 (admins choose 10–500) |
+| Tool rounds per answer | 500 (admins choose 10–500; guests at most 150). At the limit the answer pauses and **Continue** picks it up |
+| Files saved in one answer | 1 GB and 2,000 files (guests 50 MB and 200) |
 | Answer time | No limit. An answer stops only if the AI does nothing for 15 minutes |
 | Usage | Token limits per person, group or team, if set |
 

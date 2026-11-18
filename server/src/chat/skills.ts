@@ -44,7 +44,8 @@ export function readSkillExample(raw: string | undefined): string | null {
   const v = raw?.trim()
   return v && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/.test(v) && [...v].length <= SKILL_EXAMPLE_MAX ? v : null
 }
-export interface Skill extends SkillInfo { body: string }
+/** `bodyChars`: set only when `body` was cut at SKILL_BODY_MAX, the full body's length (prompt.ts skillBlock says so) */
+export interface Skill extends SkillInfo { body: string; bodyChars?: number }
 
 const SKILLS_DIR = 'skills'
 const USERS_DIR = 'users'
@@ -55,7 +56,9 @@ const MAX_DEPTH = 3
  * team rule files included. Over it the rest is not read: skill managers see a "too_many" issue (skillIssues), never a
  * silent cut */
 export const MAX_FILES = 1000
-export const SKILL_BODY_MAX = 16_000
+/** characters of a skill's steps given to the AI when it is used (16,000 before 2026-11-18; a longer one is cut with a
+ * note to read the rest, docs/decisions/20261118-limits-caps.md). The file itself is at most SKILL_FILE_MAX_BYTES. */
+export const SKILL_BODY_MAX = 100_000
 export const SKILL_FILE_MAX_BYTES = 128 * 1024
 const HEADER_MAX = 8 * 1024
 /** The name rule of a SKILL.md folder (shared/src/api/skills.ts isSkillName; docs/decisions/20261116-skill-names-unicode.md). */
@@ -520,7 +523,7 @@ function readSkillIn(files: FileService, user: Principal, inputPath: string, sca
     if (r.segs.length > root + MAX_DEPTH || !r.rel.endsWith('.md') || isSkillResource(files.fx.root, r.rel)) return null
     const text = readRegular(r.abs, SKILL_FILE_MAX_BYTES, r.st).bytes.toString('utf8')
     const skill = parseSkill(text, r.rel)
-    return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX), ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.id, name: project.name } } : {}) } : null
+    return skill ? { path: r.rel, ...skill, body: skill.body.slice(0, SKILL_BODY_MAX), ...(skill.body.length > SKILL_BODY_MAX ? { bodyChars: skill.body.length } : {}), ...(group ? { group: { id: group.id, name: group.name } } : {}), ...(project ? { project: { id: project.id, name: project.name } } : {}) } : null
   } catch { return null }
 }
 

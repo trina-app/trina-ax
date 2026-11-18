@@ -1,0 +1,3 @@
+- One answer can now save up to 1 GB and 2,000 files (was 50 MB and 200) and take up to 500 tool steps by default (was 150), so long jobs stop less often. When a long job still reaches the limit, **Continue** picks it up. Guests keep the old limits.
+- A memory can be up to 1,000 characters (was 300), and the AI gets more of them. Team rule files: the AI follows up to 50 (was 10), each up to 20,000 characters (was 4,000); a skill can be up to 100,000 characters (was 16,000). When something is still too long, the AI is told what was left out and reads the rest itself.
+- The AI no longer says a PowerPoint is limited to 30 slides and 20 pictures on servers where that limit does not apply.

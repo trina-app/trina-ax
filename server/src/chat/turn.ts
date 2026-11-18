@@ -17,6 +17,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { GUEST_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -1040,7 +1041,8 @@ export class TurnExec {
       const exclude = new Set<string>()
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts; a
       // continuation after a connect gets only what the answer has left
-      const maxTurns = rt.maxEngineTurns
+      // A guest keeps the old default as a ceiling (docs/decisions/20261118-limits-caps.md)
+      const maxTurns = isGuestUser(rt.db, spec.userId) ? Math.min(rt.maxEngineTurns, GUEST_ANSWER_STEP_LIMIT) : rt.maxEngineTurns
       let turnsLeft = maxTurns
       // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
       // note is the resumed session's message, at most CONTINUE_MAX times per answer

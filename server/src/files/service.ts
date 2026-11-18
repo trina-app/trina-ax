@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, VERSIONS_SHOWN_DEFAULT, WriteInput, type MediaKind } from '@mycel/shared'
 import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
+import { turnWriteLimits } from './turn-write-limits'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { imageFactsLine, seeThrough } from '../uploads/image'
@@ -1613,10 +1614,11 @@ export class FileService {
   }
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
-    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText)
-    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', this.cfg.maxWriteBytesPerTurn, rel))
+    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText); a guest has the smaller pair
+    const max = turnWriteLimits(this.cfg, this.db, ctx.user.id)
+    if (ctx.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, rel))
     assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
-    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', this.cfg.maxFilesWrittenPerTurn, rel))
+    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, rel))
   }
 
   /** Someone changed the file after this writer read it: leave the original alone, save a conflict copy. */

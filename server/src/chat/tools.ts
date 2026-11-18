@@ -9,6 +9,7 @@ import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
 import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
 import type { ToolCard, TurnTool, TurnToolContext } from '../services'
@@ -104,7 +105,7 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 
 export const B_TOOL_DESCRIPTIONS = {
-  remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
+  remember: `Remember one lasting fact or preference about the user for future chats (one line, under ${MEMORY_TEXT_MAX} characters). Only when the user wants it kept. Returns the memory id.`,
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
   connect_service: 'Connect a service for the user (by its MCP endpoint or HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Gmail, Google Calendar, Google Docs and Google Sheets are built into the app: give only the name (no address; never look one up), and the result says how they connect. For others, fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',

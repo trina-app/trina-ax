@@ -1,5 +1,5 @@
 // Tool rounds per answer (docs/DECISIONS.md "Tool rounds per answer"): Claude Code's --max-turns comes from Admin >
-// Team settings `answerStepLimit` (default 150, 10-500), read when each answer starts. At the limit the answer pauses
+// Team settings `answerStepLimit` (default 500, 10-500; 150 before 2026-11-18), read when each answer starts. At the limit the answer pauses
 // with "continue" as before; sub-agents keep their own 50 rounds each. Fake engine through the real launcher and gate.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, DEFAULT_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
@@ -31,12 +31,12 @@ const setLimit = (n: unknown) => h.api('carol').call(API.updateSettings, { body:
 const clear = () => h.ctx.db.query("DELETE FROM settings WHERE key = 'answerStepLimit'").run()
 
 describe('tool rounds per answer', () => {
-  test('default 150, in the settings and on the engine command line', async () => {
+  test('default 500, in the settings and on the engine command line', async () => {
     clear()
-    expect(DEFAULT_ANSWER_STEP_LIMIT).toBe(150)
-    expect(DEFAULT_MAX_ENGINE_TURNS).toBe(150)
-    expect((await h.api('carol').call(API.settings)).answerStepLimit).toBe(150)
-    expect(await maxTurnsOfNextAnswer()).toBe('150')
+    expect(DEFAULT_ANSWER_STEP_LIMIT).toBe(500)
+    expect(DEFAULT_MAX_ENGINE_TURNS).toBe(500)
+    expect((await h.api('carol').call(API.settings)).answerStepLimit).toBe(500)
+    expect(await maxTurnsOfNextAnswer()).toBe('500')
   })
 
   test('an admin changes it for the next answer; it is audited; out of range is refused; members cannot', async () => {
@@ -58,12 +58,12 @@ describe('tool rounds per answer', () => {
     } finally { clear() }
   })
 
-  test('a stored value that is not a valid limit falls back to 150', async () => {
+  test('a stored value that is not a valid limit falls back to 500', async () => {
     try {
       for (const v of ['"lots"', '3', '100000', '7.5']) {
         h.ctx.db.query("INSERT INTO settings (key, value) VALUES ('answerStepLimit', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(v)
-        expect(await maxTurnsOfNextAnswer()).toBe('150')
-        expect((await h.api('carol').call(API.settings)).answerStepLimit).toBe(150)
+        expect(await maxTurnsOfNextAnswer()).toBe('500')
+        expect((await h.api('carol').call(API.settings)).answerStepLimit).toBe(500)
       }
     } finally { clear() }
   })

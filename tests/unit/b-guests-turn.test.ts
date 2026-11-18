@@ -5,7 +5,7 @@
 // with test sessions (no invite page), so the guest is marked as the invite accept marks one: users.guest = 1 and
 // its guests row (the invite and accept themselves are tested in tests/unit/a-guests-*.test.ts).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from 'bun:test'
-import { API } from '@mycel/shared/api'
+import { API, GUEST_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { addCred } from '../lib/credentials'
@@ -54,6 +54,21 @@ test('AI team: the guest runs on the named team connection, with the guest tools
   const m = await newChat('alice')
   const mine = String((await ask(h, alice, 'alice', m.id, fake({ echo: 'tools' }))).done.content).trim().split(',')
   expect(mine).toContain('find_skills')
+})
+
+test('a guest keeps at most 150 tool rounds per answer; a member gets the team limit (default 500)', async () => {
+  // the guest is on AI 'team' from the test above
+  const maxTurns = async (user: string, ws: TestSocket) => {
+    const r = await ask(h, ws, user, (await newChat(user)).id, fake({ echo: 'args' }))
+    const argv = JSON.parse(r.done.content) as string[]
+    return argv[argv.indexOf('--max-turns') + 1]
+  }
+  expect(await maxTurns('erin', erin)).toBe(String(GUEST_ANSWER_STEP_LIMIT))
+  expect(GUEST_ANSWER_STEP_LIMIT).toBe(150)
+  expect(await maxTurns('alice', alice)).toBe('500')
+  // a team limit under the guest ceiling applies to the guest too
+  setSetting(h.ctx.db, 'answerStepLimit', 40)
+  try { expect(await maxTurns('erin', erin)).toBe('40') } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'answerStepLimit'").run() }
 })
 
 test('AI own: never the team-wide connection, with the members\' switch off too; once the guest connects their own, their turn is answered on it', async () => {

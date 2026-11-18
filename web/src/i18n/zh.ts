@@ -2861,7 +2861,7 @@ export const zh: Record<MessageKey, string> = {
   "skills.issues.location": "请把SKILL.md放在skills/内它自己的文件夹中，最多三层深。",
   "skills.issues.too_large": "文件过大（最大128 KB）。",
   "skills.issues.too_many": "此文件夹中超过1,000个文件：AI只读取前1,000个（按名称），其余的不会作为技能使用。请移除旧技能或合并一些。",
-  "skills.issues.too_many_rules": "团队规则文件超过10个（没有头部的skills/*.md）：AI只遵循按文件名排序的前10个，并会被告知其余的已略去。请把规则合并到更少的文件中。",
+  "skills.issues.too_many_rules": "团队规则文件超过50个（没有头部的skills/*.md）：AI只遵循按文件名排序的前50个，并会被告知其余的已略去。请把规则合并到更少的文件中。",
   "skills.aiList": "技能：{skills} · 带描述列入AI列表：{described} · 仅列名称：{nameOnly}",
   "skills.aiListUnlisted": " · 未列入列表（AI通过搜索找到）：{unlisted}",
   "skills.aiListHint": "AI的指令中约有8,000个字符的空间用于技能。你自己的技能和最常用的技能会优先列出描述；AI使用某个技能时会读取其全文。",
