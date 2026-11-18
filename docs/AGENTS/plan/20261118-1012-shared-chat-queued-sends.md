@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:12
 - Branch: `feat/shared-chat-queued-sends`
-- Status: in progress
+- Status: done
 - Where: Team AX core (web chat screen + server chat routes). Why: chat behaviour is core (docs/REPOSITORY-RULES.md).
 - Version impact: minor, a new behaviour and one new route (`PUT /api/chats/:id/waiting`).
 
@@ -54,4 +54,6 @@ docs/decisions/20261118-shared-chat-queued-sends.md
 
 ## Result
 
-(filled in at the end)
+Built as planned. Two people's waiting messages go one turn each in the order they were queued (unit, server and
+two-person e2e tests; checked on a copy of the QA team with three people). Known limit: one person queueing from two
+devices at once has one place in line for both, so those two devices' messages are not ordered between themselves.

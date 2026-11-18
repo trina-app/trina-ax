@@ -252,6 +252,38 @@ describe("each turn is its sender's", () => {
     await ws.alice!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
   })
 
+  test('waiting messages of two people: the one who queued first sends first (409 shared_chat_next), the others see only how many', async () => {
+    const chat = await newShared()
+    const slow = await send('alice', chat.id, 'slow\n' + fake({ sleep: 1500 }, { say: 'done slowly' }))
+    await waitFor(() => (h.rt().activeTurnUser(chat.id) === 'alice'), { timeoutMs: 5000 })
+    // erin does not see the project: the same 404 as no chat
+    expect((await errOf(h.api('erin').call(API.putChatWaiting, { params: { id: chat.id }, body: { count: 1 } }))).status).toBe(404)
+    // bob queues first, then carol (an admin made a member), then alice's own one
+    await h.api('bob').call(API.putChatWaiting, { params: { id: chat.id }, body: { count: 2 } })
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared?.waiting).toBe(2)
+    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared?.waiting).toBeUndefined()
+    await h.api('alice').call(API.putChatWaiting, { params: { id: chat.id }, body: { count: 1 } })
+    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared?.waiting).toBe(1)
+    await ws.alice!.next('message.done', (f) => f.data.messageId === slow.assistantMessage.id, 15_000)
+    await waitFor(() => h.rt().activeTurn(chat.id) === null, { timeoutMs: 5000 })
+    // the answer ended: alice's browser tries first, but bob waited longer
+    const next = await errOf(send('alice', chat.id, 'mine'))
+    expect([next.status, next.body.params?.reason]).toEqual([409, 'shared_chat_next'])
+    expect(next.body.message).toBe("Bob Lee's message has been waiting longer. Yours goes after it.")
+    // someone who never queued is refused the same way (theirs would jump the line)
+    const asks = await ask('bob', chat.id, 'bob 1+2\n' + fake({ say: 'b' }))
+    // bob sent: his place is gone, alice is first now; bob's later one goes after hers
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared?.waiting).toBeUndefined()
+    await h.api('bob').call(API.putChatWaiting, { params: { id: chat.id }, body: { count: 1 } })
+    await waitFor(() => h.rt().activeTurn(chat.id) === null, { timeoutMs: 5000 })
+    expect((await errOf(send('bob', chat.id, 'again'))).body.params?.reason).toBe('shared_chat_next')
+    const mine = await ask('alice', chat.id, 'mine\n' + fake({ say: 'a' }))
+    expect(mine.started.userMessage!.parentId).toBe(asks.done.id)
+    await waitFor(() => h.rt().activeTurn(chat.id) === null, { timeoutMs: 5000 })
+    await h.api('bob').call(API.putChatWaiting, { params: { id: chat.id }, body: { count: 0 } })
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared?.waiting).toBeUndefined()
+  })
+
   test("another version is not picked while someone's answer runs: 409 branch_while_answering, the branch stays (audit row 7)", async () => {
     const chat = await newShared()
     const one = await ask('alice', chat.id, 'q1\n' + fake({ say: 'a1' }))

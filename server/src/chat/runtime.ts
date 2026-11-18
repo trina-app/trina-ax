@@ -40,6 +40,7 @@ import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
 import { newAnswerRecord } from './shared-answers'
+import { SharedWaiting } from './shared-waiting'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -208,6 +209,8 @@ export class ChatRuntime {
   readonly presence: Presence
   /** what each open window shows now, in memory only (realtime/looking.ts): the AI's looking_at tool reads it */
   readonly looking: Looking
+  /** who has messages waiting in each shared chat, and since when (shared-waiting.ts): the order they go in */
+  readonly sharedWaiting = new SharedWaiting()
   readonly engines: EngineProvider
   /** how long an engine that has the turn may produce nothing before the turn ends (STALL_TIMEOUT_MS; a test may
    * change it). One answer has no time limit (docs/DECISIONS.md "No time limit on one answer"). */

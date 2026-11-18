@@ -625,6 +625,7 @@ export const ko = {
   "outbox.remove": "보내지 않기",
   "outbox.removed": "메시지를 보내지 않기로 했어요.",
   "outbox.full": "기다리는 메시지가 너무 많아요. 답이 끝난 뒤 보내 주세요.",
+  "outbox.othersWaiting": "다른 사람의 메시지 {n}개가 보내기를 기다리고 있어요.",
 
   'composer.label': '메시지',
   'composer.placeholder': '무엇이든 물어보세요',
@@ -1427,7 +1428,7 @@ export const ko = {
   'chat.whoOpens': "멤버 관리",
   "chat.linkCopiedShared": "링크를 복사했어요 · {n}명이 열 수 있어요",
   'chat.linkCopiedPrivate': "링크를 복사했어요 · 나만 열 수 있어요",
-  'chat.sharedBusy': "{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.",
+  'chat.sharedBusy': "{name}님의 질문에 답하는 중이에요. 지금 보내면 답이 끝난 뒤에 보낼게요.",
   'chat.endingEarlier': "앞의 답이 끝나기를 기다리는 중이에요. 다른 채팅은 평소처럼 쓸 수 있어요.",
   'chat.waitingForPlace': "빈자리를 기다리는 중이에요. 자리가 나면 바로 이어서 답해요.",
   'chat.sharedWaiting': "{name}님의 확인을 기다리는 중이에요.",

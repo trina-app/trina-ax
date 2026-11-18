@@ -626,6 +626,7 @@ export const id: Record<MessageKey, string> = {
   "outbox.remove": "Jangan kirim",
   "outbox.removed": "Pesan dihapus dan tidak akan dikirim.",
   "outbox.full": "Terlalu banyak pesan yang menunggu. Kirim pesan ini setelah jawaban selesai.",
+  "outbox.othersWaiting": "{n} pesan dari orang lain menunggu untuk dikirim.",
 
   'composer.label': 'Pesan',
   'composer.placeholder': 'Tanya apa saja',
@@ -1428,7 +1429,7 @@ export const id: Record<MessageKey, string> = {
   'chat.whoOpens': "Kelola anggota",
   "chat.linkCopiedShared": "Tautan disalin · {n} orang bisa membukanya",
   'chat.linkCopiedPrivate': "Tautan disalin · hanya Anda yang bisa membukanya",
-  'chat.sharedBusy': "Pertanyaan {name} sedang dijawab. Anda bisa mengirim setelah selesai.",
+  'chat.sharedBusy': "Pertanyaan {name} sedang dijawab. Pesan yang Anda kirim sekarang akan dikirim setelah selesai.",
   'chat.endingEarlier': "Menunggu jawaban sebelumnya selesai. Obrolan lain berjalan seperti biasa.",
   'chat.waitingForPlace': "Menunggu tempat kosong. Jawaban Anda lanjut begitu ada yang kosong.",
   'chat.sharedWaiting': "Menunggu konfirmasi {name}.",

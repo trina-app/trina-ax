@@ -321,6 +321,9 @@ export const Chat = z.object({
     /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
      * null when nobody's is, or when it is mine */
     answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
+    /** how many messages of the others wait there to be sent when the answer ends (PUT /api/chats/:id/waiting): a number,
+     * never whose or what. Absent: none (or an older server). */
+    waiting: z.number().int().positive().optional(),
     /** I made it or wrote in it: it is in my chat list */
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */

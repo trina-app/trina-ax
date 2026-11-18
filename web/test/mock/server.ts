@@ -6407,6 +6407,21 @@ export class MockServer {
   /** who put each shared chat in the trash (chats.deleted_by) */
   sharedDeletedBy = new Map<string, string>()
   sharedHolds = new Map<string, () => void>()
+  /** who has messages waiting in each shared chat and since when (server/src/chat/shared-waiting.ts; PUT
+   * /api/chats/:id/waiting): a send while someone else waited longer is refused (409 shared_chat_next) */
+  sharedWaitingPlaces = new Map<string, Map<string, { since: number; seen: number; count: number }>>()
+  /** the waiting places of a chat still refreshed within 45 s */
+  freshWaiting(chatId: string): Map<string, { since: number; seen: number; count: number }> {
+    const places = this.sharedWaitingPlaces.get(chatId) ?? new Map()
+    for (const [id, p] of places) if (Date.now() - p.seen > 45_000) places.delete(id)
+    return places
+  }
+  /** Chat.shared.waiting for `viewer`: how many of the others' messages wait */
+  othersWaiting(chatId: string, viewer: string): { waiting?: number } {
+    let n = 0
+    for (const [id, p] of this.freshWaiting(chatId)) if (id !== viewer) n += p.count
+    return n ? { waiting: n } : {}
+  }
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
 
@@ -7316,6 +7331,7 @@ export class MockServer {
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
           answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+          ...this.othersWaiting(chat.id, viewer.id),
           mine: true, canDelete: creator, canUpload: !this.allConfidential,
         },
       }
@@ -7782,6 +7798,7 @@ export class MockServer {
         by: s.by,
         audience: this.sharedAudience(p).length,
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+        ...this.othersWaiting(chat.id, viewer.id),
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
         canUpload: this.sharedMayUpload(p, viewer),
@@ -7835,6 +7852,7 @@ export class MockServer {
       this.chatOwners = new Map()
       this.sharedDeletedBy = new Map()
       this.sharedHolds = new Map()
+      this.sharedWaitingPlaces = new Map()
       baseReset(o)
     }
     // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
@@ -8101,6 +8119,20 @@ export class MockServer {
     }
     const started = (user: Message | null, assistant: Message) => ({ status: 202, body: { userMessage: user ? this.view(user) : null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } })
 
+    /** how many of my messages wait in a shared chat (server/src/chat/shared-waiting.ts); the others hear how many */
+    h.putChatWaiting = (c) => {
+      const chatId = c.params.id!
+      mayContinue(c.user, chatId)
+      if (!shared(chatId)) return { status: 204, body: null }
+      const places = this.freshWaiting(chatId)
+      const old = places.get(c.user.id)
+      const n = Math.min(50, Number((c.body as { count: number }).count))
+      if (n) places.set(c.user.id, { since: old?.since ?? Date.now(), seen: Date.now(), count: n })
+      else places.delete(c.user.id)
+      this.sharedWaitingPlaces.set(chatId, places)
+      if ((old?.count ?? 0) !== n) this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: chatOf(chatId) } })
+      return { status: 204, body: null }
+    }
     over('sendMessage', (c, base) => {
       const s = shared(c.params.id)
       if (!s) return base(c)
@@ -8108,6 +8140,12 @@ export class MockServer {
       if (again) fail('conflict', 409)
       mayContinue(c.user, c.params.id!)
       notBusy(s, c.user)
+      // whoever has waited longer goes first (409 shared_chat_next, naming them)
+      const places = this.freshWaiting(c.params.id!)
+      const mine = places.get(c.user.id)?.since ?? Infinity
+      const first = [...places].filter(([id, p]) => id !== c.user.id && p.since < mine).sort((a, b) => a[1].since - b[1].since)[0]
+      if (first) fail('conflict', 409, `${nameOf(first[0])}님의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.`, undefined, { reason: 'shared_chat_next' })
+      places.delete(c.user.id)
       const chat = chatOf(c.params.id!)
       const attachments = teamOnly(c.body.attachmentIds as string[])
       const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null

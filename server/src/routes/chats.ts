@@ -233,6 +233,14 @@ function busyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
   fail('conflict', tr('turnInProgress', locale))
 }
 
+/** A send in a shared chat goes after the messages of whoever has waited longer (chat/shared-waiting.ts): 409
+ * shared_chat_next, naming them; that browser keeps its messages waiting and tries again. */
+function nextCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale, me: string) {
+  if (!a.shared) return
+  const first = rt.sharedWaiting.ahead(a.row.id, me)
+  if (first) fail('conflict', tr('sharedChatNext', locale, { name: rt.store.userRef(first)?.name ?? '' }), { params: { reason: 'shared_chat_next' } })
+}
+
 /** Switching versions (selectBranch) waits for the chat's answer, whoever asked: one plain 409 for everyone. */
 function branchBusyCheck(rt: ChatRuntime, a: ChatAccess, locale: Locale) {
   if (rt.activeTurn(a.row.id)) fail('conflict', tr('branchWhileAnswering', locale), { params: { reason: 'branch_while_answering' } })
@@ -737,6 +745,7 @@ export const chatsRoutes: RouteModule = {
       const again = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id)
       if (again) return again
       busy(a, c.get('locale'), auth.user.id)
+      nextCheck(rt, a, c.get('locale'), auth.user.id)
       const parentId = body.parentId === undefined ? chat.active_leaf_id : body.parentId
       if (parentId) {
         const p = messageInChat(rt, chat.id, parentId)
@@ -749,12 +758,21 @@ export const chatsRoutes: RouteModule = {
       checkBudget(ctx, auth.user.id, c.get('locale'))
       const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, chat, body, c.get('locale'))
       try {
-        return rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
+        const started = rt.createTurn({ chat, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom, timeZone: turnZone(body.timeZone),
           user: { parentId, content: body.content, attachments: atts, clientMessageId: body.clientMessageId } })
+        // sent: their place in line is gone (more of theirs waiting go to the back); the others hear how many still wait
+        if (a.shared && rt.sharedWaiting.sent(chat.id, auth.user.id)) rt.publishChat(auth.user.id, chat.id, 'updated')
+        return started
       } catch (e) {
         if (isClientIdClash(e)) { const r = rt.existingTurn(chat.id, body.clientMessageId, auth.user.id); if (r) return r }
         throw e
       }
+    })
+
+    // how many of my messages wait in a shared chat (chat/shared-waiting.ts); the others hear how many wait in all
+    kit.handle(API.putChatWaiting, ({ c, params, body, auth }) => {
+      const a = chatOf(rt, c, auth, params.id, 'continue')
+      if (a.shared && rt.sharedWaiting.declare(a.row.id, auth.user.id, body.count)) rt.publishChat(a.row.user_id, a.row.id, 'updated')
     })
 
     // a shared chat: only the person whose turn it is stops it
