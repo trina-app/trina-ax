@@ -1038,7 +1038,7 @@ export const PARENT_ONLY_WORDS: Readonly<Record<string, string>> = {
   schedule_create: 'schedules', schedule_list: 'schedules', schedule_delete: 'schedules',
   generate_video: 'videos', save_promo_video: 'videos', box_shell: 'running commands in the dev environment',
   rooms: 'team chat rooms', room_read: 'team chat rooms', room_file: 'team chat rooms', save_room_file: 'team chat rooms', post_to_room: 'posting to a room',
-  chat_file: 'files attached to this chat', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
+  chat_file: 'files attached to this chat', save_chat_file: 'files attached to this chat', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
   who_can_open: 'checking who can open something', shared_with_me: 'files shared with the user', looking_at: 'what the user has open',
   answer_comments: 'comments on answers',
 }

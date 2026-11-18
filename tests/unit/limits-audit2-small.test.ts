@@ -260,7 +260,9 @@ describe('TC-4926 the sub-agent sentence follows the tool list', () => {
   })
   test('the sentence names what this turn has and helpers lack, and nothing else', () => {
     const rule = subagentRule(['read', 'write', 'delete_files', 'room_read', 'rooms', 'box_shell', 'make_file'])
-    expect(rule).toContain('only you have: putting files in the trash, team chat rooms, running commands in the dev environment.')
+    // box_shell is a sub-agent's tool too since #1289 (QA TC-4911): it is not in the sentence
+    expect(rule).toContain('only you have: putting files in the trash, team chat rooms.')
+    expect(rule).not.toContain('running commands')
     expect(rule).not.toContain('schedules')
     expect(rule).not.toContain('the browser')
     expect(subagentLacks(['read', 'make_file'])).toEqual([])
