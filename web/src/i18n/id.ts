@@ -742,6 +742,11 @@ export const id: Record<MessageKey, string> = {
   "voice.confidentialRoom": "Input suara tidak tersedia di percakapan selama semua chat dirahasiakan: rekaman tidak dikirim ke layanan suara luar (OpenRouter). Silakan ketik saja.",
 
   'steps.label': 'Langkah kerja',
+  'todo.title': "Daftar tugas",
+  'todo.progress': "{done} dari {n} selesai",
+  'todo.pending': "Belum dimulai",
+  'todo.inProgress': "Sedang dikerjakan",
+  'todo.completed': "Selesai",
   'steps.summary': '{n} langkah',
   'steps.earlier': '{n} langkah sebelumnya',
   'steps.running': 'Berjalan',

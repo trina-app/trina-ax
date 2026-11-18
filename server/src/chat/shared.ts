@@ -439,7 +439,7 @@ export function chatView(rt: ChatRuntime, viewer: string, r: ChatRow, o: { aud?:
     return { ...c, title: hide(c.title) }
   }
   const runner = rt.activeTurnUser(r.id)
-  const c = rt.store.toChat(r, rt.runState(r.id), runner === viewer && rt.waitsForPerson(r.id), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
+  const c = rt.store.toChat(r, rt.runState(r.id), rt.waitsForPerson(r.id, viewer), { answersOf: r.user_id === viewer ? viewer : null, viewer, ending: rt.endingUnconfirmed(r.id), waitingForPlace: runner === viewer && rt.waitsForPlace(r.id) })
   const shared = sharedOf(rt, viewer, r, o.aud ?? new Audiences(rt.db, rt.files))
   if (o.people) {
     const p = o.people.get(r.id)

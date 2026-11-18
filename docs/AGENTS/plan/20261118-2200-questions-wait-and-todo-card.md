@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 22:00
 - Branch: `feat/questions-wait-and-todo-card`
-- Status: in progress
+- Status: done
 - Where: Team AX core (server/src/chat, shared/src/api, web/src/components/chat). Why: chat and the AI's tools are core.
 - Version impact: minor (a new table, a new tool, a new card)
 
@@ -52,8 +52,8 @@ docs/decisions/20261118-questions-wait-and-todo-card.md.
 
 ## Risks
 
-Many tests answer an ask_user card inside the same turn: they move to the new flow. Shared chats: the card is the
-asker's only (as today); the answer turn runs as the asker.
+Many tests answer an ask_user card inside the same turn: they move to the new flow. Shared chats keep the wait inside
+the call (see Result).
 
 ## Tests
 
@@ -62,4 +62,14 @@ open-questions and todo tests.
 
 ## Result
 
-(filled in at the end)
+Built as planned, with two changes found on the way:
+
+- Shared chats (project or people-shared) keep the wait inside the call: there the answer would become a user message
+  everyone reads, where a card's answer has stayed with the person who gave it (tested by b-shared-chats).
+- An answer given while the asking answer is still writing its last line is taken (not "an answer is in progress"):
+  the runtime starts the next turn when that answer ends (ChatRuntime.startAnswered).
+- Skip on the card goes on as "(Skipped the question)", the AI reading `"skipped": true` as before.
+
+Real AI on a copy of the QA team: the question card stayed open after the answer ended (14 s), survived a server
+restart, and the answer "Casual" started the next turn that saved the note; a 5-file job kept one to-do card that
+ended with all five done.

@@ -9,7 +9,7 @@ import { chatFileOffered, chatFileTool, saveChatFileTool } from './chat-file-too
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
@@ -31,6 +31,7 @@ import { atLeast, isStaff, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
+import { questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
@@ -105,10 +106,14 @@ const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }], ...(isError ? { isError: true } : {}) })
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 
+/** ask_user's result when its card waits after the answer ends (chat/open-questions.ts) */
+export const ASK_USER_LATER_NOTE = 'The card is open for the user and waits until they answer. End your answer now: write at most one short line, call no more tools, and do not answer the question yourself. Their answer comes as their next message in this chat; go on with the work from there.'
+
 export const B_TOOL_DESCRIPTIONS = {
   remember: `Remember one lasting fact or preference about the user for future chats (one line, under ${MEMORY_TEXT_MAX} characters). Only when the user wants it kept. Returns the memory id.`,
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
-  ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  ask_user: 'Ask the user a question on a card. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. In a chat the user watches the card waits as long as they need (minutes or days) and the call returns {"asked": true} at once: end your answer right after it; their answer comes as their next message in this chat (or {"skipped": true} for a skipped question), and you go on from there. Elsewhere (a scheduled run, a question from Slack) it waits for the answer and returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when nobody answers in time.',
+  todo_write: 'Keep a to-do list for this answer: the user sees it as a checklist under your answer that updates in place. Use it for work of 3 or more steps, or when the user gives several things to do: write the list before you start, mark an item in_progress just before you work on it (one at a time) and completed as soon as it is done, and add items you find on the way. Each call replaces the whole list. content: the task in the imperative ("Read the March invoices"); activeForm: the same while under way ("Reading the March invoices"). Skip it for a single or quick task, or a plain question.',
   connect_service: 'Connect a service for the user (by its MCP endpoint or HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Gmail, Google Calendar, Google Docs and Google Sheets are built into the app: give only the name (no address; never look one up), and the result says how they connect. For others, fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
@@ -1079,6 +1084,13 @@ function bTools(exec: TurnExec): Tool[] {
           ...(a.data.allowText !== undefined ? { allowText: a.data.allowText } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }
+        // a chat a person watches: the card waits as long as it takes, after this answer ends (chat/open-questions.ts).
+        // Not in a shared chat: the answer would become a message everyone there reads (a card's answer stays the asker's)
+        if (!questionsWaitInCall(spec.clientKind) && !exec.shared) {
+          const { expiresAt: _no, ...open } = request
+          if (!exec.askLater(open as typeof request & { kind: 'ask_user' })) return { ...text(JSON.stringify({ skipped: true })), summary: 'ask_user -> skipped' }
+          return { ...text(JSON.stringify({ asked: true, note: ASK_USER_LATER_NOTE })), summary: 'ask_user -> asked' }
+        }
         const answer = await exec.waitForPerson(request, { timeoutMs: rt.askUserTimeoutMs() })
         if (answer === null || answer === undefined) {
           exec.patchToolStep('ask_user', () => ({ detail: tr('notAnswered', L) }))
@@ -1086,6 +1098,17 @@ function bTools(exec: TurnExec): Tool[] {
         }
         exec.patchToolStep('ask_user', () => ({ detail: (Array.isArray(answer) ? answer.join(', ') : String(answer)).slice(0, 4000) }))
         return { ...text(JSON.stringify({ answer })), summary: 'ask_user -> answered' }
+      },
+    },
+    {
+      // the answer's checklist (TurnExec.setTodos): no files, no network, only the AI's own words on its answer
+      name: 'todo_write', description: B_TOOL_DESCRIPTIONS.todo_write, inputSchema: schema(TodoWriteInput),
+      async call(args) {
+        const a = TodoWriteInput.safeParse(args)
+        if (!a.success) return text(zodText(a.error), true)
+        exec.setTodos(a.data.todos)
+        const done = a.data.todos.filter((x) => x.status === 'completed').length
+        return { ...text(`To-do list updated (${done} of ${a.data.todos.length} done). The user sees it under your answer. Keep it current as you work: one item in_progress at a time, each marked completed as soon as it is done.`), summary: `todo_write -> ${done}/${a.data.todos.length}` }
       },
     },
     {

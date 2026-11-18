@@ -742,6 +742,11 @@ export const en: Record<MessageKey, string> = {
   "voice.confidentialRoom": "Voice input isn't available in conversations while every chat is confidential: recordings aren't sent to the outside speech service (OpenRouter). Please type instead.",
 
   'steps.label': 'Steps',
+  'todo.title': "To-do list",
+  'todo.progress': "{done} of {n} done",
+  'todo.pending': "Not started",
+  'todo.inProgress': "In progress",
+  'todo.completed': "Done",
   'steps.summary': '{n, plural, one {# step} other {# steps}}',
   'steps.earlier': '{n, plural, one {# earlier step} other {# earlier steps}}',
   'steps.running': 'Running',

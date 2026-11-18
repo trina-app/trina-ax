@@ -412,14 +412,14 @@ describe('tools', () => {
       const chat = await newChat()
       const r = await ask(h, alice, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))
       // set_title: the first message of a new chat (chat/title.ts)
-      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_folder_access,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,looking_at,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,share_folder,share_with_person,shared_with_me,skill,skill_files,stop_sharing,web_fetch,who_can_open,write')
+      expect(r.done.content.split(' | ')[0]).toBe('ask_user,change_folder_access,change_project_members,connect_service,delete_files,edit,edit_files,find_skills,forget,glob,grep,list,looking_at,move_skill,post_to_room,read,remember,room_file,room_read,rooms,save_room_file,set_title,share_folder,share_with_person,shared_with_me,skill,skill_files,stop_sharing,todo_write,web_fetch,who_can_open,write')
       expect(r.done.content).toContain(`fetched https://example.com for alice in ${chat.id}`)
       const audit = h.ctx.db.query("SELECT tool, ok FROM tool_events WHERE turn_id = ? AND tool = 'web_fetch'").all(r.started.turnId)
       expect(audit).toEqual([{ tool: 'web_fetch', ok: 1 }])
     } finally { h.ctx.services.turnTools = savedTools }
   })
 
-  test('ask_user: card to every window, listed for reloads, answered once, then closed', async () => {
+  test('ask_user: card to every window, listed for reloads, answered once; the answer ends with it open and the answer starts the next turn', async () => {
     const other = await h.ws('alice', { windowId: 'win-alice-other' })
     await other.next('hello')
     const chat = await newChat()
@@ -427,30 +427,36 @@ describe('tools', () => {
     const card = await alice.next('turn.request', (f) => f.data.turnId === r.turnId)
     await other.next('turn.request', (f) => f.data.turnId === r.turnId)
     expect(card.data.request).toMatchObject({ kind: 'ask_user', question: 'Which color?' })
+    // the call returned at once: the answer ends while the card stays open (chat/open-questions.ts)
+    const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+    expect(JSON.parse(d.data.message.content)).toMatchObject({ asked: true })
+    expect(d.data.message.steps.find((s) => s.kind === 'ask_user')).toMatchObject({ label: 'Question: Which color?', status: 'ok' })
     const open = await h.api('alice').call(API.listTurnRequests, { params: { id: chat.id } })
     expect(open.items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
     // bob cannot answer alice's turn
     const bobTry = await h.req('bob', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'red' }) })
     expect(bobTry.status).toBe(404)
+    await waitFor(() => h.rt().runState(chat.id) === 'idle', { timeoutMs: 10_000 })
     await h.api('alice').call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'blue' } })
     await other.next('turn.request.closed', (f) => f.data.requestId === card.data.request.requestId && f.data.reason === 'answered')
     const again = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'red' }) })
     expect(again.status).toBe(409)
-    const d = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
-    expect(d.data.message.content).toBe('{"answer":"blue"}')
-    expect(d.data.message.steps.find((s) => s.kind === 'ask_user')).toMatchObject({ label: 'Question: Which color?', detail: 'blue', status: 'ok' })
+    const next = await alice.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.role === 'user' && f.data.message.parentId === r.assistantMessage.id)
+    expect(next.data.message.content).toBe('Blue')
     other.close()
   })
 
-  test('ask_user without an answer: skipped after the wait (time limit paused meanwhile)', async () => {
+  test('ask_user from Slack still waits in the call: skipped after the wait (time limit paused meanwhile)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'ask_user', args: { question: 'Anyone?' }, sayResult: true }), { ms: 20_000 })
-    expect(r.done.content).toBe('{"skipped":true}')
+    const t = h.rt().createTurn({ chat: h.rt().store.chatRow(chat.id)!, userId: 'alice', locale: 'en', windowId: null, clientKind: 'slack', engine: 'claude-code', model: null,
+      user: { parentId: null, content: fake({ tool: 'ask_user', args: { question: 'Anyone?' }, sayResult: true }), attachments: [], clientMessageId: cm() } })
+    const done = (await alice.next('message.done', (f) => f.data.messageId === t.assistantMessage.id, 20_000)).data.message
+    expect(done.content).toBe('{"skipped":true}')
     // the step says nobody answered (the web app gives it its own mark, not a success check: unansweredStep)
-    const st = r.done.steps.find((x) => x.tool === 'ask_user')!
+    const st = done.steps.find((x) => x.tool === 'ask_user')!
     expect(st).toMatchObject({ label: 'Question: Anyone?', detail: 'Not answered' })
     expect(unansweredStep(st)).toBe(true)
-    await alice.next('turn.request.closed', (f) => f.data.turnId === r.started.turnId && f.data.reason === 'timeout')
+    await alice.next('turn.request.closed', (f) => f.data.turnId === t.turnId && f.data.reason === 'timeout')
   })
 })
 

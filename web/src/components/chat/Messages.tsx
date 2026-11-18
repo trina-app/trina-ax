@@ -49,6 +49,7 @@ import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard from './AskCard'
+import TodoCard, { todoStepOf } from './TodoCard'
 import ShareCard from './ShareCard'
 import TeamFolderCard from './TeamFolderCard'
 import PostedCard from './PostedCard'
@@ -682,6 +683,8 @@ export function AssistantMessage({
   const build = useMessageBuild(chatId, m.id)
   const question = useChats((s) => (streaming && m.parentId ? s.threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content : undefined))
   const deck = !!build || readsForDeck(m, question)
+  // the AI's to-do list of this answer (todo_write): one card that moves on in place
+  const todoStep = todoStepOf(m.steps)
   const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
@@ -784,6 +787,7 @@ export function AssistantMessage({
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
         )}
+        {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}
         {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}

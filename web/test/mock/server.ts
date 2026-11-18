@@ -1875,8 +1875,48 @@ export class MockServer {
       put(step({ id: 'c2', kind: 'tool', tool: 'grep', label: '내용 검색 "수수료" · shared/', parentId: 'A1', status: 'ok', endedAt: now() }))
       put({ ...a1, status: 'ok', endedAt: now(), subtask: { toolUses: 2, ms: 80_400, hidden: 3 } })
     }
+    // like server/src/chat/tools.ts todo_write (docs/decisions/20261118-questions-wait-and-todo-card.md): one to-do step
+    // whose list moves on in place. "todolist": it ends with every item done; "todohold": it stays with the third item
+    // in progress until the answer is stopped
+    if (/todolist|todohold/i.test(prompt)) {
+      const put = (x: Step) => { assistant.steps = [...assistant.steps.filter((y) => y.id !== x.id), x]; pub({ type: 'message.step', data: { chatId, messageId: assistant.id, step: x } }) }
+      const items = (n: number) => [
+        { content: 'Read the March invoices', activeForm: 'Reading the March invoices' },
+        { content: 'Add up the totals by client', activeForm: 'Adding up the totals by client' },
+        { content: 'Check the totals against the bank statement', activeForm: 'Checking the totals against the bank statement' },
+        { content: 'Write a one-page summary for the team and save it next to the invoices', activeForm: 'Writing the summary' },
+      ].map((x, i) => ({ ...x, status: (i < n ? 'completed' : i === n ? 'in_progress' : 'pending') as 'completed' | 'in_progress' | 'pending' }))
+      const todo = step({ id: 'td1', kind: 'tool', tool: 'todo_write', label: 'To-do list', status: 'ok', endedAt: now(), todos: items(0) })
+      put(todo)
+      await sleep(120)
+      put({ ...todo, todos: items(2) })
+      if (/todohold/i.test(prompt)) { while (!this.stopped.has(assistant.turnId!) && gen === this.generation) await sleep(40) }
+      else { await sleep(120); put({ ...todo, todos: items(4) }) }
+    }
+    // like server/src/chat/open-questions.ts: "laterask" asks, and the answer ends with the card open (no time limit);
+    // the answer, whenever it comes, starts the chat's next turn with the answer as its user message
+    if (/laterask/i.test(prompt)) {
+      const requestId = 'lq1', turnId = assistant.turnId!
+      const request: TurnRequest = { kind: 'ask_user', requestId, question: 'Which month should the report cover?', options: [{ label: 'October', value: '10' }, { label: 'November', value: '11' }], allowText: true }
+      this.openAsks.set(turnId, { turnId, chatId, messageId: assistant.id, request })
+      pub({ type: 'turn.request', data: { turnId, chatId, messageId: assistant.id, request } })
+      const waits = this.chats.find((c) => c.id === chatId)!
+      waits.waiting = true
+      pub({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits, notify: 'card' } })
+      this.pendingAsk.set(turnId, (answer) => {
+        this.openAsks.delete(turnId)
+        this.publish({ type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } })
+        delete waits.waiting
+        this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: waits } })
+        const text = answer === null ? '(Skipped the question)' : request.options?.find((o) => o.value === answer)?.label ?? String(answer)
+        const u = this.message({ chatId, role: 'user', parentId: assistant.id, content: text, attachments: [], author: { id: user.id, name: user.name } })
+        this.publish({ type: 'message.created', data: { chatId, message: this.view(u) } })
+        const next = this.startTurn(chatId, user, `the answer was ${text}`, u.id)
+        this.publish({ type: 'message.created', data: { chatId, message: this.view(next) } })
+      })
+    }
     // ("/meeting-tasks …", a skill with "ask" in its name, is no ask)
-    if (/ask/i.test(prompt) && !/^\/meeting-tasks\b/.test(prompt)) {
+    if (/ask/i.test(prompt) && !/laterask/i.test(prompt) && !/^\/meeting-tasks\b/.test(prompt)) {
       const requestId = 'q1'
       // "siteask": like server/src/tools/url-gate.ts with a site to allow (open once / allow the site / don't open) for a
       // plain address; "markask": an address with a random-looking part, highlighted, and no site choice

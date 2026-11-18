@@ -43,6 +43,7 @@ import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peop
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
+import { answerText, closeChatQuestions, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -434,9 +435,12 @@ export class ChatRuntime {
   }
   /** The AI of this chat waits for the person: an open card every window shows (a card for one desktop window only
    * is that window's, not the chat list's). */
-  waitsForPerson(chatId: string): boolean {
+  waitsForPerson(chatId: string, userId?: string): boolean {
     const turnId = this.activeTurn(chatId)
-    return !!turnId && !!this.execFor(turnId)?.openRequests().some((r) => !r.window)
+    const exec = turnId ? this.execFor(turnId) : undefined
+    if (exec && (userId === undefined || exec.spec.userId === userId) && exec.openRequests().some((r) => !r.window)) return true
+    // or a question of the AI that waits after its answer ended (chat/open-questions.ts): `userId`'s own, when given
+    return hasOpenQuestion(this.db, chatId, userId)
   }
   execForMessage(messageId: string): TurnExec | undefined {
     for (const e of this.running.values()) if (e.spec.assistantId === messageId) return e
@@ -816,6 +820,26 @@ export class ChatRuntime {
     this.positions.delete(exec.id)
     this.schedule()
   }
+  /** The person answered the AI's questions while the answer that asked was still ending (routes/chats.ts answerLater):
+   * now that it ended, the chat's next turn starts with the answers, as that answer's own person and app
+   * (chat/open-questions.ts). It could not start (the queue is full, the chat is gone): the cards open again. */
+  startAnswered(exec: TurnExec) {
+    const { spec } = exec
+    const ready = readyAnswers(this.db, spec.assistantId, spec.userId)
+    if (!ready) return
+    const chat = this.store.chatRow(spec.chatId)
+    try {
+      if (!chat || chat.deleted_at) throw new Error('the chat is gone')
+      const locale = this.userLocale(spec.userId)
+      this.createTurn({ chat, userId: spec.userId, locale, windowId: spec.windowId, clientKind: spec.clientKind, engine: spec.engine, model: spec.model, ...(spec.timeZone ? { timeZone: spec.timeZone } : {}),
+        user: { parentId: spec.assistantId, content: answerText(ready.answers, ready.requests, tr('questionSkipped', locale)), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+        answered: ready.answers })
+    } catch (e) {
+      this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: exec.id })
+      for (const r of reopenAnswers(this.db, spec.assistantId, spec.userId)) this.hub.publish(spec.userId, { type: 'turn.request', data: r })
+      this.publishChat(spec.userId, spec.chatId, 'updated')
+    }
+  }
   /** An engine whose termination is unproven still owns its slot (and its chat) until turnFinished confirms it, or
    * probeQuarantined finds the engine gone or the bounded wait over. */
   turnQuarantined(exec: TurnExec) {
@@ -915,6 +939,8 @@ export class ChatRuntime {
     user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
+    /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
+    answered?: AnsweredQuestion[]
   }): TurnStarted {
     // A resend is a read even during drain or at capacity. It never gets a new ticket.
     if (typeof o.chat !== 'function' && o.user) {
@@ -936,6 +962,7 @@ export class ChatRuntime {
     const turnId = newId(), now = new Date().toISOString()
     let userMessageId = o.answerTo?.id ?? '', assistantId = '', queueSeq = 0
     let chat!: ChatRow
+    let closedQuestions: ReturnType<typeof closeChatQuestions> = []
     this.db.transaction(() => {
       this.checkQueueRoom(o.userId, o.locale)
       chat = typeof o.chat === 'function' ? o.chat() : o.chat
@@ -948,7 +975,10 @@ export class ChatRuntime {
       if (o.user) {
         userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
+        if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
+      // the AI's questions still open here go: answered ones with this turn, the rest because the chat went on
+      closedQuestions = closeChatQuestions(this.db, chat.id)
       assistantId = this.store.insertMessage({ chatId: chat.id, parentId: userMessageId, role: 'assistant', authorId: null, content: '', status: 'streaming',
         turnId, engine: o.engine, model: o.model })
       // a shared chat's answer is recorded from the moment it exists: what it reads, who saw the chat then (an answer
@@ -980,6 +1010,7 @@ export class ChatRuntime {
     // Admission is already durable. Notification failure must not leave it outside the live queue.
     this.enqueue(spec)
     try {
+    for (const q of closedQuestions) this.hub.publish(q.userId, { type: 'turn.request.closed', data: { turnId: q.turnId, requestId: q.requestId, reason: q.answered ? 'answered' : 'turn_ended' } })
     if (o.scheduled) this.publishChat(o.userId, chat.id, 'created')
     if (userMessage) this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: userMessage } })
     this.hub.publish(o.userId, { type: 'message.created', data: { chatId: chat.id, message: assistantMessage } })
