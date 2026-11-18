@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:41
 - Branch: `feat/office-edit-in-place` (step 1, the template part: `feat/any-file-template`)
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/files/` (the editors, office worker only) and `server/src/tools/edit-office.ts`. Why: file
   tools for the AI are Team AX core (docs/REPOSITORY-RULES.md).
 - Version impact: minor, a new AI tool.
@@ -156,4 +156,13 @@ there), the template test in `c-tools.test.ts` changed to a file outside `skills
 
 ## Result
 
-(filled in at the end)
+- Step 1: PR #1281 (`feat/any-file-template`): any readable .docx / .pptx / .hwpx is a make_file template.
+- Step 2: `edit_office` as planned for docx, xlsx and pptx in one PR (`feat/office-edit-in-place`), no new library.
+  Differences from the plan: (1) every formula's stored result in the workbook is cleared after an Excel edit, not only
+  `fullCalcOnLoad` set: LibreOffice does not calculate an Excel file again on open and showed the old total; (2)
+  `add_slide` takes `title` and `body` itself (changes never see each other's results, so a later `shape_text` could
+  not name the new slide); (3) the read-back compares paragraphs with our own scanner in a fresh worker (a diff), and
+  for a workbook every cell with SheetJS; (4) not offered in chats shared with people or to guests yet (as
+  comment_docx). Real-AI check on a copy of the QA team: one cell, one paragraph and one slide title changed in one
+  message; LibreOffice opens all three, the total recalculates to the new value, and only `word/document.xml` /
+  `ppt/slides/slide2.xml` / the sheet and workbook parts differ from the originals.
