@@ -1,117 +1,99 @@
 # Apps on your own computer as connectors
 
 - Date: 2026-11-18
-- Status: accepted (not scheduled)
+- Status: accepted (building since 2026-11-19, plan [20261118-1731-local-app-connectors](../AGENTS/plan/20261118-1731-local-app-connectors.md))
 - Supersedes: none
-- Branch: docs/local-app-connectors (the owner approved the approach on 2026-11-18)
+- Branch: feat/local-app-connectors (the owner approved the approach on 2026-11-18 and said go on 2026-11-19)
 
-- **Ask:** the owner wants tools that run on a person's own computer, such as Aside (a browser driven through a CLI or
-  MCP) and other local browser tools, to be usable as Trina connectors. They asked for one general way for all such
-  tools, not a plugin per tool.
-- **Status:** the approach is approved. Building waits until the PC runner (branch `feat/pc-runner`) is merged, because
-  this work runs over the same channel.
+- **Ask:** the owner wants tools that run on a person's own computer, such as Aside and ego lite (browsers driven
+  through MCP or a CLI), to be usable as Trina connectors. They asked for one general way for all such tools, not a
+  plugin per tool. Playwright MCP, Chrome DevTools MCP and agent-browser must fit the same way.
+- **The owner's call on 2026-11-19:** no PC runner, and the rules are kept lean: "no stricter than Aside itself".
 
-## What exists today (checked in code on 2026-11-18, `origin/dev`)
+## What exists today (checked in code on 2026-11-19, `origin/dev`)
 
 - **Connectors reach a service over the internet only.** A connection is one of two kinds, `mcp` or `http`
   (`shared/src/api/integrations.ts` `IntegrationKind`). The MCP client speaks Streamable HTTP
   (`server/src/integrations/connections/mcp.ts`), and every request goes through `net.ts`: https only, public addresses
-  only, never the office network or this server. There is no way to start a program as a connector.
-- **Local programs are already left out on purpose** in one place: when Claude Code or Codex shares its skills with the
-  team, only remote MCP servers over https are sent; "Local (stdio, "command") MCP servers cannot be shared: leave them
-  out" (`server/src/connectors/remote-mcp/share.ts`).
-- **Personal and team connections.** Every connection has a scope, `personal` or `team`
-  (`server/src/integrations/connections/store.ts`). A personal one is used only by its owner, and only while the team
-  switch "Members can add their own connections" is on (`mayUse`, `offByTeam`). Team ones are made through
-  `API.createTeamIntegration` (`server/src/routes/integrations.ts`) and admin templates (`templates.ts`).
-- **Asking before changes.** Reads run at once. Anything else follows the connection's write rule `deny`, `ask` (the
-  default) or `allow`, on a card the server shows (`tools.ts`). The rule is one choice per connection. Every call is kept
-  as a short summary in the audit, never its content ([INTEGRATIONS.md](../INTEGRATIONS.md), "Audit").
-- **Hiding secrets.** What a service sends back goes through `hide.ts` before the AI, the chat or the logs see it, and
-  the turn's own text goes through `redact.ts`.
-- **The PC runner (not merged).** On `feat/pc-runner` (commit 8fc149029, step 1, macOS): the AI and its model token stay
-  on the team server; file and command tools go over the WebSocket of the window that sent the turn to that person's
-  desktop app, which asks the person in its own view and runs them in a macOS jail. Its channel (`CallRelay`) is the
-  same base as the in-app browser's relay (`server/src/realtime/browser-relay.ts`). It is off unless the server sets
-  `MYCEL_PC_RUNNER=1` and an admin turns it on.
+  only. `McpClient` already takes another transport (`send`): the Google apps use it to reach the library on the
+  server itself (`google-apps/transport.ts`).
+- **The in-app browser's relay.** The AI's browser tools already run in the desktop app: the server sends
+  `browser.call` over the WebSocket of the one window that sent the message, the window answers with `browser.ack`
+  and `browser.result`, calls are sent again after a reconnect, and a long-poll fallback exists for blocked
+  WebSockets (`server/src/realtime/browser-relay.ts`, `server/src/routes/browser.ts`, `shared/src/desktop-bridge.ts`,
+  `web/src/lib/browserRelay.ts`).
+- **The PC runner is dropped.** The owner stopped it on 2026-11-12. This work does not need it and does not revive it.
 
 ## The approach
 
-1. **Add a connection.** "Add connection" gets a new kind: **An app on your computer**. The person either picks from a
-   short list of known tools, or pastes a command line in the same shape as an MCP config entry: the command, its
-   arguments, and the names of the settings (environment variables) it needs, without their values.
-2. **Running it.** The Trina desktop app starts the tool on that person's computer: a local MCP server over stdio, or a
-   plain CLI wrapped as a few tools. The desktop app passes the tools' list and each call to the server's AI over the
-   PC runner's channel. The AI stays on the server; the program runs on the person's computer.
-3. **One way for all tools.** Any local MCP server or CLI works this way, so there is no plugin per tool. A plugin is
-   only for something that needs its own screen inside Trina.
+1. **One new kind: `local`, "An app on your computer".** It is always a person's own connection. The server keeps
+   only the command's shape: the program, its arguments, the names of its settings (environment variables, without
+   their values), and for a CLI the tools it is wrapped as. In the database it is a column `local_app` on an ordinary
+   personal MCP connection, the way a Google app is (the `kind` column's CHECK lists only `mcp` and `http`, and a table
+   is never rebuilt); the API calls it kind `local`.
+2. **It rides the browser relay.** The relay's common part becomes `server/src/realtime/call-relay.ts`; the browser
+   relay and a new sibling, the local relay, are built on it. The local relay sends `local.call` (one JSON-RPC message)
+   to the window that sent the message, and gets `local.ack` and `local.result` back, with `local.cancel` when the turn
+   stops. It has its own long-poll fallback (`GET /api/local-apps/calls`, `POST /api/local-apps/results`).
+3. **The server speaks MCP to the desktop app.** `McpClient` gets a `send` that goes through the local relay instead
+   of the network. The desktop app answers as an MCP server, through one of two adapters:
+   - **(a) stdio MCP passthrough.** The desktop app starts the program (for example `aside mcp`) and passes JSON-RPC
+     lines between it and the server. Any MCP server over stdio fits: Playwright MCP, Chrome DevTools MCP and others.
+   - **(b) A declared CLI tool.** The person's command declares a program, an argument template and stdin. The AI fills
+     typed slots only, and each slot is passed as its own argument or on stdin. ego lite is two such tools:
+     `ego-browser nodejs` with the script on stdin, and its guide from `ego-browser skill`, returned as a tool result
+     at run time. agent-browser fits the same way.
+4. **Only from the desktop window.** Each call goes to the desktop window that sent the message, and nowhere else.
+   From a phone, the web or another computer, the AI says in plain words that it can use the app on the person's
+   computer only when they write from the Trina desktop app on that computer. Settings says plainly that it only works
+   from the desktop app.
 
-## Rules
+## Rules (lean, the owner's call on 2026-11-19)
 
-- **Personal only.** These connections can never be team connections or templates, because the program uses that
-  person's own browser and its sign-ins. The code that must refuse it: `API.createTeamIntegration` and the template
-  create and update paths (a local kind is refused there), `store.ts mayUse` (a local connection is used only by its
-  owner, in that owner's own turn), and the skills share in `remote-mcp/share.ts` (still leaves local entries out).
-  A shared chat or a room does not make it usable by anyone else.
-- **Only the person adds the command.** The command comes from the person in Settings, from the known tools list or
-  pasted by them. The AI's connect card (`connect_service`) and an admin's request to a member
-  (`API.createIntegrationRequest`) can never fill in a command, so neither the AI nor a teammate can put one in front
-  of the person to confirm.
-- **Only while the computer is there.** It works only while that person's desktop app is open and signed in to the team.
-  When it is not, the AI says so in plain words: "Your computer is offline, so I can't use <name> right now."
-  Scheduled runs, sub-agents and confidential chats never get these tools, as with the PC runner.
-- **Ask first, every action.** "Ask first" is the default for every action, reads included, because what a browser
-  reads (a page, a signed-in account) reaches the server. This uses the per-action "Allowed / Ask first / Off" choice
-  from [Bring in Composio's approach](20261118-composio-plan.md) (gap b). Every call is in the log, as for other
-  connections.
-- **An admin switch.** One team setting turns "Apps on your computer" off for the whole team. Off means the kind is
-  not offered, and existing ones are not used in chats (like `offByTeam` today).
-- **Security.**
-  - Before the first run, the desktop app shows the exact command, in its own view (not the team page), and the person
-    confirms it on that computer. The server or the AI alone can never add or change the command; a changed command
-    asks again.
-  - No secrets in the command. Setting values are typed on the computer and stay there; the server only knows their
-    names.
-  - The program runs as the signed-in user, never as root or with admin rights. It runs outside the PC runner's jail,
-    because it needs the person's own browser and sign-ins, so it can do what the person can. The confirm window says
-    so in plain words, and a pasted command (not from the known tools list) gets a stronger warning.
-  - The desktop app starts the program from its command and arguments as a list, never through a shell. For a wrapped
-    CLI, what the AI fills in is passed as separate arguments, never joined into the command line.
-  - A stop control on the connection's page and in the desktop app ends the program at once.
-  - The server never knows the setting values, so `hide.ts` cannot hide them. The desktop app replaces them in what
-    the tools send back before it leaves the computer. Then the server's own hide and redact (`hide.ts`, `redact.ts`)
-    run as for other connections, and the result counts as outside content seen by this person only, as the PC
-    runner's results do.
-- **Self-hosted Linux or Docker servers (later).** An optional later step may allow a browser MCP that runs on the
-  server itself, inside the sandbox, for teams without desktop apps. Not part of this plan.
+- **Asking is the same as for other connections.** The normal ask card with "Always allow", the connection's write
+  rule and the per-tool switches, exactly like any other connection. Every option of the tool goes through, computer
+  use included. No extra window per script, and no new confirm when the tool's list changes.
+- **Only these extra rules:**
+  1. **Only the person adds the command,** in Settings on their own computer. The AI's connect card
+     (`connect_service`), an admin's request to a member (`API.createIntegrationRequest`) and team templates can
+     never create or fill one.
+  2. **No shell.** The desktop app starts the program from an argument list, never through a shell. The AI's values
+     stay separate arguments or stdin.
+  3. **Personal only.** Refused for team connections, templates, requests and the skills share. `store.ts mayUse` lets
+     only its owner use it, in that owner's own turn; a shared chat, a room, a scheduled run or a sub-agent never gets
+     it.
+  4. **A one-time confirm on the computer,** in the desktop app's own window, never on the team page: "Connect this
+     program? `<command>`". It asks again only when the command itself changes.
+  5. **Setting values stay on the computer,** sealed with Electron's safeStorage. The desktop app hides them in results
+     before anything leaves the computer; the server's `hide.ts` and `redact.ts` run afterwards as for any connection.
+  6. **Never as root,** and a Stop control. The program is stopped on Stop and when the app quits.
+  7. **An admin switch,** "Apps on your computer" in Team settings, turns the feature off for the team. Off: the kind
+     is not offered and existing ones are not used in chats.
 
 ## What the person sees
 
-1. Settings › Connectors › Add connection › **An app on your computer**.
-2. Pick "Aside" (or another known tool), or paste a command line. Trina asks for any setting the tool needs.
-3. The desktop app opens a window: "Trina wants to run this on your computer: `<the exact command>`". Run / Cancel.
-4. The connection shows "On this computer · running", with its actions, each set to "Ask first".
-5. In a chat, the AI asks to use it; a card shows what it wants to do; the person says yes. The steps under the answer
-   show "<name> · <action>".
-6. With the desktop app closed: "Your computer is offline, so I can't use <name> right now."
+1. Settings › Connectors › Add › **An app on your computer** (shown only in the desktop app). Pick Aside or ego lite,
+   or type a command. Trina asks for any setting the tool needs and keeps the values on this computer.
+2. The desktop app asks once in its own window: "Connect this program?" with the exact command. Connect / Cancel.
+3. The connection's page shows "Works only from the Trina desktop app on this computer", whether it runs now, and Stop.
+4. In a chat from the desktop app, the AI uses it like any other connection; a change asks on the normal card.
+5. From a phone or the web, the AI says it can use the app only when the person writes from the desktop app on that
+   computer.
 
 ## Steps
 
-1. **After the PC runner merges:** the new kind, stored as a personal connection that holds the command shape only;
-   the desktop app runs a local MCP server over stdio and bridges it; the confirm-on-this-computer window; the stop
-   control; the offline message; the admin switch. macOS first.
-2. **Per-action rules:** "Allowed / Ask first / Off" per action (from the Composio note), used here first.
-3. **Known tools list and CLI wrapping:** a short list (Aside and a few browser tools) with their command shapes, and a
-   way to wrap a plain CLI as tools.
-4. **Later:** Windows; a server-side browser MCP for self-hosted Linux or Docker.
+1. The relay's common part and the local relay; the server kind with every refusal; the admin switch (this plan's
+   first pull request).
+2. The desktop app's program manager, the confirm window, adapter (a), tried with real Aside.
+3. Adapter (b) and the web Settings screens.
+4. **Later:** Windows and Linux (the desktop app starts programs the same way, but the confirm, the known tools'
+   commands and the tests are macOS first).
 
 ## Open questions
 
-- **Windows.** The PC runner's step 1 is macOS only, with a macOS jail. Windows needs its own way to start and limit the
-  program.
-- **Tools that need their own browser profile.** Some tools open a fresh browser or want a profile of their own; others
-  drive the person's everyday browser. Which do we allow, and how do we explain the difference in plain words?
-- **Keeping the known tools list up to date.** Who checks a tool's command shape and its origin, and how does a new
-  version reach desktop apps without a Trina release?
+- **Keeping the known tools list up to date.** Who checks a tool's command shape, and how a new version reaches desktop
+  apps without a Trina release.
+- **Tools that open a fresh browser.** Some tools open their own profile; others drive the person's everyday browser.
+  The confirm says what runs; we may want plainer words for the difference.
 
-- **Version impact:** none (a note only).
+- **Version impact:** minor (a new kind of connection, a new team setting and a new desktop bridge part).
