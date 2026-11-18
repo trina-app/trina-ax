@@ -89,7 +89,8 @@ describe('the ask rule', () => {
     expect(ASK_USER_RULE).toContain('prefer one that needs no further approval, and say plainly which you picked and why; anything that reaches other people still goes through its usual card')
     expect(ASK_USER_RULE).toContain('Never send or post an older version in place of one they promised, and never use a price or term nobody named')
     // CHT-02.project: an unclear "tidy up" with several files is one more question, not a guess; never a third
-    expect(ASK_USER_RULE).toContain('or the request is to tidy up or change a file and more than one file still fits, ask one more short question instead of guessing, and only once: never a third question')
+    expect(ASK_USER_RULE).toContain('a promised version may be made with a price or term someone named')
+    expect(ASK_USER_RULE).toContain('or the request is to tidy up or change a file and more than one file still fits, ask one more short question instead of picking, and only once: never a third question about the same choice')
     expect(ASK_USER_RULE).toContain('If it is still open after that, say in one line what is missing and stop: make, send or post nothing.')
     // English source text only
     expect(ASK_USER_RULE).not.toMatch(/[가-힣]/)
