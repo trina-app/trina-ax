@@ -81,7 +81,7 @@ test('트리나 · 대화 · 프로젝트 · 파일 · 나; 트리나 is Home\'s
   await expect(page.getByTestId('composer-input')).toBeVisible()
 })
 
-test('/new comes back to Home\'s box (its question kept), the tab bar shows; the chat\'s ✦ opens Home too', async ({ page }) => {
+test('/new comes back to Home\'s box (its question kept), the tab bar shows; a chat\'s ‹ opens Home too (no ✦ there)', async ({ page }) => {
   await start(page)
   await page.goto('/new')
   await expect(page).toHaveURL(/\/$/)
@@ -90,10 +90,12 @@ test('/new comes back to Home\'s box (its question kept), the tab bar shows; the
   await page.goto('/new?prompt=hello%20acme')
   await expect(page).toHaveURL(/\/\?prompt=hello/)
   await expect(page.getByTestId('composer-input')).toHaveValue('hello acme')
-  // the ✦ of a chat
+  // a chat opened by its address: no ✦ (docs/decisions/20261118-phone-trina-button-in-ai-chats.md), its ‹ is the box
   const id = await chat(page, 'Plan')
   await page.goto(`/c/${id}`)
-  await page.getByTestId('chat-new').click()
+  await expect(page.getByTestId('chat-title')).toBeVisible()
+  await expect(page.getByTestId('chat-new')).toHaveCount(0)
+  await page.getByTestId('chat-back').click()
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByTestId('composer-input')).toBeVisible()
 })

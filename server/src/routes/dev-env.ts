@@ -11,7 +11,7 @@ import { canRead, canSeeProject } from '../chat/projects'
 import type { Principal } from '../policy/access'
 import { ticketIds } from '../devenv/srt/queue'
 import { runIdOfUnit } from '../devenv/srt/config'
-import { devEnvFlag, mayUseDevEnv, newConsent, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
+import { devEnvFlag, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
 import { findRun, fullAvailable, networkNow, planState, previewPortProblem, previewRow, previewSupported, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
@@ -54,7 +54,8 @@ export const devEnvRoutes: RouteModule = {
       // a person in scope can run commands in this project's chats when they can open its folder
       const mayUse = mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, folderPath)
       return {
-        availability: await availability(), setting: teamAsProject(), warningVersion: DEV_ENV_SRT_WARNING_VERSION,
+        // the reason names server paths: for admins only (a member sees only that it is not available)
+        availability: await availability().then((a) => (isAdmin(p) ? a : { available: a.available, ...(a.reason ? { reason: a.reason } : {}) })), setting: teamAsProject(), warningVersion: DEV_ENV_SRT_WARNING_VERSION,
         mayUse, mayManage: isAdmin(p),
         runs: mayUse || isAdmin(p) ? await runsOf(ctx, { projectId: id }) : { running: [], waiting: [] },
       }
@@ -167,7 +168,7 @@ export const devEnvRoutes: RouteModule = {
       return {
         setting: teamSetting(ctx.db), defaultDomains: [...DEV_ENV_DEFAULT_DOMAINS],
         plan: plan.ok && plan.plan ? { plan: plan.plan.plan, maxRunning: plan.plan.maxRunning, cpus: plan.plan.cpus, memoryMiB: plan.plan.memoryMiB, pids: plan.plan.pids, network: plan.plan.network || 'offline' } : null,
-        warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(),
+        warningVersion: DEV_ENV_SRT_WARNING_VERSION, availability: await availability(), offer: oldTeamOffer(ctx.db),
       }
     }
     kit.handle(API.devEnvTeam, () => {

@@ -8,6 +8,7 @@
 //   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
+//   @fake {"systemLine": {"subtype": …}}  (Claude) one system line in the stream, like Claude Code's compact_boundary
 //   @fake {"afterContinue": [{…}, …]}        nothing now; the directives of the run that continues this answer after a
 //                                            connect (resumed with the server's note, chat/turn.ts continueAfterConnect).
 //                                            A second one is for the second continuation
@@ -549,6 +550,7 @@ for (const d of directives) {
       message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
     await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  else if (d.systemLine) out({ type: 'system', session_id: sessionId, ...d.systemLine })
   // (Claude) one model call ends, with its tokens in the stream (message_start / message_delta), before the run's total
   else if (d.callUsage && !codex) {
     closeBlock()

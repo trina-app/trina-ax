@@ -4,7 +4,7 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { AudienceSplit, Chat, ChatThreadReply, Message, MESSAGE_ATTACHMENTS_MAX, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -246,12 +246,22 @@ export const MessagesPage = page(Message)
  * (the team's time zone is used), not refused. */
 export const TurnTimeZone = z.string().max(64).optional()
 
+/** PUT /api/chats/:id/waiting: how many of my messages wait in this shared chat for the running answer to end (0: none
+ * any more, or they are paused). Said again every 15 s while they wait; the server lets the one who waited longest send
+ * first (docs/decisions/20261118-shared-chat-queued-sends.md). Never the text. */
+export const PutChatWaitingBody = z.object({ count: z.number().int().min(0).max(50) })
+export type PutChatWaitingBody = z.infer<typeof PutChatWaitingBody>
+
 export const SendMessageBody = z.object({
   content: z.string().max(200_000),
   /** uploaded via POST /api/uploads or an upload session with target attachment */
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   /** message to answer under; default: the chat's active leaf */
   parentId: Uuid7.nullable().optional(),
+  /** without parentId: answer under the newest end of the branch through this message (a shared chat's waiting
+   * message: the end its sender last saw; turns that came since are kept, another version someone switched to is not
+   * where it lands) */
+  after: Uuid7.optional(),
   /** only for people who may pick the engine (Me.user.canChooseEngine); anyone else naming another engine or model
    * than the chat's gets 403 */
   engine: EngineId.optional(),
@@ -291,7 +301,7 @@ export const RegenerateBody = z.object({
  * old branch are NOT undone (the UI says so). */
 export const EditMessageBody = z.object({
   content: z.string().min(1).max(200_000),
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
@@ -642,6 +652,7 @@ export const CHATS = {
   markChatSeen: endpoint({ method: 'POST', path: '/api/chats/:id/seen', auth: 'user', owner: 'B', response: Chat, summary: 'I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device).' }),
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
+  putChatWaiting: endpoint({ method: 'PUT', path: '/api/chats/:id/waiting', auth: 'user', owner: 'B', body: PutChatWaitingBody, response: empty, status: 204, summary: 'A shared chat I may continue: how many of my messages wait there for the running answer to end (0: none). The server keeps it in memory for 45 s after the last call; a send there while someone else has waited longer is refused (409 shared_chat_next, naming nobody); a first place whose holder does not send within 12 s of holding someone back goes to the back of the line. The others see only how many other people wait (Chat.shared.waiting), told when someone starts or stops waiting. At most 30 a minute per person and chat (429). A chat of one person: nothing kept.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),

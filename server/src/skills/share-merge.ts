@@ -31,7 +31,7 @@ import { notificationsOf } from '../notifications/service'
 import { onWelcomeEnded, welcomeUnfinishedFor } from '../onboarding/welcome'
 import { noTag } from './share-judge'
 
-/** One candidate's SKILL.md in the instructions, at most (a skill file is at most 128 KB; a merge needs its steps). */
+/** One candidate's SKILL.md in the instructions, at most (a skill file is at most 512 KB; a merge needs its steps). */
 const TEXT_MAX = 32_000
 
 export const SHARE_MERGE_REFUSAL = 'This chat only merges the lead\'s skills into the team skills named in your instructions: only read, write and edit of those team skill files are available here. Use the material in your instructions.'

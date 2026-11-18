@@ -86,6 +86,7 @@ import { navigateTo } from '../../lib/nav'
 import { useFolderWords } from '../../lib/folderLabels'
 import { folderOfPath } from '../../lib/roomSave'
 import { useRoomSaves } from '../../store/roomSaves'
+import { capBlankLines } from '../../lib/blankLines'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -804,7 +805,7 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
     <div className="py-0.5" data-testid="room-pending-message" data-state={p.state}>
       {p.body && (
         <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted">
-          <LinkedText text={p.body} menu={false} />
+          <LinkedText text={capBlankLines(p.body)} menu={false} />
         </p>
       )}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}

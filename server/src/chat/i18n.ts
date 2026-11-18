@@ -118,6 +118,7 @@ export const TEXT = {
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
   demoReplay: STEP_TEXT.demoReplay,
+  historySummary: STEP_TEXT.historySummary,
   engineOffDefault: STEP_TEXT.engineOffDefault,
   engineNoConnection: STEP_TEXT.engineNoConnection,
   limitFallback: STEP_TEXT.limitFallback,
@@ -376,6 +377,8 @@ export const TEXT = {
   // selectBranch while an answer runs or waits (routes/chats.ts branchBusyCheck); the web turns the arrows off then
   branchWhileAnswering: t('답변을 쓰는 중이에요. 끝나면 다른 버전으로 바꿀 수 있어요.', 'An answer is still being written. You can switch versions when it is done.', 'Jawaban masih ditulis. Anda bisa beralih versi setelah selesai.', "まだ回答を作成中です。終わったら別のバージョンに切り替えられます。", "Todavía se está escribiendo una respuesta. Podrá cambiar de versión cuando termine.", "回答还在生成中。完成后就可以切换版本。"),
   sharedChatBusy: t('{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.', "{name}'s question is being answered. You can send yours when it is done.", 'Pertanyaan {name} sedang dijawab. Anda bisa mengirim setelah selesai.', "{name}さんの質問に回答中です。終わったら送信できます。", "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine.", "正在回答{name}的问题。完成后你就可以发送你的问题。"),
+  // a send in a shared chat while someone else's messages have waited longer (routes/chats.ts busyCheck, chat/shared-waiting.ts)
+  sharedChatNext: t('다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', "Someone else's message has been waiting longer. Yours goes after it.", 'Pesan orang lain sudah menunggu lebih dulu. Pesan Anda dikirim setelahnya.', 'ほかの人のメッセージが先に待っています。その後に送ります。', 'El mensaje de otra persona lleva más tiempo esperando. El suyo irá después.', '其他人的消息先在等待。你的会在它之后发送。'),
   // threads on AI answers in shared chats (chat/threads.ts)
   chatThreadFull: t('이 스레드는 답글이 가득 찼어요. 채팅에서 이어가 주세요.', 'This thread is full. Continue in the chat.', 'Utas ini sudah penuh. Lanjutkan di obrolan.', 'このスレッドは返信がいっぱいです。チャットで続けてください。', 'Este hilo está lleno. Continúe en el chat.', '这个话题的回复已满。请在对话中继续。'),
   chatThreadNotShared: t('이 채팅은 이제 공유되지 않아서 답글을 달 수 없어요.', "This chat isn't shared anymore, so no new replies.", 'Obrolan ini tidak dibagikan lagi, jadi tidak bisa dibalas.', 'このチャットは共有されなくなったため、返信できません。', 'Este chat ya no se comparte, así que no admite respuestas nuevas.', '这个对话已不再共享，所以不能再回复。'),

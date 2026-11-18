@@ -177,6 +177,16 @@ describe('make_file outside a chat turn (nobody to ask): refused when it would w
     expect(ok.text).toContain('Saved')
   })
 
+  test('a template from a narrower team folder (not skills/) is a source: refused into shared/, saved into that folder', async () => {
+    // any readable file may be a template now (docs/decisions/20261118-any-file-template.md): its bytes still count
+    const bad = await direct(null, { format: 'docx', content: '# Q\n', output: 'shared/tpl-own.docx', template: 'groups/finance/board-memo.docx' })
+    expect(bad.isError).toBe(true)
+    expect(bad.text).toContain('more people')
+    expect(exists('shared/tpl-own.docx')).toBe(false)
+    const ok = await direct(null, { format: 'docx', content: '# Q\n', output: 'groups/finance/tpl-own.docx', template: 'groups/finance/board-memo.docx' })
+    expect(ok.text).toContain('Saved')
+  })
+
   test('nothing narrower: still works (shared image into shared/)', async () => {
     const r = await direct(null, { format: 'docx', content: '# P\n\n![p](shared/public.png)\n', output: 'shared/direct-ok.docx' })
     expect(r.isError).toBe(false)

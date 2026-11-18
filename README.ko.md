@@ -2,37 +2,88 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="트리나 AX 로고"></picture>
 
-<h1>팀 모두가 같이 쓰는 AI.</h1>
+<h1>Trina AX</h1>
 
+<b>팀 모두가 같이 쓰는 AI.</b><br>
 트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작하고,<br>AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
 
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ko.png" height="40" alt="맥용 다운로드"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ko.png" height="40" alt="Windows용 다운로드"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a>
 
-[웹사이트](https://ax.trina.app) · [맥·Windows용 다운로드](https://ax.trina.app/download) · [문서](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
+[웹사이트](https://ax.trina.app) · [문서](docs/README.md) · [요금제](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<br>
-
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97초 이야기 보기. 같은 Claude에 같은 부탁을 했는데 결과가 달라요. 팀장 Alex는 7쪽짜리 제안서를 받고, 빈 폴더로 첫 출근한 Mina는 'Trina Logistics? Who are they?'라는 답을 받아요. 트리나가 있으면 Mina의 AI도 팀의 파일과 스킬에서 시작해요."></a>
-
 </div>
 
-## 팀이 얻는 것
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
+
+<p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음</p>
+
+## 한 번 설정하면, 팀 전체가 써요
+
+**AI 계정 하나로 팀 모두가 써요.** Claude나 OpenAI API 키 하나(또는 약관이 허용하는 요금제)를 연결하면 팀 전체가 그걸로 물어요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.
+
+한 사람이 팀 서버에 한 번 설정하면, 모두의 AI가 첫 질문부터 그걸 써요. 브라우저에서도 앱에서도요. 다른 사람은 Claude Code를 깔거나 스킬을 복사할 필요가 없어요. 많아야 자기 계정에 로그인하는 정도예요.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-ko-dark.webp"><img src="docs/images/readme/v4/set-up-once-ko-light.webp" width="100%" alt="한 사람이 AI 계정, Google, 앱, 회사 API, Slack, 스킬, 팀 파일을 트리나 서버에 한 번 설정하면, 맥의 Alex, 아이폰의 Mina, Windows의 Sam, 브라우저의 Leo, 안드로이드의 Jordan 모두의 AI가 그걸 써요."></picture>
+
+| 한 번 설정 | 모두가 받는 것 |
+| --- | --- |
+| **AI 계정.** 소유자나 관리자가 Claude나 OpenAI API 키, 또는 약관이 허용하는 요금제를 연결해요. | 팀 전체가 답을 받아요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요. |
+| **Google.** 드라이브 폴더를 팀과 공유하거나, 팀 계정 하나(공용 메일함이나 캘린더)를 Gmail, Calendar, Docs, Sheets에 연결해요. | 고른 사람들이 자기 채팅에서 써요. 각자 자기 Google 계정을 따로 연결할 수도 있어요. |
+| **앱.** 앱 목록의 Higgsfield, Notion, Linear, Figma 등, 또는 주소만 있으면 어떤 MCP 서버든(예: Bright Data). | 모두의 채팅에서 그 앱의 도구를 써요. 팀 계정 하나로 로그인하거나, 각자 자기 계정으로 로그인해요. |
+| **회사 API.** 주소, 키, 쓰는 법 몇 줄. | AI가 회사 시스템을 불러요. 그 주소 아래만요. |
+| **Slack.** 소유자나 관리자가 한 번 추가해요. | DM이나 트리나를 초대한 채널에서 트리나에게 물어요. 내 권한으로요. |
+| **스킬.** `SKILL.md`를 쓰거나, `.claude`·`.codex` 폴더의 스킬을 그대로 가져와요. | 모두의 AI가 같은 순서로 일해요. `/`를 눌러 써요. |
+| **팀 파일.** 드라이브 하나: 전사, 그룹, 프로젝트, 팀 스킬, 개인 폴더. | 모두의 AI가 팀 파일에서 시작하고, 그 사람이 열 수 있는 것만 열어요. |
+
+<table>
+<tr>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="팀 모두에게 적용되는 관리자 › 연결한 서비스: Google Drive, Gmail, Calendar, Docs, Sheets(한 번 설정하면 각자 Google에 로그인만 해요), Slack, Notion, Linear, Atlassian, Canva, 그리고 주소로 추가하기"><br><sub>관리자 › 연결한 서비스: 한 번 설정하면 팀 모두가 써요</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
+</tr>
+</table>
+
+## 모두가 이걸로 하는 일
 
 **어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
 
-<img src="docs/images/readme/v3/room.gif" width="100%" alt="Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 11월 17일 반입 일정을 묻고, 버튼 하나로 그 답을 대화방에 올려요.">
+<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 참가 규정을 체크리스트로 만들어 달라고 하고, 그 답을 대화방에 올려요.">
 
-**각자 열 수 있는 것만 봐요.** Mina가 Finance를 못 열면 Mina의 AI도 못 열어요. [권한은 이렇게 돌아가요](docs/PERMISSIONS.md)
+**각자의 AI도 그 사람이 열 수 있는 것만 봐요.** Mina가 Finance를 못 열면 Mina의 AI도 못 열어요. [권한은 이렇게 돌아가요](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-band.png" width="100%" alt="폴더마다 열 수 있는 사람의 얼굴이 보여요. Mina는 shared/Finance를 열 수 없어요.">
+<img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="관리자가 Sales 폴더를 열 수 있는 사람을 바꾸고, Mina가 열 수 있는 폴더를 확인해요. Finance는 목록에 없어요.">
 
-- 🤝 **동료의 AI 채팅을 이어받아요.** 동료의 프로젝트 채팅을 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요.
-- 📋 **팀 스킬.** 팀이 일하는 방식을 한 번 적어 두면, 모두의 AI가 그대로 따라요.
-- 🔌 **쓰던 도구.** 어떤 MCP 서버든, Google Drive, Slack, 회사 API까지. 사람마다 권한을 확인해요.
-- 🕘 **바뀐 내용은 모두 남아요.** 사람이 바꿨든 그 사람의 AI가 바꿨든, 어느 버전이든 되돌릴 수 있어요.
-- 📱 **어느 기기에서든.** 맥, 아이폰, 안드로이드, Windows, 그리고 어떤 브라우저에서든요.
+**팀 프로젝트에서 동료의 세션을 이어받아요.** 팀 프로젝트의 세션은 프로젝트 멤버에게 공유돼요. 동료의 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요. 그 밖의 세션도 Google Drive 파일처럼 사람이나 그룹에 공유할 수 있어요.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina가 Sam의 프로젝트 세션을 열어 카드뉴스를 이어서 고쳐요. Mina가 묻는 건 Mina의 권한으로 처리돼요.">
+
+**파일을 내용으로 찾아요.** 밤마다 팀 AI가 공유·그룹·프로젝트 폴더의 새 파일과 바뀐 파일을 읽고, 파일마다 무엇인지 한 줄씩 적어 둬요. 그래서 `temp.pdf`라는 스캔본이나 `IMG_2031.jpg`라는 사진도 내용으로 찾아요. 팀 AI 계정을 쓰고, 개인 폴더는 읽지 않아요. 가상 파일 2,238개로 시험했을 때 Claude Code는 질문 184개 중 이 목록이 있으면 181개, 없으면 172개에서 맞는 파일을 찾았어요.
+
+<table>
+<tr>
+<td width="50%"><b>예약 작업.</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="예약 작업이 만든 주간 요약: 찾은 내용, 결정 사항, 남은 일, 파일로 저장"></td>
+<td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="외부 대행사 게스트 Morgan Reyes가 있는 Launch email 그룹 대화: 제목 후보, @멘션, 트리나의 답"></td>
+</tr>
+<tr>
+<td width="50%"><b>사용량과 한도.</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.<br><br><img src="docs/site/images/usage/team.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
+<td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
+</tr>
+<tr>
+<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널에 올라온 트리나의 답, 오른쪽에 열린 스레드"></td>
+</tr>
+</table>
+
+- **바뀐 내용은 모두 남아요.** 사람이 바꿨든 그 사람의 AI가 바꿨든, 어느 버전이든 되돌릴 수 있어요.
+- **앱 안 브라우저.** 데스크톱 앱에서 트리나가 채팅 옆 창에서 웹사이트를 열고, 읽고, 클릭하고, 양식을 채워요. 지켜보다가 Stop을 누르면 멈춰요. 모든 웹사이트를 허용하지 않았다면 새 사이트를 열기 전에 물어봐요.
+- **앱 소식이 대화방에.** Sentry, GitHub, Stripe, Jira, HubSpot 소식이 카드로 올라와요.
+- **회의록.** 맥 앱(macOS 14.4 이상)이 Zoom, Meet, Teams 통화를 받아 적어요.
+- **업무 파일 찾기.** 데스크톱 앱이 내 컴퓨터의 최근 업무 파일을 찾아 주고, 고른 것만 올려요.
+- **문서.** 한글(HWP/HWPX) 글을 읽고, PDF와 PPT를 미리 봐요.
+- **어느 기기에서든.** 맥, Windows, 아이폰, 안드로이드, 어떤 브라우저에서든. 6개 언어로요.
 
 ## 시작하기
 
@@ -40,10 +91,17 @@
 - **앱:** [맥, 아이폰, 안드로이드, Windows](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)
 
-<details>
-<summary><b>10분 만에 내 컴퓨터에서 써 보기</b> (가상 팀, AI 꺼짐)</summary>
+<b>Docker로 직접 설치</b> (리눅스, 또는 OrbStack을 쓰는 맥)
 
-<br>
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # 링크를 열어 소유자 계정을 만들어요
+```
+
+리눅스 설치보다 새 방식이라 덜 시험했어요. Ubuntu 24.04 서버는 먼저 호스트 설정 하나가 필요해요. [Docker 안내](docs/INSTALL-DOCKER.md)
+
+<b>10분 만에 내 컴퓨터에서 써 보기</b> (가상 팀, AI 꺼짐)
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
@@ -52,7 +110,9 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니에요. [자세한 안내](docs/QUICKSTART.ko.md)
 
-</details>
+## 작동 방식
+
+서버 하나에서 Claude Code와 Codex가 엔진으로 돌아요. 사람이든 그 사람의 AI든, 파일을 열 때마다 서버에서 권한 확인 하나를 지나요. 리눅스 서버에서는 엔진이 전용 계정으로 bubblewrap, Landlock, seccomp 샌드박스 안에서 돌아요. 엔진의 셸과 내장 파일 도구는 꺼져 있어서, 파일은 트리나 도구로만 열어요. [보안과 권한](docs/security-and-permissions.ko.md)
 
 트리나는 업무 공간을 드리고, AI는 드리지 않아요. 쓰임새에 맞게 허용된 Claude·OpenAI 계정과 요금제를 연결하세요. AI 이용료는 연결한 계정으로 나가요.
 

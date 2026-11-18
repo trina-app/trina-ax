@@ -11,8 +11,10 @@ import net from 'node:net'
 import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
+import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { hideDeniedNames } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -69,7 +71,10 @@ const RULES = ruleWorld(([
   ['projects/two', 'group', 'finance', 'write'], ['connected/nas', 'everyone', null, 'read'],
   // a shared project chat (S1-S9): projects/web has alice and dave; projects/web/mine is limited to alice alone
   ['projects/web', 'user', ME, 'write'], ['projects/web', 'user', 'dave', 'write'], ['projects/web/mine', 'user', ME, 'write'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine'])
+  // git between two members (QA TC-4939, G1-G4): projects/gitp has alice and erin and no repository yet
+  ['projects/gitp', 'user', ME, 'write'], ['projects/gitp', 'user', 'erin', 'write'],
+  ['groups/marketing/hr-alicealone', 'user', ME, 'write'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp', 'groups/marketing/hr-alicealone'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
@@ -108,7 +113,8 @@ const ETC_CANARIES: [string, string][] = [['/etc/environment', 'API_KEY'], ['/et
   ['/etc/pki/tls/key.pem', 'key'], ['/etc/cloud/cloud.cfg.d/99-link.cfg', 'token'], ['/etc/crontab', 'curl -u user'], ['/etc/postfix/sasl_passwd', 'password']]
 for (const [f, what] of ETC_CANARIES) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n${what} ${CANARY}-etc\n`); fs.chmodSync(f, 0o644) }
 sh(`chmod -R a+rX ${NAS} ${NAS2} /srv/other-app /opt/other /etc/systemd/system /etc/cloudflared /var/lib/other-app /home/someone && chmod a+r /etc/systemd/system/cloudflared.service`)
-for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
+w('projects/gitp/plan.md', 'plan\n')
+for (const u of [ME, 'bob', 'carol', 'erin']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
 fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true })
@@ -117,6 +123,8 @@ fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), 
 w('projects/web/index.html', 'web index\n')
 w('projects/web/docs/guide.md', 'web guide\n')
 w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
+// a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
+w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
 fs.writeFileSync(`${TEAM}/users/alice/key.txt`, `${ASKER}-own-folder`)
 fs.mkdirSync(`${WEB}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${WEB}/.git/config`, '[core]\n')
 fs.writeFileSync(path.join(personHome(BASE, ME), '.netrc'), `machine github.com password ${ASKER}-home\n`)
@@ -136,6 +144,8 @@ fs.mkdirSync(sharedWork(BASE, SW, sharedWorkKey([ME])), { recursive: true }); fs
 // another run's short temp folder (devenv/rt/<run>, config.ts runTmp), with a marker: a shared run never sees or writes it
 const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
 fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
+// the git wrapper first on every run's PATH, as the runner writes it (runner.ts writeGitWrapper)
+fs.mkdirSync(devenvPaths(BASE).bin, { recursive: true }); fs.writeFileSync(path.join(devenvPaths(BASE).bin, 'git'), gitWrapperSource({ node: SRT_PATHS.node, realGit: '/usr/bin/git' }), { mode: 0o755 })
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -152,14 +162,17 @@ process.env.GH_TOKEN = `${CANARY}-gh-token`; process.env.ANTHROPIC_API_KEY = `${
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
   // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
   // (its own work folder for the people who see it now, never the private one: config.ts sharedWork)
   const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
   // a shared chat's command: a home and logs of its own (runner.ts prepare)
-  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId }
+  // a person's run in a project folder: a home of its own for that folder (runner.ts runOwner, config.ts projectHome)
+  const projectFolder = sh_ || work ? null : o.start ?? 'projects/one'
+  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId, projectFolder }
+  if (!sh_) { fs.mkdirSync(path.join(runHome(BASE, owner), 'tmp'), { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   if (sh_) { for (const d of [runHome(BASE, owner), runTmp(BASE, owner), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = sh_ ? sh_.within : work ? null : o.start ?? 'projects/one'
@@ -168,7 +181,8 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // A shared chat: what the person AND everyone who sees the chat may read (access.ts sharedFolderView)
   const view = sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
   const sharedChat = sh_ ? sh_.chat : null
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, sharedChat, runId, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: sh_ ? hideDeniedNames(view, TEAM) : view, start, work, sharedChat, runId, projectFolder, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -182,7 +196,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -206,7 +220,15 @@ const SWC = { shared: { chat: SW, within: null, audience: [ALICE, ERIN] } }
 const SW_WORK = sharedWork(BASE, SW, sharedWorkKey([ALICE.id, ERIN.id]))
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
-const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
+const GITP = `${TEAM}/projects/gitp`
+const HOOK_MARK = path.join(personHome(BASE, ME), '.hook-was-here')
+/** git as the server (root) on the test's repositories, which the server account owns */
+const hostGit = (dir: string, ...args: string[]) => { fs.mkdirSync(dir, { recursive: true }); const r = Bun.spawnSync(['git', '-c', 'safe.directory=*', ...args], { cwd: dir, env: { PATH: process.env.PATH!, HOME: '/root' } }); sh(`chown -R ${SRV}:${SRV} ${GITP}`); return r }
+const GMARK = `${GITP}/PLANTED-RAN`
+/** a git call refused by the wrapper, and nothing planted ran */
+const gitRefused = (r: { code: number | null; out: string }) => (!r.out.includes('git was refused') ? `git was not refused: ${r.out.slice(0, 300)}` : fs.existsSync(GMARK) ? 'a planted program ran' : null)
+const PROJECT_HOME = projectHome(BASE, ME, 'projects/gitp')
+const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null; before?: () => void }[] = [
   { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
   // Q0 (b) / G-SRT-11: person A's AI plants code in a folder that A may write and person B runs later (a git hook,
@@ -278,6 +300,50 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A14f', what: 'Full internet: the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 http://localhost:8099/ || curl -fsS -m 5 https://team.trina.test/ || curl -fsS -m 5 https://team.trina.test./ || curl -fsS -m 5 https://Team.Trina.Test../ || curl -fsS -m 5 --noproxy "*" https://1.1.1.1/', check: failsQuietly, o: { full: true } },
   { id: 'A27f', what: 'offline wins over Full internet and allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://example.com/ || curl -fsS -m 10 -o /dev/null https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline', full: true, user: ['example.com'] } },
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
+  // ---- git between members (QA TC-4939): a run that makes a repository can write its hooks and config (srt protects
+  // them only when .git is there as the run starts); another member's git must not run them ----
+  { id: 'G1', what: 'erin makes a repository in the project folder and plants a pre-commit hook', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `git init -q && printf '#!/bin/sh\\necho HOOK-RAN; touch "$HOME/.hook-was-here"; touch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo PLANTED`,
+    check: both(ok, has('PLANTED')) },
+  { id: 'G2', what: 'alice commits there: the hook does not run, nothing lands in her home', o: { start: 'projects/gitp' },
+    cmd: 'git -c user.name=a -c user.email=a@example.com commit -q --allow-empty -m x && echo COMMITTED; git config core.hooksPath',
+    check: both(ok, has('COMMITTED'), has('/dev/null'), (r) => (r.out.includes('HOOK-RAN') ? 'the hook ran' : null)),
+    after: () => (fs.existsSync(HOOK_MARK) || fs.existsSync(path.join(PROJECT_HOME, '.hook-was-here')) ? 'the hook wrote alice\'s home' : null) },
+  { id: 'G3', what: 'a filter driver planted in the repository\'s config: alice\'s git is refused (the wrapper), nothing runs', o: { start: 'projects/gitp' },
+    before: () => fs.appendFileSync(`${GITP}/.git/config`, `[filter "x"]\n\tclean = touch ${GMARK}\n`),
+    cmd: 'git status; echo CODE=$?', check: both(has('CODE=128'), gitRefused) },
+  { id: 'G4', what: 'a repository made in a sub-folder in the same run, with a planted hook: git there runs no hook', o: { who: ERIN, start: 'projects/gitp' },
+    before: () => fs.writeFileSync(`${GITP}/.git/config`, fs.readFileSync(`${GITP}/.git/config`, 'utf8').replace(/\[filter "x"\][^[]*/, '')),
+    cmd: `mkdir -p sub && cd sub && git init -q && printf '#!/bin/sh\\ntouch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && git -c user.name=e -c user.email=e@example.com commit -q --allow-empty -m x && echo SUBCOMMIT`,
+    check: both(ok, has('SUBCOMMIT')), after: () => (fs.existsSync(HOOK_MARK) ? 'the sub-folder\'s hook ran' : null) },
+  // the bypasses of the first version (review of #1297): each planted as erin's run could have, then alice's git there
+  { id: 'G5', what: 'a section header and its setting on one line ([diff "x"] textconv = ...)', o: { start: 'projects/gitp', cwd: 'g5' },
+    before: () => { const d = `${GITP}/g5`; hostGit(d, 'init', '-q'); fs.writeFileSync(`${d}/a.txt`, 'one\n'); fs.writeFileSync(`${d}/.gitattributes`, '*.txt diff=x\n'); hostGit(d, 'add', '.'); hostGit(d, '-c', 'user.name=e', '-c', 'user.email=e@example.com', 'commit', '-q', '-m', 'x'); fs.writeFileSync(`${d}/a.txt`, 'two\n'); fs.appendFileSync(`${d}/.git/config`, `[diff "x"] textconv = sh -c 'touch ${GMARK}; cat'\n`); sh(`chown -R ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git diff; echo CODE=$?', check: gitRefused },
+  { id: 'G6', what: 'a .git that is a link to a repository elsewhere in the folder', o: { start: 'projects/gitp', cwd: 'g6' },
+    before: () => { hostGit(`${GITP}/g6real`, 'init', '-q'); fs.appendFileSync(`${GITP}/g6real/.git/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`); fs.mkdirSync(`${GITP}/g6`, { recursive: true }); fs.symlinkSync('../g6real/.git', `${GITP}/g6/.git`); sh(`chown -hR ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G7', what: 'a bare repository folder: not used by itself, and refused when named', o: { start: 'projects/gitp' },
+    before: () => { hostGit(GITP, 'init', '-q', '--bare', 'g7.git'); fs.appendFileSync(`${GITP}/g7.git/config`, `[core]\n\talternateRefsCommand = touch ${GMARK}\n`) },
+    cmd: 'cd g7.git && git log; echo CODE1=$?; cd .. && git --git-dir=g7.git log; echo CODE2=$?',
+    check: both((r) => (/CODE1=0\b/.test(r.out) ? 'the bare repository was used by itself' : null), gitRefused) },
+  { id: 'G8', what: 'submodule.<name>.update = !command', o: { start: 'projects/gitp', cwd: 'g8' },
+    before: () => { hostGit(`${GITP}/g8`, 'init', '-q'); fs.appendFileSync(`${GITP}/g8/.git/config`, `[submodule "s"]\n\tupdate = !touch ${GMARK}\n`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G9', what: 'core.alternateRefsCommand and a "!" alias', o: { start: 'projects/gitp', cwd: 'g9' },
+    before: () => { hostGit(`${GITP}/g9`, 'init', '-q'); fs.appendFileSync(`${GITP}/g9/.git/config`, `[core]\n\talternateRefsCommand = touch ${GMARK}\n[alias]\n\tst = !touch ${GMARK}\n`) },
+    cmd: 'git st; echo CODE=$?', check: gitRefused },
+  { id: 'G10', what: 'no depth limit: a repository twelve folders down, and an absorbed submodule\'s config', o: { start: 'projects/gitp', cwd: 'g10/a/b/c/d/e/f/g/h/i/j/k/l' },
+    before: () => { const d = `${GITP}/g10/a/b/c/d/e/f/g/h/i/j/k/l`; hostGit(d, 'init', '-q'); fs.mkdirSync(`${d}/.git/modules/s`, { recursive: true }); fs.writeFileSync(`${d}/.git/modules/s/HEAD`, 'ref: refs/heads/main\n'); fs.writeFileSync(`${d}/.git/modules/s/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`); sh(`chown -R ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G11', what: 'a filter written by another member\'s job after the command started: the next git call is refused', o: { start: 'projects/gitp', cwd: 'g11', during: () => fs.appendFileSync(`${GITP}/g11/.git/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`) },
+    before: () => hostGit(`${GITP}/g11`, 'init', '-q'),
+    cmd: 'git status >/dev/null && echo FIRST-OK; sleep 4; git status; echo CODE=$?', check: both(has('FIRST-OK'), gitRefused) },
+  // the home of a project folder's runs is not the home of her own chats (review of #1297)
+  { id: 'H1', what: 'alice\'s run in the project folder leaves a file in its home', o: { start: 'projects/gitp' },
+    cmd: 'echo HOME=$HOME; touch $HOME/PLANTED-IN-PROJECT-HOME && echo PLANTED', check: both(ok, has(`HOME=${PROJECT_HOME}`), has('PLANTED')) },
+  { id: 'H2', what: 'her own chat\'s run has another home: the file is not there', o: { work: true },
+    cmd: 'echo HOME=$HOME; ls $HOME/PLANTED-IN-PROJECT-HOME 2>/dev/null && echo SEEN || echo NOT-SEEN', check: both(ok, has(`HOME=${personHome(BASE, ME)}`), has('NOT-SEEN')) },
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
   { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
@@ -345,6 +411,8 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
       return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
     }), o: SWC,
     after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
+    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(r.out) ? `a folder they may not all open is listed: ${r.out.slice(0, 300)}` : null)), o: SWC },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
 ]
 
@@ -359,8 +427,26 @@ if (pre.code !== 0) {
 }
 console.log('pass preflight: a plain command runs through srt')
 let failed = 0
+let firstProxy = ''
+// S15 (QA TC-4928): srt's proxy login is the run's own: another run gets another one, and the first one is refused
+// there (it reaches only its own run's proxy, which ended with it)
+attacks.push({ id: 'S15', what: 'shared chat: the proxy login in a run\'s environment is per run and useless in the next run', cmd: 'echo "P=$http_proxy"', check: (r) => {
+  const first = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  if (!/^http:\/\/srt[^:]*:[0-9a-f]{32}@localhost:\d+$/.test(first)) return `no per-run proxy login in the environment: ${r.out.slice(0, 200)}`
+  firstProxy = first
+  return null
+}, o: SWC })
+attacks.push({ id: 'S15b', what: 'shared chat: the previous run\'s proxy login is another one and does not work here', cmd: 'echo "P=$http_proxy"; curl -s -m 15 -o /dev/null -w "CODE=%{http_code}" -x "@OLD_PROXY@" https://registry.npmjs.org/; true', check: (r) => {
+  const first = firstProxy
+  const now = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  const tok = (u: string) => /:([0-9a-f]{32})@/.exec(u)?.[1] ?? ''
+  if (!tok(first) || !tok(now) || tok(first) === tok(now)) return `the same proxy login in two runs: ${tok(first)} ${tok(now)}`
+  return /CODE=200/.test(r.out) ? 'the previous run\'s proxy login worked in this run' : null
+}, o: SWC })
 for (const a of attacks) {
-  const r = await run(a.cmd, a.o)
+  a.before?.()
+  // S15b uses the login S15 saw
+  const r = await run(a.id === 'S15b' ? a.cmd.replace('@OLD_PROXY@', firstProxy) : a.cmd, a.o)
   const why = (r.out.includes(CANARY) ? `canary: ${r.out.slice(r.out.indexOf(CANARY) - 40, r.out.indexOf(CANARY) + 40)}` : null) ?? a.check(r) ?? a.after?.() ?? null
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)
   if (why) failed++

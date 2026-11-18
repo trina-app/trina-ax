@@ -23,8 +23,9 @@
 // sent by themselves.
 // Text that looks like a key or password waits for "Send anyway" (SecretWarning): a message goes to the AI provider
 // and stays in the chat; a service's key belongs in the connect card the AI shows.
-// A shared project chat (docs/DECISIONS.md "Shared project chats"): nothing waits to be sent while an answer runs
-// (`queueing` off), someone else's turn holds the send with a line above the text (`hold`, the text stays), a file from
+// A shared project chat (docs/DECISIONS.md "Shared project chats"): while someone else's question is answered a line
+// above the text says whose (`note`) and what is sent now waits for it (`later`: the clock button, as while my own answer
+// runs; docs/decisions/20261118-shared-chat-queued-sends.md); `hold` keeps the text unsent with its line; a file from
 // this computer is saved in the project folder and a line under the chips says so (`sharedUploads`; offered only to
 // someone who may write that folder, else team files only: no computer or camera, no pasted or dropped files).
 // Every chat's box says who sees the chat (`who`, components/chat/WhoSees.tsx, docs/DECISIONS.md "Who sees it, always"):
@@ -94,7 +95,8 @@ export default function Composer({
   who,
   skill,
   hold,
-  queueing = true,
+  note,
+  later = false,
   sharedUploads,
   projectId,
   waitsFor,
@@ -135,11 +137,13 @@ export default function Composer({
   /** a skill chosen for the message (a member's first question from a team link): shown as a chip by its title, the
    * box holding only the question; sending puts "/<name> " in front, so the skill runs as from the "/" menu */
   skill?: { name: string; title: string } | null
-  /** someone else's question is being answered in this shared chat: this line above the text, and nothing is sent until
-   * it is done (the text stays) */
+  /** this line above the text, and nothing is sent until it goes (the text stays): the earlier answer is still ending */
   hold?: string
-  /** false: a message typed while an answer runs does not wait to be sent (a shared chat) */
-  queueing?: boolean
+  /** a line above the text that does not stop a send (a shared chat: whose question is being answered) */
+  note?: string
+  /** what is sent now waits under the conversation although no answer of mine runs (a shared chat: someone else's turn,
+   * or their messages wait): the clock button and placeholder, as while an answer runs, without Stop */
+  later?: boolean
   /** a shared project chat: a file from this computer is saved in its project folder (the server's doing), and a line
    * under the chips says so and how many people see it there (`audience`). `allowed` false: the person may not write
    * that folder (Project.chatUploads, Chat.shared.canUpload), so files come from the team folder only */
@@ -197,7 +201,7 @@ export default function Composer({
   const { files, live, uploading, ready, attachments, addFiles, addTeamFiles, removeFile, clearSent, onPaste, onPicked } = useComposerFiles({ userId, draftId, ensureChat, onError: setError, computer })
   // a shared chat: when someone else's turn starts or ends, the line above the text says so; a refusal shown before
   // ("○○님의 질문에 답하는 중이에요") would only repeat it or go stale
-  useEffect(() => { setError(null) }, [hold])
+  useEffect(() => { setError(null) }, [hold, note])
   const [sending, setSending] = useState(false)
   /** the text looks like a key: sending waits for "Send anyway" or "Edit" (a changed text asks again) */
   const secret = useSecretHold(text)
@@ -262,7 +266,7 @@ export default function Composer({
 
   // below 768px (the phone top bar and tabs): attach and voice go inside the box, as in a room's box
   const phone = useMediaQuery('(max-width: 767.98px)')
-  const hint = transcribing ? voice.transcribingText : answering ? t(phone ? 'composer.answerPlaceholderShort' : 'composer.answerPlaceholder') : running && queueing ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
+  const hint = transcribing ? voice.transcribingText : answering ? t(phone ? 'composer.answerPlaceholderShort' : 'composer.answerPlaceholder') : running || later ? t(choiceWaiting ? 'outbox.placeholderChoice' : 'outbox.placeholder') : (placeholder ?? t('composer.placeholder'))
   // the box grows with its text, and also with a long placeholder (an empty box measures its placeholder), so a hint
   // that needs 2 lines on a phone is not cut in half when it changes while the text stays the same; and again when the
   // person's text size changes (Settings > Profile, over this page). Behind a big side panel (lib/sidePanel.ts) the box
@@ -342,7 +346,7 @@ export default function Composer({
   // the AI's question is the text alone (an upload in progress does not hold it up).
   const canSend = answering
     ? !sending && !voice.busy && text.trim().length > 0
-    : !hold && !waiting && !(running && !queueing) && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
+    : !hold && !waiting && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -549,7 +553,7 @@ export default function Composer({
   // the text's padding (the "#" layer behind it has the same): a phone's card has the text alone on its line, the
   // tools under it; elsewhere the buttons share the line
   // (the card's text starts where its + does: 12 px in)
-  const fieldPad = clsx(stacked ? ['pb-1', phone ? 'px-3' : 'px-4.5'] : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold ? 'pt-2' : 'pt-3')
+  const fieldPad = clsx(stacked ? ['pb-1', phone ? 'px-3' : 'px-4.5'] : ['pb-2', phone ? 'pl-0' : 'pl-5'], answering || hold || note ? 'pt-2' : 'pt-3')
   // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
   // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
   // own padding and the edge: 3.25rem), at least one line
@@ -569,7 +573,7 @@ export default function Composer({
               </button>
             </Tooltip>
           )
-        : running &&
+        : (running || later) &&
           canSend && (
             // phones make a new line with Enter: this button is how a message waits for the answer there
             <Tooltip label={t('outbox.sendLater')}>
@@ -585,7 +589,7 @@ export default function Composer({
           </button>
         </Tooltip>
       ) : (
-        !answering && (
+        !answering && !later && (
           <Tooltip label={t('chat.send')}>
             <button
               type="button"
@@ -690,10 +694,10 @@ export default function Composer({
               </div>
             )}
             {/* a shared chat: someone else's question is being answered (or its card waits for them); the text stays */}
-            {hold && !answering && (
+            {(hold || note) && !answering && (
               <p id={`${answeringId}-hold`} role="status" className={clsx('flex items-start gap-1.5 pt-3 text-xs leading-5 break-keep text-muted', phone ? 'px-3' : 'px-5')} data-testid="composer-hold">
                 <Hourglass size={13} className="mt-1 shrink-0 text-faint" aria-hidden />
-                <span className="min-w-0">{hold}</span>
+                <span className="min-w-0">{hold ?? note}</span>
               </p>
             )}
             {chosen && !answering && (
@@ -717,7 +721,7 @@ export default function Composer({
                   rows={1}
                   value={text}
                   aria-label={t('composer.label')}
-                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : hold ? `${answeringId}-hold` : undefined}
+                  aria-describedby={answering ? `${answeringId} ${answeringId}-secrets` : hold || note ? `${answeringId}-hold` : undefined}
                   {...roomMenu.inputProps}
                   onChange={(e) => {
                     setText(e.target.value)

@@ -47,6 +47,7 @@ import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
 import { QueueFull, useSendQueue } from '../../store/sendQueue'
 import { parseQueue, queueKey } from '../../lib/sendQueue'
+import { sideChatWasOpen } from '../../lib/sideChatOpenKeep'
 import QueuedMessages from '../chat/QueuedMessages'
 import { ArrowUp, ChevronLeft, CirclePause, Clock, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
@@ -126,6 +127,32 @@ function queuedIn(chatId: string): boolean {
   } catch {
     return false
   }
+}
+
+/** Any messages of mine waiting to be sent in any chat (this window, or kept by this browser): cheap, before asking the
+ * server which side chat is the room's newest. */
+function anyQueued(userId: string): boolean {
+  if (Object.values(useSendQueue.getState().queues).some((q) => q?.items.length)) return true
+  try {
+    const prefix = queueKey(userId, '')
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(prefix)) return true
+  } catch { /* storage blocked: nothing kept there */ }
+  return false
+}
+
+/**
+ * Does the room's side chat open by itself as the room page opens (QA TC-4963, docs/decisions/
+ * 20261118-side-chat-reload.md)? After a reload when it was open in this tab before (lib/sideChatOpenKeep.ts: on a phone
+ * too, where it is the screen that was showing, as a thread's address brings its screen back). On a computer also when
+ * messages of mine wait to be sent in the room's newest side chat: the panel beside the room shows them and the answer
+ * they wait for. Not on a phone for that alone: it would cover the room the person chose to open with a screen they had
+ * closed; ✦ opens it on that chat (sideChatOpening keeps a chat that is not done).
+ */
+export async function sideChatComesBack(roomId: string, userId: string, phone: boolean): Promise<boolean> {
+  if (sideChatWasOpen(userId, roomId)) return true
+  if (phone || !anyQueued(userId)) return false
+  const c = await newestSideChat(roomId).catch(() => null)
+  return !!c && queuedIn(c.id)
 }
 
 /** The chat is not done: its answer is on its way (sending, running or queued), the AI waits on me (a card), an answer

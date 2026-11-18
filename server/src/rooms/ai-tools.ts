@@ -13,8 +13,10 @@ import { FILE_TOOLS } from '@mycel/shared'
 export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // Word comments on a team .docx (tools/comment-docx.ts)
   'comment_docx',
+  // an existing team Office file changed in place (tools/edit-office.ts)
+  'edit_office',
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
-  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',
 ])
 
@@ -31,9 +33,13 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user',
-  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
-  // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts)
-  'chat_file',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:
+  // refuses in a shared chat)
+  'save_connector_file',
+  // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts), and its copy into the team
+  // folder behind the wider-audience card
+  'chat_file', 'save_chat_file',
   // "send these to bob" (chat/post-to-room.ts): as the turn's own person, behind their card
   'post_to_room',
   // "share these photos with bob" (chat/share-with-person.ts): the turn's own person's files, behind their card
@@ -56,7 +62,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
-  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], save_url: ['save_as'],
+  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], save_chat_file: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
 }
 
@@ -169,8 +175,8 @@ export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TO
  * people's words; a connection's tools mark it when the service answers (connections/tools.ts noteAnswer).
  */
 export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'skill', 'ask_user', 'agent', 'Agent', 'Task',
-  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'edit_office', 'skill', 'ask_user', 'agent', 'Agent', 'Task',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
   'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',
 ])

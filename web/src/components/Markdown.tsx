@@ -18,6 +18,7 @@ import { fileUrl, saveBlob } from '../lib/api'
 import { classifyImage, classifyLink, isDisplayableImagePath, prepareMarkdown, teamLinkTarget } from '../lib/markdown'
 import { footnotesTooHeavy, lineEnds, personWords, tableTooBig, protectMentions, remarkCapDepth, remarkFootnotesAsText, remarkGfmNoFootnotes, tooHeavyForMarkdown, type MessageMention } from '../lib/messageMarkdown'
 import { LinkedText, RoomLink } from './rooms/MessageText'
+import { capBlankLines } from '../lib/blankLines'
 import { useLinkHosts } from './rooms/MessageLinkChip'
 import { AppLinkChip } from './AppLinkChip'
 import { appLinkRef, labelIsAddress } from '../lib/appLinks'
@@ -655,7 +656,8 @@ const COMPONENTS_PERSON: Components = {
 const REMARK_PERSON = [[remarkGfmNoFootnotes, { singleTilde: false }] as never, remarkCjkFriendly]
 
 /** `mentions`: the names the message mentions (lib/messageMarkdown.ts); `after`: a mark after the words ("edited"),
- * on the last line when that is a paragraph. */
+ * on the last line when that is a paragraph. Blank lines show as typed (lib/messageMarkdown.ts keepBlankLines): a
+ * paragraph has no margin of its own, since two paragraphs always have a blank line, now its empty line, between them. */
 export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, className, after }: { text: string; mentions: MessageMention[]; className?: string; after?: ReactNode }) {
   // (one element while the words and the names are the same, whatever else changes: a new "edited" mark or a new list
   // of the same names does not read the Markdown again)
@@ -675,7 +677,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
   // (if it cannot be drawn: its words, as a message being sent shows them)
   const plain = (
     <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', className)} data-testid="message-markdown" data-plain="">
-      <LinkedText text={text} />
+      <LinkedText text={capBlankLines(text)} />
       {after}
     </div>
   )
@@ -686,7 +688,7 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
       <TeamImagesAsLinks.Provider value>
         <div
           className={clsx(
-            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-1 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
+            'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-0 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
             after != null && '[&>p:nth-last-child(2)]:inline',
             className,
           )}

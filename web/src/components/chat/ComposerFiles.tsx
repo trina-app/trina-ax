@@ -364,7 +364,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
     // the box's pictures: ← → in the image viewer walks through these. A phone: one sideways row, so many files and the
     // keyboard do not push the text field out of sight
     <ImageGroup>
-    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
+    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 md:max-h-40 md:overflow-y-auto max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
       {files.map((f) => {
         const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
         const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
@@ -492,6 +492,25 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
       {t('chat.sharedUploadLine', { folder, n: audience })}
     </p>
   )
+}
+
+/**
+ * The same line under a waiting message of a shared chat (components/chat/QueuedMessages.tsx): a file from the computer
+ * in it was saved when it was attached, so the line still says where and who can see it. A waiting message keeps only
+ * its attachments: a file in the project's chat attachments folder (in any language's name) counts as one of those
+ * uploads; a chat shared with people, a file kept with the chat.
+ */
+export function SharedQueuedLine({ attachments, audience, kind, className }: { attachments: readonly Attachment[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
+  const t = useT()
+  if (kind === 'people') {
+    if (!attachments.some((a) => a.source === 'chat')) return null
+    return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.share.uploadLine')}</p>
+  }
+  const names = new Set<string>(Object.values(CHAT_FILES_FOLDER))
+  const saved = attachments.find((a) => a.source === 'team' && names.has(folderOf(a.path).slice(folderOf(a.path).lastIndexOf('/') + 1)))
+  if (!saved) return null
+  const folder = folderOf(saved.path).slice(folderOf(saved.path).lastIndexOf('/') + 1)
+  return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.sharedUploadLine', { folder, n: audience })}</p>
 }
 
 /** The chips of a draft: those kept in memory, else (`reload`) the finished ones kept for this tab (after a reload). */

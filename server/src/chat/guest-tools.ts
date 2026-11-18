@@ -15,7 +15,7 @@ export const GUEST_TURN_TOOLS: ReadonlySet<string> = new Set([
   'edit_files', 'ask_user', 'set_title', 'remember', 'forget', 'room_read', 'room_file',
   // the comments under answers in their own chat (chat/answer-comments.ts): a guest opens only their own chats
   'answer_comments',
-  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'delete_files',
+  'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'delete_files',
 ])
 
 /** the room tools of GUEST_TURN_TOOLS: only for a guest whose place is a group chat (chat/tools.ts) */
@@ -51,13 +51,13 @@ export function guestPromptOf(db: Database, userId: string): GuestPrompt | null 
 const GUEST_REWRITES: [RegExp, string][] = [
   // make_file with Hangul writing off: "an admin can turn on the Hangul plugin (Admin > Plugins, …) … ask an admin"
   [/Hangul \(\.hwp\/\.hwpx\) documents cannot be made or filled here: [^]*?offer a Word file meanwhile\. /, 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. '],
-  // make_file's templates live under skills/, which a guest cannot open
-  [/`template`: a [^ ]+ under skills\/ for styles\. /, ''],
+  // make_file's template: a guest can use a file they can read, but cannot open skills/
+  [/ \(their own earlier document, or a team template under skills\/\)/, ''],
   [/\bthe team drive\b/g, 'the team files'],
 ]
 /** A sentence still about what only team members have after GUEST_REWRITES (fail closed: a new member-only sentence in
  * a description a guest gets is left out rather than read to them). */
-const MEMBER_ONLY = /Admin\s*[>›]|\bplugin|connect_service|desktop app|save_url|save_room_file|team drive/i
+const MEMBER_ONLY = /Admin\s*[>›]|\bplugin|connect_service|desktop app|save_url|save_room_file|save_chat_file|team drive/i
 
 /**
  * A tool's description for a guest's turn: the member-only parts rewritten (QA: a guest asked "can I connect apps?" and

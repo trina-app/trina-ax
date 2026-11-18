@@ -11,6 +11,7 @@ import { useEffect, useState, type ComponentProps } from 'react'
 import type * as MarkdownModule from './Markdown'
 import type * as RichCopyModule from '../lib/richCopy'
 import { LinkedText } from './rooms/MessageText'
+import { capBlankLines } from '../lib/blankLines'
 
 interface Loaded { md: typeof MarkdownModule; copy: typeof RichCopyModule }
 
@@ -60,7 +61,7 @@ export function PersonMarkdown(props: ComponentProps<typeof MarkdownModule.Perso
   if (m) return <m.md.PersonMarkdown {...props} />
   return (
     <div className={clsx('whitespace-pre-wrap break-words text-reading leading-reading text-ink', props.className)} data-testid="md-plain">
-      <LinkedText text={props.text} />
+      <LinkedText text={capBlankLines(props.text)} />
       {props.after}
     </div>
   )

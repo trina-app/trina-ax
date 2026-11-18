@@ -1,38 +1,89 @@
 <div align="center">
 
-<picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Logotipo de Trina AX"></picture>
+<picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Logo de Trina AX"></picture>
 
-<h1>La IA que comparte todo tu equipo.</h1>
+<h1>Trina AX</h1>
 
+<b>La IA que comparte todo tu equipo.</b><br>
 Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí,<br>y cada archivo que abre se comprueba con los permisos de quien preguntó.
 
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-es.png" height="40" alt="Descargar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-es.png" height="40" alt="Descargar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a>
 
-[Sitio web](https://ax.trina.app) · [Descargar para Mac y Windows](https://ax.trina.app/download) · [Documentación](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
+[Sitio web](https://ax.trina.app) · [Documentación](docs/README.md) · [Planes](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
 
-<br>
-
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Mira la historia de 97 segundos. El mismo Claude y la misma petición, con resultados distintos: Alex, responsable de equipo, recibe una propuesta de 7 páginas; Mina, en su primer día y con la carpeta vacía, recibe 'Trina Logistics? Who are they?'. Con Trina, la IA de Mina empieza desde los archivos y las skills del equipo."></a>
-
 </div>
 
-## Lo que recibe tu equipo
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
+
+<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas</p>
+
+## Se configura una vez. Lo usa todo tu equipo.
+
+**Una sola cuenta de IA para todo el equipo.** Conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan, y todo el equipo pregunta con ella, con límites de tokens por persona, grupo o equipo.
+
+Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desde la primera pregunta, en el navegador o en las apps. Nadie más instala Claude Code ni copia skills; como mucho, inicia sesión en sus propias cuentas.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-es-dark.webp"><img src="docs/images/readme/v4/set-up-once-es-light.webp" width="100%" alt="Una persona configura una vez en el servidor de Trina la cuenta de IA, Google, las apps, la API de la empresa, Slack, las skills y los archivos del equipo, y la IA de Alex en Mac, Mina en iPhone, Sam en Windows, Leo en el navegador y Jordan en Android lo tiene todo."></picture>
+
+| Se configura una vez | Lo que recibe cada uno |
+| --- | --- |
+| **Cuenta de IA.** El propietario o un admin conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan. | Respuestas para todo el equipo, con límites de tokens por persona, grupo o equipo. |
+| **Google.** Comparte carpetas de Drive con el equipo, o conecta una cuenta del equipo (un buzón o un calendario compartido) para Gmail, Calendar, Docs y Sheets. | Las personas que elijas lo usan en sus chats. Cada uno puede conectar además su propia cuenta de Google. |
+| **Apps.** Higgsfield, Notion, Linear, Figma y más desde la lista de apps, o cualquier servidor MCP por su dirección, como Bright Data. | Las herramientas de la app en los chats de todos: un inicio de sesión del equipo, o cada persona con el suyo. |
+| **La API de tu empresa.** Una dirección, una clave y unas notas. | La IA llama a tu propio sistema, solo bajo esa dirección. |
+| **Slack.** El propietario o un admin lo añade una vez. | Pregunta a Trina por mensaje directo o en cualquier canal al que la hayas invitado, con tus propios permisos. |
+| **Skills.** Escribe un `SKILL.md`, o trae las skills de tu carpeta `.claude` o `.codex`. | La IA de todos sigue los mismos pasos. Escribe `/` para usar una. |
+| **Archivos del equipo.** Una sola unidad: toda la empresa, grupos, proyectos, skills del equipo y carpetas personales. | La IA de todos empieza desde los archivos del equipo y abre solo lo que esa persona puede abrir. |
+
+<table>
+<tr>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Administración › Apps conectadas, para todo el equipo: Google Drive, Gmail, Calendar, Docs y Sheets (una configuración y cada miembro solo inicia sesión en Google), Slack, Notion, Linear, Atlassian, Canva y Añadir una por su dirección"><br><sub>Administración › Apps conectadas: se configura una vez para todo el equipo</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+</tr>
+</table>
+
+## Lo que hace cada uno con ello
 
 **Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú; con un clic, la respuesta de Trina llega a la conversación.
 
-<img src="docs/images/readme/v3/room.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pregunta a Trina en un chat lateral que solo ve ella por el montaje del 17 de noviembre, y con un botón envía la respuesta a la conversación.">
+<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pide a Trina en un chat lateral que solo ve ella una lista con las normas para expositores y la envía a la conversación.">
 
-**Cada persona ve solo lo que puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
+**La IA de cada persona ve solo lo que esa persona puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-band.png" width="100%" alt="Carpetas con las caras de quienes pueden abrirlas; Mina no puede abrir shared/Finance.">
+<img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Un admin cambia quién puede abrir la carpeta Sales y luego mira qué puede abrir Mina: Finance no está en su lista.">
 
-- 🤝 **Retoma el chat de IA de un compañero.** Sigue su chat de proyecto; lo que tú pidas se hace con tus permisos.
-- 📋 **Skills del equipo.** Escribe una vez cómo trabaja tu equipo y la IA de todos lo sigue.
-- 🔌 **Tus herramientas.** Cualquier servidor MCP, Google Drive, Slack y la API de tu empresa, con permisos para cada persona.
-- 🕘 **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
-- 📱 **En cualquier dispositivo.** Mac, iPhone, Android, Windows y cualquier navegador.
+**Retoma la sesión de trabajo de un compañero en un proyecto del equipo.** Las sesiones de un proyecto del equipo se comparten con sus miembros: abre la de un compañero y sigue, con tus propios permisos. Cualquier otra sesión la puedes compartir con personas o grupos, como un archivo de Google Drive.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
+
+**Encuentra archivos por lo que son.** Cada noche, la IA del equipo lee los archivos nuevos y modificados de las carpetas compartidas, de grupo y de proyecto, y guarda una línea por archivo que dice qué es, así que un escaneo llamado `temp.pdf` o una foto llamada `IMG_2031.jpg` se encuentran por su contenido. Usa la cuenta de IA del equipo y nunca lee las carpetas personales. En una prueba con 2.238 archivos ficticios, Claude Code encontró el archivo correcto en 181 de 184 preguntas con estas líneas, y en 172 sin ellas.
+
+<table>
+<tr>
+<td width="50%"><b>Tareas programadas.</b> Pídelo una vez y Trina lo repite según tu calendario, en la zona horaria del equipo.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="El resumen semanal que escribió una tarea programada: lo encontrado, decisiones y trabajo pendiente, guardado como archivo"></td>
+<td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="El chat de grupo Launch email con Morgan Reyes, invitado de una agencia: opciones de asunto, una mención y la respuesta de Trina"></td>
+</tr>
+<tr>
+<td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona; límites de tokens por persona, grupo o equipo.<br><br><img src="docs/site/images/usage/team.webp" alt="La página de uso del admin: tokens, respuestas y coste estimado por persona"></td>
+<td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
+</tr>
+<tr>
+<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, la respuesta de Trina en el canal y un hilo abierto a la derecha"></td>
+</tr>
+</table>
+
+- **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
+- **Navegador integrado.** En la app de escritorio, Trina abre sitios web en un panel junto a tu chat, los lee, hace clic y rellena formularios mientras miras; Stop lo detiene. Pregunta antes de abrir un sitio nuevo, salvo que permitas todos los sitios.
+- **Las apps publican en las conversaciones.** Las novedades de Sentry, GitHub, Stripe, Jira y HubSpot llegan como tarjetas.
+- **Notas de reuniones.** La app de Mac (macOS 14.4 o posterior) toma notas de las llamadas de Zoom, Meet y Teams.
+- **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
+- **Documentos.** Lee el texto de documentos hangul (HWP/HWPX) y previsualiza PDF y PowerPoint.
+- **En cualquier dispositivo.** Mac, Windows, iPhone, Android y cualquier navegador, en seis idiomas.
 
 ## Cómo empezar
 
@@ -40,10 +91,17 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 - **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
-<details>
-<summary><b>Pruébalo en tu ordenador en 10 minutos</b> (equipo ficticio, IA desactivada)</summary>
+<b>Autoalojamiento con Docker</b> (Linux, o un Mac con OrbStack)
 
-<br>
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # abre el enlace y crea el propietario
+```
+
+Es más nuevo y está menos probado que la instalación en Linux; un servidor Ubuntu 24.04 necesita antes un ajuste del host. [Guía de Docker](docs/INSTALL-DOCKER.md)
+
+<b>Pruébalo en tu ordenador en 10 minutos</b> (equipo ficticio, IA desactivada)
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
@@ -52,7 +110,9 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Requiere Bun 1.3.12 y Go 1.27+. No es una instalación para producción. [Guía paso a paso](docs/QUICKSTART.md)
 
-</details>
+## Cómo funciona
+
+Un servidor ejecuta Claude Code y Codex como motor. Cada petición de archivos, de una persona o de su IA, pasa por una única comprobación de permisos en el servidor. En un servidor Linux, el motor corre con su propia cuenta dentro de un sandbox de bubblewrap, Landlock y seccomp, con su shell y sus herramientas de archivos integradas desactivadas: solo llega a los archivos con las herramientas de Trina. [Seguridad y permisos](docs/security-and-permissions.md)
 
 Trina ofrece el espacio de trabajo, no la IA: conecta cuentas y planes de Claude u OpenAI cuyo uso tengas autorizado. El uso de IA lo factura la cuenta que conectes.
 

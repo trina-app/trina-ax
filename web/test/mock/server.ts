@@ -6407,6 +6407,20 @@ export class MockServer {
   /** who put each shared chat in the trash (chats.deleted_by) */
   sharedDeletedBy = new Map<string, string>()
   sharedHolds = new Map<string, () => void>()
+  /** who has messages waiting in each shared chat and since when (server/src/chat/shared-waiting.ts; PUT
+   * /api/chats/:id/waiting): a send while someone else waited longer is refused (409 shared_chat_next) */
+  sharedWaitingPlaces = new Map<string, Map<string, { since: number; seen: number; count: number }>>()
+  /** the waiting places of a chat still refreshed within 45 s */
+  freshWaiting(chatId: string): Map<string, { since: number; seen: number; count: number }> {
+    const places = this.sharedWaitingPlaces.get(chatId) ?? new Map()
+    for (const [id, p] of places) if (Date.now() - p.seen > 45_000) places.delete(id)
+    return places
+  }
+  /** Chat.shared.waiting for `viewer`: how many other people have messages waiting */
+  othersWaiting(chatId: string, viewer: string): { waiting?: number } {
+    const n = [...this.freshWaiting(chatId).keys()].filter((id) => id !== viewer).length
+    return n ? { waiting: n } : {}
+  }
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
 
@@ -7350,6 +7364,7 @@ export class MockServer {
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
           answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+          ...this.othersWaiting(chat.id, viewer.id),
           mine: true, canDelete: creator, canUpload: !this.allConfidential,
         },
       }
@@ -7816,6 +7831,7 @@ export class MockServer {
         by: s.by,
         audience: this.sharedAudience(p).length,
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+        ...this.othersWaiting(chat.id, viewer.id),
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
         canUpload: this.sharedMayUpload(p, viewer),
@@ -7869,9 +7885,12 @@ export class MockServer {
       this.chatOwners = new Map()
       this.sharedDeletedBy = new Map()
       this.sharedHolds = new Map()
+      this.sharedWaitingPlaces = new Map()
       baseReset(o)
     }
-    // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
+    // the events of a shared chat: chat.updated to everyone who sees it (their own view); the answer's text, steps and
+    // end to everyone who sees it too (chat/live-answer.ts: a step without its detail, the end without usage); the rest
+    // (cards, queue positions) to the runner
     const basePublish = this.publish.bind(this)
     this.publish = (ev) => {
       const chatId = (ev.data as { chatId?: unknown }).chatId
@@ -7890,6 +7909,17 @@ export class MockServer {
         })
       }
       const to = s.runner ?? s.by.id
+      if (ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done') {
+        const p = project(s)
+        const sees = new Set(p ? this.sharedAudience(p).map((u) => u.id) : [])
+        return this.sharedSend((uid) => {
+          if (uid === to) return ev
+          if (!sees.has(uid)) return null
+          if (ev.type === 'message.step') { const { detail: _d, ...step } = ev.data.step; return { ...ev, data: { ...ev.data, step } } }
+          if (ev.type === 'message.done') return { ...ev, data: { ...ev.data, message: { ...ev.data.message, usage: null } } }
+          return ev
+        })
+      }
       return this.sharedSend((uid) => (uid === to ? ev : null))
     }
     const baseControl = this.testControl.bind(this)
@@ -8135,6 +8165,20 @@ export class MockServer {
     }
     const started = (user: Message | null, assistant: Message) => ({ status: 202, body: { userMessage: user ? this.view(user) : null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } })
 
+    /** how many of my messages wait in a shared chat (server/src/chat/shared-waiting.ts); the others hear how many */
+    h.putChatWaiting = (c) => {
+      const chatId = c.params.id!
+      mayContinue(c.user, chatId)
+      if (!shared(chatId)) return { status: 204, body: null }
+      const places = this.freshWaiting(chatId)
+      const old = places.get(c.user.id)
+      const n = Math.min(50, Number((c.body as { count: number }).count))
+      if (n) places.set(c.user.id, { since: old?.since ?? Date.now(), seen: Date.now(), count: n })
+      else places.delete(c.user.id)
+      this.sharedWaitingPlaces.set(chatId, places)
+      if (!!old !== !!n) this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: chatOf(chatId) } })
+      return { status: 204, body: null }
+    }
     over('sendMessage', (c, base) => {
       const s = shared(c.params.id)
       if (!s) return base(c)
@@ -8142,9 +8186,18 @@ export class MockServer {
       if (again) fail('conflict', 409)
       mayContinue(c.user, c.params.id!)
       notBusy(s, c.user)
+      // whoever has waited longer goes first (409 shared_chat_next, naming them)
+      const places = this.freshWaiting(c.params.id!)
+      const mine = places.get(c.user.id)?.since ?? Infinity
+      const first = [...places].filter(([id, p]) => id !== c.user.id && p.since < mine).sort((a, b) => a[1].since - b[1].since)[0]
+      if (first) fail('conflict', 409, '다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', undefined, { reason: 'shared_chat_next' })
+      places.delete(c.user.id)
       const chat = chatOf(c.params.id!)
       const attachments = teamOnly(c.body.attachmentIds as string[])
-      const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
+      // `after` (a waiting message): the newest end of the branch through it
+      const newestUnder = (id: string): string => { let cur = id; for (;;) { const kids = this.messages.filter((m) => m.chatId === chat.id && m.parentId === cur); if (!kids.length) return cur; cur = kids.at(-1)!.id } }
+      const after = c.body.parentId === undefined && typeof c.body.after === 'string' ? (c.body.after as string) : null
+      const parentId = after ? newestUnder(after) : c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
       ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
       return started(user, this.sharedTurn(chat, c.user, c.body.content, user.id))
@@ -8288,11 +8341,18 @@ export class MockServer {
       put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요' }) })
       text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
-    if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    const half = Math.ceil(text.length / 2)
+    // "hold": the first half is written before the answer waits, so the others see it as it is written
+    // (docs/decisions/20261118-shared-chat-live-answers.md)
+    const held = /hold/i.test(prompt) && !this.stopped.has(turnId)
+    if (held) {
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      assistant.content = text.slice(0, half)
+      await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    }
     if (gen !== this.generation) return
     if (!this.stopped.has(turnId)) {
-      const half = Math.ceil(text.length / 2)
-      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      if (!held) pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
       await sleep(30)
       pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: half, text: text.slice(half) } })
       assistant.content = text

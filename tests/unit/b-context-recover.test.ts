@@ -14,6 +14,7 @@ import { classifyError } from '../../server/src/engine/claude-parse'
 import { CONTEXT_SHRINK_MAX, errorOf, RESULT_TAKEN_OUT, runApiAgent, shrinkToolResults, type ApiEngineConf } from '../../server/src/engine/api-agent'
 import { contextRecoverBlock, RECOVER_TEXT_MAX } from '../../server/src/chat/context-recover'
 import { tr } from '../../server/src/chat/i18n'
+import { resetSummaryStateForTests, setSummaryAiForTests } from '../../server/src/chat/history-summary'
 
 setDefaultTimeout(30_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -147,6 +148,39 @@ describe('Claude Code: the round limit and shared chats', () => {
       expect(note).toContain('Bob part.')
       expect(note).not.toContain('plan.md')
     } finally { bob.close() }
+  })
+})
+
+describe('Claude Code: after #1283 and #1285', () => {
+  test('a resumed session that no longer fits: the fresh start gets the summary of the older part', async () => {
+    resetSummaryStateForTests()
+    const calls: string[] = []
+    setSummaryAiForTests(() => async (_s, msg) => { calls.push(msg); return { text: `SUMMARY: ${msg.includes('PELICAN-42') ? 'the code word is PELICAN-42' : 'none'}` } })
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      await ask(h, alice, 'alice', chat.id, 'The code word is PELICAN-42.\n' + fake({ say: 'noted' }))
+      await ask(h, alice, 'alice', chat.id, `${'L'.repeat(170_000)}\n` + fake({ say: 'read it' }))
+      // resumed until here: no summary was made before this answer
+      expect(calls.length).toBe(0)
+      const r = await ask(h, alice, 'alice', chat.id, 'the code word?\n' + fake({ say: 'Looking.' }, { contextFullOnce: true }, { echo: 'system' }), { ms: 30_000 })
+      expect(r.done.status).toBe('done')
+      expect(calls.some((c) => c.includes('PELICAN-42'))).toBe(true)
+      expect(r.done.content).toContain('SUMMARY: the code word is PELICAN-42')
+      expect(r.done.steps.some((s) => s.tool === 'history_summary' && s.status === 'ok')).toBe(true)
+    } finally { setSummaryAiForTests(null) }
+  })
+
+  test('reads from before the fresh start: an edit goes on, a whole-file replace asks for a new read', async () => {
+    const rel = 'projects/falcon/ctx-recover.md'
+    fs.writeFileSync(path.join(h.team, rel), 'alpha line\nbeta line\n')
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: rel } }, { contextFullOnce: true },
+      { say: 'W:' }, { tool: 'write', args: { file_path: rel, content: 'all new\n' }, sayResult: true },
+      { say: ' E:' }, { tool: 'edit', args: { file_path: rel, old_string: 'beta line', new_string: 'gamma line' }, sayResult: true }))
+    expect(r.done.status).toBe('done')
+    const written = r.done.content.slice(r.done.content.indexOf('W:'))
+    expect(written.slice(0, written.indexOf(' E:'))).toMatch(/read/i)
+    expect(fs.readFileSync(path.join(h.team, rel), 'utf8')).toBe('alpha line\ngamma line\n')
   })
 })
 

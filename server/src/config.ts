@@ -27,9 +27,13 @@ export interface ServerConfig {
   authMode: AuthMode
   /** grep limits */
   grepTimeoutMs: number
-  /** per-turn write limits (disk-fill protection) */
+  /** per-turn write limits: a guard against an AI writing in a loop. The disk is kept by system/storage.ts
+   * assertStorageRoomForAI: the plan's guard on Linux or with a plan, elsewhere (a Mac without a plan) the simple floor
+   * of max(2 GB, 5%) free. A guest has the guest pair (files/turn-write-limits.ts) */
   maxWriteBytesPerTurn: number
   maxFilesWrittenPerTurn: number
+  guestMaxWriteBytesPerTurn: number
+  guestMaxFilesWrittenPerTurn: number
 }
 
 /** a release bundle's own tools (Linux bundle: rg, pandoc, typst, whisper-cli; macOS bundle: bun only): app/<v>/bin next
@@ -100,8 +104,11 @@ export function defaultConfig(over: Partial<ServerConfig> & { teamRoot: string; 
     claudeBin: which('claude', [path.join(os.homedir(), '.local', 'bin')]) ?? 'claude',
     authMode: 'local-login',
     grepTimeoutMs: 15000,
-    maxWriteBytesPerTurn: 50 * 1024 * 1024,
-    maxFilesWrittenPerTurn: 200,
+    // docs/decisions/20261118-limits-caps.md: Claude Code has no write cap per answer; these only stop a runaway loop
+    maxWriteBytesPerTurn: 1024 * 1024 * 1024,
+    maxFilesWrittenPerTurn: 2000,
+    guestMaxWriteBytesPerTurn: 50 * 1024 * 1024,
+    guestMaxFilesWrittenPerTurn: 200,
     ...over,
     teamRoot: fs.realpathSync(over.teamRoot),
   }

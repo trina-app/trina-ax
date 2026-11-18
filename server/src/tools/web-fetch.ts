@@ -10,6 +10,10 @@
 // - redirects followed by hand, at most 5, each hop checked again (and shown to the caller first: `onRedirect`, the
 //   echo check of tools/connection-urls.ts redirectGuard); 5 MB / 15 s limits; no cookies or credentials
 // - the text goes back wrapped as external data
+// - Office files, CSV tables and ZIP archives (docs/decisions/20261118-office-zip-from-the-web.md): judged by their
+//   bytes (tools/sniff.ts, as save_url does), read through the normal extractors in their sandboxes (the `extract` hook:
+//   files/extract.ts, the text layer only); a zip gives the list of its files, never their contents; a file cut at the
+//   5 MB limit is not read (a cut zip or Office file is no file): the AI is told to save it with save_url and read it
 import dns from 'node:dns/promises'
 import net from 'node:net'
 import os from 'node:os'
@@ -18,6 +22,8 @@ import zlib from 'node:zlib'
 import { which } from '../config'
 import { ToolError } from '../policy/errors'
 import { runIsolated } from './isolate'
+import { zipEntries } from '../file-list/sniff'
+import { readAtOf, RefusedKind, settleKind, sniffDownload } from './sniff'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 
 export const FETCH_MAX_BYTES = 5 * 1024 * 1024
@@ -598,6 +604,9 @@ export interface FetchOptions extends ResolveOptions {
   /** tests only: accept the test server's self-signed certificate */
   insecureTlsForTests?: boolean
   pdftotext?: string | null
+  /** the text of an Office file or a table, as a team file's read gives it (files/extract.ts, isolated converters); absent:
+   * such files are refused */
+  extract?: (name: string, bytes: Uint8Array) => Promise<string>
 }
 
 /** One web_fetch call: the test hooks plus what the tool decides per call. */
@@ -646,11 +655,41 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
       if (/html/.test(ct) || (!ct && /<html|<!doctype html/i.test(s.slice(0, 2000)))) { ({ title, text } = htmlToText(s, t.url)); if (o.keepHtml) html = s }
       else text = s
     } else {
-      throw new ToolError(`unsupported content type ${ct.split(';')[0]} (web_fetch reads web pages, text, JSON and PDF)`)
+      ({ title, text } = await readDocument(data, ct, t.url, cut || r.truncated, o))
     }
     const truncated = cut || r.truncated || text.length > maxChars
     return { url: t.url.href, title, text: text.slice(0, maxChars), truncated, ...(html !== undefined ? { html } : {}) }
   }
+}
+
+/** the extension read uses for a kind (a macro-enabled file is the same format) */
+const READ_AS: Record<string, string> = { docx: 'docx', docm: 'docx', xlsx: 'xlsx', xlsm: 'xlsx', pptx: 'pptx', pptm: 'pptx', xls: 'xls', hwp: 'hwp', hwpx: 'hwpx', odt: 'odt', ods: 'ods', csv: 'csv', tsv: 'tsv' }
+const ZIP_LIST_MAX = 200
+const sizeText = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
+
+/** An Office file, a table or a zip a site sent (not a page, text, JSON or PDF): its text, or the list of a zip's files. */
+async function readDocument(data: Buffer, ct: string, url: URL, cut: boolean, o: FetchOptions): Promise<{ title?: string; text: string }> {
+  let name = ''
+  try { name = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() ?? '') } catch { /* no name */ }
+  const said = ct.split(';')[0] || 'none'
+  const unsupported = () => new ToolError(`unsupported content type ${said} (web_fetch reads web pages, text, JSON, PDF, Office files, CSV tables and the list of a ZIP's files; save_url saves pictures, video and sound)`)
+  let k = sniffDownload(data.subarray(0, 64), ct, name)
+  if (!k || k.media === 'image' || k.media === 'video' || k.media === 'audio') throw unsupported()
+  if (cut) throw new ToolError(`this ${k.name === 'ole' ? 'Office' : k.label} file is larger than ${FETCH_MAX_BYTES / 1048576} MB, more than web_fetch reads. Save it with save_url, then read the saved file`)
+  try { k = settleKind(k, readAtOf(data), data.length, ct, name) } catch (e) {
+    if (e instanceof RefusedKind) throw new ToolError(`this is ${e.what}, which web_fetch does not read`)
+    throw e
+  }
+  if (k.name === 'zip') {
+    const entries = (zipEntries(data) ?? []).filter((e) => !e.name.endsWith('/') && !e.name.startsWith('__MACOSX/'))
+    const rows = entries.slice(0, ZIP_LIST_MAX).map((e) => `- ${e.name} (${sizeText(e.usize)})`)
+    return { text: [`A ZIP archive with ${entries.length} file${entries.length === 1 ? '' : 's'}${entries.length > ZIP_LIST_MAX ? ` (the first ${ZIP_LIST_MAX} below)` : ''}:`, ...rows, '', 'To get these files, save the zip with save_url, then unzip it with unzip_file.'].join('\n') }
+  }
+  const as = READ_AS[k.name]
+  if (!as) throw new ToolError(`this is a ${k.label} file, which cannot be read as text here. Save it with save_url if the user wants the file`)
+  if (!o.extract) throw unsupported()
+  const text = await o.extract(`download.${as}`, data)
+  return { title: name || undefined, text: `(${k.label} file)\n${text}` }
 }
 
 /** What the engine gets: the page as quoted external data, never as instructions. Everything the site chose (the

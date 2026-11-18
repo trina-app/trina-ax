@@ -38,7 +38,7 @@ Buka **N langkah** di bawah jawaban untuk melihat setiap alat yang dipakai AI da
 | **File** | AI memakai alat file milik Trina. Setiap panggilan diperiksa sesuai izin Anda sendiri. |
 | **Pertanyaan** | Jika AI memerlukan pilihan atau konfirmasi, AI menampilkan kartu. AI tidak bisa menjawab kartu itu sendiri. |
 | **Agen bantu** | Untuk permintaan besar, AI bisa membagi pekerjaan menjadi subtugas, sampai 4 sekaligus. Setiap agen bantu bekerja atas nama Anda. |
-| **Panjang** | Satu jawaban boleh memakai alat sampai 150 kali secara bawaan (admin bisa memilih 10 sampai 500). Saat batas tercapai, **Lanjutkan** meneruskannya. |
+| **Panjang** | Satu jawaban boleh memakai alat sampai 500 kali secara bawaan (admin bisa memilih 10 sampai 2.000; tugas terjadwal, pertanyaan dari Slack, dan tamu sampai 150). Saat batas tercapai, **Lanjutkan** meneruskannya. |
 | **Web** | AI bisa membuka halaman web. Server memeriksa setiap alamat, dan menanyakan Anda dulu sebelum membuka alamat yang berisiko. |
 
 :::note

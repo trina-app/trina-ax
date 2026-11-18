@@ -30,6 +30,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   split_pdf: t('PDF 나누기', 'Split PDF', 'Pisahkan PDF', "PDFを分割", "Dividir PDF", "拆分PDF"),
   resize_images: t('사진 크기 줄이기', 'Resize photos', 'Perkecil foto', "写真を縮小", "Reducir fotos", "缩小照片"),
   unzip_file: t('압축 풀기', 'Unzip', 'Ekstrak zip', "ZIPを展開", "Descomprimir", "解压缩"),
+  make_zip: t('압축 파일 만들기', 'Make a zip', 'Buat zip', "ZIPを作成", "Crear zip", "创建压缩包"),
+  query_data: t('데이터 계산', 'Calculate data', 'Hitung data', "データを集計", "Calcular datos", "计算数据"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace", "分享链接"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
@@ -38,6 +40,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página", "制作页面"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página", "获取网页"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo", "下载文件"),
+  // a Gmail attachment or a Drive file saved as the original file (server/src/tools/save-connector-file.ts)
+  save_connector_file: t('원본 파일 저장', 'Save original file', 'Simpan berkas asli', "元のファイルを保存", "Guardar archivo original", "保存原始文件"),
   hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul", "查看韩文（HWP）文档页面"),
   // the removed search by meaning tool and the removed knowledge graph's tool (docs/DECISIONS.md, 2026-11-11): their
   // steps stay in older chats
@@ -51,6 +55,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   drive_read: t('Google Drive 파일 읽기', 'Read Google Drive file', 'Baca berkas Google Drive', "Google ドライブのファイルを読む", "Leer archivo de Google Drive", "读取Google Drive文件"),
   generate_video: t('동영상 만들기', 'Generate video', 'Buat video', "動画を生成", "Generar video", "生成视频"),
   comment_docx: t('워드 메모 달기', 'Add Word comments', 'Tambah komentar Word', "Wordにコメントを追加", "Añadir comentarios en Word", "添加 Word 批注"),
+  edit_office: t('오피스 파일 고치기', 'Edit Office file', 'Ubah berkas Office', "Officeファイルを編集", "Editar archivo de Office", "编辑 Office 文件"),
   promo_video: t('홍보 영상 만들기', 'Make promo video', 'Buat video promosi', "プロモーション動画を作成", "Crear vídeo promocional", "制作宣传视频"),
   save_promo_video: t('홍보 영상 파일로 저장', 'Save promo video as a file', 'Simpan video promosi sebagai berkas', "プロモーション動画をファイルに保存", "Guardar el vídeo promocional como archivo", "将宣传视频保存为文件"),
   intro_deck: t('회사 소개서 만들기', 'Make company profile', 'Buat profil perusahaan', "会社紹介資料を作成", "Crear presentación corporativa", "制作公司介绍"),
@@ -75,6 +80,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   room_file: t('대화 파일 읽기', 'Read conversation file', 'Baca berkas percakapan', "トークのファイルを読む", "Leer archivo de conversación", "读取聊天文件"),
   chat_file: t('채팅 파일 읽기', 'Read chat file', 'Baca berkas obrolan', 'チャットのファイルを読む', 'Leer archivo del chat', '读取对话文件'),
   save_room_file: t('대화 파일 저장', 'Save conversation file', 'Simpan berkas percakapan', "トークのファイルを保存", "Guardar archivo de conversación", "保存聊天文件"),
+  save_chat_file: t('채팅 파일 저장', 'Save chat file', 'Simpan berkas obrolan', 'チャットのファイルを保存', 'Guardar archivo del chat', '保存对话文件'),
   // the AI posts to one of the person's rooms after their yes on its card (server/src/chat/post-to-room.ts): "대화방에
   // 보내기 · #영업팀", the room named by the server once found (the button's words: shared rooms.ts SIDE_CHAT_SEND)
   post_to_room: t('대화에 보내기', 'Send to conversation', 'Kirim ke percakapan', 'トークに送る', 'Enviar a la conversación', "发送到聊天"),
@@ -171,6 +177,8 @@ export const STEP_TEXT = {
   refusedRetry: t('AI가 답하지 않아 다른 AI로 다시 답해요', 'The AI declined; trying again with another AI', 'AI menolak; mencoba lagi dengan AI lain', "AIが回答しなかったため、別のAIでもう一度回答します", "La IA no respondió; se intenta de nuevo con otra IA", "AI拒绝回答，正在用另一个AI重试"),
   /** the chat's engine was switched off by an admin: this answer uses the team default */
   /** demo mode (server/src/demo/replay.ts): the answer is a recorded real run played again */
+  /** a fresh session's history did not fit: the older part was summarized first (server/src/chat/history-summary.ts) */
+  historySummary: t('이 채팅 앞부분 요약', 'Summary of the earlier part of this chat', 'Ringkasan bagian awal obrolan ini', "このチャットの前半の要約", "Resumen de la parte anterior de este chat", "此对话前面部分的摘要"),
   demoReplay: t('데모용으로 미리 준비한 결과예요', 'Prepared in advance for the demo', 'Disiapkan sebelumnya untuk demo', "デモ用に事前に用意した結果です", "Preparado de antemano para la demostración", "为演示提前准备的结果"),
   engineOffDefault: t('고른 AI를 지금 쓸 수 없어 팀 기본 AI로 답해요', "The chosen AI is off; answering with the team's default AI", 'AI yang dipilih sedang mati; menjawab dengan AI bawaan tim', "選んだAIは今使えないため、チームの既定のAIで回答します", "La IA elegida está desactivada; se responde con la IA predeterminada del equipo", "所选AI已关闭，改用团队默认AI回答"),
   /** "다른 AI로 대신 답하기": the chat's engine has no AI connection for the person, the other one has
@@ -290,8 +298,9 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'make_file': return `${verb} · ${clip(a.output, 90)}`
     case 'edit_hwp': return `${verb} · ${clip(a.output ?? a.file_path, 90)}`
     case 'stamp_pdf': case 'edit_pdf': case 'split_pdf': return `${verb} · ${clip(a.file_path, 90)}`
-    case 'resize_images': {
-      // the first photo and how many more ("+2"), as merge_pdfs
+    case 'make_zip': case 'resize_images': case 'query_data': {
+      if (tool === 'make_zip' && typeof a.output === 'string' && a.output) return `${verb} · ${clip(a.output, 90)}`
+      // the first photo (query_data: the first data file) and how many more ("+2"), as merge_pdfs
       const paths = Array.isArray(a.paths) ? a.paths.filter((p: unknown) => typeof p === 'string') as string[] : []
       return paths.length ? `${verb} · ${clip(paths[0], 80)}${paths.length > 1 ? ` +${paths.length - 1}` : ''}` : verb!
     }
@@ -312,6 +321,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
+    case 'save_connector_file': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': case 'knowledge_explore': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`
@@ -321,6 +331,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'drive_list': case 'drive_read': return verb!
     case 'generate_video': return `${verb} · ${clip(a.prompt, 80)}`
     case 'comment_docx': return `${verb} · ${clip(a.file_path, 80)}`
+    case 'edit_office': return `${verb} · ${clip(a.output ?? a.file_path, 80)}`
     case 'promo_video': case 'intro_deck': return `${verb} · ${clip(a.title, 80)}`
     case 'save_promo_video': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'skill': return `${verb} · ${clip(a.name, 80)}`
@@ -336,6 +347,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     // the folder by its own name (its last part): the path stays out of the step
     case 'change_folder_access': { const f = typeof a.folder === 'string' ? a.folder.replace(/\/+$/, '').split('/').pop() : ''; return f ? `${verb} · ${clip(f, 60)}` : verb! }
     case 'save_room_file': { const w = roomWord(a.file); return w ? `${verb} · ${clip(w, 60)}${a.save_as ? ` → ${clip(a.save_as, 60)}` : ''}` : verb! }
+    case 'save_chat_file': return a.save_as ? `${verb} → ${clip(a.save_as, 60)}` : verb!
     case 'box_shell': return `${verb} · ${clip(String(a.command ?? '').split('\n')[0], 80)}${a.job ? ` (${STEP_TEXT.jobSuffix[locale]})` : a.background ? ` (${STEP_TEXT.backgroundSuffix[locale]})` : ''}`
     case 'ask_user': return stepText('asked', locale, { q: clip(a.question, 120) })
     case 'remember': return stepText('remembered', locale, { text: clip(a.text, 120) })
@@ -411,7 +423,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a
@@ -525,6 +537,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (step.kind === 'web_search') label = retemplate(['webSearch', 'webSearchRunning', 'webSearchOpen', 'webSearchPlain'], step.label, locale)
   else if (tool === 'refusal') label = retemplate(['refusedRetry'], step.label, locale)
   else if (tool === 'demo_replay') label = retemplate(['demoReplay'], step.label, locale)
+  else if (tool === 'history_summary') label = retemplate(['historySummary'], step.label, locale)
   else if (tool === 'engine') label = retemplate(['engineOffDefault', 'engineNoConnection', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
   else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)

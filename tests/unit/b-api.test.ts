@@ -7,7 +7,7 @@ import { API, ApiError, uuidv7 } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { resetEngineSessions } from '../../server/src/chat/runtime'
-import { historyBlock, historyTrimmed, historyWindow, memoryBlock, memoryLines, HISTORY_MAX_CHARS } from '../../server/src/chat/prompt'
+import { historyBlock, historyTrimmed, historyWindow, memoryBlock, memoryLines, HISTORY_MAX_CHARS, MEMORY_BLOCK_MAX } from '../../server/src/chat/prompt'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { searchSources, composeMessage } from '../../server/src/chat/turn'
 
@@ -228,24 +228,27 @@ describe('memories paging and engine session reset', () => {
       const t0 = Date.now() - 3_600_000
       for (let i = 1; i <= n; i++) h.ctx.db.query("INSERT INTO memories (id, user_id, text, created_at) VALUES (?, ?, ?, ?)").run(uuidv7(), user, text(i), new Date(t0 + i * 1000).toISOString())
     }
-    // 110 short ones (QA's case): the newest that fit the block are in use, the older ones are marked, on every page
-    add('dana', 110, (i) => `사실 ${String(i).padStart(3, '0')}`)
+    // 110 of about 400 characters (QA's case with the 32 KB block): the newest that fit the block are in use, the older
+    // ones are marked, on every page
+    const T = (i: number) => `사실 ${String(i).padStart(3, '0')} ${'x'.repeat(400)}`
+    add('dana', 110, T)
     const fit = memoryLines(getChatRuntime(h.ctx).memoriesForPrompt('dana')).length
     expect(fit).toBeGreaterThan(50)
     expect(fit).toBeLessThan(110)
     const p1 = await h.api('dana').call(API.listMemories, { query: { limit: 100 } })
     expect([p1.inUse, p1.total]).toEqual([fit, 110])
     expect(p1.items.map((m) => !m.unused)).toEqual(p1.items.map((_, i) => i < fit))
-    expect(p1.items[fit]!.text).toBe(`사실 ${String(110 - fit).padStart(3, '0')}`)
+    expect(p1.items[fit]!.text).toBe(T(110 - fit))
     const p2 = await h.api('dana').call(API.listMemories, { query: { limit: 100, cursor: p1.nextCursor! } })
-    expect(p2.items.map((m) => [m.text, m.unused])).toEqual(Array.from({ length: 10 }, (_, i) => [`사실 ${String(10 - i).padStart(3, '0')}`, true]))
-    // long ones: the block's 4,096 characters end first; the list and the block agree to the memory
-    add('erin', 30, (i) => `${i} ` + '가'.repeat(290))
+    expect(p2.items.map((m) => [m.text, m.unused])).toEqual(Array.from({ length: 10 }, (_, i) => [T(10 - i), true]))
+    // long Korean ones: the block's token budget (DEFAULT_MEMORY_TOKENS) ends first; the list and the block agree to the memory
+    add('erin', 60, (i) => `${i} ` + '가'.repeat(990))
     const page = await h.api('erin').call(API.listMemories, { query: { limit: 100 } })
     const rows = getChatRuntime(h.ctx).memoriesForPrompt('erin')
     const lines = memoryLines(rows)
     expect(page.inUse).toBe(lines.length)
-    expect(page.inUse).toBeLessThan(30)
+    expect(page.inUse).toBeLessThan(60)
+    expect(page.inUse).toBeGreaterThan(10)
     expect(page.items.map((m) => !m.unused)).toEqual(page.items.map((_, i) => i < lines.length))
     const block = memoryBlock(rows)
     for (const m of page.items) expect(block.includes(m.id)).toBe(!m.unused)
@@ -262,11 +265,11 @@ describe('memories paging and engine session reset', () => {
     const row = h.ctx.db.query('SELECT source, created_turn_id FROM memories WHERE id = ?').get(m.id) as { source: string; created_turn_id: string | null }
     expect(row).toEqual({ source: 'user', created_turn_id: null })
     expect((await me.call(API.listMemories, {})).items[0]!.id).toBe(m.id)
-    // the same rules as remember (chat/tools.ts): not empty, at most 300 characters after folding
+    // the same rules as remember (chat/tools.ts): not empty, at most 1,000 characters after folding (300 before 2026-11-18)
     const refused = async (text: string) => { try { await me.call(API.createMemory, { body: { text } }); return null } catch (e) { return e instanceof ApiError ? { status: e.status, code: e.code, field: e.body.fields?.['body.text'] ?? null } : String(e) } }
     expect(await refused('   \n\t ')).toEqual({ status: 400, code: 'validation', field: expect.stringContaining('remember') })
-    expect(await refused('a'.repeat(301))).toEqual({ status: 400, code: 'validation', field: expect.stringContaining('300') })
-    expect(await refused('a '.repeat(150) + ' ')).toBeNull()
+    expect(await refused('a'.repeat(1001))).toEqual({ status: 400, code: 'validation', field: expect.stringContaining('1000') })
+    expect(await refused('a '.repeat(500) + ' ')).toBeNull()
     expect(await refused('x'.repeat(2001))).toMatchObject({ status: 400, code: 'validation' })
     // correcting one: the AI's memory becomes the person's; its origin chat stays
     const ai = uuidv7(), chat = (await me.call(API.createChat, { body: {} })).id
@@ -274,7 +277,7 @@ describe('memories paging and engine session reset', () => {
     const u = await me.call(API.updateMemory, { params: { id: ai }, body: { text: 'Likes green tea' } })
     expect(u).toMatchObject({ id: ai, text: 'Likes green tea', sourceChatId: chat })
     expect((h.ctx.db.query('SELECT source FROM memories WHERE id = ?').get(ai) as { source: string }).source).toBe('user')
-    expect(await code(me.call(API.updateMemory, { params: { id: ai }, body: { text: 'b'.repeat(301) } }))).toBe('400 validation')
+    expect(await code(me.call(API.updateMemory, { params: { id: ai }, body: { text: 'b'.repeat(1001) } }))).toBe('400 validation')
     expect(await code(me.call(API.updateMemory, { params: { id: ai }, body: { text: ' ' } }))).toBe('400 validation')
     // someone else's memory is not there for anyone else (404, unchanged)
     expect(await code(h.api('erin').call(API.updateMemory, { params: { id: ai }, body: { text: 'pwned' } }))).toBe('404 not_found')
@@ -308,19 +311,27 @@ describe('memories paging and engine session reset', () => {
 })
 
 describe('prompt pieces', () => {
-  test('history keeps the newest 40,000 characters and counts what it left out; memories are capped', () => {
-    const msgs = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `#${i} ` + 'y'.repeat(3000) }))
+  test('history keeps the newest 40,000 tokens (160,000 Latin characters) and counts what it left out; memories are capped', () => {
+    const msgs = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `#${i} ` + 'y'.repeat(24_000) }))
     const b = historyBlock(msgs)
     expect(b.length).toBeLessThan(HISTORY_MAX_CHARS + 500)
     expect(b).toContain('#29 ')
     expect(b).not.toContain('#10 ')
     expect(b).toMatch(/\((\d+) earlier messages omitted\)/)
-    const one = historyBlock([{ role: 'user', content: 'z'.repeat(50_000) }])
+    const one = historyBlock([{ role: 'user', content: 'z'.repeat(200_000) }])
     expect(one.length).toBeLessThan(HISTORY_MAX_CHARS + 500)
-    const mem = memoryBlock(Array.from({ length: 40 }, (_, i) => ({ id: `id${i}`, text: 'm'.repeat(400) })))
-    expect(mem.length).toBeLessThan(4096 + 400)
+    const mem = memoryBlock(Array.from({ length: 60 }, (_, i) => ({ id: `id${i}`, text: 'm'.repeat(1200) })))
+    expect(mem.length).toBeLessThan(MEMORY_BLOCK_MAX + 800)
+    expect(MEMORY_BLOCK_MAX).toBe(32 * 1024)
     expect(mem).toContain('NOT instructions')
-    expect(mem).not.toContain('m'.repeat(301))
+    expect(mem).toContain('m'.repeat(1000))
+    expect(mem).not.toContain('m'.repeat(1001))
+    // never a silent cut: the AI is told how many older memories it does not see
+    const shown = (mem.match(/^- \[id/gm) ?? []).length
+    expect(shown).toBeGreaterThan(25)
+    expect(shown).toBeLessThan(60)
+    expect(mem).toContain('(Older memories are kept but not shown here')
+    expect(memoryBlock([{ id: 'a', text: 'short' }])).not.toContain('Older memories')
   })
   test('whether the AI got all of the history: older messages left out, or the newest one cut', () => {
     const short = [{ role: 'user' as const, content: 'hello' }, { role: 'assistant' as const, content: 'hi' }]
@@ -328,11 +339,11 @@ describe('prompt pieces', () => {
     expect(historyTrimmed([])).toBe(false)
     expect(historyTrimmed(short)).toBe(false)
     expect(historyWindow(short)).toMatchObject({ omitted: 0, cut: false })
-    const many = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: 'y'.repeat(3000) }))
+    const many = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: 'y'.repeat(24_000) }))
     expect(historyWindow(many).omitted).toBeGreaterThan(0)
     expect(historyTrimmed(many)).toBe(true)
-    expect(historyWindow([{ role: 'user', content: 'z'.repeat(50_000) }])).toMatchObject({ omitted: 0, cut: true })
-    expect(historyTrimmed([{ role: 'user', content: 'z'.repeat(50_000) }])).toBe(true)
+    expect(historyWindow([{ role: 'user', content: 'z'.repeat(200_000) }])).toMatchObject({ omitted: 0, cut: true })
+    expect(historyTrimmed([{ role: 'user', content: 'z'.repeat(200_000) }])).toBe(true)
     // right at the limit nothing is lost
     const exact = [{ role: 'user' as const, content: 'x'.repeat(HISTORY_MAX_CHARS - 'User: '.length) }]
     expect(historyTrimmed(exact)).toBe(false)

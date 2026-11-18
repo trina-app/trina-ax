@@ -194,12 +194,13 @@ describe('limits', () => {
     expect(s.startsWith('…') && s.endsWith('…')).toBe(true)
   })
 
-  test('a very long line (a minified file) is skipped, not held in memory; other files still answer', async () => {
+  test('a very long line (a minified file) is found around the match, not held in memory; other files still answer', async () => {
     write('shared/fs-minified/big.json', '{"a":"' + 'x'.repeat(3 * 1024 * 1024) + ' QA-MINI-6610"}')
     write('shared/fs-minified/small.md', 'small QA-MINI-6610\n')
     const r = await search('alice', 'QA-MINI-6610', '&path=shared%2Ffs-minified')
-    expect(r.items.map((i) => i.path)).toEqual(['shared/fs-minified/small.md'])
-    expect(r.longSkipped).toBe(1)
+    expect(r.items.map((i) => i.path)).toEqual(['shared/fs-minified/big.json', 'shared/fs-minified/small.md'])
+    expect(r.items[0]!.snippet).toContain('QA-MINI-6610')
+    expect(r.longSkipped).toBe(0)
     expect(JSON.stringify(r).length).toBeLessThan(10_000)
   })
 

@@ -21,8 +21,9 @@ Plan: docs/AGENTS/plan/20261118-1130-audit2-conv-recover.md.
   long" (a tool name) or "maximum … tokens" (max_tokens over the cap) is a provider error.
 - **Rule, Claude Code:** Claude Code still compacts its own session first. When it ends with that error anyway (its
   compaction could not make room, or one result was too big), the turn starts a fresh session in the same answer: the
-  chat's history window in the instructions (and the summary of the older part once PR #1283 is in: it comes through the
-  same fresh prompt), then `<answer_so_far>` in front of the person's message (`chat/context-recover.ts`). That block
+  chat's history window in the instructions with the summary of the older part (#1283: before the first fresh start
+  the turn makes or extends it, waited for at most 30 s with its step, as before any fresh session; a resumed session
+  had none made), then `<answer_so_far>` in front of the person's message (`chat/context-recover.ts`). That block
   says the answer goes on, gives the end of what the answer already wrote (at most 12,000 characters) and the labels of
   its finished steps (at most 40; sub-agent steps and thinking left out), as data, and tells the AI not to repeat text
   or redo steps, to read files again when it needs their content and to work in smaller parts. The text already on
@@ -33,6 +34,10 @@ Plan: docs/AGENTS/plan/20261118-1130-audit2-conv-recover.md.
   refusal or crash retry) gets what was written and done by then, never an older note that would redo a step. In a
   shared chat a step's label in the block is the one with its file targets for the person whose answer it is (the
   viewers' copy shows the verb only).
+- **Rule, reads (#1285):** the files the answer read before the fresh start are not text the new session has. Those
+  reads stay good for edits (and the in-place tools), but a whole-file replace (write, make_file) asks for a new read
+  first, the same as for an earlier answer's read in a fresh session (`TurnFiles.answerTextGone`: this answer's reads
+  become edit-only until read again, and they are kept for the next answer without a session). Codex the same.
 - **Rule, Codex:** Codex starts fresh every turn; a context error is tried once more with the same block in front of
   the message (built at each launch after that, as for Claude Code).
 - **Rule, API engine:** like Claude Code's compaction, in place: the results of the oldest tool round still holding

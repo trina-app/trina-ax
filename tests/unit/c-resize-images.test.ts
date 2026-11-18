@@ -192,7 +192,7 @@ describe('copies next to the originals', () => {
     const call = turn('alice')
     const no = await call('resize_images', { paths: [`${D}/replace-me.jpg`], longest_side: 400, replace: true })
     expect(no.isError).toBe(true)
-    expect(no.text).toContain('read it in this turn first')
+    expect(no.text).toContain('read it in this chat first')
     const over = await call('resize_images', { paths: [`${D}/replace-me.jpg`], longest_side: 400, output: `${D}/replace-me.jpg` })
     expect(over.isError).toBe(true)
     expect(over.text).toContain('replace: true')

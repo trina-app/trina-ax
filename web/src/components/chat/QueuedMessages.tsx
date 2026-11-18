@@ -1,6 +1,8 @@
 // Messages waiting for the running answer to end (store/sendQueue.ts), under the conversation: each one can be
 // edited or taken back; a stopped or failed answer pauses them with "Send now". The status line is a polite live
-// region, so a screen reader hears "waiting" and "paused" without the focus moving.
+// region, so a screen reader hears "waiting" and "paused" without the focus moving. A shared chat: a file from the
+// computer in a waiting message keeps the line saying where it was saved and who can see it, and one quiet line says how
+// many other people have messages waiting (never whose or what: docs/decisions/20261118-shared-chat-queued-sends.md).
 import clsx from 'clsx'
 import { Clock, FileText, FolderOpen, Pencil, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -11,9 +13,14 @@ import { Button, IconButton, inputCls, useAnnounce } from '../ui'
 import { SecretWarning, useSecretHold } from './SecretWarning'
 import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
+import { SharedQueuedLine } from './ComposerFiles'
 import { UserText } from './Messages'
+import { capBlankLines } from '../../lib/blankLines'
 
-export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: string; onFocusComposer: () => void }) {
+/** a shared chat: who sees the files (as the line under the box counts them), and how many other people have messages waiting */
+export interface QueueShared { audience: number; kind?: 'project' | 'people'; othersWaiting: number }
+
+export default function QueuedMessages({ chatId, onFocusComposer, shared }: { chatId: string; onFocusComposer: () => void; shared?: QueueShared }) {
   const t = useT()
   const announce = useAnnounce()
   const q = useSendQueue((s) => s.queues[chatId])
@@ -21,7 +28,13 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
   const list = useRef<HTMLUListElement>(null)
   // leaving the chat ends an edit in progress, like Cancel: otherwise its messages would not go when the answer ends
   useEffect(() => () => useSendQueue.getState().setEditing(chatId, null), [chatId])
-  if (!q?.items.length) return null
+  const others = shared?.othersWaiting ?? 0
+  const othersLine = others > 0 && (
+    <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs text-muted" data-testid="outbox-others">
+      <Clock size={12} className="shrink-0" aria-hidden /> {t('outbox.othersWaiting', { n: others })}
+    </p>
+  )
+  if (!q?.items.length) return othersLine ? <div className="flex justify-end">{othersLine}</div> : null
   const { remove, update, setEditing, sendNow } = useSendQueue.getState()
 
   const status = q.paused === 'stopped' ? t('outbox.pausedStopped')
@@ -46,6 +59,7 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
           <QueuedItem
             key={it.id}
             item={it}
+            shared={shared}
             editing={editing === it.id}
             onEdit={() => setEditing(chatId, it.id)}
             onCancelEdit={() => setEditing(chatId, null)}
@@ -61,7 +75,8 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
           />
         ))}
       </ul>
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+        {othersLine}
         <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs text-muted" data-testid="outbox-status">
           <Clock size={12} className="shrink-0" aria-hidden /> {status}
         </p>
@@ -84,7 +99,7 @@ export default function QueuedMessages({ chatId, onFocusComposer }: { chatId: st
   )
 }
 
-function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: { item: QueuedMessage; editing: boolean; onEdit: () => void; onCancelEdit: () => void; onSave: (content: string) => void; onRemove: () => void }) {
+function QueuedItem({ item, shared, editing, onEdit, onCancelEdit, onSave, onRemove }: { item: QueuedMessage; shared?: QueueShared; editing: boolean; onEdit: () => void; onCancelEdit: () => void; onSave: (content: string) => void; onRemove: () => void }) {
   const t = useT()
   // "#" room tokens: "#<title>" in the box, kept with their rooms when saved (lib/roomRefs.ts)
   const [draft, setDraft] = useState(() => fromWire(item.content).text)
@@ -115,6 +130,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
           ))}
         </span>
       )}
+      {shared && <SharedQueuedLine attachments={item.attachments} audience={shared.audience} kind={shared.kind} className="text-right" />}
       {editing ? (
         <form
           className="w-full rounded-2xl border border-field-border bg-surface p-2 has-[textarea:focus]:border-accent has-[textarea:focus]:ring-1 has-[textarea:focus]:ring-accent"
@@ -171,7 +187,7 @@ function QueuedItem({ item, editing, onEdit, onCancelEdit, onSave, onRemove }: {
             {item.lead ? (
               <UserText content={`${item.lead}\n\n${item.content}`} clamp quotes />
             ) : (
-              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={capBlankLines(item.content)} /></div>
             )}
           </div>
         )

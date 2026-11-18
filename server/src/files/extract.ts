@@ -15,11 +15,13 @@ import path from 'node:path'
 import { cp949Text } from '@mycel/shared/text-encoding'
 import { ToolError } from '../policy/errors'
 import { runIsolated, waitsBehindPeople } from '../tools/isolate'
-import { inProcessParseMax } from '../system/limits'
+import { cpuBudget, currentPlan, inProcessParseMax, planLimits } from '../system/limits'
 import { OFFICE_TEXT_MAX, TOOL_ERROR_EXIT, WORKER_EXT } from './office-parse'
 import { tooComplex } from './zip-guard'
 import { assertNoCommonJsUpng, pdfLibBundlePlugins } from './bundle-pins'
 import { quoteLines, SECTION_MARK } from './ooxml'
+import { slimZip } from './zip-slim'
+import type { SheetAsk } from './sheet-stream'
 
 export const OFFICE_EXT = ['docx', 'pptx', 'odt', 'xlsx', 'xls', 'ods', 'pdf', 'hwp', 'hwpx'] as const
 export const isOffice = (name: string) => OFFICE_EXT.includes(ext(name) as any)
@@ -35,6 +37,8 @@ export interface Tools {
    * tried again later, instead of a labelled line that says the part was not read; so does a pandoc run with the
    * slide and heading marks (no second run without them, whose text would lack the labels) */
   stoppedPartFails?: boolean
+  /** a spreadsheet: one sheet and range of it instead of the whole workbook (read's `sheet` / `range`) */
+  sheet?: SheetAsk
 }
 
 /**
@@ -77,15 +81,52 @@ async function pipeThrough(cmd: string[], input: Uint8Array, timeoutMs = 20000, 
 /** formats parsed by the office worker (pure TypeScript parsers, never in the server process); capped where the
  * limits apply (the name stays from when they ran in-process) */
 export const IN_PROCESS_EXT = WORKER_EXT
-export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 32 MB); download it to look at it'
+export const TOO_BIG_IN_PROCESS = 'too large to read as text (over 200 MB of text parts, not counting pictures and media); download it to look at it'
 
 /** the office worker's limits: wall clock, resident memory (where no converter cgroup applies; the cgroup's memory.max
  * applies on production Linux as well), workers at the same time (the rest wait), and how many of them background work
- * may take (officeWorkerSlot) */
+ * may take (officeWorkerSlot). The time grows with the file (officeWorkerTimeoutMs); memory does not: the caps bound
+ * what a big file may take, the clock only stops a stuck one (QA TC-4923: 60 s stopped big workbooks on a busy server). */
 export const OFFICE_WORKER_TIMEOUT_MS = 60_000
+export const OFFICE_WORKER_TIMEOUT_MAX_MS = 600_000
+/** more time per MB of input past the base */
+const OFFICE_WORKER_MS_PER_MB = 4_000
 export const OFFICE_WORKER_RSS_MIB = 2048
-export const OFFICE_WORKERS_MAX = 2
 export const OFFICE_WORKERS_BACKGROUND_MAX = 1
+
+/** The office worker's wall clock for an input of `bytes`: 60 s, 4 s more per MB (a 32 MB workbook: 188 s), at most 10
+ * minutes. A small file keeps the old 60 s, so a stuck one still ends soon. */
+export function officeWorkerTimeoutMs(bytes: number): number {
+  return Math.min(OFFICE_WORKER_TIMEOUT_MAX_MS, OFFICE_WORKER_TIMEOUT_MS + Math.ceil(Math.max(0, bytes) / (1024 * 1024)) * OFFICE_WORKER_MS_PER_MB)
+}
+
+/** pandoc's and pdftotext's wall clock for a read of `bytes`: 60 s, 2 s more per MB, at most 5 minutes (it was 20 s) */
+export function converterReadTimeoutMs(bytes: number): number {
+  return Math.min(300_000, 60_000 + Math.ceil(Math.max(0, bytes) / (1024 * 1024)) * 2_000)
+}
+
+/** The memory this process may use: a container's limit where the runtime knows it (process.constrainedMemory, Docker's
+ * cgroup), else the machine's. */
+function machineMemoryBytes(): number {
+  const total = os.totalmem()
+  const limit = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0
+  return limit && limit > 0 && limit < total ? limit : total
+}
+let workersMaxOverride: number | null = null
+/** Tests: a fixed number of office workers at the same time (null: back to officeWorkersMax's own). */
+export function setOfficeWorkersMaxForTests(n: number | null) { workersMaxOverride = n }
+
+/** Office workers at the same time: half the CPU budget (system/limits.ts cpuBudget), at least 2, at most 6, and no
+ * more than the memory holds: with a plan its converter memory (convMiB) at 512 MB each, without one a quarter of the
+ * machine's memory at OFFICE_WORKER_RSS_MIB each. Never below 2 (the old number): the converter cgroup's memory.max
+ * bounds them all together where it applies. */
+export function officeWorkersMax(): number {
+  if (workersMaxOverride !== null) return workersMaxOverride
+  const plan = currentPlan()
+  const byCpu = Math.floor(cpuBudget() / 2)
+  const byMemory = plan ? Math.floor(planLimits(plan).convMiB / 512) : Math.floor(machineMemoryBytes() / (1024 * 1024) * 0.25 / OFFICE_WORKER_RSS_MIB)
+  return Math.max(2, Math.min(6, byCpu, byMemory))
+}
 
 /** The worker script: built next to main.js in the bundles; in a repository checkout built once per process from the
  * TypeScript source into a private temp folder. The isolation lets the worker read that folder (bun reads the
@@ -138,7 +179,7 @@ const waitingHigh: (() => void)[] = []
 const waitingLow: (() => void)[] = []
 const turn = new BackgroundTurn()
 /**
- * At most OFFICE_WORKERS_MAX workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
+ * At most officeWorkersMax() workers, and at most OFFICE_WORKERS_BACKGROUND_MAX of them for background work
  * (tools/isolate.ts waitsBehindPeople: the text cache's re-extraction), so background work alone never makes a person's
  * read wait for a converter that itself may wait long for the CPU (up to BACKGROUND_WALL_FACTOR times its time limit).
  * People's work goes first among those that wait, until background work's turn (BackgroundTurn); the count starts over
@@ -147,11 +188,11 @@ const turn = new BackgroundTurn()
  */
 export async function officeWorkerSlot<T>(f: () => Promise<T>): Promise<T> {
   let low = waitsBehindPeople()
-  while (running >= OFFICE_WORKERS_MAX || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || (waitingHigh.length && !turn.due())))) {
+  while (running >= officeWorkersMax() || (low && (runningLow >= OFFICE_WORKERS_BACKGROUND_MAX || (waitingHigh.length && !turn.due())))) {
     if (low) {
       turn.wait()
       // woken for a worker it may not take after all (two ended at once): it goes to the first person in line
-      if (running < OFFICE_WORKERS_MAX) waitingHigh.shift()?.()
+      if (running < officeWorkersMax()) waitingHigh.shift()?.()
     }
     const waited = low
     if (waited) lowWaiting++
@@ -177,17 +218,19 @@ export function officeWorkersRecheck() { for (const wake of waitingLow.splice(0)
 
 /** A spreadsheet or Hangul file's text (or the extra parts of a .docx / .pptx: mode `docx-extra` / `pptx-extra`) from
  * the office worker, isolated like the other converters. */
-export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: AbortSignal, ask?: SheetAsk): Promise<string> {
   const script = await officeWorkerScript()
+  const timeoutMs = officeWorkerTimeoutMs(bytes.byteLength)
+  const askArg = ask && (ask.sheet !== undefined || ask.range !== undefined) ? [JSON.stringify({ sheet: ask.sheet, range: ask.range })] : []
   return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
-      cmd: process.execPath, args: ['--smol', '--no-env-file', script, e], stdin: bytes, readPaths: [path.dirname(script)],
-      timeoutMs: OFFICE_WORKER_TIMEOUT_MS, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
-      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
+      cmd: process.execPath, args: ['--smol', '--no-env-file', script, e, ...askArg], stdin: bytes, readPaths: [path.dirname(script)],
+      timeoutMs, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength) },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
-    if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`).message)
+    if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${timeoutMs / 1000} s`).message)
     if (r.killed === 'memory') throw tooComplex(`reading it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
     if (r.killed === 'output') throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 500))
@@ -208,16 +251,17 @@ export const OFFICE_WRITE_MAX = 64 * 1024 * 1024
  * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message. */
 export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
   const script = await officeWorkerScript()
+  const timeoutMs = officeWorkerTimeoutMs(request.byteLength)
   return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, mode], stdin: request, readPaths: [path.dirname(script)],
-      timeoutMs: OFFICE_WORKER_TIMEOUT_MS, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      timeoutMs, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
       env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     const failed = (why: string) => new ToolError(`the document could not be made (${why}); nothing was saved`)
-    if (r.killed === 'timeout') throw failed(`it took longer than ${OFFICE_WORKER_TIMEOUT_MS / 1000} s`)
+    if (r.killed === 'timeout') throw failed(`it took longer than ${timeoutMs / 1000} s`)
     if (r.killed === 'memory') throw failed(`it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
     if (r.killed === 'output') throw failed(`the file would be larger than ${OFFICE_WRITE_MAX / 1024 / 1024} MB`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 1500))
@@ -226,12 +270,24 @@ export async function officeWorkerWrite(mode: string, request: Uint8Array, signa
   })
 }
 
-export async function extractText(name: string, bytes: Uint8Array, tools: Tools, signal?: AbortSignal): Promise<string> {
+/** zip formats whose pictures, media, fonts and embedded files are emptied before a reader gets them (zip-slim.ts) */
+const SLIM_EXT = new Set(['docx', 'pptx', 'odt', 'xlsx', 'hwpx'])
+/** below this the original goes as it is: copying the parts would cost more than it saves */
+const SLIM_FROM = 1024 * 1024
+
+export async function extractText(name: string, original: Uint8Array, tools: Tools, signal?: AbortSignal): Promise<string> {
   signal?.throwIfAborted()
-  tools.quarantine?.assertBytes(bytes)
+  tools.quarantine?.assertBytes(original)
   const e = ext(name)
-  // a spreadsheet or Hangul file expands many times in memory: refused above 32 MB where limits apply (Linux, a plan;
-  // system/limits.ts) before a worker starts; smaller ones still meet the worker's own limits
+  // what makes a big Office file big is its pictures and media, which no reader turns into text: they are emptied
+  // first, so a 150 MB deck reads like the few MB of its slides (docs/decisions/20261118-limits-office-read.md)
+  // only when it saves a real part of the file (over a quarter): a copy of an .xlsx with one small picture is not worth
+  // its memory, and slimZip decides that before it makes the copy
+  const slim = SLIM_EXT.has(e) && original.byteLength >= SLIM_FROM ? slimZip(original, undefined, { minDropped: original.byteLength / 4 }) : null
+  const bytes = slim?.bytes ?? original
+  // a spreadsheet or Hangul file expands many times in memory: refused above the cap where limits apply (Linux, a
+  // plan; system/limits.ts) before a worker starts, counted without the emptied media; smaller ones still meet the
+  // worker's own limits (memory, time)
   if (IN_PROCESS_EXT.has(e) && bytes.byteLength > inProcessParseMax()) throw new ToolError(TOO_BIG_IN_PROCESS)
   switch (e) {
     case 'docx': case 'pptx': case 'odt': {
@@ -246,16 +302,18 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
       if (extra.status === 'rejected') throw extra.reason
       return extra.value ? `${text.value.trimEnd()}\n\n${extra.value}\n` : text.value
     }
-    case 'xlsx': case 'xls': case 'ods': case 'hwp': case 'hwpx':
+    case 'xlsx': case 'xls': case 'ods':
+      return officeWorkerText(e, bytes, signal, tools.sheet)
+    case 'hwp': case 'hwpx':
       return officeWorkerText(e, bytes, signal)
     case 'pdf': {
       if (!tools.pdftotext && !tools.ocr) throw new ToolError('pdftotext is not installed on the server')
       if (tools.textLayerOnly) {
-        if (tools.pdftotext) return pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, 20_000, signal)
-        return pipeThrough([tools.ocr!, '--layer'], bytes, 20_000, signal)
+        if (tools.pdftotext) return pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, converterReadTimeoutMs(bytes.byteLength), signal)
+        return pipeThrough([tools.ocr!, '--layer'], bytes, converterReadTimeoutMs(bytes.byteLength), signal)
       }
       if (tools.pdftotext) {
-        const text = await pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, 20_000, signal)
+        const text = await pipeThrough([tools.pdftotext, '-layout', '-enc', 'UTF-8', '-', '-'], bytes, converterReadTimeoutMs(bytes.byteLength), signal)
         // a scanned page (no text layer): OCR, which keeps the text layer of the other pages
         if (!tools.ocr || !looksScanned(text)) return text
       }
@@ -291,6 +349,31 @@ const MARKS_LUA = `function Pandoc(doc)
     else
       out:insert(b)
     end
+  end
+  -- a Word title, subtitle, author, date and abstract are paragraphs of the document that the reader keeps only in
+  -- the metadata, which plain text without a template leaves out: they come first, as they stand in the file
+  if kind == 'headings' then
+    local front = pandoc.List()
+    for _, key in ipairs({ 'title', 'subtitle', 'author', 'date' }) do
+      local v = doc.meta[key]
+      if v then
+        local items = (pandoc.utils.type(v) == 'List') and v or { v }
+        for _, it in ipairs(items) do
+          local s = pandoc.utils.stringify(it)
+          if s ~= '' then front:insert(pandoc.Para({ pandoc.Str(s) })) end
+        end
+      end
+    end
+    local abstract = doc.meta['abstract']
+    if abstract then
+      if pandoc.utils.type(abstract) == 'Blocks' then front:extend(abstract)
+      else
+        local s = pandoc.utils.stringify(abstract)
+        if s ~= '' then front:insert(pandoc.Para({ pandoc.Str(s) })) end
+      end
+    end
+    front:extend(out)
+    out = front
   end
   doc.blocks = out
   return doc
@@ -332,17 +415,18 @@ async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uin
   try { filter = marksFilter() } catch { filter = null }
   if (filter) {
     try {
-      return markLines(quoteLines(await pipeThrough([...plain, '-L', filter, '-M', `mycel-marks=${kind}`], bytes, 20_000, signal, [path.dirname(filter)])), kind)
+      return markLines(quoteLines(await pipeThrough([...plain, '-L', filter, '-M', `mycel-marks=${kind}`], bytes, converterReadTimeoutMs(bytes.byteLength), signal, [path.dirname(filter)])), kind)
     } catch (err) {
       signal?.throwIfAborted()
       if (!(err instanceof ToolError) || (stoppedFails && err instanceof ConverterStopped)) throw err
       // the same pandoc without the filter: a damaged file fails again with its own message
     }
   }
-  return quoteLines(await pipeThrough(plain, bytes, 20_000, signal))
+  // without the filter, pandoc's own template still gives a Word title, author and date (not the subtitle)
+  return quoteLines(await pipeThrough([...plain, ...(kind === 'headings' ? ['-s'] : [])], bytes, converterReadTimeoutMs(bytes.byteLength), signal))
 }
 
-const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes and chart data' } as const
+const EXTRA_WHAT = { docx: 'headers, footers, comments and chart data', pptx: 'speaker notes and chart data' } as const
 
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
@@ -351,7 +435,7 @@ const EXTRA_WHAT = { docx: 'headers, footers and comments', pptx: 'speaker notes
  */
 async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSignal, stoppedFails = false): Promise<string> {
   const notRead = (why: string) => `${SECTION_MARK}The ${EXTRA_WHAT[e]} of this file were not read (${why}) ===`
-  if (bytes.byteLength > inProcessParseMax()) return notRead('the file is over 32 MB')
+  if (bytes.byteLength > inProcessParseMax()) return notRead('its text parts are over 200 MB')
   try { return (await officeWorkerText(`${e}-extra`, bytes, signal)).trim() } catch (err) {
     signal?.throwIfAborted()
     if (stoppedFails && err instanceof ConverterStopped) throw err

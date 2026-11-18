@@ -41,7 +41,7 @@ import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
 import { answerUrls, recordSent, rememberConnectionUrls } from '../../tools/connection-urls'
 import { KINDS } from '../../tools/sniff'
 import { imageSize } from '../../uploads/image'
-import { normalizeForModel, visionBlock, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES } from '../../files/vision'
+import { b64Len, normalizeForModel, turnImageCaps, visionBlock, VISION_INPUT_MAX } from '../../files/vision'
 import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
@@ -701,7 +701,7 @@ function mcpText(r: Record<string, any>, hide: (text: string) => string, keep?: 
     const k = keep?.(c)
     if (!k) return false
     kept.push(k)
-    parts.push(`[${what} ${k.label}: ${MEDIA_PREFIX}${k.meta.id} (save it with save_url to put it in the team folder)]`)
+    parts.push(`[${what} ${k.label}: ${MEDIA_PREFIX}${k.meta.id} (save it with save_url, or as any kind of file with save_connector_file, to put it in the team folder)]`)
     return true
   }
   for (const c of Array.isArray(r.content) ? r.content : []) {
@@ -728,11 +728,15 @@ function keeper(ctx: AppContext, o: { chatId: string; userId: string; integratio
     // the declared type is the service's text: its secrets hidden before it is kept or shown (hide.ts)
     const declared = hide(String((c.type === 'resource' ? c.resource?.mimeType : c.mimeType) ?? '').slice(0, 300))
     let meta: MediaMeta | null
-    try { meta = putMedia(ctx.engineConfig.dataDir, { ...o, bytes, declared }) } catch (e) { ctx.log.warn('connection media not kept', { err: e }); return null }
+    // an embedded file's name: the last part of its address (save_connector_file names the copy by it), its secrets hidden
+    const uri = c.type === 'resource' && typeof c.resource?.uri === 'string' ? hide(c.resource.uri).slice(0, 2000) : ''
+    let name = ''
+    try { name = decodeURIComponent(uri.split(/[?#]/)[0]!.split('/').filter(Boolean).pop() ?? '') } catch { /* none */ }
+    try { meta = putMedia(ctx.engineConfig.dataDir, { ...o, bytes, declared, name: name || null }) } catch (e) { ctx.log.warn('connection media not kept', { err: e }); return null }
     if (!meta) return null
     const kind = meta.kind ? KINDS[meta.kind] : null
     const dim = kind?.image ? imageSize(bytes) : null
-    const label = [kind ? kind.mime : `unknown type (said ${declared.replace(/[^\w.+/-]/g, ' ').slice(0, 60) || 'nothing'}; save_url will refuse it)`, dim ? `${dim.width}×${dim.height}` : '', human(bytes.length)].filter(Boolean).join(' ')
+    const label = [kind ? kind.mime : `unknown type (said ${declared.replace(/[^\w.+/-]/g, ' ').slice(0, 60) || 'nothing'}; save_connector_file saves it as it is)`, dim ? `${dim.width}×${dim.height}` : '', human(bytes.length)].filter(Boolean).join(' ')
     return { meta, bytes, label }
   }
 }
@@ -744,11 +748,12 @@ async function modelImages(ctx: AppContext, tc: TurnToolContext, kept: Kept[]): 
   const out: { type: 'image'; data: string; mimeType: string }[] = []
   if (!kept.some((k) => k.meta.kind && KINDS[k.meta.kind].image) || visionBlock(ctx.db, tc.turnId)) return out
   const turn = tc.files.files
+  const caps = turnImageCaps(ctx.db, tc.turnId)
   for (const k of kept) {
     if (!k.meta.kind || !KINDS[k.meta.kind].image || k.bytes.length > VISION_INPUT_MAX) continue
     let jpeg: Buffer
     try { jpeg = await normalizeForModel(k.bytes, ctx.files.visionTools(), tc.signal) } catch { continue }
-    if (turn.imageCount >= VISION_TURN_IMAGES || turn.imageBytes + jpeg.length > VISION_TURN_BYTES) break
+    if (turn.imageCount >= caps.images || b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
     turn.imageCount++
     turn.imageBytes += jpeg.length
     out.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })

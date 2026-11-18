@@ -61,7 +61,7 @@ import { SaveToTeamSheet } from '../components/rooms/SaveToTeamSheet'
 import { isAppService } from '../lib/roomApps'
 import { RoomNotifyMenu, roomNotify } from '../components/rooms/RoomNotifyMenu'
 import { ThreadPanel } from '../components/rooms/ThreadPanel'
-import { handOffDone, handOffToThread, roomLeft, SideChatPanel, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
+import { handOffDone, handOffToThread, roomLeft, SideChatPanel, sideChatComesBack, threadClosedOn, type SideSeed, type SideThread } from '../components/rooms/SideChatPanel'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { RoomAskHint, useRoomAskHint } from '../components/rooms/RoomAskHint'
 import { AiMark } from '../components/rooms/AiFace'
@@ -213,6 +213,18 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     useSideChats.getState().close(roomId)
     setSideOpen(false)
   }, [roomId, setSideOpen])
+  // the side chat comes back by itself (QA TC-4963, SideChatPanel.tsx sideChatComesBack): after a reload when it was open
+  // in this tab, and on a computer when messages of mine wait in it. Asked once per room page, once the room is known;
+  // never for a guest whose invite gives them no AI (no ✦ either)
+  const askedBack = useRef(false)
+  const here = useRef(true)
+  useEffect(() => { here.current = true; return () => { here.current = false } }, [])
+  useEffect(() => {
+    if (!meId || !room || guestNoAi || askedBack.current) return
+    askedBack.current = true
+    const phone = typeof window.matchMedia === 'function' && !window.matchMedia('(min-width: 768px)').matches
+    void sideChatComesBack(roomId, meId, phone).then((on) => { if (on && here.current && !useRooms.getState().side[roomId]) setSideOpen(true) })
+  }, [roomId, meId, room, guestNoAi, setSideOpen])
   // the one-time "✦ Ask Trina about this room" line under the header (components/rooms/RoomAskHint.tsx): gone for good
   // once closed or once ✦ was used
   const askHint = useRoomAskHint()
@@ -491,7 +503,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (fromBottom < 200 && th?.roomId === roomId && th.newerCursor && !th.loading) void useRooms.getState().loadNewer(roomId)
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, ROOM_ROW)
+      const keep = holdPlace(el, ROOM_ROW, list.reanchor)
       void useRooms
         .getState()
         .loadOlder(roomId)
