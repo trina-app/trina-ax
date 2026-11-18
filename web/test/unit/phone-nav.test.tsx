@@ -416,10 +416,34 @@ describe('the 나 tab\'s list on a phone', () => {
         expect(m.find('settings-invite')).not.toBeNull()
         expect(m.get('settings-admin').getAttribute('href')).toBe('/admin')
         expect(m.get('settings-team-group').querySelector('[data-testid="settings-admin"]')).not.toBeNull()
+        expect(m.get('settings-team-group').querySelector('[data-testid="settings-switch-team"]')).not.toBeNull()
         expect(m.find('settings-inbox-unread')).toBeNull()
       } finally {
         await m.unmount()
       }
+    }
+  })
+
+  // the owner 2026-11-18: everyone can get to another team; a plain browser's row opens the address dialog
+  test('the team on top for a member in a browser: 다른 팀으로 전환, no 팀원 초대 or 관리자; none in a phone app without its team screen', async () => {
+    useSession.setState({ status: { kind: 'signed-in', me: me('member') } } as never)
+    const m = await dialog()
+    try {
+      const group = m.get('settings-team-group')
+      expect(group.querySelector('[data-testid="settings-switch-team"]')?.textContent).toContain(ko('teamMenu.switch'))
+      expect(m.find('settings-invite')).toBeNull()
+      expect(m.find('settings-admin')).toBeNull()
+    } finally {
+      await m.unmount()
+    }
+    const g = globalThis as Record<string, unknown>
+    g.ReactNativeWebView = { postMessage() {} }
+    const app = await dialog()
+    try {
+      expect(app.find('settings-switch-team')).toBeNull()
+    } finally {
+      await app.unmount()
+      delete g.ReactNativeWebView
     }
   })
 })

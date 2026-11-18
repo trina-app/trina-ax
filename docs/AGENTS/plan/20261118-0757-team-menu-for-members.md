@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 07:57
 - Branch: `fix/team-menu-for-members`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`web/src/components/TeamMenu.tsx`, `web/src/lib/teamSwitch.ts`, the 나 tab in
   `web/src/components/settings/SettingsDialog.tsx`). Why: the app's own navigation (see docs/REPOSITORY-RULES.md).
 - Version impact: patch (a menu that was inert for members now opens; no API, data or permission change)
@@ -54,4 +54,7 @@ http(s) origin the parser accepted (no credentials, https except this machine in
 
 ## Result
 
-Filled in at the end.
+Built as planned. Root cause: `TeamMenu.tsx` drew a plain logo (no button) when the person was not an admin and the
+window had no team-switch way, and `teamSwitch.ts` gave a plain browser none. Now a browser has the `browser` way
+(the address dialog) and the menu opens for every role; admin items keep the `isAdmin` check. No server change: the
+menu calls no endpoint beyond `GET /api/me`, which every role reads. Creating a new team stays on the website.

@@ -129,8 +129,11 @@ test('a member: no Invite people; New conversation offers their group chats and 
   await page.request.post('/__test/project', { data: { name: '내 프로젝트', by: 'bob' } })
   await page.request.post('/__test/project', { data: { name: '남의 프로젝트', by: 'olga' } })
   await signIn(page, BOB)
-  // the team link is the owner's and admins': no team menu button for a member
-  await expect(page.getByTestId('team-menu')).toHaveCount(0)
+  // the team link is the owner's and admins': a member's team menu has no Invite people (only Switch team)
+  await page.getByTestId('team-menu').click()
+  await expect(page.getByTestId('team-menu-switch')).toBeVisible()
+  await expect(page.getByTestId('team-menu-invite')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await page.goto('/rooms?new=1')
   await page.getByTestId('invite-guest-row').click()
   await expect(page.getByTestId('guest-place-room')).toHaveText(/견적 준비/)

@@ -1,5 +1,5 @@
 // The rail on computers (768 px and wider; docs/AGENTS/plan/20261112-1839-nav-rail.md §2.1): the team's logo on top
-// (TeamMenu.tsx: its menu for owners and admins: Invite people, Admin), then five places, each an icon with its name under it (the owner, 2026-11-07: no icon
+// (TeamMenu.tsx: its menu for every role: Switch team; Invite people and Admin for owners and admins), then five places, each an icon with its name under it (the owner, 2026-11-07: no icon
 // without words): 트리나 · 대화 · 프로젝트 · 파일 · 활동, the order of the phone's tabs; my photo at the bottom (nav/AccountMenu.tsx:
 // status, away, Settings, Sign out). A place opens what was open in it last in this browser tab (lib/rail.ts);
 // the place already lit opens its start; 트리나 with its "?", pressed from another place, opens the first chat that

@@ -5485,6 +5485,13 @@ export const ja: Record<MessageKey, string> = {
   // the team menu at the top of the computer's rail (components/TeamMenu.tsx; its Admin item is sidebar.admin)
   "teamMenu.invite": "チームメンバーを招待",
   "teamMenu.switch": "別のチームに切り替え",
+  "teamSwitch.body": "所属している別のチームを開くか、招待リンクでチームに参加します。このチームにはサインインしたままです。",
+  "teamSwitch.label": "チームのアドレスまたは招待リンク",
+  "teamSwitch.open": "開く",
+  "teamSwitch.problem.invalid": "チームのアドレスではありません。招待に書かれているとおりに入力してください（例: {example}）。",
+  "teamSwitch.problem.email": "メールアドレスではなく、チームのアドレスを入力してください。",
+  "teamSwitch.problem.link": "招待リンクが途中で切れています。全体をコピーしてもう一度貼り付けてください。",
+  "teamSwitch.problem.insecure": "チームの https:// アドレスを入力してください。",
   // Connectors page and the Google apps (pages/Connectors.tsx, components/integrations/AppDetail.tsx, GoogleAppConnector.tsx, GoogleAppAdmin.tsx)
   "connectorsPage.desc": "チャットでAIがあなたのアプリやサービスを使えるようにします。",
   "connectorsPage.addCustom": "コネクターを自分で追加",
