@@ -785,6 +785,7 @@ export const id: Record<MessageKey, string> = {
   'allowances.card.save_wider': "Menyimpan di tempat yang dilihat lebih banyak orang",
   'allowances.card.post_to_room': "Mengirim ke percakapan",
   'allowances.card.shared_read': "Membaca dan membagikan di chat bersama",
+  'allowances.card.shared_save': "Menyimpan di chat bersama",
   'allowances.card.move_files': "Memindah atau menyalin file yang mengubah siapa yang bisa melihat",
   'allowances.card.skill_files': "Memindah, menyalin, atau mengganti nama skill",
   'allowances.card.skill_save': "Menyimpan skill dan aturan tim",

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 16:34
 - Branch: `fix/shared-save-card-wording`
-- Status: in progress
+- Status: done
 - Where: Trina-ax `server/src/chat/turn.ts`, `server/src/rooms/ai-tools.ts`, `server/src/chat/i18n.ts`. Why: the
   shared-chat read card lives in the core chat runtime (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a card's wording and when it shows; no API change
@@ -55,4 +55,7 @@ new file with no card, nothing about the private folder reaching the other perso
 
 ## Result
 
-Filled in at the end.
+Built as planned. `WRITE_TARGET_NOT_SAVES` keeps the read card for `edit`, `move_files`, `copy_files` and
+`rename_file` (an edit shows lines of the file; the others take the person's files there). The audit row stays
+`chat.shared_read` with `save: true`. Shared-chat suites pass under Bun 1.3.12; screenshots at 1440/390 light/dark on a
+copy of the QA team.

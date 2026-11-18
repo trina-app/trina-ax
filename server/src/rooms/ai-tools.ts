@@ -61,7 +61,16 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
   write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], save_url: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
+
+  // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
+  save_connector_file: ['save_as'],
 }
+
+/** The tools of WRITE_TARGET_ARGS whose card for a place that is there already does not say "save a file"
+ * (docs/decisions/20261118-shared-save-card-wording.md): an edit gives back lines of the file it changed, and a move,
+ * copy or rename takes files the person has into that place. They keep the read card. Every other tool there (a new
+ * one too) saves a file it made or fetched, and asks with the save card. */
+export const WRITE_TARGET_NOT_SAVES: ReadonlySet<string> = new Set(['edit', 'move_files', 'copy_files', 'rename_file'])
 
 /** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
  * (insert_pdf.file, stamp_image.image) and merge_pdfs' list ({ path } entries). A shared chat's read card and its

@@ -130,7 +130,7 @@ import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
-import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { SEARCH_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
@@ -271,6 +271,9 @@ function launcherStopOf(signal: unknown): LauncherStop | null {
 const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C', '\\uAE30\\uB85D\\uD574', '\\bsave\\b', '\\bwrite (it|this|that) down\\b', '\\bsimpan\\b', '\\u4FDD\\u5B58', '\\bguard(a|ar|e)\\b'].join('|'), 'iu')
 /** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
 const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
+
+/** The per-turn yes and no of a save card (sharedReadRefusal), apart from a read's of the same place */
+const SAVE_KEY = 'save:'
 
 export class TurnExec {
   content = ''
@@ -3222,8 +3225,10 @@ export class TurnExec {
    *   - a search looks into every folder under where it starts that the person may read, the person's own included;
    *   - a listing shows the names one level down: each entry the person sees there that is a folder with its own rules,
    *     or every entry when they may only list the folder.
+   * `o.writes` gets the keys of the places only a write argument named (a save into a place that is there already, and
+   * nothing read from it: the card says "save", docs/decisions/20261118-shared-save-card-wording.md).
    */
-  sharedSources(tool: string, input: unknown): ReadSource[] {
+  sharedSources(tool: string, input: unknown, o: { writes?: Set<string> } = {}): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
     if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
@@ -3250,13 +3255,22 @@ export class TurnExec {
     }
     const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
+    // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
+    const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
       if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (writes.has(k) && !exists(v)) continue
+      const from = out.length
       for (const p of this.roomNames(v)) note(p)
+      for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
+    }
+    const named = out.length
+    const done = () => {
+      if (o.writes) for (const k of written) if (!read.has(k) && !out.slice(named).some((s) => sourceKey(s) === k)) o.writes.add(k)
+      return out
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
@@ -3276,7 +3290,7 @@ export class TurnExec {
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
         try {
           const r = authorize(fx, rules, me, start, 'list')
-          if (!r.exists || !r.st?.isDirectory()) { note(start); return out }
+          if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
           let n = 0, files = false
           for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
             if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
@@ -3294,7 +3308,7 @@ export class TurnExec {
         } catch { note(start) }
       }
     }
-    return out
+    return done()
   }
 
   /**
@@ -3307,8 +3321,10 @@ export class TurnExec {
    * AI, or null to go on.
    */
   async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<string | null> {
-    const no = await this.sharedReadRefusal(tool, input, o)
-    return no ? this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no) : null
+    const kind = { save: false }
+    const no = await this.sharedReadRefusal(tool, input, o, kind)
+    if (!no) return null
+    return kind.save ? this.sharedReadText(`Not saved (${tool}): nothing was saved there.`, no, { save: true }) : this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no)
   }
 
   /**
@@ -3317,11 +3333,24 @@ export class TurnExec {
    * open it (counts only), and where the person can read it instead. Before, every one of them said the person "did not
    * share it", also when nobody had decided anything.
    */
-  sharedReadText(done: string, no: SharedNo): string {
+  sharedReadText(done: string, no: SharedNo, o: { save?: boolean } = {}): string {
     const name = neutralizeTags(this.principal?.name ?? 'the user')
     const project = this.shared?.kind === 'project' ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
     const why = no === 'failed' ? { kind: 'failed' as const, what: 'who in this shared chat can open that place' } : no === 'declined'
       ? { kind: 'declined' as const, who: name } : cardReason(no, { who: name })
+    // a save (the save card): it is not saved, and the AI does not look for another place to put it
+    if (o.save) {
+      const dontSave = 'Do not try other paths or tools to save it, and do not mention the place or guess what is there'
+      return refusal({
+        done,
+        why,
+        also: no === 'failed' ? dontSave : `It needed a yes because some of ${project} cannot open that place. ${dontSave}`,
+        next: no === 'declined' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'unattended' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'failed' ? 'tell the user it was not saved; they can ask again, or save it from a chat of their own'
+          : 'tell the user it was not saved; they can ask again and answer the card, or save it from a chat of their own',
+      })
+    }
     const dont = 'Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there'
     // a check that failed showed no card, and may have been about a place everyone can open: no "needed a yes" then
     return refusal({
@@ -3336,14 +3365,20 @@ export class TurnExec {
   }
 
   /** confirmSharedRead's decision: null to go on, or why it was refused. */
-  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<SharedNo | null> {
+  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
     if (!this.shared) return null
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
-    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool); return why }
+    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool, kind.save); return why }
     let missing: { key: string; source: ReadSource; missing: string[] }[], audience: string[], sources: ReadSource[]
     let skillUse = false
+    // the places only a write argument named (a save into a place that is there already: sharedSources)
+    const writes = new Set<string>()
+    const saves = !!WRITE_TARGET_ARGS[tool] && !WRITE_TARGET_NOT_SAVES.has(tool)
+    // (a check that fails below: a call that names only places it writes to is said as a save)
+    const named = saves ? namedPaths(tool, input) : []
+    kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
     try {
-      sources = this.sharedSources(tool, input)
+      sources = this.sharedSources(tool, input, { writes })
       audience = this.sharedAudience()
       const rules = this.rt.files.rules()
       missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
@@ -3356,7 +3391,13 @@ export class TurnExec {
         const ids = audience.filter((id, i) => !people[i] || no.has(id))
         if (ids.length) { skillUse = true; missing.push({ key: `skill:${p}`, source: sourceOf(this.rt.db, rules, p), missing: ids }) }
       }
-      missing = missing.filter((m) => !this.sharedAllowed.has(m.key))
+      // a save into a place a yes of this turn covered, for a read (more than a save) or a save there
+      missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
+      // the save card (docs/decisions/20261118-shared-save-card-wording.md): every place it would name is one the call
+      // only saves into; anything it reads keeps the read card. Its yes and no are its own (SAVE_KEY): a yes to save in
+      // a place never lets a read of it through
+      kind.save = saves && !skillUse && missing.length > 0 && missing.every((m) => writes.has(m.key))
+      if (kind.save) missing = missing.map((m) => ({ ...m, key: SAVE_KEY + m.key }))
     } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse('failed') }
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
@@ -3367,7 +3408,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3378,23 +3419,24 @@ export class TurnExec {
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
   }
 
-  /** The card itself and its audit row: 'shared' = "읽고 공유하기", else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
+  /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
-    const { value: answer, missing: none } = await this.askAlways('shared_read', {
+    const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place)
-      question: tr(skillUse ? 'sharedSkillConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
-      options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
+      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
+      // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
+      question: tr(skillUse ? 'sharedSkillConfirm' : save ? 'sharedSaveConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
     const yes = answer === 'share' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'share')
     const decision = yes ? 'shared' : scheduled ? 'unattended' : answer === null || answer === undefined ? 'no_answer' : 'declined'
-    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id } }) }
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id, ...(save ? { save: true } : {}) } }) }
     catch (e) { this.rt.log.warn('shared read audit failed', { err: e, turn: this.id }) }
     // the AI's text goes by how the card ended (a closed card without a choice is a no; scheduled: nobody asked)
     return yes ? 'shared' : scheduled ? 'unattended' : none ?? 'declined'
@@ -3507,8 +3549,8 @@ export class TurnExec {
   }
 
   /** The step of a call refused on the read card: one neutral line, no path, not red (sharedSkipped). */
-  private skipStep(tool: string) {
-    const label = tr('sharedReadSkipped', this.spec.locale)
+  private skipStep(tool: string, save = false) {
+    const label = tr(save ? 'sharedSaveSkipped' : 'sharedReadSkipped', this.spec.locale)
     this.patchToolStep(tool, (st) => { this.sharedSkipped.add(st.id); return { label, sv: undefined, detail: undefined } as Partial<StoredStep> })
   }
 
