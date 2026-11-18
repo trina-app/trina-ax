@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-18 17:31
 - Branch: `feat/local-app-connectors` (phase 1), then `feat/local-app-connectors-desktop` (phase 2) and
   `feat/local-app-connectors-cli` (phase 3), each stacked on the one before
-- Status: in progress
+- Status: done (three PRs, waiting for review)
 - Where: Team AX core (server, shared, web, desktop). Why: connections, the relay and the desktop app are core.
 - Version impact: minor (a new kind of connection, a new team setting, a new desktop bridge part)
 
@@ -67,4 +67,8 @@ CLI adapter; the desktop e2e when it runs here.
 
 ## Result
 
-(filled in at the end)
+- **Phase 1, #1330:** the relay's common part (`call-relay.ts`), the local relay with long-poll, kind `local` (migration 364), every refusal, the team switch, and the AI's plain-words line.
+- **Phase 2, #1331:** the desktop manager, the app's own confirm dialog, stdio MCP passthrough, safeStorage settings, Stop and stop on quit. It was tried with real Aside: `repl` opened example.com through the full server path.
+- **Phase 3, this branch:** adapter (b) for a declared CLI (ego lite as a known tool, tested with a fake CLI). The web screens: Discover › An app on your computer (desktop app only), the connection's page (where it works, what runs, Running and Stop, settings on this computer), the admin switch, the audit's words, and `docs/INTEGRATIONS.md`.
+
+What differs from the plan: a person-typed program is always an MCP server (adapter a). A declared CLI comes from the known tools list only, because typing argument templates is not a job for the people this app is for. Changing a command has an API (`PATCH /api/integrations/:id/local`), but no screen yet: delete and add again.

@@ -206,6 +206,9 @@ export const IntegrationList = z.object({
   items: z.array(Integration),
   /** the team lets members add their own connections (TeamSettings.personalIntegrations) */
   personalAllowed: z.boolean(),
+  /** the team lets members add apps on their own computer (TeamSettings.localApps, and personalAllowed). Older servers
+   * omit it. */
+  localAllowed: z.boolean().optional(),
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 

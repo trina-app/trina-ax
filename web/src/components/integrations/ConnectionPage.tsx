@@ -22,6 +22,7 @@ import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
 import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
+import { LocalAppDetails, LocalAppWhere } from './LocalApp'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -159,7 +160,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
-    ...(manage && !phone ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
+    // an app on the computer has no address, key or sign-in to edit (LocalApp.tsx keeps what is its own)
+    ...(manage && !phone && i.kind !== 'local' ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
     ...(ownAllow && (i.alwaysAllowedByMe || manage) ? [{ label: t('integrations.alwaysAllow.stop'), onSelect: () => void actions.askAgain(i), testId: 'integration-always-allow-stop' }] : []),
     ...(manage ? [{ label: t('common.delete'), onSelect: () => void actions.remove(i), danger: true, testId: 'integration-delete' }] : []),
   ]
@@ -187,7 +189,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const { links, help } = docsRows(t, name, c)
   // before its tools are known (not signed in, not answering), it may change things: the line says it asks first
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
-  const toolsNote = i.kind !== 'mcp' ? null : (
+  const toolsNote = i.kind === 'http' ? null : (
     <>
       {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
       {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
@@ -211,7 +213,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     <>
       <AppDetail embedded inSettings={place.inSettings} list={place.list} testId="connector-detail" state={flow ? `flow-${flow.state}` : i.status}
         logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name}
-        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : hostOf(i.url)}
+        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : i.kind === 'local' ? t('localApps.title') : hostOf(i.url)}
         actions={(status || items.length > 0) && (
           <>
             {status}
@@ -219,8 +221,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {items.length > 0 && <div className="max-sm:ml-auto"><CardMenu label={t('appConnectors.more', { name: i.name })} testId="connection-menu" items={items} /></div>}
           </>
         )}
-        status={(flow || failing || note || alert || teamOff) ? (
+        status={(flow || failing || note || alert || teamOff || i.kind === 'local') ? (
           <>
+            {i.kind === 'local' && <LocalAppWhere />}
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
             {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
@@ -236,7 +239,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
           {help}
           {/* a call that failed counts as tried: while it is failing, "Last tried" (QA retest 2026-11-12) */}
           <Detail label={t(failing && i.lastUsedAt ? 'connectors.page.lastTried' : 'connectors.page.lastUsed')} testId="integration-meta">{lastUsed}</Detail>
-          {!c && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {!c && i.kind !== 'local' && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {i.kind === 'local' && <LocalAppDetails i={i} onChanged={() => void actions.refresh(i)} />}
         </>}
         tools={(allChips ? i.tools : i.tools.slice(0, LISTED_TOOLS)).map((x) => ({ name: x.name, title: x.title || x.name, description: x.description || undefined, changes: !x.readOnly, off: x.enabled === false }))}
         toolsNote={toolsNote}>

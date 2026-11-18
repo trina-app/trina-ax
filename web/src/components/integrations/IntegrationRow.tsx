@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom'
 import { adminAllowsDomains } from '@mycel/shared'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
-import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
+import { closeSignInReturn, desktop, openSignInReturn } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { audienceOf, authorizationUrl, flowReasonKey, signInReturnHost } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
@@ -283,6 +283,8 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     if (!ok) return
     try {
       await api.call(API.deleteIntegration, { params: { id: i.id } })
+      // an app on this computer: its program ends with it
+      if (i.kind === 'local') desktop()?.localApps?.stop(i.id)
       toast({ level: 'success', text: t('integrations.deleted') })
       reload()
     } catch (e) {

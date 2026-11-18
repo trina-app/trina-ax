@@ -214,7 +214,8 @@ export class Integrations {
     // Gmail, Calendar, Docs and Sheets have their own page (google-apps/): not in the generic list
     const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app IS NULL ORDER BY name, id`).all(viewer.id) as Row[]
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
-    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
+    const personalAllowed = getTeamSettings(this.db).personalIntegrations
+    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db) }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
     // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)

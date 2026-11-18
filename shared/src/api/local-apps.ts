@@ -86,6 +86,34 @@ export function localCommandLines(s: LocalAppSpec): string[] {
   return s.tools.map((t) => [s.command, ...t.args.map((a) => (typeof a === 'string' ? quoteArg(a) : `<${a.slot}>`))].map((x, i) => (i === 0 ? quoteArg(x) : x)).join(' ') + (t.stdin ? ` < ${t.stdin}` : ''))
 }
 
+/** A command line a person typed (Settings › Connectors › An app on your computer › Another program) as the program and
+ * its arguments: split on spaces, '…' and "…" keep spaces, \ escapes the next character outside '…'. Nothing here is
+ * a shell: the program gets these arguments as they are. A line with what only a shell would read (| & ; < > ` $( ) or
+ * an unclosed quote is refused (null), so it never runs as something else than it reads. */
+export function splitCommand(line: string): string[] | null {
+  const out: string[] = []
+  let cur = '', has = false, q: '"' | "'" | null = null
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!
+    if (q === "'") { if (ch === "'") q = null; else cur += ch; continue }
+    if (q === '"') {
+      if (ch === '"') q = null
+      else if (ch === '\\' && i + 1 < line.length) cur += line[++i]
+      else if (ch === '$' || ch === '`') return null
+      else cur += ch
+      continue
+    }
+    if (ch === "'" || ch === '"') { q = ch; has = true; continue }
+    if (ch === '\\' && i + 1 < line.length) { cur += line[++i]; has = true; continue }
+    if (/\s/.test(ch)) { if (has) { out.push(cur); cur = ''; has = false } continue }
+    if ('|&;<>`$()'.includes(ch)) return null
+    cur += ch; has = true
+  }
+  if (q) return null
+  if (has) out.push(cur)
+  return out.length ? out : null
+}
+
 /** Known tools, picked in Settings › Connectors › Add › An app on your computer (or the person types a command). */
 export const LOCAL_APP_PRESETS: readonly { id: string; name: string; spec: LocalAppSpec }[] = [
   { id: 'aside', name: 'Aside', spec: { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] } },

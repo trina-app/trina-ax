@@ -51,6 +51,7 @@ import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
+import { LocalAppDialog, localAppsBridge } from '../components/integrations/LocalApp'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -168,6 +169,8 @@ function ConnectorsHome() {
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
+  // "An app on your computer" (LocalApp.tsx): only in the desktop app, while the team allows it
+  const [local, setLocal] = useState(false)
   const [params, setParams] = useSearchParams()
   // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
   const inApp = !!mobileApp()
@@ -238,7 +241,11 @@ function ConnectorsHome() {
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
   // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
   // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
-  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...listed, ...askable]
+  const localCard: Card[] = list.data?.localAllowed && localAppsBridge() ? [{
+    id: 'local-app', name: t('localApps.title'), line: t('localApps.line'), logo: '/favicon.svg', state: 'available',
+    onOpen: () => setLocal(true), onAdd: () => setLocal(true),
+  }] : []
+  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCard, ...listed, ...askable]
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -341,6 +348,7 @@ function ConnectorsHome() {
         )}
       </div>
       {fromTeam.dialog}
+      {local && <LocalAppDialog onClose={() => setLocal(false)} onSaved={(i) => { setLocal(false); actions.saved(i, null, true); navigate(connectionHref(i.id)) }} />}
     </div>
   )
 }

@@ -89,4 +89,24 @@ describe('server → relay → page → desktop manager → stdio MCP server', (
     expect(spawns).toBe(2)
     expect(asked).toHaveLength(1)
   })
+
+  test('a declared CLI (adapter b, ego lite\'s shape with a fake CLI): its tools come from the slots, a turn reads the guide and runs a script on stdin', async () => {
+    const FAKE_CLI = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-cli.ts')
+    const cli: LocalAppSpec = { adapter: 'cli', command: process.execPath, env: [], tools: [
+      { name: 'read_guide', title: 'Read the guide', description: 'The guide', args: [FAKE_CLI, 'skill'], slots: [], readOnly: true },
+      { name: 'run_script', title: 'Run a browser script', description: 'Run a script', args: [FAKE_CLI, 'nodejs'], stdin: 'script', slots: [{ name: 'script', description: 'The script', type: 'string', required: true }], readOnly: true },
+    ] }
+    const made = await h.api('alice', { window: DESK, client: 'desktop' }).call(API.createLocalIntegration, { body: { name: 'Ego', slug: 'ego', spec: cli } })
+    expect(made).toMatchObject({ kind: 'local', status: 'connected', local: { adapter: 'cli' } })
+    expect(made.tools.map((t) => [t.name, t.title, t.readOnly])).toEqual([['read_guide', 'Read the guide', true], ['run_script', 'Run a browser script', true]])
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    const r = await ask(h, desk, 'alice', chat.id, fake(
+      { tool: 'my_ego__read_guide', args: {}, sayResult: true }, { say: ' | ' },
+      { tool: 'my_ego__run_script', args: { script: 'await page.goto("https://example.com") // $(id)' }, sayResult: true },
+    ), { window: DESK, client: 'desktop', ms: 40_000 })
+    const [guide, ran] = r.done.content.split(' | ')
+    expect(guide).toContain('# fake guide')
+    expect(ran).toContain('ran 47 chars: "await page.goto(\\"https://example.com\\") // $(id)"')
+    expect(r.done.steps.map((s: { label: string }) => s.label)).toEqual(['Ego · Read the guide', 'Ego · Run a browser script'])
+  })
 })

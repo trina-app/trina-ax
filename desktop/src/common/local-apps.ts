@@ -8,7 +8,8 @@
 //   'mcp'  the program is an MCP server over stdio (`aside mcp`): messages pass through as newline-delimited JSON. One
 //          process per connection, started on the first call; the server's initialize is answered from the first one
 //          (a stdio server takes one initialize per process).
-//   'cli'  a plain CLI declared as tools (ego lite): the next step of this work; until then the app says it is too old.
+//   'cli'  a plain CLI declared as tools (ego lite): this manager answers as an MCP server itself; each tools/call runs
+//          the program once, with the AI's slot values as arguments of their own or as stdin (cliArgv).
 //
 // The rules kept (the owner's lean set, 2026-11-19): the program starts from an argument list, never through a shell;
 // it never starts while this app runs as root; it runs only after the person's yes in the app's own window (once per
@@ -19,13 +20,15 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
  * (Bun's maxPayloadLength); a larger one would close the window's socket and leave the call waiting */
 export const LOCAL_MAX_ANSWER = 15 * 1024 * 1024
 /** what is kept of the program's error output for the reason a start failed */
 const STDERR_KEEP = 4000
+/** a CLI tool's output kept for the AI (the server cuts again) */
+const CLI_OUTPUT_MAX = 2 * 1024 * 1024
 /** a program that does not stop on SIGTERM is killed after this long */
 const KILL_AFTER_MS = 2000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
@@ -72,6 +75,49 @@ export function resolveProgram(command: string, dirs: string[], home = os.homedi
     }
   }
   return null
+}
+
+export class SlotError extends Error { name = 'SlotError' }
+
+/** A CLI tool's argument list and stdin from the AI's values: each slot's value is one argument of its own (or stdin),
+ * never joined into a command line and never read by a shell. A value that starts with "-" goes as it is: it is one
+ * argument, and the person declared where it goes. Refused: a missing required slot, a value of the wrong type, a slot
+ * the tool does not have, a NUL character. */
+export function cliArgv(tool: LocalCliTool, input: unknown): { args: string[]; stdin: string | null } {
+  const values = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>
+  for (const k of Object.keys(values)) if (!tool.slots.some((s) => s.name === k)) throw new SlotError(`${tool.name} has no input named ${k}`)
+  const text = (name: string): string | null => {
+    const s = tool.slots.find((x) => x.name === name)!
+    const v = values[name]
+    if (v === undefined || v === null) { if (s.required) throw new SlotError(`${tool.name} needs ${name}`); return null }
+    if (s.type === 'string' && typeof v !== 'string') throw new SlotError(`${name} must be text`)
+    if (s.type === 'number' && (typeof v !== 'number' || !Number.isFinite(v))) throw new SlotError(`${name} must be a number`)
+    if (s.type === 'boolean' && typeof v !== 'boolean') throw new SlotError(`${name} must be true or false`)
+    const out = String(v)
+    if (out.includes('\0')) throw new SlotError(`${name} has a NUL character`)
+    return out
+  }
+  const args: string[] = []
+  for (const a of tool.args) {
+    if (typeof a === 'string') { args.push(a); continue }
+    const v = text(a.slot)
+    if (v !== null) args.push(v)
+  }
+  return { args, stdin: tool.stdin ? text(tool.stdin) : null }
+}
+
+/** The tools/list a CLI's declared tools make: one input property per slot. */
+export function cliTools(tools: LocalCliTool[]) {
+  return tools.map((t) => ({
+    name: t.name, ...(t.title ? { title: t.title } : {}), description: t.description,
+    inputSchema: {
+      type: 'object',
+      properties: Object.fromEntries(t.slots.map((s) => [s.name, { type: s.type, description: s.description }])),
+      required: t.slots.filter((s) => s.required).map((s) => s.name),
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: t.readOnly },
+  }))
 }
 
 /** Every setting value in `text` replaced (longest first), so none leaves the computer in an answer. */
@@ -143,8 +189,7 @@ export class LocalApps {
         if (!yes) { this.declined.add(`${ck}\u0000${key}`); return fail('declined', 'Cancel was chosen on this computer') }
         this.declined.delete(`${ck}\u0000${key}`)
       }
-      // a declared CLI comes with the next step of this work (adapter b): this app says it is too old for it
-      const answer = call.spec.adapter === 'mcp' ? await this.passMcp(team, call, key, ac.signal) : { failure: 'too_old' as const, error: 'this app cannot run declared commands yet' }
+      const answer = call.spec.adapter === 'mcp' ? await this.passMcp(team, call, key, ac.signal) : await this.answerCli(team, call, ac.signal)
       if ('failure' in answer) return fail(answer.failure, answer.error)
       if (answer.message === null) return { callId: call.callId, ok: true, message: null }
       const text = this.hide(team, call.connectionId, JSON.stringify(answer.message))
@@ -293,6 +338,73 @@ export class LocalApps {
     }
     if (!r.initialized) { r.initialized = true; this.write(r, { jsonrpc: '2.0', method: 'notifications/initialized' }) }
     return this.request(r, m, call.deadline, signal)
+  }
+
+  // ---------------- adapter 'cli': declared tools, this manager is the MCP server ----------------
+  private async answerCli(team: string, call: LocalCall, signal: AbortSignal): Promise<Answer> {
+    const spec = call.spec as Extract<LocalAppSpec, { adapter: 'cli' }>
+    const m = call.message
+    const id = m.id
+    if (id === undefined || id === null) return { message: null }
+    const ok = (result: unknown) => ({ message: { jsonrpc: '2.0', id, result } as Record<string, unknown> })
+    switch (m.method) {
+      case 'initialize': return ok({ protocolVersion: typeof (m.params as { protocolVersion?: unknown })?.protocolVersion === 'string' ? (m.params as { protocolVersion: string }).protocolVersion : '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: spec.command, version: '1' } })
+      case 'ping': return ok({})
+      case 'tools/list': return ok({ tools: cliTools(spec.tools) })
+      case 'tools/call': {
+        const p = (m.params ?? {}) as { name?: unknown; arguments?: unknown }
+        const tool = spec.tools.find((t) => t.name === p.name)
+        if (!tool) return { message: rpcError(id, -32602, `no tool named ${String(p.name).slice(0, 100)}`) }
+        let argv: { args: string[]; stdin: string | null }
+        try { argv = cliArgv(tool, p.arguments) } catch (e) { return ok({ content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }], isError: true }) }
+        const run = await this.runCli(team, call, spec, argv, signal)
+        if ('failure' in run) return run
+        const text = [run.stdout, run.stderr && run.code !== 0 ? run.stderr : ''].filter(Boolean).join('\n').trim() || '(no output)'
+        return ok({ content: [{ type: 'text', text }], isError: run.code !== 0 })
+      }
+      default: return { message: rpcError(id, -32601, 'not offered') }
+    }
+  }
+
+  private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<{ stdout: string; stderr: string; code: number } | { failure: LocalFailure; error: string }> {
+    const dirs = (this.d.searchPath ?? defaultSearchPath)()
+    const program = resolveProgram(spec.command, dirs)
+    if (!program) return Promise.resolve({ failure: 'start_failed', error: `${spec.command} was not found on this computer` })
+    return new Promise((resolve) => {
+      let child: ChildProcessWithoutNullStreams
+      try {
+        child = this.spawn(program, argv.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
+      } catch (e) { resolve({ failure: 'start_failed', error: e instanceof Error ? e.message : String(e) }); return }
+      const ck = this.k(team, call.connectionId)
+      const r: Running = { key: 'cli', child, waiting: new Map(), init: null, initializing: null, initialized: true, stderr: '', exited: false, onExit: new Set() }
+      // a CLI run counts as the connection running, so Stop ends it too
+      const prev = this.running.get(ck)
+      this.running.set(`${ck}\u0000${call.callId}`, r)
+      this.d.onChange?.(team, call.connectionId, true)
+      let stdout = '', stderr = '', settled = false
+      const finish = (v: { stdout: string; stderr: string; code: number } | { failure: LocalFailure; error: string }) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        signal.removeEventListener('abort', onAbort)
+        r.exited = true
+        this.running.delete(`${ck}\u0000${call.callId}`)
+        if (!prev && ![...this.running.keys()].some((k) => k === ck || k.startsWith(ck + '\u0000'))) this.d.onChange?.(team, call.connectionId, false)
+        resolve(v)
+      }
+      const onAbort = () => { this.kill(r); finish({ failure: 'failed', error: 'stopped' }) }
+      const timer = setTimeout(() => { this.kill(r); finish({ failure: 'failed', error: 'the program did not finish in time' }) }, Math.max(1000, call.deadline - (this.d.now ?? Date.now)()))
+      signal.addEventListener('abort', onAbort, { once: true })
+      child.stdout.setEncoding('utf8')
+      child.stderr.setEncoding('utf8')
+      child.stdout.on('data', (c: string) => { if (stdout.length < CLI_OUTPUT_MAX) stdout += c })
+      child.stderr.on('data', (c: string) => { stderr = (stderr + c).slice(-STDERR_KEEP) })
+      child.on('error', (e) => finish({ failure: 'start_failed', error: e.message }))
+      child.on('exit', (code) => finish({ stdout: stdout.slice(0, CLI_OUTPUT_MAX), stderr, code: code ?? 1 }))
+      child.stdin.on('error', () => {})
+      if (argv.stdin !== null) child.stdin.write(argv.stdin)
+      child.stdin.end()
+    })
   }
 
   // ---------------- Stop ----------------

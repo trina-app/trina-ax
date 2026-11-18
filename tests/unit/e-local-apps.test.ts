@@ -3,12 +3,13 @@
 // (tests/fixtures/local-apps/fake-mcp.ts). The person confirms a command once (again only when it changes), the
 // program starts from an argument list and never through a shell, never as root, gets the setting values in its
 // environment and never sends one back, is initialized once for every client, is answered when it pings, and stops on
-// Stop and on a cancelled call.
+// Stop and on a cancelled call. A plain CLI declared as tools (adapter b, ego lite's shape) gets each of the AI's
+// values as one argument of its own or as stdin, never a command line.
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import type { LocalAppSpec, LocalCall } from '@mycel/shared/api'
-import { commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram } from '../../desktop/src/common/local-apps'
+import { cliArgv, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -132,5 +133,56 @@ describe('apps on this computer: the desktop manager', () => {
 
   test('hideValues: each value, longest first, also as JSON writes it; short ones are left', () => {
     expect(hideValues('a abcd-ef "x\\"y12"', ['abcd-ef', 'x"y12', 'ab'])).toBe(`a ${HIDDEN_VALUE} "${HIDDEN_VALUE}"`)
+  })
+})
+
+// ---------------- adapter (b): a plain CLI declared as tools (ego lite's shape, a fake CLI here) ----------------
+const FAKE_CLI = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-cli.ts')
+const cliSpec = (): LocalAppSpec => ({
+  adapter: 'cli', command: process.execPath, env: ['FAKE_TOKEN'], tools: [
+    { name: 'read_guide', title: 'Read the guide', description: 'The guide', args: [FAKE_CLI, 'skill'], slots: [], readOnly: true },
+    { name: 'run_script', description: 'Run a script', args: [FAKE_CLI, 'nodejs'], stdin: 'script', slots: [{ name: 'script', description: 'The script', type: 'string', required: true }], readOnly: false },
+    { name: 'args', description: 'Arguments', args: [FAKE_CLI, 'args', '--url', { slot: 'url' }, { slot: 'n' }, { slot: 'flag' }], slots: [{ name: 'url', description: '', type: 'string', required: true }, { name: 'n', description: '', type: 'number', required: false }, { name: 'flag', description: '', type: 'boolean', required: false }], readOnly: true },
+  ],
+})
+
+describe('adapter (b): a declared CLI', () => {
+  test('cliArgv: each slot is one argument of its own or stdin; types and names are checked', () => {
+    const t = cliSpec().adapter === 'cli' ? (cliSpec() as Extract<LocalAppSpec, { adapter: 'cli' }>).tools : []
+    expect(cliArgv(t[2]!, { url: 'https://a.example/?q=1&x=$(id)', n: 3, flag: true })).toEqual({ args: [FAKE_CLI, 'args', '--url', 'https://a.example/?q=1&x=$(id)', '3', 'true'], stdin: null })
+    expect(cliArgv(t[2]!, { url: '; rm -rf ~' }).args).toEqual([FAKE_CLI, 'args', '--url', '; rm -rf ~'])
+    expect(cliArgv(t[1]!, { script: 'console.log(1)' })).toEqual({ args: [FAKE_CLI, 'nodejs'], stdin: 'console.log(1)' })
+    expect(() => cliArgv(t[1]!, {})).toThrow(SlotError)
+    expect(() => cliArgv(t[2]!, { url: 'x', n: '3' })).toThrow('n must be a number')
+    expect(() => cliArgv(t[2]!, { url: 'x', extra: 'y' })).toThrow('has no input named extra')
+    expect(() => cliArgv(t[2]!, { url: 'a\0b' })).toThrow('NUL')
+    expect(cliTools(t)[2]).toMatchObject({ name: 'args', inputSchema: { type: 'object', required: ['url'], additionalProperties: false, properties: { n: { type: 'number' } } }, annotations: { readOnlyHint: true } })
+  })
+
+  test('the manager answers as an MCP server: the list from the slots, the guide, a script on stdin, a failure as an error answer, the setting hidden', async () => {
+    const h = harness()
+    all.push(h.apps)
+    const c = { spec: cliSpec() }
+    expect(await h.init('i1', c)).toMatchObject({ ok: true, message: { result: { capabilities: { tools: {} } } } })
+    expect(h.asked).toHaveLength(1)
+    expect(h.asked[0]!.lines).toEqual([`${process.execPath} ${FAKE_CLI} skill`, `${process.execPath} ${FAKE_CLI} nodejs < script`, `${process.execPath} ${FAKE_CLI} args --url <url> <n> <flag>`])
+    const list = await h.call({ jsonrpc: '2.0', id: 'l1', method: 'tools/list', params: {} }, c)
+    expect(((list.message!.result as { tools: { name: string }[] }).tools).map((t) => t.name)).toEqual(['read_guide', 'run_script', 'args'])
+    expect(h.text(await h.tool('read_guide', {}, c))).toContain('# fake guide')
+    const odd = 'const a = "$(id)"; `whoami`; console.log(a) // ECHO_TOKEN'
+    const ran = h.text(await h.tool('run_script', { script: odd }, c))!
+    expect(ran).toContain(`ran ${odd.length} chars`)
+    expect(ran).toContain(`token: ${HIDDEN_VALUE}`)
+    expect(ran).not.toContain(SECRET)
+    const failed = await h.tool('run_script', { script: 'FAIL' }, c)
+    expect(failed.message!.result).toMatchObject({ isError: true })
+    expect(h.text(failed)).toContain('script failed on purpose')
+    expect(JSON.parse(h.text(await h.tool('args', { url: 'https://example.com/?a=1;b', n: 2 }, c))!)).toEqual(['--url', 'https://example.com/?a=1;b', '2'])
+    const missing = await h.tool('run_script', {}, c)
+    expect(missing.message!.result).toMatchObject({ isError: true, content: [{ text: 'run_script needs script' }] })
+    expect(h.spawned.every((s) => s.shell === false)).toBe(true)
+    expect(h.asked).toHaveLength(1)
+    // nothing keeps running between calls
+    expect(h.apps.runningIds(TEAM)).toEqual([])
   })
 })
