@@ -147,6 +147,7 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.editMessage,
   API.selectBranch,
   API.listTurnRequests,
+  API.turnRequestDetail,
   API.answerTurn,
   API.listChatArtifacts,
   API.getArtifact,

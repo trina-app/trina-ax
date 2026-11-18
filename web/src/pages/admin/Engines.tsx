@@ -300,15 +300,17 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const t = useT()
   const act = useAction()
   const state = useLoad(() => api.call(API.getApiEngine))
-  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string } | null>(null)
+  const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string; vision: 'auto' | 'on' | 'off' } | null>(null)
   useEffect(() => {
-    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '' })
+    if (state.data && !form) setForm({ baseUrl: state.data.baseUrl ?? '', model: state.data.model ?? '', label: state.data.label ?? '', key: '', password: '', vision: state.data.vision?.choice ?? 'auto' })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.data])
   const preset = API_PRESETS.find((p) => p.baseUrl === form?.baseUrl)?.id ?? 'custom'
+  // "Reads pictures": only for the saved model, and only while its server does not say (server engine/api-vision.ts)
+  const askVision = !!form && state.data?.vision?.detected === null && form.baseUrl.trim() === state.data.baseUrl && form.model.trim() === state.data.model
   const save = async (key?: string | null) => {
     if (!form) return
-    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), password: form.password } }), t('common.saved'))
+    const r = await act(() => api.call(API.putApiEngine, { body: { baseUrl: form.baseUrl.trim(), model: form.model.trim(), label: form.label.trim() || undefined, ...(key !== undefined ? { key } : {}), ...(askVision ? { vision: form.vision === 'auto' ? null : form.vision } : {}), password: form.password } }), t('common.saved'))
     if (r) { state.setData(r); setForm({ ...form, key: '', password: '' }); onSaved() }
   }
   return (
@@ -341,6 +343,18 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
             </Field>
             <ApiKeyHint preset={preset} />
           </div>
+          {askVision && (
+            <div>
+              <Field label={t('engines.api.vision')}>
+                <select className={inputCls} value={form.vision} onChange={(e) => setForm({ ...form, vision: e.target.value as 'auto' | 'on' | 'off' })} data-testid="api-engine-vision">
+                  <option value="auto">{t('engines.api.visionUnknown')}</option>
+                  <option value="on">{t('engines.api.visionOn')}</option>
+                  <option value="off">{t('engines.api.visionOff')}</option>
+                </select>
+              </Field>
+              <p className="mt-1 text-xs text-muted">{t('engines.api.visionHint')}</p>
+            </div>
+          )}
           <Field label={t('credentials.reauth')}>
             <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
           </Field>

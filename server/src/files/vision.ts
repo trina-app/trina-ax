@@ -108,17 +108,23 @@ export function visionOn(db: Database): boolean {
   return getTeamSettings(db).aiVision
 }
 
+/** API engine turns whose model takes images (engine/api-vision.ts apiSeesImages), set by the turn before its model
+ * runs and cleared when it ends (chat/turn.ts) */
+const apiVisionTurns = new Set<string>()
+export function setApiVisionTurn(turnId: string, on: boolean) { if (on) apiVisionTurns.add(turnId); else apiVisionTurns.delete(turnId) }
+
 /**
  * Whether this call may send pixels: the team switch, and an engine that takes images. The API engine (OpenAI-
- * compatible chat, engine/api-agent.ts) passes only text to its model; a call without a chat turn comes from a
- * connection whose answer is text only (the remote MCP connector).
+ * compatible chat, engine/api-agent.ts) sends them only when its model takes images (setApiVisionTurn; else its text
+ * path, the 'engine' note); a call without a chat turn comes from a connection whose answer is text only (the remote MCP
+ * connector).
  */
 export function visionBlock(db: Database, turnId: string | null): VisionBlock | null {
   if (!visionOn(db)) return 'off'
   if (!turnId) return 'connection'
   const t = db.query('SELECT engine FROM turns WHERE id = ?').get(turnId) as { engine: string } | null
   if (!t) return 'connection'
-  return t.engine === 'api' ? 'engine' : null
+  return t.engine === 'api' && !apiVisionTurns.has(turnId) ? 'engine' : null
 }
 
 export interface VisionTools {

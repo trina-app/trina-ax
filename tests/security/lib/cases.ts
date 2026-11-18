@@ -303,6 +303,10 @@ export const SPECS: Record<string, Spec> = {
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
+  // the whole text of a folded card detail (chat/card-fold.ts): alice's own open card only. Hers has no folded text,
+  // so she meets a 404 (the text itself: tests/unit/limits-api-images-cards.test.ts); nobody else may get a 2xx
+  turnRequestDetail: { build: (c, w) => c.get(`/api/turns/${w.ids.turnB}/requests/${w.ids.requestB}/details/0`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} read alice's card text`) } },
   // an open connect_service card of alice's turn (buildWorld's connectCard option, which the matrix sets): only alice
   // may finish it. A skip is enough to show who reaches it: anyone else who got through would close it (2xx). Alice's
   // own skip runs in phase 2 and closes it (or meets a card whose time ran out: 409).

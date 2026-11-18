@@ -7,7 +7,7 @@ import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { buildUrl, connectionWays, integrationToolProvider, MAX_RESULT_CHARS, NO_CONNECTIONS, toolName } from '../../server/src/integrations/connections/tools'
+import { buildUrl, connectionWays, integrationToolProvider, MAX_CARD_PAYLOAD, MAX_RESULT_CHARS, NO_CONNECTIONS, toolName } from '../../server/src/integrations/connections/tools'
 import { readScope, sourceLabel, widening } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
@@ -261,7 +261,7 @@ describe('calls', () => {
     expect(fake.calls.at(-1)!.name).toBe('create_task')
   })
 
-  test('the card shows the whole payload, where it goes first; more than a card can show is refused (review F7a)', async () => {
+  test('the card shows the whole payload, where it goes first; more than one call may send (10,000,000 characters) is refused (review F7a, limits audit N25)', async () => {
     // the first 300 characters used to be all the card showed: harmless words first, the data and the recipient after
     const padded = { title: 'Weekly notes ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', meta: { channel: '#public-feed' } }
     const p = ask(false)
@@ -272,14 +272,34 @@ describe('calls', () => {
     // every value as a labelled line, where it goes first; the exact JSON one click away (exact), the marks in both
     expect(d!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Meta › Channel', value: '#public-feed' }, { name: 'Title', value: padded.title }])
     expect(d!.exact).toBe(true)
+    // a write of 100,001 characters (refused before, the old 100,000 cap): asked, and the card holds all of it as text
+    // (the recipients alone as lines; chat/card-fold.ts folds it when the card goes out)
+    const big1 = ask(true)
+    const at = fake.calls.length
+    // (a recipient of 5,000 characters is shown whole on its line, not cut at the gate's 2,000: L2)
+    const to = 'team@example.com,' + 'x'.repeat(5_000) + '@example.com'
+    const ok = await turn('alice', { person: big1 }).call('my_tasks__create_task', { title: 'y'.repeat(100_001), to })
+    expect(ok.isError).toBe(false)
+    expect(big1.questions).toHaveLength(1)
+    expect(big1.details[0]![0]!.text).toContain('y'.repeat(100_001))
+    expect(big1.details[0]![0]!.exact).toBeUndefined()
+    expect(big1.details[0]![0]!.fields).toEqual([{ name: 'to', value: to }])
+    expect(fake.calls.length).toBe(at + 1)
+    // security review of #1338 (L2): where it goes is never folded, so a recipient over 10,000 characters is refused
+    const longTo = ask(true)
+    const at2 = fake.calls.length
+    const lr = await turn('alice', { person: longTo }).call('my_tasks__create_task', { title: 'short', to: 'a'.repeat(10_001) + '@example.com' })
+    expect(lr.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
+    expect(longTo.questions).toHaveLength(0)
+    expect(fake.calls.length).toBe(at2)
     const before = fake.calls.length
     const huge = ask(true)
-    const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(100_001) })
+    const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(MAX_CARD_PAYLOAD + 1) })
     expect(r.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
     expect(huge.questions).toHaveLength(0)
     expect(fake.calls.length).toBe(before)
     // an api_request's address counts too: an empty body with a huge query is no smaller
-    const query = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, 'q'.repeat(4000)]))
+    const query = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, Array.from({ length: 100 }, () => 'q'.repeat(4000))]))
     const requests = fake.seen.length
     const big = await turn('alice', { person: huge }).call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', query })
     expect(big.summary).toBe('api_request my_aipm POST -> refused (too large to confirm)')

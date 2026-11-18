@@ -1,6 +1,6 @@
 // A team file attached to what a connected service sends (a mail's attachment): docs/decisions/
 // 20261116-mail-attach-team-file.md. A service's tool takes a file as base64 text in one of its arguments, and the AI
-// can neither read a team file's bytes nor write that much text (a write over MAX_CARD_PAYLOAD is refused). So the AI
+// can neither read a team file's bytes nor write that much text in one call. So the AI
 // gives a handle instead, `team-file:<path in the team folder>`, as the whole value where the tool wants the content,
 // and the server puts the file's base64 there:
 //   - read as the person of the turn as they are now (read permission, a regular file, not held by the safety check);

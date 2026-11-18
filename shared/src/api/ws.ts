@@ -140,6 +140,10 @@ export const ConfirmDetail = z.object({
   text: z.string(),
   /** show the first this many characters of `text` and the rest on request ("전체 보기"); absent: all of it */
   collapsedAt: z.number().int().positive().optional(),
+  /** `text` is only the start of a longer text of this many characters (a write of millions of characters to a connected
+   * service): the whole text is read on request, GET /api/turns/:id/requests/:requestId/details/:index (server
+   * chat/card-fold.ts), while the card is open. A client that does not know this shows the start. */
+  fullChars: z.number().int().positive().optional(),
   fields: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
   marks: z.array(z.string()).optional(),
   /** `fields` show every value of `text` in full, each under a name in words (a connected service's call: "받는 사람",
