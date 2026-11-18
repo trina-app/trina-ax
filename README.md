@@ -15,7 +15,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 </div>
 
-https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit</p>
 

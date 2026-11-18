@@ -15,7 +15,7 @@ Trina AX は、チームのファイル、スキル、ツールを1台のサー�
 
 </div>
 
-https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>同じ Claude、同じ依頼、違う結果。97秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし</p>
 

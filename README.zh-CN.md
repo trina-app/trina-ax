@@ -15,7 +15,7 @@ Trina AX 把团队的文件、技能和工具放在一台服务器上。每个�
 
 </div>
 
-https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数</p>
 
