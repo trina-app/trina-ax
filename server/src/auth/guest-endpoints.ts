@@ -161,4 +161,7 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.deleteNavFolder,
   API.orderNavFolders,
   API.setChatFolder,
+  // names of app links in messages (link-names/resolve.ts): each decided with the page's own check, for the guest's own
+  // narrower access (a file link never opens for a guest)
+  API.linkNames,
 ])

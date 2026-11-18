@@ -17,13 +17,13 @@ inline chip with the right icon and the name, still a link that opens inside the
 
 In:
 - One pure matcher `web/src/lib/appLinks.ts`: an address on this page's host or the team address whose path is a known
-  route: `/c/<chat>` (and `/c/<chat>/t/<message>`), `/projects/<id>` (and `/files`), `/rooms/<id>` (and
-  `/rooms/<id>/t/<root>`, without `?m=`: message links keep their own chip and card), `/f/<token>` (not `/f/batch/`),
+  route: `/c/<chat>` (and `/c/<chat>/t/<message>`), `/projects/<id>` (and `/files`), `/rooms/<id>` (not a
+  thread `/t/<root>` or a message `?m=`: message links keep their own chip and card), `/f/<token>` (not `/f/batch/`),
   `/files/view?path=<file>`, `/files?path=<folder>`.
 - One endpoint `POST /api/link-names` that names a batch (at most 50, deduplicated) as the caller, using the checks the
   pages themselves use. No name for "no access" and "not there" alike.
 - One chip (`web/src/components/AppLinkChip.tsx`) drawn by the shared link pieces: a person's message in rooms, DMs and
-  threads (`RoomLink`), and AI answers (`Markdown.tsx`), only for a bare address. A `[label](url)` keeps its label.
+  threads (`RoomLink`), and AI answers (`Markdown.tsx`), only for a bare address. A Markdown link with its own label keeps it.
   A client store batches lookups (one request per short burst), caches them for the signed-in person and forgets them on
   a switch of account.
 

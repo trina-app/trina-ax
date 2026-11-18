@@ -33,6 +33,7 @@ import { slackRoutes } from './slack'
 import { appLinksRoutes } from './app-links'
 import { oftenAskedRoutes } from './often-asked'
 import { navFoldersRoutes } from './nav-folders'
+import { linkNamesRoutes } from './link-names'
 
 export type { RouteModule } from './module'
 
@@ -67,6 +68,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   oftenAskedRoutes, // B: Home's "what my group often asks" and its daily run (docs/DECISIONS.md "Home: what my group often asks")
   slackRoutes, // C: the Slack connector (docs/SLACK.md); after chats, whose runtime its questions use
   demoRoutes, // demo company (`bun run demo:company`; 404 unless a development server runs with MYCEL_DEMO)
+  linkNamesRoutes, // B: names of links to things in this app pasted into messages (docs/decisions/20261118-named-app-links.md); after chats, rooms and files
   appLinksRoutes, // G: /.well-known files for the phone app's links (docs/DECISIONS.md "First run, phase 2")
   webRoutes, // D (catch-all, keep last)
 ]
