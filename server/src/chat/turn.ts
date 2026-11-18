@@ -1055,8 +1055,11 @@ export class TurnExec {
       let continuations = 0
       // the conversation got too long for the engine: the answer goes on in a fresh session with the history window
       // and what it already wrote and did (chat/context-recover.ts), at most CONTEXT_RECOVER_MAX times
-      let recoverNote: string | null = null
       let recoveries = 0
+      /** the note for a fresh session of this answer after a recovery, built at each launch from what the answer has
+       * written and done by then (a later fresh start after a switch or a retry must not get an older note and redo a
+       * step); a shared chat's step keeps its file targets for this person (sharedStep: sv is the runner's label) */
+      const answerSoFar = () => contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))
       this.continueMode = 'step'
       /** a continuation keeps what the answer's first attempt recorded about its history (prompt() sets it per attempt) */
       const continuePrompt = (fresh: boolean, sessionId: string) => {
@@ -1109,7 +1112,7 @@ export class TurnExec {
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoverNote && !resume ? `${recoverNote}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
+          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoveries && !resume ? `${answerSoFar()}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick
           ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
@@ -1152,11 +1155,13 @@ export class TurnExec {
         // the conversation no longer fits (Claude Code could not compact it, or one result was too big): this answer
         // goes on in a fresh session, the text so far stays on screen (limits audit 2 #13)
         if (err?.code === 'context' && recoveries < CONTEXT_RECOVER_MAX && !this.budgetHit) {
-          recoveries++
           const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
-          turnsLeft = Math.max(2, turnsLeft - used)
+          // a call and an answer after it: at least two rounds left, else the answer pauses at the round limit as at
+          // any other one ("continue" goes on, from a fresh session: this one does not fit)
+          if (turnsLeft - used < 2) { this.dropSession(); this.limitReason = 'tool_limit'; break }
+          recoveries++
+          turnsLeft -= used
           this.flushText()
-          recoverNote = contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId))
           this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
           rt.log.info('conversation too long: the answer goes on in a fresh session', { turn: this.id, recoveries, resumed: resume })
           if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
@@ -1292,8 +1297,9 @@ export class TurnExec {
       if (!this.proxyUnsubscribe) this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
     }
     const exclude = new Set<string>()
-    // the conversation got too long for Codex: once more with what this answer already wrote and did (context-recover.ts)
-    let message = o.message
+    // the conversation got too long for Codex: once more with what this answer already wrote and did (context-recover.ts),
+    // built at each launch after that (a switch or a retry later in the answer gets what is done by then)
+    let recovered = false
     try {
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
@@ -1318,7 +1324,7 @@ export class TurnExec {
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -1339,7 +1345,7 @@ export class TurnExec {
         if (err?.code === 'context' && !retried.has('context') && !this.budgetHit) {
           retried.add('context')
           this.flushText()
-          message = `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId))}\n\n${o.message}`
+          recovered = true
           this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
           rt.log.info('conversation too long: the answer goes on in a fresh Codex run', { turn: this.id })
           if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')

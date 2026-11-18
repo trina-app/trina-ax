@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { EngineEvent } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
+import { CONTEXT_FULL } from './claude-parse'
 import { apiEngineFetch } from '../system/egress'
 import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials/prices'
 import { LinkGuard } from './api-links'
@@ -131,7 +132,7 @@ export function errorOf(status: number, body: string, key: string | null = null)
   if (status === 401 || status === 403) return { type: 'error', code: 'auth', message, ...st }
   // the provider is busy or limits the model there: not this team's usage limit (QA TC-4832)
   if (status === 429) return { type: 'error', code: 'provider_busy', message, ...st }
-  if ((status === 400 || status === 413 || status === 0) && /context[ _](window|length|limit)|context_length|too long|maximum.*tokens|token limit/i.test(body)) return { type: 'error', code: 'context', message, ...st }
+  if ((status === 400 || status === 413 || status === 0) && (CONTEXT_FULL.test(body.toLowerCase()) || /maximum context length|(prompt|input) is too long|exceeds? the (model's )?context/i.test(body))) return { type: 'error', code: 'context', message, ...st }
   if (MODEL_MISSING.test(body)) return { type: 'error', code: 'model_not_found', message, ...st }
   if (status === 404) return { type: 'error', code: 'endpoint_unreachable', message, ...st }
   return { type: 'error', code: 'provider_error', message, ...st }

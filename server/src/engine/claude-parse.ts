@@ -4,18 +4,19 @@ import type { AgentStats, EngineEvent, EngineErrorCode } from '@mycel/shared'
 
 /** the conversation no longer fits the model (Anthropic "prompt is too long: N tokens > M maximum", "input length and
  * `max_tokens` exceed context limit"; OpenAI "context_length_exceeded", "maximum context length", Codex "exceeds the
- * context window"; Claude Code "Conversation too long") */
-export const CONTEXT_FULL = /prompt is too long|context[ _](window|length|limit)|context_length_exceeded|maximum context|too many tokens|conversation (is )?too long/
+ * context window"; Claude Code "Conversation too long"; Anthropic's request_too_large: a fresh start sends less) */
+export const CONTEXT_FULL = /prompt is too long|context[ _](window|length|limit)|context_length_exceeded|maximum context|too many tokens|conversation (is )?too long|request_too_large|request too large/
 
 export function classifyError(msg: string): EngineErrorCode {
   const m = msg.toLowerCase()
   // the error class or the leading text, never a number inside an id (a request_id with "401" in it is not a sign-in error)
   if (/not logged in|authentication_error|authentication_failed|authentication failed|failed to authenticate|invalid api key|invalid x-api-key|oauth token (has expired|has been revoked|is invalid)|please run \/login|\bunauthorized\b/.test(m)
     || /(^|\bapi error:?\s*|\bstatus:?\s*)401\b/.test(m.trim())) return 'auth'
-  if (/rate.?limit|429|overloaded|usage limit|quota/.test(m)) return 'rate_limit'
   // only what the providers say when the conversation does not fit (limits audit 2 #13): "context" alone matched any
-  // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full
+  // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full.
+  // Before the limit check: a token count such as "214290 tokens" holds "429"
   if (CONTEXT_FULL.test(m)) return 'context'
+  if (/rate.?limit|\b429\b|overloaded|usage limit|quota/.test(m)) return 'rate_limit'
   if (/refus/.test(m)) return 'refused'
   if (/timed? ?out|timeout/.test(m)) return 'timeout'
   return 'crash'

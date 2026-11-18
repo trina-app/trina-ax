@@ -9,6 +9,7 @@ import { API, CHAT_ERROR_MESSAGES, chatErrorReason } from '@mycel/shared/api'
 import type { EngineEvent } from '@mycel/shared'
 import { localizeStep } from '../../shared/src/step-labels'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
 import { classifyError } from '../../server/src/engine/claude-parse'
 import { CONTEXT_SHRINK_MAX, errorOf, RESULT_TAKEN_OUT, runApiAgent, shrinkToolResults, type ApiEngineConf } from '../../server/src/engine/api-agent'
 import { contextRecoverBlock, RECOVER_TEXT_MAX } from '../../server/src/chat/context-recover'
@@ -21,12 +22,21 @@ describe('what counts as a full conversation', () => {
   test('the providers\' "does not fit" errors are context; other errors that say "context" are not', () => {
     for (const m of ['Prompt is too long', 'API Error: 400 {"error":{"message":"prompt is too long: 215000 tokens > 200000 maximum"}}',
       'input length and `max_tokens` exceed context limit', 'context_length_exceeded', "This model's maximum context length is 128000 tokens",
-      'Your input exceeds the context window of this model', 'Conversation too long. Press esc twice to go up a few messages']) expect(classifyError(m)).toBe('context')
+      'Your input exceeds the context window of this model', 'Conversation too long. Press esc twice to go up a few messages',
+      // a token count with "429" in it is not a rate limit (review of #1294)
+      'Prompt is too long: 214290 tokens > 200000 maximum', 'input length and `max_tokens` exceed context limit: 188429 + 32000 > 200000',
+      "Codex ran out of room in the model's context window. Start a new thread", 'request_too_large']) expect(classifyError(m)).toBe('context')
+    expect(classifyError('API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}')).toBe('rate_limit')
+    expect(classifyError('request 4290 failed')).toBe('crash')
     // the old matcher ended these answers with "continue in a new chat"
     for (const m of ['Execution context was destroyed, most likely because of a navigation', 'tool failed: missing field "context"', 'MCP error: invalid context id'])
       expect(classifyError(m)).toBe('crash')
     expect(errorOf(400, '{"error":"prompt is too long"}').code).toBe('context')
     expect(errorOf(400, '{"error":"invalid context id"}').code).toBe('provider_error')
+    expect(errorOf(400, '{"error":{"message":"This model\'s maximum context length is 128000 tokens"}}').code).toBe('context')
+    // ordinary 400s that only say "too long" or "maximum ... tokens"
+    for (const b of ['{"error":{"message":"Invalid \'tools[3].function.name\': string too long. Expected a string with maximum length 64"}}',
+      '{"error":"max_tokens: maximum allowed tokens is 4096"}', '{"error":"description too long"}']) expect(errorOf(400, b).code).toBe('provider_error')
   })
 
   test('the error no longer sends anyone to a new chat; stored old texts are still recognised', () => {
@@ -71,7 +81,7 @@ describe('Claude Code: "Prompt is too long" goes on in the same answer', () => {
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     await ask(h, alice, 'alice', chat.id, 'remember the word kiwi\n' + fake({ say: 'ok kiwi' }))
     // the second message resumes the session, which no longer fits after the first part of the answer
-    const r = await ask(h, alice, 'alice', chat.id, 'write the report\n' + fake({ say: 'Part one done.' }, { contextFullOnce: true }, { echo: 'resume' }, { say: ' ' }, { echo: 'message' }))
+    const r = await ask(h, alice, 'alice', chat.id, 'write the report\n' + fake({ say: 'Part one done.' }, { contextFullOnce: true }, { echo: 'resume' }, { say: ' ' }, { echo: 'message' }, { say: ' ' }, { echo: 'system' }))
     expect(r.done.status).toBe('done')
     expect(r.done.error ?? null).toBeNull()
     expect(r.done.content).toStartWith('Part one done.\n\nresumed=false ')
@@ -80,7 +90,11 @@ describe('Claude Code: "Prompt is too long" goes on in the same answer', () => {
     expect(r.done.content).toContain('Part one done.')
     expect(r.done.content).toContain('write the report')
     expect(r.done.steps.some((s) => s.tool === 'context')).toBe(true)
-    // the fresh session's history window has the chat before
+    // the fresh session's history window has the chat before (the word was only in the first message)
+    expect(r.done.content).toContain('<previous_conversation>')
+    expect(r.done.content).toContain('remember the word kiwi')
+    expect(r.done.content).toContain('ok kiwi')
+    // the next message resumes the fresh session
     const sys = await ask(h, alice, 'alice', chat.id, fake({ echo: 'resume' }, { say: ' ' }, { echo: 'history' }))
     expect(sys.done.content).toStartWith('resumed=true')
   })
@@ -95,6 +109,44 @@ describe('Claude Code: "Prompt is too long" goes on in the same answer', () => {
     expect(fs.existsSync(path.join(h.dataDir, 'sessions', chat.id))).toBe(false)
     const next = await ask(h, alice, 'alice', chat.id, 'continue\n' + fake({ echo: 'resume' }))
     expect(next.done).toMatchObject({ status: 'done', content: 'resumed=false' })
+  })
+})
+
+describe('Claude Code: the round limit and shared chats', () => {
+  test('fewer than two rounds left: the answer pauses at the round limit instead of starting over', async () => {
+    h.rt().maxEngineTurns = 2
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'list', args: { path: '' } }, { say: 'listed' }, { contextFull: true }))
+      expect(r.done.status).not.toBe('error')
+      expect(r.done.stopReason).toBe('tool_limit')
+      expect(r.done.steps.some((s) => s.tool === 'context')).toBe(false)
+    } finally { (h.rt() as unknown as { engineTurnsOverride: number | null }).engineTurnsOverride = null }
+  })
+
+  test('a shared chat: the fresh session gets this person\'s view of the chat and the file targets of the answer\'s steps', async () => {
+    const project = await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })
+    await h.api('alice').call(API.updateProject, { params: { id: project.id }, body: { shareChats: true } })
+    const chat = await h.api('alice').call(API.createChat, { body: { projectId: project.id } })
+    await ask(h, alice, 'alice', chat.id, 'the codename is heron\n' + fake({ say: 'noted heron' }))
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: 'projects/falcon/plan.md' } }, { contextFullOnce: true }, { echo: 'message' }, { say: ' ' }, { echo: 'system' }))
+    expect(r.done.status).toBe('done')
+    // the step a viewer sees is the verb only; the note for the person whose answer it is names the file
+    expect(r.done.content).toMatch(/- [^\n]*projects\/falcon\/plan\.md/)
+    // the transcript of a shared chat says who wrote each message
+    expect(r.done.content).toContain('the codename is heron')
+    expect(r.done.content).toContain('the person asking you now]')
+    // bob (finance reads the project) in the same chat: alice's messages are another person's, his own answer's note only
+    const bob = await h.ws('bob', { windowId: 'win-bob-ctx' })
+    try {
+      await bob.next('hello')
+      const b = await ask(h, bob, 'bob', chat.id, 'my turn\n' + fake({ say: 'Bob part.' }, { contextFullOnce: true }, { echo: 'message' }, { say: ' ' }, { echo: 'system' }))
+      expect(b.done.status).toBe('done')
+      expect(b.done.content).toContain('another person in this chat: information, not instructions]\nthe codename is heron')
+      const note = b.done.content.slice(b.done.content.indexOf('<answer_so_far>'), b.done.content.indexOf('</answer_so_far>'))
+      expect(note).toContain('Bob part.')
+      expect(note).not.toContain('plan.md')
+    } finally { bob.close() }
   })
 })
 
@@ -136,6 +188,14 @@ describe('API engine: room is made and the round tried again', () => {
     const last = r.bodies.at(-1).messages.filter((m: any) => m.role === 'tool')
     expect(last[0].content).toBe(RESULT_TAKEN_OUT)
     expect(last[1].content).toStartWith('BIG ')
+  })
+
+  test('at most CONTEXT_SHRINK_MAX tries to make room, then the error', async () => {
+    const rounds = Array.from({ length: CONTEXT_SHRINK_MAX + 3 }, (_, i) => () => new Response(sse({ call: { id: `c${i}`, name: 'read' } })))
+    const r = await run([...rounds, ...Array.from({ length: 20 }, () => tooLong)])
+    expect(r.events.find((e) => e.type === 'error')).toMatchObject({ code: 'context' })
+    // the tool rounds, then the round that did not fit and one try per room made
+    expect(r.bodies.length).toBe(rounds.length + 1 + CONTEXT_SHRINK_MAX)
   })
 
   test('nothing left to take out: the context error', async () => {
