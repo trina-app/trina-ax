@@ -39,6 +39,18 @@ export function teamSetting(db: Database): DevEnvTeamSetting {
   return v.success ? v.data : DevEnvTeamSetting.parse({})
 }
 
+/** The team is off only because it had people before the dev environment came (QA TC-4911): its row is still the one
+ * migration 236 wrote (`{"enabled":false}`, no other field), which no admin save writes (saveTeamSetting writes the
+ * whole setting). Admins then get a one-time notice with the switch; nothing turns on by itself. */
+export function oldTeamOffer(db: Database): boolean {
+  const row = db.query('SELECT value FROM settings WHERE key = ?').get(TEAM_SETTING_KEY) as { value: string } | null
+  if (!row) return false
+  try {
+    const v = JSON.parse(row.value) as unknown
+    return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 1 && (v as { enabled?: unknown }).enabled === false
+  } catch { return false }
+}
+
 export function saveTeamSetting(db: Database, s: DevEnvTeamSetting) {
   setSetting(db, TEAM_SETTING_KEY, { ...s, scope: { mode: s.scope.mode, groupIds: [...new Set(s.scope.groupIds)], userIds: [...new Set(s.scope.userIds)] } })
 }

@@ -29,12 +29,12 @@ export const VISION_TEXT = {
     zh: '这个连接只能传输文字，所以无法显示图片。',
   },
   budget: {
-    ko: '이번 답변에 보낼 수 있는 이미지 한도({images}장 또는 {mb}MB)에 도달해 보여 주지 않았어요. 새 메시지에서 이어서 볼 수 있어요.',
-    en: 'Not shown: this reply already reached its image limit ({images} images or {mb} MB). Continue in a new message.',
-    id: 'Tidak ditampilkan: balasan ini sudah mencapai batas gambar ({images} gambar atau {mb} MB). Lanjutkan di pesan baru.',
-    ja: '表示されませんでした: この返信で送信できる画像の上限（{images} 枚または {mb} MB）に達しました。新しいメッセージで続けてください。',
-    es: 'No se mostró: esta respuesta ya alcanzó su límite de imágenes ({images} imágenes o {mb} MB). Continúa en un mensaje nuevo.',
-    zh: '未显示：这次回复已达到图片上限（{images}张图片或{mb} MB）。请在新消息中继续。',
+    ko: '보여 주지 않았어요: 이번 답변에서 이미 이미지 {images}장을 봐서, 한 답변에 담을 수 있는 만큼 다 찼어요. 지금까지 본 이미지로 답하고, 보지 못한 파일 이름을 알려 주세요.',
+    en: 'Not shown: this answer has already looked at {images} images, as many as one answer can hold. Answer from the images you have seen, and name the files you did not look at.',
+    id: 'Tidak ditampilkan: jawaban ini sudah melihat {images} gambar, sebanyak yang dapat dimuat satu jawaban. Jawablah dari gambar yang sudah Anda lihat, dan sebutkan file yang tidak Anda lihat.',
+    ja: '表示されませんでした: この回答ではすでに {images} 枚の画像を見ており、1 つの回答に入る上限です。見た画像をもとに答え、見なかったファイルの名前を伝えてください。',
+    es: 'No se mostró: esta respuesta ya vio {images} imágenes, todas las que caben en una respuesta. Responde con las imágenes que viste e indica los archivos que no miraste.',
+    zh: '未显示：这次回答已经看了 {images} 张图片，已达到一次回答能容纳的上限。请根据已看到的图片回答，并说明没有看的文件名。',
   },
   unavailable: {
     ko: '이 서버에는 AI에게 보낼 이미지를 변환하는 도구가 없어 이미지를 보여 줄 수 없어요.',

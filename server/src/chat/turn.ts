@@ -1,5 +1,6 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
+import { chatFileCopyOf } from './chat-file-tool'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -17,6 +18,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -35,11 +37,12 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { TurnFiles } from '../files/service'
+import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { textTokens } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -75,6 +78,7 @@ import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './se
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
+import { devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -125,6 +129,7 @@ import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
@@ -134,6 +139,7 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
+import { carriedReads, compactionsIn, forgetSessionText, mayCarryReads, saveReads, sessionDroppedText } from './carried-reads'
 import { ensureSummary, hashChain, HISTORY_SUMMARY_TOOL, lookupSummary, markSummaryFailed, summaryAi, summaryLines, summaryMode, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
 import { ownerId } from '../file-list/engine-reader'
 import { slimSession } from './session-slim'
@@ -210,6 +216,15 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
   : tool === 'ask_user' ? 'ask_user'
   : 'tool'
 
+/** Tool rounds of one answer: the team limit, at most GUEST_ANSWER_STEP_LIMIT for a guest and
+ * UNATTENDED_ANSWER_STEP_LIMIT for a run nobody watches (docs/decisions/20261118-limits-caps.md). */
+export function answerStepCap(team: number, o: { guest: boolean; unattended: boolean }): number {
+  let n = team
+  if (o.guest) n = Math.min(n, GUEST_ANSWER_STEP_LIMIT)
+  if (o.unattended) n = Math.min(n, UNATTENDED_ANSWER_STEP_LIMIT)
+  return n
+}
+
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
@@ -235,7 +250,9 @@ const FILE_TIMELINE_MAX = 1000
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
-const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
+const SELF_LABELLED_TOOLS = new Set(['save_room_file', 'save_chat_file'])
+/** Tools that copy a file kept outside the team folder (a room's, a chat's): only their widen hook knows the target */
+const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
@@ -294,10 +311,14 @@ export class TurnExec {
    * cut off by the pause, not failed (Step.paused) */
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
+  /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
+  engineRunning: EngineId | null = null
   browser = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
+  /** the dev environment is on for this person but does not work now: no box_shell, the AI is told (prompt.ts devEnvDownRule) */
+  devEnvDown: 'staff' | 'member' | null = null
   principal: Principal | null = null
   private templateScope = false
   /** an approved scheduled template's run (its scope is fixed: chat/schedule-templates.ts) */
@@ -326,6 +347,10 @@ export class TurnExec {
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
+  /** the person's reads carry over between answers in this chat (not a guest, not a restricted run: chat/carried-reads.ts) */
+  private carryReads = false
+  /** compactions in the session file this turn resumed (a new one in its stash: the session dropped text) */
+  private compactionsBefore = 0
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
@@ -352,6 +377,9 @@ export class TurnExec {
    * (confirmSharedRead). Every gate of a shared chat (SHARED_TOOLS, no browser, no dev environment, no memories, the read
    * gate, the instructions' allowlist) is on this being set, whatever its kind; null elsewhere */
   shared: { kind: 'project'; project: ProjectRow } | { kind: 'people'; chat: ChatRow } | null = null
+  /** a shared chat: the others who see it get this answer's text and steps as they are written, as they see the
+   * finished answer (chat/live-answer.ts); null elsewhere */
+  private live: LiveAnswer | null = null
   /** a people-shared chat: where a search without a path looks (the one folder everyone in it may read), or why it does
    * not run; worked out once per turn */
   private peopleSearch: { path: string } | { refuse: string } | null = null
@@ -510,7 +538,15 @@ export class TurnExec {
       const project = rt.store.projectRow(row.project_id!)
       this.shared = { kind: 'project', project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
+    if (this.shared) this.live = new LiveAnswer(rt, spec.chatId, spec.assistantId, spec.turnId, spec.userId, () => this.redactor())
   }
+
+  /** Someone may have stopped seeing this shared chat, or the answer's record changed: the live text's viewers are
+   * worked out again before the next piece (chat/live-answer.ts). */
+  forgetLiveViewers() { this.live?.forget() }
+  /** The running answer's text as anyone but its asker may get it now (the REST read of a running answer: chat/shared.ts
+   * messageFor); null: not a shared chat's answer. */
+  othersText(): string | null { return this.live ? this.live.others.of(this.content) : null }
 
   get id() { return this.spec.turnId }
   redactor(): Redactor { return (this.redactorNow ??= redactorFor(this.rt.ctx, this.spec.userId)) }
@@ -695,6 +731,7 @@ export class TurnExec {
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
+    this.engineRunning = engine
     // a model named for the chat's engine means nothing to the other one: its default
     const chosenModel = routed ? null : spec.model
     if (routed) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineNoConnection', spec.locale, { from: ENGINE_LABELS[spec.engine], to: ENGINE_LABELS[engine] }), status: 'ok' })
@@ -702,6 +739,10 @@ export class TurnExec {
     const claude = engine === 'claude-code' ? confs.claude : null
     const codex = engine === 'codex' ? confs.codex : null
     const api = engine === 'api' ? confs.api ?? null : null
+    // the team rules, the memories and a "/skill" together take at most a share of this model's context (prompt.ts
+    // promptBudget): a small or local model gets less of each, with the usual quiet note
+    const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
+    const promptTokens = budget.total
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -756,7 +797,11 @@ export class TurnExec {
         audience: () => this.sharedAudience(),
         noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
       } : undefined
-      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project, ...(shared ? { shared } : {}) }
+      // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {
+        if (await devEnvDownReason(rt.log)) this.devEnvDown = this.shared || !(this.principal.role === 'owner' || this.principal.role === 'admin') ? 'member' : 'staff'
+        else this.devEnv = { project, ...(shared ? { shared } : {}) }
+      }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
@@ -884,6 +929,12 @@ export class TurnExec {
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // the person's own reads of the answers above on this branch (chat/carried-reads.ts): not for a guest or a restricted
+    // run (theirs stay per answer); a failure only means a read again, as before
+    this.carryReads = !guestTurn && mayCarryReads(rt.db, spec.userId, this.restricted)
+    if (this.carryReads) {
+      try { this.files.carried = carriedReads(rt.db, rt.files, { chatId: spec.chatId, userId: spec.userId, answers: rt.store.pathTo(userMsg.parent_id).filter((m) => m.role === 'assistant').map((m) => m.id) }) } catch (e) { rt.log.warn('loading earlier reads failed', { err: e, turn: this.id }) }
+    }
     // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
     const several = !!this.shared || othersWrote
     const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld } : null)
@@ -928,7 +979,7 @@ export class TurnExec {
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -943,12 +994,14 @@ export class TurnExec {
       situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
+      devEnvDown: this.devEnvDown,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
     let childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+    // each sub-agent gets the answer's own cap (QA TC-4911), which is 150 for a guest and a run nobody watches
     const subagentLaunch = () => subagents
-      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch, maxTurns: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }) }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
       : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
@@ -1029,7 +1082,10 @@ export class TurnExec {
     if (refs) this.markRoomsSeen(true)
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
+    // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
+    // resumed Claude session keeps from its first instructions
+    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -1125,7 +1181,9 @@ export class TurnExec {
       const exclude = new Set<string>()
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts; a
       // continuation after a connect gets only what the answer has left
-      const maxTurns = rt.maxEngineTurns
+      // A guest, and a run nobody watches (a scheduled run, one asked from Slack), keep the old default as a ceiling
+      // (docs/decisions/20261118-limits-caps.md); a chat someone watches gets the team limit
+      const maxTurns = answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat })
       let turnsLeft = maxTurns
       // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
       // note is the resumed session's message, at most CONTINUE_MAX times per answer
@@ -1182,9 +1240,14 @@ export class TurnExec {
         // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
+        // whole-file replaces (write, make_file) from an earlier answer's read only inside the very engine session that
+        // read it (it still holds the text); a fresh session gets edit and the in-place tools only (chat/carried-reads.ts)
+        this.files.engineSession(sid, resume)
+        const resumedStash = resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null
+        this.compactionsBefore = resumedStash ? compactionsIn(resumedStash) : 0
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick
           ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
@@ -1275,8 +1338,10 @@ export class TurnExec {
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
       try {
-        // the team's tool rounds per answer, as Claude Code's --max-turns (limits audit 1 #31: it was a fixed 30)
-        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale, maxSteps: rt.maxEngineTurns,
+        // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
+        // it was a fixed 30)
+        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
+          maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
@@ -1332,6 +1397,8 @@ export class TurnExec {
   /** Codex: one turn (a crash without output is tried once more; managed: a refused / limited connection moves the
    * turn to the next one, like Claude). */
   private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
+    // the skill tool cuts to the running engine's limit: Codex also after a Claude limit moved the turn here (limitFallback)
+    this.engineRunning = 'codex'
     const { rt, spec } = this
     const { chatDir, token, model } = o
     const managed = codex.auth === 'managed'
@@ -1422,6 +1489,7 @@ export class TurnExec {
     // so the next Claude turn starts fresh from the history
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
     rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
+    this.engineRunning = 'codex'
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
     // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
     await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })
@@ -1801,6 +1869,11 @@ export class TurnExec {
       case 'agent_progress':
         this.subtaskProgress(e.id, e.stats)
         return
+      case 'compacted':
+        // Claude Code compacted the session in the middle of this answer: what it read before is no longer all in it
+        // (a later write or make_file asks for a new read; edits go on; chat/carried-reads.ts)
+        this.files.sessionLostText()
+        return
       case 'usage':
         // a running usage is one model call of the run under way; the run's total replaces those estimates
         if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
@@ -1917,6 +1990,7 @@ export class TurnExec {
     this.content = this.content.slice(0, at)
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
+    this.live?.text(this.content)
   }
 
   private emitText(t: string) {
@@ -1925,6 +1999,8 @@ export class TurnExec {
     this.content += t
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
+    // the others in a shared chat: their own copy of the text (chat/live-answer.ts OthersText)
+    this.live?.text(this.content)
   }
 
   addStep(s: Partial<StoredStep> & Pick<Step, 'kind' | 'label' | 'status'>): StoredStep {
@@ -2018,6 +2094,8 @@ export class TurnExec {
     // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
     const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
     this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step } })
+    // the others in a shared chat: the step as the finished answer shows it to each of them (ChatStore.viewSteps)
+    this.live?.step(stored)
   }
 
   private closeThinking() {
@@ -2609,7 +2687,7 @@ export class TurnExec {
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
     const cover = !o.noCover ? this.scheduleCover : null
     if (cover) {
-      const t = tool === 'save_room_file' ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
         : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
@@ -2866,7 +2944,7 @@ export class TurnExec {
   private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return false
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t?.mayBeNew) return false
       const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
@@ -2893,7 +2971,7 @@ export class TurnExec {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
       // the PDF tools (QA TC-4703): every place the call may write must qualify (ownFolderPdf)
       if (PDF_OUT_TOOLS.has(tool)) return this.ownFolderPdf(tool, input)
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
       return this.ownFolderPlace(tool, t.path, t.mayBeNew)
     } catch { return null }
@@ -2913,7 +2991,7 @@ export class TurnExec {
     // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
     // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
     // as they are over the person's draft; security review of this change)
-    if (r.exists && tool === 'save_room_file') return null
+    if (r.exists && WIDEN_TARGET_TOOLS.has(tool)) return null
     if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
     if (!r.exists && !mayBeNew) return null
     // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
@@ -3175,6 +3253,8 @@ export class TurnExec {
     for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
     if (!changed) return true
     const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}), ...(x.k ? { k: 1 as const } : {}) }))
+    // (who may see the live text depends on this record: worked out again before the next piece)
+    this.live?.forget()
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
@@ -3257,7 +3337,20 @@ export class TurnExec {
       if (tool === 'list' && k === 'path') continue
       if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (writes.has(k) && !exists(v)) continue
+      // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
+      // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
+      if (!writes.has(k) && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       for (const p of this.roomNames(v)) note(p)
+    }
+    // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
+    // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
+    if (tool === 'make_zip' && Array.isArray(a.paths)) {
+      const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string').flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
+      for (const f of rules.boundaryFolders()) {
+        const k = fold(f)
+        if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
+      }
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
@@ -3889,7 +3982,7 @@ export class TurnExec {
     let after: string | null = null
     if (r.exists) {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
-      if (r.st!.isDirectory() || (!produced && !files.readHashes.has(r.rel))) return null
+      if (r.st!.isDirectory() || (!produced && !(tool === 'write' ? mayReplace(files, r.rel) : files.readHashes.has(r.rel)))) return null
       try {
         const cur = readRegular(r.abs, undefined, r.st).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
@@ -4356,6 +4449,13 @@ export class TurnExec {
       this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
       return
     }
+    // Claude Code compacted the session in this turn, or the slim above took pictures out: it no longer holds all that
+    // earlier reads saw (whole-file replaces from them ask for a new read; edits go on; chat/carried-reads.ts). A fresh
+    // session that starts from the chat's summary is another session id, so earlier reads never count there anyway
+    if (sessionDroppedText({ bytes, compactionsBefore: this.compactionsBefore, slimmed: slim.removed })) {
+      this.files.sessionLostText()
+      try { forgetSessionText(this.rt.db, this.spec.chatId) } catch (e) { this.rt.log.warn('forgetting the session text failed', { err: e, turn: this.id }) }
+    }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     for (const f of fs.readdirSync(dir)) if (f !== `${sid}.jsonl`) fs.rmSync(path.join(dir, f), { force: true })
     const file = this.rt.sessionStash(this.spec.chatId, sid)
@@ -4394,6 +4494,8 @@ export class TurnExec {
         return
       }
     }
+    // what this answer's AI read or saved, for the person's next answers in this chat (chat/carried-reads.ts)
+    if (this.carryReads && this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId }, this.files.allReads, this.files.readSessions))
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
@@ -4564,6 +4666,8 @@ export class TurnExec {
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
+      // the others in a shared chat: the finished message as each of them may see it
+      if (this.shared) publishDoneToOthers(this.rt, this.spec.chatId, this.spec.assistantId, this.spec.userId, status)
     })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
@@ -4793,6 +4897,12 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     case 'save_room_file': {
       // a copy of a room file: named by save_as, or for a folder ("…/") or none by the file's own name, which an id does
       // not tell here (the tool refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
+    }
+    case 'save_chat_file': {
+      // a copy of a chat's file: as save_room_file (the file's own name for a folder or none)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }

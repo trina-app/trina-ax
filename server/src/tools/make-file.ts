@@ -1,6 +1,6 @@
 // make_file (design tab 3): Markdown / CSV -> Word, PowerPoint, Excel, PDF in the team folder.
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
-//   optional --reference-doc template from skills/
+//   optional --reference-doc template: any .docx / .pptx the person can read (docs/decisions/20261118-any-file-template.md)
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
 //   remote images are never fetched); the fonts and typst's language follow the document's writing (pdfLanguage: a
 //   Japanese document gets Japanese faces first, Chinese Chinese ones, else the team's language). A Linux bundle brings its own (Noto Sans CJK in
@@ -22,7 +22,7 @@
 // - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
 //   expected_notes before anything is saved (tools/pptx-check.ts)
 // - hwpx (Hangul): pandoc's tree of the Markdown (or a CSV's table), written by our OWPML writer in the office worker
-//   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
+//   (files/hwpx-write.ts, never in this process) with the built-in or a template the person can read; anything the
 //   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
 //   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
 // - pdf from an .html `source`: printed by the server's headless browser exactly as a browser prints the page (its CSS,
@@ -46,9 +46,10 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
-import type { ToolCtx } from '../files/service'
+import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
@@ -75,11 +76,12 @@ import { publishArtifact } from '../safe-ops/publication'
 import { preparePresentation } from '../safe-ops/presentation'
 import { snapshot, type SourceSnapshot } from '../safe-ops/source'
 import { safeText } from '../safe-ops/strings'
+import { turnWriteLimits } from '../files/turn-write-limits'
 
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -300,18 +302,31 @@ export class MakeFile {
     let text: string
     let kind: 'markdown' | 'csv' | 'tsv'
     let baseDir: string[] = []
+    /** xlsx from a CSV source with `content` too: the CSV's sheet (named after the file) comes first, then the Markdown
+     * tables of `content` as more sheets (a summary with formulas over the data; QA TC-4914: the AI retyped 999 of
+     * 50,000 rows because a CSV source could not get a second sheet) */
+    let first: { name: string } | undefined
     /** team-folder files whose bytes go into the output */
     const sources: string[] = []
+    if (a.source !== undefined && a.content !== undefined) {
+      const x = ext(a.source)
+      if (a.format !== 'xlsx' || (x !== 'csv' && x !== 'tsv')) throw new ToolError('give exactly one of source or content (only an xlsx from a .csv/.tsv source may add sheets in content)')
+      if (Buffer.byteLength(a.content) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
+      if (!hasPipeRow(a.content)) throw new ToolError('with a CSV source, content must be Markdown | pipe | tables (the sheets after the CSV\'s); nothing was saved')
+    }
     if (a.source !== undefined) {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       const x = ext(r.rel)
       if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf", an .svg file for format "png")')
       const { bytes } = readRegular(r.abs, MAX_SOURCE, r.st)
+      // one cap for the CSV and the sheets added to it
+      if (a.content !== undefined && bytes.length + Buffer.byteLength(a.content) > MAX_SOURCE) throw new ToolError('the CSV and content are too large together (max 10 MB); nothing was saved')
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
       baseDir = r.segs.slice(0, -1)
       sources.push(r.rel)
+      if (a.content !== undefined) first = { name: path.basename(r.rel).replace(/\.[^.]+$/, '') }
     } else {
       text = a.content!
       if (Buffer.byteLength(text) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
@@ -321,6 +336,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, a.format)
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
 
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
@@ -334,7 +351,9 @@ export class MakeFile {
       /** docx: the text colours the document uses (docx-format.ts) */
       let marks = new Map<string, TextMark>()
       let svgPictures = 0
-      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional }
+      /** the CSV sheet's name when it is not the file's name (cut at 31 characters, or characters Excel refuses) */
+      let csvSheet: string | undefined
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional; csvSheet = x.csvSheet }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -384,12 +403,13 @@ export class MakeFile {
           // pptx: an explicit slide level, never pandoc's guess from the document shape (B-W24-1: one slide)
           if (shape) args.push(`--slide-level=${shape.level}`)
           if (a.template) {
-            const tpl = this.template(c, a.template, a.format, work)
+            const tpl = await this.template(c, a.template, a.format, work)
             sources.push(tpl.rel)
             args.push('--reference-doc', tpl.local)
           }
-          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
-          if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
+          // a memory cap: a small template (any readable file now) can expand to hundreds of MB in pandoc (QA TC-4948)
+          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000, maxRssMiB: PANDOC_RSS_MIB })
+          if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? `the conversion needed more than ${PANDOC_RSS_MIB} MB of memory${a.template ? ' (the template is too large or too complex; use another one)' : ''}; nothing was saved` : convertError('pandoc', r.stderr, r.killed, work))
           // docx: text colours, page, header and footer (docx-format.ts), written under a name pandoc could not plant
           if (a.format === 'docx' && (marks.size || a.page)) {
             const got = readOutput(work, path.basename(produced), MAX_DOCX)
@@ -412,7 +432,7 @@ export class MakeFile {
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
       const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}) }
-      return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...extra } : { ...made, ...extra }
+      return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...(csvSheet ? { csvSheet } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -428,6 +448,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
     const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
@@ -456,6 +478,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
     const why = htmlPdfUnavailable()
     const browser = findPdfBrowser()
     if (why || !browser) throw new ToolError(`this server cannot make a PDF of a deck (${why ?? 'no headless browser is installed'}); nothing was saved. Tell the user so, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead`, 'html_pdf_unavailable')
@@ -647,14 +671,20 @@ export class MakeFile {
     return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
 
-  private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
+  private async template(c: ToolCtx, tpl: string, format: string, work: string): Promise<{ local: string; rel: string }> {
+    // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
+    // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
+    // fetches something, an external relationship or an embedded object would be in every new file, so the template
+    // is checked first in the office worker (files/office-template.ts, QA TC-4948), and the checked bytes are used
+    const bytes = readRegular(r.abs, 50 * 1024 * 1024, r.st).bytes
+    await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
     const local = freshName(work, 'template', format)
-    fs.copyFileSync(r.abs, path.join(work, local), fs.constants.COPYFILE_EXCL)
+    fs.writeFileSync(path.join(work, local), bytes, { flag: 'wx', mode: 0o600 })
     return { local, rel: r.rel }
   }
 
@@ -682,10 +712,12 @@ export class MakeFile {
     try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
   }
 
-  /** A team's .hwpx template under skills/: its bytes go to the office worker, which checks them (files/hwpx-write.ts). */
+  /** A .hwpx template the person can read: its bytes go to the office worker, which checks them as untrusted (files/hwpx-write.ts).
+   * Only its header's style lists and its first section's page setup are used, never its text (so no field or link
+   * in it reaches the new file); scripts, OLE objects and addresses or paths in what is kept are refused there. */
   private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .hwpx file as the template`, 'is_folder')
     if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
     if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
     return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX, r.st).bytes, rel: r.rel }
@@ -709,13 +741,15 @@ export class MakeFile {
 
   /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have
    * their result stored, and the number of charts. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], options: SheetOptions[] = []): Promise<{ formulas: number; stored: number; charts: number; conditional: number }> {
+  /** `csvFirst`: the CSV `text` is a sheet named `name`, followed by the Markdown tables of `more` */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], options: SheetOptions[] = [], csvFirst?: { name: string; more: string }): Promise<{ formulas: number; stored: number; charts: number; conditional: number; csvSheet?: string }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
       if (!tables.length) throw new ToolError('no table found: give CSV, or Markdown with | pipe | tables |')
       tables.forEach((t, i) => sheets.push({ name: t.title ?? `Sheet${i + 1}`, rows: t.rows }))
-    } else sheets.push({ name: 'Sheet1', rows: parseCsv(text, kind === 'tsv' ? '\t' : ',') })
+    } else sheets.push({ name: csvFirst?.name ?? 'Sheet1', rows: parseCsv(text, kind === 'tsv' ? '\t' : ',') })
+    if (csvFirst) markdownTables(csvFirst.more).forEach((t, i) => sheets.push({ name: t.title ?? `Sheet${i + 2}`, rows: t.rows }))
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()
@@ -760,7 +794,8 @@ export class MakeFile {
     const { conditional } = applySheetOptions(options, styled, (f) => { const r = formulaOf(f); return 'formula' in r ? r.formula : { error: r.error } })
     await wb.xlsx.writeFile(out)
     if (charts.length) fs.writeFileSync(out, addCharts(new Uint8Array(fs.readFileSync(out)), charts, written))
-    return { formulas, stored, charts: charts.length, conditional }
+    const csvSheet = csvFirst && written[0] && written[0].name !== csvFirst.name ? written[0].name : undefined
+    return { formulas, stored, charts: charts.length, conditional, ...(csvSheet ? { csvSheet } : {}) }
   }
 
   /** `sources`: the team files whose bytes are in the output (the source, embedded images, a template). The event says
@@ -853,18 +888,22 @@ export async function printTeamHtml(ctx: AppContext, files: TeamFiles, user: Too
 const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'stamp_pdf'])
 
 /** placeProduced options. `turnBytes: false`: the file does not count against the turn's write budget
- * (maxWriteBytesPerTurn, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
+ * (turnWriteLimits bytes, a guard against an AI writing in a loop): save_url's downloads, which the person sized on a
  * card over 1 GB and the disk check bounds (tools/save-url.ts). `turnFiles: false`: the file does not count against the
- * turn's file count (maxFilesWrittenPerTurn): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
+ * turn's file count (turnWriteLimits files): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
  * answer (tools/unzip.ts). `detail`: more for the file event (the source URL). */
-export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown> }
+/** thisAnswerOnly: a save of a new thing (a web page, a room's file, a video, an unzip): an existing file there is
+ * replaced only when this answer read it (a read in an earlier message keeps both, as before); make_file and the
+ * tools that change a named file count the chat's earlier reads too (files/service.ts ReadHashes) */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
-  const cfg = ctx.engineConfig
+  // a guest has the smaller pair (files/turn-write-limits.ts)
+  const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
   // lstat, never the size of what a link left by a converter points at (hashFile below refuses such a link anyway)
   const size = checkRegular(produced).size
   const counted = po.turnBytes !== false
-  if (counted && c.files.bytesWritten + size > cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', cfg.maxWriteBytesPerTurn, segs.join('/')))
+  if (counted && c.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, segs.join('/')))
   assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
   const fx = files.fx
   // Finish asynchronous work BEFORE the fresh principal/content/conflict check. The final
@@ -889,11 +928,14 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
     const cur = sha256(readRegular(abs, undefined, now.st).bytes)
-    if (c.files.readHashes.get(rel0) === cur) {
+    // make_file replaces a whole file: only from a read this session still holds (readForMakeFile); the in-place tools
+    // (edit_hwp, comment_docx, the PDF and image tools) work from the old bytes and use every unchanged read
+    if ((po.thisAnswerOnly ? readThisAnswer(c.files, rel0) : tool === 'make_file' ? readForMakeFile(c.files, rel0) : c.files.readHashes.get(rel0)) === cur) {
       snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
       action = 'update'
     } else {
-      // never overwrite a file the AI has not read in this turn: keep both
+      // never overwrite a file the AI has not read in this chat (this answer or, unchanged, an earlier one of the
+      // person's: files/service.ts ReadHashes; changed since then it asks for a new read): keep both
       const dir = segs.slice(0, -1)
       let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db), teamTimeZone(ctx.db))
       if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`
@@ -902,7 +944,7 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
       conflictOf = rel0
     }
   }
-  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', cfg.maxFilesWrittenPerTurn, target.join('/')))
+  if (po.turnFiles !== false && !c.files.filesWritten.has(target.join('/')) && c.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, target.join('/')))
   // final check right before the rename (rules may have changed during the conversion)
   authorize(fx, files.rules(), c.user, target.join('/'), 'write', { mustExist: false, createDirs: true })
   installFile(fx.root, target, produced)
@@ -1022,6 +1064,9 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
 
 /** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text.
  * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
+/** pandoc's memory for a .docx / .pptx (with or without a template) */
+export const PANDOC_RSS_MIB = 1024
+
 export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
   if (s.startsWith('=') && startsLikeFormula(s.slice(1))) {

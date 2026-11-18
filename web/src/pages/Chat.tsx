@@ -295,8 +295,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // a shared chat: the running answer is mine to stop only when I asked; someone else's turn holds the box instead
   const runningMine = shared ? (!!running && mine(askedBy(running))) || messages.some((m) => m.local?.state === 'sending') : busy
 
-  // a shared chat: someone else's turn started or ended. Its question and answer are not streamed to the others (phase
-  // 1): the messages are read again, so they appear
+  // a shared chat: someone else's turn started or ended. Their question is not sent to the others as an event: the
+  // messages are read again, so it appears with the answer's text so far, and the answer's live text, steps and end
+  // follow as events (docs/decisions/20261118-shared-chat-live-answers.md); read again at the end too, in case one was
+  // missed
   const othersTurnNow = !!othersTurn
   const wasOthersTurn = useRef<boolean | null>(null)
   useEffect(() => {
@@ -353,7 +355,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, CHAT_ROW)
+      const keep = holdPlace(el, CHAT_ROW, list.reanchor)
       await loadOlder(chatId).catch(() => {})
       requestAnimationFrame(keep)
       setOlderBusy(false)

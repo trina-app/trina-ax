@@ -1,6 +1,6 @@
 // Messages sent while an answer runs (lib/sendQueue.ts rules, store/sendQueue.ts runner) against a fake REST server.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { uuidv7, type Attachment, type Chat, type TurnStarted } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type Chat, type TurnStarted } from '@mycel/shared/api'
 import { combine, combinedClientId, declaredCount, nextStep, parseQueue, queueKey, restoredQueue, serializeQueue, QUEUE_CONTENT_MAX, QUEUE_ITEMS_MAX, type QueuedMessage } from '../../src/lib/sendQueue'
 import { useChats } from '../../src/store/chats'
 import { QueueFull, useSendQueue } from '../../src/store/sendQueue'
@@ -37,7 +37,8 @@ describe('rules', () => {
     expect(r.content).toBe('first\n\nthird')
     expect(r.attachments.map((x) => x.name)).toEqual(['shared.txt', 'b.txt'])
     expect(combinedClientId(r.take)).toBe(`${a.id}.3`)
-    const many = Array.from({ length: 16 }, (_, i) => att(`f${i}.txt`))
+    // the second message's 5 new files would take the first past the attachment limit by one: it waits
+    const many = Array.from({ length: MESSAGE_ATTACHMENTS_MAX - 4 }, (_, i) => att(`f${i}.txt`))
     const big = combine([item('one', many), item('two', many.slice(0, 5).map((x) => ({ ...x, id: uuidv7() }))), item('three')])
     expect(big.take.map((x) => x.content)).toEqual(['one'])
     const long = combine([item('x'.repeat(150_000)), item('y'.repeat(60_000)), item('z')])
@@ -174,6 +175,28 @@ describe('the runner', () => {
     await tick(10)
     expect(sends()).toHaveLength(0)
     expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('error')
+  })
+
+  test('a failed or stopped answer tried again: the pause no longer says it did not finish (QA TC-4930)', async () => {
+    for (const end of ['error', 'stopped'] as const) {
+      useChats.getState().reset(); useSendQueue.getState().reset(); calls = []
+      const a = running()
+      useSendQueue.getState().enqueue(me.id, CHAT, { content: 'next', attachments: [], author: me })
+      done(a, end)
+      await tick(10)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe(end)
+      // the person tries again: a new answer in its place (regenerate), and it finishes
+      const again = msg({ role: 'assistant', parentId: a.parentId, status: 'streaming', turnId: uuidv7() })
+      const t = useChats.getState().threads[CHAT]!
+      useChats.setState({ threads: { [CHAT]: { ...t, messages: [...t.messages.slice(0, -1), again] } } })
+      await tick(10)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('away')
+      done(again, 'done')
+      await tick(10)
+      // still waits for "Send now": nothing drops into the conversation by itself
+      expect(sends()).toHaveLength(0)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('away')
+    }
   })
 
   test('another answer already running (409): the messages wait again, nothing shows as failed', async () => {

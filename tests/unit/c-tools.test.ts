@@ -41,7 +41,7 @@ describe('registry', () => {
     // save_promo_video only where this server can render the MP4 (promo-video/render.ts mp4Available: a Mac dev server)
     const offered: string[] = names
     expect(offered.includes('save_promo_video')).toBe(mp4Available(A.ctx))
-    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'artifact', 'web_fetch', 'save_url', 'comment_docx', 'move_files', 'copy_files', 'rename_file', 'schedule_create', 'schedule_list', 'schedule_delete', 'save_connector_file', 'promo_video', 'intro_deck'])
+    expect(offered.filter((n) => n !== 'save_promo_video')).toEqual(['list', 'glob', 'grep', 'read', 'write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url', 'comment_docx', 'edit_office', 'move_files', 'copy_files', 'rename_file', 'schedule_create', 'schedule_list', 'schedule_delete', 'save_connector_file', 'promo_video', 'intro_deck'])
     const mf = r.result.tools.find((t: any) => t.name === 'make_file')
     expect(mf.inputSchema.properties.format.enum).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png'])
     expect(() => toolRegistry(A.ctx.files).register({ name: 'make_file', description: '', input: mf as any, run: () => ({ text: '', summary: '' }) })).toThrow('registered twice')
@@ -168,7 +168,8 @@ describe('make_file', () => {
     expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
     // read / grep show a formula cell as its formula, not as a blank
     const text = await extractText('f.xlsx', fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')), { pandoc: null, pdftotext: null, ocr: null } as any)
-    expect(text).toContain('서울\t10\t20\t30\t40\t100') // a simple formula is stored with its result (formula-values.ts)
+    // a simple formula is stored with its result (formula-values.ts), and read shows both (QA TC-4918)
+    expect(text).toContain('서울\t10\t20\t30\t40\t=SUM(B2:E2) → 100')
     expect(wb.Sheets['지역별']!.F2.v).toBe(100)
     expect(wb.Sheets['지역별']!.F2.f).toBe('SUM(B2:E2)')
     expect(text).toContain('=XLOOKUP(')
@@ -304,10 +305,17 @@ describe('make_file', () => {
       }
     } finally { srv.stop(true) }
   })
-  test('policy: output needs write access, template must live under skills/', async () => {
+  test('policy: output needs write access, template is any file the person can read', async () => {
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'skills/x.docx' })).text).toContain('read-only')
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'groups/finance/x.docx' })).text).toContain('not found or no access')
-    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'groups/marketing/brand-guidelines.docx' })).text).toContain('skills/')
+    // a readable team document outside skills/ is a template (docs/decisions/20261118-any-file-template.md)
+    const own = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t0.docx', template: 'groups/marketing/brand-guidelines.docx' })
+    expect(own.isError, own.text).toBe(false)
+    // one the person cannot read is not, and says nothing about the file
+    const hidden = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t1.docx', template: 'groups/finance/board-memo.docx' })
+    expect(hidden.isError).toBe(true)
+    expect(hidden.text).toContain('not found or no access')
+    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t2.docx', template: 'groups/marketing' })).text).toContain('folder')
     fs.copyFileSync(path.join(A.team, 'groups/marketing/brand-guidelines.docx'), path.join(A.team, 'skills/ref.docx'))
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'skills/ref.docx' })).isError).toBe(false)
     expect((await call('alice', null, 'make_file', { source: 'groups/finance/budget.md', format: 'docx', output: 'users/alice/b.docx' })).text).toContain('not found or no access')

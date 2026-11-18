@@ -8,7 +8,9 @@ import { API, type Locale } from '@mycel/shared/api'
 import type { RouteModule } from './module'
 import { fail } from '../http/errors'
 import { getChatRuntime } from '../chat/runtime'
-import { cleanMemoryText, MEMORY_ITEM_MAX } from '../chat/prompt'
+import { cleanMemoryText, contextTokensFor, MEMORY_ITEM_MAX, memoryTokensOf, promptBudget } from '../chat/prompt'
+import { personalDefault } from '../admin/engine-choice'
+import type { AppContext } from '../context'
 import { tr } from '../chat/i18n'
 import { newId } from '../db'
 import { audit } from '../admin/audit'
@@ -52,7 +54,8 @@ export const memoriesRoutes: RouteModule = {
       const last = items[items.length - 1]
       // which of them the AI gets now (the same cut as its memory block): the others are marked, and the page says how
       // many are in use of how many kept (QA TC-213)
-      const used = rt.memoriesInUse(auth.user.id)
+      // by the budget of the engine and model a new chat of this person starts on (chat/prompt.ts promptBudget)
+      const used = rt.memoriesInUse(auth.user.id, memoryTokensFor(ctx, rt, auth.user))
       const total = (ctx.db.query('SELECT count(*) n FROM memories WHERE user_id = ?').get(auth.user.id) as { n: number }).n
       return {
         items: items.map((r) => ({ ...rt.store.toMemory(r), ...(used.has(r.id) ? {} : { unused: true as const }) })),
@@ -193,4 +196,14 @@ export const memoriesRoutes: RouteModule = {
     kit.handle(API.approveSkillSuggestion, ({ c, params, body, auth }) => approveSuggestion(ctx, auth.user.id, params.id, body, c.get('locale')))
     kit.handle(API.rejectSkillSuggestion, ({ c, params, body, auth }) => rejectSuggestion(ctx, auth.user.id, params.id, body.note, c.get('locale')))
   },
+}
+
+/** The memory block's tokens for the engine and model a new chat of this person starts on (admin/engine-choice.ts
+ * personalDefault), so Settings marks "Not used" by the same cut as that AI's instructions (chat/prompt.ts promptBudget). */
+function memoryTokensFor(ctx: AppContext, rt: ReturnType<typeof getChatRuntime>, user: { id: string; role: string }): number | undefined {
+  try {
+    const e = personalDefault(ctx, user as Parameters<typeof personalDefault>[1])
+    const api = e.engine === 'api' ? rt.engines.get().api ?? null : null
+    return memoryTokensOf(promptBudget(contextTokensFor(e.engine, api ? api.model : e.model, { apiBaseUrl: api?.baseUrl })).total)
+  } catch { return undefined }
 }

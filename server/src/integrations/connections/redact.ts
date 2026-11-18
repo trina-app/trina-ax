@@ -138,6 +138,18 @@ export function formCarryLength(text: string, values: readonly string[]): number
   return n
 }
 
+/** How many characters at the end of `text` are one run of the characters a written form of these values is made of,
+ * with no length cap: the part of a shared answer the others do not get yet (chat/live-answer.ts OthersText). A form
+ * padded past formCarryLength's longest (HTML entities with leading zeros, `&#0000…065;`) stays in it, so no form is
+ * cut in two at what is let out. 0 with no values. */
+export function formRunLength(text: string, values: readonly string[]): number {
+  if (!values.length) return 0
+  const { chars } = formsOf(values)
+  let n = 0
+  for (let i = text.length - 1; i >= 0 && chars.has(text[i]!); i--) n++
+  return n
+}
+
 /**
  * Text that arrives in pieces (the engine's text deltas), let out with the values hidden. A value cut across two
  * pieces is still found: the end of the text that could be the start of a value, as written or in one of its other

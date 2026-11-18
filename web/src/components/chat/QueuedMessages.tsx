@@ -15,6 +15,7 @@ import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { SharedQueuedLine } from './ComposerFiles'
 import { UserText } from './Messages'
+import { capBlankLines } from '../../lib/blankLines'
 
 /** a shared chat: who sees the files (as the line under the box counts them), and how many other people have messages waiting */
 export interface QueueShared { audience: number; kind?: 'project' | 'people'; othersWaiting: number }
@@ -186,7 +187,7 @@ function QueuedItem({ item, shared, editing, onEdit, onCancelEdit, onSave, onRem
             {item.lead ? (
               <UserText content={`${item.lead}\n\n${item.content}`} clamp quotes />
             ) : (
-              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={capBlankLines(item.content)} /></div>
             )}
           </div>
         )

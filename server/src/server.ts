@@ -7,6 +7,8 @@ import type { Database } from 'bun:sqlite'
 import { openDb } from './db'
 import type { ServerConfig } from './config'
 import { FileService } from './files/service'
+import { smallForModel } from './files/vision'
+import { fitRequestImages } from './proxy/fit-images'
 import { TurnRegistry } from './turns'
 import { startMcpSocket } from './mcp/socket'
 import { SocketLauncher, startGate, startLauncher, type Launcher, type LauncherSandbox } from './native'
@@ -45,6 +47,8 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
   const l = () => running.launcher as SocketLauncher | null
   return {
     ...o, db: running.db, peerCheck: proxyPeerCheck(running),
+    // the pictures of each Claude request, fitted (proxy/fit-images.ts), with the read's converter
+    fitImages: (body, signal) => fitRequestImages(body, (b) => smallForModel(b, running.files.visionTools()), signal),
     // the registry keeps the reason of a turn that ended a moment ago (also a time limit or shutdown); an older one's
     // row still says 'stopped' when the person stopped it
     stopReason: (turnId) => running.turns.stopReason(turnId)

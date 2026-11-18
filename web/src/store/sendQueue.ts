@@ -220,6 +220,15 @@ function pump() {
   watchTurns()
   declareAll()
   for (const [chatId, q] of Object.entries(s.queues)) {
+    // paused because the answer was stopped or failed, and that answer is no longer the newest (the person tried again
+    // and that answer runs or finished, QA TC-4930): "The answer didn't finish" would sit under a finished answer. They
+    // wait for "Send now" as after a reload (the chat moved on; nothing drops in by itself)
+    if (q.items.length && (q.paused === 'stopped' || q.paused === 'error')) {
+      const thread = useChats.getState().threads[chatId]
+      const step = thread ? nextStep(thread.messages, sharedRule(chatId, s.userId)) : null
+      if (thread && !(typeof step === 'object' && step?.pause === q.paused)) pause(chatId, 'away')
+      continue
+    }
     if (!q.items.length || q.paused || s.editing[chatId] || flushing.has(chatId) || inFlight.has(chatId) || (holdUntil.get(chatId) ?? 0) > Date.now()) continue
     const thread = useChats.getState().threads[chatId]
     if (!thread) continue

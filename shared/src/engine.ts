@@ -26,6 +26,9 @@ export const EngineEvent = z.discriminatedUnion('type', [
   /** the engine's own report of what it was started with (Claude Code system/init): checked against the lockdown */
   z.object({ type: z.literal('init'), tools: z.array(z.string()), agents: z.array(z.string()), mcpServers: z.array(z.string()).optional() }),
   z.object({ type: z.literal('session'), sessionId: z.string() }),
+  /** the main AI's session was compacted (Claude Code's compact_boundary / microcompact_boundary system line): it no
+   * longer holds all the text it saw earlier (server/src/chat/carried-reads.ts) */
+  z.object({ type: z.literal('compacted') }),
   /** costUnknown: the provider gave no cost and the model has no list price (never recorded as free); requestId: the
    * provider's id of the request (OpenRouter's generation id), for the log; running: one model call's tokens while
    * the run goes on (Claude Code's stream), an estimate the run's own total replaces when it comes; continues: the run

@@ -136,7 +136,7 @@ export async function resizeImages(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const folder = a.output_folder?.trim() ? a.output_folder.trim().replace(/\/+$/, '') : null
   if (replace) {
     for (const ph of photos) {
-      if (!c.files.readHashes.has(ph.rel)) throw new ToolError(`to replace '${ph.rel}' (its old version stays in its history), read it in this turn first. Replace it only when the user asked for that; otherwise leave replace out to save a copy next to it`)
+      if (!c.files.readHashes.has(ph.rel)) throw new ToolError(`to replace '${ph.rel}' (its old version stays in its history), read it in this chat first. Replace it only when the user asked for that; otherwise leave replace out to save a copy next to it`)
       if (ext(ph.name) === 'webp') throw new ToolError(`'${ph.rel}' is a WebP, and its copy is a JPEG or PNG, so it cannot replace the original; leave replace out to save the copy next to it`)
       if (isHeic(ph.name)) throw new ToolError(`'${ph.rel}' is an iPhone photo (HEIC), and its copy is a JPEG, so it cannot replace the original; leave replace out to save the copy next to it`)
     }
@@ -274,7 +274,7 @@ function detailsText(r: ResizeResult): string {
 /** The tool result for the AI: each copy with its new size and link, what was not done, and what to tell the user. */
 export function resizeResultText(r: ResizeResult, link: (p: string) => string): string {
   const lines = r.made.map((m) => m.made.conflictCopyOf
-    ? `'${m.made.conflictCopyOf}' already exists and was not read in this turn (or changed after the read), so the copy of ${m.src} was saved as '${m.made.path}' (${m.after}). Link for the user: ${link(m.made.path)}. Tell the user about both.`
+    ? `'${m.made.conflictCopyOf}' already exists and was not read in this chat (or changed after the read), so the copy of ${m.src} was saved as '${m.made.path}' (${m.after}). Link for the user: ${link(m.made.path)}. Tell the user about both.`
     : `Saved ${m.made.path} (${m.after}). Link for the user: ${link(m.made.path)}`)
   const replacedAny = r.replaced && r.made.some((m) => m.made.path === m.src && !m.made.conflictCopyOf)
   lines.push(replacedAny

@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:events'
 import { ENGINE_BUILTIN_ALLOWED, EditInput, GlobInput, GrepInput, ListInput, mediaKind, ReadInput, VERSIONS_SHOWN_DEFAULT, WriteInput, type MediaKind } from '@mycel/shared'
 import { lineDiff } from '../skills/diff'
 import { isGuestUser } from '../credentials/guest-ai'
+import { turnWriteLimits } from './turn-write-limits'
 import { FILE_LIST_NAME, isFileListName, mediaTranscriptsOffSmall, mediaTranscriptsOn, type SpeechHost, type TranscribeResult } from '@mycel/shared/api'
 import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { imageFactsLine, seeThrough } from '../uploads/image'
@@ -23,6 +24,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
+import { numberedLines, prettyAllowed, prettyJsonView } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -41,14 +43,15 @@ import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, turnImageCaps, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
+import { listPage, TOOL_TEXT_BUDGET } from './tool-budget'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
-import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
+import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelProgress, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
@@ -74,11 +77,97 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
 }
 
-/** "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. */
-class ReadHashes extends Map<string, string> {
-  constructor(private readonly all: Map<string, string> | null) { super() }
-  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+/**
+ * What the person's earlier answers in this chat read (chat/carried-reads.ts): path -> the sha256 of the version their
+ * AI last saw, and the sha256 of the file now, or null when the person may not read it now (permission checked at that
+ * moment), it is gone, not a regular file or too large to hash. Never another person's reads, never another branch's.
+ */
+export interface CarriedReads {
+  hashes: ReadonlyMap<string, string>
+  current(rel: string): string | null
+  /** the engine session this turn runs in when it resumed one (null: a fresh session, Codex, the API engine) */
+  inSession(sid: string | null): void
+  /** the read of `rel` was made in that same session, which still holds the file's text: a whole-file replace (write,
+   * make_file) may use it. Otherwise only edit and the in-place tools may (they need the exact old text, not a guess) */
+  wholeFile(rel: string): boolean
 }
+
+const subViews = new WeakMap<CarriedReads, CarriedReads>()
+/** the earlier answers' reads as a sub-agent sees them: the same hashes and checks, no whole-file replace */
+function subagentCarried(c: CarriedReads): CarriedReads {
+  let v = subViews.get(c)
+  if (!v) { v = { hashes: c.hashes, current: (rel) => c.current(rel), inSession: () => {}, wholeFile: () => false }; subViews.set(c, v) }
+  return v
+}
+
+/** read_state_stale: a file read in an earlier message that changed since (the AI reads it again, nothing is saved) */
+export const staleReadText = (rel: string) =>
+  `'${rel}' changed after you read it earlier in this chat (someone saved a new version). Read it again, then make your change to what it says now.`
+
+/**
+ * "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. A path this
+ * agent did not read in this turn falls back to the chat's earlier reads (`carried`), but only while the file is still
+ * exactly that version and the person may still read it: get() throws 'stale_read' for a changed one (asks for a new
+ * read; never a conflict copy or an overwrite from an old read), has() says false.
+ */
+class ReadHashes extends Map<string, string> {
+  /** `seen`: the turn's path -> the engine session whose AI saw the text (null: a sub-agent's or an unknown call's read,
+   * which the main session never saw), filled with `all` */
+  constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null,
+    private readonly seen: { sessions: Map<string, string | null>; session: () => string | null } | null = null) { super() }
+  // newest last in `all` (saveReads keeps the newest when an answer read more than it keeps)
+  override set(k: string, v: string) {
+    this.all?.delete(k); this.all?.set(k, v)
+    if (this.seen) this.seen.sessions.set(k, this.seen.session())
+    return super.set(k, v)
+  }
+  private earlier(k: string): { was: string; now: string | null } | null {
+    if (super.has(k)) return null
+    const c = this.carried()
+    const was = c?.hashes.get(k)
+    return c && was ? { was, now: c.current(k) } : null
+  }
+  override get(k: string) {
+    const e = this.earlier(k)
+    if (!e) return super.get(k)
+    if (e.now === null) return undefined
+    if (e.now !== e.was) throw new ToolError(staleReadText(k), 'stale_read')
+    return e.was
+  }
+  override has(k: string) {
+    const e = this.earlier(k)
+    return e ? e.now !== null && e.now === e.was : super.has(k)
+  }
+}
+
+/** the hash `files`' agent recorded for `rel` in THIS answer only (never an earlier answer's read): for saves of a new
+ * thing (a web page, a room's file, a video, an unzip) that keep a copy next to a file the chat saw before */
+/** the hash a whole-file replace (write, make_file) may rely on for `rel`: this answer's read, or an earlier answer's only
+ * when it was made in the engine session this turn resumed (CarriedReads.wholeFile); throws 'stale_read' like get() */
+export function readForReplace(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined) return own
+  return files.carried?.wholeFile(rel) ? files.readHashes.get(rel) : undefined
+}
+/**
+ * make_file over an existing file: like readForReplace, but a read of an earlier answer that this session does not hold
+ * (a fresh engine session) asks for a new read instead of a conflict copy next to it. Undefined: never read in this
+ * chat (a copy is kept next to it, as before); throws 'stale_read' when it changed since the read.
+ */
+export function readForMakeFile(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined || !files.carried?.hashes.has(rel)) return own
+  const seen = files.readHashes.get(rel)
+  if (seen === undefined || files.carried.wholeFile(rel)) return seen
+  throw new ToolError(`'${rel}' was read in an earlier message of this chat, but this conversation was started again since, so its text is not at hand here. Read it again, then save over it (it is replaced, its old version stays in its history).`, 'not_read')
+}
+
+/** readForReplace without the throw: would a whole-file replace of `rel` find a read to rely on? */
+export function mayReplace(files: TurnFiles, rel: string): boolean {
+  return readThisAnswer(files, rel) !== undefined || (!!files.carried?.wholeFile(rel) && files.readHashes.has(rel))
+}
+
+export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined => Map.prototype.get.call(files.readHashes, rel) as string | undefined
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
 export const CALL_OWNER_WAIT_MS = 3000
@@ -92,9 +181,22 @@ export class TurnFiles {
   /** the files this agent read (or wrote) in this turn and their hashes then: write / edit / make_file refuse an
    * existing file that is not here and make a conflict copy when it changed since. Per agent (forAgent): siblings do
    * not share it, so one sub-agent cannot overwrite what another wrote after it read the file (review M3) */
-  readHashes: Map<string, string> = new ReadHashes(this.allReads)
+  /** path -> the engine session in which the main AI saw what allReads holds for it (null: a sub-agent's read, an unknown
+   * call's, or one made before the turn moved to another session): saved with the reads, so a later answer's whole-file
+   * replace (write, make_file) counts it only in that same session (chat/carried-reads.ts) */
+  readonly readSessions = new Map<string, string | null>()
+  /** the engine session the main AI runs in now (engineSession), null for Codex or the API engine */
+  private session: string | null = null
+  readHashes: Map<string, string> = new ReadHashes(this.allReads, () => this.carried, { sessions: this.readSessions, session: () => this.session })
+  /** the person's reads of earlier answers on this branch of the chat (chat/carried-reads.ts), set when a chat turn
+   * starts: the main AI and its sub-agents may change those files without reading them again while they are unchanged
+   * (ReadHashes). Null: every read is per answer (a guest, a restricted run, no chat) */
+  carried: CarriedReads | null = null
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** files whose last read in this turn was a reformatted (pretty-printed JSON) view: an edit that does not match says
+   * to copy from the raw text (files/read-lines.ts) */
+  prettyReads = new Set<string>()
   /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
    * AI session and a Slack chat count them like reads (chat/turn.ts noteReads; their answers may repeat the names in a
    * room or a channel), other chats do not */
@@ -108,7 +210,7 @@ export class TurnFiles {
   readonly sources = new SourceLog()
   /** the sub-agent whose state this is (the id of its Agent call), null for the main AI (forAgent) */
   readonly agent: string | null = null
-  /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
+  /** image blocks sent to the model in this turn (files/vision.ts turnImageCaps) */
   imageBytes = 0
   imageCount = 0
   /** safe operations 1A: image versions a presentation used (safe-ops/publication.ts) */
@@ -119,6 +221,11 @@ export class TurnFiles {
    * sub-agent's view (a Proxy over this object) adds to the same counts */
   unzippedBytes = 0
   unzippedFiles = 0
+  /** what make_zip put into zips in this answer (tools/make-zip.ts MAKE_ZIP_ANSWER_MAX), the same way */
+  zippedBytes = 0
+  /** what query_data saved in this answer (tools/query-data.ts: its own budget, like unzip_file's) */
+  dataSavedBytes = 0
+  dataSavedFiles = 0
   /** PDFs and documents the AI made in this turn (make_file and the PDF tools, not files it saved from the web or a room)
    * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
    * visible (tools/stamp-pdf.ts madeThisTurn) */
@@ -135,6 +242,23 @@ export class TurnFiles {
   /** a sub-agent's state (forAgent), or a call whose agent is not known: no folder share is listed or read there
    * (files/shared-folder-reads.ts; the main AI passes what it needs on) */
   readonly agentView: boolean = false
+
+  /**
+   * The main AI runs in engine session `sid` from now on (a launch of the turn), `resumed`: it goes on with the session
+   * that earlier answers ran in. Another session than before (an account switch, a lost stash, a compaction that
+   * dropped the text) means the reads made so far are not in it: they stay usable for edits, never for a whole-file
+   * replace (readSessions -> null).
+   */
+  engineSession(sid: string | null, resumed: boolean) {
+    if (sid !== this.session) for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.session = sid
+    this.carried?.inSession(resumed ? sid : null)
+  }
+  /** the session lost text (Claude Code compacted it): as a move to another session for what was read so far */
+  sessionLostText() {
+    for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.carried?.inSession(null)
+  }
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -182,18 +306,22 @@ export class TurnFiles {
       })
       this.ownerWaits.delete(toolUseId)
     }
-    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(), agent: null, known: false } : { files: this, agent: null, known: false }
+    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(null, false), agent: null, known: false } : { files: this, agent: null, known: false }
     const agent = this.owners.get(toolUseId) ?? null
     return { files: agent ? this.forAgent(agent) : this, agent, known: true }
   }
 
   /** this turn's state with read-before-write hashes of its own; `agent`: the sub-agent it is for (its sources are
-   * marked so), null for a call whose agent is not known */
-  private view(agent: string | null = null): TurnFiles {
-    const own = new ReadHashes(this.allReads)
+   * marked so), null for a call whose agent is not known; `carry`: it may use the chat's earlier reads (a sub-agent
+   * may, a call whose agent is not known may not: it fails closed) */
+  private view(agent: string | null = null, carry = true): TurnFiles {
+    // a sub-agent never saw the earlier answers' text: it may edit from their reads, never replace a whole file from
+    // them (wholeFile false), and its own reads are saved without a session (the main session never saw them)
+    const sub = (): CarriedReads | null => (carry && this.carried ? subagentCarried(this.carried) : null)
+    const own = new ReadHashes(this.allReads, sub, { sessions: this.readSessions, session: () => null })
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -353,7 +481,7 @@ export class FileService {
   }
 
   // ---------------- list ----------------
-  list(ctx: ToolCtx, a: { path?: string }): ToolOutput {
+  list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput {
     // a folder shared with the person, by its link: one level of its names (files/shared-folder-reads.ts)
     const shared = this.folderReads(ctx) ? this.shared?.folderList?.(ctx.user, ctx.files, a.path, personLocale(this.db, ctx.user.id)) ?? null : null
     if (shared) return shared
@@ -389,7 +517,8 @@ export class FileService {
     // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
     // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
     if (shownFiles) ctx.files.namePaths.add(r.rel)
-    return { text: lines.join('\n') || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries` }
+    const page = listPage(lines, a.offset ?? 0)
+    return { text: page || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries${a.offset ? ` from ${a.offset}` : ''}` }
   }
 
   private base(ctx: ToolCtx, p: string | undefined) {
@@ -459,8 +588,10 @@ export class FileService {
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp, skip }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
-      lang: personLocale(this.db, ctx.user.id),
+      lang: personLocale(this.db, ctx.user.id), offset: a.offset, budget: TOOL_TEXT_BUDGET, reportBig: true,
     })
+    // the files too big to search are named: their folders' names are seen, as glob's are
+    for (const f of res.big) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
     // a file list's lines are read like its folder's files (same access): its folder joins the read scope (the list is
     // not on disk, so it cannot be looked up as a file), never as an answer's source: the answer cites the real file
     // the AI opens next
@@ -529,6 +660,7 @@ export class FileService {
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
     if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
+    if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')
     if ((a.time !== undefined || a.frames !== undefined || a.transcript !== undefined) && !kind) throw new ToolError('time, frames and transcript are only for video and audio files', 'bad_media_args')
     if (kind) return this.readMedia(ctx, a, kind)
     if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
@@ -628,7 +760,10 @@ export class FileService {
     ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
-    return numberedLines(r.rel, text, a)
+    // a .json file that is one long line reads as pretty-printed JSON (pretty: false for the raw text)
+    const pretty = prettyJsonView(r.rel, text, a)
+    if (pretty?.view.pretty) ctx.files.prettyReads.add(r.rel); else ctx.files.prettyReads.delete(r.rel)
+    return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, text, a, {}, isOffice(r.rel))
   }
 
   /**
@@ -658,6 +793,7 @@ export class FileService {
     // normalizer took the picture (it refuses huge ones first)
     const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
+    jpeg = await this.turnSized(ctx, jpeg, ctx.signal)
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
     const beforeDelivery = () => this.recheckSource(ctx, src)
@@ -695,7 +831,7 @@ export class FileService {
       ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs })
     }
 
-    if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
+    if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined || a.char_offset !== undefined)) {
       // the same extraction as the grep text cache (OfficeCache: pdftotext, then Apple Vision when a page has no text
       // layer; PDFKit's text without poppler): on a Mac the text layer alone numbers lines differently
       const cached = this.cfg.ocr
@@ -847,6 +983,7 @@ export class FileService {
       return { text: this.visionFailure(ctx, e) }
     }
     signal?.throwIfAborted()
+    jpeg = await this.turnSized(ctx, jpeg, signal)
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over }
     ctx.files.imageBytes += jpeg.length
@@ -899,11 +1036,21 @@ export class FileService {
     return null
   }
 
-  /** The note when this turn's images reached VISION_TURN_IMAGES / VISION_TURN_BYTES (with `next` more bytes). */
-  /** `held`: images made for this result and not counted yet (a video read's frames before their delivery) */
-  private imageBudget(ctx: Pick<ToolCtx, 'files'> & { user: { id: string } }, next: number, held = { count: 0, bytes: 0 }): string | null {
-    if (ctx.files.imageCount + held.count < VISION_TURN_IMAGES && ctx.files.imageBytes + held.bytes + next <= VISION_TURN_BYTES) return null
-    return visionText(this.db, ctx.user.id, 'budget', { images: VISION_TURN_IMAGES, mb: VISION_TURN_BYTES / 1024 / 1024 })
+  /** The note when this turn's images reached its caps (files/vision.ts turnImageCaps; with `next` more bytes).
+   * `held`: images made for this result and not counted yet (a video read's frames before their delivery). The note
+   * tells the AI to answer from what it saw, never to send the person to a new message (limits audit #4). */
+  private imageBudget(ctx: Pick<ToolCtx, 'files' | 'turnId'> & { user: { id: string } }, next: number, held = { count: 0, bytes: 0 }): string | null {
+    const caps = turnImageCaps(this.db, ctx.turnId)
+    if (ctx.files.imageCount + held.count < caps.images && b64Len(ctx.files.imageBytes + held.bytes + next) <= caps.bytes) return null
+    return visionText(this.db, ctx.user.id, 'budget', { images: ctx.files.imageCount + held.count })
+  }
+
+  /** After a turn's first full-size images (files/vision.ts turnImageCaps), the next ones go smaller, so many fit in
+   * what one request may carry, and in what the model proxy takes in before it fits a request. */
+  private async turnSized(ctx: Pick<ToolCtx, 'files' | 'turnId'>, jpeg: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    const caps = turnImageCaps(this.db, ctx.turnId)
+    if (ctx.files.imageCount < caps.full && b64Len(ctx.files.imageBytes + jpeg.length) <= caps.fullBytes) return jpeg
+    return (await smallForModel(jpeg, this.visionTools(), signal).catch(() => { signal?.throwIfAborted(); return null })) ?? jpeg
   }
 
   /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
@@ -1295,10 +1442,11 @@ export class FileService {
       else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
-      // an Apple silicon Mac's first use may be this read: the model download starts here, and the read goes on with it
-      // when it is done in time (docs/decisions/20261116-mac-local-speech.md); Linux keeps it for voice input
-      const modelPath = await modelReady(this.speech) ?? (this.speech.mac ? await this.firstModel(ctx.signal, budget) : null)
-      if (!modelPath) blocked = this.speech.mac && modelDownloading() ? 'modelDownloading' : 'noModel'
+      // the model is normally there already (jobs/model-prefetch.ts downloads it ahead); when it is not, this read starts
+      // the download or meets the one running, and goes on with it when it is done in time, on any server
+      // (docs/decisions/20261118-speech-model-ahead.md; before, a Mac only: docs/decisions/20261116-mac-local-speech.md)
+      const modelPath = await modelReady(this.speech) ?? await this.firstModel(ctx.signal, budget)
+      if (!modelPath) blocked = modelDownloading() ? 'modelDownloading' : 'noModel'
       else speech = { provider, modelPath }
     }
     // a hosted server transcribes at most HOSTED_LOCAL_NEW_SEC of new sound here a read (founder Q8)
@@ -1473,7 +1621,13 @@ export class FileService {
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
     else if (stopped === 'freeUsed') notes.push(say('freeUsed', { hours: hostedSpeechFreeHours() }))
-    else if (stopped === 'modelDownloading') notes.push(say('modelDownloading', { mb: Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }))
+    else if (stopped === 'modelDownloading') {
+      // how far it is, and what the AI does next: read again (that read waits for the download), never send the person
+      // anywhere (the second limits audit, TC-4919: "use voice input once and ask me again")
+      const p = modelProgress()
+      const mb = Math.round(WHISPER_MODELS[this.speech.model].size / 1e6)
+      notes.push(say('modelDownloading', { mb, done: Math.min(mb, Math.round((p?.got ?? 0) / 1e6)) }) + MODEL_WAIT_FOR_AI)
+    } else if (stopped === 'noModel') notes.push(say('noModel') + MODEL_RETRY_FOR_AI)
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
     if (failure) notes.push(say('failed', { why: failure.replace(/[.。]\s*$/, '') }))
     return { segments, from: w.from, covered, notes, label, languages: media.transcriptLanguages(pieces), provider, made, cached, silent, stopped }
@@ -1553,7 +1707,8 @@ export class FileService {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
-      const before = seen.get(r.rel)
+      // the AI's write: a read of this answer, or of an earlier one in this same engine session (readForReplace)
+      const before = tool === 'write' && seen === ctx.files.readHashes ? readForReplace(ctx.files, r.rel) : seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }
@@ -1595,7 +1750,9 @@ export class FileService {
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'conflict', detail: { tool: 'edit', copy: null } })
       throw new ToolError(`'${r.rel}' was changed by someone else after you read it, and your edit no longer applies. Read it again.`, 'conflict')
     }
-    if (n === 0) throw new ToolError('old_string not found in the file')
+    if (n === 0) throw new ToolError(ctx.files.prettyReads.has(r.rel)
+      ? `old_string not found in the file. Your last read of '${r.rel}' showed a reformatted (pretty-printed) view, not the file's text: read it again with pretty=false and copy old_string from the raw text.`
+      : 'old_string not found in the file')
     if (n > 1 && !a.replace_all) throw new ToolError(`old_string appears ${n} times; add more surrounding text to make it unique, or set replace_all`)
     const data = Buffer.from(apply(), 'utf8')
     this.limits(ctx, r.rel, data.length)
@@ -1616,10 +1773,11 @@ export class FileService {
   }
 
   private limits(ctx: ToolCtx, rel: string, size: number) {
-    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText)
-    if (ctx.files.bytesWritten + size > this.cfg.maxWriteBytesPerTurn) throw new ToolError(writeLimitText('bytes', this.cfg.maxWriteBytesPerTurn, rel))
+    // the numbers and "continue in the next message" (policy/refusal.ts writeLimitText); a guest has the smaller pair
+    const max = turnWriteLimits(this.cfg, this.db, ctx.user.id)
+    if (ctx.files.bytesWritten + size > max.bytes) throw new ToolError(writeLimitText('bytes', max.bytes, rel))
     assertStorageRoomForAI(size) // the team disk near full (system/storage.ts; Linux / a plan)
-    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= this.cfg.maxFilesWrittenPerTurn) throw new ToolError(writeLimitText('files', this.cfg.maxFilesWrittenPerTurn, rel))
+    if (!ctx.files.filesWritten.has(rel) && ctx.files.filesWritten.size >= max.files) throw new ToolError(writeLimitText('files', max.files, rel))
   }
 
   /** Someone changed the file after this writer read it: leave the original alone, save a conflict copy. */
@@ -1680,7 +1838,7 @@ export class FileService {
 
 /** formats that take read's `sheet` and `range` */
 const SHEET_EXT = new Set(['xlsx', 'xls', 'ods'])
-type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
+type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
@@ -1717,6 +1875,9 @@ const MEDIA_NOTE: Record<string, MediaTextKey | undefined> = {
 const PROBE_MEMO_MS = 10 * 60_000
 /** a Mac read starts the model download again at most this often after one failed */
 const MODEL_RETRY_MS = 5 * 60_000
+/** what the AI does with the speech model's notes (QA TC-4919): the person has nothing to do */
+const MODEL_WAIT_FOR_AI = '\n(For the AI: the download goes on by itself. Read this file again now with the same arguments: the next read waits for the download and then turns the sound into text. Tell the user only that the speech part is being set up for the first time, if it takes long. Never ask them to use voice input or do anything else.)'
+const MODEL_RETRY_FOR_AI = '\n(For the AI: the server tries the download again by itself. Tell the user plainly that the sound could not be turned into text yet because the speech part is still being set up, and offer to try again in a few minutes. Never ask them to use voice input or do anything else.)'
 const probeFailures = new Map<string, { code: string; at: number }>()
 /** room in the work folder's file system for a copy of `size` bytes and MEDIA_DISK_RESERVE (unknown: yes) */
 function diskRoom(base: string, size: number): boolean {
@@ -1734,18 +1895,6 @@ function partLocs(rel: string, text: string, a: { offset?: number; limit?: numbe
   if (a.offset === undefined && a.limit === undefined && a.sheet === undefined && a.range === undefined) return []
   const off = a.offset ?? 1
   return locsOfRange(text, rel, off, off + (a.limit ?? 2000) - 1, SOURCE_LOCS_MAX)
-}
-
-/** Text as numbered lines (cat -n), from `offset` (1-based), `limit` lines (default 2000), long lines cut. */
-function numberedLines(rel: string, text: string, a: { offset?: number; limit?: number }): ToolOutput {
-  const lines = text.split(/\r?\n/)
-  if (lines.length && lines[lines.length - 1] === '') lines.pop()
-  const off = a.offset ?? 1, lim = a.limit ?? 2000
-  if (!lines.length) return { text: '(empty file)', summary: `read ${rel} -> empty` }
-  if (off > lines.length) throw new ToolError(`offset ${off} is past the end of the file (${lines.length} lines)`)
-  const slice = lines.slice(off - 1, off - 1 + lim).map((l, i) => `${String(off + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '… (line cut)' : l}`)
-  const more = off - 1 + lim < lines.length ? `\n… (${lines.length} lines in total; use offset/limit to read more)` : ''
-  return { text: slice.join('\n') + more, summary: `read ${rel} -> ${slice.length} lines${isOffice(rel) ? ' (converted)' : ''}` }
 }
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')

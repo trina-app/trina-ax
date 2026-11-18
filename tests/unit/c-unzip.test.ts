@@ -535,15 +535,16 @@ describe('review follow-ups (PR #1262)', () => {
     db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'user','gina','write')").run(crypto.randomUUID(), 'f_zips_guest')
     const tc = A.toolCtx('gina' as Person, A.turn('gina' as Person, A.chat('gina' as Person)))
     put('projects/gbox/g.zip', zip(Array.from({ length: 5 }, (_, i) => ({ name: `g${i}.txt`, data: 'g' }))))
-    const cfg = A.ctx.engineConfig as { maxFilesWrittenPerTurn: number }
-    const was = cfg.maxFilesWrittenPerTurn
-    cfg.maxFilesWrittenPerTurn = 3
+    // a guest's own pair (files/turn-write-limits.ts), not the members' 2,000 files
+    const cfg = A.ctx.engineConfig as { guestMaxFilesWrittenPerTurn: number }
+    const was = cfg.guestMaxFilesWrittenPerTurn
+    cfg.guestMaxFilesWrittenPerTurn = 3
     try {
       const h = makeHandler(A.ctx.files, A.ctx.db, tc)
       const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'unzip_file', arguments: { path: 'projects/gbox/g.zip' } } })
       expect(!!r.result.isError).toBe(true)
       expect(r.result.content[0].text).toContain('has 5 files, more than the 3 files')
-    } finally { cfg.maxFilesWrittenPerTurn = was }
+    } finally { cfg.guestMaxFilesWrittenPerTurn = was }
   })
   test('an abort before the slot wait stops at once', async () => {
     const was = { ...UNZIP_LIMITS }

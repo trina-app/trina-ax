@@ -130,8 +130,8 @@ test("a member's turn is unchanged: no guest section, the team's words and tools
 })
 
 test('guestToolDescription rewrites the member-only parts and keeps the rest', () => {
-  const d = 'Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. pptx: each slide starts with ##. `template`: a .docx/.pptx under skills/ for styles. Move files of the team drive. A future line about Admin > Plugins. Limits: 30 slides.'
-  expect(guestToolDescription(d)).toBe('Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. pptx: each slide starts with ##. Move files of the team files. Limits: 30 slides.')
+  const d = 'Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say in one plain sentence that an admin can turn on the Hangul plugin (Admin > Plugins, "HWP Preview"), and to a person who is not an admin say to ask an admin; offer a Word file meanwhile. pptx: each slide starts with ##. `template`: a .docx/.pptx the person can read (their own earlier document, or a team template under skills/) whose styles the new file takes. Move files of the team drive. A future line about Admin > Plugins. Limits: 30 slides.'
+  expect(guestToolDescription(d)).toBe('Create a Word file. Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. pptx: each slide starts with ##. `template`: a .docx/.pptx the person can read whose styles the new file takes. Move files of the team files. Limits: 30 slides.')
 })
 
 // docs/decisions/20261117-ai-save-my-files-default.md (QA TC-4792): the My-files rule and the audience line are members'

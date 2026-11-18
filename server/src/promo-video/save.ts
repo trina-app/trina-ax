@@ -94,7 +94,7 @@ export async function savePromoVideo(ctx: AppContext, a: z.output<typeof SavePro
   try {
     const tmp = path.join(work, 'video.mp4')
     fs.copyFileSync(promoVideoFile(ctx, t.user.id, row.artifact_id).abs, tmp)
-    const made = await placeProduced(ctx, files, t, segs, tmp, SAVE_PROMO_TOOL, undefined, { detail: { from: `promo video ${row.artifact_id}` } })
+    const made = await placeProduced(ctx, files, t, segs, tmp, SAVE_PROMO_TOOL, undefined, { thisAnswerOnly: true, detail: { from: `promo video ${row.artifact_id}` } })
     const mb = (made.size / 1048576).toFixed(1)
     return {
       text: (made.conflictCopyOf

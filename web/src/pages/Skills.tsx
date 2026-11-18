@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { Bot, History, Lightbulb, Search, Trash2, Users } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { isSkillName, skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
+import { isSkillName, SKILL_SHARE_LIMITS, skillLabel, type SkillChange, type SkillShare, type SkillSuggestion, type SkillsOverview } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { formatDateTime, formatSize } from '../lib/format'
 import { FILES_TRASH, navigateTo } from '../lib/nav'
@@ -541,7 +541,7 @@ function ReviewDialog({ s, folders, onClose, onDone }: { s: SkillSuggestion; fol
                 <Markdown text={content} />
               </div>
             ) : (
-              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={isDir ? 128 * 1024 : 16000} aria-label={t('suggest.content')} data-testid="review-content" />
+              <textarea className={`${inputCls} mt-2 h-auto min-h-60 resize-y py-2 font-mono text-label`} value={content} onChange={(e) => setContent(e.target.value)} maxLength={isDir ? SKILL_SHARE_LIMITS.fileBytes : 16000} aria-label={t('suggest.content')} data-testid="review-content" />
             )}
           </TabPanel>
         </div>

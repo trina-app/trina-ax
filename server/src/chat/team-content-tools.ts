@@ -26,6 +26,8 @@ export function teamContentTools(): ReadonlySet<string> {
   'search', 'knowledge_explore',
   // Word comments on a team .docx (tools/comment-docx.ts): team files in and out
   'comment_docx',
+  // an existing team Office file changed in place (tools/edit-office.ts): team files in and out
+  'edit_office',
   // the promo video (promo-video/tool.ts): it reads team files and makes the chat's artifact, nothing from outside
   PROMO_TOOL,
   // the promo video saved as a file (promo-video/save.ts): the same render, placed in the team folder

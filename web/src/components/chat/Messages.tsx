@@ -75,6 +75,7 @@ import { attachmentItem, chatFileItem } from '../../lib/imageViewer'
 import { itemImage, teamFileLink } from '../../lib/fileMenu'
 import { useFileMenu } from '../FileMenu'
 import { ThreadLine } from '../ThreadLine'
+import { capBlankLines } from '../../lib/blankLines'
 
 export { ENGINE_LABEL }
 
@@ -235,11 +236,11 @@ export function UserText({ content: sent, clamp, quotes = false }: { content: st
   // "#" rooms the person picked (#[마케팅](room:<id>)) show as chips by their titles; a room named by its id alone (a
   // scheduled run's question is its instruction, "… room_id <id>") by its name for a viewer in it (components/RoomNames.tsx)
   const text = !cmd || !skill ? (
-    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={content} tokenTitles /></div>
+    content && <div className={clsx('whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={capBlankLines(content)} tokenTitles /></div>
   ) : (
     <div data-testid="user-text-skill">
       <SkillChip title={skillLabel(skill)} name={skill.name} />
-      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={cmd.rest} tokenTitles /></div>}
+      {cmd.rest.trim() && <div className={clsx('mt-1 whitespace-pre-wrap [overflow-wrap:anywhere]', clamp && 'line-clamp-[12]')} onCopy={copyRoomIds}><WithRoomNames text={capBlankLines(cmd.rest)} tokenTitles /></div>}
     </div>
   )
   if (!quote) return text

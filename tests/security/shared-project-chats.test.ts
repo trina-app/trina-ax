@@ -218,7 +218,7 @@ describe("while the project's folder is in the trash", () => {
 })
 
 describe('realtime', () => {
-  test("erin's socket never carries the shared chat; bob's never carries alice's live answer or cards", async () => {
+  test("erin's socket never carries the shared chat; bob's carries alice's answer as he sees it, never her cards", async () => {
     await idle()
     const at = { erin: ws.erin!.frames.length, bob: ws.bob!.frames.length, dana: ws.dana!.frames.length }
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'read', args: { file_path: 'users/alice/todo.md' } }, { say: `live ${CANARY}` }), clientMessageId: cm(), attachmentIds: [] } })
@@ -233,7 +233,15 @@ describe('realtime', () => {
     expect(dana.includes(chatId)).toBe(false)
     expect(dana.includes(CANARY)).toBe(false)
     const bob = ws.bob!.frames.slice(at.bob)
-    expect(bob.some((f) => f.type === 'message.delta' || f.type === 'message.step' || f.type === 'turn.request' || f.type === 'message.done' || f.type === 'queue.position')).toBe(false)
+    // the answer as it is written (docs/decisions/20261118-shared-chat-live-answers.md): his live text is exactly his
+    // finished answer; her card and queue position never
+    expect(bob.some((f) => f.type === 'turn.request' || f.type === 'queue.position')).toBe(false)
+    const mine = bob.filter((f) => (f as { data?: { messageId?: string } }).data?.messageId === r.assistantMessage.id)
+    let live = ''
+    for (const f of mine) if (f.type === 'message.delta') live = (f.data.reset ? live.slice(0, f.data.offset) : live.slice(0, f.data.offset)) + f.data.text + (f.data.reset ? '' : live.slice(f.data.offset + f.data.text.length))
+    const done = mine.find((f) => f.type === 'message.done') as Extract<(typeof bob)[number], { type: 'message.done' }> | undefined
+    expect(done?.data.message.content).toBeTruthy()
+    expect(live).toBe(done!.data.message.content)
     expect(bob.some((f) => f.type === 'chat.updated' && f.data.chatId === chatId)).toBe(true)
     expect(JSON.stringify(bob).includes('todo.md')).toBe(false)
   })

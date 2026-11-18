@@ -115,8 +115,8 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give output a file name ending in .pdf`, 'is_folder')
   if (skillRootOf(out.rel)) throw new ToolError('a stamped PDF is not saved in a skill folder; save it in a project or the person\'s own folder')
   if (out.rel === src.rel && !c.files.readHashes.has(src.rel)) {
-    // never over the original unless the AI read it in this turn (then: a new version, the old one in its history)
-    throw new ToolError(`output is the original '${src.rel}'; to replace it (its old version stays in its history), read it in this turn first. Otherwise leave output out to save a new file next to it`)
+    // never over the original unless the AI read it in this chat (then: a new version, the old one in its history)
+    throw new ToolError(`output is the original '${src.rel}'; to replace it (its old version stays in its history), read it in this chat first. Otherwise leave output out to save a new file next to it`)
   }
 
   const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
@@ -144,7 +144,7 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
 export function stampPdfText(r: StampedPdf, link: string): string {
   const x = r.report
   const where = r.conflictCopyOf
-    ? `'${r.conflictCopyOf}' already exists and was not read in this turn (or changed after the read), so the stamped PDF was saved as '${r.path}'. Tell the user about both.`
+    ? `'${r.conflictCopyOf}' already exists and was not read in this chat (or changed after the read), so the stamped PDF was saved as '${r.path}'. Tell the user about both.`
     : r.path === r.source ? `Saved a new version of ${r.path} with the image on it; the previous version is in its file history. Link for the user: ${link}`
     : `Saved ${r.path}; ${r.source} is unchanged. Link for the user: ${link}`
   const at = `The image is on page ${x.page} of ${x.pages}: ${x.rectMm.width} x ${x.rectMm.height} mm, ${x.rectMm.x} mm from the left and ${x.rectMm.y} mm from the top (the page is ${x.pageMm.width} x ${x.pageMm.height} mm).`

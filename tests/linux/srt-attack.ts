@@ -12,6 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { hideDeniedNames } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -72,7 +73,8 @@ const RULES = ruleWorld(([
   ['projects/web', 'user', ME, 'write'], ['projects/web', 'user', 'dave', 'write'], ['projects/web/mine', 'user', ME, 'write'],
   // git between two members (QA TC-4939, G1-G4): projects/gitp has alice and erin and no repository yet
   ['projects/gitp', 'user', ME, 'write'], ['projects/gitp', 'user', 'erin', 'write'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp'])
+  ['groups/marketing/hr-alicealone', 'user', ME, 'write'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp', 'groups/marketing/hr-alicealone'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
@@ -121,6 +123,8 @@ fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), 
 w('projects/web/index.html', 'web index\n')
 w('projects/web/docs/guide.md', 'web guide\n')
 w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
+// a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
+w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
 fs.writeFileSync(`${TEAM}/users/alice/key.txt`, `${ASKER}-own-folder`)
 fs.mkdirSync(`${WEB}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${WEB}/.git/config`, '[core]\n')
 fs.writeFileSync(path.join(personHome(BASE, ME), '.netrc'), `machine github.com password ${ASKER}-home\n`)
@@ -177,7 +181,8 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // A shared chat: what the person AND everyone who sees the chat may read (access.ts sharedFolderView)
   const view = sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
   const sharedChat = sh_ ? sh_.chat : null
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, sharedChat, runId, projectFolder, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: sh_ ? hideDeniedNames(view, TEAM) : view, start, work, sharedChat, runId, projectFolder, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -406,6 +411,8 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
       return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
     }), o: SWC,
     after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
+    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(r.out) ? `a folder they may not all open is listed: ${r.out.slice(0, 300)}` : null)), o: SWC },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
 ]
 
@@ -420,9 +427,26 @@ if (pre.code !== 0) {
 }
 console.log('pass preflight: a plain command runs through srt')
 let failed = 0
+let firstProxy = ''
+// S15 (QA TC-4928): srt's proxy login is the run's own: another run gets another one, and the first one is refused
+// there (it reaches only its own run's proxy, which ended with it)
+attacks.push({ id: 'S15', what: 'shared chat: the proxy login in a run\'s environment is per run and useless in the next run', cmd: 'echo "P=$http_proxy"', check: (r) => {
+  const first = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  if (!/^http:\/\/srt[^:]*:[0-9a-f]{32}@localhost:\d+$/.test(first)) return `no per-run proxy login in the environment: ${r.out.slice(0, 200)}`
+  firstProxy = first
+  return null
+}, o: SWC })
+attacks.push({ id: 'S15b', what: 'shared chat: the previous run\'s proxy login is another one and does not work here', cmd: 'echo "P=$http_proxy"; curl -s -m 15 -o /dev/null -w "CODE=%{http_code}" -x "@OLD_PROXY@" https://registry.npmjs.org/; true', check: (r) => {
+  const first = firstProxy
+  const now = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  const tok = (u: string) => /:([0-9a-f]{32})@/.exec(u)?.[1] ?? ''
+  if (!tok(first) || !tok(now) || tok(first) === tok(now)) return `the same proxy login in two runs: ${tok(first)} ${tok(now)}`
+  return /CODE=200/.test(r.out) ? 'the previous run\'s proxy login worked in this run' : null
+}, o: SWC })
 for (const a of attacks) {
   a.before?.()
-  const r = await run(a.cmd, a.o)
+  // S15b uses the login S15 saw
+  const r = await run(a.id === 'S15b' ? a.cmd.replace('@OLD_PROXY@', firstProxy) : a.cmd, a.o)
   const why = (r.out.includes(CANARY) ? `canary: ${r.out.slice(r.out.indexOf(CANARY) - 40, r.out.indexOf(CANARY) + 40)}` : null) ?? a.check(r) ?? a.after?.() ?? null
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)
   if (why) failed++

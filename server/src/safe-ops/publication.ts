@@ -15,6 +15,7 @@ import { broker } from './broker'
 import { readerCheck } from '../files/share-readers'
 import { waitForApproval } from './cancel'
 import { snapshot, recheck, type SourceSnapshot } from './source'
+import { turnWriteLimits } from '../files/turn-write-limits'
 
 export const policyGeneration = (db: Database) => (db.query('SELECT generation FROM safe_ops_policy WHERE id=1').get() as {generation:number}).generation
 const changed = () => new ToolError('Publication approval or source changed.', 'safe_ops_changed')
@@ -64,7 +65,8 @@ export async function publishArtifact(
    if(source.hash!==expectedHash || (image && source.identity!==image.identity)) throw changed()
    sourceBytes+=source.bytes.length; sources.push(source)
  }
- if(bytes.length>32*1024**2 || c.files.bytesWritten+bytes.length>ctx.engineConfig.maxWriteBytesPerTurn || c.files.filesWritten.size>=ctx.engineConfig.maxFilesWrittenPerTurn)
+ const max=turnWriteLimits(ctx.engineConfig,ctx.db,c.user.id)
+ if(bytes.length>32*1024**2 || c.files.bytesWritten+bytes.length>max.bytes || c.files.filesWritten.size>=max.files)
    throw new ToolError('Safe workflow write limit.', 'safe_ops_workflow')
  assertStorageRoomForAI(bytes.length)
  if(db.query("SELECT 1 FROM safe_ops_publications WHERE cleanup!='clean' LIMIT 1").get()) throw new ToolError('Publication cleanup debt.', 'safe_ops_cleanup')

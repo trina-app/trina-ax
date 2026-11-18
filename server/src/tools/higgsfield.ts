@@ -163,7 +163,7 @@ export function registerHiggsfield(ctx: AppContext, reg: ToolRegistry): boolean 
         // a local stand-in API (MYCEL_HIGGSFIELD_API, testing only) serves its result from a local address over http
         const size = await downloadVideo(r.videoUrl, tmp, { blockedIps: () => egressOf(ctx).ips, signal: t.signal, ...(process.env.MYCEL_HIGGSFIELD_API ? { httpsOnly: false, testAllow: () => true } : {}) })
         const target = (a.save_as?.replace(/\.mp4$/i, '') ?? `users/${t.user.id}/videos/${slug(a.prompt)}`) + '.mp4'
-        const made = await placeProduced(ctx, componentC(ctx).files, t, target.split('/').filter(Boolean), tmp, 'generate_video')
+        const made = await placeProduced(ctx, componentC(ctx).files, t, target.split('/').filter(Boolean), tmp, 'generate_video', undefined, { thisAnswerOnly: true })
         return {
           text: `Saved the video: ${made.path} (${(size / 1048576).toFixed(1)} MB, ${a.duration} s, ${a.aspect_ratio}, ${a.resolution}). Higgsfield request ${r.requestId}.`,
           summary: `generate_video -> ${made.path} (${size} B, request ${r.requestId})`,
