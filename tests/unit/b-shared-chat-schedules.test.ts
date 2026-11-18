@@ -48,7 +48,9 @@ async function askWithCard(user: string, chatId: string, content: string, value:
   const card = await ws[user]!.next('turn.request', (f) => f.data.turnId === started.turnId, 15_000)
   await h.api(user).call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: value } })
   const done = await ws[user]!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
-  return { started, card: card.data.request, done: done.data.message }
+  const req = card.data.request
+  if (req.kind !== 'ask_user') throw new Error(`expected a question card, got ${req.kind}`)
+  return { started, card: req, done: done.data.message }
 }
 const schedulesOf = (user: string) => db().query('SELECT * FROM schedules WHERE user_id = ? ORDER BY created_at').all(user) as { id: string; title: string; chat_id: string | null; project_id: string | null; last_chat_id: string | null }[]
 /** run a task now through the runner, as at its time; the chat its run is in once the answer is done */

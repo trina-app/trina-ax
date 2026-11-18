@@ -1054,7 +1054,7 @@ export class TurnExec {
     // a scheduled task's run: nobody is watching (waitForPerson answers at once), and the AI is told so
     let scheduled = ''
     if (spec.clientKind === 'schedule') {
-      // by this turn's own task (a shared chat may hold the runs of several tasks: migration 421)
+      // by this turn's own task (a shared chat may hold the runs of several tasks: migration 424)
       const s = rt.db.query('SELECT s.* FROM schedules s JOIN turns t ON t.schedule_id = s.id WHERE t.id = ?').get(spec.turnId) as ScheduleRow | null
       // what its card let it do without a card (a save folder, sends), instead of "everything is declined"
       scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task', s ? runAllowance(rt.ctx, s) : null, !!this.shared) + '\n\n'

@@ -5,7 +5,7 @@
 // schedule (five fields, minute hour day-of-month month day-of-week, `L` = the last day of the month). No working
 // hours and no shortest interval: each run still passes the team's AI budget and runs of one task never overlap.
 //
-// Those are kept in `schedules.rule` (JSON, migration 421) without changing the `repeat` CHECK of migration 203. The
+// Those are kept in `schedules.rule` (JSON, migration 424) without changing the `repeat` CHECK of migration 203. The
 // old columns of such a task hold a one-time task in the past (STORED_PAST), so an older build after a rollback runs
 // it at most once more (its next time as stored) and then stops; it never runs it more often than asked.
 import { zonedParts, zonedToUtc } from '../system/time-zone'
@@ -107,7 +107,8 @@ export interface Cron { minutes: number[]; hours: number[]; dom: Set<number>; la
 
 const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
 const DOWS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
-const MACROS: Record<string, string> = { '@yearly': '0 0 1 1 *', '@annually': '0 0 1 1 *', '@monthly': '0 0 1 * *', '@weekly': '0 0 * * 0', '@daily': '0 0 * * *', '@midnight': '0 0 * * *', '@hourly': '0 * * * *' }
+/** "@hourly" and the other cron macros, by their name after the "@" */
+const MACROS: Record<string, string> = { yearly: '0 0 1 1 *', annually: '0 0 1 1 *', monthly: '0 0 1 * *', weekly: '0 0 * * 0', daily: '0 0 * * *', midnight: '0 0 * * *', hourly: '0 * * * *' }
 
 export class CronError extends Error {}
 
@@ -143,7 +144,8 @@ function field(src: string, lo: number, hi: number, name: string, names?: string
 
 /** A cron expression as five fields (or a macro like "@hourly"); CronError says what is wrong. */
 export function parseCron(expr: string): Cron {
-  const text = MACROS[expr.trim().toLowerCase()] ?? expr.trim()
+  const macro = /^@([a-z]+)$/i.exec(expr.trim())?.[1]?.toLowerCase()
+  const text = (macro && Object.hasOwn(MACROS, macro) ? MACROS[macro] : undefined) ?? expr.trim()
   const parts = text.split(/\s+/)
   if (parts.length !== 5) throw new CronError(`a cron schedule has five fields (minute hour day-of-month month day-of-week), "${expr.trim()}" has ${parts.length}`)
   const [mi, h, dom, mo, dow] = parts as [string, string, string, string, string]

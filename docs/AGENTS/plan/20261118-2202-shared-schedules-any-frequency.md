@@ -46,7 +46,7 @@ E. Any frequency
 
 ## Risks
 
-- Migration 421 (420 is batch 2's). Additive columns only.
+- Migration 424 (420, 421 and 423 are taken by open PRs). Additive columns only.
 - Security: a run in a shared chat must never skip a gate an ordinary turn has. Tested.
 
 ## Tests

@@ -14,7 +14,7 @@
   - `schedule_create`, `schedule_list`, `schedule_delete`, `generate_video`, `promo_video` and `save_promo_video` join
     the shared-chat allowlist (`rooms/ai-tools.ts SHARED_TOOLS`). Each card (the schedule card, the video credits card)
     is the asker's, as everywhere.
-  - A task made in a shared chat keeps that chat (`schedules.chat_id`, migration 421). Each run is a turn in that chat,
+  - A task made in a shared chat keeps that chat (`schedules.chat_id`, migration 424). Each run is a turn in that chat,
     as the task's maker, with their access, engine, AI budget and queue, under the chat's newest answer. The turn is an
     ordinary shared-chat turn, so every gate of that chat applies. A read of a place some people in the chat cannot open
     needs the maker's yes on the read card, and nobody answers a card in a run, so it is skipped and the answer says so
@@ -49,7 +49,7 @@
   - A wall-clock time a clock change skips has no cron run that day (it is not that time anywhere). An interval counts
     real minutes from its start.
   - Storage: the `repeat` CHECK of migration 203 is not changed (a table rebuild of `schedules` would touch its foreign
-    keys). A timing the old columns cannot hold is kept in `schedules.rule` (JSON, migration 421), and the old columns of
+    keys). A timing the old columns cannot hold is kept in `schedules.rule` (JSON, migration 424), and the old columns of
     that row hold a one-time task on 2000-01-01. An older build after a rollback runs such a task at most once more (its
     next time as stored) and then stops; it never runs it more often than asked.
   - Settings › Scheduled tasks › Edit offers the new kinds: weekday chips, day 1–31 and "Last day of the month",
@@ -61,4 +61,4 @@
   `tests/unit/b-shared-chat-schedules.test.ts` (offered there, the card's line, a run in the chat as its maker with a
   place another person cannot open skipped, the run history link, list and delete kept to the chat, the fallback chat,
   another person's own task, a people chat kept changeable), `web/test/unit/schedule-any-frequency.test.tsx`.
-- **Version impact:** minor (new schedule kinds and tools offered in shared chats; migration 421, additive).
+- **Version impact:** minor (new schedule kinds and tools offered in shared chats; migration 424, additive).

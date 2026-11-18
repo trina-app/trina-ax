@@ -81,7 +81,7 @@ export const ScheduleInput = z.object({
 export type ScheduleInput = z.infer<typeof ScheduleInput>
 
 export interface ScheduleRow {
-  /** `repeat` and the columns after it as an older build reads them; `rule` (migration 421) holds the kinds it does not
+  /** `repeat` and the columns after it as an older build reads them; `rule` (migration 424) holds the kinds it does not
    * know (chat/schedule-timing.ts): read a row's timing with timingOf */
   id: string; user_id: string; title: string; prompt: string; repeat: LegacyRepeat; time: string
   weekday: number | null; day: number | null; date: string | null; project_id: string | null; enabled: number
@@ -101,9 +101,9 @@ export interface ScheduleRow {
    * recipients, and a lapse (the folder moved or its rules changed: runs save in the own folder until confirmed again) */
   save_folder?: string | null; save_folder_id?: string | null; save_rule?: string | null; save_readers?: number | null
   save_sources?: string | null; personal_sends?: string | null; save_lapsed_at?: string | null; save_lapse_reason?: string | null
-  /** chat/schedule-timing.ts: the kinds an older build does not know (migration 421) */
+  /** chat/schedule-timing.ts: the kinds an older build does not know (migration 424) */
   rule?: string | null
-  /** the shared chat the task was made in: its runs post there (migration 421; docs/decisions/20261118-shared-schedules-any-frequency.md) */
+  /** the shared chat the task was made in: its runs post there (migration 424; docs/decisions/20261118-shared-schedules-any-frequency.md) */
   chat_id?: string | null
 }
 
