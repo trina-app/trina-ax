@@ -60,3 +60,11 @@ Out:
   answers only in channels it is invited to, "every file request" for the permission check, Korean 게스트, the Korean
   security link.
 - `bun run check:prepush` OK; rendered on GitHub signed out in light and dark.
+- Follow-up (founder, 11/18): the screen row starts with Admin › Connected apps (`slack/connected-apps.webp` cropped to
+  `docs/images/readme/v4/connected-apps.webp`: "Applies to everyone", Google apps "One setup, then every member just
+  signs in", Slack, Notion, Linear, Atlassian, Canva, "Add one by its address") across the full width; the team drive
+  and team skills sit under it. The add-an-app dialog is no longer in the README.
+- Follow-up (founder, 11/18): "One AI account for the whole team" opens the set-up-once section; "Team chat, like
+  Slack" (channels, private channels, DMs, group chats, threads, @mentions; `chats/room.webp`) opens what everyone does;
+  Get started shows the three Docker commands (clone, `docker compose up`, setup link) with the guide's caveat (newer
+  and less tested than Linux; Ubuntu 24.04 needs a host setting).
