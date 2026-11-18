@@ -16,6 +16,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',
+  // many renames in one call (tools/file-moves.ts), like rename_file
+  'rename_files',
 ])
 
 /**
@@ -32,6 +34,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
   'edit_files', 'skill', 'find_skills', 'ask_user',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
+  // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
+  'rename_files',
   // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:
   // refuses in a shared chat)
   'save_connector_file',
@@ -61,6 +65,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
   write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], save_url: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
+  rename_files: ['new_name'],
 }
 
 /** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
@@ -77,6 +82,11 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       if (typeof ins?.file === 'string') out.push({ key: 'insert_pdf.file', value: ins.file })
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
     }
+  }
+  // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
+  if (tool === 'rename_files') {
+    if (Array.isArray(a.renames)) for (const r of a.renames as unknown[]) { const p = r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined; if (typeof p === 'string') out.push({ key: 'path', value: p }) }
+    if (typeof a.folder === 'string') out.push({ key: 'path', value: a.folder })
   }
   if (tool === 'merge_pdfs' && Array.isArray(a.files)) {
     for (const f of a.files as unknown[]) {
@@ -176,4 +186,5 @@ export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
   'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',
+  'rename_files',
 ])

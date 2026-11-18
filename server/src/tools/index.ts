@@ -33,7 +33,8 @@ import { saveConnectorFile, SAVE_CONNECTOR_FILE_DESCRIPTION } from './save-conne
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
 import { redirectGuard, webEcho } from './connection-urls'
-import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 
 export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
@@ -309,7 +310,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
           if (no) { why = 'off_site'; hop = next; throw new ToolError(`the page redirected outside what this chat may open: ${no}`) }
           await redirects.check(next)
         } : redirects.check
-        const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect, ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}) })
+        const r = await webFetch(a.url, { acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)), ...o.fetch, blockedIps, maxChars: a.maxChars, pdftotext: ctx.engineConfig.pdftotext, onRedirect, ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}) })
         ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })
         // links on the page may be opened later in this chat without a card (rule ①: "an earlier web_fetch result"),
         // within the link budget, unless one carries what the AI sent before (an echo: always a card)

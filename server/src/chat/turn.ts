@@ -34,6 +34,7 @@ import type { LaunchRequest } from '@mycel/shared'
 import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
+import { patternName, renamePattern, riskyPattern } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
@@ -4804,6 +4805,22 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const segs = teamSegs(a.path)
       return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
     }
+    case 'rename_files': {
+      // a list: each lands as rename_file's; a pattern: the new names of what is directly in the folder, worked out as
+      // the tool does (tools/file-moves.ts patternName); past ROOM_CHANGE_SCAN_MAX or an unreadable pattern, counted as
+      // holding an instruction file (it might)
+      if (Array.isArray(a.renames)) {
+        return { targets: a.renames.flatMap((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; const segs = teamSegs(str(x.path)); return segs?.length ? landing(str(x.path), segs.slice(0, -1), str(x.new_name)) : [] }), shown: false }
+      }
+      const folder = teamSegs(str(a.folder)) ?? []
+      const unknown = { targets: [[...folder, 'SKILL.md'].join('/')], shown: false }
+      const under = tree(str(a.folder))
+      let re: RegExp
+      if (a.regex === true && riskyPattern(str(a.find))) return unknown
+      try { re = renamePattern(str(a.find), a.regex === true) } catch { return unknown }
+      if (under === null || !str(a.find)) return unknown
+      return { targets: under.filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, re, str(a.replace), a.regex === true); return to === null ? [] : landing([...folder, n].join('/'), folder, to) }), shown: false }
+    }
   }
   // any other change (a tool added later): every string it is given may be a place it writes
   return { targets: Object.values(a).flatMap(list), shown: false }
@@ -4870,6 +4887,14 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'rename_files': {
+      // each rename on a line ("old → new"), or the folder and the pattern
+      if (Array.isArray(a.renames)) {
+        const lines = a.renames.map((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; return `${at(str(x.path))} → ${str(x.new_name)}` })
+        return detail([], lines.join('\n'), [], true)
+      }
+      return detail([field('roomAiChangeFolder', place(str(a.folder))), field('roomAiChangeNewName', `${str(a.find)} → ${str(a.replace)}`)], '')
+    }
     case 'save_connector_file':
       return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':

@@ -302,6 +302,21 @@ export const RenameFileInput = z.strictObject({
   new_name: z.string().min(1).max(255).describe('The new name only (no folder): it stays in the same folder'),
 })
 export const RenameFileOutput = z.object({ path: z.string() })
+/** rename_files (server/src/tools/file-moves.ts, TC-4983): many renames in one call, each with rename_file's checks.
+ * At most this many per call; a pattern that matches more renames these and says how many are left. */
+export const RENAME_FILES_MAX = 500
+const newName = z.string().min(1).max(255)
+export const RenameFilesInput = z.strictObject({
+  renames: z.array(z.strictObject({ path: relPath, new_name: newName })).min(1).max(RENAME_FILES_MAX).optional()
+    .describe('Each file or folder with its new name (the name only: it stays in its folder), 1-500'),
+  folder: relPath.optional().describe('Or by pattern: the folder whose files and folders (directly inside it, not deeper) are renamed'),
+  find: z.string().min(1).max(500).optional().describe('With folder: the text to find in each name (every match is replaced); names without it are left as they are'),
+  replace: z.string().max(255).optional().describe('With folder: what each match becomes (default ""); with regex, $1, $2 … are the groups'),
+  regex: z.boolean().optional().describe('true: find is a JavaScript regular expression, e.g. "^IMG_([0-9]+)" with replace "photo-$1"'),
+}).refine((v) => (v.renames !== undefined) !== (v.folder !== undefined), { message: 'give either renames or folder with find' })
+  .refine((v) => v.folder === undefined || v.find !== undefined, { message: 'folder needs find' })
+  .refine((v) => v.renames === undefined || (v.find === undefined && v.replace === undefined && v.regex === undefined), { message: 'find, replace and regex go with folder, not renames' })
+export const RenameFilesOutput = z.object({ renamed: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })), left: z.number() })
 /** The AI's delete_files (server/src/chat/delete-files.ts): items go to the team trash after the person's yes on the
  * server's card. Never part of FILE_TOOLS: the app connector (connectors/remote-mcp/tools.ts) lists those, and it has
  * no card. At most 200 entries per call, counted inside folders (the server walks them). */
@@ -560,6 +575,7 @@ export const OTHER_TOOLS = {
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
   rename_file: { input: RenameFileInput, output: RenameFileOutput },
+  rename_files: { input: RenameFilesInput, output: RenameFilesOutput },
   delete_files: { input: DeleteFilesInput, output: DeleteFilesOutput },
   edit_files: { input: EditFilesInput, output: TextOutput },
   artifact: { input: ArtifactInput, output: ArtifactOutput },

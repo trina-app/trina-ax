@@ -344,11 +344,18 @@ export function pinnedRequest(t: Target, o: PinnedRequestInit): Promise<RawRespo
   })
 }
 
+/** The Accept-Language a fetch sends: the person's language (else the team's), then English; English alone without one.
+ * It was "ko,en;q=0.8" for every person and site (TC-4981). */
+export function acceptLanguage(locale?: string | null): string {
+  const l = (locale ?? '').toLowerCase()
+  return /^[a-z]{2,3}$/.test(l) && l !== 'en' ? `${l},en;q=0.8` : 'en'
+}
+
 /** web_fetch's GET (pinnedRequest with the reader's headers). */
-export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean }): Promise<RawResponse> {
+export function pinnedGet(t: Target, o: { deadline: number; maxBytes: number; insecureTlsForTests?: boolean; acceptLanguage?: string }): Promise<RawResponse> {
   return pinnedRequest(t, {
-    ...o, method: 'GET',
-    headers: [['User-Agent', UA], ['Accept', 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5'], ['Accept-Encoding', 'gzip, deflate, br'], ['Accept-Language', 'ko,en;q=0.8']],
+    deadline: o.deadline, maxBytes: o.maxBytes, insecureTlsForTests: o.insecureTlsForTests, method: 'GET',
+    headers: [['User-Agent', UA], ['Accept', 'text/html,application/xhtml+xml,text/plain,application/json,application/pdf;q=0.9,*/*;q=0.5'], ['Accept-Encoding', 'gzip, deflate, br'], ['Accept-Language', o.acceptLanguage ?? acceptLanguage()]],
   })
 }
 
@@ -598,6 +605,8 @@ export interface FetchOptions extends ResolveOptions {
   /** tests only: accept the test server's self-signed certificate */
   insecureTlsForTests?: boolean
   pdftotext?: string | null
+  /** the Accept-Language header (acceptLanguage: the person's language, then English); default English */
+  acceptLanguage?: string
 }
 
 /** One web_fetch call: the test hooks plus what the tool decides per call. */
@@ -616,7 +625,7 @@ export async function webFetch(rawUrl: string, o: WebFetchCall = {}): Promise<We
   let current = rawUrl
   for (let hop = 0; ; hop++) {
     const t = await resolveTarget(current, { ...o, deadline })
-    const r = await pinnedGet(t, { deadline, maxBytes: FETCH_MAX_BYTES, insecureTlsForTests: o.insecureTlsForTests })
+    const r = await pinnedGet(t, { deadline, maxBytes: FETCH_MAX_BYTES, insecureTlsForTests: o.insecureTlsForTests, acceptLanguage: o.acceptLanguage })
     if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
       if (hop >= FETCH_MAX_REDIRECTS) throw new ToolError(`too many redirects (more than ${FETCH_MAX_REDIRECTS})`)
       try { current = new URL(r.headers.location, t.url).href } catch { throw new ToolError('the site redirected to an invalid URL') }
