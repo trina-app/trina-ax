@@ -188,7 +188,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     return true
   }
   for (const t of bTools(exec)) add(t)
-  for (const t of skillTools(exec)) add(t)
+  for (const t of skillTools(exec, () => tools.has(BOX_SHELL_TOOL))) add(t)
   // the team trash behind the server's card (chat/delete-files.ts): not offered in shared, confidential or draft
   // chats (add() above) nor in an approved template run (its scope is fixed), refused up front everywhere else but the
   // person's own chat with the person there
@@ -246,6 +246,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       ...(exec.devEnv.shared ? { shared: exec.devEnv.shared } : {}),
+      // a sub-agent's call comes with its own turn state (files/service.ts forAgent), the main AI's with the turn's
+      caller: (files) => (!files || files === exec.files ? { helper: false, key: '' } : { helper: true, key: (files as { agent?: string | null }).agent ?? '?' }),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
       confirm: async (question, options, details) => (person.choose
@@ -696,7 +698,8 @@ function wrapRegistered(exec: TurnExec, t: TurnTool): Tool {
 // (team skills only), the chat's read scope and outside content.
 const clipName = (s: string, n = 120) => { const t = s.replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
 
-function skillTools(exec: TurnExec): Tool[] {
+/** `scripts`: whether the turn offers box_shell (a loaded skill then says its scripts run there) */
+function skillTools(exec: TurnExec, scripts: () => boolean): Tool[] {
   const { rt, spec } = exec
   const person = (): Principal | null => { try { return exec.livePrincipal() } catch { return null } }
   return [
@@ -755,7 +758,7 @@ function skillTools(exec: TurnExec): Tool[] {
         // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
         // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
         const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale)
-        return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
+        return { ...text(skillBlock(skill, '', 'loaded', { scripts: scripts() }) + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },
     {

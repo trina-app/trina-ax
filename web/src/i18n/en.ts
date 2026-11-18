@@ -84,6 +84,8 @@ export const en: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "Turn on",
   "devEnvSites.fullOn": "Full internet is on. The AI can send files you can read to any site.",
   "devEnvTeam.accept": "I understand the risks and turn it on for the team",
+  "devEnvTeam.offer": "Off because your team was set up before this came.",
+  "devEnvOffer.body": "When it is on, the AI can run commands on the team server: fill in Excel and Word files, run the scripts that come with a skill, and use Python or Node. A command sees only the folders the person who asked may open, and reaches only allowed sites. Nothing changes until you turn it on.",
 
   'common.cancel': 'Cancel',
   'common.choose': 'Choose',
@@ -6839,6 +6841,8 @@ export const en: Record<MessageKey, string> = {
   "teamSettings.removeSharesConfirm": "Remove access for {people, plural, one {# person} other {# people}} to {what}? Links stop working for them at once.",
   "adminHome.folderShareNotice": "Members can now share folders in their own files with teammates, view only.",
   "adminHome.folderShareNoticeOpen": "Turn it off in Team settings",
+  "adminHome.devEnvOffer": "The AI can now run code for your team, but it is off here.",
+  "adminHome.devEnvOfferOpen": "Turn it on in Team settings",
   "officeMcpNotice.title": "Trina removed Claude Code connections from this Mac",
   "officeMcpNotice.why": "This Mac uses its own Claude sign-in for Trina. To keep the team's AI safe, Trina takes the Claude Code connections saved for this Mac account out of its settings when it starts and after each AI answer, so none of them can run outside Trina's protection.",
   "officeMcpNotice.removed": "Removed: {names}.",

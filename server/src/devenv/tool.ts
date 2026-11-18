@@ -147,6 +147,13 @@ export interface BoxShellHost {
   /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
    * commands only, no command that needs a login, no results of the person's jobs */
   shared?: SharedRun
+  /** who made a call (its turn file state, chat/tools.ts): a sub-agent ("helper", QA TC-4911) or the main AI. `key`:
+   * one per agent, so each agent's first call gets the notes of a first call */
+  caller?(files: unknown): { helper: boolean; key: string }
+  /** this call is a sub-agent's (set per call from `caller`): it runs commands with the same folders and fence, but
+   * raises no card (it cannot ask the person), starts no job or dev server (their notice, Preview button and results
+   * are the main AI's) and takes no job results */
+  helper?: boolean
   redact(s: string): string
 }
 
@@ -300,6 +307,8 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   // a shared chat: no job or dev server (its row, log and notice are the person's), no command that would use a login
   // (no card: a run holds no credentials anyway), checked before anything else runs
   if (h.shared && (data.job || data.background)) return { ...text('Not started: jobs and dev servers do not run in a shared chat. Run the command without job and background, within its time limit (at most 1800 s), or tell the person to ask for it in a chat of their own.', true), summary: `${what} -> refused (job in a shared chat)` }
+  // a sub-agent (QA TC-4911): foreground commands only; the main AI starts jobs and dev servers
+  if (h.helper && (data.job || data.background)) return { ...text(HELPER_NO_JOB, true), summary: `${what} -> refused (job of a sub-agent)` }
   if (h.shared && usesCredentials(data.command)) return { ...text('Not run: commands that need a login (git push, npm publish, ssh ...) do not run in a shared chat. Tell the person to do it on their own computer.', true), summary: `${what} -> refused (login in a shared chat)` }
   const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null, ...(h.shared ? { shared: h.shared } : {}) })
   if (!space) return { ...text('Error: this chat has no folder for commands. Do not try again.', true), summary: `${what} -> no folder` }
@@ -309,8 +318,9 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const background = !!data.background || !!data.job
   /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
   const jobNotes = async () => {
-    // a shared chat: none (a job's log is the person's, from a time the chat may not have been shared)
-    if (h.shared) return []
+    // a shared chat: none (a job's log is the person's, from a time the chat may not have been shared); a sub-agent:
+    // none (the main AI gets them on its next call: a result given to a helper would never reach it)
+    if (h.shared || h.helper) return []
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
     return runResultsForAI(ctx, h.userId, h.chatId ?? null).map((n) => h.redact(n))
   }
@@ -346,6 +356,7 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
     // a shared chat: only changes in folders this run may see, and no count of the others (sharedVisible)
     if (h.shared) { const see = sharedVisible(ctx, space); const items = foreign.items.filter((c) => see(c.path)); foreign = { ...foreign, items, total: items.length } }
     if (usesCredentials(data.command) && foreign.total > 0) {
+      if (h.helper) return { ...text(HELPER_NO_CARD, true), summary: `${what} -> refused (login command of a sub-agent after changes by others)` }
       const ok = await h.confirm(
         `This command can use a login: ${data.command.slice(0, 200)}\nOther people changed files in the project since your last command. Check the changes before you run it.`,
         [{ label: 'Run it', value: 'run' }, { label: 'Do not run', value: 'no' }],
@@ -392,6 +403,8 @@ async function askSites(h: BoxShellHost, data: BoxShellInput, once: Set<string>,
     // a host that the person did not allow in this turn is not asked again: no second card (the AI may try again
     // because a web page or a file tells it to; the person said no once)
     if (denied.has(host)) return { notes, refusal: `The person did not allow ${host} in this answer, so the command did not run. Do not ask for it again; tell the person what does not work without it.`, summary: `site ${host} not allowed (asked again)` }
+    // a sub-agent cannot ask the person: the main AI asks for the site (no card, nothing recorded as denied)
+    if (h.helper) return { notes, refusal: `${host} is not on the allowed list, and a sub-agent cannot ask the person to allow it, so the command did not run. Say in your report that the command needs ${host}: the main assistant can ask for it.`, summary: `site ${host} not asked (sub-agent)` }
     if (h.unattended) {
       audit(ctx.db, { actor: h.userId, action: 'dev_env.site_denied', target: null, detail: { host, answer: 'none', turnId: h.turnId, chatId: h.chatId ?? null } })
       denied.add(host)
@@ -425,8 +438,14 @@ export const blockedHint = (o: { full: boolean }) => o.full
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
 
+/** a sub-agent's job or dev server (QA TC-4911) */
+export const HELPER_NO_JOB = 'Not started: a sub-agent runs commands that finish within their time limit (at most 1800 s); jobs and dev servers are started by the main assistant. Run it without job and background, or say in your report that it needs a job or a dev server.'
+/** a sub-agent's command that would need the person's yes on a card */
+export const HELPER_NO_CARD = 'Not run: this command can use a login and other people changed files in the project, so the person must check the changes on a card first, and a sub-agent cannot ask them. Say in your report that the command still needs to run: the main assistant can run it.'
+
 export function boxShellTool(h: BoxShellHost) {
-  let firstCall = true
+  /** the agents (main AI '', each sub-agent its own key) whose first call came already */
+  const called = new Set<string>()
   /** the sites the person allowed once in this turn (foreground commands; a job or dev server keeps its own copy) */
   const once = new Set<string>()
   /** the sites the person did not allow in this turn (or nobody could answer): no second card for them */
@@ -435,13 +454,16 @@ export function boxShellTool(h: BoxShellHost) {
     name: BOX_SHELL_TOOL,
     description: h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
-    async call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
+    async call(args: unknown, files?: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)
       if (!a.success) return { ...text('Invalid input: ' + a.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true), summary: 'box_shell -> invalid input' }
+      const who = h.caller?.(files) ?? { helper: false, key: '' }
       const what = h.redact(`box_shell ${a.data.command.slice(0, 200)}`)
-      const first = firstCall
-      firstCall = false
-      return srtCall(h, a.data, what, first, once, denied)
+      const first = !called.has(who.key)
+      called.add(who.key)
+      // a sub-agent's call: no step patch (patchToolStep's FIFO is the main AI's; chat/subagents.ts PARENT_ONLY_TOOLS)
+      const host: BoxShellHost = who.helper ? { ...h, helper: true, queueStep: undefined } : h
+      return srtCall(host, a.data, what + (who.helper ? ' (sub-agent)' : ''), first, once, denied)
     },
   }
 }

@@ -889,7 +889,7 @@ export class TurnExec {
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
     let childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
     const subagentLaunch = () => subagents
-      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch, maxTurns: rt.maxEngineTurns }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
       : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
@@ -968,7 +968,7 @@ export class TurnExec {
     if (refs) this.markRoomsSeen()
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
+    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput, 'invoked', { scripts: toolSet.has('box_shell') })}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {

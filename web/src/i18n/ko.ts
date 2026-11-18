@@ -83,6 +83,8 @@ export const ko = {
   "devEnvSites.fullTurnOn": "켜기",
   "devEnvSites.fullOn": "전체 인터넷이 켜져 있어요. AI가 내가 읽을 수 있는 파일을 어느 사이트로든 보낼 수 있어요.",
   "devEnvTeam.accept": "위험을 이해했고 팀의 개발 환경을 켜요",
+  "devEnvTeam.offer": "이 기능이 생기기 전에 만든 팀이라 꺼져 있어요.",
+  "devEnvOffer.body": "켜면 AI가 팀 서버에서 명령을 실행해요. 엑셀·워드 파일을 채우고, 스킬에 딸린 스크립트를 돌리고, Python이나 Node를 써요. 명령은 요청한 사람이 열 수 있는 폴더만 보고, 허용된 사이트에만 접속해요. 켜기 전에는 아무것도 바뀌지 않아요.",
 
   'common.cancel': '취소',
   'common.choose': '선택',
@@ -6837,6 +6839,8 @@ export const ko = {
   "teamSettings.removeSharesConfirm": "{people}명의 {what} 접근 권한을 없앨까요? 링크가 바로 열리지 않게 돼요.",
   "adminHome.folderShareNotice": "이제 멤버가 내 파일의 폴더를 팀원에게 보기 전용으로 공유할 수 있어요.",
   "adminHome.folderShareNoticeOpen": "팀 설정에서 끌 수 있어요",
+  "adminHome.devEnvOffer": "이제 AI가 팀을 위해 코드를 실행할 수 있어요. 이 팀에서는 아직 꺼져 있어요.",
+  "adminHome.devEnvOfferOpen": "팀 설정에서 켜기",
   "officeMcpNotice.title": "트리나가 이 맥의 Claude Code 연결을 지웠어요",
   "officeMcpNotice.why": "이 맥은 자기 Claude 로그인으로 트리나를 써요. 팀 AI를 안전하게 지키려고, 트리나는 시작할 때와 AI가 답할 때마다 이 맥 계정에 저장된 Claude Code 연결을 설정에서 빼요. 그래야 어떤 연결도 트리나의 보호 밖에서 돌지 않아요.",
   "officeMcpNotice.removed": "지운 연결: {names}",

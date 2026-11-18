@@ -1,6 +1,7 @@
 // Tool rounds per answer (docs/DECISIONS.md "Tool rounds per answer"): Claude Code's --max-turns comes from Admin >
 // Team settings `answerStepLimit` (default 150, 10-500), read when each answer starts. At the limit the answer pauses
-// with "continue" as before; sub-agents keep their own 50 rounds each. Fake engine through the real launcher and gate.
+// with "continue" as before; each sub-agent gets the same cap (QA TC-4911: it had its own 50). Fake engine through the
+// real launcher and gate.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API, ApiError, DEFAULT_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
@@ -81,15 +82,20 @@ describe('tool rounds per answer', () => {
     } finally { clear() }
   })
 
-  test('sub-agents keep their own 50 rounds whatever the team limit is', async () => {
+  test('each sub-agent gets the team limit of the answer, not 50 (QA TC-4911)', async () => {
     try {
       for (const n of [12, 150, 500]) {
         await setLimit(n)
         const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ echo: 'agents' }))
         const agents = JSON.parse(r.done.content) as Record<string, { maxTurns: number }>
         expect(Object.keys(agents).sort()).toEqual(['Explore', 'general-purpose'])
-        for (const a of Object.values(agents)) expect(a.maxTurns).toBe(MAX_SUBAGENT_TURNS)
+        for (const a of Object.values(agents)) expect(a.maxTurns).toBe(n)
       }
+      // with no setting: the default of an answer
+      clear()
+      const r = await ask(h, alice, 'alice', (await newChat()).id, fake({ echo: 'agents' }))
+      for (const a of Object.values(JSON.parse(r.done.content) as Record<string, { maxTurns: number }>)) expect(a.maxTurns).toBe(DEFAULT_MAX_ENGINE_TURNS)
+      // the fallback of buildAgentDefinitions without a turn (tests) stays
       expect(MAX_SUBAGENT_TURNS).toBe(50)
     } finally { clear() }
   })

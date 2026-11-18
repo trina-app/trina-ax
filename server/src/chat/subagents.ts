@@ -13,8 +13,10 @@ export { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
 
 /** tools/schedules.ts SCHEDULE_TOOL_NAMES (not imported: that module reaches the chat runtime; a test keeps them equal) */
 export const SCHEDULE_TOOLS = ['schedule_create', 'schedule_list', 'schedule_delete'] as const
-/** model rounds of one sub-agent (Claude Code: no limit). At the limit Claude Code hands back no report, only a note
- * that it stopped (review S3, seen with 2.1.305): the child prompt asks for a report of what is done before that. */
+/** model rounds of one sub-agent when the turn gives none (tests). A turn gives the main answer's own cap (Admin › Team
+ * settings answerStepLimit, chat/runtime.ts maxEngineTurns; QA TC-4911: 50 cut long sub-tasks that the main AI could
+ * have done). At the limit Claude Code hands back no report, only a note that it stopped (review S3, seen with
+ * 2.1.305): the child prompt asks for a report of what is done before that. */
 export const MAX_SUBAGENT_TURNS = 50
 
 /**
@@ -26,9 +28,13 @@ export const MAX_SUBAGENT_TURNS = 50
  * posting to them (chat/post-to-room.ts: the person answers its card), delete_files (its card is the person's;
  * chat/delete-files.ts also refuses a sub-agent's call on the server), and skill_files (file actions that touch skill
  * folders: one card the person answers; chat/skill-files.ts refuses a sub-agent's call on the server too).
- * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
+ * box_shell is not here (QA TC-4911: Claude Code's subagents have Bash): a general-purpose sub-agent runs commands with
+ * the same tool, folders and fence as the main AI; what needs the person (a site card, a login command after other
+ * people's changes) and jobs and dev servers stay the main AI's (devenv/tool.ts `helper`).
+ * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right
+ * (box_shell does not patch a sub-agent's step: chat/tools.ts gives a helper's call no queueStep).
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', 'delete_files', 'change_project_members', 'change_folder_access', 'skill_files', ...SCHEDULE_TOOLS, 'generate_video', 'save_promo_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'chat_file', 'save_room_file', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'who_can_open', 'shared_with_me', 'looking_at', 'answer_comments'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', 'delete_files', 'change_project_members', 'change_folder_access', 'skill_files', ...SCHEDULE_TOOLS, 'generate_video', 'save_promo_video', ...BROWSER_TOOL_NAMES, 'rooms', 'room_read', 'room_file', 'chat_file', 'save_room_file', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'who_can_open', 'shared_with_me', 'looking_at', 'answer_comments'])
 /** what the read-only Explore helper may use (of the tools the turn has): the tools that only look things up, which the
  * web app's steps list also uses (shared READ_ONLY_TOOLS) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = READ_ONLY_TOOLS
