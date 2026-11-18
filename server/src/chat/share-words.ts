@@ -201,13 +201,18 @@ export function plainQuote(s: string): string {
 /** A Markdown link or image ("](") or an autolink ("<…>"): formatted, it would show its words and hide its target
  * (mailto:, tel:, a relative or # link), so such a text stays as written on a card (review of #1235) */
 const HIDES_TARGET = /\]\(|<[^<>\s]+>/
+/** What the renderer does not show at all (review of #1240): an HTML comment ("<!--"), a reference definition line
+ * ("[x]: …", which also hides a reference link's target) and math, where commands such as \phantom or \color can
+ * hide text: any "$$", or a "$…$" with a backslash in it. The simple rule: any of these keeps the text as written. */
+const RENDERER_HIDES = /<!--|^\s{0,3}\[[^\]]+\]:|\$\$|\$[^$]*\\[^$]*\$/m
 
 /** May a card show this text formatted with the chat's Markdown renderer (ConfirmDetail.markdown)? Only when nothing in
- * it could hide where a link goes: no web address, no long random-looking part, no Markdown link or image, no autolink.
+ * it could hide where a link goes or hide words from the person who approves it: no web address, no long random-looking
+ * part, no Markdown link or image, no autolink, no HTML comment, no reference definition, no math with a command.
  * The send-to-room card (chat/post-to-room.ts, QA TC-4791) and the save-where-more-people-can-see card (chat/turn.ts
  * askWidening, QA TC-4815) use the same rule. */
 export function formatsSafely(text: string): boolean {
-  return opaqueParts(text).length === 0 && !carriesAddress(text) && !HIDES_TARGET.test(text)
+  return opaqueParts(text).length === 0 && !carriesAddress(text) && !HIDES_TARGET.test(text) && !RENDERER_HIDES.test(text)
 }
 
 /** A post's text as its card shows it: without the bold marks ("**3 tips**" reads "3 tips"; QA TC-4060, MAN-013/014/015).

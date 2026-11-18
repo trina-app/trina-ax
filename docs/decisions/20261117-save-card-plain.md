@@ -27,15 +27,34 @@
   asked first" (and its shared-file variant, `seenWhy`) moves from before the question to the small line under the
   buttons (the card's `note`, before the Always allow note: `askAlways` now keeps a card's own note beside it). It is
   left out when every room this chat read is its side chat's own room, by the same server check as the send-to-room
-  card (`grant-reads.ts roomsReadOnly`, with `read-rooms.ts quotesOnlyFrom`), and never left out in a shared chat or a
-  chat others write in. Only the words depend on this: the card shows exactly when it showed before.
-- **Rule (what it saves):** the rows of the room card (`roomCardDetails`) lose the Action row ("Save": the question says
-  it) and a File row that names the same place as the question; other rows stay (a source, a template, a save-as name
-  that differs). No character count (`noSize`). The text of a whole file written (`write`, `make_file`) is formatted
+  card (`grant-reads.ts sameRoomOnly`: `roomsReadOnly`, which itself checks every quote with `read-rooms.ts
+  quotesOnlyFrom` and refuses after a read through a share grant, and never in a shared chat or a chat others write in).
+  A pasted quote or a quote of another room's message keeps the line. Only the words depend on this: the card shows
+  exactly when it showed before.
+- **Rule (what it saves):** for a whole file written (`write`, `make_file`) the rows of the room card (`roomCardDetails`)
+  lose the Action row ("Save": the question says it) and a File row that names the same place as the question; any
+  other call (an edit, `edit_hwp`, `stamp_pdf`, `comment_docx`…) keeps all its rows, so the card still says it changes a
+  file (review of #1240). Other rows stay (a source, a template, a save-as name that differs). No character count
+  (`noSize`). The line for an instruction file (`roomAiConfirmInstruction`) is a line of its own after the source line. The text of a whole file written (`write`, `make_file`) is formatted
   with the chat's Markdown renderer (`ConfirmDetail.markdown`), under the send-to-room card's rule, now one helper
   (`share-words.ts formatsSafely`): plain when the text has a web address, a long random-looking part, `](` or an
-  autolink `<…>`, and always plain for an instruction file (a planted instruction stays exactly as written). Edits
+  autolink `<…>`, and also (review of #1240) anything the renderer would not show: an HTML comment (`<!--`), a reference
+  definition line (`[x]: …`, which also hides a reference-style link's target) and math that could hide words (any
+  `$$`, or a `$…$` with a backslash: `\phantom`, `\color` and the like). Always plain for an instruction file (a planted instruction stays exactly as written). Edits
   (`old → new`) stay plain.
+- **Rule (the send-to-room card, the owner in the review of #1240):** when the asker's own file goes with Send, the card
+  said the same thing twice: "QA Admin, QA Member Two can't open the file yet; sending shares it with them" and "2 people
+  there can't see some of the sources of this (My files)". The second line (`postRoomProvenance`) is left off when every
+  source it counts is a file the first line names and Send shares (`post-to-room.ts provenanceSaid`): each counted source
+  is the asker's own folder (not a teammate's folder reached through a share) or a folder, never a room, a chat, a
+  connection or the browser; nothing else is in the provenance (rooms read without the read scope saying which, after a
+  quote or a shared file, and a room hidden by history: its `keys` beyond the counted sources keep the line, re-review of
+  #1240); every read of that place in the chat is recorded file by file (`read-scope.ts scopeWithListing`); no listing
+  showed that place's other names in this answer; and each of those files reaches each person the source counts, as a
+  copy or through the view the card grants that person for that file (a guest never gets a view). Any
+  other source those people cannot see (another room, a file that does not go, anything not known) keeps the line, and so
+  does any doubt. The decision is made from sources and people, so it is the same in every language. Only the words
+  change: the explicit-ask skip and the per-chat approval still go by the full set of lines.
 - **Not changed:** when the card shows, its Save / Always allow / Don't save buttons, the Always allow kinds
   (`save_wider`, `room_change`), the per-chat approval, the grants and the refusal the AI reads.
 - **Left out:** the skill save card (`confirmSkillWrite`): it is its own component (a `SkillWritePreview` with a diff) on
@@ -43,6 +62,11 @@
 - **Why:** the owner's rule for cards is fewer and plainer words (lean UI = remove, not add); office workers read one
   question and the facts that matter.
 - **Tests:** `tests/unit/b-ai-save-place.test.ts` ("the card in fewer words (QA TC-4815)": the same-room side chat has no
-  reason line, another room keeps it under the buttons, links stay plain; the words in six languages),
+  reason line, another room, a pasted quote, another room's quote and a file shared by a grant keep it under the
+  buttons, a chat others write in keeps it (a whole turn) and so does a shared chat (`sameRoomOnly`), links, comments, reference definitions
+  and math stay plain, an instruction file and an edit stay plain and the edit keeps its Action row; the words in six
+  languages), `tests/unit/b-post-to-room.test.ts` (reference links, comments and math stay plain on the post card too;
+  the asker's own file that Send shares drops the sources line; another file of theirs read, another room, rooms read
+  without the scope naming them, a file whose view misses someone and a teammate's folder keep it),
   `tests/unit/b-chat-rooms.test.ts`, `tests/unit/b-skill-save-one-card.test.ts`, `tests/unit/plural-counts.test.ts`.
 - **Version impact:** patch (the same card with fewer words).

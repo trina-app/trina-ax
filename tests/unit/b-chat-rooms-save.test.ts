@@ -183,11 +183,12 @@ describe('saving a room file from my own chat', () => {
     expect(c.question).toContain(`messages of the conversation '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
-    // (no Action row: the question says it saves; QA TC-4815)
-    expect(fields.map((f) => f.name)).toEqual(['File', 'Save as'])
+    // (not a whole file written: the Action row stays, so the card says what the call does; review of #1240)
+    expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
+    expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, its room as alice sees it, who sent it, when and how big; never its id
-    expect(fields[0]!.value).toMatch(new RegExp(`^${file.name.replace('.', '\\.')} \\(#${name}, Erin Yoo, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
-    expect(fields[1]!.value).toBe(W('shared/company'))
+    expect(fields[1]!.value).toMatch(new RegExp(`^${file.name.replace('.', '\\.')} \\(#${name}, Erin Yoo, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}, \\d+ KB\\)$`))
+    expect(fields[2]!.value).toBe(W('shared/company'))
     expect(JSON.stringify(c.details)).not.toContain(file.id)
     // the same bytes, in a new folder; the room file stays
     const saved = `shared/company/${file.name}`
