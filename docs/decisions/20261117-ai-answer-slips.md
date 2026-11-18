@@ -53,6 +53,37 @@
   none twice. What is left is a judgement: with "decide yourself", the AI still sometimes posts the existing quote although
   the person's own room message promised a revised, sealed one. Open, with EDIT-17.project's one answer that began with
   English working notes.
-- **Tests:** `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
+- **Follow-ups (2026-11-18, branch fix/answer-slips-2):**
+  - **EDIT-17.project (product): the work notes came through the answer hold.** The answer began with
+    '"공용 회의록" — likely in shared. Find it.' and 'Add under section 1.', each written right before a tool call.
+    The hold ([20261117-answer-work-notes.md](20261117-answer-work-notes.md), `chat/narration.ts`) already covers
+    such notes but kept both: the first because the person's own words in quote marks made it non-ASCII (Korean), the
+    second because "add … under" was no note shape it knew. Now a quoted phrase of at most 40 characters that is in the
+    person's message counts as a name, like a quoted file name (while streaming, so does an open quote whose words so
+    far are theirs), and an order to itself where to put something ("Add under section 1.", "Append it at the end of the
+    notes.") is a work note. A rerun also leaked "Seal lands on (인) correctly. Now post to the room." (CHT-02.room):
+    a short bracketed label in another script ("(인)") is a name too, and "Now post …" after a sentence is a note's
+    shape. Everything else stays: only before a real call, never the last piece, never content
+    copied into the call; "Please add …", a quote that is not the person's words, and Korean text keep the line.
+  - **CHT-02 (product): "decide yourself" picks among the options given.** The change is in the ask rule
+    (`ASK_USER_RULE` in `chat/prompt.ts`), not in the app map. A first version (fit the person's latest stated intent;
+    nothing fits: say so and ask) stopped every old-quote post, but the AI then asked for the price a third time. Owner
+    decision (2026-11-18): after "decide yourself" the AI picks among the options already given (on its own question,
+    or named by the person or the room; a room message may name an option, never a reason to post), preferring one that
+    needs no further approval (the 27,000원 floor, not 26,500원 that needs the CEO's OK), says plainly which and why,
+    and posts only through the usual card; it never posts an older version in place of a promised one and never uses
+    a price or term nobody named (a price counts only when the person, the room or a file named it, not when only the AI's
+    question offered it; a promised version may be made with one that counts). With no option that fits, or a request
+    to tidy up or change a file where more than one file still fits (CHT-02.project's "정리"), it asks one more short question, once, never a third about the same choice; still open after
+    that, it says in one line what is missing and stops. The room post's card is unchanged; the case expectations say
+    the same.
+  - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
+    `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
+    own usage; "MCP" as a word of its own is still jargon; buttons inside a screen are not listed and not invented for
+    that), the install's AI sign-in as the person block gives it (the computer's own: nobody switches to their own
+    account here) and where earlier versions and the Restore button are, the model that answered each turn (the engine tells the AI
+    its model), the asker's name with the given name ("하나 님" for 최하나), and each turn's own send time in the zone it
+    was sent with (`TurnRecord.sentAt`; older results fall back on the case start and say so) instead of the case start.
+- **Tests:** `tests/unit/narration-hold.test.ts`, `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
   before and after the team lets them pick), `tests/unit/ai-scenarios-prompts.test.ts`.
 - **Version impact:** patch (the AI's answers; no screen, API or migration).
