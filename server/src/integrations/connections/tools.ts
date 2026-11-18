@@ -84,55 +84,8 @@ const attr = (s: string) => s.replace(/["<>&\r\n]/g, ' ')
 
 /** connection_result: the rest of a long answer of a connected service, kept for the answer it came in */
 export const CONNECTION_RESULT = 'connection_result'
-/** long answers kept per answer (turn) for connection_result: at most this many, and this many characters together;
- * the oldest goes first. An answer is at most MAX_BODY (1 MB) from the network, a little more as text. */
-export const KEPT_RESULTS_MAX = 32
-export const KEPT_RESULTS_CHARS = 16_000_000
-
-/** all turns' kept answers together: at most this many characters; the oldest turns go first */
-export const KEPT_ALL_CHARS = 64_000_000
-
-/** The long answers of one turn's connection tools (limits audit 1 #13: an answer over MAX_RESULT_CHARS was cut with no
- * way to read on). Each is kept as the AI was shown it (secrets hidden), with the connection and the tool it came from.
- * Kept per turn (not per tool build: connect_service rebuilds the tools mid-answer, and an id the AI holds must never
- * name another answer) and for that turn's person only; nothing is written to disk. */
-export class KeptResults {
-  private rows = new Map<string, { row: Row; tool: string; text: string }>()
-  private n = 0
-  chars = 0
-  constructor(readonly userId: string) {}
-  put(row: Row, text: string, tool: string): string {
-    const id = `r${++this.n}`
-    this.rows.set(id, { row, tool, text })
-    this.chars += text.length
-    for (const [k, v] of this.rows) {
-      if (this.rows.size <= KEPT_RESULTS_MAX && this.chars <= KEPT_RESULTS_CHARS) break
-      if (k === id) break
-      this.rows.delete(k); this.chars -= v.text.length
-    }
-    keptBudget()
-    return id
-  }
-  get(id: string) { return this.rows.get(id) ?? null }
-}
-const keptByTurn = new Map<string, KeptResults>()
-/** the oldest turns' answers go when all turns together hold more than KEPT_ALL_CHARS (a turn that ended is not told) */
-function keptBudget() {
-  let all = 0
-  for (const k of keptByTurn.values()) all += k.chars
-  for (const [turn, k] of keptByTurn) {
-    if (all <= KEPT_ALL_CHARS || keptByTurn.size <= 1) break
-    keptByTurn.delete(turn); all -= k.chars
-  }
-}
-/** the long answers kept for this turn (the same store for every build of its tools); another person's turn id gets
- * a store of its own that is empty */
-export const keptOf = (b: { turnId: string; userId: string }): KeptResults => {
-  const key = `${b.turnId}\u0000${b.userId}`
-  let k = keptByTurn.get(key)
-  if (!k) { keptByTurn.set(key, k = new KeptResults(b.userId)); keptBudget() }
-  return k
-}
+import { keptGet, keptPut, KEPT_RESULTS_CHARS, KEPT_RESULTS_MAX } from './kept'
+export { KEPT_RESULTS_CHARS, KEPT_RESULTS_MAX }
 
 /** The part of a text from `from`, at most `max` characters, never ending or starting inside an emoji */
 function partOf(text: string, from: number, max: number): { from: number; text: string } {
@@ -145,11 +98,11 @@ function partOf(text: string, from: number, max: number): { from: number; text: 
 
 /** The answer as external data; `text` has its secrets hidden already (so a key across the cut cannot leave a part).
  * A longer answer than MAX_RESULT_CHARS comes in parts: the first here, kept in `kept` for connection_result. */
-function wrap(row: Row, head: string, text: string, kept?: { store: KeptResults; tool: string }, start = 0, id?: string): string {
+function wrap(row: Row, head: string, text: string, kept?: { turn: { turnId: string; userId: string }; tool: string }, start = 0, id?: string): string {
   const part = partOf(text, start, MAX_RESULT_CHARS)
   const end = part.from + part.text.length
   const more = end < text.length
-  const ref = more || part.from > 0 ? (id ?? kept?.store.put(row, text, kept.tool)) : undefined
+  const ref = more || part.from > 0 ? (id ?? (kept ? keptPut(kept.turn, row, text, kept.tool) ?? undefined : undefined)) : undefined
   const where = !more && !part.from ? ''
     : ref ? ` (characters ${part.from}-${end} of ${text.length}${more ? `; read on with ${CONNECTION_RESULT} {"id": "${ref}", "offset": ${end}}` : ', the end'})`
       : ` (cut to ${MAX_RESULT_CHARS} characters)`
@@ -162,7 +115,7 @@ function wrap(row: Row, head: string, text: string, kept?: { store: KeptResults;
   ].join('\n')
 }
 
-const resultInput = z.object({ id: z.string().regex(/^r\d{1,6}$/), offset: z.number().int().min(0).max(100_000_000) }).strict()
+const resultInput = z.object({ id: z.string().regex(/^r\d{1,15}$/), offset: z.number().int().min(0).max(100_000_000) }).strict()
 
 /** connection_result: the next part of a long answer of a connected service in this answer (wrap). It calls no service:
  * the person must still be allowed the connection the answer came from (as when it was delivered), and it is shown
@@ -185,8 +138,7 @@ function connectionResultTool(ctx: AppContext, b: BuildCtx): TurnTool {
       const parsed = resultInput.safeParse(raw ?? {})
       if (!parsed.success) return invalid(CONNECTION_RESULT, parsed.error)
       const { id, offset } = parsed.data
-      const kept = keptOf(b)
-      const got = tc.turnId === b.turnId && tc.userId === kept.userId ? kept.get(id) : null
+      const got = tc.turnId === b.turnId && tc.userId === b.userId ? keptGet(b, id) : null
       if (!got) return { content: [{ type: 'text', text: `No answer "${id}" is kept in this answer (only long answers of this answer are kept, and the oldest go when there are many). Call the service's tool again if you still need it.` }], isError: true, summary: `${CONNECTION_RESULT} ${id} -> not kept` }
       return hiding(ctx, [got.row], async (_a, tc2, h) => {
         try {
@@ -201,7 +153,7 @@ function connectionResultTool(ctx: AppContext, b: BuildCtx): TurnTool {
           }
           const row = await sharedGate(ctx, b, now, tc2, h)
           if (offset >= got.text.length) return { content: [{ type: 'text', text: `The answer "${id}" from ${row.name} has ${got.text.length} characters: offset ${offset} is past its end.` }], summary: `${CONNECTION_RESULT} ${id} ${offset} -> past the end` }
-          return { content: [{ type: 'text', text: wrap(row, `Answer ${id} from ${row.name}, read on`, got.text, { store: kept, tool: got.tool }, offset, id) }], summary: `${CONNECTION_RESULT} ${id} from ${offset} (${got.text.length} chars in all)` }
+          return { content: [{ type: 'text', text: wrap(row, `Answer ${id} from ${row.name}, read on`, got.text, undefined, offset, id) }], summary: `${CONNECTION_RESULT} ${id} from ${offset} (${got.text.length} chars in all)` }
         } catch (e) {
           if (!(e instanceof CallError)) throw e
           return fail(CONNECTION_RESULT, e)
@@ -1001,7 +953,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         rememberConnectionUrls(ctx.db, chat, answerUrls(text, links.map(h.hide)), { integrationId: current.id, userId: tc.userId, turnId: tc.turnId })
         const images = [...(attachment?.images ?? []), ...await modelImages(ctx, tc, kept)]
         return {
-          content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.${images.length ? ` ${images.length === 1 ? 'Its image is' : 'Its images are'} shown below.` : ''}`, text, { store: keptOf(b), tool: t.name }) }, ...images],
+          content: [{ type: 'text', text: wrap(current, `Answer of ${t.name} from ${current.name}${isError ? ' (the service reported an error)' : ''}.${images.length ? ` ${images.length === 1 ? 'Its image is' : 'Its images are'} shown below.` : ''}`, text, { turn: b, tool: t.name }) }, ...images],
           ...(isError ? { isError: true } : {}),
           summary: `${name} -> ${isError ? 'error answer' : 'ok'} (${text.length} chars${kept.length ? `, ${kept.length} file${kept.length === 1 ? '' : 's'} kept: ${kept.map((k) => `${MEDIA_PREFIX}${k.meta.id} ${k.meta.kind ?? 'unknown'} ${k.meta.size} B sha256 ${k.meta.sha256.slice(0, 16)}`).join(', ')}` : ''})${files.length ? ` (team file${files.length === 1 ? '' : 's'} attached: ${attachedSummary(files)})` : ''}${confirmed ? ' (confirmed by the user)' : ''}`,
         }
@@ -1221,7 +1173,7 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
           ? `${row.name} answered ${a.method} ${u.pathname} with a redirect (HTTP ${res.status}); redirects are not followed.`
           : `${row.name} answered ${a.method} ${u.pathname}: HTTP ${res.status}${ct ? `, ${ct.split(';')[0]}` : ''}, ${res.body.length} bytes${res.truncated ? ' (cut at 1 MB)' : ''}.`
         return {
-          content: [{ type: 'text', text: wrap(row, head, body, { store: keptOf(b), tool: 'api_request' }) }],
+          content: [{ type: 'text', text: wrap(row, head, body, { turn: b, tool: 'api_request' }) }],
           ...(res.status >= 400 || redirect ? { isError: true } : {}),
           summary: `api_request ${key} ${a.method} ${clip(u.pathname, 300)} -> ${res.status} (${res.body.length} B)${confirmed ? ' (confirmed by the user)' : ''}`,
         }

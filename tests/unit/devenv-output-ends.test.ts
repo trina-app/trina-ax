@@ -24,7 +24,7 @@ describe('readEnds: the runner keeps the first and the last part of a long outpu
     expect(r.cut).toBe(true)
     expect(r.text.startsWith('compiling module 0\n')).toBe(true)
     expect(r.text.endsWith('ERROR: build failed at the very end\n')).toBe(true)
-    const m = r.text.match(/\n… \((\d+) bytes in the middle of this output were left out; the end follows\) …\n/)
+    const m = r.text.match(/\n… \(about (\d+) bytes in the middle of this output were left out; the end follows\) …\n/)
     expect(m).not.toBeNull()
     // the tail starts at a whole line, and the bytes said left out are exactly the ones not shown
     const [head, tail] = r.text.split(m![0]) as [string, string]
@@ -41,7 +41,7 @@ describe('readEnds: the runner keeps the first and the last part of a long outpu
     expect(r.text).not.toContain('�')
     // a cut right after a whole character keeps it
     const exact = readEnds(file('korean-exact.txt', '가'.repeat(3000)), 999, 999)
-    expect(exact.text.split('\n')[0]).toBe('가'.repeat(333))
+    expect(exact.text.split('\n')[0]).toBe('가'.repeat(999))
   })
 })
 
@@ -52,7 +52,7 @@ describe('the runner cuts once, clip keeps its line (review of #1321)', () => {
     const r = readEnds(file('ten-mb.log', body), 16 << 10, 16 << 10)
     const shown = clip(r.text)
     expect(shown).toBe(r.text)
-    const left = Number(shown.match(/\((\d+) bytes in the middle of this output were left out/)![1])
+    const left = Number(shown.match(/\(about (\d+) bytes in the middle of this output were left out/)![1])
     expect(left).toBeGreaterThan(9_900_000)
     expect(shown.endsWith('FATAL: the end\n')).toBe(true)
     expect(shown).not.toContain('characters in the middle left out')
@@ -65,7 +65,7 @@ describe('the runner cuts once, clip keeps its line (review of #1321)', () => {
     const body = lines.join('\n') + '\n'
     for (const [h, t] of [[1000, 1000], [1033, 997], [4000, 3001]] as const) {
       const r = readEnds(file(`tokens-${h}.log`, body), h, t)
-      const [head, tail] = r.text.split(/\n… \(\d+ bytes[^\n]*\n/) as [string, string]
+      const [head, tail] = r.text.split(/\n… \(about \d+ bytes[^\n]*\n/) as [string, string]
       for (const part of [head, tail]) for (const l of part.split('\n').filter(Boolean)) expect(l).toMatch(new RegExp(`^step \\d+ key=${token}$`))
     }
     const long = lines.join('\n').repeat(3)
@@ -73,6 +73,27 @@ describe('the runner cuts once, clip keeps its line (review of #1321)', () => {
     const [ch, ct] = c.split(/\n… \(\d+ characters[^\n]*\n/) as [string, string]
     for (const part of [ch, ct]) for (const l of part.split('\n').filter(Boolean)) expect(l.endsWith(token) || l.startsWith('step')).toBe(true)
     expect(ch.endsWith('\n')).toBe(true)
+  })
+})
+
+describe('a stored secret across a cut (review of #1321)', () => {
+  const key = 'sk_live_' + 'A1b2C3d4E5f6G7h8J9k0L1m2N3p4Q5r6'
+  const redact = (s: string) => s.split(key).join('[hidden key]')
+  test('on one long line across the head cut and across the tail cut: hidden whole, no part of it shown', () => {
+    const head = 16 << 10
+    for (const at of [head - 10, head - 1, head - key.length + 1]) {
+      const body = 'a'.repeat(at) + key + 'b'.repeat(60_000) + key.slice(0, 0) + 'c'.repeat(10) + key + 'd'.repeat(20)
+      const r = readEnds(file(`secret-${at}.log`, body), head, head, redact)
+      expect(r.cut).toBe(true)
+      for (let n = 6; n <= key.length; n++) {
+        expect(r.text).not.toContain(key.slice(0, n))
+        expect(r.text).not.toContain(key.slice(-n))
+      }
+    }
+    // the tail cut inside the second key
+    const body2 = 'a'.repeat(70_000) + key + 'e'.repeat((16 << 10) - 12)
+    const r2 = readEnds(file('secret-tail.log', body2), head, head, redact)
+    for (let n = 6; n <= key.length; n++) { expect(r2.text).not.toContain(key.slice(0, n)); expect(r2.text).not.toContain(key.slice(-n)) }
   })
 })
 

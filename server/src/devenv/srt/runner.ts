@@ -498,10 +498,10 @@ function readHead(file: string, max: number): { text: string; cut: boolean } {
 
 /** A command's output as the AI gets it (limits audit 1 #21): all of it up to `head + tail` bytes, else its first `head`
  * and its last `tail` bytes with a line that says how much was left out in between, so the error a long build prints
- * at its end is there. Neither part ends inside a UTF-8 character; the tail starts at a line when one is near. */
-/** how far a cut moves to reach a line break */
-const LINE_SNAP = 4096
-export function readEnds(file: string, head: number, tail: number): { text: string; cut: boolean } {
+ * at its end is there. `head` and `tail` count characters of the hidden text. `redact` (the stored secrets of the turn, devenv/tool.ts) runs before the cuts, on each part with
+ * REDACT_MARGIN bytes more past the cut, so a secret across a cut is hidden whole, never left half-shown. Neither part
+ * ends inside a UTF-8 character; both cuts go to a line break when there is one near. */
+export function readEnds(file: string, head: number, tail: number, redact: (s: string) => string = (x) => x): { text: string; cut: boolean } {
   let fd: number
   try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return { text: '', cut: false } }
   try {
@@ -509,32 +509,43 @@ export function readEnds(file: string, head: number, tail: number): { text: stri
     if (size <= head + tail) {
       const all = Buffer.alloc(size)
       const n = fs.readSync(fd, all, 0, size, 0)
-      return { text: all.subarray(0, n).toString('utf8'), cut: false }
+      return { text: redact(all.subarray(0, n).toString('utf8')), cut: false }
     }
-    const a = Buffer.alloc(head)
-    const na = fs.readSync(fd, a, 0, head, 0)
-    const b = Buffer.alloc(tail)
-    const nb = fs.readSync(fd, b, 0, tail, size - tail)
-    let start = a.subarray(0, na)
-    // a character cut at the end of the first part: its lead byte and what came of it are left out
-    let k = start.length
-    while (k > 0 && k > start.length - 4 && (start[k - 1]! & 0xc0) === 0x80) k--
-    const lead = k > 0 ? start[k - 1]! : 0
-    const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
-    if (start.length - (k - 1) < need) start = start.subarray(0, k - 1)
-    // both cuts at a line break when there is one near (a key or token on one line is never split, so the redaction
-    // that runs on the result, which matches whole values, still finds it)
-    const lastNl = start.lastIndexOf(0x0a)
-    if (lastNl >= 0 && start.length - lastNl <= LINE_SNAP) start = start.subarray(0, lastNl + 1)
-    let end = b.subarray(0, nb)
-    let j = 0
-    while (j < end.length && j < 4 && (end[j]! & 0xc0) === 0x80) j++
-    end = end.subarray(j)
-    const nl = end.indexOf(0x0a)
-    if (nl >= 0 && nl < LINE_SNAP) end = end.subarray(nl + 1)
-    const left = size - start.length - end.length
-    return { text: `${start.toString('utf8')}\n… (${left} bytes in the middle of this output were left out; the end follows) …\n${end.toString('utf8')}`, cut: true }
+    const ha = Math.min(size, head + REDACT_MARGIN)
+    const a = Buffer.alloc(ha)
+    const na = fs.readSync(fd, a, 0, ha, 0)
+    const tb = Math.min(size, tail + REDACT_MARGIN)
+    const b = Buffer.alloc(tb)
+    const nb = fs.readSync(fd, b, 0, tb, size - tb)
+    // whole characters only at the window's edges, then hidden, then cut to its size (in characters of the hidden text)
+    let startText = redact(utf8Whole(a.subarray(0, na), 'end'))
+    let endText = redact(utf8Whole(b.subarray(0, nb), 'start'))
+    startText = startText.slice(0, head).replace(/[\uD800-\uDBFF]$/, '')
+    endText = endText.slice(Math.max(0, endText.length - tail)).replace(/^[\uDC00-\uDFFF]/, '')
+    const lastNl = startText.lastIndexOf('\n')
+    if (lastNl >= 0 && startText.length - lastNl <= LINE_SNAP) startText = startText.slice(0, lastNl + 1)
+    const nl = endText.indexOf('\n')
+    if (nl >= 0 && nl < LINE_SNAP) endText = endText.slice(nl + 1)
+    const left = size - Buffer.byteLength(startText) - Buffer.byteLength(endText)
+    return { text: `${startText}\n… (about ${Math.max(0, left)} bytes in the middle of this output were left out; the end follows) …\n${endText}`, cut: true }
   } finally { fs.closeSync(fd) }
+}
+/** how far a cut moves to reach a line break */
+const LINE_SNAP = 4096
+/** bytes read past each cut for the redaction (a stored secret is far shorter) */
+const REDACT_MARGIN = 4096
+/** a buffer cut at either end with no part of a UTF-8 character left there */
+function utf8Whole(buf: Buffer, edge: 'start' | 'end'): string {
+  if (edge === 'start') {
+    let j = 0
+    while (j < buf.length && j < 4 && (buf[j]! & 0xc0) === 0x80) j++
+    return buf.subarray(j).toString('utf8')
+  }
+  let k = buf.length
+  while (k > 0 && k > buf.length - 4 && (buf[k - 1]! & 0xc0) === 0x80) k--
+  const lead = k > 0 ? buf[k - 1]! : 0
+  const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+  return (buf.length - (k - 1) < need ? buf.subarray(0, k - 1) : buf).toString('utf8')
 }
 
 function readTail(file: string, max: number): string {
@@ -618,7 +629,7 @@ export function runProblem(ctx: AppContext): string | null {
 }
 
 /** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[] }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -653,7 +664,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       if (u.result === 'oom-kill') oom = true
       if (u.state === 'failed') await c.system.forget(runId)
       const code = readExit(exitFile)
-      const so = readEnds(out, OUT_READ / 2, OUT_READ / 2), se = readEnds(err, OUT_READ / 2, OUT_READ / 2)
+      const so = readEnds(out, OUT_READ / 2, OUT_READ / 2, o.redact), se = readEnds(err, OUT_READ / 2, OUT_READ / 2, o.redact)
       const signal = a.stopReason === 'timeout' ? 'timeout' : a.stopReason === 'setting' ? 'setting' : a.stopReason ? 'stopped' : oom ? 'oom' : ''
       return { ok: true as const, value: { ev: 'exit' as const, code: code ?? ended.code ?? 137, signal, stdout: so.text, stderr: se.text, truncated: so.cut || se.cut, ms: Date.now() - started } }
     } catch (e) {

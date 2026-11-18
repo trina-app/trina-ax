@@ -140,7 +140,7 @@ export const clip = (s: string) => {
   if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
   return `${head}\n… (${s.length - head.length - tail.length} characters in the middle left out; the end follows) …\n${tail}`
 }
-const RUNNER_CUT = /\n… \(\d+ bytes in the middle of this output were left out; the end follows\) …\n/
+const RUNNER_CUT = /\n… \(about \d+ bytes in the middle of this output were left out; the end follows\) …\n/
 
 export interface BoxShellHost {
   ctx: AppContext
@@ -208,7 +208,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once] }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact }) }
   }
   let w: Window & { value: Out }
   if (o.tracked) {
