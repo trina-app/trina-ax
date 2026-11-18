@@ -16,6 +16,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { setupReturnStep } from '../../lib/welcome'
 import { CompactRow } from '../../components/CompactRow'
+import { SupportDetails } from '../../components/SupportDetails'
 import type { EngineId, EngineStatus } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
@@ -243,6 +244,8 @@ function EngineRow({ e, accounts, addBelow = false, accountsShown, phone, page, 
           {e.beta && <p className="text-xs leading-relaxed text-muted" data-testid="engine-beta"><span className="font-medium text-warn">{t('engines.beta')}</span> · {hint}</p>}
           {!e.beta && hint && <p className="text-xs leading-relaxed text-muted">{hint}</p>}
           {ok && e.detail && !technical && <p className="text-xs text-muted" data-testid="engine-ok-detail">{e.detail}</p>}
+          {/* a failed check: what the engine printed, for support, closed by default (the line above says what to do) */}
+          {e.errorDetail && <SupportDetails text={e.errorDetail} testId="engine-error-detail" />}
           <div className="space-y-0.5 text-xs text-faint">
             <p>{[e.version && `v${e.version}`, mode].filter(Boolean).join(' · ')}</p>
             {models && <p>{t('engines.models', { list: models })}</p>}

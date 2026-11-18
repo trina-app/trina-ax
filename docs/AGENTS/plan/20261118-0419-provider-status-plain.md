@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 04:19
 - Branch: `fix/provider-status-plain`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/admin/engines.ts`, `shared/src/api/admin.ts`, `web/src/pages/admin/Engines.tsx`. Why: AI connection status is core (docs/REPOSITORY-RULES.md)
 - Version impact: patch, a status-line fix with one optional response field
 
@@ -43,3 +43,11 @@ Public repo: no paths or secrets in the detail (tests check it). Five other lang
 
 ## Result
 
+The raw text came from `server/src/admin/engines.ts`: the `error` line ("Could not check the status: {e}") put up to
+200 characters of the engine's stdout/stderr into `detail` when `claude auth status --json` (or `--version`) did not
+answer as expected; in local CLI mode on a QA copy the engine printed stream events there. Now `failedCheck()` gives
+the plain line (checkFailed / checkTimeout / checkNetwork, or the engine's own sign-in line), `supportDetail()` cleans
+the output (api-agent `redact`, secret fields, home folders as ~, `maskTokenLike`, 600 characters) into `errorDetail`,
+and the card shows it behind "Show details" with a copy button (`components/SupportDetails.tsx`). The API engine's
+"could not be reached" line no longer carries the provider's error either. The add-account check and Settings › AI
+return reason codes only, so they needed nothing. As planned otherwise.
