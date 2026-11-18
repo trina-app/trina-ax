@@ -15,7 +15,9 @@ import { unitName } from '../../server/src/devenv/srt/config'
 import type { SrtSystem, SpawnSpec, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, oldTeamOffer, saveTeamSetting, TEAM_SETTING_KEY, teamSetting } from '../../server/src/devenv/setting'
-import { boxShellTool, HELPER_NO_JOB } from '../../server/src/devenv/tool'
+import { boxShellTool, callerOf, HELPER_NO_CARD, HELPER_NO_JOB } from '../../server/src/devenv/tool'
+import { pollSrt } from '../../server/src/devenv/jobs'
+import { skillBlock, skillScriptsLine, skillScriptsRun } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
@@ -139,7 +141,7 @@ describe('a sub-agent runs commands (box_shell)', () => {
     const mainSite = await tool.call({ command: 'echo net', request_sites: ['api.example-child.com'] }, MAIN)
     expect(asked).toEqual(['api.example-child.com'])
     expect(out(mainSite)).toContain('net')
-    // the child's plain command runs; the main AI's job still starts
+    // the child's plain command runs
     expect(out(await tool.call({ command: 'echo ok' }, CHILD))).toContain('ok')
     expect(queued).toEqual([])
   })
@@ -149,10 +151,10 @@ describe('a skill\'s bundled scripts (QA TC-4911)', () => {
   test('with box_shell the instructions and the loaded skill say they run there; never "cannot execute"', async () => {
     const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
     const sys = (await ask(h, alice, 'alice', chat, fakeLine({ echo: 'system' }))).done.content
-    expect(sys).toContain('bundled scripts (scripts/ in its folder) run with box_shell')
+    expect(sys).toContain(skillScriptsLine(true))
     expect(sys).not.toContain('This runtime cannot execute bundled scripts.')
     const sub = (await ask(h, alice, 'alice', chat, fakeLine({ echo: 'subagentPrompt' }))).done.content
-    expect(sub).toContain('bundled scripts (scripts/ in its folder) run with box_shell')
+    expect(sub).toContain(skillScriptsLine(true))
     const loaded = (await ask(h, alice, 'alice', chat, fakeLine({ tool: 'skill', args: { name: 'csv-report' }, sayResult: true }))).done.content
     expect(loaded).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/skills/csv-report/"')
     expect(loaded).not.toContain('Bundled scripts cannot be executed here')
@@ -199,5 +201,102 @@ describe('teams from before the dev environment (migration 236)', () => {
       expect(after.offer).toBe(false)
       expect(after.setting.enabled).toBe(false)
     } finally { turnOn() }
+  })
+})
+
+describe('review of #1289', () => {
+  const tracked = () => ({ ctx: h.ctx, project: P, userId: 'alice', turnId: 't-' + crypto.randomUUID(), chatId: 'c-' + crypto.randomUUID(), signal: new AbortController().signal, redact: (s: string) => s })
+  const foreign = () => h.ctx.db.query("INSERT INTO file_events (user_id, path, action, at) VALUES ('dana', ?, 'update', ?)").run(`${P.folderPath}/by-dana-${crypto.randomUUID().slice(0, 6)}.md`, new Date().toISOString())
+
+  test('M1: scripts run only for a team skill and the person\'s own skill; never a group or project skill\'s', () => {
+    const body = { description: 'd', body: 'Run scripts/x.py.' }
+    const team = { path: 'skills/t/SKILL.md', name: 't', ...body }
+    const own = { path: 'users/alice/skills/p/SKILL.md', name: 'p', ...body }
+    const group = { path: 'groups/sales/skills/g/SKILL.md', name: 'g', group: { id: 'g1', name: 'Sales' }, ...body }
+    const project = { path: `${P.folderPath}/skills/pr/SKILL.md`, name: 'pr', project: { id: P.id, name: P.name }, ...body }
+    expect([team, own, group, project].map(skillScriptsRun)).toEqual([true, true, false, false])
+    expect(skillBlock(team, '', 'loaded', { scripts: true })).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/skills/t/"')
+    expect(skillBlock(own, '', 'loaded', { scripts: true })).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/users/alice/skills/p/"')
+    for (const s of [group, project]) {
+      const b = skillBlock(s, '', 'loaded', { scripts: true })
+      expect(b).toContain('Its bundled scripts are never run, in any way (not with box_shell either)')
+      expect(b).not.toContain('run with box_shell from')
+      expect(skillBlock(s, '', 'invoked', { scripts: true })).toContain('are never run')
+    }
+    // the list's line says the same: which skills' scripts run, and that group and project scripts never do
+    expect(skillScriptsLine(true)).toContain('of a team skill or of the user\'s own [personal] skill run with box_shell')
+    expect(skillScriptsLine(true)).toContain('Never run the scripts of a [group: …] or [project: …] skill')
+  })
+
+  test('M1 end to end: a loaded group skill and project skill say their scripts never run', async () => {
+    // the fixture's marketing group (alice is in it), linked to its folder as tests/unit/group-skills.test.ts does
+    h.ctx.db.query('UPDATE groups SET folder_id = (SELECT id FROM folders WHERE path = ?) WHERE id = ?').run('groups/marketing', 'marketing')
+    fs.mkdirSync(abs('groups/marketing/skills/grp-tool/scripts'), { recursive: true })
+    fs.writeFileSync(abs('groups/marketing/skills/grp-tool/SKILL.md'), '---\nname: grp-tool\ndescription: A group tool\n---\n\nRun scripts/x.py.\n')
+    fs.writeFileSync(abs('groups/marketing/skills/grp-tool/scripts/x.py'), 'print(1)\n')
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const g = (await ask(h, alice, 'alice', chat, fakeLine({ tool: 'skill', args: { name: 'grp-tool' }, sayResult: true }))).done.content
+    expect(g).toContain('The group (of "Marketing"')
+    expect(g).toContain('are never run, in any way')
+    expect(g).not.toContain('run with box_shell from')
+    fs.mkdirSync(abs(`${P.folderPath}/skills/proj-tool/scripts`), { recursive: true })
+    fs.writeFileSync(abs(`${P.folderPath}/skills/proj-tool/SKILL.md`), '---\nname: proj-tool\ndescription: A project tool\n---\n\nRun scripts/x.py.\n')
+    const pchat = (await h.api('alice').call(API.createChat, { body: { projectId: P.id } })).id
+    const loaded = (await ask(h, alice, 'alice', pchat, fakeLine({ tool: 'skill', args: { name: 'proj-tool' }, sayResult: true }))).done.content
+    expect(loaded).toContain('The project (of')
+    expect(loaded).toContain('are never run, in any way')
+    expect(loaded).not.toContain('run with box_shell from')
+  })
+
+  test('a helper\'s login command after other people\'s changes: refused (HELPER_NO_CARD), no card, nothing run', async () => {
+    foreign()
+    const confirms: string[] = []
+    const tool = boxShellTool({ ...tracked(), confirm: async (q) => { confirms.push(q); return 'run' }, caller: (f) => callerOf(f, MAIN) })
+    const r = await tool.call({ command: 'git push' }, CHILD)
+    expect(r.isError).toBe(true)
+    expect(out(r)).toBe(HELPER_NO_CARD)
+    expect(confirms).toEqual([])
+    expect(runs.size).toBe(0)
+  })
+
+  test('L1: a helper\'s command leaves the main AI\'s "changed by other people" note and the login card', async () => {
+    foreign()
+    const confirms: string[] = []
+    const t = tracked()
+    const tool = boxShellTool({ ...t, confirm: async (q) => { confirms.push(q); return 'run' }, caller: (f) => callerOf(f, MAIN) })
+    expect(out(await tool.call({ command: 'echo child' }, CHILD))).toContain('child')
+    const first = out(await tool.call({ command: 'echo main' }, MAIN))
+    expect(first).toContain('Changed by other people since this person\'s last command')
+    // the main AI's login command still asks after the helper ran
+    const again = boxShellTool({ ...tracked(), confirm: async (q) => { confirms.push(q); return 'no' }, caller: (f) => callerOf(f, MAIN) })
+    foreign()
+    await again.call({ command: 'echo child2' }, CHILD)
+    await again.call({ command: 'git push' }, MAIN)
+    expect(confirms).toHaveLength(1)
+    // L2: the audit line says which agent ran it
+    const rows = h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'dev_env.command' AND detail LIKE ?").all(`%${t.turnId}%`) as { detail: string }[]
+    const details = rows.map((x) => JSON.parse(x.detail) as { by?: string; agent?: string; command: string })
+    expect(details.find((d) => d.command === 'echo child')).toMatchObject({ by: 'sub-agent', agent: 'toolu_child1' })
+    expect(details.find((d) => d.command === 'echo main')!.by).toBeUndefined()
+  })
+
+  test('an unknown agent counts as a helper (fails closed); the turn\'s own state is the main AI', () => {
+    const main = {}
+    expect(callerOf(main, main)).toEqual({ helper: false, key: '' })
+    expect(callerOf(undefined, main)).toEqual({ helper: false, key: '' })
+    expect(callerOf({ agent: null, agentView: true }, main)).toEqual({ helper: true, key: '?' })
+    expect(callerOf({ agent: 'toolu_X' }, main)).toEqual({ helper: true, key: 'toolu_X' })
+  })
+
+  test('the audience changes while a helper\'s command runs in a shared chat: the next poll stops it', async () => {
+    const audience = ['alice', 'bob']
+    const shared: SharedRun = { within: P.folderPath, audience: () => [...audience], noteReads: () => true }
+    const tool = boxShellTool({ ...tracked(), confirm: async () => 'run', shared, caller: (f) => callerOf(f, MAIN) })
+    const cmd = tool.call({ command: 'sleep', timeout_sec: 60 }, CHILD)
+    await Bun.sleep(150)
+    expect(last().state).toBe('active')
+    audience.push('erin')
+    await pollSrt(h.ctx)
+    expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
   })
 })

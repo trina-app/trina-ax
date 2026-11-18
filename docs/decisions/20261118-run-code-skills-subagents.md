@@ -7,12 +7,17 @@
 
 Plan: docs/AGENTS/plan/20261118-1043-limits-run-code.md.
 
-- **Skill scripts.** When the turn offers `box_shell` (the dev environment is on for the person), the skills section and
-  every skill block (a "/name" skill and the skill tool's result) say that a skill's bundled scripts run with
-  `box_shell`, by their team path under `$TRINA_TEAM`, when the skill's steps say to. They run like any other command:
-  the person's folders (a shared chat's fence in a shared chat), the network allowlist, the limits. Without `box_shell`
-  the old line stays ("This runtime cannot execute bundled scripts."). `allowed-tools` still grants nothing, and which
-  skills are listed does not change (known origins only, docs/DECISIONS.md and the skills origin rule).
+- **Skill scripts.** When the turn offers `box_shell` (the dev environment is on for the person), the scripts of a
+  **team skill** (written by skill managers, behind the confirmation card) and of the person's **own personal skill**
+  run with `box_shell`, by their team path under `$TRINA_TEAM`, when the skill's steps say to. They run like any other
+  command: the person's folders (a shared chat's fence in a shared chat), the network allowlist, the limits. The scripts
+  of a **group skill** (any member wrote it) or a **project skill** (anyone who may write the folder) are never run, in
+  any way: a script runs with the reading person's access and allowed sites, so a script one member planted could take
+  another member's files out (security review of #1289). Of the two options the review gave (read the script and ask
+  with ask_user, or keep "cannot be executed"), this keeps "never run" for them: asking leans on the AI following a
+  rule that the planted skill text itself sits next to, and a sub-agent cannot ask at all. The AI tells the person that
+  a skill manager can make it a team skill. Without `box_shell` the old line stays ("This runtime cannot execute bundled
+  scripts."). `allowed-tools` still grants nothing, and which skills are listed does not change.
 - **Sub-agents get `box_shell`.** It leaves PARENT_ONLY_TOOLS: a general-purpose sub-agent has it whenever the main AI
   has it, through the same tool object, so the same view (`spaceOf`, a shared chat's `SharedRun`), the same checks per
   call (`mayUseDevEnv`, storage, the update wait) and the same audit line. Explore stays read-only. What only the
@@ -20,9 +25,11 @@ Plan: docs/AGENTS/plan/20261118-1043-limits-run-code.md.
   login command after other people's changes are refused with "say it in your report" (no card, nothing recorded as
   the person's no). Jobs and dev servers stay the main AI's (their notice, the Preview button and their results belong
   to the main chat): a sub-agent's `job`/`background` is refused, and its calls never take job results. A sub-agent's
-  call patches no step (`queueStep` is not given), so patchToolStep's FIFO per tool stays the main AI's. The call's
-  agent comes from its turn file state (files/service.ts `forCall`); the audit summary says "(sub-agent)" and the
-  tool_events row has the parent tool use id as before.
+  call patches no step (`queueStep` is not given), so patchToolStep's FIFO per tool stays the main AI's, and it does not
+  mark the project's changes as seen (the main AI's "changed by other people" note and its login card stay). The call's
+  agent comes from its turn file state (files/service.ts `forCall`, `callerOf`): anything but the turn's own state is
+  a helper, also a call whose agent is not known (fails closed). The audit summary says "(sub-agent)", the
+  `dev_env.command` line has `by: "sub-agent"` and the agent id, and the tool_events row has the parent tool use id.
 - **Sub-agent rounds.** Each sub-agent gets the answer's own cap (Admin › Team settings `answerStepLimit`, read when
   the turn starts, 10-500), not 50. Another PR raises the default; this follows the setting, whatever it is.
   `MAX_SUBAGENT_TURNS` (50) stays only as the fallback of `buildAgentDefinitions` without a turn.

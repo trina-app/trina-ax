@@ -154,6 +154,8 @@ export interface BoxShellHost {
    * raises no card (it cannot ask the person), starts no job or dev server (their notice, Preview button and results
    * are the main AI's) and takes no job results */
   helper?: boolean
+  /** the sub-agent's key (its Agent call id, '?' when not known) on a helper's call: in the audit line */
+  agent?: string
   redact(s: string): string
 }
 
@@ -204,7 +206,9 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   let w: Window & { value: Out }
   if (o.tracked) {
     w = await withChangeWindow(ctx, o.tracked, { userId: h.userId, turnId: h.turnId }, { command: input.command.slice(0, 500) }, run).finally(() => slot?.release())
-    markSeen(ctx, o.tracked.id, h.userId)
+    // a sub-agent's command does not use up the main AI's "changed by other people" note or the login card's check
+    // (both are the main AI's; the helper never sees the card)
+    if (!h.helper) markSeen(ctx, o.tracked.id, h.userId)
   } else w = { ...NO_WINDOW, value: await run() }
   notes.push(...await o.jobNotes())
   const out = w.value
@@ -215,6 +219,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   audit(ctx.db, { actor: h.userId, action: 'dev_env.command', target: space.projectId, detail: {
     turnId: h.turnId, chatId: space.chatId, command: h.redact(input.command.slice(0, 2000)), cwd, folder: o.tracked ? 'project' : 'work', background: background || !!jobName, ...(jobName ? { job: jobName } : {}), runner: 'srt',
     result, changed: w.changes.length, background_changes: w.background.length, conflicts: w.conflicts,
+    ...(h.helper ? { by: 'sub-agent', agent: h.agent ?? '?' } : {}),
   } })
   // a shared chat: the answer names only paths the run could see (a save by someone else in a folder some people here
   // cannot open lands in the same window); the audit line above keeps them all
@@ -443,6 +448,15 @@ export const HELPER_NO_JOB = 'Not started: a sub-agent runs commands that finish
 /** a sub-agent's command that would need the person's yes on a card */
 export const HELPER_NO_CARD = 'Not run: this command can use a login and other people changed files in the project, so the person must check the changes on a card first, and a sub-agent cannot ask them. Say in your report that the command still needs to run: the main assistant can run it.'
 
+/** Who made a box_shell call, from the turn file state it came with (files/service.ts forCall): the turn's own state
+ * is the main AI; anything else is a helper, also a call whose agent is not known (a fresh view with agent null), which
+ * fails closed to the helper's rules. `key`: one per agent ('?' for an unknown one). */
+export function callerOf(files: unknown, main: unknown): { helper: boolean; key: string } {
+  if (!files || files === main) return { helper: false, key: '' }
+  const agent = (files as { agent?: unknown }).agent
+  return { helper: true, key: typeof agent === 'string' && agent ? agent : '?' }
+}
+
 export function boxShellTool(h: BoxShellHost) {
   /** the agents (main AI '', each sub-agent its own key) whose first call came already */
   const called = new Set<string>()
@@ -462,7 +476,7 @@ export function boxShellTool(h: BoxShellHost) {
       const first = !called.has(who.key)
       called.add(who.key)
       // a sub-agent's call: no step patch (patchToolStep's FIFO is the main AI's; chat/subagents.ts PARENT_ONLY_TOOLS)
-      const host: BoxShellHost = who.helper ? { ...h, helper: true, queueStep: undefined } : h
+      const host: BoxShellHost = who.helper ? { ...h, helper: true, agent: who.key, queueStep: undefined } : h
       return srtCall(host, a.data, what + (who.helper ? ' (sub-agent)' : ''), first, once, denied)
     },
   }

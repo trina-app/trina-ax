@@ -48,7 +48,7 @@ import { recordSkillRead, recordSkillUse } from '../admin/skill-usage'
 import { templateToolRefusal } from './schedule-templates'
 import { cleanAiTitle, graphemes, setAiTitle, titleToolOffered } from './title'
 import { recordSent } from '../tools/connection-urls'
-import { BOX_SHELL_TOOL, boxShellTool } from '../devenv/tool'
+import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
 import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
@@ -249,7 +249,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
       ...(exec.devEnv.shared ? { shared: exec.devEnv.shared } : {}),
       // a sub-agent's call comes with its own turn state (files/service.ts forAgent), the main AI's with the turn's
-      caller: (files) => (!files || files === exec.files ? { helper: false, key: '' } : { helper: true, key: (files as { agent?: string | null }).agent ?? '?' }),
+      caller: (files) => callerOf(files, exec.files),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
       confirm: async (question, options, details) => (person.choose
