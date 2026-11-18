@@ -21,7 +21,7 @@ import type { AppContext } from '../../context'
 import type { TurnTool, TurnToolContext, TurnToolProvider, TurnToolResult } from '../../services'
 import { addSources } from '../../chat/read-scope'
 import { tr } from '../../chat/i18n'
-import { cardEndShort, cardNext, cardReason, refusal, SCREEN } from '../../policy/refusal'
+import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../../policy/refusal'
 import { asksFor, explicitWriteTool, ownWords, WRITE_ASK, writtenByAsker } from '../../chat/shared-actions'
 import { askConfirm, carriesAddress, opaqueParts } from '../../tools/url-gate'
 import { parse as parseHost } from 'tldts'
@@ -31,11 +31,11 @@ import { bareUrl, disabledTools, savedTools, templateCovers, toolsOffered, type 
 import { getTeamSettings } from '../../admin/settings'
 import { noteScheduleUse } from './schedule-needs'
 import { pinForm } from '../../chat/schedule-scope'
-import { approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
+import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
 import { say } from './text'
 import { cardLines, fieldWord, methodWord, toolTitle } from './card-lines'
-import { readsHere } from './read-mark'
+import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
 import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
@@ -543,6 +543,53 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   return true
 }
 
+/** "Allow once" on a "can't tell" card: this tool of this connection for the rest of the answer (per turn) */
+const unsureOnce = new WeakMap<BuildCtx, Set<string>>()
+
+/**
+ * A shared chat's tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
+ * docs/decisions/20261118-shared-readonly-tools.md): before it runs, the person of the turn sees what it sends and may
+ * allow it once (the rest of this answer), always in this chat (this tool of this connection as it is now) or not at
+ * all. Kept apart from the write card: that one asks every time and its Always is never offered in a shared chat.
+ * Throws the refusal (nothing was sent).
+ */
+async function unsureGate(ctx: AppContext, row: Row, t: RemoteTool, args: unknown, b: BuildCtx, tc: TurnToolContext): Promise<void> {
+  const key = writeKey(row, t.name)
+  const once = unsureOnce.get(b) ?? new Set<string>()
+  unsureOnce.set(b, once)
+  if (once.has(key) || approved(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'shared_unsure_tool', target: key })) return
+  const person = b.scheduled ? null : tc.files.person
+  if (!person || person.unattended) {
+    throw new CallError(refusal({
+      done: `${t.name} of ${row.name} did not run.`, why: cardReason('unattended'),
+      also: `${row.name} says this tool only reads, but its name does not show that, so it needs the user's yes on a card in a shared chat`,
+      next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
+    }), 'refused (nobody to ask)')
+  }
+  const L = person.locale
+  const text = JSON.stringify(args ?? {}, null, 2)
+  const size = text.length
+  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
+  const shown = argLines(args ?? {}, L)
+  const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
+  const details = [{ label: say('sendsLabel', L), text: text.trim() ? text : say('nothing', L), ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact ? { exact: true as const } : {}) }]
+  const question = say('unsureConfirm', L, { name: row.name, what: toolTitle(t) })
+  const no = (end: CardEnd) => new CallError(refusal({
+    done: end === 'declined' ? `The user did not allow this, so ${t.name} of ${row.name} did not run.` : `${t.name} of ${row.name} did not run.`,
+    why: cardReason(end), also: 'Do not try it another way',
+    next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
+  }), cardEndShort(end))
+  if (person.choose) {
+    const v = await person.choose(question, [{ label: say('unsureOnce', L), value: 'allow' }, { label: say('unsureAlways', L), value: 'always' }, { label: say('unsureNo', L), value: 'deny' }], { details, buttons: true })
+    if (v === 'always') { noteApproval(ctx.db, { chatId: b.chatId, userId: b.userId, kind: 'shared_unsure_tool', target: key }); return }
+    if (v === 'allow') { once.add(key); return }
+    throw no(v === null ? 'timeout' : 'declined')
+  }
+  const end = await askConfirm(person, question, say('unsureOnce', L), say('unsureNo', L), { details })
+  if (end !== 'yes') throw no(end)
+  once.add(key)
+}
+
 /** chat/card-approvals.ts targets: one tool of one connection as it is now (its version: a changed address, account or
  * rule is another target), and the drafts that connection made */
 const writeKey = (row: Pick<Row, 'id' | 'version'>, tool: string) => `${row.id}\u0000${row.version}\u0000${tool}`
@@ -781,7 +828,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
     label: () => stepOf(row, tool),
     // a write of this connection (a tool not marked read-only, as saved now and as this chat takes the mark: read-mark.ts;
     // a tool that is gone: none)
-    sendsTo: () => ((x) => (x && !readsHere(!!b.shared, row, x) ? row.id : null))(savedTools(ctx.db, row).find((x) => x.name === tool.name)),
+    sendsTo: () => ((x) => (x && readKind(!!b.shared, row, x) === 'change' ? row.id : null))(savedTools(ctx.db, row).find((x) => x.name === tool.name)),
     readOnly: tool.readOnly,
     call: hiding(ctx, [row], async (args, tc, h) => {
       const svc = integrationsOf(ctx)
@@ -798,9 +845,11 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         if (b.shared && teamFileHandles(args).length) throw new CallError(SHARED_NO_TEAM_FILES(current.name), 'refused (team file in a shared chat)')
         current = await sharedGate(ctx, b, current, tc, h)
         noteScheduleUse(ctx.db, tc.turnId, current)
-        // the service's read mark as this chat takes it: in a shared chat a mark the tool's own name contradicts is not
-        // taken, so the call asks on the write card below (read-mark.ts, QA TC-4900)
-        const t = ((x) => (x ? { ...x, readOnly: readsHere(!!b.shared, current!, x) } : undefined))(savedTools(ctx.db, current).find((x) => x.name === tool.name))
+        // the service's read mark as this chat takes it (read-mark.ts, QA TC-4900): in a shared chat a read only when the
+        // name plainly looks; a name it cannot tell asks on its own card (unsureGate), anything else on the write card below
+        const saved = savedTools(ctx.db, current).find((x) => x.name === tool.name)
+        const kind = saved ? readKind(!!b.shared, current, saved) : 'change'
+        const t = saved ? { ...saved, readOnly: kind !== 'change' } : undefined
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
         // turned off since the turn began: the person who manages the connection said no to this tool
         if (disabledTools(current).has(t.name)) {
@@ -837,6 +886,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           if (typeof size === 'number' && size > ATTACHMENT_MAX_BYTES) throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           args = { ...rest, return_base64: true }
         }
+        if (kind === 'unsure') await unsureGate(ctx, current, t, args, b, tc)
         // after a room read, a tool that was a write when the turn began raised no room card: it asks even if the
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {

@@ -13,6 +13,12 @@ export const TEXT = {
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}", "AI 想把这个发送到{name}：{what}"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
+  // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
+  // QA TC-4900): {what} is the tool's title
+  unsureConfirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}. {name} 쪽에서는 읽기만 한다고 하지만, 트리나는 이름만으로는 확인할 수 없어요. 보낼 내용을 아래에서 확인해 주세요.', 'The AI wants to use this at {name}: {what}. {name} says it only reads, but Trina can’t tell from its name. Check what it sends below.', 'AI ingin memakai ini di {name}: {what}. {name} bilang ini hanya membaca, tetapi Trina tidak bisa memastikannya dari namanya. Periksa yang dikirim di bawah.', "AIが{name}でこれを使おうとしています：{what}。{name}は読み取るだけだとしていますが、トリナには名前から確かめられません。送る内容を下で確認してください。", "La IA quiere usar esto en {name}: {what}. {name} dice que solo lee, pero Trina no puede comprobarlo por su nombre. Revise abajo lo que envía.", "AI 想在{name}使用：{what}。{name}说它只读取，但 Trina 无法从名称确认。请在下方查看要发送的内容。"),
+  unsureOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "允许一次"),
+  unsureAlways: t('이 대화에서 항상', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に", "Siempre en este chat", "在此对话中始终允许"),
+  unsureNo: t('실행하지 않기', 'Don’t run', 'Jangan jalankan', "実行しない", "No ejecutar", "不运行"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
   valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)", "（空）"),

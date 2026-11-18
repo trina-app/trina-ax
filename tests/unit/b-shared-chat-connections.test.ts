@@ -207,7 +207,8 @@ describe("the asker's own connection (TC-4886)", () => {
 
   test('the stored key never reaches what bob sees: the answer, its steps, the chat', async () => {
     const chat = await newShared()
-    const r = await askWithCard('alice', chat.id, fake({ tool: MINE_ECHO, args: {}, sayResult: true }), 'once')
+    // (echo_text has no known read verb: after the connection card, its own "can't tell" card, read-mark.ts)
+    const r = await askCards('alice', chat.id, fake({ tool: MINE_ECHO, args: {}, sayResult: true }), (c) => (c.options.some((o) => o.value === 'once') ? 'once' : 'allow'))
     expect(svc.calls.at(-1)!.name).toBe('echo_text')
     const forBob = JSON.stringify(await messages('bob', chat.id)) + JSON.stringify(await h.api('bob').call(API.getChat, { params: { id: chat.id } }))
     expect(forBob).toContain('Authorization')

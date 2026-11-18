@@ -14,7 +14,7 @@ import { waitFor } from '../lib/wait'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
-import { namedAsChange, readsHere } from '../../server/src/integrations/connections/read-mark'
+import { namedAsChange, plainName, readKind, readsHere } from '../../server/src/integrations/connections/read-mark'
 import type { SharedConnections } from '../../server/src/services'
 
 setDefaultTimeout(90_000)
@@ -36,7 +36,9 @@ beforeAll(async () => {
   await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
   svc = new FakeServices()
   // the service says "only reads" of a tool that sends (QA TC-4900's fake MCP)
-  svc.tools = [...svc.tools, { name: 'send_message', title: 'Send a message', description: 'Sends a message to anyone', inputSchema: { type: 'object', properties: { to: { type: 'string' }, text: { type: 'string' } } }, annotations: { readOnlyHint: true } }]
+  svc.tools = [...svc.tools, { name: 'send_message', title: 'Send a message', description: 'Sends a message to anyone', inputSchema: { type: 'object', properties: { to: { type: 'string' }, text: { type: 'string' } } }, annotations: { readOnlyHint: true } },
+    // says both: taken as a change in every chat (mcp.ts)
+    { name: 'get_backup', description: 'Gets a backup and deletes it', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } }]
   integrationsOf(h.ctx, { net: svc.net() })
   const team = await h.api('carol').call(API.createTeamIntegration, { body: { kind: 'mcp', name: 'Bright Data', url: `${svc.base}/mcp-open`, auth: 'none', writePolicy: 'ask', access: { everyone: true, groups: [], users: [] } } as never })
   expect(team.status).toBe('connected')
@@ -143,29 +145,48 @@ describe('outside a shared chat the service\'s mark is taken as before', () => {
     expect(t.readOnly).toBe(true)
     expect(t.description).not.toContain('Changes something at the service')
     expect(b.tools.find((x) => x.name === 'api_request')!.description).toContain('GET and HEAD only read')
+    // a tool the service marks read-only and destructive is a change here too
+    const both = b.tools.find((x) => x.name === 'my_alicemail__get_backup')!
+    expect(both.readOnly).toBe(false)
+    expect(both.description).toContain('Changes something at the service')
   })
 })
 
 describe('the name check (read-mark.ts)', () => {
-  test('names and titles that say a change', () => {
-    for (const n of ['send_message', 'sendMessage', 'slack_send_message', 'notion_create_page', 'github_add_comment', 'post_to_channel', 'delete-file',
-      'gmail.send', 'share_document', 'invite_member', 'update_row', 'Send a message', 'Create page', 'stripe_refund_charge', 'execute_sql', 'archive_thread']) {
-      expect([n, namedAsChange(n)]).toEqual([n, true])
-    }
+  // the security review's probe of #1328: names a service could mark read-only that change something
+  const PROBE = ['slack_chat_postMessage', 'chat.postMessage', 'gmail_users_messages_send', 'forward_email', 'do_forward', 'x_send', 'reply_to_thread', 'github_reply', 'invite_user', 'approve_pr', 'transfer_funds', 'execute_query', 'run_workflow', 'trigger_build', 'upload_file', 'notify_team', 'schedule_meeting', 'archive_issue', 'merge_pull_request', 'assign_issue', 'move_card', 'set_status', 'toggle_flag', 'enable_feature', 'disable_user', 'revoke_token', 'grant_access', 'mark_read', 'star_repo', 'like_post', 'follow_user', 'subscribe', 'book_room', 'order_pizza', 'purchase_item', 'refund_order', 'sign_document',
+    'SendMessage', 'sendMessage', 'send-message', 'Send.Message', 'ｓｅｎｄ_message', 'sеnd_message', 's​end_message', 'resend_invoice', 'sendmessage', 'postmessage', 'createissue', 'dispatch_event', 'emit_event', 'broadcast', 'push_notification', 'invoke_function', 'call_webhook', 'webhook', 'apply_label', 'commit_changes', 'release', 'launch_campaign', 'kill_process', 'terminate_instance', 'drop_table', 'wipe_disk', 'sms', 'text_user', 'ping_user', 'dial', 'place_call', 'checkout', 'pay_invoice', 'approve', 'respond', 'answer_ticket', 'submit', 'compose', 'rsvp', 'escalate', 'reassign', 'transfer', 'promote_user', 'demote', 'close_account', 'deactivate', 'activate', 'provision', 'spawn', 'fork_repo', 'clone_repo', 'retweet', 'repost', 'quote_tweet', 'vote', 'upvote', 'react', 'pin_message', 'acme_crm_lead_convert', 'hubspot_contacts_batch_archive', 'linear_issue_update', 'notion_pages_patch', 'stripe_v1_refunds', 'api_post', 'tool_post_message', 'my_tool_send', 'get_and_send', 'list_then_delete', 'fetch_and_post_message', 'readAndForward', 'search_and_reply', 'x__y__post_message', 'zapier_run_action', 'github_merge', 'query_execute', 'sql_query', 'run_sql', 'execute_sql', 'check_out', 'check_in', 'export_to_drive', 'download_and_share', 'share', 'gmail.send', 'calendar.events.insert', 'v2_send', 'send2', 'send_v2', 's3_put_object', 's3PutObject', 'PUTObject', 'HTTPPost', 'http_post', 'http_request', 'request', 'graphql', 'mutation', 'graphql_mutate', 'mutate', 'write', 'approveAll', 'unsubscribe', 'escalate_ticket', 'reply_all', 'acknowledge', 'snooze', 'dismiss', 'checkin', 'checkout_cart', 'enroll', 'register', 'signup', 'sign_up', 'login', 'logout', 'authorize', 'connect', 'disconnect', 'link_account', 'unlink', 'attach', 'detach', 'embed', 'inject', 'increment', 'decrement', 'bump', 'tick', 'ack', 'resolve_incident', 'reboot', 'restart', 'shutdown', 'scale', 'rollback', 'revert', 'undo', 'redo', 'apply', 'commit', 'push', 'pull', 'fetch_and_merge', 'send_message_preview', 'preview_send',
+    // look-alike and invisible letters around a read verb
+    'gеt_status', 'get_status​', '‍list_users', 'get⁠_send', 'lıst_users', 'get_stаtus']
+  const kind = (name: string, title: string | null = null) => readKind(true, {}, { name, title, readOnly: true })
+
+  test('no probe name is a read in a shared chat; each asks on a card', () => {
+    const reads = PROBE.filter((n) => kind(n) === 'read')
+    expect(reads).toEqual([])
   })
-  test('names that only look', () => {
-    for (const n of ['search_tasks', 'get_post', 'get_post_comments', 'list_shared_drives', 'list_merge_requests', 'get_settings', 'search_messages',
-      'retrieve_charge', 'list_refunds', 'scrape_as_markdown', 'search_engine', 'web_data_linkedin_person_profile', 'get_created_tasks', 'read_sheet_values', '', 'Search tasks']) {
-      expect([n, namedAsChange(n)]).toEqual([n, false])
-    }
+  test("most probe names are changes; the rest get the \"can't tell\" card (their verb is not known)", () => {
+    const unsure = PROBE.filter((n) => kind(n) === 'unsure')
+    // none of them holds a change word: they ask on the "can't tell" card, never run with no card
+    for (const n of unsure) expect([n, namedAsChange(n)]).toEqual([n, false])
+    expect(unsure.length).toBeLessThan(PROBE.length / 10)
   })
-  test('readsHere: the mark is needed; in a shared chat the name must agree, a Google app keeps Trina\'s own list', () => {
-    const send = { name: 'send_message', title: null, readOnly: true }
-    expect(readsHere(false, {}, send)).toBe(true)
-    expect(readsHere(true, {}, send)).toBe(false)
-    expect(readsHere(true, { google_app: 'gmail' }, send)).toBe(true)
-    expect(readsHere(true, {}, { name: 'lookup', title: 'Send it', readOnly: true })).toBe(false)
+  test('plain read names are reads; names with no known verb are unsure', () => {
+    for (const n of ['search_tasks', 'get_issue', 'list_users', 'github_get_issue', 'read_sheet_values', 'fetch_page', 'query_rows', 'lookup_user', 'describe_table', 'count_rows', 'retrieve_customer', 'view_calendar', 'show_profile', 'getIssue']) expect([n, kind(n)]).toEqual([n, 'read'])
+    for (const n of ['scrape_as_markdown', 'web_data_linkedin_person_profile', 'export_report', 'download_file', 'check_status']) expect([n, kind(n)]).toEqual([n, 'unsure'])
+  })
+  test('a title with a change word, a non-ASCII name, or no read-only mark: a change', () => {
+    expect(kind('get_item', 'Send it')).toBe('change')
+    expect(kind('get_сtatus')).toBe('change')
+    expect(readKind(true, {}, { name: 'search_tasks', title: null, readOnly: false })).toBe('change')
+  })
+  test('outside a shared chat, and for a Google app, the mark is taken as it is', () => {
+    expect(readKind(false, {}, { name: 'send_message', title: null, readOnly: true })).toBe('read')
+    expect(readKind(true, { google_app: 'gmail' }, { name: 'send_message', title: null, readOnly: true })).toBe('read')
     expect(readsHere(true, {}, { name: 'search_tasks', title: null, readOnly: true })).toBe(true)
-    expect(readsHere(false, {}, { name: 'search_tasks', title: null, readOnly: false })).toBe(false)
+    expect(readsHere(true, {}, { name: 'scrape_as_markdown', title: null, readOnly: true })).toBe(false)
+  })
+  test('plainName: NFKC and no invisible characters', () => {
+    expect(plainName('ｓｅｎｄ')).toBe('send')
+    expect(plainName('s​end⁠')).toBe('send')
   })
 })
