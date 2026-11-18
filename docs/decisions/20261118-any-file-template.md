@@ -26,7 +26,7 @@
   control, or macros. Refused rather than stripped: the person learns which file is unsafe, and a cleaned copy would
   silently differ from the template they named. Every `.rels` part and every part under `word/` is read with saxes, namespaces resolved
   (security review): single quotes, spaces around `=`, another prefix for WordprocessingML or the strict namespace hide
-  nothing, and a part with a DTD or that is not well-formed is refused. An included document (`aFChunk`, altChunk) is
+  nothing, and a part with a DTD or that is not well-formed is refused. A part in UTF-16 (Word writes only UTF-8) is refused rather than skipped; the one DTD accepted is an SVG picture's own (`<!DOCTYPE svg PUBLIC …>` on an SVG root, no internal subset, so no entity), as Inkscape and Illustrator write it. An included document (`aFChunk`, altChunk) is
   refused like an object. pandoc runs with a memory cap (1 GB, `PANDOC_RSS_MIB`): a small template can expand to
   hundreds of MB. In a chat the template is asked on the same one card as a source (`chat/tools.ts` widenOf). Page numbers, dates and hyperlinks pass. A .hwpx template was already
   safe here: only its header's style lists and its first section's page setup are used, never its text, and scripts,

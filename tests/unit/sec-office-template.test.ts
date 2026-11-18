@@ -89,6 +89,17 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
     const moved = addPart(base, 'custom/body.dat', `<w:document xmlns:w="${W}"><w:body><w:p><w:fldSimple w:instr="INCLUDETEXT &quot;http://x/a.docx&quot;"/></w:p></w:body></w:document>`)
     expect(() => checkOfficeTemplate('docx', moved)).toThrow(/custom\/body\.dat has a INCLUDETEXT field/)
     expect(() => checkOfficeTemplate('docx', addPart(base, 'docProps/extra.xml', `<x:root xmlns:x="${W}"><x:r><x:fldChar x:fldCharType="begin"/><x:instrText>DDEAUTO a b</x:instrText><x:fldChar x:fldCharType="end"/></x:r></x:root>`))).toThrow(/DDEAUTO/)
+    // UTF-16 (either byte order mark, or none) is not scanned as text: refused
+    const u16 = (bom: number[], le: boolean) => { const t = Buffer.from(`<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr="DDEAUTO a b"/></w:p></w:hdr>`, 'utf16le'); if (!le) t.swap16(); return new Uint8Array([...bom, ...t]) }
+    for (const [bom, le] of [[[0xff, 0xfe], true], [[0xfe, 0xff], false], [[], true]] as [number[], boolean][]) {
+      expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name: 'word/header8.xml', data: u16(bom, le) }]))).toThrow(/UTF-16/)
+    }
+    // an SVG picture with the usual DOCTYPE (Inkscape, Illustrator) is fine; with an internal subset, or a DOCTYPE on
+    // anything that is not an SVG, it is not
+    const svg = (head: string, root = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>') => addPart(base, 'word/media/logo.svg', `<?xml version="1.0"?>\n${head}\n${root}`)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).not.toThrow()
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg [<!ENTITY a "DDEAUTO">]>'))).toThrow(/well-formed|DTD/)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE hdr PUBLIC "x" "y">', `<w:hdr xmlns:w="${W}"/>`))).toThrow(/DTD/)
     // the same field name in another namespace is not a Word field
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })
