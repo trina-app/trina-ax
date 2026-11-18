@@ -13,11 +13,12 @@ import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, of
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
-import { textTokens } from './vision'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
+import { textTokens } from './vision'
+import type { OutputBudget } from './tool-budget'
 
 type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
@@ -592,6 +593,8 @@ function rootsFor(d: SearchDeps, baseSegs: string[], baseIsFile: boolean) {
   return { roots: r.roots.filter((x) => !skipped(x)), excludes: [...r.excludes, ...d.skip] }
 }
 
+/** files over the size limit named in a grep result (the count says how many there are) */
+const BIG_NAMED_MAX = 5
 /**
  * The files under `roots` that this person can see and that ripgrep skipped for size (over RG_MAX_FILE): a listing
  * without --max-filesize, with the search's own name glob, path glob, type and exclusions. At most BIG_NAMED_MAX names;
@@ -670,14 +673,6 @@ export interface GrepOpts {
   /** the AI's grep: name the files that were not searched because they are over RG_MAX_FILE (stats.big) */
   reportBig?: boolean
 }
-
-/** A tool result's text budget: characters and tokens (vision.ts textTokens). */
-export interface OutputBudget { chars: number; tokens: number }
-/** the text budget of one result of the AI's grep and list: about 20,000 tokens, under Claude Code's 25,000 for an MCP
- * result (MAX_MCP_OUTPUT_TOKENS), with room for the notes; the same numbers as read's (files/read-lines.ts, PR #1282) */
-export const TOOL_TEXT_BUDGET: OutputBudget = { chars: 28_000, tokens: 20_000 }
-/** files over the size limit named in a grep result (the count says how many there are) */
-const BIG_NAMED_MAX = 5
 
 /** the longest ripgrep --json record that grep reads (UTF-16 units); the line of a longer record is skipped
  * (stats.longSkipped), because --json gives the whole line and ignores --max-columns. The limit is on the record, not
