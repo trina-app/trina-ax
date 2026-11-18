@@ -3,17 +3,15 @@
 // computers (components/rooms/RoomSideColumn.tsx, resizable), the whole screen on phones (a ‹ back to the chat; the
 // tabs stay away as in the chat). The answer on top (clamped, "Show more"), a hairline with how many replies, the
 // replies (face, name, time, the words with their links: never Markdown or HTML) and a box. People only: the AI never
-// reads replies, and the grey line under the box says so. "Send to Trina" puts the thread in the chat's box as a quote
-// (shared chats.ts chatThreadDraft) for the presser to edit and send as their own question; it shows only where that
-// box can send it (M8 of the review): a chat that can be continued, my AI on, replies there, and the answer on the
-// version the chat shows. What I see is marked read while the window has the focus and the end is in sight.
+// reads replies unless someone asks, and the grey line under the box says so (there is no "send to the AI" button).
+// What I see is marked read while the window has the focus and the end is in sight.
 // "@" in the box lists the people who see the thread now (the page's `people`, docs/decisions/20261118-chat-thread-
 // mentions.md) with the rooms' mention box (components/TokenTextarea.tsx, rooms/useMentionMenu.tsx; no "@everyone");
 // a reply shows its mentions as the rooms do (rooms/MessageText.tsx MentionedText).
 import clsx from 'clsx'
 import { ArrowUp, ChevronLeft, Copy, Loader2, Trash2, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { CHAT_THREAD_REPLY_MAX, chatThreadDraft, type Chat, type ChatThreadReply, type UserRef } from '@mycel/shared/api'
+import { CHAT_THREAD_REPLY_MAX, type Chat, type ChatThreadReply, type UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { useAutoGrow } from '../../lib/autoGrow'
@@ -34,7 +32,7 @@ import { useMentionMenu } from '../rooms/useMentionMenu'
 import { TokenTextarea } from '../TokenTextarea'
 import { MenuButton, type MenuItem } from '../rooms/MenuButton'
 import { Tooltip } from '../Tooltip'
-import { Button, ErrorNote, IconButton, Skeleton, confirmDialog, useCopy } from '../ui'
+import { ErrorNote, IconButton, Skeleton, confirmDialog, useCopy } from '../ui'
 import { ComposerToolbar } from './ComposerToolbar'
 import { composerRadius } from './composerBox'
 import { SharedReadOnly } from './SharedChat'
@@ -56,9 +54,8 @@ const CLAMP = 'max-h-[18rem] overflow-hidden [mask-image:linear-gradient(to_bott
 
 const timeOf = (iso: string, locale: Parameters<typeof intlTag>[0]) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
-/** `onSendToTrina`: puts the draft in the chat's box (absent: the box cannot send it now, so there is no button).
- * `onShownBranch`: the answer is on the version the chat shows (the page knows: its messages). */
-export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, onShownBranch, focusBox = false }: { chat: Chat; rootId: string; meId: string; onClose: () => void; onSendToTrina?: (draft: string) => void; onShownBranch: boolean; focusBox?: boolean }) {
+/** `onShownBranch`: the answer is on the version the chat shows (the page knows: its messages). */
+export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, focusBox = false }: { chat: Chat; rootId: string; meId: string; onClose: () => void; onShownBranch: boolean; focusBox?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const chatId = chat.id
@@ -122,17 +119,10 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
 
   const notFound = !!view?.error && (isApiError(view.error, 'not_found') || isApiError(view.error, 'forbidden'))
   const count = root?.thread?.replyCount ?? replies.length
-  const nameOf = useNameOf()
   // who "@" may pick: the people who see the thread now (the server sends them while I may reply)
   const people = view?.people ?? NO_PEOPLE
   const readOnly = view?.readOnlyReason
   const versionLine = !onShownBranch && view?.version ? t('chat.thread.otherVersion', { index: view.version.index, count: view.version.count }) : null
-  const canSendToTrina = !!onSendToTrina && onShownBranch && replies.length > 0 && !readOnly
-  const sendToTrina = () => {
-    if (!onSendToTrina || !root) return
-    const head = t('chat.thread.draftHead', { name: aiName(t), time: timeOf(root.createdAt, locale), n: count })
-    onSendToTrina(chatThreadDraft(replies.map((r) => ({ name: nameOf(r.author) ?? r.author?.name ?? t('rooms.goneUser'), at: r.createdAt, text: r.content })), { head, cut: t('chat.thread.draftCut'), time: (iso) => timeOf(iso, locale) }))
-  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="chat-thread">
@@ -183,12 +173,6 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onSendToTrina, on
             : <ReplyBox chatId={chatId} rootId={rootId} people={people} meId={meId} autoFocus={focusBox || count === 0} onSent={() => { stick.current = true }} />}
           <ThreadWaitLine slow={slow} />
           <p className="px-1 pt-1.5 text-micro leading-4 text-faint" data-testid="chat-thread-people-only">{t('chat.thread.peopleOnly', { name: aiName(t) })}</p>
-          {canSendToTrina && (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-1.5">
-              <Button size="sm" variant="ghost" onClick={sendToTrina} className="-ml-1.5" data-testid="chat-thread-send-to-ai">{t('chat.thread.sendToAi', { name: aiName(t) })}</Button>
-              <span className="text-micro text-faint">{t('chat.thread.editBefore')}</span>
-            </div>
-          )}
         </div>
       )}
     </div>

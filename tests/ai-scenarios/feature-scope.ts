@@ -31,7 +31,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'chat.conversation': { reach: 'acts', tools: ['set_title', 'ask_user'] },
   'chat.list': { reach: 'explains' },
   'chat.list-folders': { reach: 'explains' },
-  'chat.threads': { reach: 'explains', why: 'the AI never sees a thread unless a person sends it (Send to Trina fills the box); people ask how it works' },
+  'chat.threads': { reach: 'explains', why: 'the AI reads a thread only when a person asks it to (answer_comments); people ask how it works' },
   'chat.edit-regenerate': { reach: 'explains' },
   'chat.cards': { reach: 'acts', tools: ['ask_user'] },
   'chat.sources': { reach: 'acts', tools: ['read', 'grep'] },
