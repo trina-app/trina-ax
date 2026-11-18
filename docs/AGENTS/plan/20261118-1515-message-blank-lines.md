@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 15:15
 - Branch: `fix/message-blank-lines`
-- Status: in progress
+- Status: done
 - Where: web (web/src/lib/messageMarkdown.ts, web/src/components/Markdown.tsx PersonMarkdown, a small shared helper
   web/src/lib/blankLines.ts for the plain-text surfaces). Why: the one renderer of a person's words and the surfaces
   that show typed text as it is; the desktop and phone apps show the web app, so they follow.
@@ -59,4 +59,7 @@ screenshots. No server, migration or i18n change.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `keepBlankLines` puts a `<div data-blank-lines>` of `<br>`s between blocks (at the end of the earlier
+item between list items), at most 5; `capBlankLines` cuts the plain surfaces the same way. Measured in the browser on a
+local QA team copy: the owner's message has gaps of exactly 1 and 2 line heights in a room and a thread at 1440 and
+390, light and dark; the AI chat question keeps them as before. Not changed: AI answers, one-line previews.
