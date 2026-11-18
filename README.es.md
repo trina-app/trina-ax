@@ -17,7 +17,7 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas</p>
+<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Si Trina AX puede servirle a tu equipo, una estrella ayuda a que más equipos lo encuentren.</sub></p>
 
 ## Se configura una vez. Lo usa todo tu equipo.
 
@@ -133,6 +133,8 @@ Trina ofrece el espacio de trabajo, no la IA: conecta cuentas y planes de Claude
 </details>
 
 ## Comunidad
+
+Si Trina AX le sirve a tu equipo, una ⭐ en GitHub ayuda a que otros equipos lo encuentren.
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Versiones](https://github.com/trina-app/trina-ax/releases/latest) · [Cambios](CHANGELOG.md) · [Soporte](SUPPORT.md) · [Cómo contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Desarrollo](docs/DEVELOPMENT.md) · [Configuración](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 

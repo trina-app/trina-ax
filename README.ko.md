@@ -17,7 +17,7 @@
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음</p>
+<p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>우리 팀에도 쓸모 있겠다 싶으면 별을 눌러 주세요. 더 많은 팀이 트리나 AX를 찾게 돼요.</sub></p>
 
 ## 한 번 설정하면, 팀 전체가 써요
 
@@ -133,6 +133,8 @@ Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니�
 </details>
 
 ## 커뮤니티
+
+트리나 AX가 팀에 도움이 됐다면 ⭐를 눌러 주세요. 다른 팀이 트리나 AX를 찾는 데 도움이 돼요.
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [릴리스](https://github.com/trina-app/trina-ax/releases/latest) · [변경 기록](CHANGELOG.md) · [도움 받기](SUPPORT.md) · [기여하기](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [개발](docs/DEVELOPMENT.md) · [설정](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
