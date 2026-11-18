@@ -4,8 +4,10 @@
 // moves the list 22 px up as the keyboard opens). followsAfterScroll: the scroll event of the list's own jump to the
 // bottom, coming after a card was added, does not read as the reader scrolling up. holdPlace: older messages put above
 // keep the message in sight where it is, whether the engine anchors the scroll itself or not (QA TC-237).
+// anchorWhileFollowing: the browser's scroll anchoring is off while the list follows, so a reloaded chat stays at its
+// bottom with the running answer and the waiting messages in sight (QA TC-4962).
 import { expect, test } from 'bun:test'
-import { followsAfterScroll, holdPlace, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
+import { anchorWhileFollowing, followsAfterScroll, holdPlace, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -342,4 +344,42 @@ test('a list at the very top, nothing on screen, or the row gone by then: nothin
   gone.add('old', 4, 'start')
   back()
   expect([gone.scrollTop, gone.style.overflowAnchor]).toEqual([300, ''])
+})
+
+test("a reloaded chat (TC-4962): the browser's anchoring moved the list up 160 px after its jump, and that read as the reader leaving", () => {
+  // what happened: the list jumped to its bottom, the running answer and the waiting messages took their place under it,
+  // and Chromium kept a row above them in place by moving the list up; the list's own height did not change, so the
+  // scroll event was the reader's and the list stopped following, 222 px above the bottom
+  const el = new Box(10207, 695, 760, 0)
+  const { st, ro, onScroll } = setup(el)
+  jumpToBottom(el, st.lastTop)
+  el.scrollHeight = 10269
+  el.scrollTop = 9352
+  onScroll()
+  ro.fire()
+  expect([st.stick.current, gap(el)]).toEqual([false, 222])
+})
+
+test('the browser anchors only while the list does not follow: off at the bottom, on again when the reader scrolled up', () => {
+  const el = { style: { overflowAnchor: '' } }
+  let was = anchorWhileFollowing(el, true, null)
+  expect([was, el.style.overflowAnchor]).toEqual([true, 'none'])
+  // with anchoring off, what changes above the newest message only clamps the list at its end: it still follows, and
+  // the size watcher shows what came under it
+  const box = new Box(10207, 695, 760, 0)
+  const { st, ro, onScroll } = setup(box)
+  jumpToBottom(box, st.lastTop)
+  box.scrollHeight = 10047
+  box.scrollTop = box.scrollTop
+  onScroll()
+  box.scrollHeight = 10269
+  ro.fire()
+  expect([st.stick.current, gap(box)]).toEqual([true, 0])
+  // the reader scrolled up: anchoring is the browser's again (a picture loading above keeps the message in sight)
+  was = anchorWhileFollowing(el, false, was)
+  expect([was, el.style.overflowAnchor]).toEqual([false, ''])
+  // unchanged: the style is not written (holdPlace turns anchoring off while older messages come in and puts it back)
+  el.style.overflowAnchor = 'none'
+  was = anchorWhileFollowing(el, false, was)
+  expect(el.style.overflowAnchor).toBe('none')
 })
