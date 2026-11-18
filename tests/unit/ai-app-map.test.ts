@@ -217,7 +217,7 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
       const d = DICTS[L] as Record<string, string>
       const want = [
         `${d['sidebar.files']} › ${d['filesPanel.shared']}`, // Files › Shared with me
-        d['rooms.replyInThread'], d['chat.thread.sendToAi']!.replace('{name}', aiNameIn(L)), // threads under an answer
+        d['rooms.replyInThread'], // threads under an answer
         d['openApp.lineLink'], d['openApp.download'], // the desktop app hand-off
         d['meeting.entry'], d['meeting.stop'], MEETINGS_LABEL[L], // meeting notes
         d['folderAccess.menu'], d['fileShare.stop'], d['common.undo'], // folder sharing
@@ -270,7 +270,6 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     const has = (file: string, key: string) => expect({ file, key, there: read(file).includes(`'${key}'`) }).toEqual({ file, key, there: true })
     has('web/src/components/panels/FilesPanel.tsx', 'filesPanel.shared')
     has('web/src/components/chat/Messages.tsx', 'rooms.replyInThread')
-    has('web/src/components/chat/ChatThreadPanel.tsx', 'chat.thread.sendToAi')
     has('web/src/components/onboarding/OpenAppLine.tsx', 'openApp.lineLink')
     has('web/src/pages/OpenApp.tsx', 'openApp.download')
     has('web/src/pages/OpenApp.tsx', 'openApp.mac')

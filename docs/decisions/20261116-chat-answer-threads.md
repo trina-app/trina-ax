@@ -16,7 +16,7 @@ Plan: docs/AGENTS/plan/20261116-0351-chat-answer-threads.md (the planner's draft
   `server/src/chat/threads.ts threadAccess` on top of `chatFor` and the hidden-answer check, for every route, notice,
   Inbox row, push, realtime event and replay; everyone else gets the 404 of a missing thread. A private chat, a room's
   ✦ side chat, an answer still being written, one that failed or one hidden from the person has none.
-- **Send to Trina fills the box, it never sends.** The thread goes into the chat's box as a Markdown quote: every line
+- **(Removed 2026-11-18, see [20261118-thread-no-send-to-trina.md](20261118-thread-no-send-to-trina.md).) Send to Trina fills the box, it never sends.** The thread goes into the chat's box as a Markdown quote: every line
   `> `, names on one line, the newest replies within 4,000 characters, a line saying older ones were left out, and not
   the answer's own text (`shared chats.ts chatThreadDraft`). The person edits and sends it as their own question, so the
   turn's gates read it as other people's words (`readRooms` cards for deletes, skills and memory; `ownWords` keeps quoted
