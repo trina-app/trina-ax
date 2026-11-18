@@ -157,6 +157,29 @@ describe('save_url: Office, CSV and ZIP files (QA TC-4922)', () => {
     expect([k.name, k.macros]).toEqual(['xls', true])
     expect(readBytes).toBeLessThan(1024 * 1024)
   })
+  test('a compound file whose DIFAT chain points to itself is refused at once, with little memory (security re-review)', () => {
+    // 4096-byte sectors, a FAT that claims a huge count, and a DIFAT sector whose "next" is itself
+    const ss = 4096
+    const b = Buffer.alloc(512 + ss * 2, 0xff)
+    Buffer.from('d0cf11e0a1b11ae1', 'hex').copy(b, 0)
+    b.writeUInt16LE(0x3e, 24); b.writeUInt16LE(4, 26); b.writeUInt16LE(0xfffe, 28); b.writeUInt16LE(12, 30); b.writeUInt16LE(6, 32)
+    b.fill(0, 34, 44)
+    b.writeUInt32LE(0xffffffff, 44) // FAT sectors claimed
+    b.writeUInt32LE(0, 48) // directory at sector 0
+    b.writeUInt32LE(0, 68) // DIFAT starts at sector 0 ...
+    b.writeUInt32LE(0xffffffff, 72) // ... and claims to go on forever
+    const self = Buffer.alloc(ss, 0)
+    self.writeUInt32LE(0, ss - 4) // next DIFAT sector: itself
+    self.copy(b, ss) // sector 0 sits at offset 4096
+    const before = process.memoryUsage().heapUsed
+    const t0 = Date.now()
+    expect(() => settleKind(KINDS.ole, readAtOf(b), b.length, '', 'x.xls')).toThrow(RefusedKind)
+    expect(Date.now() - t0).toBeLessThan(1000)
+    expect(process.memoryUsage().heapUsed - before).toBeLessThan(20 * 1024 * 1024)
+    // a counted chain that loops back is refused too
+    b.writeUInt32LE(100, 44); b.writeUInt32LE(3, 72)
+    expect(() => settleKind(KINDS.ole, readAtOf(b), b.length, '', 'x.xls')).toThrow(RefusedKind)
+  })
   test('macro files are saved with a line telling the AI to warn the person (.docm, and an old .doc with Macros)', async () => {
     const s = setup()
     const docm = await s.run('/macro.docx', 'groups/marketing/macro/')

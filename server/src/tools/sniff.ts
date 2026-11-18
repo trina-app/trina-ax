@@ -274,14 +274,23 @@ export function cfbNamesAt(read: ReadAt, size: number): string[] | null {
   const per = ss / 4
   const sectorAt = (n: number) => (n + 1) * ss
   // the FAT's own sectors: 109 in the header, then the DIFAT chain
+  // bounded by the header: at most the declared FAT sectors (offset 44), the declared DIFAT sectors (offset 72), and
+  // never more sectors than the file holds; a DIFAT sector seen twice (a chain pointing back) stops the read
+  const sectors = Math.floor(size / ss)
+  const fatCount = v.getUint32(44, true)
+  const difatCount = v.getUint32(72, true)
+  if (fatCount > sectors || difatCount > sectors) return null
   const fatSectors: number[] = []
-  for (let i = 0; i < 109; i++) { const x = v.getUint32(76 + i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
+  for (let i = 0; i < 109 && fatSectors.length < fatCount; i++) { const x = v.getUint32(76 + i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
   let difat = v.getUint32(68, true)
-  for (let guard = 0; difat < 0xfffffffa && guard < 10_000; guard++) {
+  const difatSeen = new Set<number>()
+  for (; difat < 0xfffffffa && fatSectors.length < fatCount; ) {
+    if (difatSeen.has(difat) || difatSeen.size >= difatCount || difat >= sectors) return null
+    difatSeen.add(difat)
     const d = read(sectorAt(difat), ss)
     if (d.length < ss) return null
     const dvv = dv(d)
-    for (let i = 0; i < per - 1; i++) { const x = dvv.getUint32(i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
+    for (let i = 0; i < per - 1 && fatSectors.length < fatCount; i++) { const x = dvv.getUint32(i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
     difat = dvv.getUint32((per - 1) * 4, true)
   }
   const fatCache = new Map<number, DataView>()
