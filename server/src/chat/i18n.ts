@@ -449,6 +449,10 @@ export const TEXT = {
   sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal", "你的个人文件夹"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat", "其他人在这个对话中打开的位置"),
   sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó.", "回答没有完成。"),
+  /** added by the server at the end of an API engine answer whose step failed while the answer does not say so
+   * (engine/api-honest.ts failedStepsNote); {names}: the steps' own words ("Save"), never the AI's text */
+  apiStepFailed: t('한 단계가 제대로 되지 않았어요: {names}.', "One step didn't work: {names}.", 'Satu langkah tidak berhasil: {names}.', "うまくいかなかったステップがあります：{names}。", "Un paso no funcionó: {names}.", "有一个步骤没有成功：{names}。"),
+  apiStepsFailed: t('몇 단계가 제대로 되지 않았어요: {names}.', "Some steps didn't work: {names}.", 'Beberapa langkah tidak berhasil: {names}.', "いくつかのステップがうまくいきませんでした：{names}。", "Algunos pasos no funcionaron: {names}.", "有几个步骤没有成功：{names}。"),
 } satisfies Record<string, T>
 
 /** How the person's AI is named on a card: 트리나 where the product is named after its AI (PRODUCT_NAMED_AFTER_AI),

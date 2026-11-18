@@ -44,7 +44,7 @@ const cutOff = () => new Response([
 ].map((l) => `data: ${JSON.stringify(l)}\n\n`).join('') + 'data: [DONE]\n\n')
 
 describe('agent loop', () => {
-  test('stream text, call a tool (prefix stripped, arguments in pieces), answer with the result', async () => {
+  test('stream text, call a tool (prefix stripped, arguments in pieces), answer with the result (the tool round\'s text held back, TC-4830)', async () => {
     const bodies: any[] = []
     const replies = [sse({ text: ['Let me look. '], calls: [{ id: 'c1', name: 'mcp__team__list', args: '{"path":"shared"}' }] }), sse({ text: ['There is ', 'a.md.'] })]
     const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return new Response(replies.shift()!) }) as unknown as typeof fetch
@@ -56,7 +56,7 @@ describe('agent loop', () => {
     }
     const events: EngineEvent[] = []
     await runApiAgent({ conf, systemPrompt: 'sys', message: 'what is in shared?', rpc, emit: (e) => events.push(e), signal: new AbortController().signal, fetchFn: f })
-    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Let me look. There is a.md.')
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('There is a.md.')
     expect(calls[1]).toMatchObject({ method: 'tools/call', params: { name: 'list', arguments: { path: 'shared' } } })
     expect(events.find((e) => e.type === 'tool_start')).toMatchObject({ id: 'c1', name: 'list' })
     expect(events.find((e) => e.type === 'tool_end')).toMatchObject({ id: 'c1', ok: true, output: 'a.md' })
@@ -76,7 +76,7 @@ describe('agent loop', () => {
     expect(events.filter((e) => e.type === 'tool_start')).toHaveLength(3)
     expect(events.filter((e) => e.type === 'error')).toEqual([])
     expect(events.slice(-2)).toEqual([{ type: 'limit', kind: 'turns' }, { type: 'done' }])
-    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. Working. Working. ')
+    expect(events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('')).toBe('Working. ')
   })
   test('cut off at the output limit (finish_reason length): an output_limit error, the cut tool call neither run nor sent again', async () => {
     const bodies: any[] = []
@@ -116,7 +116,8 @@ describe('agent loop', () => {
     expect(errorOf(404, '{"error":"model \'llama9\' not found"}').code).toBe('model_not_found')
     // a wrong address (no /v1): the path is not there, no word about a model
     expect(errorOf(404, '<html>Not Found</html>')).toMatchObject({ code: 'endpoint_unreachable', status: 404 })
-    expect(errorOf(429, 'slow down')).toMatchObject({ code: 'rate_limit', status: 429 })
+    // the provider is busy: its own reason, not this team's usage limit (TC-4832)
+    expect(errorOf(429, 'slow down')).toMatchObject({ code: 'provider_busy', status: 429 })
     expect(errorOf(502, 'bad gateway')).toMatchObject({ code: 'provider_error', status: 502 })
     expect(errorOf(402, 'Insufficient credits')).toMatchObject({ code: 'provider_error', status: 402 })
     // "this model does not support tools" is not a missing model
@@ -279,7 +280,8 @@ describe('a chat turn with the api engine', () => {
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: 'look around', clientMessageId: `cm-${Date.now()}`, attachmentIds: [], engine: 'api' as EngineId } })
     await waitFor(() => (h.ctx.db.query('SELECT status FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string }).status !== 'streaming', { timeoutMs: 20_000 })
     const m = h.ctx.db.query('SELECT status, content, steps, engine FROM messages WHERE id = ?').get(r.assistantMessage.id) as { status: string; content: string; steps: string; engine: string }
-    expect(m).toMatchObject({ status: 'done', content: 'Done reading.', engine: 'api' })
+    // the refused read was not done again and the answer does not say so: the server's line says it (TC-4829)
+    expect(m).toMatchObject({ status: 'done', content: "Done reading.\n\nOne step didn't work: Read.", engine: 'api' })
     const steps = JSON.parse(m.steps) as { tool: string; status: string }[]
     expect(steps.map((s) => [s.tool, s.status])).toEqual([['read', 'error'], ['list', 'ok']])
     // the model got the refusal text back, and the system prompt is the team's

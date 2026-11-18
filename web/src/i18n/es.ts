@@ -523,6 +523,7 @@ export const es: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.es,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.es,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.es,
+  'chat.error.provider_busy': CHAT_ERROR_MESSAGES.provider_busy.es,
   'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.es,
   "chat.error.admin.auth": "Hay un problema con la cuenta de IA y la IA no puede responder. Revísela en {path}.",
   "chat.error.admin.no_credential": "No hay ninguna cuenta de IA conectada para esto. Conecte una en {path}.",

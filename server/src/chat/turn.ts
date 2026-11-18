@@ -1181,7 +1181,7 @@ export class TurnExec {
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
       try {
-        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins,
+        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
