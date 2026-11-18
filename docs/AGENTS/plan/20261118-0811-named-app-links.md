@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 08:11
 - Branch: `feat/named-app-links`
-- Status: in progress
+- Status: done
 - Where: core (`server/src/link-names/`, `shared/src/api/link-names.ts`, `web/src/`). Why: rooms, chats, files and
   projects are core features (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new endpoint and a new look for links in messages
@@ -58,4 +58,13 @@ canSeeProject, the share link's open(), authorize for Files, the room member row
 
 ## Result
 
-(filled in at the end)
+Built as planned. Differences found on the way:
+- Room thread links (`/rooms/<id>/t/<root>`) stay message links like `?m=`; only the conversation itself is a chip.
+- Bare addresses are chips wherever the shared Markdown renderer draws (also Markdown files in the preview, artifacts,
+  instructions), not only in messages; in a room an AI answer's team-file link keeps its lock-or-copy rule.
+- A file link's place (`page=`, `slide=`, `sheet=`) goes with the chip; a path over 1024 characters stays the plain link.
+- The file link's `open()` keeps its own upkeep (repin or end a changed link), as the link page and Inbox do; the
+  decision note says so.
+- `linkNames` is on the guest allow-list; the mock server, the feature map and the AI scenario scope have its line.
+- The independent review found no leaks; its smaller findings (upkeep wording, long paths, file places, name direction,
+  stale names after a failed refresh, the loading tooltip) are fixed.
