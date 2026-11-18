@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 15:36
 - Branch: `fix/message-blank-lines-nits`
-- Status: in progress
+- Status: done
 - Where: web/src/lib/messageMarkdown.ts, web/src/lib/blankLines.ts, web/src/components/Markdown.tsx. Why: the same
   shared renderer and helper as PR #1310.
 - Version impact: patch, display fixes
@@ -44,4 +44,6 @@ None beyond display; no server, migration or i18n change.
 
 ## Result
 
-Filled in at the end.
+Built as planned, plus one step: the block before a spacer also has no bottom margin (`:has`), else a code block
+followed by blank lines still left 12px more than typed. Measured on a local QA team copy at 1440 and 390, light and
+dark: every gap equals its lines (code, quote, link, a definition merged to 1, a run of U+3000/NBSP lines capped at 5).
