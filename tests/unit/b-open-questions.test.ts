@@ -250,6 +250,11 @@ describe('ask_user waits as long as it takes', () => {
     const q = { kind: 'ask_user' as const, requestId: uuidv7(), question: 'Which deal?', options: [{ label: 'ACME renewal (from CRM)', value: 'd1' }] }
     expect(answerText([{ question: 'Which deal?', answer: 'd1' }], [q], 'skipped', {}, "(Answered the AI's question)")).toBe("(Answered the AI's question)")
     expect(answerText([{ question: 'Which deal?', answer: 'my own words' }], [q], 'skipped', {}, "(Answered the AI's question)")).toBe('my own words')
+    // several questions: the questions (the AI's words too) are left out with the labels
+    const q2 = { kind: 'ask_user' as const, requestId: uuidv7(), question: 'Renew ACME at $48,000 (from CRM)?', options: [{ label: 'Yes', value: 'y' }] }
+    const both = answerText([{ question: q.question, answer: 'd1' }, { question: q2.question, answer: 'y' }], [q, q2], 'skipped', {}, "(Answered the AI's question)")
+    expect(both).toBe("(Answered the AI's question)\n(Answered the AI's question)")
+    expect(both).not.toContain('ACME')
   })
 
   test('the words: labels for picked options, typed text as typed, one line each after its question', () => {
