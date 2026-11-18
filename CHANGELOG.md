@@ -5,6 +5,23 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.5.16 — 2026-11-18
+
+- A Claude account whose subscription ended no longer stops answers with "There's a problem with the AI account". The answer goes on with the next account that works, and the ended account shows **Refused** in Admin › AI providers with a line saying its subscription ended, so you can reconnect or remove it.
+- An Anthropic API key that runs out of credit now shows **Out of credit** instead of a usage limit, and answers go on with the next account.
+- In Admin › AI providers, the owner and admins can drag an account by its handle to change the order the accounts are used in, with a mouse, on a phone, or with the keyboard (Space to pick up, arrow keys to move, Space to drop). Move up / Move down stay in the ⋯ menu. "How order works" is gone: one plain line under the list says the top working account is used first, and the next one when it is refused or at its limit.
+- With an AI model you set up yourself (OpenAI-compatible address), the AI can no longer save over a file it just read with an almost empty version: the save is refused and the file stays as it was, unless you asked for the whole file to be emptied or replaced.
+- When a step of such an answer didn't work and the answer doesn't say so, a line at the end now says which step it was ("One step didn't work: Save."), so "done" never stands alone after a failed save.
+- The same answers no longer start with the AI's own work notes ("Let me check…"): only the actual answer is shown.
+- Links with no address (`[quote]()`) now show as plain words instead of a broken link.
+- When the AI service itself is busy, the message now says so and suggests trying again shortly or picking another model. It no longer reads as if your team's usage limit was reached.
+- On a phone, the Chats list no longer moves sideways while you scroll it. The ⊕ beside Channels and Direct messages made the list 2 px wider than the screen.
+- Desktop app, finding work files in a folder you choose: one sub-folder that did not answer (an offline share, a stuck drive) could make the look wait 10 seconds and then show no files at all. That sub-folder is now skipped after a moment, and the files in the folders beside it are listed.
+- Desktop app on Windows: **Choose a folder…** in "Find work files on this computer" now takes a folder on a NAS or a company network share, picked by its network path or through a mapped drive. It closed without reading anything. Admin shares such as C$ and ADMIN$, device paths, and shares that lead to your home folder are still refused.
+- Desktop app on Windows: when "Find work files on this computer" looks through a folder on a network share, it no longer goes into a link or junction that Windows shows as one, nor into any folder of that share that turns out to be your home folder, a folder above it or a Windows system folder. DFS folders of a company namespace are still looked through. On this computer's own drives, a folder where another drive is mounted is skipped; OneDrive folders are still looked through.
+- **Admin › AI providers**: when a provider's status check fails, the card now says in plain words what happened ("Couldn't check Claude Code right now. Try Check again in a moment.", or that it took too long, that there is no internet connection, or that it needs a sign-in). It showed the engine's raw output. The output itself, with keys, tokens and home folders taken out, is behind **Show details** in the opened card, with a copy button for support.
+- Desktop app: after the team server updated itself while the app stayed open, your phone could ring again for every message while you worked on the computer, until you restarted the app. The app now tells the updated server within 5 minutes that you are at the computer.
+
 ## 0.5.15 — 2026-11-18
 
 - Asked to change a team skill they can't edit, the AI no longer tells a member to press "Suggest as skill" (that button suggests a new skill, it can't change an existing one). It offers to write a short message for the people who manage team skills, or a personal copy.
