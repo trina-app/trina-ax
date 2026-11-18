@@ -226,7 +226,7 @@ export const READ_VIEWS_UNITS = 96 * 1024 * 1024
 /** a kept text not read again for this long is let go */
 export const READ_VIEWS_TTL_MS = 10 * 60_000
 
-interface ViewEntry { text: string; memo: TextMemo; at: number; units: number }
+interface ViewEntry { text: string; memo: TextMemo; at: number; units: number; views: string }
 /** units a memo holds (each view about its text's size) */
 function units(e: ViewEntry): number {
   const sum = (l: readonly string[] | undefined) => { let n = 0; if (l) for (const x of l) n += x.length + 1; return n }
@@ -257,7 +257,7 @@ export class ReadViews {
       return { text: hit.text, memo: hit.memo, done: () => this.settle(key, hit) }
     }
     const text = await make()
-    const e: ViewEntry = { text, memo: {}, at: this.now(), units: 0 }
+    const e: ViewEntry = { text, memo: {}, at: this.now(), units: 0, views: '-' }
     if (text.length <= READ_TEXT_CHARS) return { text, memo: e.memo, done: () => {} }
     return { text, memo: e.memo, done: () => this.settle(key, e) }
   }
@@ -267,7 +267,9 @@ export class ReadViews {
   clear() { this.m.clear(); if (this.sweep) clearTimeout(this.sweep); this.sweep = null }
 
   private settle(key: string, e: ViewEntry) {
-    e.units = units(e)
+    // counted again only when a read added a view (a view is never changed after)
+    const views = `${!!e.memo.raw}${e.memo.json === undefined ? 'u' : !!e.memo.json}${!!e.memo.jsonl}`
+    if (views !== e.views) { e.views = views; e.units = units(e) }
     if (e.units > this.budget) { this.m.delete(key); return }
     this.m.delete(key); this.m.set(key, e)
     let total = 0
