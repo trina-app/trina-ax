@@ -219,6 +219,14 @@ describe('settings, budgets, usage, audit', () => {
     expect((await owner.call('GET', '/api/me')).team.chatTrashRetentionDays).toBe(3)
     expect((await owner.call('PATCH', '/api/admin/settings', { chatTrashRetentionDays: 7 })).chatTrashRetentionDays).toBe(7)
   })
+  test('file trash retention is in Me for every member: the project trash confirm names the saved value (QA TC-4971)', async () => {
+    const saved = (await owner.call('GET', '/api/admin/settings')).trashRetentionDays
+    expect((await mem.client.call('GET', '/api/me')).team.trashRetentionDays).toBe(saved)
+    expect((await owner.call('PATCH', '/api/admin/settings', { trashRetentionDays: 21 })).trashRetentionDays).toBe(21)
+    expect((await mem.client.call('GET', '/api/me')).team.trashRetentionDays).toBe(21)
+    expect((await owner.call('GET', '/api/me')).team.trashRetentionDays).toBe(21)
+    expect((await owner.call('PATCH', '/api/admin/settings', { trashRetentionDays: saved })).trashRetentionDays).toBe(saved)
+  })
   test('retention periods and the update channel are the owner\'s: an admin is refused, the owner changes them, other settings stay the admin\'s', async () => {
     // an admin who shortened them would have the nightly sweep erase the audit log and old file versions
     const before = await owner.call('GET', '/api/admin/settings')
