@@ -9,9 +9,12 @@
 // A shared project chat (Chat.shared, docs/DECISIONS.md "Shared project chats"): the people of its project see it and may
 // continue it. The header has its mark, the line under the box says how many see it, other people's messages carry
 // their names, and only what the person may do is offered (rename and the engine: its creator; delete: its creator or a
-// project editor; stop: whoever asked; edit and regenerate: their own messages; no move, no queued sends, team files
-// only). While someone else's question is answered the box holds the text with a line saying whose; the others get no
-// live text, so the messages are read again when that turn starts and ends. While safe operations are on it is read-only.
+// project editor; stop: whoever asked; edit and regenerate: their own messages; no move, team files only). A message
+// sent while an answer runs, mine or someone else's, waits under the conversation as in a private chat; the server sends
+// the waiting messages of different people in the order they were queued, and the others see only how many wait
+// (docs/decisions/20261118-shared-chat-queued-sends.md). While someone else's question is answered a line above the box
+// says whose; the others get no live text, so the messages are read again when that turn starts and ends. While safe
+// operations are on it is read-only.
 // Files from this computer dropped anywhere on the screen (its header, the messages, the box) go into the box
 // (components/FileDropZone.tsx); a chat in the trash or a read-only one says why nothing can be attached.
 // `?answer=<messageId>` (an item of the widening list, components/WideningList.tsx): the branch holding that answer, for
@@ -398,11 +401,11 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const onSend = async (text: string, attachments: Attachment[]) => {
     stick.current = true
     const author = { id: me.user.id, name: me.user.name }
-    if (shared) return sendShared(text, attachments, author)
     const queue = useSendQueue.getState()
     const waiting = queue.queues[chatId]
-    // an answer is running (or messages already wait): this one waits too and goes when the answer is done
-    if (busy || waiting?.items.length) {
+    // an answer is running (or messages already wait): this one waits too and goes when the answer is done. A shared
+    // chat: also while someone else's question is answered, or someone else's messages wait (theirs go first)
+    if (busy || waiting?.items.length || (shared && (othersTurn || shared.waiting))) {
       // nothing runs, but earlier messages were paused (stopped / failed answer): sending now takes them along, in order
       if (!busy && waiting?.paused) return queue.sendNow(chatId, { content: text, attachments, author })
       try {
@@ -414,21 +417,30 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
       announce(t('outbox.waitingOne'))
       return
     }
+    if (shared) return sendShared(text, attachments, author)
     await send({ chatId, content: text, attachments, author })
   }
 
-  /** A shared chat: nothing waits to be sent (the box holds the text while an answer runs). A refusal (someone else's
-   * question began a moment ago, safe operations, a computer file) takes the message back and keeps the text in the box
-   * with the reason; the chat is read again, so the box says whose turn it is. */
+  /** A shared chat with nothing running or waiting. Someone else's question began a moment ago, or their messages wait
+   * (409 shared_chat_busy / shared_chat_next): the message waits under the conversation like any sent during an answer.
+   * Another refusal (safe operations, a computer file) takes the message back and keeps the text in the box with the
+   * reason; the chat is read again, so the box says whose turn it is. */
   const sendShared = async (text: string, attachments: Attachment[], author: { id: string; name: string }) => {
-    // (the box does not send then; a suggestion's button might: the text stays with the line's words)
-    if (othersTurn) throw new Error(t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }))
     const clientMessageId = uuidv7()
     const r = await send({ chatId, content: text, attachments, author, clientMessageId })
     const refused = (e: unknown): Error | null => {
       if (!refusalReason(e) && !isApiError(e, 'conflict')) return null // shown on the message ("not sent", send again)
       const local = useChats.getState().threads[chatId]?.messages.find((m) => m.local?.clientMessageId === clientMessageId)
       if (local) discardLocal(chatId, local.id)
+      const reason = isApiError(e, 'conflict') ? e.body.params?.reason : null
+      if (reason === 'shared_chat_busy' || reason === 'shared_chat_next') {
+        try {
+          useSendQueue.getState().enqueue(me.user.id, chatId, { content: text, attachments, author })
+          announce(t('outbox.waitingOne'))
+          void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
+          return null
+        } catch { /* too many waiting: the box keeps the text with the reason below */ }
+      }
       void api.call(API.getChat, { params: { id: chatId } }).then((c) => { setChat(c); upsertChat(c) }, () => {})
       const key = refusalKey(e, 'chat')
       return new Error(key ? t(key) : errorText(e, locale, t('error.network')))
@@ -666,7 +678,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             })}
           </ImageGroup>
           </BoxAnswers.Provider>
-          {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} />}
+          {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} shared={shared && !readOnly ? { audience: shared.audience, kind: shared.kind, othersWaiting: shared.waiting ?? 0 } : undefined} />}
         </div>
       </div>
       <div className={clsx('mx-auto w-full max-w-[780px] pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
@@ -703,8 +715,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
             footer={t('chat.footerAi')}
             who={who}
             // the earlier answer ended but the end of its work is not confirmed yet (Chat.ending): one plain line, no send
-            hold={chat?.ending ? t('chat.endingEarlier') : othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
-            queueing={!shared}
+            hold={chat?.ending ? t('chat.endingEarlier') : undefined}
+            // someone else's question is being answered: a line saying whose, and what I send now waits for it
+            note={othersTurn ? t(othersTurn.waiting ? 'chat.sharedWaiting' : 'chat.sharedBusy', { name: othersTurn.name }) : undefined}
+            later={!!othersTurn || !!shared?.waiting}
             sharedUploads={shared ? { audience: shared.audience, allowed: shared.canUpload !== false, kind: shared.kind } : undefined}
             projectId={chat?.projectId ?? null}
             autoFocus

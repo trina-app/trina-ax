@@ -26,6 +26,8 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
       'access_requests.requester_id', 'access_request_notices.user_id',
       // what their AI read in chats (chat/carried-reads.ts): paths and hashes of their turns
       'chat_reads.user_id',
+      // the summaries of older chat parts made for them (chat/history-summary.ts)
+      'chat_summaries.user_id',
     ],
     // and they leave every chat's audience they were named in (chat_audience: a subject, not a users(id) column; their
     // messages there stay under the tombstone name). removeAccount does it in its own write too; this covers accounts

@@ -3,7 +3,9 @@
 // messages should do now, how several go out together as one message, and how they are kept in this browser.
 //
 // The queue lives in the browser (docs/DECISIONS.md "Messages typed during an answer"): the server still refuses a
-// second turn in a chat (409), and nothing waiting reaches it before the running answer has ended. What to do is
+// second turn in a chat (409), and nothing waiting reaches it before the running answer has ended. In a shared chat the
+// browser also says how many wait, never what, so the server lets the person who queued first go first
+// (docs/decisions/20261118-shared-chat-queued-sends.md). What to do is
 // decided from the visible branch alone, so a reconnect, a reload or a missed event cannot lose the moment.
 import { z } from 'zod'
 import { Attachment, MESSAGE_ATTACHMENTS_MAX, type Attachment as AttachmentT } from '@mycel/shared/api'
@@ -21,6 +23,9 @@ export interface QueuedMessage {
   attachments: AttachmentT[]
   author: { id: string; name: string }
   createdAt: string
+  /** what goes on top of the text when it is sent, kept as it was when it was queued (a room's side chat: the thread line
+   * or the quoted message the box showed then); not part of what is edited */
+  lead?: string
 }
 /** stopped: the person stopped the answer; error: the answer or a send failed; away: the answer ended while this
  * page was not open (or something else happened in the chat since). Each waits for "Send now". */
@@ -43,16 +48,29 @@ export type QueueStep = 'wait' | 'send' | { pause: 'stopped' | 'error' }
  * - the person stopped the answer: pause, keep them, offer "Send now";
  * - the answer failed, or a send failed ("not sent"): pause the same way (the cause may still be there).
  */
-export function nextStep(messages: readonly ViewMessage[]): QueueStep {
+export function nextStep(messages: readonly ViewMessage[], o: { me?: string; creator?: string } = {}): QueueStep {
   if (messages.some((m) => m.local?.state === 'sending')) return 'wait'
   const last = messages.at(-1)
   if (!last) return 'send'
   if (last.local) return { pause: 'error' }
   if (last.role !== 'assistant' || last.status === 'streaming') return 'wait'
+  // a shared chat (`me`): someone else's answer stopped or failed is theirs; mine still go. A question with no author
+  // (from before authors were kept) is the chat's creator's
+  if (o.me && (last.status === 'stopped' || last.status === 'error')) {
+    const q = messages.find((m) => m.id === last.parentId)
+    if ((q?.author?.id ?? o.creator) !== o.me) return 'send'
+  }
   if (last.status === 'stopped') return { pause: 'stopped' }
   if (last.status === 'error') return { pause: 'error' }
   return 'send'
 }
+
+/** A shared chat: the browser holding waiting messages says how many every WAITING_REFRESH_MS (PUT /api/chats/:id/
+ * waiting; the server forgets a place after 45 s without it), so the server sends them in the order people queued. */
+export const WAITING_REFRESH_MS = 15_000
+/** What this browser tells the server waits (a paused queue or one being edited does not go by itself: 0, so it never
+ * holds the others back). */
+export const declaredCount = (q: ChatQueue | undefined, editing: boolean): number => (!q || q.paused || editing ? 0 : q.items.length)
 
 /** The running answer the messages wait for, when one is visible. */
 export const awaitedAnswer = (messages: readonly ViewMessage[]): string | null => {
@@ -68,8 +86,11 @@ export const awaitedAnswer = (messages: readonly ViewMessage[]): string | null =
 export function combine(items: readonly QueuedMessage[]): { take: QueuedMessage[]; content: string; attachments: AttachmentT[] } {
   const take: QueuedMessage[] = []
   const attachments: AttachmentT[] = []
-  let length = 0
+  // messages about something else (another thread or quote: `lead`) go in the next message, each under its own lead
+  const lead = items[0]?.lead
+  let length = lead ? lead.length : 0
   for (const it of items) {
+    if (it.lead !== lead) break
     const have = new Set(attachments.map((a) => a.id))
     const add = it.attachments.filter((a) => !have.has(a.id))
     const extra = it.content.trim() ? it.content.length + (length ? 2 : 0) : 0
@@ -78,7 +99,8 @@ export function combine(items: readonly QueuedMessage[]): { take: QueuedMessage[
     attachments.push(...add)
     length += extra
   }
-  return { take, content: take.map((i) => i.content).filter((c) => c.trim()).join('\n\n'), attachments }
+  const text = take.map((i) => i.content).filter((c) => c.trim()).join('\n\n')
+  return { take, content: lead ? `${lead}\n\n${text}` : text, attachments }
 }
 
 /** The clientMessageId of a combined send: the same messages give the same id, so two windows sending the same
@@ -90,9 +112,9 @@ export const combinedClientId = (take: readonly QueuedMessage[]) => `${take[0]!.
  * the answer it waited for is the newest message (it ended meanwhile, nothing else happened). Otherwise it waits
  * for "Send now", so a message typed long ago never drops into a conversation that has moved on.
  */
-export function restoredQueue(stored: ChatQueue, messages: readonly ViewMessage[]): ChatQueue {
+export function restoredQueue(stored: ChatQueue, messages: readonly ViewMessage[], o: { me?: string; creator?: string } = {}): ChatQueue {
   if (!stored.items.length || stored.paused) return stored
-  if (nextStep(messages) === 'wait') return stored
+  if (nextStep(messages, o) === 'wait') return stored
   if (stored.after && messages.at(-1)?.id === stored.after) return stored
   return { ...stored, paused: 'away' }
 }
@@ -117,6 +139,7 @@ const Stored = z.object({
     attachments: z.array(Attachment).max(MESSAGE_ATTACHMENTS_MAX),
     author: z.object({ id: z.string().max(200), name: z.string().max(500) }),
     createdAt: z.string().max(40),
+    lead: z.string().optional(),
   })).max(QUEUE_STORED_MAX),
   paused: z.enum(['stopped', 'error', 'away']).nullable(),
   after: z.string().max(64).nullable(),

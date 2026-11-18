@@ -29,6 +29,11 @@ export const CARRIED_READS_PER_CHAT = 20_000
  * {"subtype":"microcompact_boundary"} (both strings checked in the shipped 2.1.327 binary, 2026-11-18) */
 export const compactionsIn = (stash: Uint8Array): number => Buffer.from(stash).toString('latin1').match(/"(?:micro)?compact_boundary"/g)?.length ?? 0
 
+/** The session this turn saves no longer holds all it saw: Claude Code compacted it in this turn (more boundary lines
+ * than the stash it resumed), or the stash was slimmed (chat/session-slim.ts took pictures out of older turns) */
+export const sessionDroppedText = (o: { bytes: Uint8Array; compactionsBefore: number; slimmed: number }): boolean =>
+  o.slimmed > 0 || compactionsIn(o.bytes) > o.compactionsBefore
+
 /** The chat's engine session no longer holds the text of what its earlier answers read (a compaction, a slimmed
  * stash): their reads stay usable for edits, never again for a whole-file replace. */
 export function forgetSessionText(db: Database, chatId: string) {

@@ -23,6 +23,10 @@ export type ApprovalKind =
   /** a save where more people can see than can see what the chat read (chat/turn.ts widenNeed): target = the folder and
    * who may see it (folderAudience); detail.sources = the narrower sources the card named (sourceKey) */
   | 'save_wider'
+  /** a connected service whose answer the person let show in a shared chat ("Always in this chat" on the connection
+   * card, chat/turn.ts confirmSharedConnection): target = the connection; detail.c = who saw the chat then (a person who
+   * joins later makes it ask again) */
+  | 'shared_connection'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12

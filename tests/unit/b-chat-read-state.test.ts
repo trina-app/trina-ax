@@ -12,10 +12,11 @@ import crypto from 'node:crypto'
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
-import { carriedReads, CARRIED_READS_PER_ANSWER, CARRIED_READS_PER_CHAT, compactionsIn, forgetSessionText, mayCarryReads, saveReads } from '../../server/src/chat/carried-reads'
+import { carriedReads, CARRIED_READS_PER_ANSWER, CARRIED_READS_PER_CHAT, compactionsIn, forgetSessionText, mayCarryReads, saveReads, sessionDroppedText } from '../../server/src/chat/carried-reads'
 import { TurnFiles, type CarriedReads, type ToolCtx } from '../../server/src/files/service'
 import { placeProduced } from '../../server/src/tools/make-file'
 import { componentC } from '../../server/src/team-files/component'
+import { slimSession } from '../../server/src/chat/session-slim'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -352,5 +353,40 @@ describe('the session a read was made in', () => {
     tf.readHashes.set('y.md', 'h')
     tf.sessionLostText()
     expect(tf.readSessions.get('y.md')).toBeNull()
+  })
+})
+
+describe('a slimmed stash (pictures of older turns taken out, chat/session-slim.ts)', () => {
+  test('turns off whole-file replaces from the reads it held; edits stay', async () => {
+    const line = (o: unknown) => JSON.stringify(o)
+    const pic = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'A'.repeat(4000) } }
+    const stash = Buffer.from([
+      line({ type: 'user', message: { role: 'user', content: 'look at the chart' } }),
+      line({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: [pic] }] } }),
+      line({ type: 'user', message: { role: 'user', content: 'now the next one' } }),
+    ].join('\n') + '\n')
+    const slim = slimSession(stash, 1000, 500)
+    expect(slim.removed).toBeGreaterThan(0)
+    expect(sessionDroppedText({ bytes: slim.bytes, compactionsBefore: 0, slimmed: slim.removed })).toBe(true)
+    // not slimmed and not compacted: the session still holds what it saw
+    expect(sessionDroppedText({ bytes: stash, compactionsBefore: 0, slimmed: 0 })).toBe(false)
+    // what turn.ts stashSession then does: the chat's rows and this turn's reads lose their session
+    const f = `${dirOf()}/chart.md`
+    put(f, 'v1\n')
+    const chat = await newChat('alice')
+    const a1 = await ask('alice', chat, 'one')
+    const db = h.ctx.db
+    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice' }, new Map([[f, sha('v1\n')]]), new Map([[f, 's1']]))
+    const before = carriedReads(db, h.ctx.files, { chatId: chat, userId: 'alice', answers: [a1.assistantId] })!
+    before.inSession('s1')
+    expect(before.wholeFile(f)).toBe(true)
+    forgetSessionText(db, chat)
+    const after = carriedReads(db, h.ctx.files, { chatId: chat, userId: 'alice', answers: [a1.assistantId] })!
+    after.inSession('s1')
+    expect(after.wholeFile(f)).toBe(false)
+    const tf = new TurnFiles()
+    tf.carried = after
+    tf.engineSession('s1', true)
+    expect(tf.readHashes.get(f)).toBe(sha('v1\n'))
   })
 })
