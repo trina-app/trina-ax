@@ -54,7 +54,7 @@ describe('Gmail attachments', () => {
 
   /** read an attachment in a new chat turn of `user`: the AI's text and the handle it names */
   async function readAttachment(user: Person, fileName: string, bytes: Buffer) {
-    lib.attachment = bytes
+    lib.attachment = bytes as typeof lib.attachment
     const chat = A.chat(user), turnId = A.turn(user, chat)
     const built = integrationToolProvider(A.ctx).build({ userId: user, chatId: chat, turnId, browser: false, scheduled: false })
     const files = { user: A.ctx.files.principal(user), turnId, files: new TurnFiles(), signal: new AbortController().signal } as unknown as TurnToolContext['files']
