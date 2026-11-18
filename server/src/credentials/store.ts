@@ -291,7 +291,7 @@ export function stateOf(db: Database, r: CredRow, now: Date, allowed: AllowedKin
 
 function detailOf(r: CredRow, state: CredentialState, locale: Locale, allowed: AllowedKinds): string | null {
   const key: Partial<Record<CredentialState, keyof typeof CT>> = {
-    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : 'invalid',
+    unverified: 'unverified', expired: 'expired', invalid: r.status_code === 'usage_not_included' ? 'invalidPlan' : r.status_code === 'plan_ended' ? 'planEnded' : 'invalid',
     needs_reconnect: r.status_code === 'decrypt_failed' ? 'decryptFailed' : 'needsReconnect', over_limit: 'overLimit', disabled: 'disabled', kind_off: 'kindOff', sharing_off: 'sharedSubscriptionsOff',
   }
   if (state === 'kind_off' && allowed.has(r.kind) && otherGateway(r, allowed)) return ct('otherGateway', locale)

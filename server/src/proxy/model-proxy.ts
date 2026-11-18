@@ -25,6 +25,10 @@ import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
+import { accountRefusal } from './anthropic-refusal'
+
+/** an API key out of credit stays out this long, then the next request tries it again (like codex-path.ts) */
+const CREDIT_RECHECK_MS = 3600_000
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
@@ -411,6 +415,21 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
         await broker.onUnauthorized(cred.credentialId, sent)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+      }
+      // a 403 or a billing 400 from Anthropic itself: the account's own refusal (a subscription that ended, no credit),
+      // never "healthy" again on the next turn (QA TC-4835). A gateway's 403 can be its own moderation: passed on.
+      if ((up.status === 400 || up.status === 403) && broker && !gateway && 'kind' in cred) {
+        const text = await up.text()
+        const r = accountRefusal(up.status, text, cred.kind)
+        if (r?.action === 'invalid') {
+          broker.markInvalid(cred.credentialId, r.code, up.status)
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+        } else if (r?.action === 'credit') {
+          const until = new Date(Date.now() + CREDIT_RECHECK_MS)
+          broker.onLongLimit(cred.credentialId, until, r.code)
+          o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
+        }
+        return new Response(text, { status: up.status, headers: outHeaders })
       }
       if (up.status === 429) {
         const s = retryAfterSeconds(up.headers.get('retry-after'))

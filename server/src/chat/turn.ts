@@ -1118,6 +1118,13 @@ export class TurnExec {
         const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
         const crashed = !err && (exit?.ev === 'error' || (exit?.code && !parser.result))
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'claude-code', exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
+        // the engine says the account was refused but the proxy saw no refusal it knows (QA TC-4835): this account is
+        // skipped for the rest of the turn and the next one answers; its state stays (only the proxy's reading marks it)
+        if (managed && err?.code === 'auth' && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
+          this.credentialFailure = { id: this.lastCredential, reason: 'invalid', retryAt: null }
+          if (this.switchCredential('claude-code', exclude)) { resume = false; sid = crypto.randomUUID(); attempt--; continue }
+          this.credentialFailure = null
+        }
         if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
