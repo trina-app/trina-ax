@@ -49,8 +49,14 @@ function parse(xml: string, part: string, what: string, on: { open?: (t: SaxesTa
   // a DTD is refused, but for a picture: SVG exports (Inkscape, Illustrator) carry <!DOCTYPE svg PUBLIC ...>. Allowed
   // only on an SVG root and without an internal subset ("["), so it declares no entity; nothing fetches the DTD
   const d = doctype as string | null, r = root as SaxesTagNS | null
-  if (d !== null && (d.includes('[') || !r || r.local !== 'svg' || r.uri !== SVG_NS)) err ??= 'a DTD'
+  if (d !== null && (d.includes('[') || !r || r.local !== 'svg' || r.uri !== SVG_NS || !svgDoctype(d))) err ??= 'a DTD'
   if (err) bad(what, `${part} is not a well-formed XML part (${String(err).slice(0, 120)})`)
+}
+/** the W3C's own SVG 1.0 / 1.1 DTD, by its public id and its w3.org address, and nothing else (QA TC-4966) */
+const SVG_DTD_IDS = new Set(['-//W3C//DTD SVG 20010904//EN', '-//W3C//DTD SVG 1.0//EN', '-//W3C//DTD SVG 1.1//EN'])
+function svgDoctype(d: string): boolean {
+  const m = /^\s*svg\s+PUBLIC\s+(["'])([^"']*)\1\s+(["'])([^"']*)\3\s*$/.exec(d)
+  return !!m && SVG_DTD_IDS.has(m[2]!) && /^https?:\/\/www\.w3\.org\/[\w./-]+\.dtd$/.test(m[4]!)
 }
 /** an attribute by its namespace ('' for none) and local name, whatever its prefix */
 const attrNS = (t: SaxesTagNS, uri: string | Set<string>, local: string): string | undefined => {
@@ -103,6 +109,10 @@ export function relationships(xml: string, part = 'part', what = 'file'): { type
 /** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
  * not be scanned as text, so such a part is refused rather than skipped (security review) */
 const utf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
+/** fonts (.odttf is scrambled bytes), pictures and other binary parts may start with FF FE by chance: there only a
+ * byte order mark followed by "<" counts as UTF-16 text (QA TC-4966) */
+const BINARY_PART = /(^|\/)(fonts|media|embeddings)\/|\.(odttf|ttf|otf|bin|png|jpe?g|gif|bmp|tiff?|emf|wmf|svg)$/i
+const utf16Text = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe && d[2] === 0x3c && d[3] === 0x00) || (d[0] === 0xfe && d[1] === 0xff && d[2] === 0x00 && d[3] === 0x3c) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
 /** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
 function looksXml(d: Uint8Array): boolean {
   let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0
@@ -132,7 +142,7 @@ export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): v
     }
     // every XML part, wherever it is and whatever its name: _rels/.rels and [Content_Types].xml can put the main
     // document or a header anywhere in the package (security review); a part is XML when it starts with "<"
-    if (utf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
+    if (BINARY_PART.test(e.name) ? utf16Text(e.data) : utf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
     if (kind === 'docx' && !/\.rels$/i.test(e.name) && looksXml(e.data)) {
       const hit = fieldWords(text(e.data), e.name, what).find((w) => UNSAFE_FIELDS.has(w))
       if (hit) bad(what, `${e.name} has a ${hit} field, which runs or fetches something when the file is opened`)

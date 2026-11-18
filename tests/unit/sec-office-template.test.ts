@@ -100,6 +100,16 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).not.toThrow()
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg [<!ENTITY a "DDEAUTO">]>'))).toThrow(/well-formed|DTD/)
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE hdr PUBLIC "x" "y">', `<w:hdr xmlns:w="${W}"/>`))).toThrow(/DTD/)
+    // only the W3C's SVG 1.0 / 1.1 DTD (QA TC-4966)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">'))).not.toThrow()
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//Evil//DTD SVG//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).toThrow(/DTD/)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://evil.example/svg11.dtd">'))).toThrow(/DTD/)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg SYSTEM "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).toThrow(/DTD/)
+    // a font, a picture or a .bin part may start with FF FE by chance: fine; UTF-16 XML there is still refused
+    for (const name of ['word/fonts/font1.odttf', 'word/media/image9.png', 'word/x.bin']) {
+      expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([0xff, 0xfe, 0x12, 0x9a, 0x00, 0x01]) }]))).not.toThrow()
+      expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: u16([0xff, 0xfe], true) }]))).toThrow(/UTF-16/)
+    }
     // the same field name in another namespace is not a Word field
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })
