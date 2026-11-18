@@ -47,7 +47,7 @@ export const PDF_WORDS: Record<'edited' | 'merged' | 'part', Record<Locale, stri
 export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result as a new PDF next to it (the original stays as it is; a PDF you made in this turn is changed in place unless you give output): ' +
   'operations, applied in order: remove_pages, keep_pages (extract pages), reorder_pages, rotate_pages, insert_pdf (pages of another PDF at a position), ' +
   'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page), page_numbers, ' +
-  'and replace_text (change words inside the PDF: every match of find on the pages becomes replace; the old words are removed from the file, not covered, ' +
+  'and replace_text (change words inside the PDF: every match of find on the pages becomes replace; the old words are removed from the page text, not covered, ' +
   'and the new ones are written in their place in the same size and colour, in the PDF\'s own font when it has the letters; "" removes them). ' +
   'Pages are written like "1,3-5,last", "2-last" or "all"; each operation sees the pages as they are after the ones before it. ' +
   'Positions are a preset or { x_mm, y_mm } from the top-left of the page as it is shown. Works on scanned PDFs too. ' +

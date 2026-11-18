@@ -1,4 +1,4 @@
-# edit_pdf changes words inside a PDF, and the old words are really gone
+# edit_pdf changes words in a PDF's page text, and the old words are gone from that text
 
 - Date: 2026-11-18
 - Status: accepted
@@ -19,6 +19,18 @@ Plan: docs/AGENTS/plan/20261118-2140-pdf-replace-text-xlsx-hyperlink.md.
   - The matched glyphs are taken out of their text operators, so their codes are nowhere in the page's content. The page
     gets one new content stream; the old streams, now unreachable, are deleted before the file is written (a save is a
     full rewrite, so neither they nor older revisions of the file stay in it). Tests decode every stream of the result.
+    An /ActualText on a marked-content section (BDC) around removed words is taken out too.
+  - **This is not a redaction tool** (review of #1337). It changes the page text and nothing else. Not changed, and so
+    still holding the old words when they are there: the document properties (Info) and XMP metadata, bookmark titles,
+    annotations (comments, links, form fields: /Contents, /V), the structure tree's /Alt and /ActualText, marked-content
+    property lists that do not wrap a changed word, text in drawn blocks (form XObjects), pictures (a scan, the hidden OCR
+    layer), and pages that were not named. After each replace_text the whole file is searched for the words in those
+    places and the AI is told where they still are and to tell the person; it also names the pages with form XObjects,
+    annotations or fonts without a ToUnicode map (a viewer may read those letters otherwise, so a match there can be
+    missed). The result says "removed from the page text", never "from the file".
+  - Hostile input is bounded: a font's letter map and width list take codes 0 to 0xFFFF only, at most 65,536 entries
+    each; one replace_text changes at most 2,000 places on a page (more is refused plainly); glyphs are indexed once and
+    the new content is built in one pass; numbers are written without exponents, clamped to ±1e9.
   - The new words are written at the first old glyph, inside the same text object: same colour, size, position, turn.
     In the PDF's own font when it holds a glyph for every new letter (an embedded subset holds only the letters it lists
     or draws); else the closest standard font (sans, serif, mono; bold, italic), with its widths written so every viewer
@@ -34,8 +46,8 @@ Plan: docs/AGENTS/plan/20261118-2140-pdf-replace-text-xlsx-hyperlink.md.
     drawn block (a form XObject); vertical text. The result tells the AI which fonts were used and what moved.
 - **Kept:** every edit_pdf limit and card: new file next to the original (or `replace: true` after a read), the
   wider-audience check, locked PDFs refused, the 40 MB input cap, signed PDFs flagged, the worker isolation.
-- **Not added:** text inside form XObjects, annotations, bookmarks and form fields; re-wrapping a paragraph; /ActualText
-  of a marked-content span around the words (rare; a viewer's copy may show it).
+- **Not added:** changing text inside form XObjects, annotations, bookmarks, form fields, metadata or the structure
+  tree (they are reported, see above); re-wrapping a paragraph; true redaction of pictures.
 - **Tests:** tests/unit/pdf-replace-text.test.ts (worker: old bytes gone from every decoded stream, kerned and split
   runs, ' and escaped strings, colour kept, runs after the words moved, a table column not moved, subset font with and
   without the letters, Identity-H, UniKS-UCS2-H, scan, hidden layer, unreadable and vertical fonts, with add_text and

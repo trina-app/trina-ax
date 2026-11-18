@@ -1211,9 +1211,9 @@ const LINK_RULE = 'HYPERLINK may point only to a web page (http, https), a mail 
  * thing kept from coworkers who open the file is a link to something on their own computer or network (file:,
  * \\host\share, a relative path, javascript:, a program's own scheme), which can run a program or send their Windows
  * sign-in to another computer. So the link is the first argument, written out as "text": a web page (http, https), a
- * mail address (mailto:, with subject, body, cc, bcc, to only), or a place in this workbook ("#Sheet1!A1", "#'Q3 sales'!B2",
- * "#Total"). A web or mail link may go on with & and cells ("https://example.com/item/"&A2): the kind of link is fixed by
- * the text it starts with. A link that is a cell, or a place built from cells, cannot be checked and is refused.
+ * mail address (mailto:, with subject, body, cc, bcc, to only, written out whole), or a place in this workbook
+ * ("#Sheet1!A1", "#'Q3 sales'!B2", "#Total"). A web link may go on with & and cells ("https://example.com/item/"&A2),
+ * with no comparison: the kind of link is fixed by the text it starts with. A link that is a cell, or a place built from cells, cannot be checked and is refused.
  */
 export function hyperlinkProblem(tokens: Token[]): string | null {
   for (const [k, t] of tokens.entries()) {
@@ -1229,13 +1229,30 @@ export function hyperlinkProblem(tokens: Token[]): string | null {
       const joined = after?.kind === 'code' && /^\s*&/.test(after.text)
       const ended = !after || (after.kind === 'code' && /^\s*[,)]/.test(after.text))
       if (!joined && !ended) return `${LINK_RULE}. Write the link in the formula in "double quotes"`
+      if (joined) {
+        // the rest of the first argument: a comparison there ("https://x"&A1="y") makes the link TRUE or FALSE, not
+        // the text it starts with (review of #1337)
+        let depth = 0
+        outer: for (let j = k + 2; j < tokens.length; j++) {
+          const tj = tokens[j]!
+          if (tj.kind !== 'code') continue
+          for (const ch of tj.text) {
+            if (ch === '(' || ch === '{') depth++
+            else if (ch === ')' || ch === '}') { if (depth === 0) break outer; depth-- }
+            else if (ch === ',' && depth === 0) break outer
+            else if ((ch === '=' || ch === '<' || ch === '>') && depth === 0) return `${LINK_RULE}. The link may go on with & and cells, but not with a comparison (=, <, >)`
+          }
+        }
+      }
       // a place in this workbook may have a space in a 'quoted sheet name'; a web or mail link has none
       if (target.length > 2048 || (target.startsWith('#') ? NOT_IN_PLACE : NOT_IN_LINK).test(target)) return `${LINK_RULE}. The link "${target.slice(0, 60)}" has spaces, backslashes or control characters`
       if (/^https?:\/\//i.test(target)) { if (joined || /^https?:\/\/[^/?#]/i.test(target)) continue }
       else if (/^mailto:/i.test(target)) {
         const q = target.indexOf('?')
         const params = q < 0 ? [] : target.slice(q + 1).split('&').filter(Boolean).map((p) => p.split('=')[0]!.toLowerCase())
-        if (params.every((p) => MAILTO_PARAMS.has(p)) && (joined || target.length > 7)) continue
+        // a mail link is written out whole: what & would add after it could be another parameter (&attach=...)
+        if (joined) return `${LINK_RULE}. Write a mail link out whole in "double quotes", e.g. "mailto:sales@example.com?subject=Order"`
+        if (params.every((p) => MAILTO_PARAMS.has(p)) && target.length > 7) continue
         return `${LINK_RULE}. A mail link may carry only subject, body, cc, bcc and to`
       } else if (target.startsWith('#') && !joined) {
         // a place in this workbook: a defined name, a cell or range, or one on a (quoted) sheet; never another file

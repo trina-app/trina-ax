@@ -245,7 +245,7 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
     const r = await call('edit_pdf', { file_path: `${D}/offer-acme.pdf`, operations: [{ replace_text: { find: 'Acme Ltd', replace: 'Northwind Traders' } }, { replace_text: { find: '1,200', replace: '950' } }] })
     expect(r.isError, r.text).toBe(false)
     expect(r.text).toContain('changed 2 places of "Acme Ltd" on pages 1, 2')
-    expect(r.text).toContain('the old words are removed from the file, not covered')
+    expect(r.text).toContain('the old words are removed from the page text there, not covered')
     expect(r.text).toContain('read the new file with pages and as_images: true')
     const out = `${D}/offer-acme (${word('edited')}).pdf`
     const all = await streams(out)

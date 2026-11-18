@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodePDFRawStream, PDFDocument, PDFRawStream } from 'pdf-lib'
 import { decodePagesResult, encodePagesRequest, pdfPagesRequest, type PageOp } from '../../server/src/files/pdf-pages'
-import { findMatches, pageTextOf, styleOf } from '../../server/src/files/pdf-text'
+import { findMatches, fmt, FONT_ENTRIES_MAX, PAGE_MATCHES_MAX, pageTextOf, styleOf, withoutActualText } from '../../server/src/files/pdf-text'
 import { textFontFile } from '../../server/src/tools/pdf-tools'
 import { ToolError } from '../../server/src/policy/errors'
 import { makeCidPdf, makePdf, writePdf } from '../lib/pdf'
@@ -74,7 +74,7 @@ describe('replace_text: the old words are gone', () => {
     expect(await ourText(bytes)).toContain('Total: 100 EUR')
     if (pdftotext) { expect(textOf(bytes)).toContain('Beta Corp'); expect(textOf(bytes)).not.toContain('Acme') }
     expect(notes).toContain('changed 1 place of "Acme Ltd" on page 1')
-    expect(notes).toContain('removed from the file, not covered')
+    expect(notes).toContain('removed from the page text there, not covered')
     // the page's own font could write it: no other font added
     expect(notes).not.toContain('written in')
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1)
@@ -265,5 +265,86 @@ describe('replace_text with the other operations', () => {
     expect(t).toContain('Client: Beta')
     expect(t).toContain('Approved')
     expect(t).toContain('Later')
+  })
+})
+
+describe('review of #1337: what is said, hostile fonts, many matches, numbers', () => {
+  test('not a redaction tool: the places that still hold the words are named; /ActualText around removed words goes', async () => {
+    const toUni = 'begincmap 1 begincodespacerange <00> <FF> endcodespacerange 1 beginbfrange <20> <7E> <0020> endbfrange endcmap'
+    const pdf = writePdf([
+      '<< /Type /Catalog /Pages 2 0 R /Outlines 8 0 R /StructTreeRoot 10 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> /XObject << /Fm1 11 0 R >> >> /Annots [7 0 R] >>',
+      stream('/Span <</ActualText (Client Acme Ltd)>> BDC BT /F1 12 Tf 72 700 Td (Client Acme Ltd) Tj ET EMC /Span <</ActualText (also Acme Ltd here)>> BDC BT /F1 12 Tf 72 680 Td (other line) Tj ET EMC BT /F2 12 Tf 72 660 Td (plain) Tj ET q /Fm1 Do Q'),
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 12 0 R >>`,
+      '<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (call Acme Ltd back) >>',
+      '<< /Type /Outlines /First 9 0 R /Last 9 0 R /Count 1 >>',
+      '<< /Title (Acme Ltd contract) /Parent 8 0 R /Dest [3 0 R /Fit] >>',
+      '<< /Type /StructTreeRoot /K << /S /Figure /Alt (logo of Acme Ltd) >> >>',
+      stream('BT /F1 9 Tf 10 10 Td (form) Tj ET', '/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << /Font << /F1 5 0 R >> >>'),
+      stream(toUni),
+    ])
+    const doc = await PDFDocument.load(pdf)
+    doc.setTitle('Offer for Acme Ltd')
+    const { bytes, notes } = await run(await doc.save(), [replaceOp('Acme Ltd', 'Beta')])
+    expect(notes).toContain('removed from the page text there')
+    expect(notes).not.toContain('removed from the file')
+    expect(notes).toContain('accessibility text (/ActualText) around one of them was removed too')
+    expect(notes).toContain('Not changed by this tool: drawn blocks (form XObjects) on page 1; comments, links or form fields on page 1; text in fonts without a letter map on page 1')
+    for (const where of ['document properties', 'bookmark or document titles', 'comments or annotation text', 'accessibility text (/Alt)', 'marked-content text on page 1']) expect(notes).toContain(where)
+    expect(notes).toContain('it is not a redaction tool')
+    const content = await allStreams(bytes)
+    expect(content).not.toContain('(Client Acme Ltd)')
+    expect(content).toContain('(also Acme Ltd here)')
+    expect(await ourText(bytes)).toContain('Client Beta')
+    expect(withoutActualText('/Span <</Lang (en) /ActualText (a (b) \\) c) /MCID 3>> BDC')).toBe('/Span <</Lang (en)  /MCID 3>> BDC')
+    expect(withoutActualText('/Span <</ActualText <FEFF0041>>> BDC')).toBe('/Span <<>> BDC')
+  })
+
+  test('a letter map or width list with huge ranges does not fill memory', async () => {
+    const t0 = Date.now()
+    // 300 ranges of 65,536 codes each, all above two bytes: about 20 million entries before the cap
+    const far = Array.from({ length: 300 }, (_, k) => `<${((k + 1) * 0x10000).toString(16).padStart(8, '0')}> <${((k + 1) * 0x10000 + 0xffff).toString(16).padStart(8, '0')}> <0041>`).join(' ')
+    const toUni = `begincmap 1 begincodespacerange <0000> <FFFF> endcodespacerange 302 beginbfrange <0000> <FFFFFFFF> <0041> <00000002> <7FFFFFFF> [<0042>] ${far} endbfrange 1 beginbfchar <FFFFFF41> <0043> endbfchar endcmap`
+    const pdf = writePdf([
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F2 5 0 R >> >> >>',
+      stream('BT /F2 12 Tf 72 700 Td <00000001> Tj ET'),
+      '<< /Type /Font /Subtype /Type0 /BaseFont /Big /Encoding /Identity-H /DescendantFonts [6 0 R] /ToUnicode 7 0 R >>',
+      `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Big /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /DW 1000 /W [0 4294967295 500 -5 9999999999 300 ${Array.from({ length: 300 }, (_, k) => `${(k + 1) * 0x10000} ${(k + 1) * 0x10000 + 0xffff} 400`).join(' ')}] >>`,
+      stream(toUni),
+    ])
+    expect(await ourText(pdf)).toBe('AB')
+    const { notes } = await run(pdf, [replaceOp('AB', 'BA')])
+    expect(notes).toContain('changed 1 place')
+    expect(Date.now() - t0).toBeLessThan(5000)
+    expect(FONT_ENTRIES_MAX).toBe(65_536)
+  })
+
+  test('more than 2,000 matches on a page: refused plainly, quickly', async () => {
+    const line = 'a '.repeat(PAGE_MATCHES_MAX / 2 + 10)
+    const pdf = onePage(`BT /F1 4 Tf 10 800 Td (${line}) Tj 0 -6 Td (${line}) Tj ET`)
+    const t0 = Date.now()
+    expect(await fails(pdf, [replaceOp('a', 'b')])).toContain('more than 2,000 times; give longer words to find')
+    expect(Date.now() - t0).toBeLessThan(5000)
+    // just under the cap works and stays quick (indexed once, one pass over the content)
+    const ok = onePage(`BT /F1 4 Tf 10 800 Td (${'a '.repeat(PAGE_MATCHES_MAX / 2 - 5)}) Tj 0 -6 Td (${'a '.repeat(PAGE_MATCHES_MAX / 2 - 5)}) Tj ET`)
+    const t1 = Date.now()
+    expect((await run(ok, [replaceOp('a', 'bb')])).notes).toContain(`changed ${PAGE_MATCHES_MAX - 10} places`)
+    expect(Date.now() - t1).toBeLessThan(15000)
+  })
+
+  test('numbers in the content are never in exponent form', () => {
+    expect(fmt(1e21)).toBe('1000000000')
+    expect(fmt(-1e300)).toBe('-1000000000')
+    expect(fmt(Number.NaN)).toBe('0')
+    expect(fmt(Infinity)).toBe('0')
+    expect(fmt(-0.0001)).toBe('0')
+    expect(fmt(12.5)).toBe('12.5')
+    expect(fmt(100)).toBe('100')
+    expect(fmt(-4158.8484)).toBe('-4158.848')
+    for (const v of [1e21, 1e-7, 123456789012]) expect(fmt(v)).not.toMatch(/e/i)
   })
 })

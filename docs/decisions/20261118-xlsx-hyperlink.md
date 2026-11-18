@@ -8,8 +8,10 @@
 - **Ask:** make_file refused every formula with HYPERLINK. Claude Code writes any formula with openpyxl.
 - **Rule:** HYPERLINK is allowed when its link (the first argument) is written in the formula as "text":
   - a web page, `http://` or `https://` with a host; it may go on with `&` and cells (`"https://example.com/item/"&A2`),
-    since the text it starts with fixes the kind of link;
-  - a mail address, `mailto:` (parameters subject, body, cc, bcc, to only); it may go on with `&` and cells;
+    since the text it starts with fixes the kind of link; a comparison (`=`, `<`, `>`) outside parentheses in that argument is
+    refused, since it would turn the link into TRUE or FALSE;
+  - a mail address, `mailto:` (parameters subject, body, cc, bcc, to only), written out whole: `&` after it is refused,
+    since it could add another parameter such as `&attach=` (review of #1337);
   - a place in this workbook, written out whole: `"#Sheet1!A1"`, `"#'Q3 sales'!B2:C9"`, `"#Total"` (never `[file]`).
   Refused, with one line why ("a file:, network-share (\\server) or other local link is refused, because opening one can
   hand a coworker's Windows sign-in to another computer"): `file:`, `\\host\share`, `//host`, relative paths,

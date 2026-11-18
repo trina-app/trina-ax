@@ -17,7 +17,7 @@
 // The page gets one new content stream; the old streams are left unreachable and pdf-pages.ts drops them before saving.
 // What cannot be changed is said plainly: words in a picture (a scan), the hidden text layer of a scanned page (it would
 // not change what the page shows), text in a drawn block (a form XObject), vertical text, fonts without a letter map.
-import { decodePDFRawStream, PDFArray, PDFDict, PDFFlateStream, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, StandardFontEmbedder, StandardFonts, type PDFContext, type PDFDocument, type PDFFont, type PDFObject, type PDFPage } from 'pdf-lib'
+import { decodePDFRawStream, PDFArray, PDFDict, PDFFlateStream, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFStream, PDFString, StandardFontEmbedder, StandardFonts, type PDFContext, type PDFDocument, type PDFFont, type PDFObject, type PDFPage } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 
 // ---------------------------------------------------------------- lexing a content stream (bytes as latin1 text)
@@ -236,12 +236,23 @@ interface FontInfo {
   /** whether the font holds a glyph for this code (an embedded subset holds only some) */
   canDraw(code: number): boolean
   embedded: boolean
+  /** the font has a ToUnicode map (else its letters come from its encoding, and a viewer may read them differently) */
+  mapped: boolean
   style: FontStyle
 }
 
 /** a ToUnicode CMap: code -> letters */
+/** matches on one page that one replace_text changes; more is refused (a one-letter find on a long page) */
+export const PAGE_MATCHES_MAX = 2000
+
+/** codes a font can have (two bytes) and the entries one font's letter map or widths may hold: a hostile bfrange or /W
+ * range of 0 to 2^32 would otherwise fill memory (review of #1337) */
+export const FONT_CODE_MAX = 0xffff
+export const FONT_ENTRIES_MAX = 65_536
+
 function parseToUnicode(text: string): Map<number, string> {
   const map = new Map<number, string>()
+  const put = (c: number, l: string) => { if (c >= 0 && c <= FONT_CODE_MAX && (map.size < FONT_ENTRIES_MAX || map.has(c))) map.set(c, l) }
   const utf16 = (s: string) => { let out = ''; for (let k = 0; k + 1 < s.length; k += 2) out += String.fromCharCode((s.charCodeAt(k) << 8) | s.charCodeAt(k + 1)); return out }
   const code = (s: string) => { let n = 0; for (const ch of s) n = n * 256 + ch.charCodeAt(0); return n }
   const lx = new Lexer(text)
@@ -253,25 +264,25 @@ function parseToUnicode(text: string): Map<number, string> {
       if (mode === 'char') {
         for (let k = 0; k + 1 < vals.length; k += 2) {
           const a = vals[k]!.v, b = vals[k + 1]!.v
-          if (a && typeof a === 'object' && 'str' in a && b && typeof b === 'object' && 'str' in b) map.set(code(a.str), utf16(b.str))
+          if (a && typeof a === 'object' && 'str' in a && b && typeof b === 'object' && 'str' in b) put(code(a.str), utf16(b.str))
         }
       } else if (mode === 'range') {
         for (let k = 0; k + 2 < vals.length;) {
           const lo = vals[k]!.v, hi = vals[k + 1]!.v
           if (!(lo && typeof lo === 'object' && 'str' in lo && hi && typeof hi === 'object' && 'str' in hi)) { k++; continue }
-          const a = code(lo.str), b = Math.min(code(hi.str), a + 65535)
+          const a = code(lo.str), b = Math.min(code(hi.str), FONT_CODE_MAX)
           if (vals[k + 2]!.kind === '[') {
             // [ <d1> <d2> … ]: one letter string per code
             let j = k + 3, c = a
-            for (; j < vals.length && vals[j]!.kind !== ']'; j++, c++) { const d = vals[j]!.v; if (d && typeof d === 'object' && 'str' in d && c <= b) map.set(c, utf16(d.str)) }
+            for (; j < vals.length && vals[j]!.kind !== ']'; j++, c++) { const d = vals[j]!.v; if (d && typeof d === 'object' && 'str' in d && c <= b) put(c, utf16(d.str)) }
             k = j + 1
           } else {
             const d = vals[k + 2]!.v
             if (d && typeof d === 'object' && 'str' in d) {
               const first = utf16(d.str)
-              for (let c = a; c <= b; c++) {
+              for (let c = a; c <= b && map.size < FONT_ENTRIES_MAX; c++) {
                 const off = c - a
-                map.set(c, first.slice(0, -1) + String.fromCharCode(first.charCodeAt(first.length - 1) + off))
+                put(c, first.slice(0, -1) + String.fromCharCode((first.charCodeAt(first.length - 1) + off) & 0xffff))
               }
             }
             k += 3
@@ -302,6 +313,7 @@ function loadFont(ctx: PDFContext, dict: PDFDict): FontInfo {
     const embedded = desc instanceof PDFDict && ['FontFile', 'FontFile2', 'FontFile3'].some((k) => desc.has(K(k)))
     const dw = (cid instanceof PDFDict ? num(ctx.lookup(cid.get(K('DW')))) : undefined) ?? 1000
     const widths = new Map<number, number>()
+    const setWidth = (c: number, v: number) => { if (Number.isInteger(c) && c >= 0 && c <= FONT_CODE_MAX && (widths.size < FONT_ENTRIES_MAX || widths.has(c))) widths.set(c, v) }
     const w = cid instanceof PDFDict ? ctx.lookup(cid.get(K('W'))) : undefined
     if (w instanceof PDFArray) {
       const a = w.asArray().map((x) => ctx.lookup(x))
@@ -309,10 +321,13 @@ function loadFont(ctx: PDFContext, dict: PDFDict): FontInfo {
         const c0 = num(a[k])
         if (c0 === undefined) break
         const nx = a[k + 1]
-        if (nx instanceof PDFArray) { nx.asArray().forEach((x, j) => { const v = num(ctx.lookup(x)); if (v !== undefined) widths.set(c0 + j, v) }); k += 2 } else {
+        if (nx instanceof PDFArray) {
+          nx.asArray().forEach((x, j) => { const v = num(ctx.lookup(x)); if (v !== undefined) setWidth(c0 + j, v) })
+          k += 2
+        } else {
           const c1 = num(nx), v = num(a[k + 2])
           if (c1 === undefined || v === undefined) break
-          for (let c = c0; c <= Math.min(c1, c0 + 65535); c++) widths.set(c, v)
+          for (let c = Math.max(0, c0); c <= Math.min(c1, FONT_CODE_MAX) && widths.size < FONT_ENTRIES_MAX; c++) setWidth(c, v)
           k += 3
         }
       }
@@ -324,11 +339,11 @@ function loadFont(ctx: PDFContext, dict: PDFDict): FontInfo {
     if (enc && /^Uni\w+-UCS2-H$/.test(enc)) {
       const letters = (c: number) => toUni?.get(c) ?? (c >= 0xd800 && c < 0xe000 ? '' : String.fromCharCode(c))
       const code = (l: string) => encode.get(l) ?? (l.length === 1 && l >= ' ' && (l < '\ud800' || l >= '\ue000') ? l.charCodeAt(0) : undefined)
-      return { unsupported: null, codeLen: 2, width: (c) => (c < 0x80 ? 500 : dw), letters, encode: code, seen, embedded, style, canDraw: (c) => !embedded || seen.has(c) }
+      return { unsupported: null, codeLen: 2, width: (c) => (c < 0x80 ? 500 : dw), letters, encode: code, seen, embedded, mapped: !!toUni, style, canDraw: (c) => !embedded || seen.has(c) }
     }
     return {
       unsupported: enc === 'Identity-V' ? 'vertical text' : enc === 'Identity-H' ? null : 'a font encoding this tool does not read',
-      codeLen: 2, width: (c) => widths.get(c) ?? dw, letters: (c) => toUni?.get(c) ?? '', encode: (l) => encode.get(l), seen, embedded, style,
+      codeLen: 2, width: (c) => widths.get(c) ?? dw, letters: (c) => toUni?.get(c) ?? '', encode: (l) => encode.get(l), seen, embedded, mapped: !!toUni, style,
       canDraw: (c) => !embedded || !!toUni?.has(c) || seen.has(c),
     }
   }
@@ -385,7 +400,7 @@ function loadFont(ctx: PDFContext, dict: PDFDict): FontInfo {
     if ([...l].length === 1 && !encode.has(l) && (width(c) > 0 || l === ' ')) encode.set(l, c)
   }
   // an embedded font draws only the glyphs it holds: its letter map's, or the codes the page draws with it
-  return { unsupported: null, codeLen: 1, width, letters, encode: (l) => encode.get(l), seen, embedded, style, canDraw: (c) => !embedded || !!toUni?.has(c) || seen.has(c) }
+  return { unsupported: null, codeLen: 1, width, letters, encode: (l) => encode.get(l), seen, embedded, mapped: !!toUni, style, canDraw: (c) => !embedded || !!toUni?.has(c) || seen.has(c) }
 }
 
 // ---------------------------------------------------------------- reading a page
@@ -409,11 +424,13 @@ interface Glyph {
 }
 /** one text operator. `group`: the operators drawn one after the other from one placed start (no Td, Tm, T* or BT
  * between them) share it: moving the first moves them all */
-interface Show { start: number; end: number; op: string; group: number; items: ({ n: number } | { glyphs: number[] })[]; st: TextState; aw?: number; ac?: number }
+/** a marked-content start (BDC) and where it is in the content; `actual`: its property list has /ActualText */
+interface Marked { start: number; end: number; actual: boolean }
+interface Show { start: number; end: number; op: string; group: number; marked: number[]; items: ({ n: number } | { glyphs: number[] })[]; st: TextState; aw?: number; ac?: number }
 
 /** a straight upright stroke or box edge the page draws (a table's column rule), in user space */
 interface Rule { x1: number; y1: number; x2: number; y2: number }
-export interface PageText { glyphs: Glyph[]; shows: Show[]; images: boolean; forms: boolean; rules: Rule[]; text: string }
+export interface PageText { glyphs: Glyph[]; shows: Show[]; marks: Marked[]; images: boolean; forms: boolean; rules: Rule[]; unmapped: boolean; text: string }
 
 function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): PageText {
   const fonts = new Map<string, FontInfo | null>()
@@ -430,7 +447,10 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
     return fonts.get(name)!
   }
   const glyphs: Glyph[] = [], shows: Show[] = []
-  let images = false, forms = false
+  let images = false, forms = false, unmapped = false
+  const marks: Marked[] = []
+  /** the marked-content sections open now (indices into marks; -1 for a BMC) */
+  const open: number[] = []
   const rules: Rule[] = []
   let cur: { x: number; y: number } | null = null
   const segment = (x0: number, y0: number, x1: number, y1: number) => {
@@ -445,7 +465,8 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
   const showStrings = (ins: Instr, items: (string | number)[]) => {
     const font = fontOf(st.font)
     const th = st.tz / 100
-    const show: Show = { start: ins.start, end: ins.end, op: ins.op, group, items: [], st: { ...st } }
+    const show: Show = { start: ins.start, end: ins.end, op: ins.op, group, marked: open.filter((x) => x >= 0), items: [], st: { ...st } }
+    if (font && !font.mapped) unmapped = true
     const index = shows.push(show) - 1
     for (const it of items) {
       if (typeof it === 'number') {
@@ -519,6 +540,13 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
         segment(x, y, x, y + hh); segment(x + w, y, x + w, y + hh); segment(x, y, x + w, y); segment(x, y + hh, x + w, y + hh)
         break
       }
+      case 'BDC': case 'BMC': {
+        // only a BDC has properties; a BMC is kept on the stack (-1) so that EMC pops the right one
+        if (ins.op === 'BDC') open.push(marks.push({ start: ins.start, end: ins.end, actual: /\/ActualText\b/.test(content.slice(ins.start, ins.end)) }) - 1)
+        else open.push(-1)
+        break
+      }
+      case 'EMC': open.pop(); break
       case 'BI': case 'ID': images = true; break
       case 'Do': {
         const nm = a[0] && typeof a[0] === 'object' && 'name' in a[0] ? a[0].name : ''
@@ -530,7 +558,7 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
       }
     }
   }
-  return { glyphs, shows, images, forms, rules, text: content }
+  return { glyphs, shows, marks, images, forms, rules, unmapped, text: content }
 }
 
 // ---------------------------------------------------------------- finding words
@@ -604,7 +632,12 @@ function contentOf(ctx: PDFContext, page: PDFPage): string | null {
   return texts.includes(null) ? null : texts.join('\n')
 }
 
-const fmt = (v: number) => { const r = Math.round(v * 1000) / 1000; return Object.is(r, -0) ? '0' : String(r) }
+/** a number as a content stream writes it: never exponent form (1e+21), never NaN; clamped to what readers take */
+export const fmt = (v: number) => {
+  const c = Number.isFinite(v) ? Math.max(-1e9, Math.min(1e9, v)) : 0
+  const t = c.toFixed(3).replace(/\.?0+$/, '')
+  return t === '-0' || t === '-' || t === '' ? '0' : t
+}
 const hex = (bytes: string) => '<' + [...bytes].map((ch) => ch.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase() + '>'
 
 /** What to write for the new words at one spot. */
@@ -618,7 +651,20 @@ interface Insert {
   adv: number
 }
 
-export interface ReplaceOutcome { replaced: number; hidden: number; skipped: string[]; smaller: number; overlap: number; wider: number; fonts: Set<string> }
+export interface ReplaceOutcome {
+  replaced: number; hidden: number; skipped: string[]; smaller: number; overlap: number; wider: number; fonts: Set<string>
+  /** /ActualText entries taken out of marked-content sections around removed words */
+  actualText: number
+  /** pages read whose other content this tool does not change: drawn blocks (form XObjects), annotations (comments,
+   * form fields, links), fonts without a ToUnicode map (a viewer may read their letters otherwise) */
+  caveats: { forms: Set<number>; annots: Set<number>; unmapped: Set<number> }
+}
+
+/** a BDC's operands and operator without the /ActualText entry of its property list */
+export function withoutActualText(bdc: string): string {
+  const lit = '\\((?:\\\\[\\s\\S]|[^\\\\()]|\\((?:\\\\[\\s\\S]|[^\\\\()]|\\((?:\\\\[\\s\\S]|[^\\\\()])*\\))*\\))*\\)'
+  return bdc.replace(new RegExp(`/ActualText(?![^\\s\\0/<>\\[\\](){}%])\\s*(?:${lit}|<[0-9A-Fa-f\\s]*>)`, 'g'), '')
+}
 /** a standard font, or the server's font for other letters, for new words the page's own font cannot draw */
 export type FallbackFont = (text: string, style: FontStyle) => Promise<PDFFont>
 
@@ -635,6 +681,10 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
   if (content === null) throw new ToolError(`what page ${pageIndex + 1} draws cannot be read (it may be damaged), so its text cannot be changed`, 'pdf_invalid')
   const res = resourcesOf(ctx, page)
   const p = readPage(ctx, res, content)
+  if (p.forms) out.caveats.forms.add(pageIndex + 1)
+  if (p.unmapped) out.caveats.unmapped.add(pageIndex + 1)
+  const annots = ctx.lookup(page.node.get(K('Annots')))
+  if (annots instanceof PDFArray && annots.size() > 0) out.caveats.annots.add(pageIndex + 1)
   if (!p.glyphs.some((g) => g.letters.trim() && !g.hidden)) {
     if (p.glyphs.some((g) => g.hidden)) { /* the hidden layer is counted below */ } else if (p.images) out.pagesWithout.images.push(pageIndex + 1)
     else if (p.forms) out.pagesWithout.forms.push(pageIndex + 1)
@@ -642,6 +692,7 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
   }
   if (p.glyphs.length && p.glyphs.every((g) => !g.letters)) out.pagesWithout.noMap.push(pageIndex + 1)
   const matches = findMatches(p, find, matchCase)
+  if (matches.length > PAGE_MATCHES_MAX) throw new ToolError(`${JSON.stringify(find.slice(0, 40))} is on page ${pageIndex + 1} more than ${PAGE_MATCHES_MAX.toLocaleString('en')} times; give longer words to find, so that only the places meant are changed`)
   if (!matches.length) { if (p.forms && !out.pagesWithout.forms.includes(pageIndex + 1)) out.pagesWithout.forms.push(pageIndex + 1); return 0 }
   // first every match that can be changed, so the room for each new text knows all that goes
   const removed = new Set<number>()
@@ -661,7 +712,14 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
   // removed before it in its run (user space, along the line)
   const width = (g: Glyph) => Math.hypot(g.dx, g.dy)
   const shift = new Map<number, number>()
-  const groupOf = (gi: number) => p.shows[p.glyphs[gi]!.show]!.group
+  // indexed once: each glyph's group, each group's glyphs and first operator (review of #1337: per-match scans of
+  // every glyph made a page with many matches quadratic)
+  const groupIx = p.glyphs.map((g) => p.shows[g.show]!.group)
+  const groupOf = (gi: number) => groupIx[gi]!
+  const groupGlyphs = new Map<number, number[]>()
+  groupIx.forEach((gr, i) => { const l = groupGlyphs.get(gr); if (l) l.push(i); else groupGlyphs.set(gr, [i]) })
+  /** groups that draw some visible letter */
+  const groupShown = new Set(groupIx.filter((_, i) => !p.glyphs[i]!.hidden && p.glyphs[i]!.letters.trim()))
   /** the first operator of each group (where a move of the whole group goes) */
   const groupStart = new Map<number, number>()
   p.shows.forEach((sh, i) => { if (!groupStart.has(sh.group)) groupStart.set(sh.group, i) })
@@ -691,16 +749,24 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
     for (const i of m) { const g = p.glyphs[i]!; if (sameLine(g)) oldEnd = Math.max(oldEnd, along(g) + width(g)) }
     const runs = new Map<number, { start: number; end: number; firstKept: number }>()
     let ownEnd = oldEnd, textRight = -Infinity
-    for (const [i, g] of p.glyphs.entries()) {
-      if (g.hidden || !g.letters.trim()) continue
-      const a = along(g)
-      if (!sameLine(g)) { textRight = Math.max(textRight, a + width(g)); continue }
-      if (groupOf(i) === groupOf(m[0]!)) { ownEnd = Math.max(ownEnd, a + width(g)); continue }
-      if (a < 0.1 * h) continue
-      const r = runs.get(groupOf(i)) ?? { start: Infinity, end: -Infinity, firstKept: -1 }
-      r.start = Math.min(r.start, a); r.end = Math.max(r.end, a + width(g))
-      if (r.firstKept < 0 && !removed.has(i)) r.firstKept = i
-      runs.set(groupOf(i), r)
+    for (const [gr, list] of groupGlyphs) {
+      // a group is one placed run: on one line. Its ends say where it is; only a group on this line is read glyph by glyph
+      const g0 = p.glyphs[list[0]!]!, g1 = p.glyphs[list[list.length - 1]!]!
+      if (!sameLine(g0) && !sameLine(g1)) {
+        if (groupShown.has(gr)) textRight = Math.max(textRight, along(g0) + width(g0), along(g1) + width(g1))
+        continue
+      }
+      for (const i of list) {
+        const g = p.glyphs[i]!
+        if (g.hidden || !g.letters.trim() || !sameLine(g)) continue
+        const a = along(g)
+        if (gr === groupOf(m[0]!)) { ownEnd = Math.max(ownEnd, a + width(g)); continue }
+        if (a < 0.1 * h) continue
+        const r = runs.get(groupOf(i)) ?? { start: Infinity, end: -Infinity, firstKept: -1 }
+        r.start = Math.min(r.start, a); r.end = Math.max(r.end, a + width(g))
+        if (r.firstKept < 0 && !removed.has(i)) r.firstKept = i
+        runs.set(groupOf(i), r)
+      }
     }
     const chain: number[] = []
     let lineEnd = ownEnd, column = Infinity
@@ -779,9 +845,18 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
     }
     inserts.set(m[0]!, ins)
   }
-  // rewrite each text operator that has a removed glyph or an insert, from the end of the content back
-  const affected = [...new Set([...[...removed].map((i) => p.glyphs[i]!.show), ...pushes.keys()])].sort((a, b) => b - a)
-  let text = content
+  // rewrite each text operator that has a removed glyph, an insert or a move; the new content is built in one pass
+  const affected = [...new Set([...[...removed].map((i) => p.glyphs[i]!.show), ...pushes.keys()])].sort((a, b) => a - b)
+  const edits: { start: number; end: number; text: string }[] = []
+  // a marked-content section around removed words whose /ActualText says what it reads (a copy, a screen reader):
+  // that text goes too, else the old words are still there for anyone who copies the line
+  const stripMarks = new Set<number>()
+  for (const i of removed) for (const k of p.shows[p.glyphs[i]!.show]!.marked) if (p.marks[k]!.actual) stripMarks.add(k)
+  for (const k of stripMarks) {
+    const mk = p.marks[k]!
+    edits.push({ start: mk.start, end: mk.end, text: withoutActualText(content.slice(mk.start, mk.end)) })
+  }
+  out.actualText += stripMarks.size
   for (const si of affected) {
     const show = p.shows[si]!
     const st = show.st
@@ -798,7 +873,7 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
     let seen = 0
     const push = pushes.get(si)
     // the group's first glyph says how long one unit along the line is (the same for the whole group)
-    const unit = p.glyphs.find((g) => p.shows[g.show]!.group === show.group)?.unit ?? 0
+    const unit = p.glyphs[groupGlyphs.get(show.group)?.[0] ?? -1]?.unit ?? 0
     if (push && unit && st.size) pushNum((-push * 1000) / (st.size * unit))
     for (const it of show.items) {
       if ('n' in it) {
@@ -824,8 +899,14 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
     const prefix = show.op === "'" ? 'T* ' : show.op === '"' ? `${fmt(show.aw ?? 0)} Tw ${fmt(show.ac ?? 0)} Tc T* ` : ''
     // a show with nothing left still writes an empty array, so the operator count and positions stay simple
     const body = parts.length ? parts.join(' ') : '[] TJ'
-    text = text.slice(0, show.start) + prefix + body + text.slice(show.end)
+    edits.push({ start: show.start, end: show.end, text: prefix + body })
   }
+  edits.sort((a, b) => a.start - b.start)
+  const pieces: string[] = []
+  let at = 0
+  for (const e of edits) { pieces.push(content.slice(at, e.start), e.text); at = e.end }
+  pieces.push(content.slice(at))
+  const text = pieces.join('')
   const stream = ctx.flateStream(Buffer.from(text, 'latin1'))
   page.node.set(K('Contents'), ctx.obj([ctx.register(stream)]))
   // pdf-lib's page keeps the stream it draws into (add_text, a stamp): it is in the new stream now, so a later drawing
@@ -852,4 +933,61 @@ export function dropUnreached(doc: PDFDocument) {
     else if (o instanceof PDFStream) todo.push(...o.dict.values())
   }
   for (const [ref] of ctx.enumerateIndirectObjects()) if (!live.has(ref)) ctx.delete(ref)
+}
+
+/**
+ * Where else in the file the words still are, after replace_text changed the page text: this is not a redaction tool,
+ * so the AI is told and tells the person (review of #1337). Read: the document properties (Info) and XMP metadata,
+ * bookmark titles, comments and form-field values (annotation /Contents, /V and field /V), accessibility text (/Alt,
+ * /ActualText of the structure tree and of marked content, in the page content too), and any other text string.
+ */
+export function wordsElsewhere(doc: PDFDocument, find: string, matchCase: boolean): string[] {
+  const ctx = doc.context
+  const q = fold(find, matchCase).replace(/\s+/g, ' ').trim()
+  if (!q) return []
+  const has = (t: string) => fold(t, matchCase).replace(/\s+/g, ' ').includes(q)
+  const where = new Set<string>()
+  const KIND: Record<string, string> = {
+    Title: 'bookmark or document titles', Contents: 'comments or annotation text', V: 'form field values', DV: 'form field values',
+    Alt: 'accessibility text (/Alt)', ActualText: 'accessibility text (/ActualText)', E: 'accessibility text', T: 'form field names',
+    Subject: 'document properties', Keywords: 'document properties', Author: 'document properties', Creator: 'document properties', Producer: 'document properties',
+  }
+  const info = ctx.lookup(ctx.trailerInfo.Info)
+  const textOf = (o: PDFObject | undefined): string | null => (o instanceof PDFString || o instanceof PDFHexString ? o.decodeText() : null)
+  const seen = new Set<PDFObject>()
+  const walk = (o: PDFObject | undefined, key: string, depth: number, inInfo: boolean) => {
+    if (!o || depth > 40) return
+    if (o instanceof PDFRef) { const l = ctx.lookup(o); if (l && !seen.has(l)) { seen.add(l); walk(l, key, depth + 1, l === info) } return }
+    const t = textOf(o)
+    if (t !== null) { if (has(t)) where.add(inInfo ? 'document properties' : KIND[key] ?? 'other text in the file'); return }
+    if (o instanceof PDFArray) { for (const x of o.asArray()) walk(x, key, depth + 1, inInfo); return }
+    const d = o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : null
+    if (!d) return
+    if (o instanceof PDFStream && (d.get(K('Type')) === K('Metadata') || d.get(K('Subtype')) === K('XML'))) {
+      const x = streamText(o)
+      if (x !== null && has(Buffer.from(x, 'latin1').toString('utf8'))) where.add('XMP metadata')
+    }
+    for (const [k, v] of d.entries()) {
+      if (k === K('Parent') || k === K('P') || k === K('Pg')) continue
+      walk(v, k.decodeText(), depth + 1, inInfo)
+    }
+  }
+  for (const [, o] of ctx.enumerateIndirectObjects()) { if (!seen.has(o)) { seen.add(o); walk(o, '', 0, o === info) } }
+  // marked-content property lists written in the page content (BDC <</ActualText (...)>>)
+  doc.getPages().forEach((page, i) => {
+    const content = contentOf(ctx, page)
+    if (!content) return
+    for (const ins of instructions(content)) {
+      if (ins.op !== 'BDC') continue
+      const lx = new Lexer(content.slice(ins.start, ins.end))
+      for (let t = lx.next(); t; t = lx.next()) {
+        const v = t.v
+        if (!(v && typeof v === 'object' && 'str' in v)) continue
+        const be = Buffer.from(v.str.slice(2), 'latin1')
+        const str = v.str.startsWith('\xfe\xff') ? Buffer.from(be.subarray(0, be.length - (be.length % 2))).swap16().toString('utf16le') : v.str
+        if (has(str)) where.add(`marked-content text on page ${i + 1}`)
+      }
+    }
+  })
+  return [...where]
 }

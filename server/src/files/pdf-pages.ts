@@ -11,7 +11,7 @@ import fontkit from '@pdf-lib/fontkit'
 import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateStream, PDFName, PDFNull, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFPageTree, PDFRawStream, PDFRef, PDFStream, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFContext, type PDFFont, type PDFObject } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
-import { dropUnreached, replaceOnPage, winAnsiCan, writeStandardWidths, type FallbackFont, type FontStyle, type ReplaceOutcome } from './pdf-text'
+import { dropUnreached, replaceOnPage, winAnsiCan, wordsElsewhere, writeStandardWidths, type FallbackFont, type FontStyle, type ReplaceOutcome } from './pdf-text'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
 
 export const PDF_PAGES_MODE = 'pdf-pages'
@@ -712,7 +712,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
         // fonts that earlier operations (add_text, an earlier replace_text) wrote with are put into the file first, so
         // their words can be read and found too
         await doc.flush()
-        const outcome: Parameters<typeof replaceOnPage>[6] = { replaced: 0, hidden: 0, skipped: [], smaller: 0, overlap: 0, wider: 0, fonts: new Set(), pagesWithout: { images: [], forms: [], noText: [], noMap: [] } }
+        const outcome: Parameters<typeof replaceOnPage>[6] = { replaced: 0, hidden: 0, skipped: [], smaller: 0, overlap: 0, wider: 0, fonts: new Set(), actualText: 0, caveats: { forms: new Set(), annots: new Set(), unmapped: new Set() }, pagesWithout: { images: [], forms: [], noText: [], noMap: [] } }
         const changed: number[] = []
         for (const p of pages) {
           const before = outcome.replaced
@@ -720,7 +720,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
           if (outcome.replaced > before) changed.push(p)
         }
         if (!outcome.replaced) throw new ToolError(notFound(rt.find, pages, outcome))
-        notes.push(replacedNote(step, rt.find, changed, outcome))
+        notes.push(replacedNote(step, rt.find, changed, outcome, wordsElsewhere(doc, rt.find, rt.match_case ?? true)))
       } else throw new ToolError('an unknown operation')
     } catch (e) {
       if (e instanceof ToolError) throw new ToolError(`${step}: ${e.message.replace(/; nothing was saved$|\. Nothing was saved$/, '')}; nothing was saved`, e.code)
@@ -775,8 +775,18 @@ function notFound(find: string, pages: number[], o: ReplaceOutcome & { pagesWith
 }
 
 /** what was changed, for the AI */
-function replacedNote(step: string, find: string, changed: number[], o: ReplaceOutcome): string {
-  const out = [`${step} (replace_text): changed ${places(o.replaced)} of ${quoted(find)} on ${pageList(changed)}; the old words are removed from the file, not covered.`]
+function replacedNote(step: string, find: string, changed: number[], o: ReplaceOutcome, elsewhere: string[]): string {
+  const out = [`${step} (replace_text): changed ${places(o.replaced)} of ${quoted(find)} on ${pageList(changed)}; the old words are removed from the page text there, not covered.`]
+  if (o.actualText) out.push(`The accessibility text (/ActualText) around ${o.actualText === 1 ? 'one of them was' : `${o.actualText} of them was`} removed too.`)
+  // not a redaction tool: what it does not change is named, so the AI can say so (review of #1337)
+  const c = o.caveats
+  const parts = [
+    c.forms.size ? `drawn blocks (form XObjects) on ${pageList([...c.forms])}` : '',
+    c.annots.size ? `comments, links or form fields on ${pageList([...c.annots])}` : '',
+    c.unmapped.size ? `text in fonts without a letter map on ${pageList([...c.unmapped])} (a viewer may read those letters differently, so a match there can be missed)` : '',
+  ].filter(Boolean)
+  if (parts.length) out.push(`Not changed by this tool: ${parts.join('; ')}.`)
+  if (elsewhere.length) out.push(`${quoted(find)} is still in the file in: ${elsewhere.join(', ')}. This tool changes only page text; tell the user it is not a redaction tool and these places still hold the old words.`)
   const other = [...o.fonts].filter((f) => f !== 'the original')
   if (other.length) out.push(`The PDF's own font has no letters for some of the new words, so those are written in ${other.join(', ')}.`)
   if (o.fonts.size) out.push('The words after the new ones on the same line moved along with them; other lines did not change.')

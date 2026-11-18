@@ -198,12 +198,15 @@ describe('make_file', () => {
       'HYPERLINK("http://example.com")',
       'HYPERLINK("https://example.com/item/"&A2,A2)',
       'HYPERLINK("mailto:sales@example.com?subject=Hi&cc=a@example.com","Mail us")',
-      'HYPERLINK("mailto:"&B2,"Mail")',
       'HYPERLINK("#Sheet2!A1","Go")',
       `HYPERLINK("#'Q3 sales'!B2:C9","Q3")`,
       'HYPERLINK("#Total")',
       'IF(A1>0,HYPERLINK("https://example.com","yes"),"no")',
       'HYPERLINK( "https://example.com" , "x")',
+      'HYPERLINK("https://example.com/"&IF(A1>2,"a","b"),"y")',
+      // a comparison inside parentheses only adds TRUE or FALSE to the address: still a web link
+      'HYPERLINK("https://example.com/"&(A1>2),"y")',
+      'IF(HYPERLINK("https://example.com/"&A2,"x")="x",1,2)',
     ]
     for (const f of ok) expect(formulaOf(f), f).toHaveProperty('formula')
     expect(formulaOf('hyperlink("https://example.com","x")')).toEqual({ formula: 'HYPERLINK("https://example.com","x")' })
@@ -224,6 +227,11 @@ describe('make_file', () => {
       ['HYPERLINK("https://exa mple.com")', 'spaces'],
       ['HYPERLINK("https://")', 'HYPERLINK may point only'],
       ['HYPERLINK("mailto:a@example.com?attach=C:/x")', 'subject, body, cc, bcc and to'],
+      // review of #1337: a mail link with & could add &attach=...; a comparison makes the link TRUE/FALSE
+      ['HYPERLINK("mailto:"&B2,"Mail")', 'Write a mail link out whole'],
+      ['HYPERLINK("mailto:a@example.com?subject=x"&"&attach=C:/x")', 'Write a mail link out whole'],
+      ['HYPERLINK("https://example.com/"&A1="x","y")', 'not with a comparison'],
+      ['HYPERLINK("https://example.com/"&A1<>"","y")', 'not with a comparison'],
       ['HYPERLINK("#[other.xlsx]Sheet1!A1")', 'place in this workbook'],
       ['_xludf.HYPERLINK("https://example.com")', 'no prefix'],
       [`N("")&'x"'!A1&HYPERLINK("http://evil.example/","x")&'y"'!A1`, 'sheet names'],
