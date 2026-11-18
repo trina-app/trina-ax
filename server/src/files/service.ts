@@ -41,7 +41,7 @@ import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, smallForModel, VISION_INPUT_MAX, turnImageCaps, visionBlock,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, turnImageCaps, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
@@ -903,15 +903,15 @@ export class FileService {
    * tells the AI to answer from what it saw, never to send the person to a new message (limits audit #4). */
   private imageBudget(ctx: Pick<ToolCtx, 'files' | 'turnId'> & { user: { id: string } }, next: number, held = { count: 0, bytes: 0 }): string | null {
     const caps = turnImageCaps(this.db, ctx.turnId)
-    if (ctx.files.imageCount + held.count < caps.images && ctx.files.imageBytes + held.bytes + next <= caps.bytes) return null
+    if (ctx.files.imageCount + held.count < caps.images && b64Len(ctx.files.imageBytes + held.bytes + next) <= caps.bytes) return null
     return visionText(this.db, ctx.user.id, 'budget', { images: ctx.files.imageCount + held.count })
   }
 
-  /** A turn whose requests the model proxy does not fit (files/vision.ts turnImageCaps): after its first full-size
-   * images, the next ones go smaller, so many fit in what one request may carry. */
+  /** After a turn's first full-size images (files/vision.ts turnImageCaps), the next ones go smaller, so many fit in
+   * what one request may carry, and in what the model proxy takes in before it fits a request. */
   private async turnSized(ctx: Pick<ToolCtx, 'files' | 'turnId'>, jpeg: Buffer, signal?: AbortSignal): Promise<Buffer> {
     const caps = turnImageCaps(this.db, ctx.turnId)
-    if (caps.fitted || (ctx.files.imageCount < caps.full && ctx.files.imageBytes + jpeg.length <= caps.fullBytes)) return jpeg
+    if (ctx.files.imageCount < caps.full && b64Len(ctx.files.imageBytes + jpeg.length) <= caps.fullBytes) return jpeg
     return (await smallForModel(jpeg, this.visionTools(), signal).catch(() => { signal?.throwIfAborted(); return null })) ?? jpeg
   }
 

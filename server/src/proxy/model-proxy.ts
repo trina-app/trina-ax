@@ -263,6 +263,14 @@ export function checkProxyRequest(method: string, url: URL, body: unknown, model
   return null
 }
 
+/** The largest engine request the proxy takes in (Bun answers 413 past it, before any check). The engine sends every
+ * picture of the conversation again with each request and the proxy fits them (./fit-images.ts) down to what the
+ * provider takes (32 MB), so it takes in more than that: 64 MB. Memory: a request is held about four times while it is
+ * checked and fitted (the bytes, the decoded text, the parsed object, the body written again), so up to about 256 MB
+ * for each request of that size at the same time; a turn's own images stay below this (files/vision.ts
+ * VISION_FITTED_BYTES, 48 MB of base64). */
+export const PROXY_BODY_MAX = 64 * 1024 * 1024
+
 export function apiError(status: number, type: string, message: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
 }
@@ -398,7 +406,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       if (o.fitImages && url.pathname.startsWith('/v1/messages')) {
         try {
           const fit = await o.fitImages(parsed, req.signal)
-          if (fit && (fit.shrunk || fit.dropped)) o.log?.debug?.('model request images fitted', { turn: row.turn_id, ...fit })
+          if (fit && (fit.shrunk || fit.dropped || fit.pending)) o.log?.debug?.('model request images fitted', { turn: row.turn_id, ...fit, bodyBytes: body.byteLength })
         } catch (e) {
           if (req.signal.aborted) return unreachable(req)
           o.log?.warn('model request images not fitted', { turn: row.turn_id, err: (e as Error).message?.slice(0, 120) })
@@ -552,7 +560,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     hostname: '127.0.0.1', port: 0, reusePort: false,
     // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
     idleTimeout: 0,
-    maxRequestBodySize: 32 * 1024 * 1024,
+    maxRequestBodySize: PROXY_BODY_MAX,
     async fetch(req, srv) {
       const ip = srv.requestIP(req)
       const clientPort = ip ? links.get(ip.port) : undefined

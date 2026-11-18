@@ -318,7 +318,7 @@ describe('per-turn image budget', () => {
     } finally { codec.mockRestore() }
   })
 
-  test('a turn whose requests the model proxy fits: far more than one request\'s images, only a safety cap', async () => {
+  test('a turn whose requests the model proxy fits: more images than one request holds, up to what the proxy takes in', async () => {
     const turn = A.turn('alice', A.chat('alice'))
     issueProxyToken(A.ctx.db, turn, 'alice', { family: 'anthropic' })
     const h = handler('alice', turn)
@@ -327,14 +327,19 @@ describe('per-turn image budget', () => {
       h.ctx.files.imageCount = VISION_TURN_IMAGES + 10
       const shown = await h.call('read', { file_path: `${ALICE}/photo.png` })
       expect(images(shown)).toHaveLength(1)
-      expect(images(shown)[0].data).toBe(fakeJpeg.toString('base64')) // sent as it is: the proxy makes older ones smaller
       h.ctx.files.imageCount = VISION_FITTED_IMAGES
       expect(images(await h.call('read', { file_path: `${ALICE}/photo.png` }))).toEqual([])
     } finally { codec.mockRestore() }
   })
 
-  test.skipIf(!realConverter)('without the proxy: after the first full-size images, the next ones go smaller', async () => {
+  test.skipIf(!realConverter)('with or without the proxy: after the first full-size images, the next ones go smaller', async () => {
     put(`${ALICE}/big.png`, makePng(2400, 1800))
+    const fitted = A.turn('alice', A.chat('alice'))
+    issueProxyToken(A.ctx.db, fitted, 'alice', { family: 'anthropic' })
+    const hf = handler('alice', fitted)
+    hf.ctx.files.imageCount = VISION_TURN_FULL
+    // the engine's own request must still reach the proxy (PROXY_BODY_MAX): the source sends later pictures smaller too
+    expect(jpegSize(images(await hf.call('read', { file_path: `${ALICE}/big.png` }))[0].data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
     const h = handler('alice', A.turn('alice', A.chat('alice')))
     const first = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
     expect(jpegSize(first.data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })

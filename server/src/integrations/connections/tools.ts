@@ -41,7 +41,7 @@ import { putMedia, MEDIA_PREFIX, type MediaMeta } from './media'
 import { answerUrls, recordSent, rememberConnectionUrls } from '../../tools/connection-urls'
 import { KINDS } from '../../tools/sniff'
 import { imageSize } from '../../uploads/image'
-import { normalizeForModel, turnImageCaps, visionBlock, VISION_INPUT_MAX } from '../../files/vision'
+import { b64Len, normalizeForModel, turnImageCaps, visionBlock, VISION_INPUT_MAX } from '../../files/vision'
 import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
@@ -701,7 +701,7 @@ async function modelImages(ctx: AppContext, tc: TurnToolContext, kept: Kept[]): 
     if (!k.meta.kind || !KINDS[k.meta.kind].image || k.bytes.length > VISION_INPUT_MAX) continue
     let jpeg: Buffer
     try { jpeg = await normalizeForModel(k.bytes, ctx.files.visionTools(), tc.signal) } catch { continue }
-    if (turn.imageCount >= caps.images || turn.imageBytes + jpeg.length > caps.bytes) break
+    if (turn.imageCount >= caps.images || b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
     turn.imageCount++
     turn.imageBytes += jpeg.length
     out.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })

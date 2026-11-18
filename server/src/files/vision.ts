@@ -32,18 +32,24 @@ export const VISION_SIDE_MAX = 1568
 export const VISION_OUTPUT_MAX = 1024 ** 2
 /** the largest image file read for the model (a 48 MP phone JPEG is about 20 MB) */
 export const VISION_INPUT_MAX = 32 * 1024 ** 2
-/** Images and bytes of image blocks one turn may send when its model requests do not pass the team server's model proxy
- * (Codex, a direct sign-in): every image stays in the conversation the engine sends again with each request, and one
- * request may hold at most 100 images and 32 MB. Past VISION_TURN_FULL images or VISION_TURN_FULL_BYTES the images go
- * smaller (smallForModel), so many fit (docs/decisions/20261118-limits-images.md). */
+/** base64 characters of `n` bytes: what an image block carries in the model request (the request limits count these) */
+export const b64Len = (n: number) => Math.ceil(n / 3) * 4
+
+/** Images and bytes (base64, b64Len) of the image blocks one turn may send when its model requests do not pass the team
+ * server's model proxy (Codex, a direct sign-in): every image stays in the conversation the engine sends again with
+ * each request, and one request may hold at most 100 images and 32 MB, text and tools included. Images, PDF pages and
+ * video frames all count (docs/decisions/20261118-limits-images.md). */
 export const VISION_TURN_IMAGES = 90
-export const VISION_TURN_BYTES = 24 * 1024 ** 2
+export const VISION_TURN_BYTES = 20 * 1024 ** 2
+/** In every turn, the first VISION_TURN_FULL images (or VISION_TURN_FULL_BYTES, base64) go at full size; read images
+ * after them go smaller (smallForModel), so many fit and the engine's request stays small. */
 export const VISION_TURN_FULL = 16
-export const VISION_TURN_FULL_BYTES = 8 * 1024 ** 2
-/** The same when the turn's requests pass the model proxy, which fits each request's images itself
- * (proxy/fit-images.ts): only a safety cap on the conversions of one answer (time, memory). */
-export const VISION_FITTED_IMAGES = 400
-export const VISION_FITTED_BYTES = 400 * 1024 ** 2
+export const VISION_TURN_FULL_BYTES = 10 * 1024 ** 2
+/** The caps when the turn's requests pass the model proxy, which fits each request's images itself before it goes on
+ * (proxy/fit-images.ts). The engine's request must still reach the proxy: it takes at most PROXY_BODY_MAX
+ * (proxy/model-proxy.ts, 64 MB), so the images of one turn stay at 48 MB of base64 with room for the text. */
+export const VISION_FITTED_IMAGES = 200
+export const VISION_FITTED_BYTES = 48 * 1024 ** 2
 /** a smaller image: longest side and most bytes (about 600 tokens instead of about 2,500) */
 export const VISION_SMALL_SIDE = 768
 export const VISION_SMALL_BYTES = 150_000
@@ -208,16 +214,18 @@ export function requestsFitted(db: Database, turnId: string | null): boolean {
   return !!db.query("SELECT 1 FROM proxy_tokens WHERE turn_id = ? AND family = 'anthropic' LIMIT 1").get(turnId)
 }
 
-/** The image caps of one turn: `fitted` (the proxy fits each request) gives only the safety cap; otherwise the caps of
- * one request, and the full-size images before the next ones go smaller. */
+/** The image caps of one turn (bytes in base64): `fitted` (the proxy fits each request) the caps of what the proxy takes
+ * in, otherwise of what one request may hold; in both, the full-size images before the next ones go smaller. */
 export function turnImageCaps(db: Database, turnId: string | null): { fitted: boolean; images: number; bytes: number; full: number; fullBytes: number } {
+  const full = { full: VISION_TURN_FULL, fullBytes: VISION_TURN_FULL_BYTES }
   return requestsFitted(db, turnId)
-    ? { fitted: true, images: VISION_FITTED_IMAGES, bytes: VISION_FITTED_BYTES, full: VISION_FITTED_IMAGES, fullBytes: VISION_FITTED_BYTES }
-    : { fitted: false, images: VISION_TURN_IMAGES, bytes: VISION_TURN_BYTES, full: VISION_TURN_FULL, fullBytes: VISION_TURN_FULL_BYTES }
+    ? { fitted: true, images: VISION_FITTED_IMAGES, bytes: VISION_FITTED_BYTES, ...full }
+    : { fitted: false, images: VISION_TURN_IMAGES, bytes: VISION_TURN_BYTES, ...full }
 }
 
 /** A model JPEG (or any PNG/JPEG/WebP picture) -> a smaller JPEG (VISION_SMALL_SIDE, VISION_SMALL_BYTES), through the
- * resize helper in the converter isolation; null when it is small already or cannot be made smaller. */
+ * resize helper in the converter isolation; null when it is small already or cannot be made smaller (the same answer
+ * every time). Throws when the conversion did not run to its end (stopped by a limit, the server busy, a stop). */
 export async function smallForModel(bytes: Uint8Array, tools: Pick<VisionTools, 'normalizer'>, signal?: AbortSignal): Promise<Buffer | null> {
   if (!tools.normalizer || bytes.byteLength > VISION_INPUT_MAX) return null
   // resize <side> <width> <permille> <max bytes> <options>: options 22 = no details (2) + JPEG (4) + upright (16)
@@ -226,7 +234,9 @@ export async function smallForModel(bytes: Uint8Array, tools: Pick<VisionTools, 
     timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB, maxStdout: VISION_OUTPUT_MAX + 1, signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
   }), signal)
   if (r.killed === 'aborted') signal?.throwIfAborted()
-  if (r.killed || r.code !== 0 || !isJpeg(r.stdout) || r.stdout.length >= bytes.byteLength) return null
+  // a stop by a limit (time, memory, a busy server) may pass: thrown, so nobody keeps it as "cannot be made smaller"
+  if (r.killed) throw new ToolError(`image conversion stopped (${r.killed})`, stoppedCode(r.killed))
+  if (r.code !== 0 || !isJpeg(r.stdout) || r.stdout.length >= bytes.byteLength) return null
   return r.stdout
 }
 

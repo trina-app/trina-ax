@@ -4,9 +4,9 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import { makeEnv } from '../lib/env'
 import { waitFor } from '../lib/wait'
 import path from 'node:path'
-import { checkProxyRequest, issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
+import { checkProxyRequest, issueProxyToken, PROXY_BODY_MAX, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
 import { createBroker } from '../../server/src/credentials/broker'
-import { fitCacheClear, fitRequestImages } from '../../server/src/proxy/fit-images'
+import { FIT_REQUEST_BYTES, fitCacheClear, fitRequestImages } from '../../server/src/proxy/fit-images'
 import { addCred, testCredCtx } from '../lib/credentials'
 
 const env = makeEnv('unit-proxy')
@@ -194,5 +194,28 @@ describe('model proxy: the pictures of a request are fitted (limits audit #4, QA
       expect((await call(broken.url, { 'x-api-key': tok }, body)).status).toBe(200)
       expect(JSON.parse(seen[seen.length - 1].body)).toEqual(body)
     } finally { await p.stop(); await broken.stop() }
+  })
+
+  test('a request over 32 MB (40 real-size photos, 53 MB) is taken in and goes on fitted; over PROXY_BODY_MAX it is refused', async () => {
+    const shrink = async (b: Buffer) => Buffer.concat([Buffer.from('small:'), b.subarray(0, 8), Buffer.alloc(100_000)])
+    const p = await startModelProxy({ db: env.db, broker, fitImages: (body, signal) => fitRequestImages(body, shrink, signal) })
+    try {
+      fitCacheClear()
+      const pic = () => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: Buffer.from(crypto.getRandomValues(new Uint8Array(1024 ** 2))).toString('base64') } })
+      const reads = (n: number) => Array.from({ length: n }, (_, i) => [
+        { role: 'assistant', content: [{ type: 'tool_use', id: `t${i}`, name: 'read', input: { file_path: `p${i}.jpg` } }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: [{ type: 'text', text: `Image p${i}.jpg (shown below).` }, pic()] }] },
+      ]).flat()
+      const body = { model: 'claude-opus-x', max_tokens: 5, messages: [{ role: 'user', content: 'all of them' }, ...reads(40)] }
+      const size = JSON.stringify(body).length
+      expect(size).toBeGreaterThan(50 * 1024 ** 2)
+      expect(size).toBeLessThan(PROXY_BODY_MAX)
+      const tok = bound(KEY_ID)
+      expect((await call(p.url, { 'x-api-key': tok }, body)).status).toBe(200)
+      expect(seen[seen.length - 1].body.length).toBeLessThan(FIT_REQUEST_BYTES + 1024 ** 2)
+      const over = { ...body, messages: [...body.messages, ...reads(10)] }
+      expect(JSON.stringify(over).length).toBeGreaterThan(PROXY_BODY_MAX)
+      expect((await call(p.url, { 'x-api-key': tok }, over)).status).toBe(413)
+    } finally { await p.stop() }
   })
 })

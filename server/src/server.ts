@@ -48,7 +48,7 @@ function coreProxyOptions(running: Running, o: Omit<ProxyServiceOptions, 'db' | 
   return {
     ...o, db: running.db, peerCheck: proxyPeerCheck(running),
     // the pictures of each Claude request, fitted (proxy/fit-images.ts), with the read's converter
-    fitImages: (body, signal) => fitRequestImages(body, (b, sig) => smallForModel(b, running.files.visionTools(), sig), signal),
+    fitImages: (body, signal) => fitRequestImages(body, (b) => smallForModel(b, running.files.visionTools()), signal),
     // the registry keeps the reason of a turn that ended a moment ago (also a time limit or shutdown); an older one's
     // row still says 'stopped' when the person stopped it
     stopReason: (turnId) => running.turns.stopReason(turnId)
