@@ -94,7 +94,7 @@ export default function TeamSettingsPage() {
     if (r && ('updateWindow' in changed || 'timeZone' in changed)) void office.reload()
     // people who follow the team default (maybe this admin) now see the new language: refresh the own view at once,
     // and the chat retention that the chat delete, chat trash and member delete dialogs name (read from /api/me)
-    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
+    if (r && (changed.defaultLocale || changed.speechProvider || changed.chatTrashRetentionDays !== undefined || changed.trashRetentionDays !== undefined || changed.projectCreators !== undefined)) await api.call(API.me).then(signedIn, () => {})
   }
   // what is not saved yet (text fields and switches alike), and what blocks Save: the save bar says both
   const unsaved = !!f && !!state.data && Object.entries(f).some(([k, v]) => state.data![k as keyof TeamSettings] !== v)

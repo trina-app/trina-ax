@@ -24,6 +24,7 @@ import { ProjectList } from '../../src/pages/Projects'
 import { DialogHost } from '../../src/components/ui'
 import { useChats } from '../../src/store/chats'
 import { useProjects } from '../../src/store/projects'
+import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
 
@@ -390,6 +391,28 @@ describe('members only (docs/DECISIONS.md "Project contents only for members")',
       expect(calls.filter((c) => c.key === `DELETE /api/projects/${OUTSIDE}`).map((c) => c.url)).toEqual([`/api/projects/${OUTSIDE}`])
     } finally {
       await m.unmount()
+    }
+  })
+
+  test('the trash confirm says where it goes and for how many days the team keeps it (QA TC-4971)', async () => {
+    list = [...list, outside()]
+    const before = useSession.getState().status
+    useSession.setState({ status: { kind: 'signed-in', me: { user: { id: 'u', role: 'member' }, team: { trashRetentionDays: 14 } } } } as never)
+    const m = await page()
+    try {
+      await loaded4(m)
+      await open(m, 'Acme legal')
+      await m.click(within(card(m, 'Acme legal'), 'project-card-delete')!)
+      const dialog = await m.until(() => m.container.ownerDocument!.body.querySelector('[role="dialog"]'), 'the confirm')
+      const words = { days: 14, files: ko('files.title'), trash: ko('files.trash') }
+      expect(dialog.textContent).toContain(ko('projects.trashBodyDays', words))
+      expect(ko('projects.trashBodyDays', words)).toBe('멤버는 이 프로젝트의 파일과 공유 채팅을 열 수 없어요. 파일 › 휴지통에 14일 동안 남고, 그동안 관리자나 만든 사람이 되돌릴 수 있어요.')
+      expect(translate('en', 'projects.trashBodyDays', { days: 14, files: 'Files', trash: 'Trash' })).toBe("Members can't open its files or shared chats. It stays in Files › Trash for 14 days, where an admin or its creator can restore it.")
+      expect(translate('en', 'projects.trashBodyDays', { days: 1, files: 'Files', trash: 'Trash' })).toContain('for 1 day,')
+      expect(dialog.textContent).not.toContain('30')
+    } finally {
+      await m.unmount()
+      useSession.setState({ status: before })
     }
   })
 

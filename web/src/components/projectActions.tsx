@@ -99,6 +99,8 @@ export function useDeleteProject() {
   const locale = useLocale()
   const me = useMe()
   const days = chatTrashDays(me)
+  // the files trash keeps it this long (Admin > Team settings; an older server does not say: no number is named)
+  const trashDays = me?.team.trashRetentionDays
   const deleted = (id: string) => {
     useProjects.getState().drop(id, true)
     // the server took the project off its private chats (its shared chats go to the trash with their own event): the
@@ -131,8 +133,9 @@ export function useDeleteProject() {
     if (opener && !opener.isConnected) return null
     opener?.focus()
     const forGood = !!now.inTrash
+    const trashBody = trashDays ? t('projects.trashBodyDays', { days: trashDays, files: t('files.title'), trash: t('files.trash') }) : t('projects.trashBody')
     const ask = toTrash
-      ? { title: t('projects.trashTitle', { name: now.name }), body: guests ? <>{t('projects.trashBody')}<span className="mt-2 block" data-testid="project-trash-guests">{t('projects.trashGuests', { n: guests })}</span></> : t('projects.trashBody'), confirm: t('files.moveToTrash') }
+      ? { title: t('projects.trashTitle', { name: now.name }), body: guests ? <>{trashBody}<span className="mt-2 block" data-testid="project-trash-guests">{t('projects.trashGuests', { n: guests })}</span></> : trashBody, confirm: t('files.moveToTrash') }
       : forGood
         ? {
             title: t('projects.deleteForGoodTitle', { name: now.name }),

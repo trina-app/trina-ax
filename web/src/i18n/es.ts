@@ -1360,6 +1360,7 @@ export const es: Record<MessageKey, string> = {
   "projects.insideOwn": "{n, plural, one {# carpeta interior tiene su propia lista de quién puede verla} other {# carpetas interiores tienen su propia lista de quién puede verlas}}",
   "projects.trashTitle": "¿Mover «{name}» a la papelera?",
   "projects.trashBody": "Los miembros no podrán abrir sus archivos ni sus chats compartidos hasta que un administrador o quien lo creó lo restaure.",
+  "projects.trashBodyDays": "Los miembros no podrán abrir sus archivos ni sus chats compartidos. Se queda en {files} › {trash} durante {days, plural, one {# día} other {# días}}, y un administrador o quien lo creó puede restaurarlo.",
   "projects.trashGuests": "{n, plural, one {Su invitado no podrá iniciar sesión hasta que se restaure.} other {Sus # invitados no podrán iniciar sesión hasta que se restaure.}}",
   "projects.deleteForGood": "Eliminar definitivamente",
   "projects.deleteForGoodTitle": "¿Eliminar «{name}» definitivamente?",

@@ -57,7 +57,7 @@ describe('first-run setup', () => {
     const body = (await res.json()) as any
     expect(body.token).toBeUndefined()
     expect(body.me.user).toMatchObject({ id: 'olga', username: 'Olga', role: 'owner', mustChangePassword: false })
-    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, projectCreators: 'members' })
+    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, trashRetentionDays: 30, projectCreators: 'members' })
     const me = await c.call('GET', '/api/me')
     expect(me.user.id).toBe('olga')
     // the team's switch for Always allow off: the session says so, and the connector pages say it asks again after

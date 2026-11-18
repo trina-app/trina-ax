@@ -1385,6 +1385,7 @@ export const en: Record<MessageKey, string> = {
   "projects.insideOwn": "{n, plural, one {# folder inside has its own list of who can see it} other {# folders inside have their own list of who can see them}}",
   "projects.trashTitle": "Move '{name}' to the trash?",
   "projects.trashBody": "Members can't open its files or shared chats until an admin or its creator restores it.",
+  "projects.trashBodyDays": "Members can't open its files or shared chats. It stays in {files} › {trash} for {days, plural, one {# day} other {# days}}, where an admin or its creator can restore it.",
   "projects.trashGuests": "{n, plural, one {Its guest can't sign in until it's restored.} other {Its # guests can't sign in until it's restored.}}",
   "projects.deleteForGood": "Delete for good",
   "projects.deleteForGoodTitle": "Delete '{name}' for good?",

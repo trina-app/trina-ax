@@ -1358,6 +1358,7 @@ export const zh: Record<MessageKey, string> = {
   "projects.insideOwn": "{n, plural, one {其中有#个文件夹单独设置了谁能看到} other {其中有#个文件夹单独设置了谁能看到}}",
   "projects.trashTitle": "把“{name}”移到回收站？",
   "projects.trashBody": "在管理员或创建者恢复之前，成员无法打开其中的文件或共享对话。",
+  "projects.trashBodyDays": "成员无法打开其中的文件或共享对话。它会在{files} › {trash}中保留{days, plural, one {#天} other {#天}}，管理员或创建者可以在此期间恢复。",
   "projects.trashGuests": "{n, plural, one {此项目的 # 位访客在恢复前无法登录。} other {此项目的 # 位访客在恢复前无法登录。}}",
   "projects.deleteForGood": "永久删除",
   "projects.deleteForGoodTitle": "永久删除“{name}”？",
