@@ -15,15 +15,16 @@ group should read as one compact row from the left, like the computer's.
 
 ## Scope
 
-In: the answer action row and its inner groups use the desktop gap (4 px) on every width; the 44 px tap boxes stay.
+In: on a phone the answer action row and its inner groups have no gap: the 44 px tap boxes touch, so icons stand
+44 px apart (the closest a 44 x 44 px target allows); the computer keeps its 4 px gap.
 Out: the code block's Copy/Download text buttons (labelled buttons, a different row), the user message's row (already
 4 px).
 
 ## Steps
 
 1. Measure the row at 390 and 1440, light and dark (e2e mock).
-2. Drop the phone-only `gap-3` from the row and its groups.
-3. An e2e check: at 390 the gap between two icons is at most the desktop gap + 4 px, each button at least 40 px.
+2. Replace the phone-only `gap-3` with no gap in the row and its groups.
+3. An e2e check: at 390 no gap between buttons, icons at most 44 px apart, each takes taps from 44 x 44 px.
 
 ## Decisions
 
@@ -31,7 +32,8 @@ None.
 
 ## Risks
 
-Tap boxes: buttons stay 44 px wide and do not overlap (4 px apart). Phone and desktop, light and dark checked.
+Tap boxes: buttons stay 44 x 44 px and touch without overlapping. 40 px wide buttons were considered and left
+out: docs/DECISIONS.md "Phones: 44 px targets" (phone-targets.spec.ts) needs 44 px in both directions. Phone and desktop, light and dark checked.
 
 ## Tests
 
@@ -41,4 +43,5 @@ answer-actions-spacing spec.
 
 ## Result
 
-Built as planned. At 390 the icons now stand 48 px apart (44 px tap box + 4 px), was 56 px (44 + 12); 1440 unchanged at 29 px. The new e2e spec answer-actions-spacing checks it in light and dark.
+Built as planned. At 390 the icons now stand 44 px apart (44 px tap boxes, no gap), was 56 px (44 + 12); 1440
+unchanged at 29 px. The new e2e spec answer-actions-spacing checks it in light and dark.

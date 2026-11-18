@@ -1,6 +1,6 @@
 // The icons under an answer (copy, retry, save as a skill, the model) sit as one compact group from the left on every
-// width: on a phone the space between them comes from each button's 44 px tap box, not from extra gaps, so the gap
-// between two icons is about the desktop's.
+// width: on a phone each button is a 44 × 44 px tap box (docs/DECISIONS.md "Phones: 44 px targets") and the boxes touch,
+// no gap, so the icons stand 44 px apart, the closest a 44 px target allows (they stood 56 px apart: 44 + a 12 px gap).
 import { expect, test, type Browser, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { mkdirSync } from 'node:fs'
@@ -36,7 +36,19 @@ async function measure(page: Page) {
   )
   const pitch = boxes.slice(1).map((b, i) => b.x - boxes[i]!.x)
   const gaps = boxes.slice(1).map((b, i) => b.x - (boxes[i]!.x + boxes[i]!.w))
-  return { boxes, pitch, gaps }
+  // the tap area of each button, as phone-targets.spec.ts counts it: how far from its middle a tap still lands on it
+  const taps = await answer.getByTestId('answer-actions').evaluate((row) =>
+    [...row.querySelectorAll('button')]
+      .filter((b) => b.getBoundingClientRect().width > 2)
+      .map((b) => {
+        const r = b.getBoundingClientRect()
+        const [cx, cy] = [r.left + r.width / 2, r.top + r.height / 2]
+        const on = (x: number, y: number) => { const e = document.elementFromPoint(x, y); return !!e && (e === b || b.contains(e)) }
+        const reach = (dx: number, dy: number) => { let n = 0; while (n < 30 && on(cx + dx * (n + 1), cy + dy * (n + 1))) n++; return n }
+        return { w: reach(-1, 0) + reach(1, 0) + 1, h: reach(0, -1) + reach(0, 1) + 1 }
+      }),
+  )
+  return { boxes, pitch, gaps, taps }
 }
 
 async function at(browser: Browser, width: number, scheme: 'light' | 'dark') {
@@ -57,7 +69,7 @@ async function at(browser: Browser, width: number, scheme: 'light' | 'dark') {
     await row.screenshot({ path: join(SHOTS, `answer-actions-${width}-${scheme}.png`) })
     await page.screenshot({ path: join(SHOTS, `answer-actions-${width}-${scheme}-page.png`) })
   }
-  console.log(`answer actions ${width} ${scheme}: ${JSON.stringify({ widths: m.boxes.map((b) => Math.round(b.w)), heights: m.boxes.map((b) => Math.round(b.h)), pitch: m.pitch.map(Math.round), gaps: m.gaps.map(Math.round) })}`)
+  console.log(`answer actions ${width} ${scheme}: ${JSON.stringify({ widths: m.boxes.map((b) => Math.round(b.w)), heights: m.boxes.map((b) => Math.round(b.h)), pitch: m.pitch.map(Math.round), gaps: m.gaps.map(Math.round), taps: m.taps })}`)
   await ctx.close()
   return m
 }
@@ -68,16 +80,18 @@ test('the icons under an answer are a compact group on a phone, spaced like the 
     const phone = await at(browser, 390, scheme)
     expect(desk.boxes.length).toBeGreaterThanOrEqual(3)
     expect(phone.boxes.length).toBe(desk.boxes.length)
-    // the gap between two icons on a phone: no more than the desktop's and a few px
+    // the gap between two buttons on a phone: none past the 44 px tap boxes, never more than the desktop's
     const deskGap = Math.max(...desk.gaps)
-    for (const g of phone.gaps) expect(g).toBeLessThanOrEqual(deskGap + 4)
+    for (const g of phone.gaps) expect(g).toBeLessThanOrEqual(Math.min(deskGap, 1))
+    // icon centre to icon centre: 44 px, the closest a 44 px target allows (was 56)
+    for (const p of phone.pitch) expect(p).toBeLessThanOrEqual(44.5)
     // the group starts at the answer's left and ends well before the right edge
     const last = phone.boxes.at(-1)!
     expect(last.x + last.w).toBeLessThan(390 / 2 + 60)
-    // touch targets: each button at least 40 px on a phone
-    for (const b of phone.boxes) {
-      expect(b.w).toBeGreaterThanOrEqual(40)
-      expect(b.h).toBeGreaterThanOrEqual(40)
+    // touch targets: each button takes taps from 44 × 44 px on a phone (phone-targets.spec.ts allows a pixel for rounding)
+    for (const t of phone.taps) {
+      expect(t.w).toBeGreaterThanOrEqual(43)
+      expect(t.h).toBeGreaterThanOrEqual(43)
     }
   }
 })
