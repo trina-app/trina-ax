@@ -7,7 +7,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { updateTeamSettings } from '../../server/src/admin/settings'
-import { modelProgress, type TranscribeConfig } from '../../server/src/jobs/transcribe'
+import { ensureModel, modelProgress, type TranscribeConfig } from '../../server/src/jobs/transcribe'
 import { PREFETCH_RETRY_MS, startModelPrefetch, wantsModel } from '../../server/src/jobs/model-prefetch'
 import { makeCApp, type CApp } from '../lib/c-app'
 
@@ -74,4 +74,15 @@ describe('the speech model ahead of first use', () => {
       expect(fs.existsSync(path.join(A.data, 'm3', 'tiny.bin'))).toBe(false)
     } finally { p.stop() }
   })
+  test('a disk without room for the model and its reserve is refused before any byte; a damaged download says why', async () => {
+    const tight = { ...cfg('m4'), statfs: () => ({ bsize: 4096, blocks: (100 * 1024 ** 3) / 4096, bfree: (5 * 1024 ** 3) / 4096, bavail: (5 * 1024 ** 3) / 4096 }) }
+    const e = await ensureModel(tight).catch((x) => x)
+    expect(e.message).toContain('disk space is free')
+    expect(e.reason).toContain('reserve')
+    const bad = { ...cfg('m5'), modelOverride: { file: 'tiny.bin', size: BODY.length, sha256: '0'.repeat(64) } }
+    const d = await ensureModel(bad).catch((x) => x)
+    expect(d.message).toContain('damaged')
+    expect(d.reason).toContain('expected ' + '0'.repeat(64))
+  })
 })
+

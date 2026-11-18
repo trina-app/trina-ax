@@ -48,7 +48,7 @@ import { egressOf, egressSettled } from './egress'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import { placeProduced } from './make-file'
-import { ACCEPTED, RefusedKind, refusedName, settleKind, SETTLE_READ_MAX, sniffDownload, withExtension, type FileKind } from './sniff'
+import { ACCEPTED, RefusedKind, refusedName, settleKind, sniffDownload, withExtension, type FileKind, type ReadAt } from './sniff'
 import { redirectGuard } from './connection-urls'
 import { gateUrl } from './url-gate'
 import { precheckTarget } from './web-fetch'
@@ -56,13 +56,9 @@ import { diskStat } from '../system/disk-stat'
 
 /** larger downloads ask the person first (save_url's card) */
 export const ASK_ABOVE_BYTES = 1024 ** 3
-/** free space a download must leave on the data disk: 10% of the disk, at least 5 GiB, at most 20 GiB */
-export const DISK_RESERVE_MIN = 5 * 1024 ** 3
-export const DISK_RESERVE_MAX = 20 * 1024 ** 3
-export const DISK_RESERVE_FRACTION = 0.1
-export function diskReserve(totalBytes: number): number {
-  return Math.min(DISK_RESERVE_MAX, Math.max(DISK_RESERVE_MIN, Math.floor(totalBytes * DISK_RESERVE_FRACTION)))
-}
+// free space a download must leave on the data disk (system/disk-stat.ts, shared with the speech model's download)
+export { DISK_RESERVE_FRACTION, DISK_RESERVE_MAX, DISK_RESERVE_MIN, diskReserve } from '../system/disk-stat'
+import { diskReserve } from '../system/disk-stat'
 
 export const TEXT = {
   large: {
@@ -167,7 +163,11 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const folderOnly = !wanted || wanted.endsWith('/')
   const explicitFolder = wanted ? (folderOnly ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')) : null
   if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
-  const firstName = wanted && !folderOnly ? wanted.split('/').pop()! : (handle ? '' : nameFromUrl(source))
+  // one naming rule for the card before the download and the file after it: the name asked for, else the address's
+  // (after the download the address its redirects ended at, which may name the file: ".../fwlink/?LinkID=1" ->
+  // "Financial Sample.xlsx"; a changed name is checked again on the wider-audience card below)
+  const nameFor = (url: string) => (wanted && !folderOnly ? wanted.split('/').pop()! : handle ? '' : nameFromUrl(url) || nameFromUrl(source))
+  const firstName = nameFor(source)
   const provisional = explicitFolder !== null ? [explicitFolder, firstName || 'download'].filter(Boolean).join('/') : null
   if (provisional !== null) {
     // refused before anything is fetched: a path the person cannot write (placeProduced checks again at the end)
@@ -274,12 +274,16 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     if (!k) throw new ToolError('internal: no file type')
     // a zip, a compound file or a table: what it really is, from the whole file (a program package is refused here)
     if (k.media === 'archive' || k.media === 'data' || k.name === 'ole') {
-      const hint = firstName || nameFromUrl(from) || nameFromUrl(source)
-      try { k = settleKind(k, size <= SETTLE_READ_MAX ? fs.readFileSync(tmp) : null, declared, hint) } catch (e) {
+      const hint = nameFor(from)
+      // judged by small reads of the file (a zip's directory from its end, a compound file's directory), never by
+      // reading it whole and never by its name alone
+      const fd = fs.openSync(tmp, 'r')
+      const read: ReadAt = (pos, len) => { const b = Buffer.alloc(Math.max(0, Math.min(len, size - pos))); const n = b.length ? fs.readSync(fd, b, 0, b.length, pos) : 0; return b.subarray(0, n) }
+      try { k = settleKind(k, read, size, declared, hint) } catch (e) {
         if (!(e instanceof RefusedKind)) throw e
         const said = declared ? `; the source said ${declared.split(';')[0]!.trim().slice(0, 60)}` : ''
         throw new ToolError(`save_url takes ${ACCEPTED}. This file is ${e.what} (judged by its bytes${said}), so it was not saved`)
-      }
+      } finally { fs.closeSync(fd) }
     }
     const notes: string[] = []
     // images: decoded by the isolated normalizer as a check (a file that only starts like a PNG is refused)
@@ -307,19 +311,22 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     // the name: the one asked for, or the address's, with the extension of what the file really is
     // no name asked for: the last address's name (a download link like ".../fwlink/?LinkID=1" ends at the file's real
     // name after its redirects), else the first address's
-    const urlName = !handle && !(wanted && !folderOnly) ? nameFromUrl(from) || firstName : firstName
-    const baseName = urlName || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
+    const baseName = nameFor(from) || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
     const named = withExtension(baseName, k)
     if (named.changed && wanted && !folderOnly) notes.push(`Saved with the extension .${k.ext}: the file is ${k.label} (judged by its bytes), not what "${baseName}" said.`)
     const folder = explicitFolder ?? `users/${t.user.id}/${k.image ? 'images' : 'downloads'}`
     const target = [folder, named.name].filter(Boolean).join('/')
     if (!t.confirmWidening && !own(target)) throw new ToolError('outside a chat this can only save into your own folder (users/<you>/)')
-    if (explicitFolder === null) {
+    // the card before the download asked about `provisional`; a name the redirects changed is asked about again (the
+    // same folder said yes already: no second card)
+    if (explicitFolder === null || target !== provisional) {
       const refusal = await t.confirmWidening?.(target, [])
       if (refusal) throw new ToolError(refusal)
     }
     if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
     const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type: k.mime } })
+    // macros are programs inside the document: the person decides whether to trust them
+    if (k.macros) notes.push(`This ${k.label} file contains macros (small programs inside the document). Tell the user plainly before they open it: open it only if they trust where it came from, and keep macros turned off otherwise.`)
     if (made.conflictCopyOf) notes.push(`${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.`)
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')
     const rel = made.path

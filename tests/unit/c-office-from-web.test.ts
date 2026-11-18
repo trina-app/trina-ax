@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx'
 import { TurnFiles, type ToolCtx } from '../../server/src/files/service'
 import { ToolError } from '../../server/src/policy/errors'
 import { saveUrl, type SaveUrlOptions } from '../../server/src/tools/save-url'
-import { settleKind, sniffDownload, KINDS, RefusedKind } from '../../server/src/tools/sniff'
+import { readAtOf, settleKind, sniffDownload, KINDS, RefusedKind } from '../../server/src/tools/sniff'
 import { rememberUrls, type TurnPerson } from '../../server/src/tools/url-gate'
 import { noteEgressIp } from '../../server/src/tools/egress'
 import { webFetch, type FetchOptions } from '../../server/src/tools/web-fetch'
@@ -32,6 +32,7 @@ const CFB = (XLSX as unknown as { CFB: any }).CFB
 const cfb = (streams: Record<string, string>) => { const c = CFB.utils.cfb_new(); for (const [n, d] of Object.entries(streams)) CFB.utils.cfb_add(c, '/' + n, Buffer.from(d)); return Buffer.from(CFB.write(c, { type: 'buffer', fileType: 'cfb' })) }
 const XLS = (() => { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['name', 'sales'], ['Kim', 3]]), 'S'); return Buffer.from(XLSX.write(wb, { bookType: 'xls', type: 'buffer' })) })()
 const DOC = cfb({ WordDocument: 'word 97 body', '1Table': 'table' })
+const DOC_MACROS = cfb({ WordDocument: 'word 97 body', 'Macros/VBA/dir': 'vba' })
 const MSI = cfb({ '䡀㼿䕷': 'installer table' })
 const CSV = Buffer.from('name,city,amount\nKim,Seoul,1200\nLee,Busan,800\n')
 
@@ -51,7 +52,7 @@ beforeAll(async () => {
       const routes: Record<string, [Buffer, Record<string, string>]> = {
         '/download?id=1': [DOCX, OCTET], '/report.docx': [DOCX, OCTET], '/macro.docx': [DOCM, OCTET], '/sheet.bin': [XLSX_FILE, OCTET], '/deck': [PPTX, OCTET],
         '/form.hwpx': [HWPX, OCTET], '/reports.zip': [PLAIN_ZIP, { 'content-type': 'application/zip' }], '/app.zip': [APK, OCTET], '/app.apk': [PLAIN_ZIP, OCTET],
-        '/broken.zip': [DAMAGED_ZIP, OCTET], '/old.xls': [XLS, { 'content-type': 'application/vnd.ms-excel' }], '/old-sheet': [XLS, OCTET], '/letter.doc': [DOC, OCTET],
+        '/broken.zip': [DAMAGED_ZIP, OCTET], '/old.xls': [XLS, { 'content-type': 'application/vnd.ms-excel' }], '/old-sheet': [XLS, OCTET], '/letter.doc': [DOC, OCTET], '/macro.doc': [DOC_MACROS, OCTET],
         '/setup.bin': [MSI, OCTET], '/sales.csv': [CSV, { 'content-type': 'application/vnd.ms-excel' }], '/export': [CSV, { 'content-type': 'text/csv; charset=utf-8' }],
         '/table.csv': [Buffer.from('<!doctype html><html><body>sign in</body></html>'), { 'content-type': 'text/csv' }],
         '/big.docx': [Buffer.concat([DOCX, Buffer.alloc(6 * 1024 * 1024)]), OCTET],
@@ -133,12 +134,38 @@ describe('save_url: Office, CSV and ZIP files (QA TC-4922)', () => {
     expect(sniffDownload(CSV.subarray(0, 64), '', 'data')).toBeNull()
     expect(sniffDownload(CSV.subarray(0, 64), 'text/csv', 'data')?.name).toBe('csv')
     expect(sniffDownload(CSV.subarray(0, 64), '', 'data.tsv')?.name).toBe('tsv')
-    expect(settleKind(KINDS.zip, PPTX, '', 'x').name).toBe('pptx')
-    expect(() => settleKind(KINDS.ole, MSI, '', 'x.doc')).toThrow(RefusedKind)
-    // too large to read whole: what the name says, among the zip formats
-    expect(settleKind(KINDS.zip, null, '', 'big.xlsx').name).toBe('xlsx')
-    expect(settleKind(KINDS.zip, null, '', 'big.dat').name).toBe('zip')
-    expect(() => settleKind(KINDS.zip, null, '', 'big.jar')).toThrow(RefusedKind)
+    const settle = (k: typeof KINDS.zip, b: Buffer, name = 'x') => settleKind(k, readAtOf(b), b.length, '', name)
+    expect(settle(KINDS.zip, PPTX).name).toBe('pptx')
+    expect(() => settle(KINDS.ole, MSI, 'x.doc')).toThrow(RefusedKind)
+    // never the name alone: bytes that are no zip stay refused, whatever the name says
+    expect(() => settle(KINDS.zip, DAMAGED_ZIP, 'big.xlsx')).toThrow(RefusedKind)
+    expect(() => settle(KINDS.zip, PLAIN_ZIP, 'big.jar')).toThrow(RefusedKind)
+  })
+  test('a big file is judged by a few small reads: a zip\'s directory from its end, a compound file\'s directory', () => {
+    // a 40 MB zip (one stored entry) and a 20 MB old Excel file: only their directories are read
+    const big = Buffer.from(writeZip([{ name: '[Content_Types].xml', data: Buffer.from('<Types/>'), utf8: true }, { name: 'xl/workbook.xml', data: Buffer.from('<workbook/>'), utf8: true }, { name: 'xl/media/big.bin', data: Buffer.alloc(40 * 1024 * 1024, 7), store: true, utf8: true }]))
+    let readBytes = 0
+    const counted = (b: Buffer) => { const r = readAtOf(b); return (pos: number, len: number) => { const x = r(pos, len); readBytes += x.length; return x } }
+    expect(settleKind(KINDS.zip, counted(big), big.length, '', 'download').name).toBe('xlsx')
+    expect(readBytes).toBeLessThan(200 * 1024)
+    const c = CFB.utils.cfb_new()
+    CFB.utils.cfb_add(c, '/Workbook', Buffer.alloc(20 * 1024 * 1024, 1))
+    CFB.utils.cfb_add(c, '/_VBA_PROJECT_CUR/VBA/dir', Buffer.from('vba'))
+    const bigXls = Buffer.from(CFB.write(c, { type: 'buffer', fileType: 'cfb' }))
+    readBytes = 0
+    const k = settleKind(KINDS.ole, counted(bigXls), bigXls.length, '', 'x')
+    expect([k.name, k.macros]).toEqual(['xls', true])
+    expect(readBytes).toBeLessThan(1024 * 1024)
+  })
+  test('macro files are saved with a line telling the AI to warn the person (.docm, and an old .doc with Macros)', async () => {
+    const s = setup()
+    const docm = await s.run('/macro.docx', 'groups/marketing/macro/')
+    expect(docm.text).toContain('contains macros')
+    expect(docm.text).toContain('open it only if they trust where it came from')
+    const doc = await s.run('/macro.doc', 'groups/marketing/macro/')
+    expect(doc.structured.path).toBe('groups/marketing/macro/macro.doc')
+    expect(doc.text).toContain('contains macros')
+    expect((await s.run('/letter.doc', 'groups/marketing/macro/')).text).not.toContain('macros')
   })
 })
 

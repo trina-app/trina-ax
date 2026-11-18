@@ -34,7 +34,7 @@ import { isMailFile, MailProblem, mailParts } from '../files/mail-parts'
 import { isZip, ZipProblem } from '../files/zip-guard'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
-import { badSegment } from '../policy/names'
+import { badSegment, instructionFileName } from '../policy/names'
 import { inSkills } from '../skills/guard'
 import { assertStorageRoomForAI } from '../system/storage'
 import { componentC } from '../team-files/component'
@@ -66,7 +66,7 @@ export interface UnzipResult {
   folder: string
   /** the folder was made by this call (not an existing to_folder) */
   newFolder: boolean
-  saved: { path: string; size: number; renamedFrom?: string }[]
+  saved: { path: string; size: number; renamedFrom?: string; instruction?: true }[]
   folders: string[]
   failed: { name: string; why: string }[]
   plan: ZipPlan
@@ -279,7 +279,9 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
         const dirSegs = dir.split('/').filter(Boolean)
         // never over an existing file: a taken name gets " (2)"
         const want = f.segs.at(-1)!
-        const name = fs.existsSync(path.join(fx.root, ...dirSegs)) ? freeName(path.join(fx.root, ...dirSegs), want) : want
+        // and never under a name an AI follows as instructions (CLAUDE.md, SKILL.md …): it gets " (2)" as if taken
+        const at = path.join(fx.root, ...dirSegs)
+        const name = fs.existsSync(at) ? freeName(at, want, false, undefined, instructionFileName) : instructionFileName(want) ? want.replace(/\.md$/i, (x) => ` (2)${x}`) : want
         const tmp = path.join(work, String(i))
         if (f.part !== undefined) {
           mailNow ??= mailParts(zipName, bytes)
@@ -288,7 +290,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
           fs.writeFileSync(tmp, part.data, { flag: 'wx', mode: 0o600 })
         } else await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
         const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, detail: { from: src.rel } })
-        saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}) })
+        saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}), ...(instructionFileName(want) ? { instruction: true as const } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e
         failed.push({ name: f.segs.join('/'), why: why(e) })
@@ -360,7 +362,7 @@ export function unzipResultText(r: UnzipResult): string {
   }
   const link = `[${r.folder.split('/').pop() || 'team folder'}](${fileShareUrl(r.folder, 'preview')})`
   if (isMailFile(r.zip)) {
-    const rows = r.saved.map((s) => `- [${s.path.split('/').pop()}](${fileShareUrl(s.path, 'preview')}) (${human(s.size)})${s.renamedFrom ? ` (a file named ${s.renamedFrom.split('/').pop()} was already there and is unchanged)` : ''}`)
+    const rows = r.saved.map((s) => `- [${s.path.split('/').pop()}](${fileShareUrl(s.path, 'preview')}) (${human(s.size)})${s.instruction ? ` (renamed from ${s.renamedFrom!.split('/').pop()}: a file is never saved under the name of an AI instruction file)` : s.renamedFrom ? ` (a file named ${s.renamedFrom.split('/').pop()} was already there and is unchanged)` : ''}`)
     return [
       `Saved ${r.saved.length} attachment${r.saved.length === 1 ? '' : 's'} of the email '${r.zip}' into ${r.folder || 'the team root'}:`,
       list(rows),
@@ -370,11 +372,13 @@ export function unzipResultText(r: UnzipResult): string {
       'The email itself is unchanged. Tell the user in plain words which attachments were saved and where (link each file by its name)' + (r.failed.length || left.length ? ', and plainly which were not saved and why' : '') + '.',
     ].filter(Boolean).join('\n')
   }
-  const renamed = r.saved.filter((s) => s.renamedFrom)
+  const renamed = r.saved.filter((s) => s.renamedFrom && !s.instruction)
+  const instructions = r.saved.filter((s) => s.instruction)
   const failedRows = r.failed.map((f) => `- ${f.name}: ${f.why}`)
   const lines = [
     `Unzipped '${r.zip}' into ${r.newFolder ? 'the new folder' : 'the folder'} ${r.folder || 'the team root'}: ${r.saved.length} file${r.saved.length === 1 ? '' : 's'} saved (${human(r.saved.reduce((n, s) => n + s.size, 0))}). Link for the user: ${link}`,
     r.saved.length > LIST_MAX ? byFolder(r.saved.map((s) => rel(s.path))) : list(r.saved.map((s) => `- ${rel(s.path)} (${human(s.size)})`)),
+    instructions.length ? `Named like a file an AI follows as instructions (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md), so saved under another name: ${instructions.map((s) => `${rel(s.renamedFrom!)} -> ${rel(s.path)}`).join('; ')}. Mention it plainly.` : '',
     renamed.length ? `A file of the same name was already there, so ${renamed.length === 1 ? 'this was' : 'these were'} saved under a new name (the existing ${renamed.length === 1 ? 'file is' : 'files are'} unchanged):\n${list(renamed.map((s) => `- ${rel(s.renamedFrom!)} -> ${rel(s.path)}`))}` : '',
     failedRows.length ? `NOT saved (${r.failed.length}):\n${list(failedRows)}` : '',
     left.length ? `Left out of the zip:\n${list(left)}` : '',

@@ -25,4 +25,10 @@
   (a cut Office file or zip is no file): the AI is told to save it with save_url and read the saved file.
 - **Unchanged:** the address rules, the private-network and SSRF checks, every redirect hop checked, the egress and
   link budget, the 1 GB card, the disk reserve, the wider-audience card, the 5 MB / 15 s limits of web_fetch.
+- **After the security review of #1302:** the kind is settled by small reads, never the whole file and never by the
+  name alone: a zip's central directory from the end (zip64 too, a directory up to 64 MB), a compound file's header,
+  the FAT sectors its directory chain needs and the directory itself. Macro files (.docm, .xlsm, .pptm, and an old
+  .doc / .xls with Macros / _VBA_PROJECT_CUR) are saved with a line telling the AI to warn the person. One naming rule
+  for the card and the file: the asked name, else the name of the address the redirects ended at; a name the
+  redirects changed is checked again on the wider-audience card (the same folder's yes covers it).
 - Tests: `tests/unit/c-office-from-web.test.ts`, `tests/unit/save-url.test.ts` (a damaged zip). Version impact: minor.

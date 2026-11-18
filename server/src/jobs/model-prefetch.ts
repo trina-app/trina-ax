@@ -46,7 +46,7 @@ export function startModelPrefetch(o: { db: Database; cfg: TranscribeConfig; log
     } catch (e) {
       failures++
       notBefore = now() + Math.min(PREFETCH_RETRY_MAX_MS, PREFETCH_RETRY_MS * 2 ** (failures - 1))
-      o.log?.warn('the speech model download failed; it is tried again later', { err: e instanceof Error ? e.message : String(e), failures })
+      o.log?.warn('the speech model download failed; it is tried again later', { err: e instanceof Error ? e.message : String(e), reason: (e as { reason?: string }).reason, failures })
       return 'failed'
     }
   }

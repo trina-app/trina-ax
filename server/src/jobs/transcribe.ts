@@ -20,6 +20,7 @@ import { dictationTurn } from './whisper-turns'
 import type { SpeechMeter } from '../credentials/hosted-speech'
 import { DOWNLOAD_IDLE_MS, downloadDeadline, downloadTotalMs, type DownloadDeadline } from '../http/download-deadline'
 import { ToolError } from '../policy/errors'
+import { diskReserve, diskStat, DiskSpaceUnknown, type DiskStat } from '../system/disk-stat'
 import { extOf, MAC_AUDIO_EXT, macAudioTools, macDecode, macWavPiece, macWavSeconds, type MacAudioTools } from './mac-audio'
 import { keepSpeech, silent, soundOf, UNSURE_FIRST_P, type Sound } from './no-speech'
 
@@ -58,6 +59,8 @@ export interface TranscribeConfig {
   /** where models come from (tests point this at a local server) */
   baseUrl: string
   /** tests: shorter model download deadlines (default http/download-deadline.ts: 120 s without data, 10 min + 250 KB/s) */
+  /** tests: the disk the model's folder is on (default system/disk-stat.ts diskStat) */
+  statfs?: (p: string) => DiskStat
   downloadIdleMs?: number
   downloadTotalMs?: number
   /** scratch folder parent for the converter work folders */
@@ -180,6 +183,21 @@ export function modelOnDisk(cfg: TranscribeConfig): boolean {
 async function download(cfg: TranscribeConfig, file: string, h: Pick<JobHandle, 'progress' | 'signal'> | undefined, locale: Locale): Promise<string> {
   const spec = modelSpec(cfg)
   fs.mkdirSync(cfg.modelDir, { recursive: true, mode: 0o700 })
+  // the disk keeps its reserve after the model (as save_url's downloads do): a full disk is refused before any byte
+  try {
+    const st = (cfg.statfs ?? diskStat)(cfg.modelDir)
+    const free = Number(st.bavail) * Number(st.bsize)
+    const reserve = diskReserve(Number(st.blocks) * Number(st.bsize))
+    if (free - spec.size < reserve) {
+      const gb = (n: number) => (n / 1024 ** 3).toFixed(1)
+      throw fail(`디스크 여유가 ${gb(free)} GB뿐이라 음성 인식 모델(${Math.round(spec.size / 1e6)} MB)을 내려받지 않았어요. 디스크에 ${gb(reserve)} GB는 남겨 둬야 해요. 파일이나 휴지통을 정리해 주세요.`,
+        `Only ${gb(free)} GB of disk space is free, so the speech model (${Math.round(spec.size / 1e6)} MB) was not downloaded: ${gb(reserve)} GB must stay free. Free up space (files, trash).`,
+        `Ruang disk yang kosong hanya ${gb(free)} GB, jadi model suara (${Math.round(spec.size / 1e6)} MB) tidak diunduh: ${gb(reserve)} GB harus tetap kosong. Kosongkan ruang (berkas, tempat sampah).`,
+        `ディスクの空きが ${gb(free)} GB しかないため、音声認識モデル（${Math.round(spec.size / 1e6)} MB）をダウンロードしませんでした。${gb(reserve)} GB は空けておく必要があります。ファイルやゴミ箱を整理してください。`,
+        `Solo quedan ${gb(free)} GB libres en el disco, así que el modelo de voz (${Math.round(spec.size / 1e6)} MB) no se descargó: deben quedar ${gb(reserve)} GB libres. Libere espacio (archivos, papelera).`,
+        `磁盘只剩 ${gb(free)} GB 可用空间，所以没有下载语音识别模型（${Math.round(spec.size / 1e6)} MB）：必须保留 ${gb(reserve)} GB。请清理文件或回收站。`, 'unavailable', `disk: ${free} B free, ${reserve} B reserve, ${spec.size} B needed`)
+    }
+  } catch (e) { if (!(e instanceof DiskSpaceUnknown)) throw e }
   const part = file + '.part'
   const label = LABELS.model[locale](Math.round(spec.size / 1e6))
   h?.progress(0, label)
@@ -221,9 +239,12 @@ async function downloadTo(cfg: TranscribeConfig, spec: ModelSpec, file: string, 
     if (dl.stalled()) throw STALLED()
     throw fail('음성 인식 모델을 내려받는 중 연결이 끊겼어요. 다시 시도해 주세요.', 'The speech model download was interrupted. Please try again.', 'Unduhan model suara terputus. Coba lagi.', "音声認識モデルのダウンロードが中断されました。再試行してください。", "La descarga del modelo de voz se interrumpió. Vuelva a intentarlo.", "语音识别模型下载中断了。请重试。")
   } finally { try { reader.releaseLock() } catch {} await fh.close() }
-  if (got !== spec.size || hash.digest('hex') !== spec.sha256) {
+  const digest = hash.digest('hex')
+  if (got !== spec.size || digest !== spec.sha256) {
     fs.rmSync(part, { force: true })
-    throw fail('내려받은 음성 인식 모델이 손상됐어요. 다시 시도해 주세요.', 'The downloaded speech model is damaged. Please try again.', 'Model suara yang diunduh rusak. Coba lagi.', "ダウンロードした音声認識モデルが破損しています。再試行してください。", "El modelo de voz descargado está dañado. Vuelva a intentarlo.", "下载的语音识别模型已损坏。请重试。", 'internal')
+    // why, for the log (jobs/model-prefetch.ts logs the reason): cut short, too long, or other bytes
+    const why = got !== spec.size ? `got ${got} of ${spec.size} bytes${got > spec.size ? ' (more than the model)' : ''}` : `sha256 ${digest}, expected ${spec.sha256}`
+    throw fail('내려받은 음성 인식 모델이 손상됐어요. 다시 시도해 주세요.', 'The downloaded speech model is damaged. Please try again.', 'Model suara yang diunduh rusak. Coba lagi.', "ダウンロードした音声認識モデルが破損しています。再試行してください。", "El modelo de voz descargado está dañado. Vuelva a intentarlo.", "下载的语音识别模型已损坏。请重试。", 'internal', `damaged: ${why}`)
   }
   fs.renameSync(part, file)
   return file

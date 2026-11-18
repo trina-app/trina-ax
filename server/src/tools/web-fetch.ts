@@ -23,7 +23,7 @@ import { which } from '../config'
 import { ToolError } from '../policy/errors'
 import { runIsolated } from './isolate'
 import { zipEntries } from '../file-list/sniff'
-import { RefusedKind, settleKind, sniffDownload } from './sniff'
+import { readAtOf, RefusedKind, settleKind, sniffDownload } from './sniff'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 
 export const FETCH_MAX_BYTES = 5 * 1024 * 1024
@@ -676,7 +676,7 @@ async function readDocument(data: Buffer, ct: string, url: URL, cut: boolean, o:
   let k = sniffDownload(data.subarray(0, 64), ct, name)
   if (!k || k.media === 'image' || k.media === 'video' || k.media === 'audio') throw unsupported()
   if (cut) throw new ToolError(`this ${k.name === 'ole' ? 'Office' : k.label} file is larger than ${FETCH_MAX_BYTES / 1048576} MB, more than web_fetch reads. Save it with save_url, then read the saved file`)
-  try { k = settleKind(k, data, ct, name) } catch (e) {
+  try { k = settleKind(k, readAtOf(data), data.length, ct, name) } catch (e) {
     if (e instanceof RefusedKind) throw new ToolError(`this is ${e.what}, which web_fetch does not read`)
     throw e
   }

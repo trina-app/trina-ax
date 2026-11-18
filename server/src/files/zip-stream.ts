@@ -20,6 +20,8 @@ export function dosTime(d: Date): { time: number; date: number } {
 }
 
 export class ZipTooLarge extends Error {}
+/** the largest zip and the most entries without zip64 (tests lower them) */
+export const ZIP_STREAM_LIMITS = { bytes: MAX_32 - 1, entries: 0xfffe }
 
 export class ZipStream {
   private fd: number
@@ -32,7 +34,7 @@ export class ZipStream {
   get entries() { return this.central.length }
 
   private put(b: Uint8Array) {
-    if (this.offset + b.length >= MAX_32) throw new ZipTooLarge('the zip would be 4 GB or larger')
+    if (this.offset + b.length > ZIP_STREAM_LIMITS.bytes) throw new ZipTooLarge('the zip would be 4 GB or larger')
     for (let off = 0; off < b.length;) off += fs.writeSync(this.fd, b, off, b.length - off, this.offset + off)
     this.offset += b.length
   }
@@ -53,6 +55,7 @@ export class ZipStream {
   }
 
   private centralEntry(name: Buffer, method: number, at: { time: number; date: number }, crc: number, csize: number, usize: number, local: number, dir: boolean) {
+    if (this.central.length >= ZIP_STREAM_LIMITS.entries) throw new ZipTooLarge('too many entries')
     const c = Buffer.alloc(46 + name.length)
     c.writeUInt32LE(0x02014b50, 0)
     c.writeUInt16LE((3 << 8) | 20, 4) // made by Unix (its mode in the external attributes), version 2.0
@@ -130,7 +133,7 @@ export class ZipStream {
     const cdStart = this.offset
     for (const c of this.central) this.put(c)
     const cdSize = this.offset - cdStart
-    if (this.central.length > 0xfffe) throw new ZipTooLarge('too many entries')
+    if (this.central.length > ZIP_STREAM_LIMITS.entries) throw new ZipTooLarge('too many entries')
     const end = Buffer.alloc(22)
     end.writeUInt32LE(0x06054b50, 0)
     end.writeUInt16LE(this.central.length, 8)

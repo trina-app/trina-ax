@@ -31,4 +31,17 @@
   `list_only` work as for a zip, and so do the zip limits, the slot, the checks and the cards.
 - **Why one tool for both:** an email file is a container like a zip, and the person says the same words ("take the
   files out"); one rule in the prompt covers both.
-- Tests: `tests/unit/c-make-zip.test.ts`. Version impact: minor (a new tool).
+- **After the security review of #1302:**
+  - In a shared chat the read card counts every folder with its own rules under each named folder that the asker
+    can read (`chat/turn.ts sharedSources`, as for a search), so a restricted sub-folder asks before its names reach
+    the chat. (The rooms AI that ROOM_FILE_TOOLS was first written for is gone; the list now only marks a chat's own
+    words, and the shared chat's read card is the one gate.)
+  - Each folder is checked once per zip, then each file by the rules as they are now, its inode against the walk's
+    and its descriptor (10,000 files: about 6 s instead of 80 s).
+  - Empty folders count toward the 10,000 entries and are on the wider-audience card; a zip past 4 GB or 65,534
+    entries while streaming is a plain refusal; a guest's file count and bytes are checked before any work.
+  - A file out of a zip or an email is never saved under a name an AI follows as instructions (CLAUDE.md, AGENTS.md,
+    GEMINI.md, SKILL.md): it gets " (2)" as if the name were taken, and the answer says so.
+  - An .eml is parsed twice per call on purpose: once for the plan, once in the slot after the cards, so the email is
+    not held in memory while a card waits (as for a zip).
+- Tests: `tests/unit/c-make-zip.test.ts`, `tests/unit/b-shared-make-zip.test.ts`. Version impact: minor (a new tool).

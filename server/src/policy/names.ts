@@ -52,3 +52,7 @@ export const volumeKey = (p: string, caseInsensitive: boolean) => { const n = p.
 export function hiddenEntry(name: string, depth: number): boolean {
   return name.startsWith(PRODUCT.tmpPrefix) || (depth === 0 && name === PRODUCT.systemDir)
 }
+
+/** A file name an AI follows as instructions (CLAUDE.md, AGENTS.md, GEMINI.md, SKILL.md; chat/turn.ts instructionLike
+ * has the paths): a file that comes out of a zip or an email is never saved under it (tools/unzip.ts) */
+export const instructionFileName = (name: string) => /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(name)

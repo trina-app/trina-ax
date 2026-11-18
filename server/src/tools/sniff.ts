@@ -7,14 +7,12 @@
 // sniffDownload adds a zip or compound-file container and CSV text on the first bytes, and settleKind decides what the
 // whole file is once it is downloaded (the names in a zip's directory, the streams of a compound file, the text of a
 // CSV), refusing program packages and installers.
-import { readCfb } from '../files/cfb'
-import { sniff as sniffWhole, zipEntries } from '../file-list/sniff'
 
 export type KindName = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'mp4' | 'mov' | 'webm' | 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg' | 'opus'
   | 'docx' | 'docm' | 'xlsx' | 'xlsm' | 'pptx' | 'pptm' | 'doc' | 'xls' | 'ppt' | 'hwp' | 'hwpx' | 'odt' | 'ods' | 'odp' | 'msg' | 'zip' | 'csv' | 'tsv'
   /** a compound file (OLE2) whose kind settleKind decides after the download; never saved as it is */
   | 'ole'
-export interface FileKind { name: KindName; ext: string; mime: string; label: string; image: boolean; media: 'image' | 'document' | 'video' | 'audio' | 'archive' | 'data' }
+export interface FileKind { name: KindName; ext: string; mime: string; label: string; image: boolean; media: 'image' | 'document' | 'video' | 'audio' | 'archive' | 'data'; /** a document with macros (programs inside it): the AI warns the person */ macros?: true }
 
 const K = (name: KindName, ext: string, mime: string, label: string, media: FileKind['media']): FileKind => ({ name, ext, mime, label, image: media === 'image', media })
 export const KINDS: Record<KindName, FileKind> = {
@@ -34,11 +32,11 @@ export const KINDS: Record<KindName, FileKind> = {
   ogg: K('ogg', 'ogg', 'audio/ogg', 'Ogg', 'audio'),
   opus: K('opus', 'opus', 'audio/ogg', 'Opus', 'audio'),
   docx: K('docx', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Word', 'document'),
-  docm: K('docm', 'docm', 'application/vnd.ms-word.document.macroEnabled.12', 'Word (with macros)', 'document'),
+  docm: { macros: true, ...K('docm', 'docm', 'application/vnd.ms-word.document.macroEnabled.12', 'Word (with macros)', 'document') },
   xlsx: K('xlsx', 'xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Excel', 'document'),
-  xlsm: K('xlsm', 'xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12', 'Excel (with macros)', 'document'),
+  xlsm: { macros: true, ...K('xlsm', 'xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12', 'Excel (with macros)', 'document') },
   pptx: K('pptx', 'pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'PowerPoint', 'document'),
-  pptm: K('pptm', 'pptm', 'application/vnd.ms-powerpoint.presentation.macroEnabled.12', 'PowerPoint (with macros)', 'document'),
+  pptm: { macros: true, ...K('pptm', 'pptm', 'application/vnd.ms-powerpoint.presentation.macroEnabled.12', 'PowerPoint (with macros)', 'document') },
   doc: K('doc', 'doc', 'application/msword', 'Word 97-2003', 'document'),
   xls: K('xls', 'xls', 'application/vnd.ms-excel', 'Excel 97-2003', 'document'),
   ppt: K('ppt', 'ppt', 'application/vnd.ms-powerpoint', 'PowerPoint 97-2003', 'document'),
@@ -200,62 +198,169 @@ export function sniffDownload(first: Uint8Array, declared: string, name: string)
 /** A refusal of a downloaded container: a program package or an installer. */
 export class RefusedKind extends Error { constructor(readonly what: string) { super(what); this.name = 'RefusedKind' } }
 
-/** the largest file whose directory settleKind reads in full (a bigger one stays a ZIP, or what its name says) */
-export const SETTLE_READ_MAX = 256 * 1024 * 1024
 const PROGRAM_EXT = new Set(['apk', 'aab', 'jar', 'war', 'ear', 'xpi', 'crx', 'ipa', 'appx', 'appxbundle', 'msix', 'msixbundle', 'vsix', 'nupkg', 'whl', 'msi', 'msp', 'exe', 'dll'])
 
+/** `len` bytes of the file from `pos` (fewer at its end): a downloaded file is never read whole to judge it */
+export type ReadAt = (pos: number, len: number) => Uint8Array
+/** a buffer as a ReadAt (web_fetch's body, tests) */
+export const readAtOf = (b: Uint8Array): ReadAt => (pos, len) => b.subarray(Math.max(0, pos), Math.max(0, Math.min(b.length, pos + len)))
+
+/** the largest central directory read to judge a zip (about 500,000 names); a larger one is refused */
+export const ZIP_DIR_READ_MAX = 64 * 1024 * 1024
+/** the directory of a compound file: at most this many sectors are followed */
+const CFB_DIR_SECTORS_MAX = 20_000
+
+const dv = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength)
+const u64 = (v: DataView, at: number) => v.getUint32(at, true) + v.getUint32(at + 4, true) * 2 ** 32
+
+/** The names in a zip's central directory and where the `mimetype` entry's data is, read from the end of the file
+ * (the end record, a zip64 end record when there is one, then the directory itself); null when it is not readable. */
+export function zipNamesAt(read: ReadAt, size: number): { names: string[]; mimetype: string | null } | null {
+  if (size < 22) return null
+  const tailLen = Math.min(size, 22 + 0xffff + 20)
+  const tail = read(size - tailLen, tailLen)
+  const tv = dv(tail)
+  let eocd = -1
+  for (let i = tail.length - 22; i >= 0; i--) if (tv.getUint32(i, true) === 0x06054b50) { eocd = i; break }
+  if (eocd < 0) return null
+  let count = tv.getUint16(eocd + 10, true)
+  let cdSize = tv.getUint32(eocd + 12, true)
+  let cdOff = tv.getUint32(eocd + 16, true)
+  if (count === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) {
+    // zip64: the locator just before the end record points at the zip64 end record
+    if (eocd < 20 || tv.getUint32(eocd - 20, true) !== 0x07064b50) return null
+    const at = u64(tv, eocd - 20 + 8)
+    const z = read(at, 56)
+    if (z.length < 56 || dv(z).getUint32(0, true) !== 0x06064b50) return null
+    count = u64(dv(z), 32); cdSize = u64(dv(z), 40); cdOff = u64(dv(z), 48)
+  }
+  if (cdSize > ZIP_DIR_READ_MAX || cdOff + cdSize > size) return null
+  const cd = read(cdOff, cdSize)
+  if (cd.length < cdSize) return null
+  const v = dv(cd)
+  const names: string[] = []
+  let mimeAt: { local: number; csize: number; method: number } | null = null
+  const utf8 = new TextDecoder('utf-8')
+  for (let p = 0, n = 0; n < count; n++) {
+    if (p + 46 > cd.length || v.getUint32(p, true) !== 0x02014b50) return names.length ? { names, mimetype: null } : null
+    const nameLen = v.getUint16(p + 28, true), extraLen = v.getUint16(p + 30, true), commentLen = v.getUint16(p + 32, true)
+    const name = utf8.decode(cd.subarray(p + 46, p + 46 + nameLen)).normalize('NFC')
+    names.push(name)
+    if (name === 'mimetype') mimeAt = { local: v.getUint32(p + 42, true), csize: v.getUint32(p + 20, true), method: v.getUint16(p + 10, true) }
+    p += 46 + nameLen + extraLen + commentLen
+  }
+  let mimetype: string | null = null
+  // the OpenDocument type: the stored `mimetype` entry (a few dozen bytes) after its local header
+  if (mimeAt && mimeAt.method === 0 && mimeAt.csize <= 200) {
+    const h = read(mimeAt.local, 30)
+    if (h.length === 30 && dv(h).getUint32(0, true) === 0x04034b50) {
+      const start = mimeAt.local + 30 + dv(h).getUint16(26, true) + dv(h).getUint16(28, true)
+      mimetype = Buffer.from(read(start, mimeAt.csize)).toString('latin1')
+    }
+  }
+  return { names, mimetype }
+}
+
+/** The names of the entries of a compound file (storages and streams, all levels), from its header, the FAT sectors
+ * its directory chain needs and the directory itself; null when it is not one this reader can follow. */
+export function cfbNamesAt(read: ReadAt, size: number): string[] | null {
+  const h = read(0, 512)
+  if (h.length < 512 || !isOleHead(h)) return null
+  const v = dv(h)
+  if (v.getUint16(28, true) !== 0xfffe) return null
+  const shift = v.getUint16(30, true)
+  if (shift !== 9 && shift !== 12) return null
+  const ss = 1 << shift
+  const per = ss / 4
+  const sectorAt = (n: number) => (n + 1) * ss
+  // the FAT's own sectors: 109 in the header, then the DIFAT chain
+  const fatSectors: number[] = []
+  for (let i = 0; i < 109; i++) { const x = v.getUint32(76 + i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
+  let difat = v.getUint32(68, true)
+  for (let guard = 0; difat < 0xfffffffa && guard < 10_000; guard++) {
+    const d = read(sectorAt(difat), ss)
+    if (d.length < ss) return null
+    const dvv = dv(d)
+    for (let i = 0; i < per - 1; i++) { const x = dvv.getUint32(i * 4, true); if (x < 0xfffffffa) fatSectors.push(x) }
+    difat = dvv.getUint32((per - 1) * 4, true)
+  }
+  const fatCache = new Map<number, DataView>()
+  const next = (s: number): number | null => {
+    const fs = fatSectors[Math.floor(s / per)]
+    if (fs === undefined) return null
+    let f = fatCache.get(fs)
+    if (!f) { const b = read(sectorAt(fs), ss); if (b.length < ss) return null; f = dv(b); fatCache.set(fs, f) }
+    return f.getUint32((s % per) * 4, true)
+  }
+  const names: string[] = []
+  const seen = new Set<number>()
+  for (let sec: number | null = v.getUint32(48, true); sec !== null && sec < 0xfffffffa; sec = next(sec)) {
+    if (seen.has(sec) || seen.size >= CFB_DIR_SECTORS_MAX || sectorAt(sec) + ss > size + ss) return null
+    seen.add(sec)
+    const d = read(sectorAt(sec), ss)
+    if (d.length < ss) return null
+    for (let at = 0; at + 128 <= ss; at += 128) {
+      const len = dv(d).getUint16(at + 64, true)
+      const type = d[at + 66]
+      if (!type || len < 2 || len > 64) continue
+      names.push(Buffer.from(d.subarray(at, at + len - 2)).toString('utf16le'))
+    }
+  }
+  return names.length ? names : null
+}
+
 /**
- * What a downloaded zip, compound file or table really is, from all of its bytes (`whole`, null when it is larger than
- * SETTLE_READ_MAX). A zip: Word / Excel / PowerPoint (with macros when it carries a VBA project), Hangul HWPX,
- * OpenDocument, else a plain ZIP; an app package (APK, JAR, browser extensions, Windows app packages) is refused. A
- * compound file: by its streams (WordDocument, Workbook, PowerPoint Document, Hangul's FileHeader, an Outlook
- * message), else what the site or the name said among those; an installer (MSI) or anything else is refused. A table:
- * the first 8 KB must hold no NUL.
+ * What a downloaded zip, compound file or table really is, read from the file in small parts (`read`; never the whole
+ * file and never by its name alone). A zip: Word / Excel / PowerPoint (macro-enabled when it carries a VBA project),
+ * Hangul HWPX, OpenDocument, else a plain ZIP, by the names in its directory; an app package (APK, JAR, browser
+ * extensions, Windows app packages) and a zip whose directory cannot be read are refused. A compound file: by the names
+ * of its entries (WordDocument, Workbook, PowerPoint Document, Hangul's FileHeader, an Outlook message; Word's Macros
+ * and Excel's _VBA_PROJECT_CUR mark macros); an installer (MSI) or anything else is refused. A table: no NUL in its first
+ * 8 KB. `macros: true` on the kind: the AI warns the person (save_url).
  */
-export function settleKind(k: FileKind, whole: Uint8Array | null, declared: string, name: string): FileKind {
+export function settleKind(k: FileKind, read: ReadAt, size: number, declared: string, name: string): FileKind {
   const e = EXT_OF(name)
   if (k.name === 'zip') {
     if (PROGRAM_EXT.has(e)) throw new RefusedKind('a program package')
-    if (!whole) return KINDS[(['docx', 'xlsx', 'pptx', 'hwpx', 'odt', 'ods', 'odp'] as const).find((x) => x === e) ?? 'zip']
-    const entries = zipEntries(whole)
-    if (!entries) throw new RefusedKind('a damaged ZIP file (its list of files cannot be read)')
-    const names = entries.map((x) => x.name)
+    const dir = zipNamesAt(read, size)
+    if (!dir) throw new RefusedKind('a damaged ZIP file (its list of files cannot be read)')
+    const names = dir.names
     const has = (n: string) => names.includes(n)
     if (has('AndroidManifest.xml') || has('classes.dex') || has('META-INF/MANIFEST.MF') && names.some((n) => n.endsWith('.class'))
       || has('AppxManifest.xml') || has('extension.vsixmanifest') || names.some((n) => /^Payload\/[^/]+\.app\//.test(n)) || (has('manifest.json') && e === 'crx')) {
       throw new RefusedKind('a program package (an app or a browser extension)')
     }
-    const w = sniffWhole(whole.subarray(0, 4096), e, whole)
-    const vba = (dir: string) => has(`${dir}/vbaProject.bin`)
-    if (w === 'docx') return vba('word') ? KINDS.docm : KINDS.docx
-    if (w === 'xlsx') return vba('xl') ? KINDS.xlsm : KINDS.xlsx
-    if (w === 'pptx') return vba('ppt') ? KINDS.pptm : KINDS.pptx
-    if (w === 'hwpx' || w === 'odt' || w === 'ods' || w === 'odp') return KINDS[w]
+    const vba = (d: string) => has(`${d}/vbaProject.bin`)
+    if (has('[Content_Types].xml')) {
+      if (names.some((n) => n.startsWith('word/'))) return vba('word') ? KINDS.docm : KINDS.docx
+      if (names.some((n) => n.startsWith('xl/'))) return vba('xl') ? KINDS.xlsm : KINDS.xlsx
+      if (names.some((n) => n.startsWith('ppt/'))) return vba('ppt') ? KINDS.pptm : KINDS.pptx
+    }
+    if (has('Contents/section0.xml') || has('Preview/PrvText.txt') || has('Contents/content.hpf')) return KINDS.hwpx
+    const m = dir.mimetype ?? ''
+    if (m.includes('opendocument.text')) return KINDS.odt
+    if (m.includes('opendocument.spreadsheet')) return KINDS.ods
+    if (m.includes('opendocument.presentation')) return KINDS.odp
     return KINDS.zip
   }
   if (k.name === 'ole') {
     if (PROGRAM_EXT.has(e)) throw new RefusedKind('an installer or another program file')
-    const byName = (['doc', 'xls', 'ppt', 'hwp', 'msg'] as const).find((x) => x === e || SAME_EXT[x]?.includes(e)) ?? (['doc', 'xls', 'ppt', 'hwp', 'msg'] as const).find((x) => x === declaredKind(declared))
-    if (whole) {
-      let streams: string[] | null = null
-      try { streams = [...readCfb(whole).streams.keys()] } catch { streams = null }
-      if (streams) {
-        const top = new Set(streams.map((s) => s.split('/')[0]!))
-        if (top.has('WordDocument')) return KINDS.doc
-        if (top.has('Workbook') || top.has('Book')) return KINDS.xls
-        if (top.has('PowerPoint Document')) return KINDS.ppt
-        if (top.has('FileHeader') && (top.has('DocInfo') || top.has('BodyText'))) return KINDS.hwp
-        if (top.has('__properties_version1.0') && streams.some((s) => s.includes('__substg1.0_'))) return KINDS.msg
-        throw new RefusedKind('a compound file that is not a Word, Excel, PowerPoint, Hangul or Outlook file (an installer, for example)')
-      }
-    }
-    if (byName) return KINDS[byName]
-    throw new RefusedKind('a compound file that is not a Word, Excel, PowerPoint, Hangul or Outlook file (an installer, for example)')
+    const names = cfbNamesAt(read, size)
+    const refuse = () => new RefusedKind('a compound file that is not a Word, Excel, PowerPoint, Hangul or Outlook file (an installer, for example)')
+    if (!names) throw refuse()
+    const all = new Set(names)
+    const macro = (kind: FileKind, mark: string) => (all.has(mark) ? { ...kind, macros: true as const, label: `${kind.label} (with macros)` } : kind)
+    if (all.has('WordDocument')) return macro(KINDS.doc, 'Macros')
+    if (all.has('Workbook') || all.has('Book')) return macro(KINDS.xls, '_VBA_PROJECT_CUR')
+    if (all.has('PowerPoint Document')) return KINDS.ppt
+    if (all.has('FileHeader') && (all.has('DocInfo') || all.has('BodyText'))) return KINDS.hwp
+    if (all.has('__properties_version1.0') && names.some((n) => n.startsWith('__substg1.0_'))) return KINDS.msg
+    throw refuse()
   }
   if (k.name === 'csv' || k.name === 'tsv') {
-    const head = whole ? whole.subarray(0, 8192) : null
-    const bom16 = !!head && head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))
-    if (head && !bom16 && head.includes(0)) throw new RefusedKind('a binary file, not a CSV table')
+    const head = read(0, 8192)
+    const bom16 = head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))
+    if (!bom16 && head.includes(0)) throw new RefusedKind('a binary file, not a CSV table')
   }
   return k
 }
