@@ -91,6 +91,25 @@ describe('NarrationHold', () => {
     for (const line of LEAKED_1117) expect(run(ko(), [{ text: '확인했어요.\n\n' }, 'tool', { text: line }, 'end']), line).toBe('확인했어요.\n\n' + line)
   })
 
+  test('11-18 (EDIT-17.project): the person\'s own words in quotes do not make a note Korean; an order where to put something is a note', () => {
+    const msg = '공용 회의록에 라마바카페 견적 발송 완료라고 한 줄 추가해줘'
+    const ask = () => new NarrationHold('ko', msg)
+    for (const n of [1, 3, 7]) {
+      expect(run(ask(), [{ text: '"공용 회의록" — likely in shared. Find it.' }, 'tool', { text: '\n\n' }, { text: '한 줄 넣었습니다.' }, 'end'], n)).toBe('한 줄 넣었습니다.')
+      expect(run(ask(), [{ text: '확인했어요.' }, 'tool', { text: '\n\nAdd under section 1.' }, 'tool', { text: '\n\n넣었습니다.' }, 'end'], n)).toBe('확인했어요.\n\n넣었습니다.')
+    }
+    expect(dropped('Append it at the end of the notes.')).toBe(true)
+    // a quote that is not the person's words still keeps the line, and Korean after the quote streams as before
+    expect(run(new NarrationHold('ko', '회의록에 추가해줘'), [{ text: '"공용 회의록" — likely in shared. Find it.' }, 'tool', { text: '\n\n끝.' }, 'end']))
+      .toBe('"공용 회의록" — likely in shared. Find it.\n\n끝.')
+    const h = ask()
+    expect(h.push('"공용 회의록"에 ')).toBe('"공용 회의록"에 ')
+    // the same lines as the last piece are kept; placing orders said to people are kept
+    expect(run(ask(), [{ text: '확인했어요.\n\n' }, 'tool', { text: 'Add under section 1.' }, 'end'])).toBe('확인했어요.\n\nAdd under section 1.')
+    for (const piece of ['Please add under section 1.', 'Add your name under section 1, Sora.', 'Put it in the fridge.', 'Add milk to the list.'])
+      expect(run(ask(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
+  })
+
   test('a note that is copied into the next call (a message posted, a file written) or that the person wrote is content', () => {
     const line = 'No price list in sales; check the shared folder.'
     expect(dropped(line)).toBe(true)

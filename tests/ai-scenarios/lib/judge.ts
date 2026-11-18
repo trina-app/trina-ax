@@ -103,6 +103,7 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
     '',
     `## Case ${c.id}: ${c.title}`,
     `Asked by: ${c.as} (${people})`,
+    `Date and time when the case ran, in the team time zone (${TEAM_ZONE}): ${new Intl.DateTimeFormat('en-CA', { timeZone: TEAM_ZONE, dateStyle: 'full', timeStyle: 'short' }).format(new Date(r.startedAt))}. This is the AI's "today"; the judge's own clock is not.`,
     `Place: ${PLACE[c.context]}`,
     `Install: ${c.install}`,
     `Chat shared with other people (the server's own flag): ${r.chatShared === undefined ? 'unknown' : r.chatShared ? 'yes' : 'no'}`,

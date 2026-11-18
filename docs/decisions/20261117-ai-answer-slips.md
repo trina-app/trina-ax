@@ -53,6 +53,26 @@
   none twice. What is left is a judgement: with "decide yourself", the AI still sometimes posts the existing quote although
   the person's own room message promised a revised, sealed one. Open, with EDIT-17.project's one answer that began with
   English working notes.
-- **Tests:** `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
+- **Follow-ups (2026-11-18, branch fix/answer-slips-2):**
+  - **EDIT-17.project (product): the work notes came through the answer hold.** The answer began with
+    '"공용 회의록" — likely in shared. Find it.' and 'Add under section 1.', each written right before a tool call.
+    The hold ([20261117-answer-work-notes.md](20261117-answer-work-notes.md), `chat/narration.ts`) already covers
+    such notes but kept both: the first because the person's own words in quote marks made it non-ASCII (Korean), the
+    second because "add … under" was no note shape it knew. Now a quoted phrase of at most 40 characters that is in the
+    person's message counts as a name, like a quoted file name (while streaming, so does an open quote whose words so
+    far are theirs), and an order to itself where to put something ("Add under section 1.", "Append it at the end of the
+    notes.") is a work note. Everything else stays: only before a real call, never the last piece, never content
+    copied into the call; "Please add …", a quote that is not the person's words, and Korean text keep the line.
+  - **CHT-02 (product): "decide yourself" follows what the person said they would do.** The ask rule (`ASK_USER_RULE`
+    in `chat/prompt.ts`, no app-map line) now says: when the person leaves the choice to the AI, pick what fits the
+    latest thing they said they would do (in this chat or their own room messages) and say which; if nothing that exists
+    fits (a promised revised or signed version that is not there yet), do not send or post an older one in its place:
+    say so and ask once more, or offer to make it first. The room post's card is unchanged.
+  - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
+    `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
+    own usage; "MCP" as a word of its own is still jargon), the model that answered each turn (the engine tells the AI
+    its model), the asker's name with the given name ("하나 님" for 최하나), and each turn's own send time in the zone it
+    was sent with (`TurnRecord.sentAt`; older results fall back on the case start and say so) instead of the case start.
+- **Tests:** `tests/unit/narration-hold.test.ts`, `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
   before and after the team lets them pick), `tests/unit/ai-scenarios-prompts.test.ts`.
 - **Version impact:** patch (the AI's answers; no screen, API or migration).

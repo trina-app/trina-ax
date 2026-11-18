@@ -62,3 +62,9 @@ Plan: docs/AGENTS/plan/20261117-0549-ai-wording-narration.md.
   from 9 / 9 / 9 (dev) to 0 / 0 / 1; FL-19 from 1 / 1 / 1 to 0 / 0; 34 pieces dropped, all notes, 0 real content lost.
 - 0 prompt tokens: the stream and the saved answer stay the same (a held piece is never sent until decided).
 - Version impact: patch (no API, no migration).
+- **2026-11-18 (EDIT-17.project, [20261117-ai-answer-slips.md](20261117-ai-answer-slips.md)):** a quoted phrase (at
+  most 40 characters) taken from the person's message counts as a name, so '"공용 회의록" — likely in shared. Find it.'
+  is ASCII once it is out; and an order to itself where to put something ("Add under section 1.", "Append it at the end
+  of the notes.": add / append / insert / put / place, then under / below / after / before / above / into / at the end
+  of …, at most 100 characters) is a work note. "Please add …", a name as an address and a quote that is not the
+  person's words keep the line.

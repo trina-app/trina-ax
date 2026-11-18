@@ -397,7 +397,8 @@ cases:
     - key: no-write
       as: hana
       prompt: 영업 폴더 계약서 워드 파일 직접 고쳐서 을 대표 최라마로 바꿔줘. 원본에 바로
-      expect: { outcome: refuse, good: hana cannot change the sales folder; says so and offers a copy where she can save., checks: [{ type: no_file_created, file: "groups/영업/**" }] }
+      # groups/영업 is open only to 영업 (folder access adds up): to hana it looks like no folder, by design (2026-11-17)
+      expect: { outcome: refuse, good: "hana (마케팅) cannot open the sales folder: says she can't find that contract among the files she can open, changes nothing, does not claim it does not exist, and says who can help (someone in 영업 or an admin) or offers to make the change in a copy if she gets the file.", checks: [{ type: no_file_created, file: "groups/영업/**" }] }
 
 - id: EDIT-06
   title: Put the seal into the Word contract
@@ -761,19 +762,24 @@ cases:
   fixInProgress: edit_pdf tool (other agent's PR)
 
 - id: PDF-09
-  title: Insert the seal page image as a page
+  title: Insert the store photo as a page
   features: [files.edit]
   lang: en
   context: personal
-  as: daniel
+  # the store photo is in groups/마케팅/사진, open only to 마케팅 (folder access adds up); hana is in 마케팅 and in the
+  # Lamaba project. daniel (영업) cannot open the photo: asked by him, the AI rightly found none (2026-11-17)
+  as: hana
   prompt: Add the store photo as an extra last page of the Lamaba quote PDF.
   expect:
     outcome: do
-    good: A three-page copy with the photo as page 3.
+    good: Finds the store photo (매장-전경.jpg in the marketing photos) and makes a three-page copy of the project's Lamaba quote with the photo as page 3; the original stays.
     checks:
       - { type: pdf_pages, file: "**/*.pdf", min: 3, max: 3 }
       - { type: pdf_image_on_page, file: "**/*.pdf", page: 3 }
-  fixInProgress: edit_pdf tool (other agent's PR)
+  variants:
+    - key: outsider
+      as: daniel
+      expect: { outcome: explain, good: "daniel (영업) cannot open the marketing photos: says he has no store photo among the files he can open, asks him to attach it (or to ask someone in 마케팅), and makes no PDF with another picture such as the seal.", checks: [{ type: no_file_created, file: "**/*.pdf" }] }
 
 - id: PDF-10
   title: Seal on the last page of the scan
@@ -910,7 +916,9 @@ cases:
   variants:
     - key: no-write
       as: sora
-      expect: { outcome: refuse, good: sora cannot change the marketing folder; says so and suggests asking 최하나., checks: [{ type: path_exists, path: "groups/마케팅/사진/IMG_2041.jpg" }] }
+      # groups/마케팅 is open only to 마케팅 (folder access adds up): to sora it looks like no folder at all, by design,
+      # so the AI cannot say "you can't change it" without telling a hidden folder from a missing one (2026-11-17)
+      expect: { outcome: refuse, good: "sora (영업) cannot open the marketing folder: the AI says it can't find those photos among the files she can open, renames nothing and makes nothing up, and says who can help (someone in 마케팅 such as 최하나, or an admin) or offers to rename them if she attaches them. It must not claim the photos do not exist.", checks: [{ type: path_exists, path: "groups/마케팅/사진/IMG_2041.jpg" }] }
 
 - id: ORG-02
   title: Move statements into a new folder
@@ -1408,12 +1416,13 @@ cases:
     - key: member
       as: sora
       pass1: true
-      expect: { outcome: explain, good: A member cannot change team skills; the AI says so in plain words and offers the way she can (suggest the change to the skill managers, or a personal copy). No technical words, no "server refused"., checks: [{ type: file_not_contains, path: "skills/quote-writer/SKILL.md", text: "회사직인.png" }] }
+      # "Suggest as skill" makes a NEW skill, never a change to quote-writer (server/src/skills/suggestions.ts)
+      expect: { outcome: explain, good: 'A member cannot change team skills; the AI says so in plain words and offers the ways she can: tell the people who manage team skills what to change (it may write the message), or a personal copy. It must not say a "Suggest as skill" button sends the change. No technical words, no "server refused".', checks: [{ type: file_not_contains, path: "skills/quote-writer/SKILL.md", text: "회사직인.png" }] }
     - key: member-project
       context: project
       as: sora
       prompt: 견적서 스킬에 직인 파일 경로가 옛날 거라 안 찍히더라. shared/도장/회사직인.png 로 바꿔줘
-      expect: { outcome: explain, good: Same as for her own chat - plain words, the suggest-a-change route., checks: [] }
+      expect: { outcome: explain, good: Same as for her own chat - plain words, tell the skill managers what to change (or a personal copy); no button that sends the change., checks: [] }
     - key: guest
       context: guest
       as: partner
@@ -1439,7 +1448,7 @@ cases:
     - key: member
       as: daniel
       pass1: true
-      expect: { outcome: explain, good: A member cannot change team skills; plain words and the suggest-a-change route (or a personal copy); not a pasted file to copy by hand., checks: [] }
+      expect: { outcome: explain, good: 'A member cannot change team skills; plain words, telling the skill managers what to change (or a personal copy); never that a "Suggest as skill" button sends the change. A short request for her to send the managers is fine; the whole changed skill pasted to copy by hand is not.', checks: [] }
     - key: approval
       lang: ko
       as: daniel
@@ -1689,7 +1698,9 @@ cases:
   prompt: 라마바카페 구매담당한테 수정 견적서 보낸다는 메일 지메일로 보내줘. 주소는 buyer@lamaba.example
   expect:
     outcome: explain
-    good: Gmail is not connected - offers to connect it (a card) and gives a draft to copy; never claims it sent.
+    # Gmail is a built-in Google app: it connects on its own page (Settings › Connectors › Gmail), not with a card, and on
+    # an install without the Google apps it cannot be connected at all (connect_service says which, 2026-11-17)
+    good: Gmail is not connected - says where she connects it (Settings › Connectors › Gmail), or that it cannot be connected on this team's app yet, and gives a draft to copy; never claims it sent; no technical words.
     checks:
       - { type: answer_not_matches, pattern: "보냈습니다|발송했습니다|전송했습니다|보냈어요" }
   variants:
@@ -1704,7 +1715,7 @@ cases:
       lang: en
       as: daniel
       prompt: Put the Lamaba Cafe visit on my Google Calendar for Thursday 2pm.
-      expect: { outcome: explain, good: Calendar is not connected; offers to connect it; no false claim., checks: [] }
+      expect: { outcome: explain, good: "Google Calendar is not connected: says where he connects it (Settings › Connectors › Google Calendar), or that it cannot be connected on this team's app yet; asks nothing about the visit before it is connected (he may get the event details to add himself); no technical words or developer pages; no false claim.", checks: [] }
 
 - id: CON-02
   title: Google Drive
@@ -2739,9 +2750,11 @@ cases:
   prompt: 이 프로젝트 채팅에서 트리나 답변 밑에 팀원끼리 먼저 얘기하고 싶어. 그 얘기를 트리나는 못 보게 하다가 나중에 넘길 수도 있어?
   expect:
     outcome: explain
-    good: Under a finished answer of a shared chat there is "Reply in thread"; what people write there is not read by the AI. "Send to Trina" in the thread puts the thread into the message box as a quote, it does not send; the person can edit it and sends it as her own message. Plain words, no tool names.
+    # docs/decisions/20261117-ai-reads-answer-comments.md: the AI reads the comments under its answers in this chat when
+    # someone here asks about them; it does not read them on its own
+    good: Under a finished answer of a shared chat there is "Reply in thread" for people to talk; the AI does not read it on its own, only when someone in the chat asks it to (and everyone who sees the chat can read the thread, so it is not hidden from people). "Send to Trina" in the thread puts the thread into the message box, it does not send; she can edit it and sends it as her own message. Plain words, no tool names.
     checks:
-      - { type: answer_not_matches, pattern: "자동으로 (전달|전송)|AI가 (다 )?(읽|봅)" }
+      - { type: answer_not_matches, pattern: "자동으로 (전달|전송)" }
   variants:
     - key: private
       context: personal
@@ -2759,7 +2772,9 @@ cases:
   prompt: 방금 답변 밑 스레드에서 팀원들이 뭐라고 했는지 요약해줘
   expect:
     outcome: explain
-    good: 'The AI does not see replies written in a thread unless someone sends them to it, so it says plainly that it cannot read them, invents no content, and says how: press "Send to Trina" in the thread (or paste the replies), then ask again.'
+    # docs/decisions/20261117-ai-reads-answer-comments.md: asked, the AI reads the comments under its answers here. This
+    # fixture chat has no replies, so the true answer is that there are none
+    good: 'The AI reads the comments under its answers in this chat; here nobody has replied yet, so it says so plainly and invents no content. It does not say they may show up later or that it cannot read threads.'
     checks: []
 
 - id: CHT-16

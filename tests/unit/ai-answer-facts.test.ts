@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { situationOf, situationSection, type Situation } from '../../server/src/chat/situation'
-import { plainWordsRule } from '../../server/src/chat/prompt'
+import { ASK_USER_RULE, plainWordsRule } from '../../server/src/chat/prompt'
 import { fileNote, fileNoteOnce, hangulReadNote, versionKeptNote } from '../../server/src/chat/file-notes'
 import { firstLine, withCsvHeaders } from '../../server/src/files/service'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
@@ -79,6 +79,16 @@ describe('the plain-words rule', () => {
       expect(plainWordsRule(stamp)).toContain('a server or how it works inside')
       expect(plainWordsRule(stamp)).toContain('say "I can\'t open files on your computer", not that you work on a server')
     }
+  })
+})
+
+describe('the ask rule', () => {
+  test('CHT-02: "decide yourself" picks what fits the person\'s latest stated intent, never an older version in place of a promised one', () => {
+    expect(ASK_USER_RULE).toContain('ask with ask_user (short question, options when possible)')
+    expect(ASK_USER_RULE).toContain('pick what fits the latest thing they said they would do (in this chat or in their own room messages) and say which you picked')
+    expect(ASK_USER_RULE).toContain('do not send or post an older one in its place: say so in one line and ask once more, or offer to make it first')
+    // English source text only
+    expect(ASK_USER_RULE).not.toMatch(/[가-힣]/)
   })
 })
 

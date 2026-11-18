@@ -105,7 +105,7 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   try {
     // the device's zone, as the web app sends it with every turn (QA TC-4549): the case's, else the team's, so no turn
     // falls back on whatever the server does without one
-    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), timeZone: c.timeZone ?? TEAM_ZONE } })
+    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), ...{ timeZone: c.timeZone ?? TEAM_ZONE } } })
   } catch (e) {
     // the app itself said no (a guest without AI, a limit): what the person reads is the message
     if (!(e instanceof ApiError)) throw e
