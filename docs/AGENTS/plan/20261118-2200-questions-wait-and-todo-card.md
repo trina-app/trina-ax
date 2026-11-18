@@ -39,7 +39,7 @@ Out:
 
 ## Steps
 
-1. Migration 421: `open_questions` (request JSON, chat, answer message, turn, user, created_at, answers so far).
+1. Migration 423: `open_questions` (request JSON, chat, answer message, turn, user, created_at, answers so far).
 2. `server/src/chat/open-questions.ts`: save, list, answer, close on another send, the engine-message note.
 3. ask_user (chat/tools.ts): the deferred path; routes/chats.ts list and answer; runtime waitsForPerson and the push.
 4. `todo_write` in chat/tools.ts, Step.todos in shared, a hidden step per call, one todo step per answer.

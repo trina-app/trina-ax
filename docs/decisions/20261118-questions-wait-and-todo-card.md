@@ -16,7 +16,7 @@ Plan: docs/AGENTS/plan/20261118-2200-questions-wait-and-todo-card.md.
   "Not answered", and the AI went on with `{"skipped": true}`: it guessed, or stopped. An answer after that got 409
   "This question was already answered or has expired."
 - **Rule (questions):** in a chat a person watches (a web, desktop or phone turn), the main AI's ask_user saves its card
-  (table `open_questions`, migration 421) and returns `{"asked": true, note}` at once; the note tells the AI to end its
+  (table `open_questions`, migration 423) and returns `{"asked": true, note}` at once; the note tells the AI to end its
   answer. The answer ends as usual: no slot, no engine is held. The card has no `expiresAt` and stays under that answer,
   listed by GET /api/chats/:id/requests from the database, so it survives a reload, another device and a server restart.
   The chat says it waits (`Chat.waiting`, the "?" marker and the card push), as for any open card.
