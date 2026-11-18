@@ -109,6 +109,9 @@ export function relationships(xml: string, part = 'part', what = 'file'): { type
 /** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
  * not be scanned as text, so such a part is refused rather than skipped (security review) */
 const utf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
+/** UTF-32 (a byte order mark, or "<" as a 32-bit unit) in any part, whatever its name: never written by Office and not
+ * scanned as text, so refused (review of #1341) */
+const utf32 = (d: Uint8Array) => d.length >= 4 && [[0, 0, 0xfe, 0xff], [0xff, 0xfe, 0, 0], [0, 0, 0, 0x3c], [0x3c, 0, 0, 0]].some((p) => p.every((b, k) => d[k] === b))
 /** fonts (.odttf is scrambled bytes), pictures and other binary parts may start with FF FE by chance: there a part
  * counts as UTF-16 text when, read as UTF-16 (little or big endian, after a byte order mark if there is one), its first
  * character that is not white space is "<" (QA TC-4966; white space before "<" is still XML, review of #1341) */
@@ -155,6 +158,7 @@ export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): v
     }
     // every XML part, wherever it is and whatever its name: _rels/.rels and [Content_Types].xml can put the main
     // document or a header anywhere in the package (security review); a part is XML when it starts with "<"
+    if (utf32(e.data)) bad(what, `${e.name} is UTF-32 text, which Office does not write in these files`)
     if (BINARY_PART.test(e.name) ? utf16Text(e.data) : utf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
     if (kind === 'docx' && !/\.rels$/i.test(e.name) && looksXml(e.data)) {
       const hit = fieldWords(text(e.data), e.name, what).find((w) => UNSAFE_FIELDS.has(w))

@@ -110,6 +110,12 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
       expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([0xff, 0xfe, 0x12, 0x9a, 0x00, 0x01]) }]))).not.toThrow()
       expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: u16([0xff, 0xfe], true) }]))).toThrow(/UTF-16/)
     }
+    // UTF-32 (either byte order mark, or "<" as a 32-bit unit) in any part, whatever its name (review of #1341)
+    for (const head of [[0, 0, 0xfe, 0xff], [0xff, 0xfe, 0, 0], [0, 0, 0, 0x3c], [0x3c, 0, 0, 0]]) {
+      for (const name of ['word/header7.xml', 'word/media/image7.png', 'word/fonts/font7.odttf']) {
+        expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([...head, 0x20, 0, 0, 0]) }]))).toThrow(/UTF-32/)
+      }
+    }
     // white space between the byte order mark and "<" is still XML (review of #1341): a header stored under media/
     const spaced = (bom: number[], le: boolean, lead: string) => {
       const t = Buffer.from(`${lead}<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr="DDEAUTO a b"/></w:p></w:hdr>`, 'utf16le')
