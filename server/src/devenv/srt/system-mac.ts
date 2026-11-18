@@ -161,7 +161,8 @@ export function macSystem(c: MacConfig, host: MacHost = (sharedHost ??= realMacH
    * server crash): it is stopped and skipped this time. A state whose run ended (no process, older than a minute) is
    * given up only when every slot is taken. */
   async function pick(): Promise<{ account: string; index: number } | null> {
-    const taken = new Map(states().map((s) => [s.account, s]))
+    // the state of a slot, read live (another run may have written or freed one while this pick awaited a stop)
+    const stateOf = (account: string) => states().find((x) => x.account === account)
     // a slot whose port a living run may reach (a later command of the chat of its dev server) is never another run's:
     // that run would reach the new one (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md). A state of the
     // last minute counts though its processes may not be there yet. Read again right before a slot is given (no await
@@ -173,7 +174,7 @@ export function macSystem(c: MacConfig, host: MacHost = (sharedHost ??= realMacH
     let stale: { account: string; index: number; runId: string } | null = null
     for (const [index, account] of c.slots.entries()) {
       if (uidOf(account) === null || held(index) || reserved.has(key(account))) continue
-      const s = taken.get(account)
+      const s = stateOf(account)
       const busy = procsOf(account).length > 0
       if (!s && !busy) return give(account, index)
       if (!s && busy) { await stopAccount(account); continue }

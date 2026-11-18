@@ -418,6 +418,26 @@ describe('the macOS SrtSystem (fake Mac)', () => {
     // no slot left
     await expect(Promise.resolve(sys.spawn(spec(base, 'cccccccccccccccc')))).rejects.toThrow('every dev slot account is in use')
   })
+  // re-review of #1336: a leftover busy slot is stopped first (an await); a second run that took and released another
+  // slot meanwhile must not leave that slot looking free to the first
+  test('two runs at once with a leftover busy slot and slow stops get different slots', async () => {
+    for (const [first, second] of [[10, 200], [200, 10]] as const) {
+      const base = macBase()
+      const procs: MacProc[] = [{ uid: 451, pid: 9, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'left behind' }]
+      const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452, _axdev3: 453 }, procs })
+      let stops = 0
+      const run = f.host.run
+      f.host.run = async (argv, t) => { if (argv.includes('stop')) await Bun.sleep(stops++ === 0 ? first : second); return run(argv, t) }
+      const sys = macSystem({ base, slots: ['_axdev1', '_axdev2', '_axdev3'], portBase: 47900, poolMiB: 4096, pidsMax: 384, acl: ACL }, f.host)
+      // the leftover stays (its stop does nothing in this fake): both picks await a stop of _axdev1
+      const spawnA = Promise.resolve(sys.spawn(spec(base, 'aaaaaaaaaaaaaaaa'))).then((x) => { procs.push({ uid: 452, pid: 10, rssKiB: 1, cpuSec: 0, ageSec: 1, command: 'a' }); return x })
+      const spawnB = Promise.resolve(sys.spawn(spec(base, 'bbbbbbbbbbbbbbbb')))
+      await Promise.all([spawnA, spawnB])
+      const got = f.spawned.map((a) => a[3])
+      expect(new Set(got).size).toBe(2)
+      expect(got).not.toContain('_axdev1')
+    }
+  })
   // QA TC-4990: the reach ports go to srt-mac.mjs, and a slot a living run may reach is never given to another run
   test('reach: TRINA_REACH_PORTS names only other slots\' ports; a reached slot is not given out while the run that reaches it lives', async () => {
     const base = macBase()
