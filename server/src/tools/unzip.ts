@@ -175,18 +175,34 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const dirs = new Map<string, string[]>([['', []]])
   for (const f of plan.files) dirs.set(f.segs.slice(0, -1).join('/'), f.segs.slice(0, -1))
   for (const segs of plan.folders) dirs.set(segs.join('/'), segs)
-  const byAudience = new Map<string, string>()
-  for (const [k, segs] of [...dirs].sort((x, y) => x[1].length - y[1].length)) {
-    let key: string
+  // the audience of a folder as the rules are now (a card can stay open for minutes: rules may change meanwhile)
+  const folderKey = (k: string, segs: string[]): string => {
     try {
-      const at = authorize(fx, rules, c.user, join([...segs, 'x']), 'write', { mustExist: false, createDirs: true }).segs.slice(0, -1)
-      key = readersOf(ctx.db, rules, at).sort().join(',')
-    } catch { key = `!${k}` } // refused there: checked (and refused) on its own
-    if (!byAudience.has(key)) byAudience.set(key, k)
+      const r = files.rules()
+      const at = authorize(fx, r, ctx.files.principal(c.user.id), join([...segs, 'x']), 'write', { mustExist: false, createDirs: true }).segs.slice(0, -1)
+      return readersOf(ctx.db, r, at).sort().join(',')
+    } catch { return `!${k}` } // refused there: checked (and refused) on its own
   }
-  for (const k of byAudience.values()) {
+  const ask = async (k: string) => {
     const rel = join([...(k ? k.split('/') : []), plan.files.find((f) => f.segs.slice(0, -1).join('/') === k)?.segs.at(-1) ?? 'x'])
     await confirmSources(ctx, files, c, rel, rel.split('/'), [src.rel])
+  }
+  const ordered = [...dirs].sort((x, y) => x[1].length - y[1].length)
+  const byAudience = new Map<string, string>()
+  for (const [k, segs] of ordered) { const key = folderKey(k, segs); if (!byAudience.has(key)) byAudience.set(key, k) }
+  const covered = new Set<string>()
+  for (const [key, k] of byAudience) { await ask(k); covered.add(key) }
+  // after the cards, every folder again with the rules as they are now: one whose audience no card covered (a rule or a
+  // share changed while a card was open) is asked on its own, until nothing new turns up (QA TC-4854)
+  for (let changed = true; changed;) {
+    changed = false
+    for (const [k, segs] of ordered) {
+      const key = folderKey(k, segs)
+      if (covered.has(key)) continue
+      await ask(k)
+      covered.add(key)
+      changed = true
+    }
   }
 
   const svc = componentC(ctx).files

@@ -410,6 +410,23 @@ describe('review follow-ups (PR #1262)', () => {
     expect(t.isError, t.text).toBe(false)
     expect(asked.sort()).toEqual([`${D}/open/y.txt`, `${D}/x`].sort())
   })
+  test('after the cards every folder is checked again: one whose audience changed while a card was open gets its own question (TC-4854)', async () => {
+    const asked: string[] = []
+    const db = A.ctx.db
+    const confirmWidening = async (target: string) => {
+      asked.push(target)
+      // while the first card is open, an admin lets everyone read one of the zip's folders
+      if (asked.length === 1) {
+        db.query('INSERT INTO folders (id, path) VALUES (?,?)').run('f_zips_late', `${D}/late`)
+        db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'everyone',NULL,'read')").run(crypto.randomUUID(), 'f_zips_late')
+      }
+      return null
+    }
+    put(`${D}/inbox/late.zip`, zip([{ name: 'a/x.txt', data: 'x' }, { name: 'late/y.txt', data: 'y' }]))
+    const r = await turn('alice', { confirmWidening })('unzip_file', { path: `${D}/inbox/late.zip`, to_folder: D })
+    expect(r.isError, r.text).toBe(false)
+    expect(asked).toEqual([`${D}/x`, `${D}/late/y.txt`])
+  })
   test('the unzip slot is given back when the work folder cannot be made', async () => {
     put(`${D}/leak.zip`, zip([{ name: 'l.txt', data: 'l' }]))
     const work = path.join(A.data, 'work')
