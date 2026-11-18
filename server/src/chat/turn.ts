@@ -891,7 +891,10 @@ export class TurnExec {
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
     const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
-    // the branch up to a message with its summary lines and their hash chain, made once per turn and message
+    // the branch up to a message with its summary lines and their hash chain, made once per turn and message. The
+    // attempts of this turn (a refusal retry, a failed resume, another connection, the Codex fallback) all reuse what
+    // was read at its start: the history, the attachments as the person could see them then and the hidden answers
+    // (sharedWithheld, read once above). A change during the turn applies from the next turn on
     const prepared = new Map<string, { h: HistoryItem[]; lines: string[]; chain: string[] }>()
     const prep = (leaf: string | null) => {
       let p = prepared.get(leaf ?? '')
@@ -1037,7 +1040,7 @@ export class TurnExec {
     // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
     // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
     // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
-    const mode = summaryMode(spec.chatId)
+    const mode = summaryMode(spec.chatId, spec.userId)
     if (!replay && (!claude || !resume) && mode !== 'skip') {
       const job = summaryJob(userMsg.parent_id)
       if (job && mode === 'background') job.catch(() => {})
@@ -1047,7 +1050,7 @@ export class TurnExec {
         const stopped = new Promise<'stopped'>((r) => { if (this.abort.signal.aborted) r('stopped'); else this.abort.signal.addEventListener('abort', () => r('stopped'), { once: true }) })
         const end = await Promise.race([job.then(() => 'done' as const, () => 'done' as const), new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), SUMMARY_WAIT_MS) }), stopped])
         clearTimeout(timer)
-        if (end === 'late') markSummaryFailed(spec.chatId)
+        if (end === 'late') markSummaryFailed(spec.chatId, spec.userId)
         // the step says whether this answer has the summary (an error mark: it started with the recent part only)
         const got = summaryOf(userMsg.parent_id)
         const used = !!got && uncovered(prep(userMsg.parent_id).h, got) === 0
@@ -1057,7 +1060,7 @@ export class TurnExec {
     }
     // after an answer that started fresh (Codex, an edit, another writer in a shared chat): the summary for the history
     // with it, so the next fresh session does not wait. Not after a resumed session (rarely needed there)
-    this.summaryAfter = () => { if (this.ranFresh && summaryMode(spec.chatId) !== 'skip') summaryJob(spec.assistantId)?.catch(() => {}) }
+    this.summaryAfter = () => { if (this.ranFresh && summaryMode(spec.chatId, spec.userId) !== 'skip') summaryJob(spec.assistantId)?.catch(() => {}) }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true

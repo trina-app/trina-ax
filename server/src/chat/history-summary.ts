@@ -18,7 +18,7 @@ import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
 import type { ChatStore } from './store'
-import { estimateTokens, historyWindow, historyWindowAfter, HISTORY_MAX_TOKENS, type HistorySummary } from './prompt'
+import { estimateTokens, historyWindow, historyWindowAfter, HISTORY_MAX_TOKENS, neutralizeTags, type HistorySummary } from './prompt'
 import { pickReader, READER_TIMEOUT_MS } from '../file-list/engine-reader'
 
 /** turns.chat_id of the summary calls (no chat has this id): Admin › Usage shows them like the file list's */
@@ -148,7 +148,9 @@ export function summaryTarget(history: readonly HistoryItem[]): number {
   return historyWindow(history as HistoryItem[], HISTORY_MAX_TOKENS / 2).omitted
 }
 
-const noTag = (s: string) => s.replace(/<(\/?)(chat|previous_summary)\b/gi, '‹$1$2')
+/** chat text can neither close nor open a data block of the call ("< /chat>", a zero-width "</chat>" included:
+ * prompt.ts neutralizeTags) */
+const noTag = neutralizeTags
 /** a line longer than one call reads: its beginning, and that the rest was left out */
 function clip(line: string, budget: number): string {
   const t = estimateTokens(line)
@@ -172,6 +174,8 @@ export function cleanSummary(text: string): string | null {
   return s.length > SUMMARY_MAX_CHARS ? `${s.slice(0, SUMMARY_MAX_CHARS)}…` : s
 }
 
+/** the server is busy with other summaries: not a failing reader, so no cooldown (the next turn tries again) */
+class SummaryBusy extends Error { name = 'SummaryBusy' }
 /** summary calls waiting for a slot at most (more: that summary is not made now) */
 const MAX_WAITING = 20
 let calls = 0
@@ -179,7 +183,7 @@ const waiting: (() => void)[] = []
 /** A call slot: a freed slot goes straight to the next waiter (never a third call between the release and its start). */
 async function slot(): Promise<() => void> {
   if (calls >= MAX_CALLS) {
-    if (waiting.length >= MAX_WAITING) throw new Error('summary queue full')
+    if (waiting.length >= MAX_WAITING) throw new SummaryBusy()
     await new Promise<void>((r) => waiting.push(r))
   } else calls++
   let done = false
@@ -194,20 +198,24 @@ async function slot(): Promise<() => void> {
 /** tests: the calls running and waiting now */
 export const summarySlotsForTests = () => ({ calls, waiting: waiting.length })
 
-/** after a failed or too slow summary of a chat: no call for COOLDOWN_MS, then one in the background (the turn does not
+/** after a failed or too slow summary of a chat (for one person): no call for COOLDOWN_MS, then one in the background (the turn does not
  * wait) until one succeeds. So a reader that fails adds no wait to every turn and is not asked again and again. */
 export const COOLDOWN_MS = 10 * 60_000
 const cooling = new Map<string, number>()
 const COOLING_MAX = 2_000
 /** a summary of this chat failed or took too long for the turn (`at`: when) */
-export function markSummaryFailed(chatId: string, at = Date.now()) {
-  cooling.delete(chatId)
-  cooling.set(chatId, at)
+/** Per chat and person: a reader that fails for one person's view of a shared chat (theirs is longer, say) does not
+ * stop the others' summaries. */
+const coolKey = (chatId: string, userId: string) => `${chatId}\0${userId}`
+export function markSummaryFailed(chatId: string, userId: string, at = Date.now()) {
+  const k = coolKey(chatId, userId)
+  cooling.delete(k)
+  cooling.set(k, at)
   if (cooling.size > COOLING_MAX) cooling.delete(cooling.keys().next().value!)
 }
 /** what a turn may do now: 'wait' (no failure), 'background' (failed before: try, without waiting), 'skip' (cooling down) */
-export function summaryMode(chatId: string, now = Date.now()): 'wait' | 'background' | 'skip' {
-  const at = cooling.get(chatId)
+export function summaryMode(chatId: string, userId: string, now = Date.now()): 'wait' | 'background' | 'skip' {
+  const at = cooling.get(coolKey(chatId, userId))
   if (at === undefined) return 'wait'
   return now - at < COOLDOWN_MS ? 'skip' : 'background'
 }
@@ -268,6 +276,7 @@ async function extend(i: EnsureInput, chain: readonly string[], have: HistorySum
     let usage: SummaryUsage | undefined
     let model: string | null | undefined
     let release: (() => void) | null = null
+    let busy = false
     try {
       release = await slot()
       started = Date.now()
@@ -277,6 +286,7 @@ async function extend(i: EnsureInput, chain: readonly string[], have: HistorySum
       usage = a.usage
       model = a.model
     } catch (e) {
+      if (e instanceof SummaryBusy) busy = true
       // the error only: the message is the chat's words
       i.log?.warn('chat summary failed', { chat: i.chatId, err: e instanceof Error ? e.name : 'error' })
     } finally {
@@ -284,8 +294,8 @@ async function extend(i: EnsureInput, chain: readonly string[], have: HistorySum
       release?.()
     }
     const ms = Date.now() - started
-    if (!text) { markSummaryFailed(i.chatId); return base }
-    cooling.delete(i.chatId)
+    if (!text) { if (!busy) markSummaryFailed(i.chatId, i.userId); return base }
+    cooling.delete(coolKey(i.chatId, i.userId))
     // the chat may have been deleted meanwhile (the foreign key refuses the row): what was made is still used now
     try {
       i.db.query('INSERT INTO chat_summaries (chat_id, user_id, covered_count, covered_hash, summary, model, tokens_in, tokens_out, cost_usd, ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
