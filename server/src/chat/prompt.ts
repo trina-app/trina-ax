@@ -37,7 +37,31 @@ export function cleanMemoryText(raw: string): { ok: true; text: string } | { ok:
   return { ok: true, text }
 }
 export const MEMORY_BLOCK_MAX = 4096
-export const HISTORY_MAX_CHARS = 40_000
+/** How much of a branch's text a fresh engine session gets word for word, in estimated tokens (estimateTokens): about
+ * 160,000 characters of English, 40,000 of Korean. Older messages go into a summary (chat/history-summary.ts). */
+export const HISTORY_MAX_TOKENS = 40_000
+/** the most characters the window can hold (plain Latin text) */
+export const HISTORY_MAX_CHARS = HISTORY_MAX_TOKENS * 4
+/** A cheap token estimate: 4 characters of ASCII, or 1 of anything else (Hangul, kana, CJK), per token. */
+export function estimateTokens(s: string): number {
+  let ascii = 0
+  for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) < 128) ascii++
+  return Math.ceil(ascii / 4) + (s.length - ascii)
+}
+/** The end of `s` that fits in `budget` estimated tokens. */
+function tailWithin(s: string, budget: number): string {
+  let used = 0
+  let i = s.length
+  while (i > 0) {
+    const t = s.charCodeAt(i - 1) < 128 ? 0.25 : 1
+    if (used + t > budget) break
+    used += t
+    i--
+  }
+  return s.slice(i)
+}
+/** A summary of the first `count` messages of a branch (chat/history-summary.ts), given instead of them. */
+export interface HistorySummary { text: string; count: number }
 /** team rule files (skills/*.md without a skill header) the AI follows: the first ten by file name. More are not
  * dropped silently: the instructions say how many were left out, and skill managers see a skill issue */
 export const SKILL_FILES_MAX = 10
@@ -63,6 +87,8 @@ export interface PromptInput {
   tools: string[]
   /** messages of this branch before the new one, oldest first (only when a new engine session starts) */
   history: { role: 'user' | 'assistant'; content: string }[] | null
+  /** the summary of the history's first messages (chat/history-summary.ts); absent: the recent part only */
+  historySummary?: HistorySummary | null
   /** the services connected for this person (per-person tools, integrations/connections/tools.ts); null: none */
   connected?: string | null
   /** the AI has Claude Code's Agent tool this turn (docs/DECISIONS.md "Sub-agents") */
@@ -337,10 +363,11 @@ export function companyProfileBlock(files: FileService, user: Principal, readabl
 }
 
 /**
- * The part of a branch's history a fresh engine session gets: newest kept, at most 40,000 characters. `omitted`: the
- * older messages left out; `cut`: the newest one alone was longer and only its end was kept.
+ * The part of a branch's history a fresh engine session gets word for word: newest kept, at most `budget` estimated
+ * tokens (HISTORY_MAX_TOKENS). `omitted`: the older messages left out; `cut`: the newest one alone was longer and only
+ * its end was kept.
  */
-export function historyWindow(history: { role: 'user' | 'assistant'; content: string }[]): { parts: string[]; omitted: number; cut: boolean } {
+export function historyWindow(history: { role: 'user' | 'assistant'; content: string }[], budget = HISTORY_MAX_TOKENS): { parts: string[]; omitted: number; cut: boolean } {
   const parts: string[] = []
   let used = 0
   let cut = false
@@ -348,33 +375,49 @@ export function historyWindow(history: { role: 'user' | 'assistant'; content: st
   for (; i >= 0; i--) {
     const h = history[i]!
     const s = `${h.role === 'user' ? 'User' : 'Assistant'}: ${neutralizeTags(h.content)}`
-    if (used + s.length > HISTORY_MAX_CHARS) {
-      if (!parts.length) { parts.unshift(s.slice(s.length - HISTORY_MAX_CHARS)); used = HISTORY_MAX_CHARS; cut = true; i-- }
+    const t = estimateTokens(s)
+    if (used + t > budget) {
+      if (!parts.length) { parts.unshift(tailWithin(s, budget)); used = budget; cut = true; i-- }
       break
     }
     parts.unshift(s)
-    used += s.length + 2
+    used += t + 1
   }
   return { parts, omitted: i + 1, cut }
 }
 
+/** A summary that can stand for the first messages of this history (it covers at least one and no more than all). */
+const usableSummary = (history: readonly unknown[], summary: HistorySummary | null | undefined): HistorySummary | null =>
+  summary && summary.text.trim() && summary.count > 0 && summary.count <= history.length ? summary : null
+
+/** The window after a summary: the messages it does not cover, in what the summary leaves of the budget. */
+export function historyWindowAfter(history: { role: 'user' | 'assistant'; content: string }[], summary: HistorySummary | null) {
+  if (!summary) return historyWindow(history)
+  return historyWindow(history.slice(summary.count), Math.max(HISTORY_MAX_TOKENS / 4, HISTORY_MAX_TOKENS - estimateTokens(summary.text)))
+}
+
 /** The AI gets only part of this history (the chat shows "remembers only the recent part", docs/DECISIONS.md
- * "Long conversations: say when the AI got only the recent part"). */
-export function historyTrimmed(history: { role: 'user' | 'assistant'; content: string }[] | null): boolean {
+ * "Long conversations: say when the AI got only the recent part"): messages left out that no summary covers, or the
+ * newest one cut. */
+export function historyTrimmed(history: { role: 'user' | 'assistant'; content: string }[] | null, summary?: HistorySummary | null): boolean {
   if (!history?.length) return false
-  const w = historyWindow(history)
+  const w = historyWindowAfter(history, usableSummary(history, summary))
   return w.omitted > 0 || w.cut
 }
 
-/** Recent messages of the branch, newest kept, at most 40,000 characters; older ones are counted, not summarized. */
-export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[]): string {
+/** Recent messages of the branch word for word (newest kept, HISTORY_MAX_TOKENS), and before them the summary of the
+ * older ones when there is one (chat/history-summary.ts); older messages no summary covers are counted. */
+export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[], summary?: HistorySummary | null): string {
   if (!history.length) return ''
+  const sum = usableSummary(history, summary)
   // a "#" room in an earlier message: its id only (a room's name is not the person's words: chat/turn.ts roomRefsBlock)
-  const { parts, omitted } = historyWindow(history.map((h) => (h.role === 'user' ? { ...h, content: roomRefsByIdOnly(h.content) } : h)))
+  const { parts, omitted } = historyWindowAfter(history.map((h) => (h.role === 'user' ? { ...h, content: roomRefsByIdOnly(h.content) } : h)), sum)
   return [
     '<previous_conversation>',
     'The conversation so far in this chat (your earlier session is not available; continue from here).',
-    omitted > 0 ? `(${omitted} earlier messages omitted)` : '',
+    sum ? `Summary of the first ${sum.count} messages, written by the server from the chat text (file contents and tool results were not in it; when exact words or a file's content matter, read the file again or ask):\n${neutralizeTags(sum.text.trim())}\n` : '',
+    omitted > 0 ? (sum ? `(${omitted} more earlier messages omitted)` : `(${omitted} earlier messages omitted)`) : '',
+    sum ? 'The most recent messages, word for word:' : '',
     parts.join('\n\n'),
     '</previous_conversation>',
   ].filter(Boolean).join('\n')
@@ -1072,7 +1115,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     { id: 'browser', text: browserSection(i) },
     { id: 'sideRoom', text: i.sideRoom ? (i.guest && !guestReadsRoom(i, tools.has('room_read')) ? guestSideRoomSection(i.sideRoom, i.locale) : sideRoomSection(i.sideRoom, i.locale, tools.has('post_to_room'))) : '' },
     { id: 'shared', text: i.shared ? sharedSection(i.shared, i.locale, tools.has('post_to_room'), !!i.guest, tools.has('answer_comments'), tools.has('box_shell')) : '' },
-    { id: 'history', text: i.history?.length ? historyBlock(i.history) : '' },
+    { id: 'history', text: i.history?.length ? historyBlock(i.history, i.historySummary) : '' },
   ]
 }
 

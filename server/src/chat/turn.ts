@@ -134,6 +134,8 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
+import { ensureSummary, HISTORY_SUMMARY_TOOL, lookupSummary, summaryAi, summaryLines, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
+import { slimSession } from './session-slim'
 
 export { noSearchPath } from './search-path'
 
@@ -155,7 +157,9 @@ export const OWN_CALL_PAUSE_MAX_MS = 2 * 60 * 60_000
 export const QUARANTINE_HOLD_MAX_MS = 45 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
-export const SESSION_STASH_MAX = 20 * 1024 * 1024
+/** the most a saved engine session may be (the launcher collects at most 48 MiB); pictures of older turns are taken
+ * out of it first (chat/session-slim.ts), so pictures alone no longer make a chat start over */
+export const SESSION_STASH_MAX = 48 * 1024 * 1024
 
 
 /** Where a call saves and what it copies, for the wider-audience check asked with a room change (chat/tools.ts widenOf,
@@ -278,6 +282,8 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
+  private summaryAfter: (() => void) | null = null
   /** the engine wrote text or called a tool in this turn (any attempt) */
   private producedOutput = false
   /** steps still running when the turn was stopped (Stop, the stall guard): if the answer pauses at a limit they were
@@ -874,6 +880,25 @@ export class TurnExec {
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
+    const several = !!this.shared || othersWrote
+    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld } : null)
+    // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
+    // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
+    const summaryOn = !guestTurn && !confidential && !this.restricted
+    const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
+    const summaryOf = (h: HistoryItem[]) => {
+      if (!summaryOn || !h.length) return null
+      try { return lookupSummary(rt.db, spec.chatId, spec.userId, summaryLines(rt.store, h, viewer)) } catch (e) { rt.log.warn('reading the chat summary failed', { err: e, turn: this.id }); return null }
+    }
+    /** the summary made (or extended) for this history, when the window leaves out messages no summary covers; null:
+     * nothing to do or no AI for it */
+    const summaryJob = (h: HistoryItem[]): Promise<unknown> | null => {
+      if (!summaryOn || !h.length || uncovered(h, summaryOf(h)) === 0) return null
+      const ai = summaryAi(rt.ctx)
+      if (!ai) return null
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: h, lines: summaryLines(rt.store, h, viewer) })
+    }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
@@ -881,7 +906,9 @@ export class TurnExec {
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
-      history: fresh ? rt.history(userMsg.parent_id, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? historyOf(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
+      historySummary: fresh ? summaryOf(historyOf(userMsg.parent_id)) : null,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -907,7 +934,7 @@ export class TurnExec {
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
-      this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_trimmed === 1
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
@@ -983,6 +1010,23 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
+    // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
+    // on and a later turn has it); a resumed Claude session has the whole conversation already
+    if (!replay && (!claude || !resume)) {
+      const job = summaryJob(historyOf(userMsg.parent_id))
+      if (job) {
+        const step = this.addStep({ kind: 'tool', tool: HISTORY_SUMMARY_TOOL, label: tr('historySummary', spec.locale), status: 'running' })
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const stopped = new Promise<void>((r) => { if (this.abort.signal.aborted) r(); else this.abort.signal.addEventListener('abort', () => r(), { once: true }) })
+        await Promise.race([job.catch(() => null), new Promise<void>((r) => { timer = setTimeout(r, SUMMARY_WAIT_MS) }), stopped])
+        clearTimeout(timer)
+        this.updateStep(step.id, { status: 'ok', endedAt: new Date().toISOString() })
+        if (this.stopReason) return
+      }
+    }
+    // after the answer, when this turn started fresh: the summary for the history with it, so the next fresh session
+    // (the next Codex message, a regenerate) does not wait
+    this.summaryAfter = () => { if (this.historyTrimmed || !claude || !resume) summaryJob(historyOf(spec.assistantId))?.catch(() => {}) }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
@@ -4259,7 +4303,10 @@ export class TurnExec {
 
   // ---------------- session stash ----------------
   private stashSession(sid: string, b64: string) {
-    const bytes = Buffer.from(b64, 'base64')
+    // pictures of older turns out first (chat/session-slim.ts): they are what made sessions too big to keep
+    const slim = slimSession(Buffer.from(b64, 'base64'))
+    if (slim.removed) this.rt.log.info('pictures taken out of the saved session', { turn: this.id, pictures: slim.removed })
+    const bytes = slim.bytes
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
     if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
       // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
@@ -4311,6 +4358,7 @@ export class TurnExec {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
     }
+    if (status === 'done') { try { this.summaryAfter?.() } catch (e) { this.rt.log.warn('the chat summary after the answer failed', { err: e, turn: this.id }) } }
     this.status = 'finished'
     try {
       if (this.terminationUnconfirmed) this.quarantine()

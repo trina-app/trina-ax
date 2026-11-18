@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:00
 - Branch: `fix/limits-context-summary` (off `dev`)
-- Status: in progress
+- Status: done
 - QA: TC-4905
 - Where: Team AX core (`server/src/chat/`). Why: chat is core (docs/REPOSITORY-RULES.md)
 - Version impact: patch, one additive migration
