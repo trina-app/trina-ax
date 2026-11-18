@@ -33,6 +33,7 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { privateToMe } from '../files/share-readers'
 import { placeProduced } from './make-file'
+import { savePathArg } from './save-target'
 import { cleanName, humanBytes } from './save-url'
 import { refusedName, sniffKind, withExtension } from './sniff'
 import { withDrive } from './drive'
@@ -85,7 +86,7 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
   const ref = a.file.trim()
 
   // where it goes: save_as (a folder when it ends in "/" or is one), or the person's own downloads folder
-  const wanted = a.save_as?.trim().replace(/^\/+/, '').normalize('NFC') ?? ''
+  const wanted = a.save_as === undefined ? '' : savePathArg(a.save_as)
   let isFolder = !wanted || wanted.endsWith('/')
   if (!isFolder) { try { isFolder = !!authorize(files.fx, files.rules(), t.user, wanted, 'list').st?.isDirectory() } catch { /* not a folder this person sees */ } }
   const folder = !wanted ? `users/${t.user.id}/downloads` : isFolder ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')

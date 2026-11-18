@@ -78,6 +78,7 @@ import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { Denied } from '../policy/errors'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
 import { readRegular, sha256, sha256Regular } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
@@ -130,7 +131,8 @@ import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
-import { SEARCH_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../rooms/ai-tools'
+import { SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { savePathArg } from '../tools/save-target'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
@@ -3253,7 +3255,14 @@ export class TurnExec {
         if (rules.canList(me, up)) return
       }
     }
-    const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
+    // a write target that would make a new name: the very check the write makes (authorize 'write', the path read as the
+    // tools read it: savePathArg). Anything else counts as there (fails closed): a name that is there, a look-alike of
+    // one ("already exists with almost the same name"), a file on the way ("not a folder"), a path that cannot be read.
+    // Only a refusal for no access is new: the tool refuses it with the same words whether something is there or not.
+    const fresh = (v: string) => {
+      try { return !authorize(fx, rules, me, savePathArg(v), 'write', { mustExist: false, createDirs: true }).exists }
+      catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
+    }
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
     // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
     const written = new Set<string>(), read = new Set<string>()
@@ -3261,10 +3270,11 @@ export class TurnExec {
     for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
-      if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-      if (writes.has(k) && !exists(v)) continue
+      const w = writes.has(k)
+      if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      if (w && fresh(v)) continue
       const from = out.length
-      for (const p of this.roomNames(v)) note(p)
+      for (const p of this.roomNames(w ? savePathArg(v) : v)) note(p)
       for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
     }
     const named = out.length
@@ -3373,7 +3383,7 @@ export class TurnExec {
     let skillUse = false
     // the places only a write argument named (a save into a place that is there already: sharedSources)
     const writes = new Set<string>()
-    const saves = !!WRITE_TARGET_ARGS[tool] && !WRITE_TARGET_NOT_SAVES.has(tool)
+    const saves = !!WRITE_TARGET_ARGS[tool] && !!SAVE_CARD_TOOLS[tool]
     // (a check that fails below: a call that names only places it writes to is said as a save)
     const named = saves ? namedPaths(tool, input) : []
     kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
@@ -3430,7 +3440,7 @@ export class TurnExec {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
       // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
       // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
-      question: tr(skillUse ? 'sharedSkillConfirm' : save ? 'sharedSaveConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
       options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')

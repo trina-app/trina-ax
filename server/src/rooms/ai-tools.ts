@@ -63,14 +63,24 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
 
   // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
-  save_connector_file: ['save_as'],
+  save_connector_file: ['save_as'], save_room_file: ['save_as'], comment_docx: ['output'], skill_files: ['to_folder'], save_promo_video: ['save_as'],
 }
 
-/** The tools of WRITE_TARGET_ARGS whose card for a place that is there already does not say "save a file"
- * (docs/decisions/20261118-shared-save-card-wording.md): an edit gives back lines of the file it changed, and a move,
- * copy or rename takes files the person has into that place. They keep the read card. Every other tool there (a new
- * one too) saves a file it made or fetched, and asks with the save card. */
-export const WRITE_TARGET_NOT_SAVES: ReadonlySet<string> = new Set(['edit', 'move_files', 'copy_files', 'rename_file'])
+/** The tools of WRITE_TARGET_ARGS that save what they made or fetched: in a shared chat, a place there already that
+ * some of its people cannot open asks on the save card (docs/decisions/20261118-shared-save-card-wording.md); 'many':
+ * the card says "files" (one call can save several). Every entry of WRITE_TARGET_ARGS is here or in
+ * WRITE_TARGET_NOT_SAVES (tests/unit/b-shared-save-card.test.ts). save_chat_file and make_zip: their own pull requests
+ * add their WRITE_TARGET_ARGS entries. */
+export const SAVE_CARD_TOOLS: Readonly<Record<string, 'one' | 'many'>> = {
+  write: 'one', make_file: 'one', edit_hwp: 'one', stamp_pdf: 'one', edit_pdf: 'one', merge_pdfs: 'one', comment_docx: 'one',
+  save_url: 'one', save_connector_file: 'one', save_room_file: 'one', save_promo_video: 'one', save_chat_file: 'one', make_zip: 'one',
+  split_pdf: 'many', resize_images: 'many', unzip_file: 'many',
+}
+
+/** The tools of WRITE_TARGET_ARGS whose card for a place that is there already does not say "save": an edit gives back
+ * lines of the file it changed, and a move, copy or rename takes files the person has into that place. They keep the
+ * read card. */
+export const WRITE_TARGET_NOT_SAVES: ReadonlySet<string> = new Set(['edit', 'move_files', 'copy_files', 'rename_file', 'skill_files'])
 
 /** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
  * (insert_pdf.file, stamp_image.image) and merge_pdfs' list ({ path } entries). A shared chat's read card and its

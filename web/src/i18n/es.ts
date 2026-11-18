@@ -766,7 +766,7 @@ export const es: Record<MessageKey, string> = {
   'allowances.card.save_wider': "Guardar donde más personas pueden ver",
   'allowances.card.post_to_room': "Publicar en conversaciones",
   'allowances.card.shared_read': "Leer y compartir en chats compartidos",
-  'allowances.card.shared_save': "Guardar en chats compartidos",
+  'allowances.card.shared_save': "Guardar donde no todos en un chat compartido pueden abrirlo",
   'allowances.card.move_files': "Mover o copiar archivos que cambia quién los ve",
   'allowances.card.skill_files': "Mover, copiar o renombrar habilidades",
   'allowances.card.skill_save': "Guardar habilidades y reglas del equipo",

@@ -785,7 +785,7 @@ export const en: Record<MessageKey, string> = {
   'allowances.card.save_wider': "Saving where more people can see",
   'allowances.card.post_to_room': "Posting to conversations",
   'allowances.card.shared_read': "Reading and sharing in shared chats",
-  'allowances.card.shared_save': "Saving in shared chats",
+  'allowances.card.shared_save': "Saving where not everyone in a shared chat can open it",
   'allowances.card.move_files': "Moving or copying files that changes who can see them",
   'allowances.card.skill_files': "Moving, copying or renaming skills",
   'allowances.card.skill_save': "Saving team skills and rules",

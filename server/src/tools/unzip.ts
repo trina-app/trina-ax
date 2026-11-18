@@ -40,6 +40,7 @@ import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
 import { confirmSources, placeProduced } from './make-file'
+import { savePathArg } from './save-target'
 
 type UnzipIn = z.output<typeof UnzipFileInput>
 
@@ -51,7 +52,7 @@ export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip file in the team folder: its
   'and system junk (__MACOSX, .DS_Store) are left out. Other archive types (7z, rar, alz, egg, tar) cannot be opened here.'
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
-const clean = (p: string) => p.normalize('NFC').replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.').join('/')
+const clean = (p: string) => savePathArg(p).split('/').filter((s) => s !== '' && s !== '.').join('/')
 /** files listed in the answer before "and N more" */
 const LIST_MAX = 30
 

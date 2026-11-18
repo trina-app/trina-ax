@@ -458,6 +458,13 @@ export const TEXT = {
     "AIが{sources}にファイルを保存しようとしています。このチャットを見る{n}人のうち{m}人はここを開けないため、保存したファイルも開けません。保存すると、保存されたファイル名がこのチャットを見る全員に表示され、同じ名前のファイルがすでにあったかどうかも分かります。",
     "La IA quiere guardar un archivo en {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrirlo, así que tampoco podrán abrir el archivo. Todos los que ven el chat verán el nombre con el que se guarda, lo que puede mostrar si ya había un archivo con ese nombre.",
     'AI想把文件保存到{sources}。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开那里，所以也打不开这个文件。保存后，所有能看到这个对话的人都会看到它保存时的名称，由此可能看出那里原本是否已有同名文件。'),
+  /** ...for a call that can save several files (unzip_file, split_pdf, resize_images: SAVE_CARD_TOOLS 'many') */
+  sharedSaveManyConfirm: t('AI가 {sources}에 파일을 저장하려고 해요. 이 채팅을 보는 {n}명 중 {m}명은 이곳을 열 수 없어서, 저장한 파일도 열 수 없어요. 저장하면 파일들이 저장된 이름이 이 채팅을 보는 모두에게 보여서, 같은 이름의 파일이 이미 있었는지도 알 수 있어요.',
+    "The AI wants to save files in {sources}. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open it, so they won't be able to open the files either. Everyone who sees the chat will see the names they're saved under, which can show whether files with those names were already there.",
+    'AI ingin menyimpan berkas-berkas di {sources}. {m} dari {n} orang yang melihat obrolan ini tidak bisa membukanya, jadi mereka juga tidak bisa membuka berkas-berkas itu. Semua orang yang melihat obrolan ini akan melihat nama simpanannya, yang bisa menunjukkan apakah berkas dengan nama itu sudah ada di sana.',
+    "AIが{sources}にファイルを保存しようとしています。このチャットを見る{n}人のうち{m}人はここを開けないため、保存したファイルも開けません。保存すると、保存されたファイル名がこのチャットを見る全員に表示され、同じ名前のファイルがすでにあったかどうかも分かります。",
+    "La IA quiere guardar archivos en {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrirlo, así que tampoco podrán abrir los archivos. Todos los que ven el chat verán los nombres con los que se guardan, lo que puede mostrar si ya había archivos con esos nombres.",
+    'AI想把一些文件保存到{sources}。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开那里，所以也打不开这些文件。保存后，所有能看到这个对话的人都会看到它们保存时的名称，由此可能看出那里原本是否已有同名文件。'),
   sharedSaveYes: t('저장하기', 'Save', 'Simpan', "保存する", "Guardar", "保存"),
   sharedSaveNo: t('저장하지 않기', "Don't save", 'Jangan simpan', "保存しない", "No guardar", "不保存"),
   sharedSaveSkipped: t('이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 저장하지 않았어요', 'Not saved: not everyone who sees this chat can open that place', 'Tidak disimpan: tidak semua orang yang melihat obrolan ini bisa membuka tempat itu', "このチャットを見る全員が開ける場所ではないため、保存しませんでした", "No se guardó: no todos los que ven este chat pueden abrir ese lugar", '未保存：不是所有能看到这个对话的人都能打开那个位置'),

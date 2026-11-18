@@ -12,10 +12,13 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, type Message, type PutChatAudienceResult } from '@mycel/shared/api'
+import { FILE_TOOLS, OTHER_TOOLS, SkillFilesInput } from '@mycel/shared'
+import { z } from 'zod'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { roomsOf } from '../../server/src/rooms/service'
-import { SHARED_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../../server/src/rooms/ai-tools'
+import { SAVE_CARD_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../../server/src/rooms/ai-tools'
+import { toolRegistry } from '../../server/src/tools/registry'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -130,11 +133,33 @@ describe('the save card', () => {
       expect(card.question, d.tool).toContain('wants to save a file in your personal folder')
       expect(card.options.map((o) => o.label), d.tool).toEqual(['Save', 'Always allow', "Don't save"])
     }
+    // a call that can save several files says "files"
+    const split = await q({ tool: 'split_pdf', args: { file_path: 'shared/handbook.pdf', every: 1, output_folder: 'users/alice/' } })
+    expect(split.question).toContain('The AI wants to save files in your personal folder.')
+    expect(split.question).toContain("so they won't be able to open the files either")
     // it reads her file (its names come back): the read card, read words
-    const unzip = await q({ tool: 'unzip_file', args: { source: 'users/alice/todo.md', to_folder: 'users/alice/' } })
+    const unzip = await q({ tool: 'unzip_file', args: { path: 'users/alice/todo.md', to_folder: 'users/alice/' } })
     expect(unzip.question).toContain('The AI wants to read your personal folder.')
     expect(unzip.options.map((o) => o.label)).toEqual(['Read and share', 'Always allow', "Don't read"])
     expect(fs.readFileSync(path.join(aliceDir(), 'todo.md'), 'utf8')).toContain('Draft Q4 campaign report')
+  })
+
+  // security review of #1314: the gate reads save_as as the tool does (savePathArg), and decides "new" with the write's
+  // own check, so a path the tool would land on something there always asks first
+  test('probes: a leading "/", a leading space, backslashes, a file on the way, a full-width or case-variant name all ask', async () => {
+    const chat = await peopleChat()
+    const before = listing()
+    for (const save_as of ['/users/alice/', '//users/alice/todo.md', ' users/alice/todo.md', 'users\\alice\\todo.md', '\\users\\alice\\', 'users/alice/todo.md/x.pdf', 'users/alice/\uff54odo.md', 'users/alice/TODO.md', 'users/alice/drafts']) {
+      const started = await send('alice', chat, fake({ tool: 'save_connector_file', args: { file: 'mcp-file:nope', save_as }, sayResult: true }))
+      const card = await cardOf('alice', started.turnId)
+      expect(card.question, JSON.stringify(save_as)).toContain('wants to save a file in your personal folder')
+      await answer('alice', started.turnId, card.requestId, 'skip')
+      const done = await doneOf('alice', started.assistantMessage.id)
+      // nothing came back that tells what is there
+      for (const s of ['already exists', 'not a folder', 'almost the same name', 'todo.md', 'saved as a copy']) expect(done.content, `${JSON.stringify(save_as)} ${s}`).not.toContain(s)
+    }
+    expect(listing()).toEqual(before)
+    expectNothingForBob(JSON.stringify((await messages('bob', chat)).filter((m) => m.role === 'assistant')))
   })
 
   test('a yes to save there does not let a read of her folder through in the same turn', async () => {
@@ -173,14 +198,20 @@ describe('the save card', () => {
   })
 })
 
-describe('every save-type tool of a shared chat', () => {
-  test('names where it saves in WRITE_TARGET_ARGS, and asks with the save card', () => {
-    // (save_chat_file and make_zip join once their pull requests land: they are checked from then on)
-    const saves = ['save_url', 'save_connector_file', 'make_file', 'unzip_file', 'save_chat_file', 'make_zip']
-    for (const t of saves.filter((x) => SHARED_TOOLS.has(x))) {
-      expect(WRITE_TARGET_ARGS[t]?.length, t).toBeGreaterThan(0)
-      expect(WRITE_TARGET_NOT_SAVES.has(t), t).toBe(false)
-    }
-    for (const t of ['save_url', 'save_connector_file', 'make_file', 'unzip_file']) expect(SHARED_TOOLS.has(t), t).toBe(true)
+describe('every save-type tool', () => {
+  test('a save_as, output, output_folder or to_folder field is a write target, and each target is on one card list', () => {
+    // every tool's input fields, from the tools themselves: the server's registry (comment_docx, save_connector_file…),
+    // the shared schemas (save_room_file, unzip_file…) and skill_files
+    const fields = new Map<string, string[]>()
+    const reg = toolRegistry(h.ctx.files)
+    for (const n of reg.names()) fields.set(n, Object.keys((reg.describeTool(n)!.inputSchema as { properties?: object }).properties ?? {}))
+    const shape = (s: z.ZodType) => Object.keys((z.toJSONSchema(s, { io: 'input' }) as { properties?: object }).properties ?? {})
+    for (const [n, d] of Object.entries({ ...FILE_TOOLS, ...OTHER_TOOLS })) if (!fields.has(n)) fields.set(n, shape(d.input as z.ZodType))
+    fields.set('skill_files', shape(SkillFilesInput))
+    for (const n of ['save_room_file', 'comment_docx', 'save_connector_file', 'save_url', 'unzip_file', 'make_file']) expect(fields.has(n), n).toBe(true)
+    for (const [n, f] of fields) for (const k of f.filter((x) => ['save_as', 'output', 'output_folder', 'to_folder'].includes(x))) expect(WRITE_TARGET_ARGS[n] ?? [], `${n}.${k}`).toContain(k)
+    for (const n of Object.keys(WRITE_TARGET_ARGS)) expect(!!SAVE_CARD_TOOLS[n] !== WRITE_TARGET_NOT_SAVES.has(n), n).toBe(true)
+    // the shared chat's save tools ask on the save card
+    for (const n of ['save_url', 'save_connector_file', 'make_file', 'unzip_file', 'save_chat_file', 'make_zip'].filter((x) => SHARED_TOOLS.has(x))) expect(SAVE_CARD_TOOLS[n], n).toBeDefined()
   })
 })
