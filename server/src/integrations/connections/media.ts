@@ -129,3 +129,19 @@ export function sweepMedia(dataDir: string, now = Date.now()): number {
   }
   return n
 }
+
+/** Remove every kept item of one chat (the chat purged: chat/runtime.ts purgeChat). Returns how many went. */
+export function dropChatMedia(dataDir: string, chatId: string): number {
+  if (!CHAT.test(chatId)) return 0
+  const dir = chatDir(dataDir, chatId)
+  const n = items(dir).length
+  fs.rmSync(dir, { recursive: true, force: true })
+  return n
+}
+
+/** Remove every kept item of one person, in every chat (their account deleted: integrations/account-cleanup.ts). */
+export function dropUserMedia(dataDir: string, userId: string): number {
+  let n = 0
+  for (const x of allItems(dataDir, Date.now())) if (x.meta.userId === userId) { drop(x.dir, x.meta.id); n++ }
+  return n
+}

@@ -34,8 +34,11 @@ import { componentC } from '../team-files/component'
 import { privateToMe } from '../files/share-readers'
 import { placeProduced } from './make-file'
 import { cleanName, humanBytes } from './save-url'
-import { sniffKind, withExtension } from './sniff'
+import { refusedName, sniffKind, withExtension } from './sniff'
 import { withDrive } from './drive'
+import { getRow, mayUse } from '../integrations/connections/store'
+import { answerSources } from '../integrations/connections/tools'
+import { addSources } from '../chat/read-scope'
 
 type Input = z.output<typeof SaveConnectorFileInput>
 
@@ -47,6 +50,30 @@ export const SAVE_CONNECTOR_FILE_DESCRIPTION =
   'save_as is a team path; a path ending in "/" keeps the file\'s own name; left out, the user\'s own downloads folder.'
 
 const INSTRUCTION_NAME = /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i
+/** direction marks that make a name read differently from what it is ("invoice\u202Efdp.exe") */
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g
+/** Office and Hangul formats that are ZIP files inside */
+const ZIP_OFFICE = /\.(docx|docm|xlsx|xlsm|pptx|pptm|odt|ods|odp|hwpx)$/i
+
+/** The name the copy gets: the given one (a Gmail attachment's comes from the AI's call, a file's address, a Drive
+ * file's name), cleaned, its extension what the bytes are where that can be told; null for a program or script
+ * (never saved). A name that is empty or only dots becomes "file-<random>". */
+export function nameFor(given: string, bytes: Uint8Array): string | null {
+  const head = bytes.subarray(0, 64)
+  const refused = refusedName(head)
+  if (refused === 'a program' || refused === 'a script') return null
+  let name = cleanName(given.replace(BIDI, ''))
+  const kind = sniffKind(head)
+  if (kind) return withExtension(name || `file-${crypto.randomBytes(3).toString('hex')}`, kind).name
+  if (!name) name = `file-${crypto.randomBytes(3).toString('hex')}`
+  if (refused === 'a ZIP archive (or an Office file)') {
+    // an Office or Hangul name over a ZIP that is not one (no [Content_Types].xml, no mimetype entry): a .zip
+    const office = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    const isOffice = office.includes('[Content_Types].xml') || office.includes('mimetype')
+    if (!(ZIP_OFFICE.test(name) && isOffice) && !/\.zip$/i.test(name)) name = `${name.replace(/\.[A-Za-z0-9]{1,8}$/, '')}.zip`
+  }
+  return name
+}
 
 export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): Promise<{ text: string; summary: string; structured: Record<string, unknown> }> {
   if (!t.turnId) throw new ToolError('save_connector_file only works inside a chat turn')
@@ -71,8 +98,8 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
     if (r.exists && r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a file name or end the path with "/"`)
     return target
   }
-  // an explicit file name is checked before anything is fetched
-  if (!isFolder) place(wanted.split('/').pop()!)
+  // the place is checked before anything is fetched: an explicit file name as it is, a folder with a stand-in name
+  place(isFolder ? 'file' : wanted.split('/').pop()!)
 
   let bytes: Buffer
   let name: string
@@ -81,11 +108,17 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
   if (ref.startsWith(MEDIA_PREFIX)) {
     const item = getMedia(ctx.engineConfig.dataDir, chatId, t.user.id, ref)
     if (!item) throw new ToolError(`no file ${ref.slice(0, 60)} in this chat: an mcp-file handle works only in the chat whose connection answer named it, for 24 hours. Read the attachment or call the service again to get a new one`)
+    // the connection it came from: still there, and this person may still use it (a connection removed, or a rule that
+    // no longer includes them, takes what it gave with it)
+    const row = getRow(ctx.db, item.meta.integrationId)
+    if (!row || !mayUse(ctx.db, row, t.user.id)) throw new ToolError('the connection this file came from is gone, or the user may no longer use it, so it was not saved')
+    // where the bytes come from, for the wider-audience card (as save_room_file does: the read is recorded again)
+    addSources(ctx.db, chatId, answerSources(row))
     bytes = fs.readFileSync(item.file)
     const kind = sniffKind(bytes.subarray(0, 64))
-    const given = cleanName(item.meta.name ?? '')
-    // its own name; a nameless one by what it is ("file-3fa2c1.pdf")
-    name = given ? (kind && !/\.[A-Za-z0-9]{1,8}$/.test(given) ? withExtension(given, kind).name : given) : (kind ? withExtension(`file-${crypto.randomBytes(3).toString('hex')}`, kind).name : `file-${crypto.randomBytes(3).toString('hex')}`)
+    const named = nameFor(item.meta.name ?? '', bytes)
+    if (named === null) throw new ToolError('the file is a program or a script, so it was not saved')
+    name = named
     from = ref
     type = kind?.mime ?? (item.meta.declared || 'application/octet-stream')
   } else {
@@ -94,7 +127,9 @@ export async function saveConnectorFile(ctx: AppContext, a: Input, t: ToolCtx): 
     const fileId = ref.slice('drive:'.length)
     const { result } = await withDrive(ctx, t, a.source, (s, signal) => driveOriginal(s.conn, fileId, signal, s.scope))
     bytes = result.bytes
-    name = cleanName(result.name) || `drive-file-${crypto.randomBytes(3).toString('hex')}`
+    const named = nameFor(result.name, bytes)
+    if (named === null) throw new ToolError('the file is a program or a script, so it was not saved')
+    name = named
     from = result.webViewLink
     type = result.mimeType
     ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'save_connector_file', url: from })

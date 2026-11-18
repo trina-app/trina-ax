@@ -15,6 +15,7 @@ import { googleAppsOf } from '../../server/src/integrations/google-apps/service'
 import { googleDriveOf } from '../../server/src/integrations/google-drive/oauth'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { readScope } from '../../server/src/chat/read-scope'
+import { dropChatMedia, dropUserMedia, MEDIA_TTL_MS } from '../../server/src/integrations/connections/media'
 import { toolRegistry } from '../../server/src/tools/registry'
 import { TurnFiles } from '../../server/src/files/service'
 import type { ToolCtx } from '../../server/src/files/service'
@@ -87,7 +88,7 @@ describe('Gmail attachments', () => {
   })
 
   test('a Hangul or Word attachment and one that cannot be read are kept too; a folder save keeps the file\'s own name', async () => {
-    const docx = Buffer.from('PK\u0003\u0004 not really a docx but the person\'s own bytes')
+    const docx = Buffer.from('PK\u0003\u0004[Content_Types].xml the person\'s own Word bytes')
     const a = await readAttachment('alice', '계약서.docx', docx)
     expect(a.handle).toBeDefined()
     const r = await save('alice', a.turnId, { file: a.handle, save_as: 'shared/contracts/' }, () => null)
@@ -129,6 +130,89 @@ describe('Gmail attachments', () => {
     const unasked = await save('alice', a.turnId, { file: a.handle, save_as: 'shared/quote-unasked.xlsx' })
     expect(unasked.isError).toBe(true)
     expect(teamHas(A, 'shared/quote-unasked.xlsx')).toBe(false)
+  })
+
+  test('the name the AI gave is cleaned and checked against the bytes: no instruction file, no "..", no direction marks, no programs', async () => {
+    const plain = Buffer.from('plain words, not an archive')
+    const claude = await readAttachment('alice', 'CLAUDE.md', plain)
+    const c = await save('alice', claude.turnId, { file: claude.handle })
+    expect(c.isError).toBe(true)
+    expect(c.text).toContain('instruction file')
+    expect(teamHas(A, 'users/alice/downloads/CLAUDE.md')).toBe(false)
+    const dots = await readAttachment('alice', '..', plain)
+    const d = await save('alice', dots.turnId, { file: dots.handle })
+    expect(d.isError).not.toBe(true)
+    expect(String(d.structured!.path)).toMatch(/^users\/alice\/downloads\/file-[0-9a-f]{6}$/)
+    const bidi = await readAttachment('alice', 'invoice\u202Efdp.txt', plain)
+    const b = await save('alice', bidi.turnId, { file: bidi.handle })
+    expect(b.structured).toMatchObject({ path: 'users/alice/downloads/invoicefdp.txt' })
+    // a program named like a PDF is not saved; a PDF named like a text file gets .pdf
+    const exe = await readAttachment('alice', 'scan.pdf', Buffer.concat([Buffer.from('MZ'), Buffer.alloc(200, 1)]))
+    const e = await save('alice', exe.turnId, { file: exe.handle })
+    expect(e.isError).toBe(true)
+    expect(e.text).toContain('program')
+    const pdf = await readAttachment('alice', 'notes.txt', Buffer.from('%PDF-1.4\n%fake but starts like one\n'))
+    expect((await save('alice', pdf.turnId, { file: pdf.handle })).structured).toMatchObject({ path: 'users/alice/downloads/notes.pdf' })
+    // a ZIP that is no Office file is saved as .zip, whatever the name says
+    const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 3, 4]), Buffer.from('payload/run.sh not office'), Buffer.alloc(40)])
+    const z = await readAttachment('alice', 'quote.xlsx', zip)
+    expect((await save('alice', z.turnId, { file: z.handle })).structured).toMatchObject({ path: 'users/alice/downloads/quote.zip' })
+  })
+
+  test('a folder the person cannot write is refused before anything is read; a connection that is gone or no longer theirs takes its files with it', async () => {
+    const a = await readAttachment('alice', 'quote.xlsx', xlsx())
+    const asked: string[] = []
+    const ro = await save('alice', a.turnId, { file: a.handle, save_as: 'users/bob/' }, (t) => { asked.push(t); return null })
+    expect(ro.isError).toBe(true)
+    expect(asked).toEqual([])
+    const gmail = (A.ctx.db.query("SELECT id FROM integrations WHERE owner_user_id='alice' AND google_app='gmail'").get() as { id: string }).id
+    A.ctx.db.query("UPDATE integrations SET owner_user_id='carol' WHERE id=?").run(gmail)
+    try {
+      const gone = await save('alice', a.turnId, { file: a.handle })
+      expect(gone.isError).toBe(true)
+      expect(gone.text).toContain('may no longer use it')
+    } finally { A.ctx.db.query("UPDATE integrations SET owner_user_id='alice' WHERE id=?").run(gmail) }
+  })
+
+  test('the save records the connection again before the wider-audience card', async () => {
+    const a = await readAttachment('alice', 'quote.xlsx', xlsx())
+    // the read record emptied (as if it were another chat's state): the save puts the connection back before asking
+    A.ctx.db.query('UPDATE chats SET session_read_scope=NULL WHERE id=?').run(a.chat)
+    let seen: unknown[] = []
+    const r = await save('alice', a.turnId, { file: a.handle, save_as: 'shared/quote-card.xlsx' }, () => { seen = readScope(A.ctx.db, a.chat); return null })
+    expect(r.isError).not.toBe(true)
+    expect(seen).toEqual(expect.arrayContaining([{ type: 'user', id: 'alice', via: 'connection' }]))
+  })
+
+  test('kept files expire after 24 hours, and go with the chat or the account', async () => {
+    const a = await readAttachment('alice', 'quote.xlsx', xlsx())
+    const id = a.handle!.slice('mcp-file:'.length)
+    const meta = path.join(A.data, 'connection-media', a.chat, `${id}.json`)
+    const m = JSON.parse(fs.readFileSync(meta, 'utf8'))
+    fs.writeFileSync(meta, JSON.stringify({ ...m, createdAt: Date.now() - MEDIA_TTL_MS - 1000 }))
+    const old = await save('alice', a.turnId, { file: a.handle })
+    expect(old.isError).toBe(true)
+    expect(old.text).toContain('24 hours')
+    const b = await readAttachment('alice', 'quote.xlsx', xlsx())
+    expect(dropChatMedia(A.data, b.chat)).toBe(1)
+    expect(fs.existsSync(path.join(A.data, 'connection-media', b.chat))).toBe(false)
+    const c1 = await readAttachment('alice', 'one.xlsx', xlsx()), c2 = await readAttachment('bob', 'two.xlsx', xlsx())
+    expect(dropUserMedia(A.data, 'alice')).toBeGreaterThanOrEqual(1)
+    expect((await save('alice', c1.turnId, { file: c1.handle })).isError).toBe(true)
+    expect((await save('bob', c2.turnId, { file: c2.handle })).isError).not.toBe(true)
+  })
+
+  test('in a chat shared with people: the asker saves their attachment, another member cannot use the asker\'s handle', async () => {
+    const a = await readAttachment('alice', 'quote.xlsx', xlsx())
+    A.ctx.db.query("UPDATE chats SET people_shared_at=datetime('now') WHERE id=?").run(a.chat)
+    A.ctx.db.query("INSERT INTO chat_audience (chat_id, subject_type, subject_id, added_by, added_at) VALUES (?, 'user', 'bob', 'alice', datetime('now'))").run(a.chat)
+    const bobTurn = A.turn('bob', a.chat)
+    const bob = await save('bob', bobTurn, { file: a.handle, save_as: 'shared/' }, () => null)
+    expect(bob.isError).toBe(true)
+    expect(bob.text).toContain('only in the chat')
+    const mine = await save('alice', A.turn('alice', a.chat), { file: a.handle, save_as: 'shared/shared-quote.xlsx' }, () => null)
+    expect(mine.isError).not.toBe(true)
+    expect(teamHas(A, 'shared/shared-quote.xlsx')).toBe(true)
   })
 
   test('the 18 MB cap stays: a larger attachment is not read and gets no handle', async () => {
@@ -183,6 +267,18 @@ describe('Google Drive files', () => {
     const shared = await toolRegistry(A.ctx.files).call('save_connector_file', { file: 'drive:alice-file' }, ctxOf(A, 'alice', turn, () => null))
     expect(shared.isError).toBe(true)
     expect(shared.text).toContain('shared chat')
+    expect(fs.existsSync(path.join(A.team, 'users', 'alice', 'downloads'))).toBe(false)
+  })
+
+  test('an export over 10 MB, and a download over 32 MB that declares no size, are refused', async () => {
+    fake.blobs.set('big-doc', { owner: 'alice', name: 'Big doc', mime: 'application/vnd.google-apps.document', bytes: new Uint8Array(11 * 1024 * 1024) })
+    // Google gives no size for its own formats: the export stream is cut at 10 MB
+    fake.response = (url) => url.pathname.endsWith('/big-doc') && !url.searchParams.get('alt') ? Response.json({ id: 'big-doc', name: 'Big doc', mimeType: 'application/vnd.google-apps.document', capabilities: { canDownload: true } }) : null
+    expect((await save({ file: 'drive:big-doc' }).result).isError).toBe(true)
+    fake.blobs.set('big-bin', { owner: 'alice', name: 'big.bin', mime: 'application/octet-stream', bytes: new Uint8Array(33 * 1024 * 1024) })
+    fake.response = (url) => url.pathname.endsWith('/big-bin') && !url.searchParams.get('alt') ? Response.json({ id: 'big-bin', name: 'big.bin', mimeType: 'application/octet-stream', capabilities: { canDownload: true } }) : null
+    expect((await save({ file: 'drive:big-bin' }).result).isError).toBe(true)
+    fake.response = null
     expect(fs.existsSync(path.join(A.team, 'users', 'alice', 'downloads'))).toBe(false)
   })
 

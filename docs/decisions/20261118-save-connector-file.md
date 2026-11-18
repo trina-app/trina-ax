@@ -26,6 +26,14 @@
   shared chat (PR #1276) a Gmail attachment was already behind the asker's card when it was read, so its handle can be
   saved there; `drive:` is refused in a shared chat, because Drive tools are not offered there. Guests: not offered
   (not in GUEST_TURN_TOOLS; guests have connectors off).
+- **Security review (2026-11-18):** the name is cleaned (no control or direction marks, no "..", never an
+  instruction file) and checked against the bytes: a program or script is never saved, a known kind gets its own
+  extension, a ZIP that is not an Office or Hangul file is saved as .zip. A Gmail attachment's name is the one the AI
+  passed (`file_name`, copied from the message listing): the library's attachment answer carries no name, and the
+  listing is the library's text too, so reading it again would not make the name more trustworthy; the checks above
+  are what makes it safe. The place (a folder too) is checked for write before anything is read. A handle needs its
+  connection still there and usable by the person (`mayUse`), and the save records the connection's sources again
+  before the card (as save_room_file does). Kept files go with a purged chat and a deleted account.
 - **Caps kept:** a Gmail attachment at most 18 MB (what one answer can carry), a Drive file the server's read limit and
   32 MB (10 MB for an export). The kept-media caps (200 MiB a chat, 1 GiB a person, 4 GiB a server, 24 hours) stay.
 - **Not done here:** OCR of attachments, `offset` for long Drive or attachment text (N11/N18), Drive in shared chats.

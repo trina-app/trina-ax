@@ -4,6 +4,8 @@
 // shortcut or a file in two folders); tokens never leave the server; stopping revokes; a gone admin stops the share and
 // the admins are told; the rule is checked again on every call; the members' switch governs only their own Drive.
 import { afterEach, beforeEach, expect, test } from 'bun:test'
+import fs from 'node:fs'
+import path from 'node:path'
 import { makeCApp, jsonBody, type CApp } from '../lib/c-app'
 import { googleDriveOf, type GoogleDrive } from '../../server/src/integrations/google-drive/oauth'
 import { listShares, setMembersCanConnect, stopShare, updateShare } from '../../server/src/integrations/google-drive/share-admin'
@@ -267,4 +269,25 @@ test('no members’ switch: a stored "off" from before is ignored and the old ca
   expect(mine.structured).toMatchObject({ source: 'mine', otherSources: ['team:Company Drive'] })
   expect((await text('drive_read', { fileId: 'in-1', source: 'team:Company Drive' })).structured).toMatchObject({ source: 'team:Company Drive', otherSources: ['mine'] })
   expect((await text('drive_read', { fileId: 'x', source: 'team:Nope' })).text).toContain('"team:Company Drive"')
+})
+
+// save_connector_file (tools/save-connector-file.ts) goes through the same share scope as drive_read
+test('saving a team-share file: only inside the shared folders, and the card sees the share as the source', async () => {
+  const save = (fileId: string, save_as: string, widen: (t: string) => string | null) => {
+    const chat = a.chat('alice'), turn = a.turn('alice', chat)
+    return { chat, result: toolRegistry(a.ctx.files).call('save_connector_file', { file: `drive:${fileId}`, source: 'team:Company Drive', save_as }, { ...a.toolCtx('alice', turn), confirmWidening: async (t: string) => widen(t) }) }
+  }
+  for (const id of ['out-1', 'two-out', 'sc-out']) {
+    const r = await save(id, 'shared/', () => null).result
+    expect(r.isError).toBe(true)
+    expect(r.text).not.toContain('CANARY')
+  }
+  expect(fs.existsSync(path.join(a.team, 'shared', 'salaries.txt'))).toBe(false)
+  let seen: unknown = null
+  const s = save('in-1', 'shared/', () => { seen = readScope(a.ctx.db, s.chat); return null })
+  const r = await s.result
+  expect(r.isError).not.toBe(true)
+  expect(r.structured).toMatchObject({ path: 'shared/budget.txt' })
+  expect(fs.readFileSync(path.join(a.team, 'shared', 'budget.txt'), 'utf8')).toBe('IN-FOLDER budget')
+  expect(seen).toEqual([{ type: 'drive_share', id: shareId }])
 })
