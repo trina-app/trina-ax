@@ -3,7 +3,7 @@
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
 import { hwpOutputPath } from '../files/hwpx-check'
-import { commentDocxOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
+import { commentDocxOutput, editOfficeOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
 /**
  * Tools whose use keeps a chat to the team's own words (OWN_CHAT_TEAM_TOOLS below): the file tools and the ones that
@@ -76,6 +76,8 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
 
   // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
   save_connector_file: ['save_as'], save_room_file: ['save_as'], comment_docx: ['output'], skill_files: ['to_folder'], save_promo_video: ['save_as'],
+  // an Office file changed in place, or saved as a new file of the same format with `output` (tools/edit-office.ts)
+  edit_office: ['output'],
 }
 
 /** The tools that add an extension to the `output` they are given, each by its own rule (make_file's format, ".pdf",
@@ -89,6 +91,7 @@ export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Reco
   stamp_pdf: (o) => stampOutputOf(o) ?? o,
   edit_hwp: (o, a) => hwpOutputPath(o, typeof a.file_path === 'string' ? a.file_path : ''),
   comment_docx: (o) => commentDocxOutput(o),
+  edit_office: (o, a) => editOfficeOutput(o, typeof a.file_path === 'string' ? a.file_path : ''),
   // the copy's own format picks its extension (tools/resize-images.ts): the typed path, or its stem with any of them
   resize_images: (o) => { const stem = o.replace(/\/+$/, '').replace(/\.(jpe?g|png|webp|heic|heif)$/i, ''); return [o, ...['jpg', 'jpeg', 'png', 'webp'].map((e) => `${stem}.${e}`)] },
 }
@@ -99,9 +102,11 @@ export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Reco
  * WRITE_TARGET_NOT_SAVES (tests/unit/b-shared-save-card.test.ts). save_chat_file and make_zip: their own pull requests
  * add their WRITE_TARGET_ARGS entries. */
 export const SAVE_CARD_TOOLS: Readonly<Record<string, 'one' | 'many'>> = {
-  write: 'one', make_file: 'one', edit_hwp: 'one', stamp_pdf: 'one', edit_pdf: 'one', merge_pdfs: 'one', comment_docx: 'one',
+  write: 'one', make_file: 'one', edit_hwp: 'one', stamp_pdf: 'one', edit_pdf: 'one', merge_pdfs: 'one', comment_docx: 'one', edit_office: 'one',
   save_url: 'one', save_connector_file: 'one', save_room_file: 'one', save_promo_video: 'one', save_chat_file: 'one', make_zip: 'one',
   split_pdf: 'many', resize_images: 'many', unzip_file: 'many',
+  // a query's result as a file, or one file per value with split_by (tools/query-data.ts)
+  query_data: 'many',
 }
 
 /** The tools of WRITE_TARGET_ARGS whose card for a place that is there already does not say "save": an edit gives back

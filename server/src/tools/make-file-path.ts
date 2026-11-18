@@ -26,3 +26,6 @@ export function stampOutputOf(output: unknown): string | null {
 
 /** Where comment_docx saves a given output: a .docx ("x" and "x/" save x.docx). */
 export const commentDocxOutput = (o: string) => (ext(o) === 'docx' ? o : `${o.replace(/\/+$/, '')}.docx`)
+
+/** Where edit_office saves a given output: the source's format ("x" and "x/" save x.docx for a .docx; tools/edit-office.ts). */
+export const editOfficeOutput = (o: string, src: string) => { const x = ext(src); return ext(o) === x ? o : `${o.replace(/\/+$/, '')}.${x}` }
