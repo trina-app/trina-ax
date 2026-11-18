@@ -56,6 +56,11 @@ Plan: docs/AGENTS/plan/20261118-1100-limits-office-read.md.
   existing .docx files get their chart data when they change) and its 50 MB per-file limit; chat_file, room_file and
   Drive attachments keep their own size limits (audit items #7, #23); .xls and .ods have no streaming reader (SheetJS
   under the worker's limits); old formats and other archives (audit #9).
+- **Real-AI check (2026-11-18, Claude Code on this Mac, a copy of the QA team with a plan file so the limits apply):**
+  a fake 60 MB sales export (4 sheets, 1.1 M rows) and a 160 MB deck of photos with two speaker notes and a chart.
+  "What are the totals on its last sheet?": one read, the overview's last rows, the exact TOTAL row (6,489,148 orders,
+  19,266,023 units, 2,839,355,962.77). "How much did Store 060000 have?": one read with sheet and range, the right row.
+  "What do the speaker notes say, what does the chart show?": both notes by slide and the four chart values.
 - **Tests:** tests/unit/office-big.test.ts: a 40 MB deck keeps notes and charts, a 40 MB report keeps headers,
   footers, comments and charts, a 40 MB-picture .xlsx, .hwp and .hwpx read (all failed before: 32 MB cap), the streaming
   reader equals SheetJS on a whole workbook, cells as other writers store them, the overview and its row numbers,
