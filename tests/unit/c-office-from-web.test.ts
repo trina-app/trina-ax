@@ -58,7 +58,7 @@ beforeAll(async () => {
       }
       const key = p + new URL(req.url).search
       const r = routes[key] ?? routes[p]
-      return r ? new Response(r[0], { headers: r[1] }) : new Response('no', { status: 404 })
+      return r ? new Response(new Uint8Array(r[0]), { headers: r[1] }) : new Response('no', { status: 404 })
     },
   })
 })
