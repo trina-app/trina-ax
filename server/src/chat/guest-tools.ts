@@ -51,8 +51,8 @@ export function guestPromptOf(db: Database, userId: string): GuestPrompt | null 
 const GUEST_REWRITES: [RegExp, string][] = [
   // make_file with Hangul writing off: "an admin can turn on the Hangul plugin (Admin > Plugins, …) … ask an admin"
   [/Hangul \(\.hwp\/\.hwpx\) documents cannot be made or filled here: [^]*?offer a Word file meanwhile\. /, 'Hangul (.hwp/.hwpx) documents cannot be made or filled here: when the person asks for one, say so in one plain sentence and offer a Word file. '],
-  // make_file's templates live under skills/, which a guest cannot open
-  [/`template`: a [^ ]+ under skills\/ for styles\. /, ''],
+  // make_file's template: a guest can use a file they can read, but cannot open skills/
+  [/ \(their own earlier document, or a team template under skills\/\)/, ''],
   [/\bthe team drive\b/g, 'the team files'],
 ]
 /** A sentence still about what only team members have after GUEST_REWRITES (fail closed: a new member-only sentence in

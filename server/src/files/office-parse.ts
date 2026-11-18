@@ -24,6 +24,7 @@ import { OFFICE_EDIT_MODE, OFFICE_VERIFY_MODE, officeEditRequest, officeVerifyRe
 import './docx-edit'
 import './xlsx-edit'
 import './pptx-edit'
+import { DOCX_TEMPLATE_CHECK_MODE, docxTemplateCheckRequest, PPTX_TEMPLATE_CHECK_MODE, pptxTemplateCheckRequest } from './office-template'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
@@ -226,6 +227,9 @@ WRITE_MODES.add(DOCX_COMMENT_MODE)
 // edit_office's modes: an existing .docx / .xlsx / .pptx changed in place, and the fresh read-back (office-edit.ts)
 WRITE_MODES.add(OFFICE_EDIT_MODE)
 WRITE_MODES.add(OFFICE_VERIFY_MODE)
+// make_file's .docx / .pptx template checked before pandoc copies its parts (office-template.ts)
+WRITE_MODES.add(DOCX_TEMPLATE_CHECK_MODE)
+WRITE_MODES.add(PPTX_TEMPLATE_CHECK_MODE)
 
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read.
  * `ask`: one sheet and range of a spreadsheet (read's `sheet` / `range`). */
@@ -249,6 +253,8 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === DOCX_COMMENT_MODE) return docxCommentRequest(input)
   if (mode === OFFICE_EDIT_MODE) return officeEditRequest(input)
   if (mode === OFFICE_VERIFY_MODE) return officeVerifyRequest(input)
+  if (mode === DOCX_TEMPLATE_CHECK_MODE) return docxTemplateCheckRequest(input)
+  if (mode === PPTX_TEMPLATE_CHECK_MODE) return pptxTemplateCheckRequest(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)
