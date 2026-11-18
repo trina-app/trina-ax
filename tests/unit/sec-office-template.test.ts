@@ -100,6 +100,33 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).not.toThrow()
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg [<!ENTITY a "DDEAUTO">]>'))).toThrow(/well-formed|DTD/)
     expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE hdr PUBLIC "x" "y">', `<w:hdr xmlns:w="${W}"/>`))).toThrow(/DTD/)
+    // only the W3C's SVG 1.0 / 1.1 DTD (QA TC-4966)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 20010904//EN" "http://www.w3.org/TR/2001/REC-SVG-20010904/DTD/svg10.dtd">'))).not.toThrow()
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//Evil//DTD SVG//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).toThrow(/DTD/)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://evil.example/svg11.dtd">'))).toThrow(/DTD/)
+    expect(() => checkOfficeTemplate('docx', svg('<!DOCTYPE svg SYSTEM "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'))).toThrow(/DTD/)
+    // a font, a picture or a .bin part may start with FF FE by chance: fine; UTF-16 XML there is still refused
+    for (const name of ['word/fonts/font1.odttf', 'word/media/image9.png', 'word/x.bin']) {
+      expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([0xff, 0xfe, 0x12, 0x9a, 0x00, 0x01]) }]))).not.toThrow()
+      expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: u16([0xff, 0xfe], true) }]))).toThrow(/UTF-16/)
+    }
+    // UTF-32 (either byte order mark, or "<" as a 32-bit unit) in any part, whatever its name (review of #1341)
+    for (const head of [[0, 0, 0xfe, 0xff], [0xff, 0xfe, 0, 0], [0, 0, 0, 0x3c], [0x3c, 0, 0, 0]]) {
+      for (const name of ['word/header7.xml', 'word/media/image7.png', 'word/fonts/font7.odttf']) {
+        expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([...head, 0x20, 0, 0, 0]) }]))).toThrow(/UTF-32/)
+      }
+    }
+    // white space between the byte order mark and "<" is still XML (review of #1341): a header stored under media/
+    const spaced = (bom: number[], le: boolean, lead: string) => {
+      const t = Buffer.from(`${lead}<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr="DDEAUTO a b"/></w:p></w:hdr>`, 'utf16le')
+      if (!le) t.swap16()
+      return new Uint8Array([...bom, ...t])
+    }
+    for (const [bom, le] of [[[0xff, 0xfe], true], [[0xfe, 0xff], false], [[], true], [[], false]] as [number[], boolean][]) {
+      for (const lead of [' ', '\n', '\r\n\t ']) {
+        expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name: 'word/media/part.xml', data: spaced(bom, le, lead) }]))).toThrow(/UTF-16/)
+      }
+    }
     // the same field name in another namespace is not a Word field
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })

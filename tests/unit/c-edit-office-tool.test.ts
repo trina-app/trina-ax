@@ -11,7 +11,7 @@ import ExcelJS from '../../server/node_modules/exceljs'
 import { API } from '@mycel/shared/api'
 import { which } from '../../server/src/config'
 import { outsideContentTool } from '../../server/src/chat/team-content-tools'
-import { EDIT_OFFICE_DESCRIPTION, editOffice, editOfficeOutput, editOfficeText, officePartsMismatch, PICTURES_TOTAL_MAX } from '../../server/src/tools/edit-office'
+import { EDIT_OFFICE_DESCRIPTION, editOffice, editOfficeOutput, editOfficeText, officePartsMismatch, PICTURES_TOTAL_MAX, countPictureBytes } from '../../server/src/tools/edit-office'
 import type { ToolCtx } from '../../server/src/files/service'
 import { sha256 } from '../../server/src/files/store'
 import { makeCApp, type CApp } from '../lib/c-app'
@@ -200,6 +200,15 @@ describe('edit_office: the security review\'s cases', () => {
     const twice = { file_path: 'users/alice/deck.pptx', changes: [{ replace_picture: { slide: 1, picture: 1, image: 'users/alice/new.png' } }, { find: 'Logo', replace: 'Brand' }] }
     expect((await editOffice(A.ctx, ctxRead('users/alice/deck.pptx'), twice as any)).report.added.filter((n) => /media/.test(n)).length).toBe(1)
     expect(PICTURES_TOTAL_MAX).toBeLessThanOrEqual(64 * 1024 * 1024)
+  })
+
+  test('the pictures of one call are counted as read and as re-encoded (a re-encoded picture can be larger; QA TC-4965)', () => {
+    const t = { read: 0, made: 0 }
+    countPictureBytes(t, 'read', 10, 0, 40)
+    countPictureBytes(t, 'made', 30, 0, 40)
+    countPictureBytes(t, 'read', 10, 1, 40)
+    expect(() => countPictureBytes(t, 'made', 11, 1, 40)).toThrow(/once they are prepared for the deck/)
+    expect(() => countPictureBytes({ read: 39, made: 0 }, 'read', 2, 2, 40)).toThrow(/change 3: the new pictures together/)
   })
 
   withPandoc('hostile zips: two entries with one name, a zip bomb, an encrypted entry; refused before any change', async () => {
