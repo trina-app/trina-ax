@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -79,7 +79,9 @@ const DAVE: Principal = { id: 'dave', name: 'Dave', role: 'member', groups: [] }
 const ERIN: Principal = { id: 'erin', name: 'Erin', role: 'member', groups: ['marketing'] }
 const WEB = `${TEAM}/projects/web`
 /** the shared project chat (alice and dave), the chat shared with people (alice and erin), another shared chat */
-const SP = 'chat-sp', SW = 'chat-sw', SO = 'chat-so'
+// production-length chat ids (uuid v7, 36 characters): with short ones this suite missed srt's socket paths growing past
+// the unix socket limit (QA TC-4848; tests/unit/dev-env-socket-path.test.ts)
+const SP = '01a1ed7a-0000-7000-8000-0000000000sp', SW = '01a1ed7a-0000-7000-8000-0000000000sw', SO = '01a1ed7a-0000-7000-8000-0000000000so'
 /** what only alice has: her own folder's text, her own home and logs (no CANARY prefix: alice's own runs read them) */
 const ASKER = 'ASKER-ONLY-9c1e'
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
@@ -155,7 +157,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
   // a shared chat's command: a home and logs of its own (runner.ts prepare)
   const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId }
-  if (sh_) { for (const d of [path.join(runHome(BASE, owner), 'tmp'), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
+  if (sh_) { for (const d of [runHome(BASE, owner), runTmp(BASE, owner), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = sh_ ? sh_.within : work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
@@ -276,7 +278,7 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
   { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
-    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${chatHome(BASE, SP)}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
+    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
     after: () => (!fs.existsSync(`${WEB}/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
   { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
     check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
