@@ -703,7 +703,7 @@ export class TurnExec {
     // the team rules, the memories and a "/skill" together take at most a share of this model's context (prompt.ts
     // promptBudget): a small or local model gets less of each, with the usual quiet note
     const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
-    let promptTokens = budget.total
+    const promptTokens = budget.total
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -986,9 +986,9 @@ export class TurnExec {
     if (refs) this.markRoomsSeen()
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    // a "/skill": at most half the prompt budget, and what it takes is not there for the rules and memories
+    // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
+    // resumed Claude session keeps from its first instructions
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens }) : ''
-    if (invokedBlock) promptTokens = Math.max(0, budget.total - textTokens(invokedBlock))
     const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
@@ -1269,6 +1269,8 @@ export class TurnExec {
   /** Codex: one turn (a crash without output is tried once more; managed: a refused / limited connection moves the
    * turn to the next one, like Claude). */
   private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
+    // the skill tool cuts to the running engine's limit: Codex also after a Claude limit moved the turn here (limitFallback)
+    this.engineRunning = 'codex'
     const { rt, spec } = this
     const { chatDir, token, model } = o
     const managed = codex.auth === 'managed'
@@ -1359,6 +1361,7 @@ export class TurnExec {
     // so the next Claude turn starts fresh from the history
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
     rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
+    this.engineRunning = 'codex'
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
     // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
     await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })

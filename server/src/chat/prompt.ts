@@ -61,8 +61,8 @@ export interface PromptInput {
   /** the person's device zone sent with the turn (TurnSpec.timeZone); the times the AI says are in it */
   personTimeZone?: string | null
   memories: { id: string; text: string }[]
-  /** tokens the team rules and the memories may take in these instructions (promptBudget for the turn's model, less an
-   * invoked skill); DEFAULT_PROMPT_TOKENS when not given */
+  /** tokens the team rules and the memories may take in these instructions (promptBudget for the turn's model; an
+   * invoked skill has its own share); DEFAULT_PROMPT_TOKENS when not given */
   promptTokens?: number
   project: { id?: string; name: string; folderPath: string; instructions: string } | null
   browser: boolean
@@ -258,12 +258,14 @@ export function contextTokensFor(engine: EngineId, model: string | null | undefi
   try { host = o.apiBaseUrl ? new URL(o.apiBaseUrl).hostname : '' } catch {}
   return host && LOCAL_HOST.test(host) ? LOCAL_CONTEXT_TOKENS : DEFAULT_CONTEXT_TOKENS
 }
-/** What the team rules, the memories and an invoked skill may take for a model of `contextTokens`: all three together
- * PROMPT_SHARE of it; a "/skill" at most half of that, the memories at most 40% of what is left, the rules the rest
- * (buildTurnPrompt measures the memory block and gives the rules what it leaves). */
+/** the share of the model's context a "/skill" may take, beside the rules and memories */
+export const SKILL_SHARE = 0.125
+/** What the team rules and the memories (`total`, PROMPT_SHARE of the context) and an invoked skill (`skillTokens`, its
+ * own SKILL_SHARE) may take for a model of `contextTokens`. The skill never takes from the rules and memories: a resumed
+ * Claude session keeps the rules of its first instructions, so a chat started with a skill would keep fewer rules for
+ * good. The memories take at most 40% of `total`, the rules the rest (buildTurnPrompt measures the memory block). */
 export function promptBudget(contextTokens: number): { total: number; skillTokens: number } {
-  const total = Math.floor(contextTokens * PROMPT_SHARE)
-  return { total, skillTokens: Math.floor(total / 2) }
+  return { total: Math.floor(contextTokens * PROMPT_SHARE), skillTokens: Math.floor(contextTokens * SKILL_SHARE) }
 }
 /** the memory block's tokens for `tokens` of budget for rules and memories */
 export const memoryTokensOf = (tokens: number): number => Math.floor(tokens * 0.4)

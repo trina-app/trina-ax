@@ -1023,9 +1023,9 @@ export class ChatRuntime {
   }
   /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
    * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */
-  memoriesInUse(userId: string): Set<string> {
+  memoriesInUse(userId: string, memoryTokens?: number): Set<string> {
     const rows = this.memoriesForPrompt(userId)
-    return new Set(rows.slice(0, memoryLines(rows).length).map((r) => r.id))
+    return new Set(rows.slice(0, memoryLines(rows, memoryTokens).length).map((r) => r.id))
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and
