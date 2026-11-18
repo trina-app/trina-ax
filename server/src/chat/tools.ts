@@ -245,6 +245,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     add(boxShellTool({
       queueStep: boxShellQueueStep(exec),
       ctx: exec.rt.ctx, project: exec.devEnv.project, userId: exec.spec.userId, turnId: exec.spec.turnId, chatId: exec.spec.chatId, signal: exec.abort.signal,
+      ...(exec.devEnv.shared ? { shared: exec.devEnv.shared } : {}),
       redact: (s) => exec.redact(s),
       unattended: person.unattended,
       confirm: async (question, options, details) => (person.choose

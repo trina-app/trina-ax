@@ -75,6 +75,7 @@ import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './se
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
+import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
@@ -286,7 +287,7 @@ export class TurnExec {
   browser = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
-  devEnv: { project: { id: string; folderPath: string; name: string } | null } | null = null
+  devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
   principal: Principal | null = null
   private templateScope = false
   /** an approved scheduled template's run (its scope is fixed: chat/schedule-templates.ts) */
@@ -727,11 +728,19 @@ export class TurnExec {
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
-    // scope, with or without a project; the folder access is the person's (devenv/srt).
-    if (devEnvFlag() && !this.templateScope && !this.restricted && !this.shared && spec.clientKind !== 'schedule') {
+    // scope, with or without a project; the folder access is the person's (devenv/srt). In a shared chat too
+    // (docs/decisions/20261118-devenv-shared-chats.md): there a run sees only what everyone who sees the chat now may
+    // read (read again for every command), in the project folder of a project chat, never a personal folder; what it
+    // may read joins the answer's record as a file read does
+    if (devEnvFlag() && !this.templateScope && !this.restricted && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
-      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project }
+      const shared: SharedRun | undefined = this.shared ? {
+        within: this.shared.kind === 'project' ? this.shared.project.folder_path : null,
+        audience: () => this.sharedAudience(),
+        noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
+      } : undefined
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project, ...(shared ? { shared } : {}) }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet

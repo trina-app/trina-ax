@@ -137,16 +137,33 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     res.removedBytes += bytes
   }
 
+  // a shared chat's runs have a home and logs per command (srt/config.ts runHome), removed when the command ends: one
+  // left by a crash goes after TMP_KEEP_DAYS, never while the chat has a run
+  for (const top of [p.chatHome, p.chatLogs]) {
+    for (const c of await ls(top)) {
+      if (!c.isDirectory() || !SAFE_ID_RE.test(c.name)) continue
+      if (busy.chats.has(c.name)) { res.keptBusy++; continue }
+      const dir = path.join(top, c.name)
+      for (const r of await ls(dir)) {
+        const abs = path.join(dir, r.name)
+        if (!await plain(dir, abs)) continue
+        const s = await scan(abs)
+        if (now - s.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', s.bytes, { chat: c.name })
+      }
+    }
+  }
+
   // caches and tmp of every person
   for (const u of await ls(p.home)) {
     if (!u.isDirectory() || !SAFE_ID_RE.test(u.name)) continue
     if (busy.users.has(u.name)) { res.keptBusy++; continue }
+    const who = { user: u.name }
     const home = path.join(p.home, u.name)
     for (const rel of CACHE_ROOTS) {
       const abs = path.join(home, rel)
       if (!await plain(home, abs)) continue // a link on the way (.npm, .cache, .bun ...) or a file: not a cache folder of ours
       const s = await scan(abs)
-      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, { user: u.name })
+      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, who)
     }
     const tmp = path.join(home, 'tmp')
     if (!await plain(home, tmp)) continue
@@ -157,17 +174,22 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
       if (now - s.mtimeMs < TMP_KEEP_DAYS * DAY) continue
       // a folder is judged by its newest file: a dev server's socket or log in it may still be live
       const inner = s.isDirectory() ? await scan(abs) : { bytes: s.size, newest: s.mtimeMs, truncated: false }
-      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes, { user: u.name })
+      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes, who)
     }
   }
 
-  // the regenerable folders of chats that have been idle
-  for (const c of await ls(p.work)) {
+  // the regenerable folders of chats that have been idle (a shared chat's work folders too: work-shared/<chat>/<people>)
+  const works: { name: string; root: string }[] = []
+  for (const c of await ls(p.work)) if (c.isDirectory() && SAFE_ID_RE.test(c.name)) works.push({ name: c.name, root: path.join(p.work, c.name) })
+  for (const c of await ls(p.workShared)) {
     if (!c.isDirectory() || !SAFE_ID_RE.test(c.name)) continue
+    for (const k of await ls(path.join(p.workShared, c.name))) if (k.isDirectory() && SAFE_ID_RE.test(k.name)) works.push({ name: c.name, root: path.join(p.workShared, c.name, k.name) })
+  }
+  for (const c of works) {
     if (busy.chats.has(c.name)) { res.keptBusy++; continue }
     const act = o.chatActivity(c.name)
     if (act === null || now - act < WORK_IDLE_DAYS * DAY) continue // no chat row: not ours to judge; young: in use
-    const root = path.join(p.work, c.name)
+    const root = c.root
     const w = await scanWork(root)
     if (w.build.length === 0 || now - w.newest < WORK_IDLE_DAYS * DAY) continue
     // the build folders' own newest change counts too (an install or a build that ended recently)

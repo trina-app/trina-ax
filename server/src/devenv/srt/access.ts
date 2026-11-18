@@ -45,6 +45,10 @@
 // the person that could write there is alive (its view was made before). With `shareReaders`, the people of a share
 // read that folder too when a project run's read scope is worked out.
 // folderView with no run gives the person's access (what the person may open); with a run, the access of that run.
+// A shared chat (docs/decisions/20261118-devenv-shared-chats.md): sharedFolderView, the same rules for the person AND
+// everyone who sees the chat now: read only where all of them may read, in the project folder of a project chat (any
+// team folder in a chat shared with people), write only where the person may and the run may (the project folder),
+// never a personal folder, the person's own included.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import { atLeast, inProjectZone, type Access, type Principal, type RuleSet } from '../../policy/access'
@@ -98,9 +102,9 @@ const audienceOf = (rules: Pick<RuleSet, 'access'>, people: readonly Principal[]
   return people.filter((q) => accessOf(rules, q, folder) !== 'none' || !!shared?.has(q.id)).map((q) => q.id)
 }
 
-export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = [], shareReaders?: (folder: string) => ReadonlySet<string>): FolderView {
-  // the team root as a starting folder would make every folder writable again: fail closed
-  if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
+/** The folders where a run's access can change, shallowest first: the team root, users/, the person's own folder,
+ * .system/, the starting folder, the skill and shared folders of the run, every rule folder and every projects/<name>. */
+function candidates(rules: Pick<RuleSet, 'boundaryFolders'>, p: Principal, run: RunWrites | undefined, zoneFolders: readonly string[]): string[] {
   const cands = new Set<string>(['', 'users', `users/${p.id}`, PRODUCT.systemDir])
   // access can change at the starting folder too (write in it, read above it), also when it has no rules of its own
   if (run?.start) cands.add(run.start)
@@ -117,7 +121,13 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p
   }
   // and at every projects/<name> on disk, also one with no rules of its own (policy/zone.ts; the runner passes them)
   for (const z of zoneFolders) if (inProjectZone(segsOf(z))) cands.add(z)
-  const sorted = [...cands].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
+  return [...cands].sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
+}
+
+export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run?: RunWrites, people?: readonly Principal[], zoneFolders: readonly string[] = [], shareReaders?: (folder: string) => ReadonlySet<string>): FolderView {
+  // the team root as a starting folder would make every folder writable again: fail closed
+  if (run && run.start !== null && (run.start === '' || run.start.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a starting folder: ${JSON.stringify(run.start)}`)
+  const sorted = candidates(rules, p, run, zoneFolders)
   // a project run: the people who see the starting folder (the person included); a folder outside it is read only when
   // all of them read it too (see the note above folderView)
   const startAudience = run?.start && people ? audienceOf(rules, [...people.filter((q) => q.id !== p.id), p], run.start, shareReaders) : null
@@ -126,12 +136,21 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p
     const readers = new Set(audienceOf(rules, [...people!.filter((q) => q.id !== p.id), p], folder, shareReaders))
     return startAudience.every((id) => readers.has(id))
   }
-  const out: FolderView = { read: [], write: [], denyRead: [], denyWrite: [] }
-  const got = new Map<string, Access>()
-  for (const c of sorted) {
+  return emitView(sorted, (c) => {
     let a = accessOf(rules, p, c)
     if (run && a === 'write' && !runMayWrite(run, p.id, c)) a = 'read'
     if (startAudience && a !== 'none' && !isUnder(c, run!.start!) && !coversStart(c)) a = 'none'
+    return a
+  })
+}
+
+/** srt's four lists from the access of each candidate (shallowest first): an entry only where the access differs from
+ * the nearest candidate above. */
+function emitView(sorted: readonly string[], accessAt: (c: string) => Access): FolderView {
+  const out: FolderView = { read: [], write: [], denyRead: [], denyWrite: [] }
+  const got = new Map<string, Access>()
+  for (const c of sorted) {
+    const a = accessAt(c)
     got.set(c, a)
     // the nearest candidate above (the team root has none above it: none)
     let parent: Access = 'none'
@@ -148,6 +167,64 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p
     else out.denyRead.push(c)
   }
   return out
+}
+
+/** A run in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): what it shows goes to everyone who sees the
+ * chat, so it gets only what all of them may read. */
+export interface SharedScope {
+  /** everyone who sees the chat now (chat/turn.ts sharedAudience); the person of the run is one of them */
+  audience: readonly Principal[]
+  /** a shared project chat: its project folder (team-relative), the only team folder the run sees. null: a chat shared
+   * with people and groups (the run starts in the chat's work folder) */
+  within: string | null
+}
+
+/**
+ * The view of a run in a shared chat: the same rules (RuleSet.access) as folderView, for the person of the run AND
+ * everyone who sees the chat. A folder is readable only where the person and every one of them may read it, inside the
+ * project folder for a project chat (anywhere in the team folder for a chat shared with people). It is writable only
+ * where the person may write in that set and the run may write (runMayWrite: the project folder, never a skill folder;
+ * a people chat writes no team folder, only its work folder). No personal folder at all, the person's own included
+ * (it is theirs alone), and never .system/. Throws when the run does not start where the chat's runs start.
+ */
+export function sharedFolderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, zoneFolders: readonly string[] = []): FolderView {
+  const { sorted, at } = sharedAccess(rules, p, run, scope, zoneFolders)
+  return emitView(sorted, at)
+}
+
+/** The folders where access can change that a shared chat's run may read (sharedFolderView), shallowest first: what
+ * the answer records as read (chat/shared-answers.ts), so it is later kept from anyone who cannot read one of them. */
+export function sharedReadable(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, zoneFolders: readonly string[] = []): string[] {
+  const { sorted, at } = sharedAccess(rules, p, run, scope, zoneFolders)
+  return sorted.filter((c) => at(c) !== 'none')
+}
+
+/** The access a shared chat's run gives one path by the rules themselves (not by the run's view, which leaves out
+ * folders not on disk): the person and everyone in the chat, inside the project folder of a project chat, never a
+ * personal folder. For the tool's notes (srt/runner.ts sharedVisible). Throws as sharedFolderView does. */
+export function sharedPathAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, rel: string): Access {
+  if (rel.split('/').some((x) => x === '' || x === '.' || x === '..')) return 'none'
+  return sharedAccess(rules, p, run, scope, []).at(rel)
+}
+
+function sharedAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, zoneFolders: readonly string[]) {
+  const w = scope.within
+  if (w !== null && (w === '' || w.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a project folder: ${JSON.stringify(w)}`)
+  if (w !== null ? run.start !== w : run.start !== null) throw new Error('a run of a shared chat starts in its project folder or in its work folder')
+  if (!scope.audience.some((q) => q.id === p.id)) throw new Error('the person no longer sees this chat')
+  const others = scope.audience.filter((q) => q.id !== p.id)
+  // no shared folders of the person matter: users/ is hidden as a whole here
+  const own: RunWrites = { start: run.start, shared: [] }
+  const at = (c: string): Access => {
+    const s = segsOf(c)
+    if (s[0] === 'users' || s[0] === PRODUCT.systemDir) return 'none'
+    if (w !== null && !isUnder(c, w)) return 'none'
+    let a = rules.access(p, s)
+    if (a === 'none' || others.some((q) => !atLeast(rules.access(q, s), 'read'))) return 'none'
+    if (a === 'write' && !runMayWrite(own, p.id, c)) a = 'read'
+    return a
+  }
+  return { sorted: candidates(rules, p, own, zoneFolders), at }
 }
 
 /** What srt gives a path, as a model of how srt applies the lists (the deepest of denyRead, allowRead and allowWrite
