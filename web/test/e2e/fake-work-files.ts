@@ -11,7 +11,7 @@ export type Meta = { name: string; root?: 'documents' | 'desktop' | 'downloads' 
 export type Root = { id: 'documents' | 'desktop' | 'downloads' | 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; place?: string; state: string; cut?: boolean; tooBig?: number; oneDrive?: boolean }
 
 /** Installed before the app's scripts: a desktop bridge whose workFiles answers like the app's main process. */
-export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; pick?: boolean; wide?: boolean; fullDisk?: 'granted' | 'denied'; platform?: 'darwin' | 'win32' } = {}) {
+export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; pick?: boolean; pickFolder?: string; wide?: boolean; fullDisk?: 'granted' | 'denied'; platform?: 'darwin' | 'win32' } = {}) {
   await page.addInitScript((opts) => {
     type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; asks: unknown[]; reads: string[]; adds: string[][]; added: Set<string>; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string>; fullDisk: string; fdSettings: number; fdRelaunch: number; fdChecks: number }
     const w = window as unknown as { mycelDesktop: unknown; __app: D; __look: (files: unknown[], roots: unknown[]) => void }
@@ -75,6 +75,14 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
           for (const f of d.pickFiles as { id: string }[]) d.latest.add(f.id)
           d.files = [...d.files, ...(d.pickFiles as D['files'])]
           return { state: 'done', stopped: false, roots: [{ id, state: 'ok', oneDrive: false, cut: false, tooBig: 0, checked: 1, how: 'index' }], files: d.pickFiles }
+        } } : {}),
+        // "Choose a folder…" (MAN-057): any folder, picked in the system's window; the test sets what it holds and its name
+        ...(opts.pickFolder ? { pickFolder: async () => {
+          d.picks++
+          for (const f of d.pickFiles as { id: string }[]) d.latest.add(f.id)
+          d.files = [...d.files, ...(d.pickFiles as D['files'])]
+          const first = (d.pickFiles as { root?: string; place?: string }[])[0]
+          return { state: 'done', stopped: false, roots: [{ id: first?.root ?? 'folder', place: opts.pickFolder, state: 'ok', oneDrive: false, cut: false, tooBig: 0, checked: d.pickFiles.length, how: 'walk' }], files: d.pickFiles }
         } } : {}),
       },
     }

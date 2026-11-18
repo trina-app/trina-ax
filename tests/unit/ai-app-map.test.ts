@@ -128,8 +128,11 @@ describe('who gets which map', () => {
     const managed = appMapSection(base, 'ko')
     const local = appMapSection({ ...base, managed: false }, 'ko')
     expect(managed).toContain(DICTS.ko['guest.ai.team'])
-    expect(local).toContain("Guest AI: not on this team's")
-    expect(managed).not.toContain("Guest AI: not on")
+    // the setting is on screen on every install, where it is (ADM-03, 2026-11-17): a local one picks only No AI
+    for (const x of [managed, local]) expect(x).toContain(`Guest AI (${DICTS.ko['guest.invite.ai']}, at invite or on their row in ${DICTS.ko['guest.admin.title']})`)
+    expect(local).toContain(`only ${DICTS.ko['guest.ai.none']} can be picked on this team's ${PRODUCT.displayName}`)
+    expect(local).not.toContain(DICTS.ko['guest.ai.team'])
+    expect(managed).not.toContain('only ' + DICTS.ko['guest.ai.none'])
     const dev = appMapSection({ ...base, devEnv: true }, 'ko')
     expect(dev).toContain(DICTS.ko['devEnv.title'])
     // without it: the setting is named, not on this team's app, never "does not exist" (PRJ-05, ADM-07), in everyday
@@ -188,8 +191,8 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
   const aiNameIn = (L: (typeof LOCALES)[number]) => PRODUCT_NAMED_AFTER_AI ? DICTS[L]['rooms.aiName'] : PRODUCT.shortName
   test('a shared chat: the thread line keeps only the labels and who is told (its instructions say the rest)', () => {
     const s = appMapSection({ ...base, view: 'shared' }, 'en')
-    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}, then `)
-    expect(s).toContain('the asker and repliers are told')
+    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}: people's talk`)
+    expect(s).toContain('Asker and repliers are told')
     expect(s).not.toContain('not in a private chat')
   })
   test('every form, every language: each place by the label the app shows', () => {
@@ -221,6 +224,12 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     // (ai-reads-answer-comments, 2026-11-17: it no longer says the AI does not read it; CHT-16)
     expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
     expect(s).toContain('the AI there reads it when someone asks')
+    // Send to only fills the message box; in the shared form it is no longer "then Send to" (CHT-14, CHT-15, 2026-11-17)
+    expect(s).toContain('fills the message box, unsent')
+    const shared = appMapSection({ ...base, view: 'shared' }, 'en')
+    expect(shared).toContain('which you read when asked')
+    expect(shared).toContain("fills the person's message box, unsent")
+    expect(shared).not.toMatch(/, then .*Send to/)
     expect(s).not.toContain('the AI does not read')
     expect(s).toContain('not in a private chat')
     // app sign-in: a Mac or Windows browser, no second password, not from a phone
@@ -269,8 +278,8 @@ describe('size: it is in every turn', () => {
   // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
   // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
   test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
-      const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) for (const managed of [true, false]) {
+      const s = appMapSection({ view, managed, devEnv, office: false }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
       expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
     }

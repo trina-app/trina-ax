@@ -77,7 +77,7 @@ import { neutralizeTags } from './prompt'
 import { sideRoomOf } from './side-room'
 import type { Tool } from './tools'
 import type { TurnExec } from './turn'
-import { cardTextWords, fileWords, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
+import { cardTextWords, fileWords, formatsSafely, noBoldMarks, othersWordsCard, whyFirst, plainQuote, POST_FILE_DESCRIPTION, POST_NO } from './share-words'
 import { fileGapsOf, fixesAfterPost, grantedLinksCant, grantSourceCant } from './share-next-steps'
 import { shareFixesOf, type ViewPlan } from '../files/share-fixes'
 import { nameOf } from '../files/access-routes'
@@ -91,9 +91,6 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 /** one line of a room name or a quote, as the card and the AI are given it */
 const oneLine = (s: string, n: number) => { const v = s.replace(/\s+/g, ' ').trim(); return v.length > n ? `${v.slice(0, n - 1)}…` : v }
-/** A Markdown link or image ("](") or an autolink ("<…>"): formatted, it would show its words and hide its target
- * (mailto:, tel:, a relative or # link), so such a text stays as written on the card (review of #1235) */
-const HIDES_TARGET = /\]\(|<[^<>\s]+>/
 /** the card folds the text past this many characters ("전체 보기") */
 export const POST_TEXT_FOLD = 600
 
@@ -423,7 +420,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // formatted as the room will show it (QA TC-4791: the card showed "**"), with the chat's Markdown renderer, unless
         // the text holds a web address or a long random-looking part: a formatted link shows its words and hides where it
         // goes, so such a text stays as written, its marks highlighted, without bold marks (QA TC-4060)
-        const formatted = opaqueParts(worded).length === 0 && !carriesAddress(worded) && !HIDES_TARGET.test(worded)
+        const formatted = formatsSafely(worded)
         const shownCard = formatted ? worded : noBoldMarks(worded)
         const marks = formatted ? [] : opaqueParts(shownCard)
         // two choices (QA TC-4791): Send, which goes with copies of the files it may (see copies above), and Don't send
@@ -493,7 +490,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           details: [
             // the note goes as the person's own words, the text as the AI's answer: apart, as the room shows them
             // (formatted too when nothing in it could hide where a link goes: the room shows it formatted)
-            ...(first.at > 0 ? [((t: string) => ({ label: tr('postRoomNote', L), text: t, ...(opaqueParts(t).length === 0 && !carriesAddress(t) && !HIDES_TARGET.test(t) ? { markdown: true as const } : {}) }))(first.body.slice(0, first.at).trim())] : []),
+            ...(first.at > 0 ? [((t: string) => ({ label: tr('postRoomNote', L), text: t, ...(formatsSafely(t) ? { markdown: true as const } : {}) }))(first.body.slice(0, first.at).trim())] : []),
             // (long random-looking parts marked, as on the other server cards: an address can carry data in them)
             // (own words: exactly the message that goes, with no quote; the label says it goes as theirs)
             { label: tr(plain ? 'postRoomOwnWords' : 'postRoomText', L), text: shownCard, ...(shownCard.length > POST_TEXT_FOLD ? { collapsedAt: POST_TEXT_FOLD } : {}), ...(marks.length ? { marks } : {}), ...(formatted ? { markdown: true as const } : {}) },

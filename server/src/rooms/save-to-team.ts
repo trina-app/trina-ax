@@ -3,14 +3,17 @@
 //   savedFiles  where this room's files were saved and are still there for this viewer: the tracked place
 //               (room_file_saves), the file still there with the same bytes, and the viewer able to open it. Anything
 //               else (moved, changed, deleted, a folder they can't open) simply does not count.
-//   savePlan    what the sheet shows: the files of one message, one folder to pre-select (suggested by name, else a
-//               folder the person recently saved to; none for a file that looks personal), and for the chosen folder
-//               how many people outside the conversation can see it.
+//   savePlan    what the sheet shows: the files of one message (each: already saved, looks personal, the same bytes as
+//               an earlier one), one folder to pre-select for the files that look ordinary (suggested by name when it
+//               fits every one of them, else a folder the person recently saved to; none when every file looks
+//               personal: rooms/sensitive.ts), and for the chosen folder how many people outside the conversation can
+//               see it.
 //   saveToTeam  the copy: save_room_file's checks for each file (a room the person is in now, the message visible to
 //               them and not deleted, not on the safety check's download-only list, at most 50 MB, never under skills/
 //               or as an instruction file), then the AI's byte save (tools/make-file.ts placeProduced: write access
 //               checked again, the storage check, never an overwrite: a different file of that name keeps its place and
-//               the copy goes next to it). The same bytes already at that place count as saved, no second copy.
+//               the copy goes next to it). The same bytes already in that folder (any room file's tracked copy, an
+//               identical file of the same save included) count as saved, no second copy.
 // Guests cannot save (their AI has no save_room_file either: chat/guest-tools.ts); the endpoints are not in
 // auth/guest-endpoints.ts, and each function checks again.
 // No AI call: the suggestion is the Move picker's name matching (team-files/move-suggest.ts), so it costs nothing,
@@ -39,6 +42,9 @@ import { findRoomFile } from './reader'
 import { recordRoomFileSave, statKey } from './file-saves'
 import { roomFilesOf } from './files'
 import { memberRow, messageRow, roomRow, type FileRow, type MessageRow, type RoomRow } from './store'
+import { looksSensitive } from './sensitive'
+
+export { looksSensitive }
 
 /** files of one message saved at once (a message holds at most this many) */
 export const SAVE_FILES_MAX = 10
@@ -46,46 +52,6 @@ export const SAVE_FILES_MAX = 10
 const SAVED_ROWS_MAX = 300
 /** a small text file's bytes looked at for a resident number (a hint only) */
 const SNIFF_MAX = 256 * 1024
-
-// ---------------- sensitive-looking files ----------------
-// Names and words of personal documents (an ID card, a passport, a bank book, a driver's licence, a resident or
-// family register), in the six languages of the app; non-Latin words are written as escapes (patterns, not screen text).
-const SENSITIVE_WORDS = new RegExp([
-  // Korean: ID card, resident registration, resident number, bank book, passport, driver's licence, alien registration,
-  // family relations, payslip, employment certificate, resident register copy (both kinds), seal certificate (not
-  // "personal information": a privacy policy or a privacy team's room would lose every suggestion)
-  '\\uC2E0\\uBD84\\uC99D', '\\uC8FC\\uBBFC\\uB4F1\\uB85D', '\\uC8FC\\uBBFC\\uBC88\\uD638', '\\uD1B5\\uC7A5', '\\uC5EC\\uAD8C',
-  '\\uC6B4\\uC804\\uBA74\\uD5C8', '\\uAE09\\uC5EC\\uBA85\\uC138', '\\uC7AC\\uC9C1\\uC99D\\uBA85', '\\uB4F1\\uBCF8', '\\uCD08\\uBCF8',
-  '\\uC778\\uAC10\\uC99D\\uBA85', '\\uC678\\uAD6D\\uC778\\uB4F1\\uB85D', '\\uAC00\\uC871\\uAD00\\uACC4',
-  // Japanese and Chinese: ID card (both), bank book (both), passport (both), driver's licence, My Number, residence card,
-  // bank card; payslip (ja, zh), employment certificate (ja, zh), seal certificate (ja), family register (ja/zh),
-  // resident record (ja)
-  '\\u8EAB\\u5206\\u8A3C', '\\u8EAB\\u4EFD\\u8BC1', '\\u901A\\u5E33', '\\u5B58\\u6298', '\\u62A4\\u7167', '\\u30D1\\u30B9\\u30DD\\u30FC\\u30C8',
-  '\\u514D\\u8A31\\u8A3C', '\\u9A7E\\u9A76\\u8BC1', '\\u30DE\\u30A4\\u30CA\\u30F3\\u30D0\\u30FC', '\\u5728\\u7559\\u30AB\\u30FC\\u30C9',
-  '\\u94F6\\u884C\\u5361', '\\u7D66\\u4E0E\\u660E\\u7D30', '\\u5DE5\\u8D44\\u5355', '\\u5728\\u7C4D\\u8A3C\\u660E', '\\u5728\\u804C\\u8BC1\\u660E',
-  '\\u5370\\u9451\\u8A3C\\u660E', '\\u6236\\u7C4D', '\\u6237\\u53E3\\u672C', '\\u4F4F\\u6C11\\u7968',
-  // English, Indonesian, Spanish: whole words (an underscore, a dash or a digit next to one still splits it: "KTP_budi")
-  ...['id[\\s_-]?card', 'identity[\\s_-]?card', 'passport', 'bank[\\s_-]?book', 'bankbook', 'bank[\\s_-]?statement',
-    "driver'?s?[\\s_-]?licen[cs]e", 'resident[\\s_-]?registration', 'social[\\s_-]?security', 'ssn', 'ktp', 'npwp',
-    'kartu[\\s_-]?keluarga', 'buku[\\s_-]?tabungan', 'pasaporte', 'dni',
-    'pay[\\s_-]?slip', 'pay[\\s_-]?stub', 'salary[\\s_-]?statement', 'employment[\\s_-]?certificate',
-    'certificate[\\s_-]?of[\\s_-]?employment', 'family[\\s_-]?(?:relation|register)', 'seal[\\s_-]?certificate',
-    'slip[\\s_-]?gaji', 'surat[\\s_-]?keterangan[\\s_-]?kerja', 'n[oó]mina', 'certificado[\\s_-]?de[\\s_-]?empresa'].map((w) => `(?<![\\p{L}])${w}(?![\\p{L}])`),
-].join('|'), 'iu')
-/** a Korean resident registration number (as the file list's scrubber knows it: file-list/format.ts) */
-const RESIDENT_NUMBER = /\b\d{6}\s*-\s*[1-8]\d{6}\b/
-const TEXTISH = /^(txt|csv|tsv|md|json|xml|html?)$/i
-
-/** The file looks like a personal document: by its name, the words it was sent with, or (a small text file) a resident
- * number in it. A hint only: it takes the suggestion away and shows a note; the person may still save it. */
-export function looksSensitive(name: string, words: string, bytes?: () => Buffer | null): boolean {
-  const said = `${name.normalize('NFC')}\n${words.normalize('NFC')}`
-  if (SENSITIVE_WORDS.test(said) || RESIDENT_NUMBER.test(said)) return true
-  const e = name.slice(name.lastIndexOf('.') + 1)
-  if (!bytes || !TEXTISH.test(e)) return false
-  const b = bytes()
-  return !!b && RESIDENT_NUMBER.test(b.toString('utf8'))
-}
 
 // ---------------- the file, as the person sees it ----------------
 type Found = { file: FileRow; message: MessageRow; room: RoomRow }
@@ -160,6 +126,11 @@ type SaveRow = { path: string; sha256: string; seen: string | null }
 /** The first tracked place of this file that is still there with its bytes and that `user` may open, or null. A place
  * hashed again is remembered by its identity on disk, so the next read does not hash it. */
 async function placeOf(ctx: AppContext, files: TeamFiles, user: Principal, rules: RuleSet, file: Pick<FileRow, 'id' | 'sha256' | 'size'>, rows: SaveRow[]): Promise<string | null> {
+  return (await placeAndKey(ctx, files, user, rules, file, rows))?.rel ?? null
+}
+
+/** placeOf, with the copy's identity on disk now (for a row of another file with these bytes, written for this one). */
+async function placeAndKey(ctx: AppContext, files: TeamFiles, user: Principal, rules: RuleSet, file: Pick<FileRow, 'id' | 'sha256' | 'size'>, rows: SaveRow[]): Promise<{ rel: string; key: string } | null> {
   for (const r of rows) {
     if (r.sha256 !== file.sha256) continue
     const segs = r.path.split('/')
@@ -170,12 +141,15 @@ async function placeOf(ctx: AppContext, files: TeamFiles, user: Principal, rules
     const b = await bytesOf(a.abs, file.size, file.sha256, r.seen)
     if (b?.sha !== file.sha256) continue
     if (b.key !== r.seen) ctx.db.query('UPDATE room_file_saves SET seen = ? WHERE file_id = ? AND path = ?').run(b.key, file.id, r.path)
-    return a.rel
+    return { rel: a.rel, key: b.key }
   }
   return null
 }
 
 const savedRows = (ctx: AppContext, fileId: string) => ctx.db.query('SELECT path, sha256, seen FROM room_file_saves WHERE file_id = ? ORDER BY saved_at DESC').all(fileId) as SaveRow[]
+/** the tracked places in `folder` (directly in it) of any room file with these bytes (each still checked by placeOf: there, the same bytes, readable) */
+const sameBytesRows = (ctx: AppContext, sha256: string, folder: string) => (ctx.db.query("SELECT path, sha256, seen FROM room_file_saves WHERE sha256 = ? AND substr(path, 1, ?) = ? ORDER BY saved_at DESC LIMIT ?")
+  .all(sha256, folder.length + 1, folder + '/', SAVED_ROWS_MAX) as SaveRow[]).filter((r) => !r.path.slice(folder.length + 1).includes('/'))
 
 // ---------------- the three calls ----------------
 /** GET /api/rooms/:id/saved-files: this room's files that are in the team folder where this viewer can open them. */
@@ -214,24 +188,37 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
   const rules = files.rules()
   const rooms = roomFilesOf(ctx)
   const out: RoomSavePlan = { files: [], suggestion: null, sensitive: false }
+  // per file: a personal-looking one gets no suggestion, the others keep theirs (QA 11-17: one bank book in a message
+  // took the suggestion from every file); an identical one is the same file, saved once (TC-4803)
+  const personal = new Set<string>()
+  const firstOf = new Map<string, string>()
   for (const f of found) {
     const savedPath = await placeOf(ctx, files, user, rules, f.file, savedRows(ctx, f.file.id))
-    out.files.push({ id: f.file.id, name: f.file.name, size: f.file.size, ...(savedPath ? { savedPath } : {}) })
+    const sameAs = firstOf.get(f.file.sha256)
+    if (!sameAs) firstOf.set(f.file.sha256, f.file.id)
     const sniff = () => {
       if (f.file.size > SNIFF_MAX) return null
       try { return readRegular(rooms.open(userId, roomId, f.file.id, false).abs, SNIFF_MAX).bytes } catch { return null }
     }
-    if (looksSensitive(f.file.name, contextWords(ctx, f), sniff)) out.sensitive = true
+    const sensitive = looksSensitive(f.file.name, contextWords(ctx, f), sniff)
+    if (sensitive) { personal.add(f.file.id); out.sensitive = true }
+    out.files.push({ id: f.file.id, name: f.file.name, size: f.file.size, ...(savedPath ? { savedPath } : {}), ...(sensitive ? { sensitive } : {}), ...(sameAs ? { sameAs } : {}) })
   }
   if (folder !== undefined) {
     const at = writableFolder(files, user, rules, folder)
     out.folder = { path: at, outside: outsideRoom(ctx, rules, roomId, at) }
     return out
   }
-  // a file that looks personal gets no suggestion: the person picks the place themselves
-  const todo = found.filter((f) => !out.files.find((x) => x.id === f.file.id)?.savedPath)
-  if (out.sensitive || !todo.length) return out
-  const s = await suggestForNames(files, userId, todo.map((f) => ({ name: f.file.name, context: contextWords(ctx, f) })))
+  // the suggestion is for the files still to save that look ordinary (a copy of another counts once); none when every
+  // one looks personal: the person picks the place themselves
+  const todo = found.filter((f) => {
+    const x = out.files.find((y) => y.id === f.file.id)!
+    return !x.savedPath && !x.sameAs && !personal.has(f.file.id)
+  })
+  if (!todo.length) return out
+  // a folder by name only when it fits every one of them ('every': one folder for a message of a minutes file and a sales
+  // sheet would be wrong for one of them); else a folder the person recently saved to, labelled Recent
+  const s = await suggestForNames(files, userId, todo.map((f) => ({ name: f.file.name, context: contextWords(ctx, f) })), { every: true })
   const pick = s.suggested[0] ? { path: s.suggested[0].path, why: 'suggested' as const } : s.recent[0] ? { path: s.recent[0].path, why: 'recent' as const } : null
   if (pick) out.suggestion = { ...pick, outside: outsideRoom(ctx, rules, roomId, pick.path) }
   return out
@@ -258,12 +245,14 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
     const target = `${at}/${f.file.name}`
     const rules = files.rules()
     const user = files.principal(userId)
-    // the same bytes there already (at its own name, or a copy made beside another file earlier, in this folder): that
-    // is where it is, no second copy
-    const here = savedRows(ctx, f.file.id).filter((r) => r.path.slice(0, r.path.lastIndexOf('/')) === at)
-    const before = await placeOf(ctx, files, user, rules, f.file, here)
+    // the same bytes there already (at its own name, or a copy saved beside another file earlier, in this folder, from
+    // this file or any room file with these bytes: an identical file of the same message saved a moment ago, or sent
+    // again later): that is where it is, no second copy and no skipped number (TC-4803)
+    const here = sameBytesRows(ctx, f.file.sha256, at)
+    const before = await placeAndKey(ctx, files, user, rules, f.file, here)
     if (before) {
-      saved.push({ fileId: f.file.id, path: before, existed: true })
+      recordRoomFileSave(ctx, f.file.id, before.rel, f.file.sha256, f.file.size, before.key)
+      saved.push({ fileId: f.file.id, path: before.rel, existed: true })
       continue
     }
     try {

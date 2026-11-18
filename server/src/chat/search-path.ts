@@ -1,0 +1,28 @@
+// Where a chat's search looks when the AI gives no folder (docs/DECISIONS.md "Shared project chats"): in a shared chat
+// a search without a path never starts at the team root (TurnExec.sharedArgs); "/" alone asks a shared project chat's
+// search for every folder the person can open, behind the read card.
+/** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
+ * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
+export const noSearchPath = (p: unknown): boolean => typeof p !== 'string' || p.replace(/\\/g, '/').split('/').every((s) => s.trim() === '' || s.trim() === '.')
+/** The path that asks a shared project chat's search to look through every team folder the person can open (the read card
+ * asks first for what some of the chat's people cannot open): "/" alone. Any other path without a folder stays in the
+ * project folder (TurnExec.sharedArgs). */
+export const WHOLE_TEAM_PATH = '/'
+export const wholeTeamPath = (p: unknown): boolean => typeof p === 'string' && p.trim() === WHOLE_TEAM_PATH
+/** The calls (their argument objects) of a shared project chat's "/" search: it leaves out the person's own folder
+ * (files/service.ts glob and grep, TurnExec.sharedSources), which is searched only by its own path, behind the read
+ * card. Set before the call runs (chat/tools.ts beforeFileTool); a WeakSet, so nothing is kept after the call. */
+export const SKIP_OWN = new WeakSet<object>()
+/** What a search that stayed in a shared project chat's folder tells the AI, once a turn (the AI took a project-only
+ * result for the whole team folder: AI scenario FIND-01.project, 2026-11-17). Names no folder: the AI writes where
+ * everyone in the chat reads. */
+export const PROJECT_SEARCH_NOTE = `(Only this project's folder was searched: the other team folders the user can open were not (in this shared chat grep and glob without a path stay in the project folder), so the file asked for, or another version of it such as the editable original of a scan, may be there. When the user asks where a file is, or the file they want was not found here, search again before you answer, with path "${WHOLE_TEAM_PATH}": it looks through every team folder the user can open (not their own folder), and where some people here cannot open one, the user is asked first on a card only they see. Their own folder is searched only by its own path, when they ask for it. Until then, do not call a result here the only one, and do not say a file does not exist.)`
+/** A shared project chat's search that looks only in the project folder: no path (sharedArgs keeps it there), or a
+ * path that is the project folder or inside it. "/" and any other folder are not. */
+export const inProjectOnly = (p: unknown, projectFolder: string): boolean => {
+  if (wholeTeamPath(p)) return false
+  if (noSearchPath(p)) return true
+  const norm = (x: string) => x.normalize('NFC').replace(/\\/g, '/').split('/').filter((s) => s && s !== '.').join('/').toLowerCase()
+  const k = norm(p as string), d = norm(projectFolder)
+  return !!d && (k === d || k.startsWith(d + '/'))
+}

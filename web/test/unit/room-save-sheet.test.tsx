@@ -8,13 +8,15 @@ import { ApiError } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { SaveToTeamSheet } from '../../src/components/rooms/SaveToTeamSheet'
 import { fileMenuActions } from '../../src/lib/fileMenu'
-import { filesToSave, folderOfPath, saveRefusalKey, startFolder } from '../../src/lib/roomSave'
+import { filesToSave, folderOfPath, saveRefusalKey, saveSummary, startFolder, startTicks } from '../../src/lib/roomSave'
+import { useUi } from '../../src/store/ui'
 import { resetRoomSaves, useRoomSaves } from '../../src/store/roomSaves'
 import { installDom, mount, removeDom } from './dom-host'
 
 const ROOM = '0190f0f0-0000-7000-8000-00000000a001'
 const F1 = '0190f0f0-0000-7000-8000-00000000f001'
 const F2 = '0190f0f0-0000-7000-8000-00000000f002'
+const F3 = '0190f0f0-0000-7000-8000-00000000f003'
 const realFetch = globalThis.fetch
 const before = useLocaleStore.getState().locale
 const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), { status: code, headers: { 'content-type': 'application/json' } })
@@ -71,7 +73,7 @@ describe('the sheet', () => {
   })
 
   test('a file that looks personal: nothing picked, a note, Save waits for a folder', async () => {
-    plan = { files: [{ id: F1, name: 'passport.jpg', size: 10 }], suggestion: null, sensitive: true }
+    plan = { files: [{ id: F1, name: 'passport.jpg', size: 10, sensitive: true }], suggestion: null, sensitive: true }
     const m = await mount(<SaveToTeamSheet />)
     try {
       useRoomSaves.getState().open(ROOM, [F1])
@@ -95,10 +97,56 @@ describe('the sheet', () => {
   })
 })
 
+describe('QA 11-17', () => {
+  test('TC-4803: two identical files: the second says it is the same file, both are sent, and the toast says it was saved once', async () => {
+    plan = { files: [{ id: F1, name: '계약서_QA.txt', size: 32 }, { id: F2, name: '계약서_QA.txt', size: 32, sameAs: F1 }], suggestion: { path: 'shared', why: 'recent', outside: 0 }, sensitive: false }
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'shared/계약서_QA.txt', existed: false }, { fileId: F2, path: 'shared/계약서_QA.txt', existed: true }] })
+    useUi.setState({ toasts: [] })
+    const m = await mount(<SaveToTeamSheet />)
+    try {
+      useRoomSaves.getState().open(ROOM, [F1, F2])
+      await m.until(() => m.find('room-save-place'), 'the folder')
+      expect(m.get('room-save-files').textContent).toContain(translate('en', 'rooms.save.sameFile'))
+      await m.click('room-save-confirm')
+      await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
+      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F1, F2], folder: 'shared' })
+      const t = useUi.getState().toasts.at(-1)!
+      expect(t.detail).toBe(translate('en', 'rooms.save.savedSame', { n: 1 }))
+    } finally { await m.unmount() }
+  })
+
+  test('one personal file among others: the folder is still suggested, the personal one starts unticked and is not sent', async () => {
+    plan = { files: [{ id: F1, name: '통장사본.pdf', size: 42, sensitive: true }, { id: F2, name: 'brief.md', size: 10 }, { id: F3, name: 'logo.png', size: 10 }], suggestion: { path: 'shared/acme', why: 'suggested', outside: 3 }, sensitive: true }
+    saveAnswer = () => json({ saved: [{ fileId: F2, path: 'shared/acme/brief.md', existed: false }, { fileId: F3, path: 'shared/acme/logo.png', existed: false }] })
+    const m = await mount(<SaveToTeamSheet />)
+    try {
+      useRoomSaves.getState().open(ROOM, [F1, F2, F3])
+      await m.until(() => m.find('room-save-place'), 'the suggested folder')
+      expect(m.get('room-save-place').getAttribute('data-why')).toBe('suggested')
+      expect(m.get('room-save-sensitive').textContent).toBe(translate('en', 'rooms.save.sensitiveSome'))
+      const boxes = [...document.querySelectorAll<HTMLInputElement>('[data-testid="room-save-file-check"]')]
+      expect(boxes.map((b) => b.checked)).toEqual([false, true, true])
+      expect(m.get('room-save-files').textContent).toContain(translate('en', 'rooms.save.personal'))
+      await m.click('room-save-confirm')
+      await m.until(() => !useRoomSaves.getState().sheet, 'the sheet closed')
+      expect(calls.find((c) => c.url.endsWith('/save-to-team'))?.body).toEqual({ fileIds: [F2, F3], folder: 'shared/acme' })
+    } finally { await m.unmount() }
+  })
+
+  test('startTicks and saveSummary', () => {
+    const p = { files: [{ id: F1, name: 'a', size: 1, sensitive: true }, { id: F2, name: 'b', size: 1 }, { id: F3, name: 'b', size: 1, sameAs: F2 }], sensitive: true }
+    expect([...startTicks(p)]).toEqual([F2])
+    // every file personal: all ticked (no folder is picked for them; the person picks it)
+    expect([...startTicks({ files: [{ id: F1, name: 'a', size: 1, sensitive: true }], sensitive: true })]).toEqual([F1])
+    expect(saveSummary([{ fileId: F1, path: 'x/a', existed: false }, { fileId: F2, path: 'x/a', existed: true }, { fileId: F3, path: 'x/b', existed: false }])).toEqual({ same: 1 })
+    expect(startFolder({ files: [{ id: F1, name: 'a', size: 1, sensitive: true }, { id: F2, name: 'b', size: 1 }], suggestion: { path: 's', why: 'suggested', outside: 0 }, sensitive: true })).toEqual({ path: 's', why: 'suggested', outside: 0 })
+  })
+})
+
 describe('the parts', () => {
   test('startFolder, filesToSave, folderOfPath, saveRefusalKey', () => {
-    expect(startFolder({ suggestion: { path: 'a', why: 'recent', outside: 0 }, sensitive: false })).toEqual({ path: 'a', why: 'recent', outside: 0 })
-    expect(startFolder({ suggestion: { path: 'a', why: 'suggested', outside: 0 }, sensitive: true })).toBeNull()
+    expect(startFolder({ files: [], suggestion: { path: 'a', why: 'recent', outside: 0 }, sensitive: false })).toEqual({ path: 'a', why: 'recent', outside: 0 })
+    expect(startFolder({ files: [{ id: F1, name: 'p', size: 1, sensitive: true }], suggestion: { path: 'a', why: 'suggested', outside: 0 }, sensitive: true })).toBeNull()
     expect(filesToSave({ files: [{ id: F1, name: 'a', size: 1 }, { id: F2, name: 'b', size: 1, savedPath: 'x/b' }] }).map((f) => f.id)).toEqual([F1])
     const words = { path: (p: string, sep = '/') => p.split('/').join(sep) }
     expect(folderOfPath('shared/acme/quotes/q.pdf', words)).toEqual({ short: 'quotes', full: 'shared › acme › quotes' })

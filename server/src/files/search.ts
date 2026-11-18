@@ -578,11 +578,17 @@ export interface SearchDeps {
   virtual?: ReadonlyMap<string, string>
   /** search only `virtual` (the path named one of them) */
   virtualOnly?: boolean
+  /** folders left out of this search, with everything below them (a shared project chat's "/" leaves out the person's
+   * own folder: chat/search-path.ts SKIP_OWN) */
+  skip?: readonly string[]
 }
 
 function rootsFor(d: SearchDeps, baseSegs: string[], baseIsFile: boolean) {
-  if (baseIsFile) return { roots: visiblePath(d.fx, d.rules, d.user, baseSegs.join('/')) ? [baseSegs.join('/')] : [], excludes: [] }
-  return allowedRoots(d.fx, d.rules, d.user, baseSegs)
+  const skipped = (p: string) => !!d.skip?.some((s) => p === s || p.startsWith(s + '/'))
+  if (baseIsFile) { const f = baseSegs.join('/'); return { roots: visiblePath(d.fx, d.rules, d.user, f) && !skipped(f) ? [f] : [], excludes: [] } }
+  const r = allowedRoots(d.fx, d.rules, d.user, baseSegs)
+  if (!d.skip?.length) return r
+  return { roots: r.roots.filter((x) => !skipped(x)), excludes: [...r.excludes, ...d.skip] }
 }
 
 // ---------------- glob ----------------

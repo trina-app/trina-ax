@@ -326,7 +326,7 @@ async function turn(content: string, chat?: string, parentId?: null) {
   const r = await h.api('bob').call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [], ...(parentId === null ? { parentId: null } : {}) } })
   const done = await socks.bob!.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 40_000)
   const cards = socks.bob!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === r.turnId)
-    .map((f) => (f as unknown as { data: { request: { question?: string; options?: { value: string }[] } } }).data.request)
+    .map((f) => (f as unknown as { data: { request: { question?: string; note?: string; options?: { value: string }[] } } }).data.request)
   return { chatId, turnId: r.turnId as string, content: done.data.message.content as string, cards }
 }
 const marks = (chatId: string) => db().query('SELECT rooms_seen AS r, others_words AS o FROM chats WHERE id = ?').get(chatId) as { r: number; o: number }
@@ -423,8 +423,9 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     // a change whose card nobody answers: the card's sentence and the refusal name the shared file
     const w = await turn(`go on\n${fake({ tool: 'write', args: { file_path: 'shared/after-listed.md', content: 'x' }, sayResult: true })}`, first.chatId)
     expect(w.cards).toHaveLength(1)
-    expect(w.cards[0]!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
-    expect(w.cards[0]!.question).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
+    // (the wider-audience card says why under its buttons, QA TC-4815)
+    expect(w.cards[0]!.note).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
+    expect(w.cards[0]!.note).not.toContain(tr('roomsSeenWhy', 'ko').slice(0, 12))
     expect(w.content).toContain('a file someone shared with the user')
     expect(w.content).not.toContain('team chat rooms')
     expect(fs.existsSync(abs('shared/after-listed.md'))).toBe(false)

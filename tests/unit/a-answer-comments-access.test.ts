@@ -99,6 +99,16 @@ describe('who reads which comments', () => {
     expect((await turnOf(jun.id, chat.id).call()).text).toContain('who="your user"')
   })
 
+  // AI scenario CHT-15 (2026-11-17): with none, the AI said they "may not be reflected yet, try again later"
+  test('no comments yet: says nobody replied, that none are waiting, and not to guess', async () => {
+    const chat = await mia.client.call('POST', '/api/chats', { projectId })
+    answered(chat.id, mia.id)
+    const r = await turnOf(mia.id, chat.id).call()
+    expect(r.summary).toBe('answer_comments -> none')
+    expect(r.text).toContain('No comments under answers in this chat: nobody has replied under an answer here (comments show at once; none are waiting)')
+    expect(r.text).toContain('never guess what was said')
+  })
+
   test('another chat\'s answer id: the one "not found", nothing of it shown; only this chat\'s threads are listed', async () => {
     const mine = await mia.client.call('POST', '/api/chats', { projectId })
     const other = await mia.client.call('POST', '/api/chats', { projectId })
@@ -180,7 +190,11 @@ describe('who reads which comments', () => {
       const r = await turnOf(mia.id, chat.id).call({ message_id: a })
       expect(r.text).not.toContain('HIDDEN-ANSWER-COMMENT')
       expect(r.summary).toBe('answer_comments -> held: answer hidden from some')
-      expect((await turnOf(mia.id, chat.id).call()).text).not.toContain('HIDDEN-ANSWER-COMMENT')
+      const listed = await turnOf(mia.id, chat.id).call()
+      expect(listed.text).not.toContain('HIDDEN-ANSWER-COMMENT')
+      // held back, never "nobody has replied" (review of fix/catalog-1117g)
+      expect(listed.summary).toBe('answer_comments -> held: answers hidden from some')
+      expect(listed.text).not.toContain('nobody has replied')
     } finally { setHiddenAnswersCutover(db(), was) }
   })
 

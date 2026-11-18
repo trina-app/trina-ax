@@ -172,7 +172,8 @@ describe('a file the person allowed on a room card (FL-08)', () => {
     // FL-08 step 5: fix the page (its room card), then the stamped copy for the team folder: one card, not two
     const first = await run('alice', chat, `fix and stamp\n${fake(roomRead(roomId), { tool: 'read', args: { file_path: `${work}/quote.pdf` } }, ...fix(`${work}/quote.html`, 'v2\n'), stamp, { say: 'done' })}`, yes)
     expect(first.cards).toHaveLength(2)
-    expect(first.cards[1]!.question).toContain(WHY)
+    // the wider-audience card says why under its buttons (QA TC-4815), not in the question
+    expect(first.cards[1]!.note).toContain(WHY)
     expect(values(first.cards[1]!)).toContain('save')
     expect(exists(out)).toBe(true)
     // FL-08 again (a second price change): the same file fixed and stamped to the same place from the same sources: no card
@@ -183,7 +184,7 @@ describe('a file the person allowed on a room card (FL-08)', () => {
     fs.mkdirSync(at(`groups/marketing/quotes-${tag}-b`), { recursive: true })
     const elsewhere = await run('alice', chat, `there\n${fake({ ...stamp, args: { ...stamp.args, output: `groups/marketing/quotes-${tag}-b/quote.pdf` } }, { say: 'done' })}`)
     expect(elsewhere.cards).toHaveLength(1)
-    expect(elsewhere.cards[0]!.question).toContain(WHY)
+    expect(elsewhere.cards[0]!.note).toContain(WHY)
     expect(exists(`groups/marketing/quotes-${tag}-b/quote.pdf`)).toBe(false)
   })
 })

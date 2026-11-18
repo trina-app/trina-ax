@@ -327,7 +327,7 @@ export const ConnectServiceInput = z.strictObject({
   target: z.enum(['service', 'google_drive']).optional().describe('service (default): an MCP server or HTTP API. google_drive: the person\'s own Google Drive (only name is used)'),
   name: z.string().trim().min(1).max(60).describe('The service\'s own name as it brands itself, in its own spelling even when the user writes in another language, e.g. "Higgsfield", "Notion" (the card checks it against the address)'),
   kind: z.enum(['mcp', 'http']).optional().describe('mcp: an MCP server (use it when the service has one); http: a plain HTTP API with a key. Required for a service'),
-  url: z.string().max(2000).optional().describe('The service\'s own https address from its documentation: the MCP endpoint (mcp) or the API base (http). Required for a service'),
+  url: z.string().max(2000).optional().describe('The service\'s own https address from its documentation: the MCP endpoint (mcp) or the API base (http). Required for a service, except Gmail, Google Calendar, Google Docs and Google Sheets (built in: the name alone)'),
   auth: z.enum(['none', 'bearer', 'header', 'oauth']).optional().describe('How it signs in: oauth = the person signs in at the service (MCP only); bearer = an API key sent as "Authorization: Bearer"; header = an API key in the header authHeader names; none. Required for a service'),
   authHeader: z.string().max(64).optional().describe('The header that carries the key when auth is header, e.g. X-API-Key'),
   scope: z.enum(['personal', 'team']).optional().describe('personal (default): only this person uses it. team: for the team, only when the person is an admin'),

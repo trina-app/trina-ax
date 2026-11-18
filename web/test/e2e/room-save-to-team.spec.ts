@@ -21,12 +21,17 @@ const QUOTE = { id: id(701), name: 'acme-quote-nov.pdf', size: 48_213, mime: 'ap
 const PRICES = { id: id(702), name: 'acme-price-list.xlsx', size: 12_400, mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', kind: 'spreadsheet', thumb: false }
 const LOGO = { id: id(703), name: 'acme-logo.png', size: PNG.length, mime: 'image/png', kind: 'image', thumb: true, width: 192, height: 192 }
 const FOLDER = 'shared/Acme/Quotes'
+// QA 11-17: a bank book, a weekly minutes file and an identical copy of it in one message
+const BANK = { id: id(711), name: '통장사본.pdf', size: 42, mime: 'application/pdf', kind: 'pdf', thumb: false }
+const MINUTES = { id: id(712), name: '주간회의록_1117.md', size: 30, mime: 'text/markdown', kind: 'text', thumb: false }
+const MINUTES2 = { ...MINUTES, id: id(713) }
+const MEETINGS = 'shared/Meeting notes'
 
 type Saves = { saved: Map<string, string>; bodies: unknown[] }
 
 /** The room (team, DM or a group chat) with Sora's message of two files, her picture, and a thread with a file in it;
  * the save routes as the server answers them. `me`: who reads (the owner olga by default). */
-async function openRoom(page: Page, o: { kind?: 'team' | 'dm' | 'group'; me?: { id: string; name: string }; saved?: string[]; sensitive?: boolean } = {}): Promise<Saves> {
+async function openRoom(page: Page, o: { kind?: 'team' | 'dm' | 'group'; me?: { id: string; name: string }; saved?: string[]; sensitive?: boolean; qa?: boolean } = {}): Promise<Saves> {
   const s: Saves = { saved: new Map((o.saved ?? []).map((f) => [f, `${FOLDER}/${f === PRICES.id ? PRICES.name : QUOTE.name}`])), bodies: [] }
   await routeRoom(page, {
     kind: o.kind ?? 'team',
@@ -37,21 +42,28 @@ async function openRoom(page: Page, o: { kind?: 'team' | 'dm' | 'group'; me?: { 
       { id: id(1), author: SORA, body: 'Acme sent the November quote and their price list', extra: { files: [QUOTE, PRICES], thread: { replyCount: 1, repliers: [SORA], lastReplyAt: '2026-11-05T09:10:00.000Z', newReplies: false } } },
       { id: id(2), author: SORA, body: 'Their logo for the deck', extra: { files: [LOGO] } },
       { id: id(3), author: SORA, body: 'Signed copy', threadRootId: id(1), extra: { files: [{ ...QUOTE, id: id(704), name: 'acme-quote-signed.pdf' }] } },
+      ...(o.qa ? [{ id: id(4), author: SORA, body: 'Minutes, and my bank book for the payroll', extra: { files: [BANK, MINUTES, MINUTES2] } }] : []),
     ],
   })
   await page.route(/\/api\/rooms\/[^/]+\/files\/[^/?]+/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }))
   await page.route(/\/api\/rooms\/[^/]+\/saved-files$/, (route) => route.fulfill({ json: { items: [...s.saved].map(([fileId, p]) => ({ fileId, path: p })) } }))
   await page.route(/\/api\/rooms\/[^/]+\/save-plan$/, async (route) => {
     const body = route.request().postDataJSON() as { fileIds: string[]; folder?: string }
-    const all = [QUOTE, PRICES, LOGO, { ...QUOTE, id: id(704), name: 'acme-quote-signed.pdf' }]
-    const files = body.fileIds.map((fid) => all.find((f) => f.id === fid)!).map((f) => ({ id: f.id, name: f.name, size: f.size, ...(s.saved.has(f.id) ? { savedPath: s.saved.get(f.id) } : {}) }))
-    if (body.folder) return route.fulfill({ json: { files, suggestion: null, sensitive: !!o.sensitive, folder: { path: body.folder, outside: 0 } } })
-    return route.fulfill({ json: { files, suggestion: o.sensitive ? null : { path: FOLDER, why: 'suggested', outside: 12 }, sensitive: !!o.sensitive } })
+    const all = [QUOTE, PRICES, LOGO, { ...QUOTE, id: id(704), name: 'acme-quote-signed.pdf' }, BANK, MINUTES, MINUTES2]
+    const personal = (fid: string) => !!o.sensitive || fid === BANK.id
+    const files = body.fileIds.map((fid) => all.find((f) => f.id === fid)!).map((f) => ({ id: f.id, name: f.name, size: f.size, ...(s.saved.has(f.id) ? { savedPath: s.saved.get(f.id) } : {}),
+      ...(personal(f.id) ? { sensitive: true } : {}), ...(f.id === MINUTES2.id && body.fileIds.includes(MINUTES.id) ? { sameAs: MINUTES.id } : {}) }))
+    const sensitive = files.some((f) => f.sensitive)
+    if (body.folder) return route.fulfill({ json: { files, suggestion: null, sensitive, folder: { path: body.folder, outside: 0 } } })
+    const qa = body.fileIds.includes(MINUTES.id)
+    return route.fulfill({ json: { files, suggestion: o.sensitive ? null : qa ? { path: MEETINGS, why: 'suggested', outside: 8 } : { path: FOLDER, why: 'suggested', outside: 12 }, sensitive } })
   })
   await page.route(/\/api\/rooms\/[^/]+\/save-to-team$/, async (route) => {
     const body = route.request().postDataJSON() as { fileIds: string[]; folder: string }
     s.bodies.push(body)
-    const saved = body.fileIds.map((fid) => ({ fileId: fid, path: `${body.folder}/${fid === PRICES.id ? PRICES.name : QUOTE.name}`, existed: false }))
+    const nameOf = (fid: string) => [PRICES, BANK, MINUTES, MINUTES2].find((f) => f.id === fid)?.name ?? QUOTE.name
+    // an identical copy is the same file: one copy, both point at it (the server: TC-4803)
+    const saved = body.fileIds.map((fid) => ({ fileId: fid, path: `${body.folder}/${nameOf(fid)}`, existed: fid === MINUTES2.id && body.fileIds.includes(MINUTES.id) }))
     for (const x of saved) s.saved.set(x.fileId, x.path)
     return route.fulfill({ json: { saved } })
   })
@@ -144,6 +156,67 @@ test.describe('phone', () => {
     // the price list was there already: only the quote is copied
     expect(s.bodies).toEqual([{ fileIds: [QUOTE.id], folder: FOLDER }])
   })
+})
+
+test('QA 11-17: a bank book among other files leaves their suggestion alone and starts unticked; an identical copy says so and the toast says it was saved once', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  const s = await openRoom(page, { qa: true })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const chip = page.getByTestId('room-file').filter({ hasText: MINUTES.name }).first()
+  await expect(chip).toBeVisible()
+  await chip.hover()
+  await chip.getByTestId('room-file-save').click()
+  await expect(page.getByTestId('room-save-place')).toHaveAttribute('data-why', 'suggested')
+  await expect(page.getByTestId('room-save-place')).toContainText('Meeting notes')
+  await expect(page.getByTestId('room-save-sensitive')).toHaveText('Files that look personal are left unticked. Tick one only if everyone who can open the folder may see it.')
+  const box = (name: string) => page.getByTestId('room-save-files').locator('li', { hasText: name }).getByTestId('room-save-file-check')
+  // the minutes and the bank book have a tick each; the copy follows the minutes
+  await expect(page.getByTestId('room-save-file-check')).toHaveCount(2)
+  await expect(box(BANK.name)).not.toBeChecked()
+  await expect(box(MINUTES.name)).toBeChecked()
+  await expect(page.getByTestId('room-save-files')).toContainText('Same file as above')
+  await expect(page.getByTestId('room-save-files')).toContainText('Looks personal')
+  const shots = process.env.SHOTS_DIR
+  if (shots) {
+    fs.mkdirSync(shots, { recursive: true })
+    for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      await page.screenshot({ path: path.join(shots, `qa1117-sheet-1440-${scheme}.png`) })
+    }
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  await page.getByTestId('room-save-confirm').click()
+  await expect(page.getByTestId('room-save-sheet')).toHaveCount(0)
+  expect(s.bodies.at(-1)).toEqual({ fileIds: [MINUTES.id, MINUTES2.id], folder: MEETINGS })
+  await expect(page.getByText('One file was the same as another, so it was saved once.')).toBeVisible()
+  if (shots) await page.screenshot({ path: path.join(shots, 'qa1117-toast-1440-light.png') })
+})
+
+test('QA 11-17 on a phone: the same sheet at 390 (light and dark)', async ({ browser }) => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, serviceWorkers: 'block' })
+  const page = await ctx.newPage()
+  try {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await openRoom(page, { qa: true })
+    await signIn(page)
+    await page.goto(`/rooms/${ROOM_ID}`)
+    const chip = page.getByTestId('room-file').filter({ hasText: MINUTES.name }).first()
+    await expect(chip).toBeVisible()
+    await chip.getByTestId('room-file-open').dispatchEvent('contextmenu')
+    await page.getByTestId('file-menu-save-team').click()
+    await expect(page.getByTestId('room-save-place')).toBeVisible()
+    await expect(page.getByTestId('room-save-files').locator('li', { hasText: BANK.name }).getByTestId('room-save-file-check')).not.toBeChecked()
+    await expect(page.getByTestId('room-save-confirm')).toBeEnabled()
+    // the rows fit: no sideways scroll on the sheet
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    const shots = process.env.SHOTS_DIR
+    if (shots) for (const scheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'reduce' })
+      await page.screenshot({ path: path.join(shots, `qa1117-sheet-390-${scheme}.png`) })
+    }
+  } finally { await ctx.close() }
 })
 
 test('a guest sees no save, in the chip or the menu, and the saved list is never asked', async ({ page }) => {

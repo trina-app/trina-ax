@@ -43,7 +43,8 @@ import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlo
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
-import { grantOnly, othersSource, seenWhy } from './grant-reads'
+import { formatsSafely } from './share-words'
+import { grantOnly, othersSource, roomsReadOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
@@ -70,6 +71,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
+import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
@@ -115,7 +117,8 @@ import { getUser } from '../auth/users'
 import { findRoomFile, localTime } from '../rooms/reader'
 import { namedPaths, OWN_CHAT_TEAM_TOOLS, OWN_WORDS_TOOLS, ROOMS_SEEN_BROWSER_READ_TOOLS, ROOMS_SEEN_OWN_CARD_TOOLS, ROOMS_SEEN_READ_ONLY_TOOLS } from '../rooms/ai-tools'
 import { auditOnceUse, authorsWrite, everyoneWrites, folderAudience, folderId, grantFor, grantsOn, readersOf, ruledBetween, within } from '../rooms/ai-grants'
-import { privateToMe } from '../files/share-readers'
+import { privateToMe, sharedWithAnyoneAt } from '../files/share-readers'
+import { madeInChat } from './shared-actions'
 import { wouldSeeFrom } from '../rooms/history'
 import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
@@ -131,9 +134,7 @@ import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
 
-/** A search's path that names no folder: none, empty, or only separators and "." ("/", "./", "//", "\\", " . ") —
- * the team root, which a shared chat never searches by default (TurnExec.sharedArgs). */
-export const noSearchPath = (p: unknown): boolean => typeof p !== 'string' || p.replace(/\\/g, '/').split('/').every((s) => s.trim() === '' || s.trim() === '.')
+export { noSearchPath } from './search-path'
 
 /** One answer has no time limit (owner decision 2026-11-14, docs/DECISIONS.md "No time limit on one answer"): it ends
  * when the engine is done, at the tool rounds, at a budget or at Stop. Only a stalled engine is ended: nothing from it
@@ -2337,6 +2338,27 @@ export class TurnExec {
       ...(d.marks ? { marks: d.marks.map((m) => this.redact(m)) } : {}),
     }))
   }
+  /** What the wider-audience card shows of a call the room card would show (roomCardDetails; QA TC-4815,
+   * docs/decisions/20261117-save-card-plain.md): the question already says it saves and where, so the Action row goes,
+   * and so does a File row that names that same place; the other rows stay (a source, a template, a save-as name). No
+   * size. The text of a whole file written (write, make_file) is formatted with the chat's Markdown renderer when
+   * nothing in it could hide where a link goes (share-words.ts formatsSafely), never for an instruction file (a planted
+   * instruction stays exactly as written). */
+  private widenCardDetails(tool: string, details: ConfirmDetailT[], need: WidenNeed, instruction: boolean): ConfirmDetailT[] {
+    const L = this.spec.locale
+    const action = tr('roomAiChangeAction', L)
+    const file = tr('roomAiChangeFile', L)
+    const place = this.place(need.segs.join('/'))
+    const whole = tool === 'write' || tool === 'make_file'
+    return details.map((d) => {
+      const fields = d.fields?.filter((f) => f.name !== action && !(f.name === file && f.value === place))
+      const { fields: _old, ...rest } = d
+      return {
+        ...rest, ...(fields?.length ? { fields } : {}), noSize: true,
+        ...(whole && !instruction && !d.exact && d.text && formatsSafely(d.text) ? { markdown: true as const } : {}),
+      }
+    })
+  }
   /** a tool's own words for the room card (TurnTool.card), or null for the shared ones */
   toolCard(tool: string, input: unknown): ToolCard | null {
     return this.toolSet?.card?.(tool, input, this.spec.locale) ?? null
@@ -2469,7 +2491,7 @@ export class TurnExec {
         : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
     }
-    // the person's own chat: a new file in their own folder (or one this answer made) goes on without a card; nobody but
+    // the person's own chat: a new file in their own folder (or one this answer or this chat made) goes on without a card; nobody but
     // them reads it, and the steps and the answer's file list show it
     if (!o.noCover && this.ownFolderTarget(tool, input, o.widen)) {
       if (o.main !== false) this.coverStep(tool, 'ownFolderStep')
@@ -2508,7 +2530,7 @@ export class TurnExec {
     const details = this.roomCardDetails(tool, input, words)
     // why every change here waits for a card, and what the AI does instead (docs/DECISIONS.md "Refusals say why, who and
     // what next": a scheduled run that read a room was told "the user did not allow this" for a card nobody saw)
-    const roomWhy = () => `This chat holds ${othersSource(this, 'messages from the user\'s team chat rooms (other people\'s words that may ask for changes)')}, so every change here waits for the user\'s yes on a card for the rest of this chat (only a new file in the user\'s own folder does not). Change nothing unless the user\'s own message asks for it, and say what you would have done`
+    const roomWhy = () => `This chat holds ${othersSource(this, 'messages from the user\'s team chat rooms (other people\'s words that may ask for changes)')}, so every change here waits for the user\'s yes on a card for the rest of this chat (only a new file in the user\'s own folder, or a file this chat made there, does not). Change nothing unless the user\'s own message asks for it, and say what you would have done`
     const refuse = (end: CardEnd, more?: { also: string; names: string[] }) => refusal({
       done: end === 'declined' ? `The user did not allow this (${tool}), so nothing was changed.` : `Not done (${tool}): nothing was changed.`,
       why: cardReason(end),
@@ -2520,6 +2542,9 @@ export class TurnExec {
     })
     // the same call needs the wider-audience card too: that one card, with what the call writes; its yes is the room's
     const need = o.widen && !o.noCover ? this.widenNeed(o.widen.target, o.widen.extra, undefined, o.widen.read) : null
+    // ...whose card shows what the call writes in fewer words (QA TC-4815): no Action row, no File row that repeats the
+    // question's place, no size, and a written file's text formatted when nothing in it could hide a link's target
+    const widenDetails = need ? this.widenCardDetails(tool, details, need, w.targets.some(instructionLike)) : details
     // the person's own message of this turn asks to save (docs/decisions/20261116-room-link-save-one-prompt.md, QA
     // TC-3830): a NEW file where no more people can see it than can see what this chat read (no widening card) goes
     // without the room card. It overwrites nothing and widens nothing, so a room message steering it can only add a
@@ -2536,7 +2561,7 @@ export class TurnExec {
     const approvedHere = !!fileTarget && roomAlways !== 'on' && this.mayUseApprovals() && approved(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget })
     if (approvedHere) {
       if (need) {
-        const no = await this.askWidening(need, { details, extra: instruction })
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
         if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       } else if (o.main !== false) this.coverStep(tool, 'chatOnceStep')
       this.roomAllowed.add(key)
@@ -2545,7 +2570,7 @@ export class TurnExec {
     const keepApproval = () => { if (fileTarget && this.mayUseApprovals()) noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'file_change', target: fileTarget }) }
     if (roomAlways === 'on') {
       if (need) {
-        const no = await this.askWidening(need, { details, extra: instruction })
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
         if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       }
       this.roomAllowed.add(key)
@@ -2553,7 +2578,11 @@ export class TurnExec {
     }
     if (need) {
       // the room's card too: "Always allow" for saving wider alone never skips it (both choices are needed; review of #678)
-      const no = await this.askWidening(need, { details, extra: instruction, lead: `${tr(seenWhy(this, 'roomsSeenWhy'), L)} `, room: true })
+      // why changes are asked here goes in the small line under the buttons (as on the send-to-room card, #1235), and none
+      // when every room this chat read is its side chat's own room (grant-reads.ts roomsReadOnly); the card still shows
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)?.id ?? ''
+      const why = this.shared || this.othersWrote || !roomsReadOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
+      const no = await this.askWidening(need, { details: widenDetails, extra: instruction, ...(why ? { why } : {}), room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
       this.roomAllowed.add(key)
@@ -2728,7 +2757,8 @@ export class TurnExec {
   /**
    * In the person's own chat after a room read: the file in their own folder a call makes, when it needs no card, else
    * null (docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). write, make_file or edit_hwp making a new file, or edit, write or
-   * edit_hwp of a file this answer made (roomMadeHere); save_room_file making a new file (where its widen hook says it
+   * edit_hwp of a file this answer made (roomMadeHere) or, in the person's own chat, that this chat made where only they
+   * can open it (madeInChat + onlyMine, docs/decisions/20261117-own-folder-chat-made-no-card.md); save_room_file making a new file (where its widen hook says it
    * goes: the file's own name in a folder). The path as the file layer resolves it for the person (authorize 'write':
    * letter case, Unicode form; ".." and links refused there), inside users/<them>/, never in a hidden folder
    * (.attachments), a plugin's folder, users/<them>/skills or a project's folder, never an instruction-named file
@@ -2738,26 +2768,94 @@ export class TurnExec {
   private ownFolderTarget(tool: string, input: unknown, widen?: WidenOf): string[] | null {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
+      // the PDF tools (QA TC-4703): every place the call may write must qualify (ownFolderPdf)
+      if (PDF_OUT_TOOLS.has(tool)) return this.ownFolderPdf(tool, input)
       const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
-      const fx = this.rt.files.fx
-      const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
-      const segs = r.segs
-      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
-      // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
-      if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
-      if (r.exists && (!r.st?.isFile() || !this.roomMadeHere(r.rel))) return null
-      if (!r.exists && !t.mayBeNew) return null
-      // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
-      // something the person never saw where they agreed something should go
-      if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
-      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
-      if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
-      // a project's folder (a personal project): its dev environment may run a new file by its name (conftest.py, a
-      // Makefile, a package's scripts) with the person's login, so a file there still asks
-      if (this.inProjectFolder(r.rel)) return null
-      return segs
+      return this.ownFolderPlace(tool, t.path, t.mayBeNew)
     } catch { return null }
+  }
+
+  /** ownFolderTarget's test of one place a call writes (`p` as the AI gave it; `mayBeNew`: the call may make it there):
+   * the file in the person's own folder that needs no card, else null. Throws on a path the file layer refuses. */
+  private ownFolderPlace(tool: string, p: string, mayBeNew: boolean): string[] | null {
+    const fx = this.rt.files.fx
+    const r = authorize(fx, this.rt.files.rules(), this.livePrincipal(), p, 'write', { createDirs: true })
+    const segs = r.segs
+    if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return null
+    // only where nobody else reads it: a folder the person shares has its people (files/share-readers.ts)
+    if (!privateToMe(this.rt.db, this.spec.userId, segs)) return null
+    // a file this chat made, changed in a later answer (docs/decisions/20261117-own-folder-chat-made-no-card.md):
+    // only in the person's own chat (not a chat shared with others now, not a restricted turn), where nobody else can
+    // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
+    // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
+    // as they are over the person's draft; security review of this change)
+    if (r.exists && tool === 'save_room_file') return null
+    if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
+    if (!r.exists && !mayBeNew) return null
+    // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
+    // something the person never saw where they agreed something should go
+    if (!r.exists && componentC(this.rt.ctx).files.aiTrashed(r.rel)) return null
+    if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return null
+    if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(segs.slice(0, -1))) return null
+    // a project's folder (a personal project): its dev environment may run a new file by its name (conftest.py, a
+    // Makefile, a package's scripts) with the person's login, so a file there still asks
+    if (this.inProjectFolder(r.rel)) return null
+    return segs
+  }
+
+  /**
+   * The PDF tools' places (QA TC-4703; tools/stamp-pdf.ts, tools/pdf-tools.ts), each tested as ownFolderPlace: an explicit
+   * output (".pdf" added as the tool does); edit_pdf's replace: the PDF itself; without an output a new free name the tool
+   * picks in the PDF's folder (merge_pdfs: the first file's; split_pdf: output_folder or the PDF's), tested with a name
+   * that is not there, and also the PDF itself when this answer wrote it (a PDF the AI made in this turn may be changed in
+   * place, docs/decisions/20261117-stamp-own-fresh-pdf.md). Any place that does not qualify: null (the card).
+   */
+  private ownFolderPdf(tool: string, input: unknown): string[] | null {
+    const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : null
+    if (!a) return null
+    const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+    const withPdf = (o: string) => { const x = o.replace(/\/+$/, ''); return /\.pdf$/i.test(x) ? x : `${x}.pdf` }
+    const src = tool === 'merge_pdfs'
+      ? (Array.isArray(a.files) && a.files.length ? str(typeof a.files[0] === 'object' && a.files[0] ? (a.files[0] as { path?: unknown }).path : a.files[0]) : null)
+      : str(a.file_path)
+    if (!src) return null
+    const srcRel = this.sourceRel(src)
+    if (!srcRel) return null
+    const fresh = `${crypto.randomUUID()}.pdf`
+    const inDir = (dir: string) => `${dir.replace(/\/+$/, '')}/${fresh}`
+    const srcDir = srcRel.split('/').slice(0, -1).join('/')
+    const places: { p: string; mayBeNew: boolean }[] = []
+    const out = tool === 'stamp_pdf' ? stampOutputOf(a.output) : tool === 'split_pdf' ? null : (str(a.output) ? withPdf(str(a.output)!) : null)
+    if (tool === 'edit_pdf' && a.replace === true) places.push({ p: srcRel, mayBeNew: false })
+    else if (out) places.push({ p: out, mayBeNew: true })
+    else {
+      // the tool's own name keeps the PDF's: a hidden PDF gets a hidden result, which the own-folder rule never takes
+      if (srcRel.split('/').at(-1)!.startsWith('.')) return null
+      places.push({ p: inDir(tool === 'split_pdf' && str(a.output_folder) ? str(a.output_folder)! : srcDir), mayBeNew: true })
+      // without an output, stamp_pdf and edit_pdf may change a PDF this answer made in place
+      if ((tool === 'stamp_pdf' || tool === 'edit_pdf') && this.rt.db.query("SELECT 1 FROM file_events WHERE turn_id = ? AND path = ? AND action IN ('create', 'update') LIMIT 1").get(this.id, srcRel)) places.push({ p: srcRel, mayBeNew: false })
+    }
+    let first: string[] | null = null
+    for (const x of places) {
+      const segs = this.ownFolderPlace(tool, x.p, x.mayBeNew)
+      if (!segs) return null
+      first ??= segs
+    }
+    return first
+  }
+
+  /** Nobody but this person can open `segs` (actual names, inside their own folder) in any way now: no share row at it
+   * or above it that lets anyone in (a file's or a folder's, paused too: files/share-readers.ts sharedWithAnyoneAt;
+   * a bare link id with nobody on it lets nobody in), and
+   * no folder rule lets anyone else read it (rooms/ai-grants.ts readersOf: every active person the rules let read it,
+   * a folder share's people too). The real audience check, not the path alone. Fails closed. */
+  private onlyMine(segs: readonly string[]): boolean {
+    try {
+      if (segs.length < 3 || segs[0] !== 'users' || segs[1] !== this.spec.userId) return false
+      if (sharedWithAnyoneAt(this.rt.db, segs)) return false
+      return readersOf(this.rt.db, this.rt.files.rules(), segs).every((id) => id === this.spec.userId)
+    } catch { return false }
   }
 
   /** Is `rel` (actual names) a project's folder or inside one (any project, as its folder_path names it; one on the team
@@ -2966,13 +3064,25 @@ export class TurnExec {
     try { return missingReaders(this.rt.db, this.rt.files.rules(), scope, this.sharedAudience()).length > 0 } catch { return true }
   }
 
+  /** A search of this turn stayed in the project folder (sharedArgs): the note for its result, the first time only. */
+  projectSearchNote(): string | null {
+    if (this.shared?.kind !== 'project' || this.projectSearchNoted) return null
+    this.projectSearchNoted = true
+    return PROJECT_SEARCH_NOTE
+  }
+  private projectSearchNoted = false
+
   /** A shared chat's call as it runs: a search without a path looks in the project folder only (the project's people
    * may all read it), or in a chat shared with people and groups in the one folder everyone in it may read
    * (peopleSearchPlace; none: sharedSearchRefusal refuses the call first, and this never falls back to the sender's whole
-   * access); the AI is told so in its instructions. */
+   * access); the AI is told so in its instructions. In a project chat "/" alone (WHOLE_TEAM_PATH) is the team root:
+   * every folder the person can open, behind the read card. */
   sharedArgs(tool: string, args: unknown): unknown {
     if (!this.shared || !SEARCH_TOOLS.has(tool) || !args || typeof args !== 'object') return args
     const a = args as Record<string, unknown>
+    // "/" alone in a project chat: the whole team folder the person can open (the read card asks first for any place
+    // some of the chat's people cannot open, the person's own folder included)
+    if (this.shared.kind === 'project' && wholeTeamPath(a.path)) return { ...a, path: '' }
     if (!noSearchPath(a.path)) return args
     if (this.shared.kind === 'project') return { ...a, path: this.shared.project.folder_path }
     const place = this.peopleSearchPlace()
@@ -3037,7 +3147,8 @@ export class TurnExec {
           if (readable(f ? f.split('/') : [])) out.push(sourceOf(this.rt.db, rules, f))
         }
         const mine = fold(`users/${me.id}`)
-        if (bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
+        // (a project chat's "/" search leaves the person's own folder out: SKIP_OWN, files/service.ts)
+        if (!(input && typeof input === 'object' && SKIP_OWN.has(input)) && bases.some((b) => b === '' || b === 'users' || b === mine || b.startsWith(mine + '/'))) out.push({ type: 'user', id: me.id })
       } else {
         // the names a listing shows: each folder the person sees there by its name (who else would see that name), the
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
@@ -3374,12 +3485,17 @@ export class TurnExec {
     })
   }
 
-  /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `lead`: a room change asked on this same
+  /** The wider-audience card for `need` (widenNeed). `details`, `extra` and `why`: a room change asked on this same
    * card (what the call writes, the room card's line for an instruction file, and in the person's own chat why changes
-   * are asked); its yes then covers that change too. Returns the refusal for the tool and how the card ended, or null. */
-  private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; lead?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
+   * are asked: the small line under the buttons, docs/decisions/20261117-save-card-plain.md); its yes then covers that
+   * change too. Returns the refusal for the tool and how the card ended, or null. */
+  private async askWidening(need: WidenNeed, o: { binding?: string; details?: ConfirmDetailT[]; extra?: string; why?: string; room?: boolean } = {}): Promise<{ text: string; end: CardEnd } | null> {
     const L = this.spec.locale
-    const { from, fromForAi } = this.widenSources(need)
+    const { from, fromForAi, chats } = this.widenSources(need)
+    // one plain question: the place and how many can see it there, how many of them cannot see where it came from, and
+    // on its own line where it came from with how many can see that (QA TC-4815; the facts of PR #1232's words)
+    const blind = need.blind > 0 ? ` ${tr(chats ? 'widenBlindChat' : 'widenBlind', L, { m: String(need.blind) })}` : ''
+    const question = `${tr('widenConfirm', L, { target: this.place(need.segs.join('/')), n: String(need.viewers) })}${blind}\n${tr('widenSource', L, { sources: from })}`
     // `room`: this card is the room's card too (confirmRoomChange). Its "Always allow" is the person's own for both kinds
     // at once (changes after a room read, and saves where more people can see): a person who meets this card first can
     // reach it here (owner 2026-11-14, QA TC-1292); it is offered while the room kind is off (with both on there is no card)
@@ -3390,8 +3506,9 @@ export class TurnExec {
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: (o.lead ?? '') + tr('widenConfirm', L, { ai: aiCalled(L), sources: from, target: this.place(need.segs.join('/')), n: String(need.viewers), m: String(need.blind) }) + (o.extra ?? ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + (o.extra ?? ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
+      ...(o.why ? { note: o.why } : {}),
       ...(o.details?.length ? { details: o.details } : {}),
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] })
@@ -3420,7 +3537,7 @@ export class TurnExec {
    * the server's name only (any member of a group chat may set its own name). A shared chat's read scope also holds what
    * other people's turns read there (also once it stopped being shared: a deleted project's chat, the rollback guard): a
    * place this person cannot see themselves is not named to them. */
-  private widenSources(need: WidenNeed): { from: string; fromForAi: string } {
+  private widenSources(need: WidenNeed): { from: string; fromForAi: string; chats: boolean } {
     const me = this.livePrincipal()
     const L = this.spec.locale
     const labels = { mine: tr('scopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
@@ -3436,7 +3553,9 @@ export class TurnExec {
       const c = sourceViewerCount(this.rt.db, rules, s, reader)
       return c.onlyReader ? tr('widenFromYou', L, { source: l }) : tr('widenFrom', L, { source: l, n: String(c.n) })
     }
-    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', ') }
+    // every source a conversation the person sees (a room, a chat, Slack): "the chat it came from"; else "where it came from"
+    const chats = need.narrower.every((s) => (s.type === 'room' || s.type === 'chat' || s.type === 'slack') && !hidden(s))
+    return { from: [...new Set(need.narrower.map(counted))].join(', '), fromForAi: [...new Set(need.narrower.map((s) => label(s, false)))].join(', '), chats }
   }
 
   /** A yes to saving where more people can see (askWidening, or the skill card that carries it): these sources for that
@@ -3757,7 +3876,10 @@ export class TurnExec {
   async askAlways(kind: CardAlwaysKind, request: TurnRequest & { options: { label: string; value: string }[] }, yes: string, o: { onAlways?: () => void; label?: 'cardAlways' | 'cardAlwaysSkills' } = {}): Promise<CardAnswer> {
     let missing: CardAnswer['missing'] = null
     const value = await withAlways(this.alwaysPlace(), kind, request.options, yes, async (options, more) => {
-      const r = await this.askPerson({ ...request, options, ...more } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+      // a card's own note (why it asks: the wider-audience card's room reason) stays, before what Always allow covers
+      const own = (request as { note?: string }).note
+      const note = [own, more.note].filter(Boolean).join(' ')
+      const r = await this.askPerson({ ...request, options, ...more, ...(note ? { note } : {}) } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
       missing = r.missing
       // the person picked "Always allow" on this card (what else the card covers is kept by the caller)
       if ((Array.isArray(r.value) && r.value.length === 1 ? r.value[0] : r.value) === ALWAYS_VALUE) o.onAlways?.()
@@ -4355,6 +4477,9 @@ function teamSegs(p: unknown): string[] | null {
  * followed (no cover: the card). edit_hwp with an output (any string, an empty one too): the output's extension comes
  * from the document as the file layer resolves it (`source`, as tools/edit-hwp.ts does: "x.hwp/" is x.hwp), so an output
  * that lands on the document itself is seen as the existing file it is; a document that cannot be resolved: null. */
+/** the PDF tools whose output ownFolderTarget works out itself (ownFolderPdf) */
+const PDF_OUT_TOOLS = new Set(['stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf'])
+
 export function writeTargetOf(tool: string, input: unknown, source: (p: string) => string | null): { path: string; mayBeNew: boolean } | null {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')

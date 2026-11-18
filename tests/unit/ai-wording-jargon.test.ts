@@ -67,27 +67,30 @@ describe('a read-only team skill (SKL-02.member)', () => {
   afterAll(() => db.close())
   const t = "Access denied: read-only: you cannot change 'skills/weekly-report/SKILL.md'"
 
-  test('own chat: the "Suggest as skill" button or a personal copy, never the whole text to copy by hand', () => {
+  // "Suggest as skill" turns an answer or a file into a NEW skill; registering it never changes an existing one (a file of
+  // that name is refused: skills/suggestions.ts approveSuggestion). Offering it for a change to quote-writer was a false
+  // claim (AI scenarios SKL-01.member, SKL-02.approval, 2026-11-17; since b4eeacdd0)
+  test('a change to a team skill: ask its managers or a personal copy, never "Suggest as skill" or the whole text', () => {
     const note = readOnlyNote(db, t, 'ko', { userId: 'd', sees: () => true, button: true })!
     expect(note).toBe("Write access to 'skills/weekly-report/SKILL.md': an admin can give it (in Admin › Folder permissions (\"관리자 › 폴더 권한\")). " +
-      'Next step: tell the user in a sentence that only the people who manage team skills change a team skill; then offer, a line each: ' +
-      'the "스킬로 제안" button under your answer sends this change to them for review (say the change in a sentence or two for it), ' +
-      'or, if they ask, you save a personal copy with the change, which replaces the team skill for them only. Do not paste the whole changed text for them to copy by hand.')
+      'Next step: tell the user in a sentence that only the people who manage team skills (the owner, admins, or whoever they chose) change a team skill; then offer, a line each: ' +
+      'you write a short message for them saying what to change, which the user sends them themselves (you cannot send it); or, if they ask, you save a personal copy with the change, which replaces the team skill for them only (not for a change that drops an approval or check the team requires: then only the message). ' +
+      '"스킬로 제안" under an answer suggests a new skill, never a change to an existing one: do not offer it for this. Do not paste the whole changed text for them to copy by hand.')
     expect(note).not.toContain('users/')
+    expect(note).not.toContain('button under your answer')
   })
 
-  test('a shared chat has no suggest button: only the personal copy', () => {
+  test('the same next step in a shared chat', () => {
     const note = readOnlyNote(db, t, 'en', { userId: 'd', sees: () => true, button: false })!
-    expect(note).not.toContain('Suggest as skill')
     expect(note).toContain('if they ask, you save a personal copy with the change')
     expect(note).toContain('Do not paste the whole changed text')
+    expect(note).not.toContain('button under your answer')
   })
 
   test('a loaded team skill the person cannot change says so up front, the same next step', () => {
-    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'ko', true)).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer the "스킬로 제안" button under your answer (sends the change for review) or a personal copy that replaces it for them only; never paste the whole changed text.')
-    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'en', false)).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer a personal copy that replaces it for them only; never paste the whole changed text.')
-    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', false, 'en', true)).toBeNull()
-    expect(readOnlySkillLine('users/d/skills/x/SKILL.md', true, 'en', true)).toBeNull()
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', true, 'ko')).toBe('This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change (the user sends it; you cannot), or a personal copy that replaces it for them only (not when the change drops an approval or check the team requires). "스킬로 제안" under an answer suggests a new skill, never a change to this one: do not offer it for this. Never paste the whole changed text.')
+    expect(readOnlySkillLine('skills/weekly-report/SKILL.md', false, 'en')).toBeNull()
+    expect(readOnlySkillLine('users/d/skills/x/SKILL.md', true, 'en')).toBeNull()
   })
 
   test('other folders keep their note', () => {
