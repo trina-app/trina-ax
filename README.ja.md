@@ -49,10 +49,6 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## みんなでできること
 
-**Slack のようなチームチャット。** 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークにも Trina がいます。
-
-<img src="docs/site/images/chats/room.webp" width="100%" alt="Marketing チャンネル：Jordan をメンションしたメッセージ、返信2件のスレッド、サイドチャットから送った Trina の回答">
-
 **どのトークの横でも聞けて、ワンクリックで送れる。** 自分にだけ見えるサイドチャットで聞いて、ワンクリックで Trina の回答をトークに送れます。
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew トークで、Mina が自分にだけ見えるサイドチャットで Trina に出展規定をチェックリストにしてもらい、トークに送ります。">
@@ -61,22 +57,28 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理者が Sales フォルダーを開ける人を変え、Mina が開けるフォルダーを確認します。Finance は一覧にありません。">
 
-**同僚のセッションを引き継げる。** 同僚のプロジェクトセッションを開いて続きを進められます。自分の質問は自分の権限で処理されます。
+**チームプロジェクトで同僚のセッションを引き継げる。** チームプロジェクトのセッションはメンバーに共有されます。同僚のセッションを開いて続きを進められ、自分の質問は自分の権限で処理されます。ほかのセッションも、Google ドライブのファイルのように人やグループに共有できます。
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina が Sam のプロジェクトセッションを開いて、カードニュースの続きを直します。Mina の質問は Mina の権限で処理されます。">
 
+**ファイルを中身で探せる。** 毎晩、チームの AI が共有・グループ・プロジェクトのフォルダーの新しいファイルと変更されたファイルを読み、ファイルごとに何なのかを1行で残します。だから `temp.pdf` という名前のスキャンや `IMG_2031.jpg` という写真も中身で見つかります。チームの AI アカウントを使い、個人フォルダーは読みません。架空の2,238ファイルでのテストでは、Claude Code は184問のうち、この一覧があると181問、ないと172問で正しいファイルを見つけました。
+
 <table>
 <tr>
-<td width="50%"><b>予約タスク。</b> 一度頼めば、Trina が決めたスケジュールで繰り返します。時刻はチームのタイムゾーンです。<br><br><img src="docs/site/images/scheduled/task.webp" alt="毎週月曜9時に動く週次サマリーの予約タスク"></td>
-<td width="50%"><b>ゲスト。</b> 社外の人をグループトークやプロジェクトに招待し、AI を使えるかどうかを決められます。<br><br><img src="docs/site/images/guests/guest-room.webp" alt="ゲストが1人いるグループトーク"></td>
+<td width="50%"><b>予約タスク。</b> 一度頼めば、Trina が決めたスケジュールで繰り返します。時刻はチームのタイムゾーンです。<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="予約タスクが作った週次サマリー：見つけたこと、決定事項、未完了の作業、ファイルに保存"></td>
+<td width="50%"><b>ゲスト。</b> 社外の人をグループトークやプロジェクトに招待し、AI を使えるかどうかを決められます。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="代理店のゲスト Morgan Reyes がいる Launch email グループトーク：件名の案、メンション、Trina の回答"></td>
 </tr>
 <tr>
 <td width="50%"><b>使用量と上限。</b> 人ごとの回答数、トークン、推定コスト。トークン上限は人、グループ、チームごとに。<br><br><img src="docs/site/images/usage/team.webp" alt="管理者の使用量画面：人ごとのトークン、回答数、推定コスト"></td>
 <td width="50%"><b>すべてを検索。</b> ⌘K でチャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探す ⌘K 検索"></td>
 </tr>
+<tr>
+<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークにも Trina がいます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた Trina の回答、右に開いたスレッド"></td>
+</tr>
 </table>
 
 - **変更はすべて残る。** 人が変えても、その人の AI が変えても、どのバージョンにも戻せます。
+- **アプリ内ブラウザー。** デスクトップアプリでは、Trina がチャットの横のパネルで Web サイトを開き、読み、クリックし、フォームに入力します。見ながら Stop でいつでも止められます。すべてのサイトを許可していなければ、新しいサイトを開く前に確認します。
 - **アプリの更新をトークに。** Sentry、GitHub、Stripe、Jira、HubSpot の更新がカードで届きます。
 - **議事録。** Mac アプリ（macOS 14.4 以降）が Zoom、Meet、Teams の通話を書き起こします。
 - **仕事のファイルを探す。** デスクトップアプリが手元のパソコンから最近の仕事のファイルを見つけ、選んだものだけ追加します。
