@@ -233,25 +233,20 @@ function guardedFolders(homes: string[], sys: FolderSystem): Set<string> {
 }
 
 /**
- * The identities a folder of a walk that the file system reached through a reparse point must not have (common/
- * work-files.ts scanRoots guard): home and every folder above it (as written and resolved: the drive's top, C:\Users), and
- * on Windows the guarded system folders (guardedFolders). Rejects when home or a folder above it cannot be told (no
- * home, a home on a network path, a failed or late lookup, an identity of 0): the walk then enters no such folder. A
- * system folder this computer does not have is left out.
+ * The identities a walk must not reach through a reparse point or, on a network share, at all (common/work-files.ts
+ * scanRoots guard): home and every folder above it (as written and resolved: the drive's top, C:\Users), and on Windows
+ * the guarded system folders (guardedFolders). Only what can be told is listed: a folder whose lookup fails, is late
+ * or gives 0 is left out (only a match refuses there), and no home, or a home on a network path, gives none.
  */
 export async function guardedIdentities(sys: FolderSystem, platform: string): Promise<FolderIdentity[]> {
   const home = sys.home()
-  if (!home || isUncPath(home, platform)) throw new Error('no home')
-  const realHome = await sys.realpath(home)
-  if (!realHome || isUncPath(realHome, platform)) throw new Error('no home')
-  const above = [...new Set([...withParents(home, platform), ...withParents(realHome, platform)])]
-  const ids = await Promise.all(above.map((a) => sys.identity(a)))
-  if (ids.some((id) => !id || unknownIdentity(id))) throw new Error('home cannot be told')
-  if (platform === 'win32') {
-    const more = await Promise.all([...guardedFolders([home, realHome], sys)].map((g) => sys.identity(g).catch(() => null)))
-    for (const id of more) if (id && !unknownIdentity(id)) ids.push(id)
-  }
-  return ids
+  if (!home || isUncPath(home, platform)) return []
+  const realHome = await sys.realpath(home).catch(() => home)
+  const homes = isUncPath(realHome, platform) ? [home] : [...new Set([home, realHome])]
+  const folders = new Set(homes.flatMap((h) => withParents(h, platform)))
+  if (platform === 'win32') for (const g of guardedFolders(homes, sys)) folders.add(g)
+  const ids = await Promise.all([...folders].map((f) => sys.identity(f).catch(() => null)))
+  return ids.filter((id): id is FolderIdentity => !!id && !unknownIdentity(id))
 }
 
 /**

@@ -442,17 +442,19 @@ describe('never the home folder or a folder that holds it, whatever the path loo
     }
   })
 
-  test('TC-4844: guardedIdentities, what a walk must not reach through a reparse point (home and above it, the system folders)', async () => {
+  test('TC-4844: guardedIdentities, what a walk must not reach (home and above it, the system folders), as far as they can be told', async () => {
     const id = (ino: bigint) => ({ dev: 3_029_372_109n, ino })
     const sys: FolderSystem = { ...fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\Users\\Alex': id(70n), 'C:\\Users': id(60n), 'C:\\': id(5n), 'C:\\Windows': id(200n), 'C:\\Users\\Alex\\AppData\\Roaming': id(500n), 'C:\\Program Files': new Error('no such folder'), 'D:\\Apps': id(600n) } }), systemFolders: () => ['D:\\Apps', '\\\\fs\\apps'] }
     const ids = (await guardedIdentities(sys, 'win32')).map((x) => x.ino)
     for (const ino of [70n, 60n, 5n, 200n, 500n, 600n]) expect(ids).toContain(ino)
-    // home or a folder above it that cannot be told, or a home on a network path: nothing is known, so it rejects
-    await expect(guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\Users': new Error('late') } }), 'win32')).rejects.toThrow()
-    await expect(guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\': { dev: 1n, ino: 0n } } }), 'win32')).rejects.toThrow()
-    await expect(guardedIdentities(fakeSystem('\\\\fs\\home$\\alex', 'win32'), 'win32')).rejects.toThrow()
-    await expect(guardedIdentities(fakeSystem('', 'win32'), 'win32')).rejects.toThrow()
-    await expect(guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { realpathFails: true }), 'win32')).rejects.toThrow()
+    // what cannot be told is left out (only a match refuses in the walk); no home, or a home on a network path, gives none
+    const partial = (await guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\Users\\Alex': id(70n), 'C:\\Users': new Error('late'), 'C:\\': { dev: 1n, ino: 0n } } }), 'win32')).map((x) => x.ino)
+    expect(partial).toContain(70n)
+    expect(partial).not.toContain(0n)
+    expect(await guardedIdentities(fakeSystem('\\\\fs\\home$\\alex', 'win32'), 'win32')).toEqual([])
+    expect(await guardedIdentities(fakeSystem('', 'win32'), 'win32')).toEqual([])
+    // a realpath that fails: home as written still counts
+    expect((await guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { realpathFails: true, ids: { 'C:\\Users\\Alex': id(70n) } }), 'win32')).map((x) => x.ino)).toContain(70n)
   })
 
   test('macOS and Linux: the same folder under another name is caught by its identity', async () => {
