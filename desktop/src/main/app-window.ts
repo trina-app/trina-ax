@@ -354,7 +354,12 @@ export class AppWindow {
       const nav = this.chromeNav
       this.chrome.webContents
         .executeJavaScript(`!!document.querySelector('#toolbar [data-testid="pane-close"]')`)
-        .then((drawn) => drawn === true && nav === this.chromeNav && this.chromeUp())
+        .then((drawn) => {
+          if (nav !== this.chromeNav) return
+          // the page loaded but drew no toolbar (its script failed): the same as a failed load
+          if (drawn === true) this.chromeUp()
+          else this.chromeFailed('not drawn')
+        })
         .catch(() => {})
     })
     // a new toolbar document (a load again, or any other reload of it): the browser waits for it to draw
@@ -365,6 +370,7 @@ export class AppWindow {
       this.chromeLoaded = false
       if (!this.chromeDown) {
         this.chromeDown = true
+        this.tellPageOpen()
         this.layout()
       }
     })
@@ -1358,7 +1364,10 @@ export class AppWindow {
   private chromeFailed(why: string) {
     if (this.win.isDestroyed() || this.chrome.webContents.isDestroyed()) return
     debug('browser toolbar failed', why)
-    this.chromeDown = true
+    if (!this.chromeDown) {
+      this.chromeDown = true
+      this.tellPageOpen()
+    }
     this.layout()
     if (this.chromeRetry) return
     const r = chromeRecovery(this.chromeFailures, Date.now())
@@ -1383,6 +1392,7 @@ export class AppWindow {
     this.chromeDown = false
     this.paneWidthTold = ''
     this.pane?.resendPrompts()
+    this.tellPageOpen()
     this.layout()
   }
 
@@ -1391,6 +1401,17 @@ export class AppWindow {
     if (!this.chromeDown || this.chromeRetry || !this.pane?.open || this.chrome.webContents.isLoading()) return
     this.chromeFailures = this.chromeFailures.filter((t) => Date.now() - t < CHROME_RELOAD_WINDOW_MS)
     this.loadChrome()
+  }
+
+  /** The pane's state for the team page: open only while it is drawn (its 🌐 shows what the person sees). */
+  paneStateForPage(): DesktopPaneState | null {
+    const s = this.pane?.state()
+    return s ? { ...s, open: s.open && !this.chromeDown } : null
+  }
+
+  private tellPageOpen() {
+    const s = this.paneStateForPage()
+    if (s) this.send(this.app, 'bridge:pane-state', s)
   }
 
   /** the browser is drawn: it is open and its toolbar is there */
@@ -1591,7 +1612,10 @@ export class AppWindow {
     const pane = this.pane
     if (!pane) return
     if (what === 'open' || (what === 'toggle' && !pane.open)) this.personActed(true)
-    if (what === 'open') pane.show()
+    // open but not drawn (its toolbar is loading again): the person asks to see it, so try the toolbar now rather
+    // than close a browser they cannot see (the team page shows it closed, paneStateForPage)
+    if (what === 'toggle' && pane.open && this.chromeDown) this.chromeOnOpen()
+    else if (what === 'open') pane.show()
     else if (what === 'close') pane.hide()
     else pane.toggle()
   }
@@ -1746,7 +1770,7 @@ export class AppWindow {
 
   private sendPaneState(s: DesktopPaneState) {
     this.send(this.chrome, 'ui:pane-state', s)
-    this.send(this.app, 'bridge:pane-state', s)
+    this.send(this.app, 'bridge:pane-state', { ...s, open: s.open && !this.chromeDown })
     this.layout()
   }
 

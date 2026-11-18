@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:58
 - Branch: `fix/side-browser-close`
-- Status: in progress
+- Status: done
 - Where: `desktop/` (main process window and pane, the pane toolbar page). Why: the in-app browser is the desktop app's
   own view; the team page only reserves its space (docs/REPOSITORY-RULES.md).
 - Version impact: patch, a fix in the desktop app.
@@ -12,7 +12,8 @@
 A person saw a page the AI opened in the in-app browser with no toolbar above it: no title, no ✕, no way to close it
 from the pane. The toolbar is a separate transparent view (pane.html) loaded once when the window opens. When its page
 does not load or its renderer ends, nothing loads it again, so the page stands alone with an empty strip above it until
-the app restarts. Fix that, and give the toolbar the one missing action: open the page in the person's own browser.
+the app restarts. The same cause shows as a second symptom: 🌐 in a chat's header opens a completely blank area (the
+toolbar with its empty-state line and address bar is not drawn) and the chat column just shrinks. Fix that, and give the toolbar the one missing action: open the page in the person's own browser.
 
 ## Scope
 
@@ -44,4 +45,11 @@ Out: a second header in the web app (the web app's Browser panel only exists out
 
 ## Result
 
-(filled in at the end)
+- The browser is drawn only once its toolbar has drawn its ✕ (checked in the page after each load, and on every
+  toolbar height it reports). Until then the team page keeps the whole width and its 🌐 shows the browser as closed.
+- The toolbar loads again after a failed load, a renderer that ended, or a page that drew nothing: 3 times a minute at
+  most, then the browser closes; 🌐 or the AI's next step tries once more. Waiting site questions are shown again.
+- 🌐 still toggles; when the browser is open but not drawn, 🌐 tries the toolbar again instead of closing it.
+- ↗ next to ↻ opens the tab's http/https address in the default browser (disabled for an empty tab or a popup).
+- Reproduced the owner's look locally only by ending the toolbar's renderer; a Drive PDF viewer page itself shows the
+  toolbar normally on dev. Why the toolbar died on the owner's Mac is not known (no logs from it).

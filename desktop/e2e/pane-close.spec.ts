@@ -123,3 +123,50 @@ test('the toolbar shows the page title and ✕; ✕ frees the space; the next pa
     await close(app)
   }
 })
+
+test('the 🌐 button with no page yet: the toolbar, one plain line and the address bar; ✕ or 🌐 again closes it', async () => {
+  test.setTimeout(90_000)
+  const app = await launch(newUserData())
+  try {
+    const page = await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
+    await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setContentSize(1440, 900))
+    const c = await chrome(app)
+    // the chat header's 🌐 (web/src/pages/Chat.tsx BrowserToggle) calls this
+    const toggle = () => page.evaluate(() => (window as any).mycelDesktop.pane.toggle())
+    const pageOpen = () => page.evaluate(async () => ((await (window as any).mycelDesktop.pane.getState()) as { open: boolean } | null)?.open)
+
+    await toggle()
+    await expect(c.getByTestId('pane-close')).toBeVisible()
+    await expect(c.getByTestId('pane-stage')).toContainText('AI가 브라우저를 쓰면 여기에 보여요')
+    await expect(c.getByTestId('pane-address')).toBeVisible()
+    await expect(c.getByTestId('pane-open-external')).toBeDisabled()
+    await expect.poll(async () => (await paneViews(app)).toolbar).not.toBeNull()
+    expect((await paneViews(app)).page!.width).toBeLessThan(1440)
+    expect(await pageOpen()).toBe(true)
+    if (SHOTS) {
+      mkdirSync(SHOTS, { recursive: true })
+      for (const dark of [false, true]) {
+        await theme(app, page, dark)
+        await page.waitForTimeout(300)
+        await windowShot(app, join(SHOTS, `browser-empty-${dark ? 'dark' : 'light'}.png`))
+      }
+      await theme(app, page, false)
+    }
+
+    // ✕ closes it and gives the width back
+    await c.getByTestId('pane-close').click()
+    await expect.poll(async () => (await paneViews(app)).page?.width).toBe(1440)
+    expect((await paneViews(app)).toolbar).toBeNull()
+    expect(await pageOpen()).toBe(false)
+
+    // 🌐 opens it again, and 🌐 once more closes it
+    await toggle()
+    await expect.poll(async () => (await paneViews(app)).page?.width).toBeLessThan(1440)
+    await expect(c.getByTestId('pane-close')).toBeVisible()
+    await toggle()
+    await expect.poll(async () => (await paneViews(app)).page?.width).toBe(1440)
+    expect(await pageOpen()).toBe(false)
+  } finally {
+    await close(app)
+  }
+})
