@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Se configura una vez. Lo usa todo tu equipo.
 
+**Una sola cuenta de IA para todo el equipo.** Conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan, y todo el equipo pregunta con ella, con límites de tokens por persona, grupo o equipo.
+
 Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desde la primera pregunta, en el navegador o en las apps. Nadie más instala Claude Code ni copia skills; como mucho, inicia sesión en sus propias cuentas.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-es-dark.webp"><img src="docs/images/readme/v4/set-up-once-es-light.webp" width="100%" alt="Una persona configura una vez en el servidor de Trina la cuenta de IA, Google, las apps, la API de la empresa, Slack, las skills y los archivos del equipo, y la IA de Alex en Mac, Mina en iPhone, Sam en Windows, Leo en el navegador y Jordan en Android lo tiene todo."></picture>
@@ -37,15 +39,19 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave, para todo el equipo, una conexión para el equipo"><br><sub>Añadir una app para todo el equipo</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Administración › Apps conectadas, para todo el equipo: Google Drive, Gmail, Calendar, Docs y Sheets (una configuración y cada miembro solo inicia sesión en Google), Slack, Notion, Linear, Atlassian, Canva y Añadir una por su dirección"><br><sub>Administración › Apps conectadas: se configura una vez para todo el equipo</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 
 ## Lo que hace cada uno con ello
+
+**Chat de equipo, como Slack.** Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.
+
+<img src="docs/site/images/chats/room.webp" width="100%" alt="El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral">
 
 **Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú; con un clic, la respuesta de Trina llega a la conversación.
 
@@ -82,6 +88,16 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 - **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>Autoalojamiento con Docker</b> (Linux, o un Mac con OrbStack)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # abre el enlace y crea el propietario
+```
+
+Es más nuevo y está menos probado que la instalación en Linux; un servidor Ubuntu 24.04 necesita antes un ajuste del host. [Guía de Docker](docs/INSTALL-DOCKER.md)
 
 <b>Pruébalo en tu ordenador en 10 minutos</b> (equipo ficticio, IA desactivada)
 

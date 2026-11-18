@@ -39,6 +39,7 @@ import { scanAsk } from '../common/work-files'
 import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
+import { openExternal } from './security'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
@@ -258,12 +259,22 @@ function registerIpc() {
   ipcMain.on('ui:pane-select', (e, id: string) => fromChrome(e) && win!.pane?.selectTab(String(id)))
   ipcMain.on('ui:pane-close-tab', (e, id: string) => fromChrome(e) && win!.pane?.closeTab(String(id)))
   ipcMain.on('ui:pane-close', (e) => fromChrome(e) && win!.pane?.hide())
+  // ↗ in the toolbar: the page on screen in the person's own browser (security.ts openExternal: http/https only)
+  ipcMain.on('ui:pane-open-external', (e) => {
+    const url = fromChrome(e) ? win!.pane?.externalUrl() : null
+    if (url) openExternal(url)
+  })
   ipcMain.on('ui:pane-stop', (e) => fromChrome(e) && win!.pane?.stop())
   ipcMain.on('ui:pane-answer', (e, a: { id?: string; decision?: string }) => {
     if (!fromChrome(e) || !a?.id) return
     win!.pane?.answer(String(a.id), a.decision === 'always' ? 'always' : a.decision === 'once' ? 'once' : 'deny')
   })
-  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
+  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => {
+    if (!fromChrome(e) || !Number.isFinite(h)) return
+    win!.pane?.setToolbarHeight(h)
+    // the toolbar rendered: the browser may be drawn under it (AppWindow.chromeUp)
+    win!.chromeUp()
+  })
   // the edge handle between the team page and the browser (AppWindow.paneDrag / paneKey)
   ipcMain.handle('ui:pane-width', (e) => (fromChrome(e) ? win!.paneWidth() : null))
   ipcMain.on('ui:pane-drag', (e, phase: unknown, edgeX: unknown) => {
@@ -302,7 +313,7 @@ function registerIpc() {
     // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)
     if (what === 'open' || what === 'close' || what === 'toggle') win.paneByPerson(what)
   })
-  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
+  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? win!.paneStateForPage() : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown; read?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open, read: n?.read }))
   // Settings › Notifications' "Test notification": shown while focused too, with the app's own words (the page gives
