@@ -21,27 +21,27 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Se configura una vez. Lo usa todo tu equipo.
 
-Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desde la primera pregunta, en el navegador o en las apps. Nadie más instala Claude Code, pega claves ni copia skills.
+Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desde la primera pregunta, en el navegador o en las apps. Nadie más instala Claude Code ni copia skills; como mucho, inicia sesión en sus propias cuentas.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-es-dark.webp"><img src="docs/images/readme/v4/set-up-once-es-light.webp" width="100%" alt="Una persona configura una vez en el servidor de Trina la cuenta de IA, Google, las apps, la API de la empresa, Slack, las skills y los archivos del equipo, y la IA de Alex en Mac, Mina en iPhone, Sam en Windows, Leo en el navegador y Jordan en Android lo tiene todo."></picture>
 
 | Se configura una vez | Lo que recibe cada uno |
 | --- | --- |
-| **Cuenta de IA.** El propietario conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan. | Respuestas para todo el equipo, con límites de tokens por persona, grupo o equipo. |
+| **Cuenta de IA.** El propietario o un admin conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan. | Respuestas para todo el equipo, con límites de tokens por persona, grupo o equipo. |
 | **Google.** Comparte carpetas de Drive con el equipo, o conecta una cuenta del equipo (un buzón o un calendario compartido) para Gmail, Calendar, Docs y Sheets. | Las personas que elijas lo usan en sus chats. Cada uno puede conectar además su propia cuenta de Google. |
 | **Apps.** Higgsfield, Notion, Linear, Figma y más desde la lista de apps, o cualquier servidor MCP por su dirección, como Bright Data. | Las herramientas de la app en los chats de todos: un inicio de sesión del equipo, o cada persona con el suyo. |
 | **La API de tu empresa.** Una dirección, una clave y unas notas. | La IA llama a tu propio sistema, solo bajo esa dirección. |
-| **Slack.** Un admin lo añade una vez. | Pregunta a Trina en cualquier canal o mensaje directo, con tus propios permisos. |
+| **Slack.** El propietario o un admin lo añade una vez. | Pregunta a Trina por mensaje directo o en cualquier canal al que la hayas invitado, con tus propios permisos. |
 | **Skills.** Escribe un `SKILL.md`, o trae las skills de tu carpeta `.claude` o `.codex`. | La IA de todos sigue los mismos pasos. Escribe `/` para usar una. |
 | **Archivos del equipo.** Una sola unidad: toda la empresa, grupos, proyectos, skills del equipo y carpetas personales. | La IA de todos empieza desde los archivos del equipo y abre solo lo que esa persona puede abrir. |
 
 <table>
 <tr>
-<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave y quién la usa"><br><sub>Añadir una app para todo el equipo</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave, para todo el equipo, una conexión para el equipo"><br><sub>Añadir una app para todo el equipo</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 
@@ -51,11 +51,11 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pide a Trina en un chat lateral que solo ve ella una lista con las normas para expositores y la envía a la conversación.">
 
-**Cada persona ve solo lo que puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
+**La IA de cada persona ve solo lo que esa persona puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Un admin cambia quién puede abrir la carpeta Sales y luego mira qué puede abrir Mina: Finance no está en su lista.">
 
-**Retoma la sesión de un compañero.** Abre la sesión de proyecto de un compañero y sigue; lo que tú pidas se hace con tus permisos.
+**Retoma la sesión de trabajo de un compañero.** Abre la sesión de proyecto de un compañero y sigue; lo que tú pidas se hace con tus permisos.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
 
@@ -72,7 +72,7 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 - **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
 - **Las apps publican en las conversaciones.** Las novedades de Sentry, GitHub, Stripe, Jira y HubSpot llegan como tarjetas.
-- **Notas de reuniones.** La app de Mac toma notas de las llamadas de Zoom, Meet y Teams.
+- **Notas de reuniones.** La app de Mac (macOS 14.4 o posterior) toma notas de las llamadas de Zoom, Meet y Teams.
 - **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
 - **Documentos.** Lee el texto de documentos hangul (HWP/HWPX) y previsualiza PDF y PowerPoint.
 - **En cualquier dispositivo.** Mac, Windows, iPhone, Android y cualquier navegador, en seis idiomas.
@@ -94,7 +94,7 @@ Requiere Bun 1.3.12 y Go 1.27+. No es una instalación para producción. [Guía 
 
 ## Cómo funciona
 
-Un servidor ejecuta Claude Code y Codex como motor. Cada petición de una app pasa por una única comprobación de permisos. En un servidor Linux, el motor corre con su propia cuenta dentro de un sandbox de bubblewrap, Landlock y seccomp, con su shell y sus herramientas de archivos integradas desactivadas: solo llega a los archivos con las herramientas de Trina. [Seguridad y permisos](docs/security-and-permissions.md)
+Un servidor ejecuta Claude Code y Codex como motor. Cada petición de archivos, de una persona o de su IA, pasa por una única comprobación de permisos en el servidor. En un servidor Linux, el motor corre con su propia cuenta dentro de un sandbox de bubblewrap, Landlock y seccomp, con su shell y sus herramientas de archivos integradas desactivadas: solo llega a los archivos con las herramientas de Trina. [Seguridad y permisos](docs/security-and-permissions.md)
 
 Trina ofrece el espacio de trabajo, no la IA: conecta cuentas y planes de Claude u OpenAI cuyo uso tengas autorizado. El uso de IA lo factura la cuenta que conectes.
 

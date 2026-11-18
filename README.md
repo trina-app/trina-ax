@@ -21,27 +21,27 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Set up once. Your whole team gets it.
 
-One person sets things up on the team server. Everyone's AI has it from their first question, in the browser or the apps. Nobody else installs Claude Code, pastes keys or copies skills.
+One person sets things up on the team server. Everyone's AI has it from their first question, in the browser or the apps. Nobody else installs Claude Code or copies skills; at most they sign in to their own accounts.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-en-dark.webp"><img src="docs/images/readme/v4/set-up-once-en-light.webp" width="100%" alt="One person sets up the AI account, Google, apps, the company API, Slack, skills and team files once on the Trina server, and Alex on Mac, Mina on iPhone, Sam on Windows, Leo in a browser and Jordan on Android all get them in their AI."></picture>
 
 | Set up once | Everyone gets |
 | --- | --- |
-| **AI account.** An owner connects a Claude or OpenAI API key, or a plan whose terms allow it. | Answers for the whole team, with token limits per person, group or team. |
+| **AI account.** The owner or an admin connects a Claude or OpenAI API key, or a plan whose terms allow it. | Answers for the whole team, with token limits per person, group or team. |
 | **Google.** Share Drive folders with the team, or connect one team account (a shared mailbox or calendar) for Gmail, Calendar, Docs and Sheets. | The people you choose use them in their chats. Anyone can still connect their own Google account. |
 | **Apps.** Higgsfield, Notion, Linear, Figma and more from the app list, or any MCP server by its address, such as Bright Data. | The app's tools in everyone's chats: one team sign-in, or each person signs in as themselves. |
 | **Your company API.** An address, a key and a few notes. | The AI calls your own system, only under that address. |
-| **Slack.** An admin adds it once. | Ask Trina in any channel or DM, with your own access. |
+| **Slack.** The owner or an admin adds it once. | Ask Trina in a DM or any channel it's invited to, with your own access. |
 | **Skills.** Write a `SKILL.md`, or bring the skills in your `.claude` or `.codex` folder. | Everyone's AI follows the same steps. Type `/` to use one. |
 | **Team files.** One drive: company-wide, groups, projects, team skills and personal folders. | Everyone's AI starts from the team's files, and opens only what that person may open. |
 
 <table>
 <tr>
-<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key and who uses it"><br><sub>Add an app for the whole team</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key, for everyone in the team, one connection for the team"><br><sub>Add an app for the whole team</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
@@ -72,7 +72,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 - **Every change is kept.** By a person or their AI; bring back any version.
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
-- **Meeting notes.** The Mac app takes notes from Zoom, Meet and Teams calls.
+- **Meeting notes.** The Mac app (macOS 14.4+) takes notes from Zoom, Meet and Teams calls.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
 - **Every device.** Mac, Windows, iPhone, Android and any browser, in six languages.
@@ -94,7 +94,7 @@ Needs Bun 1.3.12 and Go 1.27+. Not a production install. [Walkthrough](docs/QUIC
 
 ## How it works
 
-One server runs Claude Code and Codex as the engine. Every request from an app goes through one permission check. On a Linux server the engine runs as its own account inside a bubblewrap, Landlock and seccomp sandbox, with its shell and built-in file tools turned off: it reaches files only through Trina's tools. [Security and permissions](docs/security-and-permissions.md)
+One server runs Claude Code and Codex as the engine. Every file request, from a person or their AI, goes through one permission check on the server. On a Linux server the engine runs as its own account inside a bubblewrap, Landlock and seccomp sandbox, with its shell and built-in file tools turned off: it reaches files only through Trina's tools. [Security and permissions](docs/security-and-permissions.md)
 
 Trina provides the workspace, not the AI: connect Claude or OpenAI accounts and plans authorized for your use. AI usage is billed by the account you connect.
 

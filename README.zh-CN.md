@@ -21,27 +21,27 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 只需设置一次，全队都能用
 
-一个人在团队服务器上设置好，每个人的 AI 从第一个问题起就能用上，无论在浏览器还是应用里。其他人不用装 Claude Code，不用粘贴密钥，也不用复制技能。
+一个人在团队服务器上设置好，每个人的 AI 从第一个问题起就能用上，无论在浏览器还是应用里。其他人不用装 Claude Code，也不用复制技能；最多只是登录自己的账户。
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-zh-dark.webp"><img src="docs/images/readme/v4/set-up-once-zh-light.webp" width="100%" alt="一个人在 Trina 服务器上把 AI 账户、Google、应用、公司 API、Slack、技能和团队文件设置一次，用 Mac 的 Alex、用 iPhone 的 Mina、用 Windows 的 Sam、用浏览器的 Leo 和用 Android 的 Jordan，他们的 AI 都能用上。"></picture>
 
 | 只需设置一次 | 每个人得到什么 |
 | --- | --- |
-| **AI 账户。** 所有者接入 Claude 或 OpenAI 的 API 密钥，或条款允许的套餐。 | 全队都能得到回答，可按人、群组或团队设置 token 上限。 |
+| **AI 账户。** 所有者或管理员接入 Claude 或 OpenAI 的 API 密钥，或条款允许的套餐。 | 全队都能得到回答，可按人、群组或团队设置 token 上限。 |
 | **Google。** 把云端硬盘文件夹共享给团队，或为 Gmail、Calendar、Docs 和 Sheets 接入一个团队账户（共享邮箱或日历）。 | 你选的人可以在自己的聊天里使用。每个人也可以另外接入自己的 Google 账户。 |
 | **应用。** 应用列表里的 Higgsfield、Notion、Linear、Figma 等，或通过地址接入的任意 MCP 服务器，比如 Bright Data。 | 每个人的聊天里都能用这个应用的工具：用一个团队登录，或每个人用自己的账户登录。 |
 | **公司 API。** 一个地址、一个密钥和几行说明。 | AI 调用你们自己的系统，只限那个地址之下。 |
-| **Slack。** 管理员添加一次。 | 在任何频道或私信里问 Trina，按你自己的权限。 |
+| **Slack。** 所有者或管理员添加一次。 | 在私信或邀请了 Trina 的频道里问 Trina，按你自己的权限。 |
 | **技能。** 写一个 `SKILL.md`，或直接带来你 `.claude`、`.codex` 文件夹里的技能。 | 每个人的 AI 都按同样的步骤做。输入 `/` 就能用。 |
 | **团队文件。** 一个云盘：全公司、群组、项目、团队技能和个人文件夹。 | 每个人的 AI 都从团队文件开始，只打开这个人能打开的内容。 |
 
 <table>
 <tr>
-<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥和使用的人"><br><sub>为全队添加应用</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥、全队使用、团队共用一个连接"><br><sub>为全队添加应用</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
 </tr>
 </table>
 
@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里请 Trina 把参展规定做成清单，再把它发到对话里。">
 
-**每个人只看到自己能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限如何运作](docs/PERMISSIONS.md)
+**每个人的 AI 只看到这个人能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限如何运作](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理员修改谁能打开 Sales 文件夹，然后查看 Mina 能打开哪些：Finance 不在她的列表里。">
 
@@ -72,7 +72,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 - **每次改动都会保留。** 不管是人改的还是 AI 改的，任何版本都能恢复。
 - **应用动态发到对话里。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的动态以卡片形式送达。
-- **会议记录。** Mac 应用为 Zoom、Meet 和 Teams 通话做记录。
+- **会议记录。** Mac 应用（macOS 14.4 及以上）为 Zoom、Meet 和 Teams 通话做记录。
 - **查找工作文件。** 桌面应用在你的电脑上找出最近的工作文件，只添加你选中的。
 - **文档。** 读取韩文（HWP/HWPX）正文，预览 PDF 和 PowerPoint。
 - **任何设备。** Mac、Windows、iPhone、Android 和任何浏览器，支持六种语言。
@@ -94,7 +94,7 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 ## 工作原理
 
-一台服务器以 Claude Code 和 Codex 为引擎。应用发来的每个请求都要经过同一道权限检查。在 Linux 服务器上，引擎用专用账户在 bubblewrap、Landlock 和 seccomp 沙箱里运行，它的 shell 和内置文件工具都已关闭，只能通过 Trina 的工具打开文件。[安全与权限](docs/security-and-permissions.md)
+一台服务器以 Claude Code 和 Codex 为引擎。无论是人还是他的 AI，每个文件请求都要经过服务器上的同一道权限检查。在 Linux 服务器上，引擎用专用账户在 bubblewrap、Landlock 和 seccomp 沙箱里运行，它的 shell 和内置文件工具都已关闭，只能通过 Trina 的工具打开文件。[安全与权限](docs/security-and-permissions.md)
 
 Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权的 Claude 或 OpenAI 账号与套餐。AI 用量费由你接入的账号计费。
 
