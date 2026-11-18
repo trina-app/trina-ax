@@ -464,16 +464,16 @@ test('an admin gives a team connection to a group and a person; a member sees it
   const shared = row(page, 'Company PM')
   await expect(shared.getByTestId('app-abilities')).toHaveAttribute('data-can-change', 'no')
   for (const id of ['connection-menu', 'integration-signin-start']) await expect(shared.getByTestId(id)).toHaveCount(0)
-  // he may add his own: Discover is under the team's. Not by its address: no Add, and "Not listed?" says to ask an
-  // admin (docs/DECISIONS.md "Plain words for members")
+  // he may add his own: Discover is under the team's. Not by its address: no Add, and "Not listed?" next to the search
+  // says to ask an admin (docs/DECISIONS.md "Plain words for members")
   await page.getByTestId('app-breadcrumb-connectors').click()
   await expect(page.getByTestId('connector-discover')).toBeVisible()
   await expect(page.getByTestId('integration-add')).toHaveCount(0)
   await expect(page.getByTestId('connector-custom')).toHaveCount(0)
   await expect(page.getByTestId('connector-not-listed')).toHaveText('목록에 없나요? 관리자에게 추가해 달라고 해 주세요.')
-  // a search for a service that is not listed says the same
+  // a search for a service that is not listed: the same line, still next to the search
   await page.getByTestId('connector-search').fill('zzz-nothing')
-  await expect(page.getByTestId('connector-ask-admin')).toHaveText('목록에 없나요? 관리자에게 추가해 달라고 해 주세요.')
+  await expect(page.getByTestId('connector-not-listed')).toHaveText('목록에 없나요? 관리자에게 추가해 달라고 해 주세요.')
   await page.getByTestId('connector-search').fill('')
   // nor from an old link to the form
   await page.goto('/settings/connectors?add=1')

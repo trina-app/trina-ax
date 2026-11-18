@@ -5,6 +5,8 @@ import { AVATAR_MAX_BYTES, AVATAR_PX } from '@mycel/shared'
 
 const INPUT_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 export const isPhotoFile = (f: File) => INPUT_TYPES.includes(f.type)
+/** A photo input's `accept` (a face, a room app's icon) */
+export const PHOTO_ACCEPT = INPUT_TYPES.join(',')
 
 export interface Photo { blob: Blob; type: string; url: string }
 

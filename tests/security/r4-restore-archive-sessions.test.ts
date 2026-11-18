@@ -7,7 +7,7 @@
 // token, the real `admin.js archive` writes the archive, the member signs out (token 401), the real
 // `admin.js restore-archive` unpacks it and the office swap (swapInRestore) puts it in place, the server opens the
 // restored folders again: the ended token must stay 401 while the member's password still works.
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,6 +18,9 @@ import { addMember, harness, OWNER_PW, withOwner, type Harness } from '../unit/a
 const NAME = 'r4-restore-archive'
 const HOME = path.join(WORK, `a-${NAME}`) // the harness folder doubles as the office home (data/, team/)
 const over = { dataDir: path.join(HOME, 'data'), teamRoot: path.join(HOME, 'team') }
+// a real archive, a restore and the app started again: about 4 s on a Mac, past bun's 5 s default on a CI runner once
+// the 11-18 batch added a migration and its tables (5.2 s there); 30 s like the other restore and trash tests
+setDefaultTimeout(30_000)
 const REPO = path.resolve(import.meta.dir, '..', '..')
 
 function admin(args: string[]): { code: number; out: string } {

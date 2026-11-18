@@ -1,0 +1,1 @@
+- Desktop app: the browser beside the team page no longer shows up blank or without its toolbar (title, ✕), also when opened with 🌐 before any page; if the toolbar stops drawing it loads again by itself, and a new ↗ button opens the page in your own browser.

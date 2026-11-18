@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 只需设置一次，全队都能用
 
+**一个 AI 账户，全队共用。** 接入一个 Claude 或 OpenAI 的 API 密钥（或条款允许的套餐），全队都用它提问，可按人、群组或团队设置 token 上限。
+
 一个人在团队服务器上设置好，每个人的 AI 从第一个问题起就能用上，无论在浏览器还是应用里。其他人不用装 Claude Code，也不用复制技能；最多只是登录自己的账户。
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-zh-dark.webp"><img src="docs/images/readme/v4/set-up-once-zh-light.webp" width="100%" alt="一个人在 Trina 服务器上把 AI 账户、Google、应用、公司 API、Slack、技能和团队文件设置一次，用 Mac 的 Alex、用 iPhone 的 Mina、用 Windows 的 Sam、用浏览器的 Leo 和用 Android 的 Jordan，他们的 AI 都能用上。"></picture>
@@ -37,11 +39,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥、全队使用、团队共用一个连接"><br><sub>为全队添加应用</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="适用于全队的 管理 › 已连接的应用：Google Drive、Gmail、Calendar、Docs、Sheets（设置一次，每个成员只需登录 Google）、Slack、Notion、Linear、Atlassian、Canva，以及按地址添加"><br><sub>管理 › 已连接的应用：设置一次，全队都能用</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
 </tr>
 </table>
 
@@ -55,22 +57,28 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理员修改谁能打开 Sales 文件夹，然后查看 Mina 能打开哪些：Finance 不在她的列表里。">
 
-**接着同事的会话做。** 打开同事的项目会话继续做，你的提问按你自己的权限处理。
+**在团队项目里接着同事的会话做。** 团队项目里的会话会共享给项目成员：打开同事的会话继续做，按你自己的权限处理。其他会话也可以像 Google 云端硬盘文件一样共享给个人或群组。
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改卡片新闻；她的提问按她自己的权限处理。">
 
+**按内容找文件。** 每天夜里，团队的 AI 会读取共享、群组和项目文件夹里新增和修改的文件，为每个文件记下一行说明它是什么。所以名叫 `temp.pdf` 的扫描件、名叫 `IMG_2031.jpg` 的照片，也能按内容找到。它使用团队的 AI 账户，从不读取个人文件夹。在 2,238 个虚构文件的测试中，Claude Code 回答 184 个问题时，有这些说明能找对 181 个，没有时找对 172 个。
+
 <table>
 <tr>
-<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间重复，时间按团队时区。<br><br><img src="docs/site/images/scheduled/task.webp" alt="每周一 9:00 运行的每周总结定时任务"></td>
-<td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/site/images/guests/guest-room.webp" alt="有一位访客的群聊"></td>
+<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间重复，时间按团队时区。<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="定时任务写出的每周总结：发现的内容、决定和未完成的工作，并保存为文件"></td>
+<td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="有代理公司访客 Morgan Reyes 的 Launch email 群聊：标题方案、@提及和 Trina 的回答"></td>
 </tr>
 <tr>
 <td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；可按人、群组或团队设置 token 上限。<br><br><img src="docs/site/images/usage/team.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
 </tr>
+<tr>
+<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的 Trina 回答，右侧打开了一个话题"></td>
+</tr>
 </table>
 
 - **每次改动都会保留。** 不管是人改的还是 AI 改的，任何版本都能恢复。
+- **应用内浏览器。** 在桌面应用里，Trina 会在聊天旁边的面板中打开网站、阅读、点击并填写表单，你可以看着它操作，点 Stop 就会停止。除非你允许所有网站，否则打开新网站前会先询问。
 - **应用动态发到对话里。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的动态以卡片形式送达。
 - **会议记录。** Mac 应用（macOS 14.4 及以上）为 Zoom、Meet 和 Teams 通话做记录。
 - **查找工作文件。** 桌面应用在你的电脑上找出最近的工作文件，只添加你选中的。
@@ -82,6 +90,16 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/pricing)
 - **应用：** [Mac、iPhone、Android 和 Windows](https://ax.trina.app/download)，或任何浏览器。
 - **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI 助手安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>用 Docker 自托管</b>（Linux，或装了 OrbStack 的 Mac）
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # 打开链接，创建所有者账户
+```
+
+这种方式比 Linux 安装新，测试也较少；Ubuntu 24.04 服务器需要先做一项主机设置。[Docker 指南](docs/INSTALL-DOCKER.md)
 
 <b>10 分钟在你的电脑上试用</b>（虚构团队，AI 关闭）
 
