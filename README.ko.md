@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 한 번 설정하면, 팀 전체가 써요
 
+**AI 계정 하나로 팀 모두가 써요.** Claude나 OpenAI API 키 하나(또는 약관이 허용하는 요금제)를 연결하면 팀 전체가 그걸로 물어요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.
+
 한 사람이 팀 서버에 한 번 설정하면, 모두의 AI가 첫 질문부터 그걸 써요. 브라우저에서도 앱에서도요. 다른 사람은 Claude Code를 깔거나 스킬을 복사할 필요가 없어요. 많아야 자기 계정에 로그인하는 정도예요.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-ko-dark.webp"><img src="docs/images/readme/v4/set-up-once-ko-light.webp" width="100%" alt="한 사람이 AI 계정, Google, 앱, 회사 API, Slack, 스킬, 팀 파일을 트리나 서버에 한 번 설정하면, 맥의 Alex, 아이폰의 Mina, Windows의 Sam, 브라우저의 Leo, 안드로이드의 Jordan 모두의 AI가 그걸 써요."></picture>
@@ -37,11 +39,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="관리자의 팀용 앱 추가 창: 이름, MCP 주소, 키, 팀 전체, 팀에 연결 하나"><br><sub>팀 전체용 앱 추가</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="팀 모두에게 적용되는 관리자 › 연결한 서비스: Google Drive, Gmail, Calendar, Docs, Sheets(한 번 설정하면 각자 Google에 로그인만 해요), Slack, Notion, Linear, Atlassian, Canva, 그리고 주소로 추가하기"><br><sub>관리자 › 연결한 서비스: 한 번 설정하면 팀 모두가 써요</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
 </tr>
 </table>
 
@@ -55,22 +57,28 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="관리자가 Sales 폴더를 열 수 있는 사람을 바꾸고, Mina가 열 수 있는 폴더를 확인해요. Finance는 목록에 없어요.">
 
-**동료의 세션을 이어받아요.** 동료의 프로젝트 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요.
+**팀 프로젝트에서 동료의 세션을 이어받아요.** 팀 프로젝트의 세션은 프로젝트 멤버에게 공유돼요. 동료의 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요. 그 밖의 세션도 Google Drive 파일처럼 사람이나 그룹에 공유할 수 있어요.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina가 Sam의 프로젝트 세션을 열어 카드뉴스를 이어서 고쳐요. Mina가 묻는 건 Mina의 권한으로 처리돼요.">
 
+**파일을 내용으로 찾아요.** 밤마다 팀 AI가 공유·그룹·프로젝트 폴더의 새 파일과 바뀐 파일을 읽고, 파일마다 무엇인지 한 줄씩 적어 둬요. 그래서 `temp.pdf`라는 스캔본이나 `IMG_2031.jpg`라는 사진도 내용으로 찾아요. 팀 AI 계정을 쓰고, 개인 폴더는 읽지 않아요. 가상 파일 2,238개로 시험했을 때 Claude Code는 질문 184개 중 이 목록이 있으면 181개, 없으면 172개에서 맞는 파일을 찾았어요.
+
 <table>
 <tr>
-<td width="50%"><b>예약 작업.</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/site/images/scheduled/task.webp" alt="매주 월요일 9시에 도는 주간 요약 예약 작업"></td>
-<td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="게스트 한 명이 있는 그룹 대화"></td>
+<td width="50%"><b>예약 작업.</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="예약 작업이 만든 주간 요약: 찾은 내용, 결정 사항, 남은 일, 파일로 저장"></td>
+<td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="외부 대행사 게스트 Morgan Reyes가 있는 Launch email 그룹 대화: 제목 후보, @멘션, 트리나의 답"></td>
 </tr>
 <tr>
 <td width="50%"><b>사용량과 한도.</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.<br><br><img src="docs/site/images/usage/team.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
 <td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
+<tr>
+<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널에 올라온 트리나의 답, 오른쪽에 열린 스레드"></td>
+</tr>
 </table>
 
 - **바뀐 내용은 모두 남아요.** 사람이 바꿨든 그 사람의 AI가 바꿨든, 어느 버전이든 되돌릴 수 있어요.
+- **앱 안 브라우저.** 데스크톱 앱에서 트리나가 채팅 옆 창에서 웹사이트를 열고, 읽고, 클릭하고, 양식을 채워요. 지켜보다가 Stop을 누르면 멈춰요. 모든 웹사이트를 허용하지 않았다면 새 사이트를 열기 전에 물어봐요.
 - **앱 소식이 대화방에.** Sentry, GitHub, Stripe, Jira, HubSpot 소식이 카드로 올라와요.
 - **회의록.** 맥 앱(macOS 14.4 이상)이 Zoom, Meet, Teams 통화를 받아 적어요.
 - **업무 파일 찾기.** 데스크톱 앱이 내 컴퓨터의 최근 업무 파일을 찾아 주고, 고른 것만 올려요.
@@ -82,6 +90,16 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
 - **앱:** [맥, 아이폰, 안드로이드, Windows](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)
+
+<b>Docker로 직접 설치</b> (리눅스, 또는 OrbStack을 쓰는 맥)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # 링크를 열어 소유자 계정을 만들어요
+```
+
+리눅스 설치보다 새 방식이라 덜 시험했어요. Ubuntu 24.04 서버는 먼저 호스트 설정 하나가 필요해요. [Docker 안내](docs/INSTALL-DOCKER.md)
 
 <b>10분 만에 내 컴퓨터에서 써 보기</b> (가상 팀, AI 꺼짐)
 

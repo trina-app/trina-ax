@@ -50,6 +50,7 @@ import { ToolsStep } from '../components/onboarding/ToolsStep'
 import { UploadLabel } from '../components/UploadLabel'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { Button, ErrorNote, Modal, Skeleton, useMediaQuery } from '../components/ui'
+import { PhonePickButton, useDevicePick } from '../components/DevicePick'
 import { StoragePlansLink, storagePlansUrl } from '../components/StoragePlansLink'
 
 export default function Welcome() {
@@ -685,6 +686,9 @@ function useIntroFiles(progress: WelcomeProgress) {
 function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFiles>; disabled: boolean }) {
   const t = useT()
   const input = useRef<HTMLInputElement>(null)
+  // a phone: the link opens our sheet's device rows (components/DevicePick.tsx), never iOS's raw menu
+  const phone = useMediaQuery(PHONE_QUERY)
+  const device = useDevicePick({ onFiles: (list) => files.pick(list), testIds: 'welcome-files', filesTestId: 'welcome-files-files-input', off: disabled })
   const [over, setOver] = useState(false)
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files')
   const drop = (e: DragEvent) => {
@@ -707,11 +711,17 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
     >
       {/* phones pick files, not folders (no webkitdirectory) */}
       <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; files.pick(list) }} data-testid="welcome-files-input" />
-      <p className="text-sm">
-        <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} disabled={disabled} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
-          <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
-        </button>
-      </p>
+      <div className="text-sm">
+        {phone ? (
+          <PhonePickButton pick={device} label={t('welcome.profile.files')} className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} disabled={disabled} testId="welcome-files-pick">
+            <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
+          </PhonePickButton>
+        ) : (
+          <button type="button" className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} disabled={disabled} onClick={() => input.current?.click()} data-testid="welcome-files-pick">
+            <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
+          </button>
+        )}
+      </div>
       {files.items.length > 0 && (
         <ul className="space-y-1 text-sm" aria-label={t('welcome.profile.files')} data-testid="welcome-files-list">
           {files.items.map((x) => (

@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Set up once. Your whole team gets it.
 
+**One AI account for the whole team.** Connect one Claude or OpenAI API key, or a plan whose terms allow it, and everyone asks with it, with token limits per person, group or team.
+
 One person sets things up on the team server. Everyone's AI has it from their first question, in the browser or the apps. Nobody else installs Claude Code or copies skills; at most they sign in to their own accounts.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-en-dark.webp"><img src="docs/images/readme/v4/set-up-once-en-light.webp" width="100%" alt="One person sets up the AI account, Google, apps, the company API, Slack, skills and team files once on the Trina server, and Alex on Mac, Mina on iPhone, Sam on Windows, Leo in a browser and Jordan on Android all get them in their AI."></picture>
@@ -37,11 +39,11 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key, for everyone in the team, one connection for the team"><br><sub>Add an app for the whole team</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Admin › Connected apps, applying to everyone in the team: Google Drive, Gmail, Calendar, Docs and Sheets (one setup, then every member just signs in to Google), Slack, Notion, Linear, Atlassian, Canva, and Add one by its address"><br><sub>Admin › Connected apps: set up once for everyone in the team</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
@@ -55,22 +57,28 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="An admin changes who can open the Sales folder, then checks what Mina can open: Finance is not on her list.">
 
-**Pick up a teammate's session.** Open a teammate's project session and keep going; your turns run with your access.
+**Pick up a teammate's session in a team project.** Sessions in a team project are shared with its members: open a teammate's and keep going, with your own access. Any other session you can share with people or groups, like a file in Google Drive.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina opens Sam's project session and keeps editing the card news; her turns run with her access.">
 
+**Files found by what they are.** Every night the team's AI reads new and changed files in shared, group and project folders and keeps one line per file saying what it is, so a scan named `temp.pdf` or a photo named `IMG_2031.jpg` is found by its content. It uses the team's AI account and never reads personal folders. In a test with 2,238 made-up files, Claude Code found the right file for 181 of 184 questions with these lines, and for 172 without them.
+
 <table>
 <tr>
-<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/site/images/scheduled/task.webp" alt="A weekly summary task that runs every Monday at 9:00"></td>
-<td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="A group chat with one guest"></td>
+<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="The weekly summary a scheduled task wrote: what it found, decisions and unfinished work, saved as a file"></td>
+<td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="The Launch email group chat with Morgan Reyes, a guest from an agency: subject line options, a mention and Trina's answer"></td>
 </tr>
 <tr>
 <td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/site/images/usage/team.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
+<tr>
+<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, Trina's answer in the channel, and a thread open on the right"></td>
+</tr>
 </table>
 
 - **Every change is kept.** By a person or their AI; bring back any version.
+- **In-app browser.** In the desktop app, Trina opens websites in a pane beside your chat, reads them, clicks and fills in forms while you watch; Stop ends it. It asks before a new site unless you allow all websites.
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
 - **Meeting notes.** The Mac app (macOS 14.4+) takes notes from Zoom, Meet and Teams calls.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
@@ -82,6 +90,16 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>Self-host with Docker</b> (Linux, or a Mac with OrbStack)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # open the link and create the owner
+```
+
+Newer and less tested than the Linux install; an Ubuntu 24.04 server needs one host setting first. [Docker guide](docs/INSTALL-DOCKER.md)
 
 <b>Try it on your computer in 10 minutes</b> (fictional team, AI off)
 

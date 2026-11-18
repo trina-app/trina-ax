@@ -124,7 +124,7 @@ describe('wiring', () => {
 
   test('the width comes from the remembered share, is saved when a drag ends, and the keyboard goes back', () => {
     expect(win).toContain('this.paneFraction = readPaneFraction(saved.paneFraction)')
-    expect(win).toContain('const pw = this.pane?.open ? paneWidthFor(this.paneFraction, w) : 0')
+    expect(win).toContain('const pw = this.paneShown() ? paneWidthFor(this.paneFraction, w) : 0')
     expect(win).toMatch(/if \(phase === 'reset'\) this\.setPaneFraction\(null\)\s*this\.saveWindow\(\)/)
     expect(win).toContain('this.keysAfterDrag(press)')
     // back only where the toolbar still has the keyboard, to a view still on screen, never over a dialog or menu
@@ -133,7 +133,8 @@ describe('wiring', () => {
   })
 
   test('the edge is never left hidden: a loaded toolbar is told again, an older answer never overrides a told width', () => {
-    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{\s*this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
+    // (layout() tells the width; the browser is drawn again once its toolbar is back, common/pane-chrome.ts)
+    expect(win).toMatch(/this\.chrome\.webContents\.on\('did-finish-load', \(\) => \{[\s\S]*?this\.paneWidthTold = ''\s*this\.sendPaneWidth\(\)/)
     expect(ui).toMatch(/ui\.pane\.onWidth\(\(w: PaneWidth\) => \{\s*widthTold = true\s*applyWidth\(w\)/)
     expect(ui).toContain('if (w && !widthTold) applyWidth(w)')
   })
