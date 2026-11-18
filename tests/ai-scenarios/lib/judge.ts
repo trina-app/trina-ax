@@ -45,8 +45,8 @@ export function givenFacts(c: Case): string {
   return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
 false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; the current date and time in ${zone}, the
 zone the person's device sent with each turn (each turn below says when it was sent: that is the AI's "now" and "today"
-for that turn, not the judge's own clock), so "it's morning/night already" is a fact it has; its own model (the engine
-tells it; each turn below names the model that answered); ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
+for that turn, not the judge's own clock), so "it's morning/night already" is a fact it has; its own model (Claude
+Code, the engine here, tells it; each turn below names the model that answered); ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
 is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
 name, role and groups (calling the asker by their own name, in full or by the given name with 님, is not invented). (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
@@ -61,17 +61,20 @@ AI's question to the person; the answer shown is the person's reply.`
 }
 
 /** The app's own screens, so the judge can check a named place: the personal Settings sections
- * (web/src/pages/settingsTabs.ts TABS, labels from web/src/i18n/en.ts) and Admin's pages (web Admin menu). A judge
- * called "Trina AX MCP" (the Settings section's own name) jargon and "Settings › Usage" (every person's own usage)
- * unchecked (CON-07.member, 2026-11-18). The jargon rule itself is unchanged: "MCP" as a word of its own, not as the
- * screen's name, is still jargon. */
+ * (web/src/pages/settingsTabs.ts TABS), Admin's menu (web/src/pages/admin/AdminLayout.tsx MENU) and Team settings' groups
+ * (web/src/pages/admin/teamSettingsGroups.ts), labels from web/src/i18n/en.ts. A judge called "Trina AX MCP" (the
+ * Settings section's own name) jargon and "Settings › Usage" (every person's own usage) unchecked (CON-07.member,
+ * 2026-11-18). The jargon rule itself is unchanged: "MCP" as a word of its own, not as the screen's name, is still
+ * jargon. A place not listed here is still judged on its own. */
 export const SCREENS = `The app's screens (its own names, or the same label in the person's language; naming one as the place is
-neither jargon nor invented, but saying a screen does something it does not is still a false claim): personal Settings
-(everyone): Profile, Security & devices, Browser (in the desktop app), Usage (the person's own AI usage and limits), Memory,
-Allowed for Trina, Connectors, AI providers (when the team lets members add their own AI account), "Trina AX MCP" (the
-section's name: connects Claude or another AI app to the team files), Notifications, Apps, About. Admin (owners and
-admins only): Members & invites, Groups, Connected apps, Guest AI, Usage (the whole team's), Activity log, Team settings
-(General with the team time zone, Usage limits, Voice input, AI engine, Dev environment), Plugins, AI providers, System.`
+neither jargon nor invented, but saying a screen does something it does not is still a false claim). Personal Settings
+(everyone): Profile, Security & devices, Browser (in a desktop app that offers it), Usage (the person's own AI usage and
+limits), Memory, Allowed for Trina, Connectors, AI providers (when the team lets members add their own AI account),
+"Trina AX MCP" (the section's name: connects Claude or another AI app to the team files), Dev environment sites (only
+with the dev environment), Notifications, Apps, About. Admin (owners and admins only): Home, Members & invites (guests
+are a section there), Groups, Folder permissions, AI providers, Connected apps, "Trina AX MCP", Plugins, Usage (the whole
+team's), Activity log, Team settings (General with the team time zone, Keeping data, Members and AI, Voice input, AI
+engine, Usage limits, File list, Company profile, Dev environment), System.`
 
 /** Who asked, for the judge: name, role, group, and the given name a Korean answer may use with 님 ("하나 님" for 최하나
  * was called an invented name, SYS-04, 2026-11-18). */

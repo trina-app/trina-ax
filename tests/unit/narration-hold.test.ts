@@ -99,6 +99,8 @@ describe('NarrationHold', () => {
       expect(run(ask(), [{ text: '확인했어요.' }, 'tool', { text: '\n\nAdd under section 1.' }, 'tool', { text: '\n\n넣었습니다.' }, 'end'], n)).toBe('확인했어요.\n\n넣었습니다.')
     }
     expect(dropped('Append it at the end of the notes.')).toBe(true)
+    // an apostrophe after a letter opens no quote: the person's quoted words are still found
+    expect(run(ask(), [{ text: 'I’ll check "공용 회의록" first.' }, 'tool', { text: '\n\n끝.' }, 'end'])).toBe('끝.')
     // a quote that is not the person's words still keeps the line, and Korean after the quote streams as before
     expect(run(new NarrationHold('ko', '회의록에 추가해줘'), [{ text: '"공용 회의록" — likely in shared. Find it.' }, 'tool', { text: '\n\n끝.' }, 'end']))
       .toBe('"공용 회의록" — likely in shared. Find it.\n\n끝.')

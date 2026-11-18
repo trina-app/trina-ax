@@ -248,7 +248,7 @@ async function judgeRun(id: string) {
     for (let r = queue.shift(); r; r = queue.shift()) {
       const c = cases.get(r.id)!
       const role = fixture.people[c.as]?.role ?? 'unknown'
-      try { r.judge = await judge(c, r, askerLine(c.as === GUEST.username ? { name: GUEST.name, role: 'guest' } : COMPANY.people.find((p) => p.username === c.as), role)); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
+      try { r.judge = await judge(c, r, askerLine(c.as === GUEST.username ? { name: GUEST.name, role: 'guest' } : ((p) => p && { ...p, role })(COMPANY.people.find((p) => p.username === c.as)), role)); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
     }
   }))
 }

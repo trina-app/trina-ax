@@ -59,8 +59,10 @@ describe('what the judge is told, and what a case leaves behind', () => {
   test('the judge knows the screens, the asker\'s name, what the AI can do and what a card\'s answer is', () => {
     const c = { install: 'local-login' } as unknown as Case
     const f = givenFacts(c)
-    expect(f).toContain('"Trina AX MCP" (the\nsection\'s name')
-    expect(f).toContain('Usage (the person\'s own AI usage and limits)')
+    expect(f).toContain('"Trina AX MCP" (the section\'s name')
+    expect(f).toContain('Folder permissions')
+    expect(f).not.toContain('Guest AI')
+    expect(f).toContain('Usage (the person\'s own AI usage and\nlimits)')
     expect(f).toContain('its own model')
     // the jargon rule itself is unchanged
     expect(judgeInput({ ...c, id: 'X', title: 't', as: 'a', context: 'personal', expect: { outcome: 'explain', good: 'g', checks: [] } } as unknown as Case, { startedAt: '2026-11-17T00:00:00Z', turns: [], changed: [], checks: [] } as unknown as CaseResult, 'x')).toContain('command, shell, server, sandbox, engine, MCP, API')

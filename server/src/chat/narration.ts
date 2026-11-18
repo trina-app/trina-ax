@@ -138,13 +138,15 @@ const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
 /** The person's own words in quote marks are a name too (2026-11-18, EDIT-17.project: '"공용 회의록" — likely in shared.
  * Find it.' went out because of the Korean in the quote): a quoted phrase of at most 40 characters found in the
  * person's message is taken out; partial: so is a quote still open at the end whose words so far are the person's
- * ('"공용 회'), as a file name not yet whole is. open: such an open quote was taken out. */
-function withoutTheirWords(s: string, message: string, partial: boolean): { text: string; open: boolean } {
-  if (!message) return { text: s, open: false }
-  const said = norm(message)
+ * ('"공용 회'), as a file name not yet whole is. open: such an open quote was taken out. said: the person's message, as
+ * norm() gives it. An apostrophe after a letter ("I'll", "Sora's") opens no quote. */
+const QUOTED = /(?:["“‘「『]|(?<![A-Za-z])')([^"”'’」』\n]{1,40})["”'’」』]/g
+const OPEN_QUOTE = /(?:["“‘「『]|(?<![A-Za-z])')([^"”'’」』\n]{1,40})$/
+function withoutTheirWords(s: string, said: string, partial: boolean): { text: string; open: boolean } {
+  if (!said) return { text: s, open: false }
   const theirs = (inner: string) => { const n = norm(inner); return n.length > 0 && said.includes(n) }
-  s = s.replace(/["“'‘「『]([^"”'’」』\n]{1,40})["”'’」』]/g, (q, inner: string) => theirs(inner) ? '' : q)
-  const m = partial ? /["“'‘「『]([^"”'’」』\n]{1,40})$/.exec(s) : null
+  s = s.replace(QUOTED, (q, inner: string) => theirs(inner) ? '' : q)
+  const m = partial ? OPEN_QUOTE.exec(s) : null
   return m && theirs(m[1]!) ? { text: s.slice(0, m.index), open: true } : { text: s, open: false }
 }
 
@@ -155,11 +157,11 @@ const CONTENT_WORDS = /["“”«»「」『』]|[$€£¥₩]\s*\d|(?<!\b(?:pag
 
 /** The piece is surely not a status line, so it can go out now. partial: the piece is still coming (its last word may
  * be a file name not yet whole, its opening not yet known). */
-function mustKeep(piece: string, script: AnswerScript, partial = false, notes = false, message = ''): boolean {
+function mustKeep(piece: string, script: AnswerScript, partial = false, notes = false, said = ''): boolean {
   piece = plainPunct(piece)
   const t = piece.trim()
   if (t.length > NARRATION_MAX_CHARS) return true
-  const theirs = withoutTheirWords(partial ? piece : t, message, partial)
+  const theirs = withoutTheirWords(partial ? piece : t, said, partial)
   const words = withoutNames(partial && !theirs.open ? theirs.text.replace(/\S+$/, '') : theirs.text)
   if (SCRIPT_LETTER[script].test(words)) return true
   // only ASCII text is ever a status line ("Hola equipo, ya está listo." is not one)
@@ -170,7 +172,7 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   if (CONTENT_LINE.test(t)) return true
   // still coming: "…, so I'll …" may be on its way, so only the whole piece decides
   // a work note (2026-11-17) only before a real call, whose arguments were checked (not on thinking, a stop or an error)
-  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && isWorkNote(withoutNames(withoutTheirWords(t, message, false).text)))) return true
+  if (!partial && !STATUS_OPENING.test(t) && !STATUS_PLAN.test(t) && !(notes && isWorkNote(withoutNames(withoutTheirWords(t, said, false).text)))) return true
   return false
 }
 
@@ -206,7 +208,7 @@ function copied(piece: string, input: unknown, message: string): boolean {
 
 /** A whole piece that is a status line: it has Latin letters and nothing marks it as content. */
 const isStatusLine = (piece: string, script: AnswerScript, input: unknown, message: string) =>
-  /[A-Za-z]/.test(piece) && !mustKeep(piece, script, false, input !== undefined, message) && !copied(piece, input, message)
+  /[A-Za-z]/.test(piece) && !mustKeep(piece, script, false, input !== undefined, norm(message)) && !copied(piece, input, message)
 
 const leadingSpace = (s: string) => /^\s*/.exec(s)![0]
 
@@ -221,7 +223,10 @@ export class NarrationHold {
   dropped = 0
 
   /** script: narrationScript(); message: the person's message (a piece taken from it is content) */
-  constructor(private readonly script: AnswerScript | null, private readonly message = '') {}
+  /** the person's message as norm() gives it, once (the stream checks it on every piece of text) */
+  private readonly said: string
+
+  constructor(private readonly script: AnswerScript | null, private readonly message = '') { this.said = norm(message) }
 
   /** The part of the piece held back now. */
   get held(): string { return this.buf }
@@ -231,7 +236,7 @@ export class NarrationHold {
     if (!t) return ''
     if (!this.script || this.decided) return t
     this.buf += t
-    if (!mustKeep(this.buf, this.script, true, false, this.message)) return ''
+    if (!mustKeep(this.buf, this.script, true, false, this.said)) return ''
     return this.release()
   }
 
