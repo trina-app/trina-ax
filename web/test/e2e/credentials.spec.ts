@@ -122,6 +122,51 @@ test('owner adds a Claude subscription, an API key and a ChatGPT plan; orders th
   await page.getByTestId('credentials-claude').getByTestId('credential-row').nth(1).getByTestId('credential-menu').click()
   await page.getByTestId('credentials-claude').getByRole('menuitem', { name: '위로' }).click()
   await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
+  // the plain line under a list of two or more says how the order is used (no "How order works" link any more)
+  await expect(page.getByTestId('credentials-order')).toContainText('위에 있는 계정부터 써요. 거절되거나 한도에 닿으면 다음 계정으로 넘어가요.')
+  await expect(page.getByTestId('how-order-works')).toHaveCount(0)
+
+  // or drag a row by its handle (QA TC-4836): the subscription goes back on top, saved through the same PATCH
+  const handles = page.getByTestId('credentials-claude').getByTestId('credential-drag')
+  await expect(handles).toHaveCount(2)
+  await expect(handles.first()).toHaveAccessibleName('회사 키 순서 바꾸기')
+  const box = (await handles.nth(1).boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y - 80, { steps: 8 })
+  await expect(page.getByTestId('credentials-claude').locator('[data-moving]')).toContainText('대표 Max')
+  const reordered = page.waitForRequest((r) => /\/api\/admin\/credentials\/[^/]+$/.test(r.url()) && r.method() === 'PATCH')
+  await page.mouse.up()
+  expect((await reordered).postDataJSON()).toEqual({ priority: 10 })
+  await expect.poll(labels).toEqual(['대표 Max', '회사 키'])
+  await expect(page.getByTestId('credentials-claude').locator('[data-moving]')).toHaveCount(0)
+
+  // the keyboard: Space picks the row up, ArrowDown moves it, Space drops it; a screen reader hears each step, and the
+  // focus stays on the moved row's handle
+  const said = page.locator('[role="status"][aria-live="polite"]')
+  await handles.first().focus()
+  await page.keyboard.press('Space')
+  await expect(said.filter({ hasText: '집었어요: 대표 Max' })).toHaveCount(1)
+  await expect(handles.first()).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('ArrowDown')
+  await expect(said.filter({ hasText: '대표 Max: 2개 중 2번째' })).toHaveCount(1)
+  await page.keyboard.press('Space')
+  await expect.poll(labels).toEqual(['회사 키', '대표 Max'])
+  await expect(said.filter({ hasText: '2번째로 옮겼어요' })).toHaveCount(1)
+  await expect(handles.nth(1)).toBeFocused()
+  // the handles wait while the new order is saved, then take the keyboard again
+  await expect(handles.nth(1)).not.toHaveAttribute('aria-disabled', 'true')
+  // Escape puts a picked-up row back: nothing is sent
+  let sent = 0
+  const count = (r: import('@playwright/test').Request) => { if (r.method() === 'PATCH' && /\/api\/admin\/credentials\//.test(r.url())) sent++ }
+  page.on('request', count)
+  await page.keyboard.press('Space')
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Escape')
+  await expect(said.filter({ hasText: '순서를 바꾸지 않았어요' })).toHaveCount(1)
+  expect(await labels()).toEqual(['회사 키', '대표 Max'])
+  page.off('request', count)
+  expect(sent).toBe(0)
 
   // ChatGPT: Codex's Add account; the address and the one-time code, then connected
   await page.getByTestId('provider-add-codex').click()

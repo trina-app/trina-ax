@@ -219,6 +219,7 @@ Spacing is Tailwind 4's single step (`--spacing: 0.25rem`) used in multiples. Th
 
 | Layer | z-index | Use |
 | --- | --- | --- |
+| z-raised | 1 | z-1: the row being dragged in a sortable list, over its neighbours (Admin › AI providers accounts). |
 | z-menu | 30 | z-30: dropdown menus and listboxes (chat item menu, account menu, file menu, composer menus, the AI connection menu). |
 | z-overlay | 40 | z-40: the phone full-screen side panel. |
 | z-dialog | 50 | z-50: Modal (and confirm/prompt dialogs) and the search dialog, each over a bg-black/40 scrim. |

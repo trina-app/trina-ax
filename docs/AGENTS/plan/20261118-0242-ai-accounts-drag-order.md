@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 02:42
 - Branch: `feat/ai-accounts-drag-order`
-- Status: in progress
+- Status: done
 - Where: web (`web/src/pages/admin/Credentials.tsx`, a small `web/src/lib` helper). Why: a screen change on Admin › AI
   providers; the server's order and permission checks stay as they are (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a new way to do what Move up / Move down already do
@@ -65,4 +65,9 @@ no library and no new endpoint.
 
 ## Result
 
-Filled in at the end.
+Built as planned. `web/src/lib/reorder.ts` (`moveItem`, `priorityPatches`, `dropIndex`) with unit tests;
+`useTeamCredentials().reorder` saves through the existing PATCH and Move up / Move down call it; the handle, pointer and
+keyboard moves and the announcements are in `ProviderAccounts`. Differences: the handle uses `aria-disabled` (not
+`disabled`) while saving so the keyboard keeps its focus, and at phone width a row with the handle leaves out the
+provider's mark so the name keeps its room. The cost note moved into an API key's details. e2e in
+`web/test/e2e/credentials.spec.ts` (mouse drag, keyboard pick-up / move / drop / Escape, focus kept, live region).
