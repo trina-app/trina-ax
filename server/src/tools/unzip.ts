@@ -44,6 +44,7 @@ import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
 import { makeWorkDir } from './isolate'
 import { confirmSources, placeProduced } from './make-file'
+import { turnWriteLimits } from '../files/turn-write-limits'
 
 type UnzipIn = z.output<typeof UnzipFileInput>
 
@@ -139,13 +140,14 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   // what one answer may unzip in all: the zip's own limits (UNZIP_TOTAL_MAX bytes, UNZIP_ENTRIES_MAX files), across its
   // unzip calls. Its files do not count against the turn's write bytes or file count one by one (a project zip of 300
   // files is normal), but unzipping again and again must not write without bound
-  // (TurnFiles' plain fields: the main AI and every sub-agent view share one budget). A guest keeps the turn's normal
-  // limits (maxFilesWrittenPerTurn, maxWriteBytesPerTurn), checked here up front and again for each file
+  // (TurnFiles' plain fields: the main AI and every sub-agent view share one budget). A guest keeps the turn's
+  // guest limits (files/turn-write-limits.ts), checked here up front and again for each file
   const guest = rules.isGuest(c.user)
   if (guest) {
-    const room = ctx.engineConfig.maxFilesWrittenPerTurn - c.files.filesWritten.size
+    const max = turnWriteLimits(ctx.engineConfig, ctx.db, c.user.id)
+    const room = max.files - c.files.filesWritten.size
     if (plan.files.length > room) throw new ToolError(`'${src.rel}' has ${plan.files.length} files, more than the ${room} files that can still be saved in this answer, so nothing was saved. Tell the user in plain words`)
-    if (c.files.bytesWritten + plan.total > ctx.engineConfig.maxWriteBytesPerTurn) throw new ToolError(`'${src.rel}' unzips to ${human(plan.total)}, more than can still be saved in this answer, so nothing was saved. Tell the user in plain words`)
+    if (c.files.bytesWritten + plan.total > max.bytes) throw new ToolError(`'${src.rel}' unzips to ${human(plan.total)}, more than can still be saved in this answer, so nothing was saved. Tell the user in plain words`)
   } else {
     if (c.files.unzippedBytes + plan.total > UNZIP_TOTAL_MAX || c.files.unzippedFiles + plan.files.length > UNZIP_ENTRIES_MAX) {
       throw new ToolError(`unzipping '${src.rel}' would save more than ${UNZIP_TOTAL_MAX / 1048576} MB or ${UNZIP_ENTRIES_MAX} unzipped files in this answer, so nothing was saved. Tell the user; they can ask again in a new message`)

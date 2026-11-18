@@ -246,10 +246,26 @@ export function storageRefusesWrites(): boolean {
   return !!r && !r.ok
 }
 
-/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. */
+/** Free space the AI's writes always leave where the plan's guard does not decide (a Mac without a plan: Office Mac,
+ * the desktop app): at least this much or 5% of the disk, whichever is more (docs/decisions/20261118-limits-caps.md) */
+export const SIMPLE_FLOOR_MIN_BYTES = 2 * 1024 ** 3
+export const SIMPLE_FLOOR_FRACTION = 0.05
+export function simpleFloorBytes(total: number): number { return Math.max(SIMPLE_FLOOR_MIN_BYTES, Math.floor(total * SIMPLE_FLOOR_FRACTION)) }
+
+/** Is there room for `bytes` more by the simple floor (fresh statfs of the team folder)? null when no guard is set up or
+ * the disk cannot be read. */
+export function simpleRoom(bytes: number): boolean | null {
+  if (!guard) return null
+  const s = storageSnapshot(true)
+  if (!s) return null
+  return s.freeBytes - Math.max(0, bytes) >= simpleFloorBytes(s.totalBytes)
+}
+
+/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. Where the plan's guard is
+ * off (storageRoom null), the simple floor still keeps the disk from filling up through one long answer. */
 export function assertStorageRoomForAI(bytes: number): void {
   const r = storageRoom(bytes)
-  if (!r || r.ok) return
+  if (r ? r.ok : simpleRoom(bytes) !== false) return
   throw new ToolError('the team\'s storage is full: nothing can be saved until space is freed (empty the trash or delete files; an admin sees the details in Admin > System)', 'storage_full')
 }
 

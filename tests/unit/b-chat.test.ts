@@ -519,8 +519,8 @@ describe('memories', () => {
 
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(301) }, sayResult: true }))
-    expect(r.done.content).toContain('under 300 characters')
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
+    expect(r.done.content).toContain('under 1000 characters')
     h.ctx.db.query("INSERT INTO memories (id, user_id, text) VALUES (?, 'bob', 'bob secret')").run(uuidv7())
     const mine = await h.api('alice').call(API.listMemories, { query: { limit: 1 } })
     if (mine.items[0]) {

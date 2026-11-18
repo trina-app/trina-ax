@@ -386,7 +386,7 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
-  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 150. Read when an
+  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 500. Read when an
    * answer starts, so a change applies to the next answer. Sub-agents keep MAX_SUBAGENT_TURNS each (chat/subagents.ts);
    * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
   get maxEngineTurns(): number {
@@ -1031,9 +1031,9 @@ export class ChatRuntime {
   }
   /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
    * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */
-  memoriesInUse(userId: string): Set<string> {
+  memoriesInUse(userId: string, memoryTokens?: number): Set<string> {
     const rows = this.memoriesForPrompt(userId)
-    return new Set(rows.slice(0, memoryLines(rows).length).map((r) => r.id))
+    return new Set(rows.slice(0, memoryLines(rows, memoryTokens).length).map((r) => r.id))
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and

@@ -17,6 +17,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -39,7 +40,8 @@ import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { textTokens } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -211,6 +213,15 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
   : tool === 'ask_user' ? 'ask_user'
   : 'tool'
 
+/** Tool rounds of one answer: the team limit, at most GUEST_ANSWER_STEP_LIMIT for a guest and
+ * UNATTENDED_ANSWER_STEP_LIMIT for a run nobody watches (docs/decisions/20261118-limits-caps.md). */
+export function answerStepCap(team: number, o: { guest: boolean; unattended: boolean }): number {
+  let n = team
+  if (o.guest) n = Math.min(n, GUEST_ANSWER_STEP_LIMIT)
+  if (o.unattended) n = Math.min(n, UNATTENDED_ANSWER_STEP_LIMIT)
+  return n
+}
+
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
@@ -295,6 +306,8 @@ export class TurnExec {
    * cut off by the pause, not failed (Step.paused) */
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
+  /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
+  engineRunning: EngineId | null = null
   browser = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
@@ -700,6 +713,7 @@ export class TurnExec {
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
+    this.engineRunning = engine
     // a model named for the chat's engine means nothing to the other one: its default
     const chosenModel = routed ? null : spec.model
     if (routed) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineNoConnection', spec.locale, { from: ENGINE_LABELS[spec.engine], to: ENGINE_LABELS[engine] }), status: 'ok' })
@@ -707,6 +721,10 @@ export class TurnExec {
     const claude = engine === 'claude-code' ? confs.claude : null
     const codex = engine === 'codex' ? confs.codex : null
     const api = engine === 'api' ? confs.api ?? null : null
+    // the team rules, the memories and a "/skill" together take at most a share of this model's context (prompt.ts
+    // promptBudget): a small or local model gets less of each, with the usual quiet note
+    const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
+    const promptTokens = budget.total
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -939,7 +957,7 @@ export class TurnExec {
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
@@ -1040,7 +1058,10 @@ export class TurnExec {
     if (refs) this.markRoomsSeen(true)
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
+    // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
+    // resumed Claude session keeps from its first instructions
+    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens }) : ''
+    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -1136,7 +1157,9 @@ export class TurnExec {
       const exclude = new Set<string>()
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts; a
       // continuation after a connect gets only what the answer has left
-      const maxTurns = rt.maxEngineTurns
+      // A guest, and a run nobody watches (a scheduled run, one asked from Slack), keep the old default as a ceiling
+      // (docs/decisions/20261118-limits-caps.md); a chat someone watches gets the team limit
+      const maxTurns = answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat })
       let turnsLeft = maxTurns
       // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
       // note is the resumed session's message, at most CONTINUE_MAX times per answer
@@ -1347,6 +1370,8 @@ export class TurnExec {
   /** Codex: one turn (a crash without output is tried once more; managed: a refused / limited connection moves the
    * turn to the next one, like Claude). */
   private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
+    // the skill tool cuts to the running engine's limit: Codex also after a Claude limit moved the turn here (limitFallback)
+    this.engineRunning = 'codex'
     const { rt, spec } = this
     const { chatDir, token, model } = o
     const managed = codex.auth === 'managed'
@@ -1437,6 +1462,7 @@ export class TurnExec {
     // so the next Claude turn starts fresh from the history
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
     rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
+    this.engineRunning = 'codex'
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
     // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
     await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })

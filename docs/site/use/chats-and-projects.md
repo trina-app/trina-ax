@@ -39,7 +39,7 @@ Open **N steps** under an answer to see each tool the AI used and each file it r
 | **Files** | The AI uses Trina's file tools. Each call is checked against your own permissions. |
 | **Questions** | When the AI needs a choice or a confirmation, it shows a card. It cannot answer that card itself. |
 | **Helpers** | For big requests the AI can split work into sub-tasks, up to 4 at a time. Each helper works as you. |
-| **Length** | One answer may use tools up to 150 times by default (admins choose 10 to 500). At the limit, **Continue** picks it up. |
+| **Length** | One answer may use tools up to 500 times by default (admins choose 10 to 2,000; scheduled tasks, questions from Slack and guests up to 150). At the limit, **Continue** picks it up. |
 | **Web** | The AI can open web pages. The server checks each address, and asks you before risky ones. |
 
 :::note

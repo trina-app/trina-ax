@@ -21,7 +21,8 @@ import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-hon
 export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null; setBy?: 'admin' }
 
 const MAX_STEPS = 30
-const TOOL_OUTPUT_MAX = 30_000
+/** characters of one tool result the model gets (toolContent); a longer result is cut (chat/prompt.ts SKILL_TOOL_LIMIT) */
+export const TOOL_OUTPUT_MAX = 30_000
 /** the end of a cut tool result that is kept (a read's next call is there) */
 const TOOL_OUTPUT_TAIL = 1_000
 
