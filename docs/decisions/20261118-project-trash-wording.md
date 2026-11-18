@@ -5,7 +5,7 @@
 - Supersedes: none
 - Branch: fix/project-trash-wording (QA TC-4971)
 
-Follows [A team project in the trash: its members keep its card](../DECISIONS.md#a-team-project-in-the-trash-its-members-keep-its-card--휴지통의-팀-프로젝트-멤버에게는-카드가-남아요-fixproject-trash-ux-2026-11-13-the-owner-qa-tc-1060tc-1064-tc-1066).
+Follows [A team project in the trash: its members keep its card](../DECISIONS.md#a-team-project-in-the-trash-its-members-keep-its-card--휴지통의-팀-프로젝트-멤버에게는-카드가-남아요-fixproject-trash-ux-2026-11-13-the-owner-qa-tc-10601064-tc-1066).
 
 - **Ask:** the "Move to trash" confirm said members can't open the project until an admin or its creator restores it, but not
   where it goes or for how long. Two trashed projects with one name looked the same in Files › Trash.
