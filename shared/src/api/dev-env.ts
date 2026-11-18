@@ -73,6 +73,9 @@ export const DevEnvTeamResponse = z.object({
   /** the warning version that turning on needs */
   warningVersion: z.number().int(),
   availability: DevEnvAvailability.optional(),
+  /** the team is off only because it had people before the dev environment came (migration 236's row, never saved by
+   * an admin since): admins get a one-time notice with the switch. Never turns anything on */
+  offer: z.boolean().optional(),
 })
 export type DevEnvTeamResponse = z.infer<typeof DevEnvTeamResponse>
 /** A change of the team setting. Only the fields given change. Turning on needs the current warning accepted. */

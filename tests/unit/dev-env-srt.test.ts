@@ -725,27 +725,34 @@ describe('the plan file (root/dev-env.json)', () => {
 })
 
 describe('the srt attack image builds from what it copies (tests/linux/Dockerfile.srt)', () => {
-  test('the files the attack suite loads import only node, @mycel/shared, the srt folder and policy/access.ts', () => {
-    // the image copies shared/, server/src/devenv/srt and server/src/policy/access.ts only: a new import of anything else
-    // breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
+  test('every file the two suites load is in a folder the image copies', () => {
+    // the image copies shared/, server/src, server/migrations, server/assets, resources/ and tests/lib: a new import of
+    // anything else breaks the CI step "Dev environment on srt, attack suite" (it did once: skills/guard from access.ts)
     const docker = fs.readFileSync(path.join(REPO, 'tests/linux/Dockerfile.srt'), 'utf8')
-    expect(docker).toContain('COPY server/src/devenv/srt /opt/mycel/server/src/devenv/srt')
-    expect(docker).toContain('COPY server/src/policy/access.ts /opt/mycel/server/src/policy/access.ts')
+    const copied = ['shared', 'server/src', 'server/migrations', 'server/assets', 'resources', 'tests/lib']
+    for (const d of copied) expect(docker).toContain(`COPY ${d} /opt/mycel/${d}`)
+    expect(docker).toContain('COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts /opt/mycel/tests/linux/')
+    // and the package files the image copies one by one (bun install)
+    const files = ['package.json', 'server/package.json', 'tests/package.json']
+    for (const f of files) expect(docker).toMatch(new RegExp(`COPY (\\S+ )*${f.replace('.', '\\.')}( |$)`, 'm'))
+    const inCopy = (rel: string) => files.includes(rel) || copied.some((d) => rel === d || rel.startsWith(d + '/'))
+    const resolve = (rel: string) => [rel, `${rel}.ts`, `${rel}.tsx`, `${rel}/index.ts`].find((f) => { try { return fs.statSync(path.join(REPO, f)).isFile() } catch { return false } })
     const seen = new Set<string>()
     const visit = (rel: string) => {
       if (seen.has(rel)) return
       seen.add(rel)
       const text = fs.readFileSync(path.join(REPO, rel), 'utf8')
-      for (const m of text.matchAll(/^(?:import|export)[^'"]*from\s+['"]([^'"]+)['"]/gm)) {
+      for (const m of text.matchAll(/(?:^(?:import|export)[^'"\n]*from\s+|\bimport\(\s*)['"]([^'"]+)['"]/gm)) {
         const spec = m[1]!
-        if (spec.startsWith('node:') || spec === 'bun:sqlite' || spec.startsWith('@mycel/shared')) continue
-        const next = path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)) + '.ts'
-        expect([rel, spec, next.startsWith('server/src/devenv/srt/') || next === 'server/src/policy/access.ts']).toEqual([rel, spec, true])
-        visit(next)
+        if (!spec.startsWith('.')) continue
+        const file = resolve(path.posix.normalize(path.posix.join(path.posix.dirname(rel), spec)))
+        expect([rel, spec, !!file && inCopy(file)]).toEqual([rel, spec, true])
+        if (file && /\.tsx?$/.test(file)) visit(file)
       }
     }
-    for (const m of fs.readFileSync(path.join(REPO, 'tests/linux/srt-attack.ts'), 'utf8').matchAll(/from\s+'\.\.\/\.\.\/(server\/src\/[^']+)'/g)) visit(`${m[1]}.ts`)
+    for (const f of ['tests/linux/srt-attack.ts', 'tests/linux/srt-subagent.ts']) visit(f)
     expect([...seen]).toContain('server/src/devenv/srt/access.ts')
+    expect([...seen]).toContain('server/src/devenv/tool.ts')
   })
 })
 

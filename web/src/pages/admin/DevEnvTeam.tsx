@@ -72,6 +72,9 @@ function DevEnvTeamForm() {
           before the answer came */}
       <fieldset disabled={busy} className="m-0 min-w-0 space-y-4 border-0 p-0 text-sm" data-testid="dev-env-team" data-on={r.setting.enabled ? 'true' : 'false'}>
         {r.availability && !r.availability.available && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs" data-testid="dev-env-team-unavailable">{t('devEnv.unavailable')}</p>}
+        {/* a team from before the dev environment came: off for that reason only, said in plain words above the switch
+            until an admin saves the setting (DevEnvOfferNotice.tsx is the same on Admin › Home) */}
+        {r.offer && <p className="rounded-lg border border-line bg-accent-soft/40 p-3 text-xs break-keep" data-testid="dev-env-team-offer"><span className="font-medium">{t('devEnvTeam.offer')}</span> {t('devEnvOffer.body')}</p>}
         <Switch checked={d.enabled} onChange={(v) => setD({ ...d, enabled: v })} label={t('devEnvTeam.turnOn')} testId="dev-env-team-enabled" />
         <fieldset className="space-y-1">
           <legend className="mb-1 font-medium">{t('devEnv.who')}</legend>

@@ -41,6 +41,9 @@ export const UserPrefs = z.object({
   /** the office owner's one-time notice on Admin › Home that the server removed Claude Code connections from this Mac
    * (server/src/office/claude-mcp-notice.ts) was closed: it never shows again */
   officeMcpNotice: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time notice that the dev environment exists and is off for their team (a team from before
+   * 2026-11-06, docs/decisions/20261118-run-code-skills-subagents.md) was closed or followed: it never shows again */
+  devEnvOffer: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
   /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›

@@ -976,8 +976,9 @@ export class TurnExec {
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
     let childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+    // each sub-agent gets the answer's own cap (QA TC-4911), which is 150 for a guest and a run nobody watches
     const subagentLaunch = () => subagents
-      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch, maxTurns: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }) }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
       : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
@@ -1060,7 +1061,7 @@ export class TurnExec {
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
-    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens }) : ''
+    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
     const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them

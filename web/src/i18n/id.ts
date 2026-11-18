@@ -84,6 +84,8 @@ export const id: Record<MessageKey, string> = {
   "devEnvSites.fullTurnOn": "Nyalakan",
   "devEnvSites.fullOn": "Internet penuh menyala. AI dapat mengirim file yang dapat Anda baca ke situs mana pun.",
   "devEnvTeam.accept": "Saya memahami risikonya dan menyalakannya untuk tim",
+  "devEnvTeam.offer": "Mati karena tim Anda dibuat sebelum fitur ini ada.",
+  "devEnvOffer.body": "Jika dinyalakan, AI menjalankan perintah di server tim: mengisi file Excel dan Word, menjalankan skrip bawaan skill, dan memakai Python atau Node. Perintah hanya melihat folder yang boleh dibuka orang yang meminta, dan hanya menjangkau situs yang diizinkan. Tidak ada yang berubah sampai Anda menyalakannya.",
 
   'common.cancel': 'Batal',
   'common.choose': 'Pilih',
@@ -6845,6 +6847,8 @@ export const id: Record<MessageKey, string> = {
   "teamSettings.removeSharesConfirm": "Hapus akses {people} orang ke {what}? Tautan langsung tidak bisa dibuka lagi.",
   "adminHome.folderShareNotice": "Anggota kini bisa membagikan folder di file mereka sendiri kepada rekan tim, hanya untuk dilihat.",
   "adminHome.folderShareNoticeOpen": "Matikan di Pengaturan tim",
+  "adminHome.devEnvOffer": "AI kini bisa menjalankan kode untuk tim Anda, tetapi di sini masih mati.",
+  "adminHome.devEnvOfferOpen": "Nyalakan di Pengaturan tim",
   "officeMcpNotice.title": "Trina menghapus koneksi Claude Code dari Mac ini",
   "officeMcpNotice.why": "Mac ini memakai login Claude miliknya sendiri untuk Trina. Agar AI tim tetap aman, Trina mengeluarkan koneksi Claude Code yang tersimpan di akun Mac ini dari pengaturannya saat mulai dan setelah setiap jawaban AI, sehingga tidak ada yang bisa berjalan di luar perlindungan Trina.",
   "officeMcpNotice.removed": "Dihapus: {names}.",
