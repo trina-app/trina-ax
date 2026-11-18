@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -79,7 +79,9 @@ const DAVE: Principal = { id: 'dave', name: 'Dave', role: 'member', groups: [] }
 const ERIN: Principal = { id: 'erin', name: 'Erin', role: 'member', groups: ['marketing'] }
 const WEB = `${TEAM}/projects/web`
 /** the shared project chat (alice and dave), the chat shared with people (alice and erin), another shared chat */
-const SP = 'chat-sp', SW = 'chat-sw', SO = 'chat-so'
+// production-length chat ids (uuid v7, 36 characters): with short ones this suite missed srt's socket paths growing past
+// the unix socket limit (QA TC-4848; tests/unit/dev-env-socket-path.test.ts)
+const SP = '01a1ed7a-0000-7000-8000-0000000000sp', SW = '01a1ed7a-0000-7000-8000-0000000000sw', SO = '01a1ed7a-0000-7000-8000-0000000000so'
 /** what only alice has: her own folder's text, her own home and logs (no CANARY prefix: alice's own runs read them) */
 const ASKER = 'ASKER-ONLY-9c1e'
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
@@ -131,6 +133,9 @@ fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat
 fs.writeFileSync(path.join(chatWork(BASE, SW), 'x'), `${ASKER}-private-work`)
 // a work folder of SW for an earlier, smaller audience (alice alone): a new audience never gets it (review 2)
 fs.mkdirSync(sharedWork(BASE, SW, sharedWorkKey([ME])), { recursive: true }); fs.writeFileSync(path.join(sharedWork(BASE, SW, sharedWorkKey([ME])), 'x'), `${ASKER}-alone-work`)
+// another run's short temp folder (devenv/rt/<run>, config.ts runTmp), with a marker: a shared run never sees or writes it
+const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
+fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -155,7 +160,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
   // a shared chat's command: a home and logs of its own (runner.ts prepare)
   const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId }
-  if (sh_) { for (const d of [path.join(runHome(BASE, owner), 'tmp'), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
+  if (sh_) { for (const d of [runHome(BASE, owner), runTmp(BASE, owner), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = sh_ ? sh_.within : work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
@@ -276,7 +281,7 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
   { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
-    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${chatHome(BASE, SP)}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
+    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
     after: () => (!fs.existsSync(`${WEB}/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
   { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
     check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
@@ -320,6 +325,26 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     check: both(ok, noAsker, (r) => (r.out.includes('hello from p1') || r.out.includes('web index') ? 'a project erin may not open came back' : null)), o: SWC },
   { id: 'S12', what: 'chat shared with people: the shared folders, her group folder and her own folder are read-only', cmd: `echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/shared/new2.md || echo x >> ${TEAM}/groups/marketing/brief.md || echo evil > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{}' > ${TEAM}/shared/repo/package.json || mkdir ${TEAM}/shared/dir2 || echo x > ${TEAM}/users/alice/z2.md`, check: failsQuietly, o: SWC,
     after: () => (fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/shared/new2.md`) || fs.readFileSync(`${TEAM}/groups/marketing/brief.md`, 'utf8') !== 'marketing brief\n' || fs.existsSync(`${TEAM}/shared/dir2`) || fs.existsSync(`${TEAM}/users/alice/z2.md`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8') === '{}\n' ? 'a team folder changed' : gitChanged('shared/repo')) },
+  { id: 'S14', what: 'shared project chat: the parent of TMPDIR (devenv/rt) and another run\'s temp folder there: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SPC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14b', what: 'chat shared with people: the parent of TMPDIR and another run\'s temp folder: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SWC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
 ]
 

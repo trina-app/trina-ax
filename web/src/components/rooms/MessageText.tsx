@@ -20,6 +20,8 @@ import { openTeamFile } from '../../lib/sidePanel'
 import { addressPieces, linkParts } from '../../lib/textLinks'
 import { messagePath, ownMessageLink } from '../../lib/messageLinks'
 import { CHIP, MessageLinkChipBody, useLinkHosts, useMessageLinkPreviews } from './MessageLinkChip'
+import { appLinkRef, labelIsAddress, type AppLinkRef } from '../../lib/appLinks'
+import { AppLinkChipBody, CHIP_UNNAMED, useAppLinkLabel, useAppLinkName, useAppLinkTarget } from '../AppLinkChip'
 import { useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { useCopy } from '../ui'
@@ -112,6 +114,11 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
         <MessageLinkChipBody preview={preview} />
       </Link>
     )
+  // a bare address of something in this app (a chat, a project, a conversation, a file link, a folder or a file in
+  // Files) on this page's host or the team address: a chip with its name for this viewer (AppLinkChip.tsx). A Markdown
+  // link with its own words keeps them.
+  const app = !preview && (children === undefined || labelIsAddress(children, href)) ? appLinkRef(href, hosts, origin()) : null
+  if (app) return <AppLinkInWords link={app} words={words} props={props} held={held} />
   if (l.kind === 'blocked') return <>{children ?? text}</>
   // a guest has no 파일 screen (/files goes Home): their project's files screen, else plain text (lib/guests.ts)
   const appHref = l.kind !== 'app' ? null : guestFolder ? guestAppHref(l.href, guestFolder) : l.href
@@ -155,5 +162,43 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
     >
       {words}
     </a>
+  )
+}
+
+/** RoomLink's chip for a link to something in this app: the same long-press rule as its other links. Where no screen of
+ * the viewer's shows it (a guest and a team folder), its words as text, as before. */
+function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words: ReactNode; props: { className: string } & Record<string, unknown>; held: (e: MouseEvent) => boolean }) {
+  const t = useT()
+  const answer = useAppLinkName(link)
+  const { label, named } = useAppLinkLabel(link, answer)
+  const to = useAppLinkTarget(link)
+  if (!to) return <>{words}</>
+  const chip = {
+    ...props,
+    className: named ? CHIP : CHIP_UNNAMED,
+    title: named || !answer ? undefined : t('appLinks.noName'),
+    'data-testid': 'app-link-chip',
+    'data-kind': link.kind,
+    'data-named': named ? '' : undefined,
+  }
+  const body = <AppLinkChipBody link={link} answer={answer} label={label} />
+  if (link.kind === 'file')
+    return (
+      <a
+        href={to}
+        {...chip}
+        onClick={(e) => {
+          if (held(e) || ownClick(e)) return
+          e.preventDefault()
+          openTeamFile(link.path ?? link.id, link.at)
+        }}
+      >
+        {body}
+      </a>
+    )
+  return (
+    <Link to={to} {...chip} onClick={(e) => void held(e)}>
+      {body}
+    </Link>
   )
 }

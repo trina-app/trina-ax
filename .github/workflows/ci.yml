@@ -219,6 +219,12 @@ jobs:
           # the test binary is the sandboxed helper: with cgo it is dynamic and TestExecNetProxy (QA TC-309) skips, so
           # run the package again static like the release build (-v: the log shows it ran, not skipped)
           CGO_ENABLED=0 go test -count=1 -v ./cmd/mycel-sandbox/
+      # the repo-wide guard tests (scripts/ci/guard-tests.ts, the same list as check:prepush), on every pull request too:
+      # a new route without a matrix case, a text missing in a language or a new tool not in the exact lists shows on
+      # the pull request's quick checks instead of a merge queue cycle later (about a minute; after the native build: the
+      # tool-list tests start a server that needs native/bin)
+      - name: Guard tests (route coverage, i18n, tool lists, registries)
+        run: bun scripts/ci/guard-tests.ts
       - name: Pinned browser against Chrome for Testing Stable
         timeout-minutes: 2
         run: bun scripts/system/browser-staleness.ts
