@@ -29,6 +29,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   merge_pdfs: t('PDF 합치기', 'Merge PDFs', 'Gabungkan PDF', "PDFを結合", "Combinar PDF", "合并PDF"),
   split_pdf: t('PDF 나누기', 'Split PDF', 'Pisahkan PDF', "PDFを分割", "Dividir PDF", "拆分PDF"),
   resize_images: t('사진 크기 줄이기', 'Resize photos', 'Perkecil foto', "写真を縮小", "Reducir fotos", "缩小照片"),
+  unzip_file: t('압축 풀기', 'Unzip', 'Ekstrak zip', "ZIPを展開", "Descomprimir", "解压缩"),
   share_file: t('파일 공유 링크', 'Share link', 'Tautan berkas', "リンクを共有", "Compartir enlace", "分享链接"),
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
@@ -297,7 +298,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
       const files = Array.isArray(a.files) ? a.files.map((f: unknown) => (typeof f === 'string' ? f : (f as { path?: string } | null)?.path ?? '')) : []
       return files.length ? `${verb} · ${clip(files[0], 80)}${files.length > 1 ? ` +${files.length - 1}` : ''}` : verb!
     }
-    case 'share_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'share_file': case 'unzip_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
     case 'skill_files': return `${verb} · ${clip(a.path, 60)}${a.to_folder ? ` → ${clip(a.to_folder, 40)}` : a.new_name ? ` → ${clip(a.new_name, 40)}` : ''}`
@@ -408,7 +409,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a

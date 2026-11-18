@@ -134,6 +134,7 @@ const REVIEWED: Record<string, { n: Counts; why: string }> = {
   "server/src/tools/file-moves.ts": { n: {"audienceChange": 3, "access": 1}, why: "audienceChange; the card's yes is passed to move()/copy(); the access line: the caller's own sight" },
   "server/src/tools/higgsfield.ts": { n: {"privateToMe": 1, "users/": 1, "import:privateToMe": 1}, why: "save_as: confirmWidening or privateToMe; the default users/<id>/videos/ is never shared" },
   "server/src/tools/make-file.ts": { n: {"widening": 1, "import:widening": 1}, why: "widening outside a turn" },
+  "server/src/tools/unzip.ts": { n: {"readersOf": 1, "import:readersOf": 1}, why: "groups the folders a zip goes into by who can read there (readersOf = readersAt: folder rules and folder shares), only to ask the wider-audience card once per audience; every group is still checked by confirmSources" },
   "server/src/tools/save-url.ts": { n: {"privateToMe": 1, "users/": 2, "import:privateToMe": 1}, why: "own() is privateToMe" },
   "server/src/tools/schedules.ts": { n: {"import:cardSources": 1}, why: "cardSources (readersOf from ai-grants)" },
 }

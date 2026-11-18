@@ -228,6 +228,13 @@ export const ResizeImagesInput = z.strictObject({
   .refine((v) => v.output === undefined || v.paths.length === 1, { message: 'output is only for one photo; use output_folder for several' })
   .refine((v) => !v.replace || (v.output === undefined && v.output_folder === undefined), { message: 'give either replace: true or output / output_folder, not both' })
 export const ResizeImagesOutput = z.object({ paths: z.array(z.string()) })
+// The files of a zip into a folder (server/src/tools/unzip.ts, docs/decisions/20261118-unzip-file.md)
+export const UnzipFileInput = z.strictObject({
+  path: relPath.describe('The .zip file, e.g. "projects/falcon/files.zip"'),
+  to_folder: optRelPath.describe('Where the files go (made when missing; default: a new folder next to the zip, named after it)'),
+  list_only: z.boolean().optional().describe('true: only list what is inside; nothing is saved'),
+})
+export const UnzipFileOutput = z.object({ folder: z.string(), paths: z.array(z.string()), failed: z.array(z.object({ name: z.string(), why: z.string() })) })
 export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
 
 export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
@@ -504,6 +511,7 @@ export const OTHER_TOOLS = {
   merge_pdfs: { input: MergePdfsInput, output: PdfFilesOutput },
   split_pdf: { input: SplitPdfInput, output: PdfFilesOutput },
   resize_images: { input: ResizeImagesInput, output: ResizeImagesOutput },
+  unzip_file: { input: UnzipFileInput, output: UnzipFileOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
