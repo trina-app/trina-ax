@@ -1,0 +1,1 @@
+- The AI reads long answers to the end instead of stopping at a cut: a long page from a connected service (for example a long Notion page) and a long web page now come in parts it can read on, and when a command in the dev environment prints a lot, the AI also sees the end of the output, where errors usually are. Slow web pages get 30 seconds instead of 15.

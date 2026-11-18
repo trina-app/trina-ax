@@ -102,6 +102,7 @@ import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-
 import { historyFit } from './history-fit'
 import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
+import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
@@ -603,7 +604,9 @@ export class TurnExec {
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
       if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
-      await this.finish()
+      // the long connection answers kept for this answer (integrations/connections/kept.ts) go with it, also when
+      // finishing throws
+      try { await this.finish() } finally { dropKept(this.id) }
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
     }
