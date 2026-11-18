@@ -406,7 +406,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
           const tagged = menIds.length || menAll ? ` It mentions ${[menIds.length ? menWords : '', menAll ? 'everyone there' : ''].filter(Boolean).join(' and ')}: they get a mention notice.` : ''
           // (a shared chat: no word of which names are not in that room, for everyone there to read)
           const untagged = plainAts.length && exec.shared ? ' Some "@" words in the text stayed plain text: nobody was tagged or notified by them. Never say you tagged someone the result does not list under mentioned.'
-            : plainAts.length ? ` ${plainAts.slice(0, 5).map((w) => `"${neutralizeTags(oneLine(w, 40))}"`).join(', ')} in the text stayed plain text (not a person in that room): nobody was tagged or notified by ${plainAts.length === 1 ? 'it' : 'them'}. Never say you tagged someone the result does not list under mentioned.` : ''
+            : plainAts.length ? ` ${plainAts.slice(0, 5).map((w) => `"${neutralizeTags(oneLine(w, 40))}"`).join(', ')} in the text stayed plain text (not exactly one person in that room; use mention with person:<id> to tag one): nobody was tagged or notified by ${plainAts.length === 1 ? 'it' : 'them'}. Never say you tagged someone the result does not list under mentioned.` : ''
           detail = undefined
           // the card's lines: the posted message's own first words and the files that went with it (QA: the card was
           // nearly empty); the message as the room keeps it, so a link reads as its label
@@ -564,7 +564,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
-        const mentionsSaid = !mentionAll && mentionIds.every((id) => { const p = canMention.find((x) => x.id === id); return !!p && namesPerson(said, p) })
+        const mentionsSaid = !mentionAll && mentionIds.every((id) => { const p = canMention.find((x) => x.id === id); return !!p && namesPerson(said, p) && namedInFull(said, soleNames(db, id)) })
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word

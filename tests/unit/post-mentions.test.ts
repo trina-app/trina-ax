@@ -46,7 +46,7 @@ describe('textMentions (an "@Name" in the text)', () => {
   test('a look-alike, a non-member, a part of a name, a name two people share, an e-mail: no mention', () => {
     const t = textMentions('@Mlra Santoso @Mirabel @Ana Ruiz mail me at x@y.com @Lee', people, { allowAll: false })
     expect(t.tokens).toEqual([])
-    expect(t.plain).toEqual(['@Mlra', '@Mirabel', '@Ana', '@Lee'])
+    expect(t.plain).toEqual(['@Mlra', '@Mirabel', '@Ana Ruiz', '@Lee'])
   })
   test('a shorter name never matches inside a longer one: a shared full name, a Hangul name with more letters after it', () => {
     const team: Mentionable[] = [
@@ -57,7 +57,7 @@ describe('textMentions (an "@Name" in the text)', () => {
     ]
     const t = textMentions('@Erin Yoo hi, @김민수님 and @김민님 and @Erin.', team, { allowAll: false })
     expect(t.tokens.map((x) => x.id)).toEqual(['k1', 'e1'])
-    expect(t.plain).toEqual(['@Erin', '@김민수님'])
+    expect(t.plain).toEqual(['@Erin Yoo', '@김민수님'])
   })
   test('namesPerson: the asker\'s own words name them in full (a Hangul name with a particle only)', () => {
     expect(namesPerson('tell Mira Santoso in sales', people[0]!)).toBe(true)

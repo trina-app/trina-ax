@@ -117,7 +117,7 @@ describe('the AI\'s post mentions people of the room for real', () => {
     expect(m.mentions).toEqual([])
     const out = JSON.parse(r.content)
     expect(out.mentioned).toBeUndefined()
-    expect(out.note).toContain('stayed plain text (not a person in that room)')
+    expect(out.note).toContain('stayed plain text (not exactly one person in that room')
     expect(out.note).toContain('Never say you tagged someone')
   })
 

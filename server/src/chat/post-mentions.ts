@@ -90,9 +90,10 @@ export function pickMentions(people: readonly Mentionable[], refs: readonly stri
 /** One "@Name" found in a text: where it stands and whose it is (`all`: "@everyone"). */
 interface Token { start: number; end: number; id?: string; all?: boolean }
 
-/** Korean particles and honorifics that may follow a Hangul name ("@김하늘님", "@김하늘에게"): an honorific, then a
- * particle, each at most once, with no letter after them ("@김민수님" is not 김민's) */
-const HANGUL_TAIL = /^(?:님|씨)?(?:께서|에게|한테|이랑|하고|께|이|가|은|는|을|를|의|도|랑|과|와|만)?(?![\p{L}\p{N}_])/u
+/** Korean particles and honorifics that may follow a Hangul name (as escapes): an honorific (nim, ssi), then a
+ * particle (ege, hante, i, ga, eun, neun, ...), each at most once, with no letter after them: a longer name is not
+ * the shorter one inside it */
+const HANGUL_TAIL = /^(?:\uB2D8|\uC528)?(?:\uAED8\uC11C|\uC5D0\uAC8C|\uD55C\uD14C|\uC774\uB791|\uD558\uACE0|\uAED8|\uC774|\uAC00|\uC740|\uB294|\uC744|\uB97C|\uC758|\uB3C4|\uB791|\uACFC|\uC640|\uB9CC)?(?![\p{L}\p{N}_])/u
 const LETTER = /[\p{L}\p{N}_]/u
 
 /**
@@ -121,6 +122,8 @@ export function textMentions(text: string, people: readonly Mentionable[], o: { 
     if (!canStart(text, i)) continue
     const hit = names.find((n) => at(i + 1, n.name) && edge(i + 1 + n.name.length, n.name))
     if (hit && hit.ids.size === 1) { tokens.push({ start: i, end: i + 1 + hit.name.length, id: [...hit.ids][0]! }); i += hit.name.length; continue }
+    // (a name two people there share: plain, as the whole name, so the result never calls it nobody of the room)
+    if (hit) { plain.push(`@${hit.name}`); i += hit.name.length; continue }
     const word = /^@[^\s@]{1,40}/u.exec(text.slice(i))?.[0] ?? ''
     if (!hit && o.allowAll && word && broadcastIn(word)) {
       const w = word.slice(1).replace(/[^\p{L}\p{N}_]+$/u, '')
@@ -133,7 +136,7 @@ export function textMentions(text: string, people: readonly Mentionable[], o: { 
 }
 
 /** Does `said` (the asker's own words) name this person: their display name or username as whole words (a Hangul one
- * followed only by a particle, HANGUL_TAIL: "김민수에게" does not name 김민), ignoring case? */
+ * followed only by a particle, HANGUL_TAIL: a longer Hangul name does not name a shorter one), ignoring case? */
 export function namesPerson(said: string, p: Pick<Mentionable, 'name' | 'username'>): boolean {
   const text = said.replace(/\s+/g, ' ')
   const lower = text.toLowerCase()
