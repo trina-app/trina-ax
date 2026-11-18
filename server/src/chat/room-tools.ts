@@ -64,8 +64,9 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 /** characters of a room file's text in one result (the rest: offset) */
 export const ROOM_FILE_CHARS = 40_000
-/** a room file read at most this big (the plan's read limit, and 32 MB like a Drive file) */
-const ROOM_FILE_BYTES = () => Math.min(readMaxBytes(), 32 * 1024 * 1024)
+/** a room file read at most this big: the plan's read limit, as a team-folder read (limits audit 1 #23: it was 32 MB,
+ * while rooms take files up to 1 GB; the converters keep their own limits, files/extract.ts) */
+export const ROOM_FILE_BYTES = () => readMaxBytes()
 
 /** reader.ts NO_ROOM's pointer to the rooms tool, and what a guest's AI reads instead */
 const ROOMS_HINT = 'Call rooms to see them (or ask the user which one).'
@@ -280,7 +281,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   let bytes: Buffer
   try { bytes = readRegular(abs, ROOM_FILE_BYTES()).bytes } catch (e) {
     const big = e instanceof Error && /too large/.test(e.message)
-    return { ...text(`${head}\n${big ? 'The file is too large to read here.' : 'The file could not be read.'}`, true), summary: `room_file -> ${big ? 'too large' : 'unreadable'}` }
+    return { ...text(`${head}\n${big ? `The file is larger than ${Math.round(ROOM_FILE_BYTES() / 1024 / 1024)} MB, the most a file is read here. Tell the user plainly; they can open it from the room themselves.` : 'The file could not be read.'}`, true), summary: `room_file -> ${big ? 'too large' : 'unreadable'}` }
   }
   /** The checks above once more (synchronous): a conversion awaits, and someone whose account was turned off, who was
    * taken out of the room (or it was archived), whose message went or is now hidden from them, or whose file went on

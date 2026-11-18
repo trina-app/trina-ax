@@ -453,6 +453,23 @@ describe('in a chat', () => {
   })
 })
 
+describe('room_file on a big file (limits audit 1 #23)', () => {
+  test('a 40 MB export sent in a room is read up to the read limit, not refused at 32 MB', async () => {
+    const roomId = await groupChat('alice', ['erin', 'carol'], 'big export')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.csv`)
+    const row = 'id,name,amount,region,note\n'
+    fs.writeFileSync(src, 'id,name,amount,region,note\n' + `1,Acme,100,Seoul,${'x'.repeat(80)}\n`.repeat(Math.ceil((40 << 20) / 98)))
+    expect(fs.statSync(src).size).toBeGreaterThan(40 << 20)
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'export.csv', src, 'x'.repeat(64))
+    await send('erin', roomId, 'export', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
+    expect(r.done.content).not.toContain('too large')
+    expect(r.done.content).toContain(row.trim())
+    expect(r.done.content).toMatch(/read on with offset=\d+/)
+  })
+})
+
 describe('room_file on a scanned PDF', () => {
   test.skipIf(!pageRenderer)('its page comes as an image in my own chat, as a team-folder read gives it', async () => {
     const roomId = await groupChat('alice', ['erin', 'carol'], 'scan check')
