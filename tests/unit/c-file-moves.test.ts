@@ -554,8 +554,9 @@ describe('rename_files', () => {
     expect(rest.text).toContain('Renamed 20')
     expect(fs.readdirSync(path.join(A.team, 'users/alice/many')).filter((n) => n.startsWith('file-'))).toHaveLength(520)
     // a list over 500 is refused by its input check
+    // (520 files made and renamed: room for a busy machine, 7 s seen under a load of 50)
     expect((await call('alice', 'rename_files', { renames: Array.from({ length: 501 }, (_, i) => ({ path: `users/alice/many/file-${i}.txt`, new_name: `g-${i}.txt` })) })).isError).toBe(true)
-  })
+  }, 60_000)
 
   test('offered wherever rename_file is (shared chats, guests, sub-agents); what it names; the room card sees where names land', () => {
     for (const set of [SHARED_TOOLS, GUEST_TURN_TOOLS, ROOM_FILE_TOOLS, OWN_WORDS_TOOLS]) expect([set.has('rename_file'), set.has('rename_files')]).toEqual([true, true])
