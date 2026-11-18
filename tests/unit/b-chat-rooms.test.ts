@@ -516,7 +516,8 @@ describe('"#" room tokens', () => {
     expect(block).toContain('토큰 확인')
     expect(said).not.toContain('토큰 확인')
     expect(said).toContain('[#room 1] 봐봐')
-    expect(roomsSeen(chat)).toBe(1)
+    // names only (docs/decisions/20261118-dm-own-paste.md): every gate of a read room applies, no room message came in
+    expect(roomsSeen(chat)).toBe(2)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).toContain(`[#room room_id=${roomId}] 봐봐`)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).not.toContain('토큰 확인')
     // the AI passes the id the block gave it (the token itself never reaches it: the message says [#room 1])

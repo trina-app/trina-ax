@@ -13,6 +13,15 @@ import type { Database } from 'bun:sqlite'
 import { threadRefOf } from '@mycel/shared/api'
 import type { TurnExec } from './turn'
 
+/** chats.rooms_seen when only room names came in: the rooms tool listed the person's rooms or found no message
+ * (chat/room-tools.ts), to find a room or a person by name. Every gate of a read room still applies (the value is
+ * true); only the provenance check of a post or a share (chat/answer-share.ts, chat/audience-check.ts) does not count
+ * it as room messages the read scope does not name (docs/decisions/20261118-dm-own-paste.md). 1: messages came in. */
+export const ROOM_NAMES_ONLY = 2
+/** Did room messages come into the chat (rooms_seen set, and not by names alone)? Anything else than 0 or
+ * ROOM_NAMES_ONLY counts as messages (fails closed). */
+export const roomMessagesSeen = (v: number | null | undefined): boolean => !!v && v !== ROOM_NAMES_ONLY
+
 /** how far up the branch the quote check reads (as chat/project-members.ts ownWords) */
 const BRANCH_MAX = 2000
 

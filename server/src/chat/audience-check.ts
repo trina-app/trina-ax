@@ -29,6 +29,7 @@ import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { filesRead, provenanceChecker, withSkillReads, type BranchUse, type CountedSource } from './answer-share'
 import { scopeWithListing, sourceKey, type ReadSource } from './read-scope'
 import { instructionFiles } from './prompt'
+import { roomMessagesSeen } from './read-rooms'
 
 /** What the check found, with what the saved record needs (`use`). Ids sorted. */
 export interface AudienceFindings {
@@ -125,7 +126,7 @@ export async function checkAudience(ctx: AppContext, userId: string, chatId: str
   const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   const chat = db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chatId) as { rooms_seen: number } | null
   // it read rooms and the scope does not say which (or older answers read them before the scope began)
-  const roomsUnseen = !!chat?.rooms_seen && (gap.size > 0 || !(scope?.sources ?? []).some((s) => s.type === 'room'))
+  const roomsUnseen = roomMessagesSeen(chat?.rooms_seen) && (gap.size > 0 || !(scope?.sources ?? []).some((s) => s.type === 'room'))
   const base: BranchUse = { answers: ids, files: filesRead(db, ids), other, known: true, roomsUnseen }
   const sender = loadPrincipal(db, userId)
   // a guest among them: what the chat took from skills/ and the instructions every turn carries count too

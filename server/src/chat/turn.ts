@@ -42,7 +42,7 @@ import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
-import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
+import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -1024,8 +1024,9 @@ export class TurnExec {
       : this.templateScope ? 'a scheduled template run reads only its own folders'
       : 'this kind of chat has no room tools'
     const refs = roomRefsBlock(userMsg.content, roomsOff, spec.locale)
-    // a message that names a room carries room names (other people's words) into the chat: marked like a room read
-    if (refs) this.markRoomsSeen()
+    // a message that names a room carries room names (other people's words) into the chat: marked like a room read,
+    // names only (no message of the room came in: chat/read-rooms.ts ROOM_NAMES_ONLY)
+    if (refs) this.markRoomsSeen(true)
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
     const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
@@ -2040,7 +2041,12 @@ export class TurnExec {
   /** A team chat room's content entered this chat (a room tool was called, chat/room-tools.ts): kept on the chat for
    * good (chats.rooms_seen: no new session, edited first message or restart clears it), and the session is tainted.
    * From then on changes wait for the person's yes on a card (confirmRoomChange). */
-  markRoomsSeen() { this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
+  markRoomsSeen(namesOnly = false) {
+    // `namesOnly`: only room names came in (chat/read-rooms.ts ROOM_NAMES_ONLY), never lowering a mark of messages
+    if (namesOnly) this.rt.db.query(`UPDATE chats SET rooms_seen = CASE WHEN rooms_seen = 0 THEN ${ROOM_NAMES_ONLY} ELSE rooms_seen END, session_tainted = 1 WHERE id = ?`).run(this.spec.chatId)
+    else this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId)
+    this.syncOutsideMark()
+  }
   /** Something from outside the team's own words came in (chats.room_outside): the chat skips no room card from then
    * on, until a new
    * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */

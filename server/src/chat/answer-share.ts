@@ -80,6 +80,8 @@ import { tr } from './i18n'
 import { sharePlaceOf } from './share-places'
 import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
+import { ownPaste } from './own-paste'
+import { roomMessagesSeen } from './read-rooms'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
 export const LINKS_PER_TOKEN = 10
@@ -177,7 +179,7 @@ export function useOf(db: Database, chatId: string, ids: readonly string[], desc
   const unended = ids.length > 0 && !!db.query(`SELECT 1 FROM turns WHERE message_id IN (${ids.map(() => '?').join(',')}) AND status IN ('queued','running','interrupted') LIMIT 1`).get(...ids)
   const other = (scope?.sources ?? []).filter((s) => unended || !scope!.listed(s))
   // the chat read a room's messages and the scope does not show which: nobody else is taken to have seen them
-  const roomsUnseen = !!chat?.rooms_seen && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
+  const roomsUnseen = roomMessagesSeen(chat?.rooms_seen) && (!known || !(scope?.sources ?? []).some((s) => s.type === 'room'))
   return { answers: [...ids], files, other, known, roomsUnseen }
 }
 
@@ -351,7 +353,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
  * (what the room gets: a cut answer's links past the cut are not in it). Everything about other people is ids inside the server; the result for the person is counts and the
  * places they may look themselves.
  */
-export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string) {
+export async function answerCheck(ctx: AppContext, userId: string, to: string | { people: readonly string[] }, chatId: string, messageId: string, answerPart: string, o: { own?: boolean } = {}) {
   const db = ctx.db
   const roomId = typeof to === 'string' ? to : null
   // a team room or the everyone room: the members whose history is not worked out yet get it first (rooms/history.ts),
@@ -365,7 +367,8 @@ export async function answerCheck(ctx: AppContext, userId: string, to: string | 
     : [...new Set(to.people)].filter((id) => id !== userId).sort()
   // a guest in the audience: what the answers read from skills/ counts too (withSkillReads)
   const sender = loadPrincipal(db, userId)
-  const use = withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
+  // `own`: the text is the person's own paste (checkShare): the branch's reads are not in it, its links still are (A)
+  const use = o.own ? { answers: [], files: [], other: [], known: true, roomsUnseen: false } : withSkillReads(db, branchUse(db, chatId, messageId), audience, sender ? instructionFiles(ctx.files, sender) : [])
   const onBranch = new Set(use.answers)
   // the hash rule looks at what turns on this branch saved
   const pc = provenanceChecker(ctx, userId, audience, use.answers)
@@ -488,7 +491,10 @@ function confirmKeyOf(ctx: AppContext, userId: string, roomId: string, messageId
   return createHmac('sha256', confirmSecret(ctx)).update(state).digest('base64url')
 }
 
-export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean }
+export interface ShareAnswerInput { roomId: string; note?: string; confirm?: number; confirmKey?: string; attach?: string[]; threadRootId?: string; clientMessageId: string; plain?: boolean
+  /** post_to_room only (never from a request): the person's own paste in the text (chat/own-paste.ts) and the "@Name"s
+   * of the people mentioned that the server put before it */
+  pasted?: { head: string; text: string } }
 
 /** POST /api/chats/:id/messages/:messageId/share-to-room. `chat` is the caller's own (routes/chats.ts ownChat: not a
  * room's AI session, not deleted) and `message` one of its messages. */
@@ -496,7 +502,8 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
   if (message.role !== 'assistant') fail('validation', tr('answerShareNotReady', locale), { fields: { 'params.messageId': 'not an answer' } })
   const content = redactorFor(ctx, userId).hide(message.content ?? '')
   if (message.status !== 'done' || !content.trim()) fail('conflict', tr('answerShareNotReady', locale), { params: { reason: 'answer_not_finished' } })
-  const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, b, locale)
+  // (the share button never carries a paste: that is post_to_room's alone)
+  const p = await prepareShare(ctx, userId, chat.id, { messageId: message.id, content }, { ...b, pasted: undefined }, locale)
   if (p.status === 'sent') return p
   // the button's first press (no key yet): when what holds it back is only linked files the answer itself made, and
   // with them attached nobody misses anything, they go as copies with no dialog (docs/decisions/
@@ -571,7 +578,7 @@ export type PendingShare = Omit<PreparedShare, 'room' | 'me'> & { room: { id: st
  * more for every LINKS_PER_TOKEN links); the check; an answer that used old answers hidden from some member (never sent).
  * `o.budget`: false only for post_to_room's 1:1 chat just made on the yes, whose check before it took the budget.
  */
-export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
+export async function prepareShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'roomId' | 'note' | 'threadRootId' | 'clientMessageId' | 'plain' | 'pasted'>, locale: Locale, o: { budget?: boolean } = {}): Promise<PreparedShare | Extract<ShareAnswerToRoomResult, { status: 'sent' }>> {
   const db = ctx.db, rooms = roomsOf(ctx)
   // safe operations' 1A material stays in its conversation (like a team skill made from one, or the room's AI)
   if (confidentialChat(db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
@@ -591,7 +598,7 @@ export async function prepareShare(ctx: AppContext, userId: string, chatId: stri
 
 /** The budget and the check of prepareShare, for a room (its id) or a 1:1 chat not made yet (its people): the message's
  * body, the check, and the key under `keyRoom` (keyRoomOf). */
-async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
+async function checkShare(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: Pick<ShareAnswerInput, 'note' | 'plain' | 'pasted'>, to: string | { people: readonly string[] }, keyRoom: string, locale: Locale, budget = true) {
   const rooms = roomsOf(ctx)
   // from the sending budget first (429): asking who could not read what is no free probe; the message takes no more
   if (budget) rooms.takeSendToken(userId)
@@ -602,7 +609,11 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
   // link many paths costs as many sends
   const linkCount = answerFilePaths(body.slice(at), ANSWER_SHARE_FILES_MAX + 1).length
   if (budget) for (let n = LINKS_PER_TOKEN; n < linkCount; n += LINKS_PER_TOKEN) rooms.takeSendToken(userId)
-  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at))
+  // the person's own words (own_words) that are a stretch of their own message here, as they wrote it (chat/own-paste.ts,
+  // docs/decisions/20261118-dm-own-paste.md): nothing the chat read is in them, so what it read is not counted
+  const own = !!b.plain && !!b.pasted && ownPaste(ctx.db, userId, answer.messageId, b.pasted.text) === b.pasted.text
+    && body === (b.pasted.head ? `${b.pasted.head} ${b.pasted.text}` : b.pasted.text)
+  const c = await answerCheck(ctx, userId, to, chatId, answer.messageId, body.slice(at), { own })
   const offered = new Set(c.offered)
   const shown = await c.provenance(offered)
   if (shown.hidden) fail('conflict', tr('answerShareHidden', locale), { params: { reason: 'answer_share_hidden' } })
@@ -617,7 +628,7 @@ async function checkShare(ctx: AppContext, userId: string, chatId: string, answe
  * same checks with the other person as the audience, and nothing made. The chat is made only after the person's yes
  * (Rooms.openDm); prepareShare then runs on it, and its key is this one's when nothing changed (keyRoomOf).
  */
-export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean }, locale: Locale): Promise<PendingShare> {
+export async function preparePendingDm(ctx: AppContext, userId: string, chatId: string, answer: { messageId: string; content: string }, b: { otherId: string; note?: string; plain?: boolean; pasted?: ShareAnswerInput['pasted'] }, locale: Locale): Promise<PendingShare> {
   if (confidentialChat(ctx.db, chatId)) fail('conflict', tr('answerShareConfidential', locale), { params: { reason: 'confidential' } })
   const keyRoom = keyRoomOfPair(userId, b.otherId)
   const r = await checkShare(ctx, userId, chatId, answer, b, { people: [b.otherId] }, keyRoom, locale)

@@ -94,10 +94,11 @@ export function roomReadTools(exec: TurnExec): Tool[] {
     return `No room matching "${neutralizeTags(ref.replace(/["<>\s]+/g, ' ').trim().slice(0, 80))}" that you can read. ${GUEST_ROOMS_HINT}`
   }
   const planned = plannedTargets()
-  /** the person as they are now (a disabled account reads nothing); then the chat is marked before anything is read */
-  const begin = (): string | null => {
+  /** the person as they are now (a disabled account reads nothing); then the chat is marked before anything is read.
+   * `namesOnly`: the rooms tool, which shows room names unless it finds messages (then it marks again, below) */
+  const begin = (namesOnly = false): string | null => {
     try { exec.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
-    exec.markRoomsSeen()
+    exec.markRoomsSeen(namesOnly)
     return null
   }
   /** Rooms follow groups and accounts (rooms/service.ts sync): a person whose rooms are out of step (taken out of a
@@ -132,11 +133,16 @@ export function roomReadTools(exec: TurnExec): Tool[] {
       async call(args) {
         const a = RoomsInput.safeParse(args)
         if (!a.success) return text(zodText(a.error), true)
-        const no = begin()
+        // a list of rooms (or a search that found no message) shows names only: looking up a room or a person by name
+        // does not count as reading room messages for what is sent later (chat/read-rooms.ts ROOM_NAMES_ONLY;
+        // docs/decisions/20261118-dm-own-paste.md); every gate of a read room applies all the same
+        const no = begin(true)
         if (no) return { ...text(no, true), summary: 'rooms -> denied: account disabled' }
         syncMine()
         const search = isRoomSearch(a.data)
         const r = search ? searchRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data) : listRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data.room)
+        // messages found: the chat has read room messages (before the result reaches the AI)
+        if (r.seen.length || (search && (r.count ?? 0) > 0)) exec.markRoomsSeen()
         record(r)
         return { ...text(r.text, !r.ok), summary: `rooms -> ${search ? 'search' : 'list'}${r.ok ? `, ${r.count ?? 0} shown` : ', invalid input'}` }
       },
