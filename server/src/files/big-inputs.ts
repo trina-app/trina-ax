@@ -7,7 +7,7 @@
 //   process; a few more wait in line, the rest get a plain "busy" answer (no unbounded queue of 100 MB reads).
 import { cgroupState } from '../system/cgroups'
 import { ToolError } from '../policy/errors'
-import { OFFICE_WORKER_RSS_MIB, OFFICE_WORKERS_MAX } from './extract'
+import { OFFICE_WORKER_RSS_MIB, officeWorkersMax } from './extract'
 import { PDF_PAGES_INPUT_MAX } from './pdf-pages'
 import type { Database } from 'bun:sqlite'
 import { guestUploadMax, sizeWords } from '../uploads/guest-limit'
@@ -86,7 +86,7 @@ export class ByteGate {
 export const pdfInputMax = (budgetMiB = helperBudgetMiB(OFFICE_WORKER_RSS_MIB)) => inputMaxFor(budgetMiB, PDF_MIB_PER_MB, PDF_PAGES_INPUT_MAX)
 /** the PDF tools' input bytes in this process at once (edit, merge, split and stamp_pdf): what the office workers
  * running at once can take; four more calls wait, the next is told the server is busy */
-export const PDF_GATE = new ByteGate(() => OFFICE_WORKERS_MAX * pdfInputMax(), 4)
+export const PDF_GATE = new ByteGate(() => officeWorkersMax() * pdfInputMax(), 4)
 
 /** A guest keeps no file larger than they may upload (uploads/guest-limit.ts, the team's choice, 100 MB or 1 GB): a
  * new PDF the tools made for them is held to it too (second limits audit review). */

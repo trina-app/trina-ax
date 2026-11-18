@@ -71,7 +71,7 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
  * is there already (chat/turn.ts sharedSources); every other path argument counts as a read. */
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
-  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], save_chat_file: ['save_as'], comment_docx: ['output'],
+  write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], save_chat_file: ['save_as'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
 
   // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
