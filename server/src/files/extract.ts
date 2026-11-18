@@ -1,5 +1,5 @@
 // Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
-// comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// comments, tracked deletions and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
 // (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
@@ -227,7 +227,8 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, e, ...askArg], stdin: bytes, readPaths: [path.dirname(script)],
       timeoutMs, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
-      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength) },
+      // OFFICE_DEADLINE_MS: the worker's end, so the charts of a workbook give way to its sheets (office-parse.ts withCharts)
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength), OFFICE_DEADLINE_MS: String(Date.now() + timeoutMs) },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${timeoutMs / 1000} s`).message)
@@ -428,7 +429,7 @@ async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uin
   return quoteLines(await pipeThrough([...plain, ...(kind === 'headings' ? ['-s'] : [])], bytes, converterReadTimeoutMs(bytes.byteLength), signal))
 }
 
-const EXTRA_WHAT = { docx: 'headers, footers, comments and chart data', pptx: 'speaker notes and chart data' } as const
+const EXTRA_WHAT = { docx: 'headers, footers, comments, tracked changes and chart data', pptx: 'speaker notes and chart data' } as const
 
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
