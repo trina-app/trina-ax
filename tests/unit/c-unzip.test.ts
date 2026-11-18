@@ -205,6 +205,23 @@ describe('unzipping into the team folder', () => {
     expect(into.text).toContain('into the folder')
   })
 
+  test('to_folder that already ends in the zip\'s one top folder does not double it (TC-4865); another name keeps it', async () => {
+    put(`${D}/bundle.zip`, zip([{ name: '계약-묶음/' }, { name: '계약-묶음/계약서.txt', data: 'c' }, { name: '계약-묶음/부록/a.txt', data: 'a' }]))
+    const r = await turn('alice')('unzip_file', { path: `${D}/bundle.zip`, to_folder: `${D}/hiring/계약-묶음` })
+    expect(r.isError, r.text).toBe(false)
+    expect(ls(`${D}/hiring/계약-묶음`)).toEqual(['계약서.txt', '부록'])
+    // the name in another letter case / decomposed form is the same folder name
+    put(`${D}/Pack.zip`, zip([{ name: 'Pack/b.txt', data: 'b' }]))
+    expect((await turn('alice')('unzip_file', { path: `${D}/Pack.zip`, to_folder: `${D}/hiring/pack` })).isError).toBe(false)
+    expect(ls(`${D}/hiring/pack`)).toEqual(['b.txt'])
+    const nfd = await turn('alice')('unzip_file', { path: `${D}/bundle.zip`, to_folder: `${D}/hiring2/${'계약-묶음'.normalize('NFD')}` })
+    expect(nfd.isError, nfd.text).toBe(false)
+    expect(fs.readdirSync(file(`${D}/hiring2`)).map((n) => n.normalize('NFC'))).toEqual(['계약-묶음'])
+    expect(fs.readdirSync(path.join(file(`${D}/hiring2`), fs.readdirSync(file(`${D}/hiring2`))[0]!)).sort()).toEqual(['계약서.txt', '부록'])
+    // a different to_folder keeps the zip's folder inside it
+    expect((await turn('alice')('unzip_file', { path: `${D}/bundle.zip`, to_folder: `${D}/hiring/other` })).isError).toBe(false)
+    expect(ls(`${D}/hiring/other`)).toEqual(['계약-묶음'])
+  })
   test('list_only lists and saves nothing', async () => {
     put(`${D}/peek.zip`, zip([{ name: 'x/one.txt', data: '1' }, { name: 'x/two.txt', data: '22' }]))
     const before = ls(D)
@@ -426,6 +443,45 @@ describe('review follow-ups (PR #1262)', () => {
     const r = await turn('alice', { confirmWidening })('unzip_file', { path: `${D}/inbox/late.zip`, to_folder: D })
     expect(r.isError, r.text).toBe(false)
     expect(asked).toEqual([`${D}/x`, `${D}/late/y.txt`])
+  })
+  test('narrowing the zip\'s own folder while a card is open asks every folder again (TC-4854)', async () => {
+    const asked: string[] = []
+    const db = A.ctx.db
+    put(`${D}/inbox2/narrow.zip`, zip([{ name: 'a/x.txt', data: 'x' }]))
+    const confirmWidening = async (target: string) => {
+      asked.push(target)
+      // while the first card is open, the zip's folder is limited to alice alone
+      if (asked.length === 1) {
+        db.query('INSERT INTO folders (id, path, limited) VALUES (?,?,1)').run('f_zips_inbox2', `${D}/inbox2`)
+        db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'everyone',NULL,'none')").run(crypto.randomUUID(), 'f_zips_inbox2')
+        db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'user','alice','write')").run(crypto.randomUUID(), 'f_zips_inbox2')
+      }
+      return null
+    }
+    const r = await turn('alice', { confirmWidening })('unzip_file', { path: `${D}/inbox2/narrow.zip`, to_folder: `${D}/narrowed` })
+    expect(r.isError, r.text).toBe(false)
+    expect(asked).toEqual([`${D}/narrowed/x`, `${D}/narrowed/x`])
+  })
+  test('a change after the last card, while waiting for the unzip slot, refuses the call and saves nothing (TC-4854)', async () => {
+    const db = A.ctx.db
+    const was = { ...UNZIP_LIMITS }
+    UNZIP_LIMITS.parallel = 1; UNZIP_LIMITS.waitMs = 5000
+    const slot: { held: (() => void) | null } = { held: null }
+    try {
+      put(`${D}/inbox/slow.zip`, zip([{ name: 'a/x.txt', data: 'x' }, { name: 'late2/y.txt', data: 'y' }]))
+      // the card says yes, then the server's only slot is taken until the rules have changed
+      const confirmWidening = async () => { slot.held ??= await unzipSlot(); return null }
+      const call = turn('alice', { confirmWidening })('unzip_file', { path: `${D}/inbox/slow.zip`, to_folder: `${D}/slow` })
+      for (let i = 0; i < 100 && _unzipSlotsForTest().waiting === 0; i++) await new Promise((r) => setTimeout(r, 20))
+      expect(_unzipSlotsForTest().waiting).toBe(1)
+      db.query('INSERT INTO folders (id, path) VALUES (?,?)').run('f_zips_late2', `${D}/slow/late2`)
+      db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?,?,'everyone',NULL,'read')").run(crypto.randomUUID(), 'f_zips_late2')
+      slot.held!(); slot.held = null
+      const r = await call
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('folder access changed')
+      expect(fs.existsSync(file(`${D}/slow`))).toBe(false)
+    } finally { slot.held?.(); Object.assign(UNZIP_LIMITS, was) }
   })
   test('the unzip slot is given back when the work folder cannot be made', async () => {
     put(`${D}/leak.zip`, zip([{ name: 'l.txt', data: 'l' }]))
