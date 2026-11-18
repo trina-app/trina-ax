@@ -49,10 +49,6 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 모두가 이걸로 하는 일
 
-**슬랙 같은 팀 채팅.** 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.
-
-<img src="docs/site/images/chats/room.webp" width="100%" alt="Marketing 채널: Jordan을 부른 메시지, 답글 2개가 달린 스레드, 옆 채팅에서 보낸 트리나의 답">
-
 **어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 참가 규정을 체크리스트로 만들어 달라고 하고, 그 답을 대화방에 올려요.">
@@ -61,22 +57,28 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="관리자가 Sales 폴더를 열 수 있는 사람을 바꾸고, Mina가 열 수 있는 폴더를 확인해요. Finance는 목록에 없어요.">
 
-**동료의 세션을 이어받아요.** 동료의 프로젝트 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요.
+**팀 프로젝트에서 동료의 세션을 이어받아요.** 팀 프로젝트의 세션은 프로젝트 멤버에게 공유돼요. 동료의 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요. 그 밖의 세션도 Google Drive 파일처럼 사람이나 그룹에 공유할 수 있어요.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina가 Sam의 프로젝트 세션을 열어 카드뉴스를 이어서 고쳐요. Mina가 묻는 건 Mina의 권한으로 처리돼요.">
 
+**파일을 내용으로 찾아요.** 밤마다 팀 AI가 공유·그룹·프로젝트 폴더의 새 파일과 바뀐 파일을 읽고, 파일마다 무엇인지 한 줄씩 적어 둬요. 그래서 `temp.pdf`라는 스캔본이나 `IMG_2031.jpg`라는 사진도 내용으로 찾아요. 팀 AI 계정을 쓰고, 개인 폴더는 읽지 않아요. 가상 파일 2,238개로 시험했을 때 Claude Code는 질문 184개 중 이 목록이 있으면 181개, 없으면 172개에서 맞는 파일을 찾았어요.
+
 <table>
 <tr>
-<td width="50%"><b>예약 작업.</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/site/images/scheduled/task.webp" alt="매주 월요일 9시에 도는 주간 요약 예약 작업"></td>
-<td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="게스트 한 명이 있는 그룹 대화"></td>
+<td width="50%"><b>예약 작업.</b> 한 번 시키면 정한 일정대로 트리나가 반복해요. 시간은 팀 시간대를 따라요.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="예약 작업이 만든 주간 요약: 찾은 내용, 결정 사항, 남은 일, 파일로 저장"></td>
+<td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="외부 대행사 게스트 Morgan Reyes가 있는 Launch email 그룹 대화: 제목 후보, @멘션, 트리나의 답"></td>
 </tr>
 <tr>
 <td width="50%"><b>사용량과 한도.</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.<br><br><img src="docs/site/images/usage/team.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
 <td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
+<tr>
+<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널에 올라온 트리나의 답, 오른쪽에 열린 스레드"></td>
+</tr>
 </table>
 
 - **바뀐 내용은 모두 남아요.** 사람이 바꿨든 그 사람의 AI가 바꿨든, 어느 버전이든 되돌릴 수 있어요.
+- **앱 안 브라우저.** 데스크톱 앱에서 트리나가 채팅 옆 창에서 웹사이트를 열고, 읽고, 클릭하고, 양식을 채워요. 지켜보다가 Stop을 누르면 멈춰요. 모든 웹사이트를 허용하지 않았다면 새 사이트를 열기 전에 물어봐요.
 - **앱 소식이 대화방에.** Sentry, GitHub, Stripe, Jira, HubSpot 소식이 카드로 올라와요.
 - **회의록.** 맥 앱(macOS 14.4 이상)이 Zoom, Meet, Teams 통화를 받아 적어요.
 - **업무 파일 찾기.** 데스크톱 앱이 내 컴퓨터의 최근 업무 파일을 찾아 주고, 고른 것만 올려요.
