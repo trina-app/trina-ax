@@ -62,3 +62,17 @@ Plan: docs/AGENTS/plan/20261117-0549-ai-wording-narration.md.
   from 9 / 9 / 9 (dev) to 0 / 0 / 1; FL-19 from 1 / 1 / 1 to 0 / 0; 34 pieces dropped, all notes, 0 real content lost.
 - 0 prompt tokens: the stream and the saved answer stay the same (a held piece is never sent until decided).
 - Version impact: patch (no API, no migration).
+- **2026-11-18 (EDIT-17.project, [20261117-ai-answer-slips.md](20261117-ai-answer-slips.md)):** a quoted phrase (at
+  most 40 characters) taken from the person's message counts as a name, so '"공용 회의록" — likely in shared. Find it.'
+  is ASCII once it is out; and an order to itself where to put something ("Add under section 1.", "Append it at the end
+  of the notes.": add / append / insert / put / place, optionally it / this / the line / one line …, then under /
+  below / beneath / after / before / above / into / at the end, top, bottom or start of; at most 100 characters) is a
+  work note. An apostrophe after a letter ("I'll", "Sora's") opens no quote. Taking the person's quoted words out also
+  takes out the quote marks that would mark content: 'Add "Done" under section 1.' before a call is now dropped (only
+  before a call, never the last piece, never when copied into the call). The same day's runs leaked "Seal lands on (인)
+  correctly. Now post to the room." (CHT-02.room): a bracket of at most 12 characters holding another script and no
+  Latin letter or sentence mark (a form's own label such as "(인)") now counts as a name, and "Now post / send / save /
+  stamp / write / …" after a sentence is a note's shape next to a work word (so "Good layout. Now overwrite the original
+  PDF." is no longer a known gap). Korean outside the bracket, and a bracket with a digit or a currency sign ("(339,400원)", "(₩5)"), keep the piece; a
+  bracket of several words is found while streaming too. "Please add …", a name as an address and a quote that is not the
+  person's words keep the line.

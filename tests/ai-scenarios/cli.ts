@@ -22,8 +22,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, ApiClient } from '../../shared/src/api'
 import { DEV_ENV_SRT_WARNING_VERSION } from '../../shared/src/api/dev-env'
-import { PASSWORD, seedFixture, fixtureFile, type FixtureState } from './fixture/seed'
-import { judge } from './lib/judge'
+import { COMPANY, GUEST, PASSWORD, seedFixture, fixtureFile, type FixtureState } from './fixture/seed'
+import { askerLine, judge } from './lib/judge'
 import { FlowCatalog, flowChanged, runFlow, type Flow, type FlowResult } from './lib/flow'
 import { judgeFlow, writeFlowReport } from './lib/flow-report'
 import { mocksDown, mocksReset, mocksUp, readMocks } from './mock-services/up'
@@ -248,7 +248,7 @@ async function judgeRun(id: string) {
     for (let r = queue.shift(); r; r = queue.shift()) {
       const c = cases.get(r.id)!
       const role = fixture.people[c.as]?.role ?? 'unknown'
-      try { r.judge = await judge(c, r, `role ${role}`); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
+      try { r.judge = await judge(c, r, askerLine(c.as === GUEST.username ? { name: GUEST.name, role: 'guest' } : ((p) => p && { ...p, role })(COMPANY.people.find((p) => p.username === c.as)), role)); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
     }
   }))
 }
