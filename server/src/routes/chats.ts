@@ -35,7 +35,7 @@ import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { answerText, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
+import { answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
@@ -867,7 +867,7 @@ export const chatsRoutes: RouteModule = {
       const a = chatOf(rt, c, auth, params.id, 'view')
       const chat = a.row
       // the AI's questions that wait after their answer ended (chat/open-questions.ts): the caller's own only
-      const later = openQuestionsOf(ctx.db, chat.id, auth.user.id)
+      const later = openQuestionsOf(ctx.db, chat.id, auth.user.id, windowOf(c))
       if (a.shared && rt.activeTurnUser(chat.id) !== auth.user.id) return { items: later }
       const turnId = rt.activeTurn(chat.id)
       const exec = turnId ? rt.execFor(turnId) : undefined
@@ -889,6 +889,8 @@ export const chatsRoutes: RouteModule = {
       const asking = rt.activeTurn(a.row.id) === turnId
       if (!asking) { busy(a, locale, auth.user.id); nextCheck(rt, a, locale, auth.user.id) }
       checkBudget(ctx, auth.user.id, locale)
+      // a safety card: its own buttons only, as before (its call runs again with this answer)
+      if (!cardAnswerOk(q.request, value)) fail('validation', tr('answerNotOption', locale))
       const r = recordAnswer(ctx.db, requestId, value)
       if (r.state === 'closed') fail('conflict', tr('requestClosed', locale))
       if (r.state === 'waiting') { rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } }); return }
@@ -898,8 +900,9 @@ export const chatsRoutes: RouteModule = {
       const ready = r as Extract<typeof r, { state: 'ready' }>
       try {
         const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
-        rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
-          user: { parentId: q.messageId, content: answerText(ready.answers, ready.requests, tr('questionSkipped', rt.userLocale(auth.user.id)), labelsHidden(ctx.db, a.shared, q.messageId) ? tr('questionAnswered', rt.userLocale(auth.user.id)) : undefined), attachments: [], clientMessageId: `answer-${requestId}` },
+        // a browser site's call runs again in the window whose browser it was for
+        rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
+          user: { parentId: q.messageId, content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), labelsHidden(ctx.db, a.shared, q.messageId)), attachments: [], clientMessageId: `answer-${requestId}` },
           answered: ready.answers })
       } catch (e) { ready.undo(); throw e }
     }
@@ -917,7 +920,9 @@ export const chatsRoutes: RouteModule = {
       if (exec?.openRequest(body.requestId)?.kind === 'connect_service') fail('conflict', tr('requestClosed', c.get('locale')))
       const value = body.kind === 'ask_user' ? body.answer : body.decision
       // the AI's question that waits after its answer ended: the answer starts the chat's next turn
-      const later = body.kind === 'ask_user' && !exec?.openRequest(body.requestId) ? openQuestion(ctx.db, params.id, body.requestId, auth.user.id) : null
+      // (or a safety card that waits the same way, its call kept: chat/open-questions.ts)
+      const later = !exec?.openRequest(body.requestId) ? openQuestion(ctx.db, params.id, body.requestId, auth.user.id) : null
+      if (later && later.request.kind !== body.kind) fail('conflict', tr('requestClosed', c.get('locale')))
       if (later) return answerLater(c, auth, params.id, body.requestId, later, value)
       const done = exec ? exec.answer(body.requestId, body.kind, value) : 'closed'
       if (done === 'closed') fail('conflict', tr('requestClosed', c.get('locale')))

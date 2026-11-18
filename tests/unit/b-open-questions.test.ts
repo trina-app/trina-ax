@@ -248,8 +248,8 @@ describe('ask_user waits as long as it takes', () => {
     expect(labelsHidden(h.ctx.db, true, fromService)).toBe(true)
     expect(labelsHidden(h.ctx.db, false, fromService)).toBe(false)
     const q = { kind: 'ask_user' as const, requestId: uuidv7(), question: 'Which deal?', options: [{ label: 'ACME renewal (from CRM)', value: 'd1' }] }
-    expect(answerText([{ question: 'Which deal?', answer: 'd1' }], [q], 'skipped', "(Answered the AI's question)")).toBe("(Answered the AI's question)")
-    expect(answerText([{ question: 'Which deal?', answer: 'my own words' }], [q], 'skipped', "(Answered the AI's question)")).toBe('my own words')
+    expect(answerText([{ question: 'Which deal?', answer: 'd1' }], [q], 'skipped', {}, "(Answered the AI's question)")).toBe("(Answered the AI's question)")
+    expect(answerText([{ question: 'Which deal?', answer: 'my own words' }], [q], 'skipped', {}, "(Answered the AI's question)")).toBe('my own words')
   })
 
   test('the words: labels for picked options, typed text as typed, one line each after its question', () => {
