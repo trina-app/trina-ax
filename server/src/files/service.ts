@@ -47,6 +47,7 @@ import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, model
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
+import { listPage, TOOL_TEXT_BUDGET } from './tool-budget'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
@@ -480,7 +481,7 @@ export class FileService {
   }
 
   // ---------------- list ----------------
-  list(ctx: ToolCtx, a: { path?: string }): ToolOutput {
+  list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput {
     // a folder shared with the person, by its link: one level of its names (files/shared-folder-reads.ts)
     const shared = this.folderReads(ctx) ? this.shared?.folderList?.(ctx.user, ctx.files, a.path, personLocale(this.db, ctx.user.id)) ?? null : null
     if (shared) return shared
@@ -516,7 +517,8 @@ export class FileService {
     // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
     // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
     if (shownFiles) ctx.files.namePaths.add(r.rel)
-    return { text: lines.join('\n') || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries` }
+    const page = listPage(lines, a.offset ?? 0)
+    return { text: page || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries${a.offset ? ` from ${a.offset}` : ''}` }
   }
 
   private base(ctx: ToolCtx, p: string | undefined) {
@@ -586,8 +588,10 @@ export class FileService {
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp, skip }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
-      lang: personLocale(this.db, ctx.user.id),
+      lang: personLocale(this.db, ctx.user.id), offset: a.offset, budget: TOOL_TEXT_BUDGET, reportBig: true,
     })
+    // the files too big to search are named: their folders' names are seen, as glob's are
+    for (const f of res.big) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
     // a file list's lines are read like its folder's files (same access): its folder joins the read scope (the list is
     // not on disk, so it cannot be looked up as a file), never as an answer's source: the answer cites the real file
     // the AI opens next

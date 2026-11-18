@@ -168,7 +168,8 @@ describe('make_file', () => {
     expect(wb.Sheets['지역별']!.B5.f).toBeUndefined()
     // read / grep show a formula cell as its formula, not as a blank
     const text = await extractText('f.xlsx', fs.readFileSync(path.join(A.team, 'users/alice/out/f.xlsx')), { pandoc: null, pdftotext: null, ocr: null } as any)
-    expect(text).toContain('서울\t10\t20\t30\t40\t100') // a simple formula is stored with its result (formula-values.ts)
+    // a simple formula is stored with its result (formula-values.ts), and read shows both (QA TC-4918)
+    expect(text).toContain('서울\t10\t20\t30\t40\t=SUM(B2:E2) → 100')
     expect(wb.Sheets['지역별']!.F2.v).toBe(100)
     expect(wb.Sheets['지역별']!.F2.f).toBe('SUM(B2:E2)')
     expect(text).toContain('=XLOOKUP(')

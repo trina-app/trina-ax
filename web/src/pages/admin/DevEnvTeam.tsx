@@ -71,7 +71,8 @@ function DevEnvTeamForm() {
       {/* disabled while a save runs: the form takes the saved setting from the answer, which would erase an edit made
           before the answer came */}
       <fieldset disabled={busy} className="m-0 min-w-0 space-y-4 border-0 p-0 text-sm" data-testid="dev-env-team" data-on={r.setting.enabled ? 'true' : 'false'}>
-        {r.availability && !r.availability.available && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs" data-testid="dev-env-team-unavailable">{t('devEnv.unavailable')}</p>}
+        {/* the reason is for the admin (QA TC-4924): the AI tells people only that it cannot do that work now */}
+        {r.availability && !r.availability.available && <p className="rounded-lg border border-warn/40 bg-warn/10 p-3 text-xs break-keep" data-testid="dev-env-team-unavailable">{t('devEnv.unavailable')} {t('devEnv.unavailableAi')}{r.availability.detail && <span className="mt-1 block break-all font-mono opacity-80" data-testid="dev-env-team-unavailable-why">{r.availability.detail}</span>}</p>}
         {/* a team from before the dev environment came: off for that reason only, said in plain words above the switch
             until an admin saves the setting (DevEnvOfferNotice.tsx is the same on Admin › Home) */}
         {r.offer && <p className="rounded-lg border border-line bg-accent-soft/40 p-3 text-xs break-keep" data-testid="dev-env-team-offer"><span className="font-medium">{t('devEnvTeam.offer')}</span> {t('devEnvOffer.body')}</p>}

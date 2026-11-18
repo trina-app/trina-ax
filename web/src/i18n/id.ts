@@ -32,6 +32,7 @@ export const id: Record<MessageKey, string> = {
   'devEnv.title': "Lingkungan pengembangan",
   'devEnv.experiment': "Eksperimen",
   'devEnv.unavailable': "Server ini tidak dapat menjalankan lingkungan pengembangan.",
+  'devEnv.unavailableAi': "Sampai diperbaiki, AI memberi tahu bahwa pekerjaan seperti itu (misalnya total dari file data besar) belum bisa dilakukan dan tidak meminta Anda mencoba lagi.",
   'devEnv.who': "Siapa yang boleh memakai",
   'devEnv.network': "Jaringan",
   'devEnv.netOffline': "Tanpa jaringan",

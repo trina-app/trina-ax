@@ -87,6 +87,42 @@ export function formulaStubsAsText(ws: XLSX.WorkSheet): void {
   }
 }
 
+/** a formula longer than this is shown cut, with "…" (the value after it stays whole) */
+export const FORMULA_SHOWN_MAX = 300
+
+/** the formula text one workbook's read may add next to the values (a sheet past it shows its values only, with a
+ * labelled line: a formula column of 200,000 rows would make the text several times larger) */
+export const FORMULA_TEXT_MAX = 4 * 1024 * 1024
+
+/**
+ * A formula cell with a stored result shows both, `=SUM(B2:B9) → 1770`, so the AI sees how a person's sheet is built,
+ * not only its numbers (QA TC-4918; Claude Code reads formulas with openpyxl). The value is the one the file stores,
+ * as the spreadsheet app formats it. Run after formulaStubsAsText (a stub has no value: it shows as its formula).
+ * `room`: the bytes of formula text still allowed; a sheet that needs more is left as it is (`shown: false`). The
+ * returned `undo` puts the cells back (a sheet whose text then does not fit the read).
+ */
+export function formulasWithValues(ws: XLSX.WorkSheet, room = Infinity): { shown: boolean; bytes: number; cells: number; undo: () => void } {
+  const rows = (ws as { '!data'?: (XLSX.CellObject | undefined)[][] })['!data'] ?? []
+  const changes: { row: (XLSX.CellObject | undefined)[]; j: number; text: string; old: XLSX.CellObject }[] = []
+  let bytes = 0
+  for (const row of rows) {
+    if (!row) continue
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j]
+      if (!c?.f || c.t === 'z' || c.v == null) continue
+      const f = c.f.length > FORMULA_SHOWN_MAX ? c.f.slice(0, FORMULA_SHOWN_MAX).replace(/[\uD800-\uDBFF]$/, '') + '…' : c.f
+      const v = c.w ?? String(c.v)
+      const text = `=${f} → ${v}`
+      bytes += Buffer.byteLength(text) - Buffer.byteLength(v)
+      changes.push({ row, j, text, old: c })
+    }
+  }
+  const undo = () => { for (const x of changes) x.row[x.j] = x.old }
+  if (bytes > room) return { shown: false, bytes: 0, cells: changes.length, undo: () => {} }
+  for (const x of changes) x.row[x.j] = { t: 's', v: x.text, w: x.text }
+  return { shown: true, bytes, cells: changes.length, undo }
+}
+
 /** A sheet name on one line (the `# sheet:` label is parsed back by files/locations.ts). */
 const labelName = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
 
@@ -205,20 +241,31 @@ function sheetRangeText(bytes: Uint8Array, ask: SheetAsk): string {
   return `${text}\n# more rows follow (from row ${more}): read on with sheet "${labelName(name)}", range "${c0}${more}:${c1}${q.r1 === Infinity ? r.e.r + 1 : q.r1}"`
 }
 
-export function sheetText(bytes: Uint8Array): string {
+/** `formulaMax`: the formula text the read may add (tests give less) */
+export function sheetText(bytes: Uint8Array, formulaMax = FORMULA_TEXT_MAX): string {
   let wb: XLSX.WorkBook
   wb = readBook(bytes)
   const out: string[] = []
   let size = 0
+  let formulaRoom = formulaMax
+  /** sheets whose formulas are not shown (too many), with their formula cells */
+  const valuesOnly: { name: string; cells: number }[] = []
   for (const s of wb.SheetNames) {
     const ws = wb.Sheets[s]!
     formulaStubsAsText(ws)
+    const fx = formulasWithValues(ws, formulaRoom)
+    formulaRoom -= fx.bytes
     boundRange(ws)
-    const part = sheetPart(s, ws)
+    let part = sheetPart(s, ws)
+    // the formulas would take the read past its text limit: the values alone, as before formulas were shown
+    if (fx.shown && fx.bytes && size + Buffer.byteLength(part, 'utf8') + 2 > OFFICE_TEXT_MAX) { fx.undo(); formulaRoom += fx.bytes; part = sheetPart(s, ws); valuesOnly.push({ name: s, cells: fx.cells }) }
+    else if (!fx.shown) valuesOnly.push({ name: s, cells: fx.cells })
     size += Buffer.byteLength(part, 'utf8') + 2
     if (size > OFFICE_TEXT_MAX) throw tooComplex(`more than ${OFFICE_TEXT_MAX / 1024 / 1024} MB of text`)
     out.push(part)
   }
+  // said once at the end, as a section label (files/locations.ts: never a sheet row the AI could take for data)
+  for (const v of valuesOnly) out.push(`=== Sheet '${labelName(v.name)}' shows values only: its ${v.cells} formula cells are too many to show next to them ===`)
   return out.join('\n\n')
 }
 

@@ -10,6 +10,7 @@ const optRelPath = relPath.optional()
 // ---------------- file tools (stage 1: implemented) ----------------
 export const ListInput = z.strictObject({
   path: optRelPath.describe('Folder relative to the team root. Omit or "" for the root.'),
+  offset: z.number().int().min(0).max(1_000_000).optional().describe('Skip this many entries (a long folder is listed in parts; the result says the next offset)'),
 })
 export const GlobInput = z.strictObject({
   pattern: z.string().min(1).max(1000).describe('Glob pattern, e.g. "**/*.md" or "shared/meetings/*2026-09*"'),
@@ -27,6 +28,7 @@ export const GrepInput = z.strictObject({
   '-B': z.number().int().min(0).max(50).optional(),
   '-C': z.number().int().min(0).max(50).optional(),
   head_limit: z.number().int().min(1).max(5000).optional().describe('Max output lines/entries (default 200)'),
+  offset: z.number().int().min(0).max(1_000_000).optional().describe('Skip this many output lines/entries first: to read on after a result that stopped at its size limit (the result says the offset)'),
   multiline: z.boolean().optional(),
 })
 /** read with `versions`: how many earlier versions are listed (default, at most) */
@@ -114,7 +116,7 @@ export const MakeFileSheet = z.strictObject({
 
 export const MakeFileInput = z.strictObject({
   source: optRelPath.describe('.md/.csv file to convert, an .html page to print to PDF, a .pptx deck to save as PDF (format "pdf"), or an .svg picture to save as PNG (format "png"); source or content'),
-  content: z.string().optional(),
+  content: z.string().optional().describe('Markdown (or CSV for xlsx); source or content. For xlsx with a .csv/.tsv source: Markdown tables added as more sheets after the CSV\'s'),
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
   template: optRelPath.describe('A file the person can read whose styles the new file takes (.docx, .pptx or .hwpx, the same format as the output), e.g. their earlier document or a team template under skills/'),
@@ -130,7 +132,7 @@ export const MakeFileInput = z.strictObject({
   page: MakeFilePage.optional().describe('docx only: page size, orientation, margins, header, footer and page numbers'),
   sheets: z.array(MakeFileSheet).min(1).max(50).optional().describe('xlsx only: number formats, column widths, frozen rows/columns, filter and conditional formatting per sheet'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
-}).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
+}).refine((v) => (v.source === undefined) !== (v.content === undefined) || (v.format === 'xlsx' && v.source !== undefined && /\.(csv|tsv)$/i.test(v.source)), { message: 'give exactly one of source or content (only an xlsx from a .csv/.tsv source may add sheets in content)' })
   .refine((v) => v.format === 'xlsx' || v.charts === undefined, { message: 'charts are only for format "xlsx"' })
   .refine((v) => v.format === 'xlsx' || v.sheets === undefined, { message: 'sheets is only for format "xlsx"' })
   .refine((v) => v.format === 'docx' || v.page === undefined, { message: 'page is only for format "docx"' })

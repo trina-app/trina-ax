@@ -32,6 +32,7 @@ export const zh: Record<MessageKey, string> = {
   "devEnv.title": "开发环境",
   "devEnv.experiment": "实验",
   "devEnv.unavailable": "此服务器无法运行开发环境。",
+  "devEnv.unavailableAi": "修复之前，AI 会告诉大家现在无法做这类工作（例如对大型数据文件求和），也不会让大家再试一次。",
   "devEnv.who": "谁可以使用",
   "devEnv.network": "网络",
   "devEnv.netOffline": "无网络",

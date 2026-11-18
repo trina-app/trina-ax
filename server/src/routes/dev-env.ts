@@ -54,7 +54,8 @@ export const devEnvRoutes: RouteModule = {
       // a person in scope can run commands in this project's chats when they can open its folder
       const mayUse = mayUseDevEnv(ctx.db, ctx.files, p.id) && canRead(ctx.files, p, folderPath)
       return {
-        availability: await availability(), setting: teamAsProject(), warningVersion: DEV_ENV_SRT_WARNING_VERSION,
+        // the reason names server paths: for admins only (a member sees only that it is not available)
+        availability: await availability().then((a) => (isAdmin(p) ? a : { available: a.available, ...(a.reason ? { reason: a.reason } : {}) })), setting: teamAsProject(), warningVersion: DEV_ENV_SRT_WARNING_VERSION,
         mayUse, mayManage: isAdmin(p),
         runs: mayUse || isAdmin(p) ? await runsOf(ctx, { projectId: id }) : { running: [], waiting: [] },
       }

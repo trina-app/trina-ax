@@ -84,7 +84,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV${html ? ', or a PDF from an HTML page' : ''}, or a PNG picture from SVG. ` +
       (html ? HTML_PDF_HINT : HTML_PDF_OFF_HINT) +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
-      'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
+      'pipe table becomes a sheet. A big workbook (thousands of rows, e.g. from a CSV export) is made from the CSV itself: give the .csv/.tsv ' +
+      'file as `source` (up to 10 MB; no row or character limit below that) and never retype or sample its rows. With such a source, `content` ' +
+      'may add Markdown tables as more sheets after it, e.g. a summary with "=SUMIFS(sales!E:E,sales!B:B,A2)"; the CSV\'s sheet is named after ' +
+      'the file without its extension, cut to 31 characters (sales.csv: "sales"). xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
       'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). Simple formulas (numbers, cells of the same ' +
@@ -120,11 +123,12 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       const extraLines = (r.conditional ? `\nThe file has ${r.conditional} conditional formatting rule${r.conditional === 1 ? '' : 's'}.` : '') +
         (r.svgPictures ? `\n${r.svgPictures} SVG picture${r.svgPictures === 1 ? ' was' : 's were'} put in as PNG.` : '') +
         (a.format === 'png' ? `\nTo put the picture into a Word or PowerPoint file, refer to it in the Markdown: ![](${r.path}){width=15cm}.` : '')
+      const sheetLine = r.csvSheet ? `\nThe CSV's sheet is named '${r.csvSheet}', not after the whole file name (Excel allows 31 characters and no \\ / ? * [ ] :): use that name in formulas and tell the user if they named it.` : ''
       const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
       const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
-        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + extraLines
+        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + sheetLine + extraLines
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
       return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}) } }

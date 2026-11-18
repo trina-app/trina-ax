@@ -32,6 +32,7 @@ export const ja: Record<MessageKey, string> = {
   'devEnv.title': "開発環境",
   'devEnv.experiment': "実験機能",
   'devEnv.unavailable': "このサーバーでは開発環境を実行できません。",
+  'devEnv.unavailableAi': "直るまで、AI はその種の作業（大きなデータファイルの合計など）が今はできないと伝え、もう一度試すようには言いません。",
   'devEnv.who': "使える人",
   'devEnv.network': "ネットワーク",
   'devEnv.netOffline': "ネットワークなし",

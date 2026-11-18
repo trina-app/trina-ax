@@ -17,10 +17,12 @@ import { authorize } from '../policy/authorize'
 import { readRegular } from '../files/store'
 import { shownTimeZone, zonedParts } from '../system/time-zone'
 import { MAX_CONCURRENT_SUBAGENTS } from '../engine/claude'
+import { PARENT_ONLY_TOOLS } from './subagents'
+import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { PROFILE_PATH, profileFactLines, readCompanyProfile } from '../onboarding/profile'
 import { getTeamSettings } from '../admin/settings'
 import { serverWhere, situationSection, type Situation } from './situation'
-import { appMapSection, type AppMapInput } from './app-map'
+import { appLabel, appMapSection, type AppMapInput } from './app-map'
 import { WHOLE_TEAM_PATH } from './search-path'
 import type { RunKind } from '../system/deployment'
 import { htmlPdfUnavailable } from '../files/html-pdf'
@@ -126,6 +128,10 @@ export interface PromptInput {
   /** a guest from outside the team (chat/guest-tools.ts guestPromptOf): their places and who invited them. The
    * instructions say what a guest can and cannot do (guestSection) and leave out what only team members have */
   guest?: GuestPrompt | null
+  /** the team's dev environment is on for this person but does not work on this server now (devenv/srt/runner.ts
+   * devEnvDownReason): no box_shell this turn, and the AI says so once (devEnvDownRule); 'staff': the asker is the
+   * owner or an admin, 'member': anyone else (also every shared chat, which names no one's role) */
+  devEnvDown?: 'staff' | 'member' | null
   now?: Date
 }
 
@@ -799,6 +805,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     subagent ? '' : i.guest ? (i.guest.places.some((p) => p.kind === 'project') ? GUEST_PLACEMENT_RULE : GUEST_OWN_PLACEMENT_RULE) : filePlacementRule(i.tools.includes('move_files'), templates ? ARCHIVE_FOLDER[templates.locale] : null, i.tools.includes('delete_files')),
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
+    !subagent && i.devEnvDown ? devEnvDownRule(i.devEnvDown, i.locale) : '',
     timeLine(now, i.timeZone, i.personTimeZone),
     answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
@@ -1009,9 +1016,52 @@ export const TITLE_RULE = 'The set_title tool is offered only at the start of a 
  * how to use it; this says what is different here (S2: the number at once, so the model does not tell a person to set
  * an environment variable when the fifth is refused).
  */
-export function subagentRule(): string {
+/** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
+ * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
+export function devEnvDownRule(who: 'staff' | 'member', L: Locale): string {
+  const where = `${appLabel('admin.settings', L)} › ${appLabel('devEnv.title', L)}`
+  return 'The dev environment (where you do heavier work yourself, e.g. totals, pivots or charts over a big data file) is turned on for this team but is not working right now, so you cannot use it in this answer. ' +
+    'When the user asks for work that needs it, say once, in one or two plain sentences, which part cannot be done here right now and why (the dev environment is not working), then do what you can with your other tools. ' +
+    (who === 'staff'
+      ? `The user is an owner or admin: the reason is shown in ${where}, where they can fix it.`
+      : 'The team\'s owner or an admin can see the reason in their settings and fix it; do not give the user technical details.') +
+    ' Never say to try again in a few minutes, and do not mention it again in this chat unless asked.'
+}
+
+/** What each tool only the main AI has (chat/subagents.ts PARENT_ONLY_TOOLS) does, in the words of the sub-agent
+ * sentence. A test checks that every such tool has its words, so the sentence follows the list (QA TC-4926: it named 6
+ * of 30 and the AI handed helpers work they could not do). */
+export const PARENT_ONLY_WORDS: Readonly<Record<string, string>> = {
+  ask_user: 'asking the user', connect_service: 'connecting a service', set_title: 'the chat title', remember: 'memories', forget: 'memories',
+  move_skill: 'moving skills', skill_files: 'changing skill folders', delete_files: 'putting files in the trash',
+  change_project_members: 'project members', change_folder_access: 'folder access',
+  schedule_create: 'schedules', schedule_list: 'schedules', schedule_delete: 'schedules',
+  generate_video: 'videos', save_promo_video: 'videos', box_shell: 'running commands in the dev environment',
+  rooms: 'team chat rooms', room_read: 'team chat rooms', room_file: 'team chat rooms', save_room_file: 'team chat rooms', post_to_room: 'posting to a room',
+  chat_file: 'files attached to this chat', share_with_person: 'sharing with people', stop_sharing: 'sharing with people', share_folder: 'sharing with people',
+  who_can_open: 'checking who can open something', shared_with_me: 'files shared with the user', looking_at: 'what the user has open',
+  answer_comments: 'comments on answers',
+}
+/** the words for the browser's tools (realtime/browser-tools.ts BROWSER_TOOL_NAMES), which are many */
+const BROWSER_WORDS = 'the browser'
+
+/** What a sub-agent of this turn lacks, from the turn's own tools (`tools`, no prefix) and PARENT_ONLY_TOOLS: the
+ * tools this turn has that sub-agents do not get, in plain words, each once. */
+export function subagentLacks(tools: readonly string[]): string[] {
+  const words: string[] = []
+  for (const t of tools) {
+    if (!PARENT_ONLY_TOOLS.has(t)) continue
+    const w = BROWSER_TOOL_NAMES.has(t) ? BROWSER_WORDS : PARENT_ONLY_WORDS[t] ?? t
+    if (!words.includes(w)) words.push(w)
+  }
+  return words
+}
+
+/** `tools`: the turn's tools (no prefix); the sentence names what sub-agents lack among them. */
+export function subagentRule(tools: readonly string[]): string {
+  const lacks = subagentLacks(tools)
   return `You can hand self-contained parts of a big task to sub-agents with the Agent tool: subagent_type "general-purpose" for work that may save files, "Explore" for read-only research. At most ${MAX_CONCURRENT_SUBAGENTS} run at the same time (start several in one message to run them in parallel); more are refused, so wait for those to finish first. ` +
-    'A sub-agent has your team tools and the same user\'s access, except asking the user, memories, the chat title, schedules, videos and the browser. It cannot ask the user anything and does not see this conversation: put every path, criterion and the expected output in its prompt. ' +
+    `A sub-agent has your team tools and the same user's access${lacks.length ? `, except these, which only you have: ${lacks.join(', ')}. Do those parts yourself, before or after the sub-agents` : ''}. It cannot ask the user anything and does not see this conversation: put every path, criterion and the expected output in its prompt. ` +
     'Its report comes back to you, not to the user: check it, then answer. Do not set isolation. Do small tasks yourself.'
 }
 
@@ -1252,7 +1302,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('remember') ? `Use remember only for lasting facts or preferences the user wants you to keep (one line, under ${MEMORY_ITEM_MAX} characters). Use forget with the id when asked to forget.` : '',
     tools.has('set_title') ? TITLE_RULE : '',
     tools.has('room_read') ? (i.guest ? GUEST_ROOMS_RULE : tools.has('post_to_room') ? `${ROOMS_RULE} ${ROOMS_POST_RULE} ${POST_FILE_RULE} ${WHICH_THREAD_RULE}` : ROOMS_RULE) : '',
-    i.subagents ? subagentRule() : '',
+    i.subagents ? subagentRule(i.tools) : '',
     'A <turn_context> block in front of a user message is written by the server, not by the user: it holds the current context and replaces the person, time, memories, company profile and project parts of these instructions.',
   ]
   return [
@@ -1307,7 +1357,7 @@ export function turnContextSections(files: FileService, i: PromptInput): Section
     { id: 'situation', text: i.situation ? situationSection(i.situation, i.locale) : '' },
     { id: 'browser', text: browserSection(i) },
     // a session started before sub-agents existed (or while they were off) lacks this in its first instructions
-    { id: 'subagents', text: i.subagents ? `## Sub-agents\n${subagentRule()}` : '' },
+    { id: 'subagents', text: i.subagents ? `## Sub-agents\n${subagentRule(i.tools)}` : '' },
     // a session started while Hangul writing was off (the HWP plugin, tools/hwp-writing.ts) lacks these in its first
     // instructions. One started while it was on keeps them after it is turned off: its list then has no edit_hwp and
     // no .hwpx, and such a call is refused with the reason
