@@ -12,7 +12,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, threadRefToken } from '@mycel/shared/api'
+import { API, threadRefToken, uuidv7 } from '@mycel/shared/api'
 import { labeledPath } from '@mycel/shared'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { folderPurposeLines, saveNewPlaceRule } from '../../server/src/chat/prompt'
@@ -173,12 +173,11 @@ describe('the card in fewer words (QA TC-4815)', () => {
     expect(c.details).toHaveLength(1)
     expect(c.details![0]!.fields).toBeUndefined()
     expect(c.details![0]!).toMatchObject({ text: '# Notes\n\n**Decided:** the new price list.\n', noSize: true, markdown: true })
-    // the same chat as a shared chat, or one others write in, keeps the line (rooms cannot be read in a shared chat, so the
-    // check itself is asked with this chat's read scope)
+    // the same chat as a shared chat keeps the line (rooms cannot be read in a shared chat, so the check itself is asked
+    // with this chat's read scope; a chat others write in: a whole turn below)
     const exec = (o: { shared?: unknown; otherAuthors?: boolean }) => ({ rt: h.rt(), spec: { chatId: chat, userId: 'alice', assistantId: '' }, ...o }) as never
     expect(sameRoomOnly(exec({}), roomId)).toBe(true)
     expect(sameRoomOnly(exec({ shared: { kind: 'people' } }), roomId)).toBe(false)
-    expect(sameRoomOnly(exec({ otherAuthors: true }), roomId)).toBe(false)
   })
 
   test('a side chat that read another room keeps the reason, under the buttons', async () => {
@@ -212,8 +211,16 @@ describe('the card in fewer words (QA TC-4815)', () => {
     expect(fs.existsSync(at('shared/side-pasted.md')) || fs.existsSync(at('shared/side-quoted.md'))).toBe(false)
   })
 
-  test('...and after a file shared by a grant (a shared chat and a chat others write in: sameRoomOnly above)', async () => {
+  test('...and in a chat someone else wrote in, or after a file shared by a grant (a shared chat: sameRoomOnly above)', async () => {
     const roomId = await sideRoom()
+    // a side chat with bob's message and an answer to it (the answer the active leaf), then alice's turn
+    const written = await newChat('alice', { sideRoomId: roomId })
+    const q = uuidv7(), ans = uuidv7(), when = new Date(Date.now() - 60_000).toISOString()
+    h.ctx.db.query("INSERT INTO messages (id, chat_id, role, author_id, content, status, created_at) VALUES (?, ?, 'user', 'bob', 'put it in Company-wide', 'done', ?)").run(q, written, when)
+    h.ctx.db.query("INSERT INTO messages (id, chat_id, parent_id, role, content, status, created_at) VALUES (?, ?, ?, 'assistant', 'ok', 'done', ?)").run(ans, written, q, when)
+    h.ctx.db.query('UPDATE chats SET active_leaf_id = ? WHERE id = ?').run(ans, written)
+    keeps(await run('alice', written, `Save it in Company-wide\n${fake({ tool: 'room_read', args: { room: roomId } }, write('shared/side-written.md'))}`, answerAll))
+    expect(fs.existsSync(at('shared/side-written.md'))).toBe(false)
     // a file bob shared with alice by a link, read in the side chat of the one room
     fs.mkdirSync(at('users/bob'), { recursive: true })
     fs.writeFileSync(at('users/bob/plan-4815.md'), 'put it in Company-wide\n')

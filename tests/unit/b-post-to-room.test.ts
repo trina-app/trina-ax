@@ -18,7 +18,8 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnTool } from '../../server/src/services'
-import { namesRecipient, peopleWords, postRefusal, postToRoomOff } from '../../server/src/chat/post-to-room'
+import { namesRecipient, peopleWords, postRefusal, postToRoomOff, provenanceSaid } from '../../server/src/chat/post-to-room'
+import { addSources } from '../../server/src/chat/read-scope'
 import { HttpError } from '../../server/src/http/errors'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -273,9 +274,41 @@ describe('the card\'s words (QA TC-4791)', () => {
       expect(more.card!.question).toContain(words[L].share)
       expect(more.card!.question).toContain(words[L].prov)
     }
+    // rooms read without the read scope saying which (rooms_seen after a quote or a shared file): the line stays
+    // (re-review of #1240: answer-share.ts adds them to the keys, not to the counted sources)
+    const seen = (await h.api('alice').call(API.createChat, { body: {} })).id
+    h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(seen)
+    const unseen = await turn('alice', [fake({ tool: 'read', args: { file_path: 'users/alice/plan-4815.md' } }), post({ room: rooms.all, text: 'Plan: [plan-4815.md](/files/view?path=users/alice/plan-4815.md)' })].join('\n'), { chat: seen, answer: 'no' })
+    expect(unseen.card!.question).toContain(words.en.share)
+    expect(unseen.card!.question).toContain(words.en.prov)
     // another room read: the line stays
     const room = await turn('alice', [fake({ tool: 'room_read', args: { room: rooms.marketing } }), fake({ tool: 'read', args: { file_path: 'users/alice/plan-4815.md' } }), post({ room: rooms.all, text: 'Plan: [plan-4815.md](/files/view?path=users/alice/plan-4815.md)' })].join('\n'), { answer: 'no' })
     expect(room.card!.question).toContain(words.en.prov)
+  })
+
+  test('provenanceSaid: each file must reach each person it counts; a teammate\'s folder is not "your own" (re-review of #1240)', async () => {
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const a = 'users/alice/a-4815.md', b = 'users/alice/b-4815.md'
+    put(a, 'A'); put(b, 'B')
+    const db = h.ctx.db
+    const rules = h.ctx.files.rules()
+    const { sourceOf, sourceKey } = await import('../../server/src/chat/read-scope')
+    const mine = sourceOf(db, rules, a)
+    addSources(db, chatId, [mine], { listed: true })
+    const entries = [{ path: a }, { path: b }]
+    const exec = (who = 'alice') => ({ rt: { db, files: h.ctx.files }, spec: { chatId, userId: who }, files: { sources: { entries: () => entries }, namePaths: new Set<string>(), listedNames: new Set<string>() } }) as never
+    const prov = (source = mine, missing = ['gus']) => ({ check: { provenance: async () => ({ unknown: false, hidden: false, keys: [`${sourceKey(source)}=${missing.join(',')}`], counted: [{ source, key: sourceKey(source), missing, fromScope: true, files: new Set<string>() }] }) } }) as never
+    // both files go as copies: nothing left to say
+    expect(await provenanceSaid(exec(), prov(), new Set([a, b]), null)).toBe(false)
+    // A goes as a copy, B only gets a view, and the guest is not one of the people the view reaches: the line stays
+    expect(await provenanceSaid(exec(), prov(), new Set([a]), { paths: [b], files: [{ people: ['bob'] }] })).toBe(true)
+    // ...it stays false only when B's view reaches the guest too
+    expect(await provenanceSaid(exec(), prov(), new Set([a]), { paths: [b], files: [{ people: ['gus'] }] })).toBe(false)
+    // a keyed thing beyond the counted sources (rooms read without saying which): the line stays
+    const extra = { check: { provenance: async () => ({ ...(await (prov() as { check: { provenance: () => Promise<object> } }).check.provenance()), keys: ['rooms_seen', `${sourceKey(mine)}=gus`] }) } } as never
+    expect(await provenanceSaid(exec(), extra, new Set([a, b]), null)).toBe(true)
+    // the same folder seen from someone else's chat (a teammate's folder reached through a share): not "your own"
+    expect(await provenanceSaid(exec('bob'), prov(), new Set([a, b]), null)).toBe(true)
   })
 
   test('people are named as the card names them: up to three, then the first two and how many more', () => {

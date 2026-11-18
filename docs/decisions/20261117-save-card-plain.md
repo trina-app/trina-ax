@@ -46,9 +46,12 @@
   said the same thing twice: "QA Admin, QA Member Two can't open the file yet; sending shares it with them" and "2 people
   there can't see some of the sources of this (My files)". The second line (`postRoomProvenance`) is left off when every
   source it counts is a file the first line names and Send shares (`post-to-room.ts provenanceSaid`): each counted source
-  is the asker's own folder or a folder (never a room, a chat, a connection, the browser), every read of that place in the
-  chat is recorded file by file (`read-scope.ts scopeWithListing`), each of those files goes as a copy or gets the card's
-  view, no listing showed that place's other names in this answer, and everyone it counts is someone Send lets in. Any
+  is the asker's own folder (not a teammate's folder reached through a share) or a folder, never a room, a chat, a
+  connection or the browser; nothing else is in the provenance (rooms read without the read scope saying which, after a
+  quote or a shared file, and a room hidden by history: its `keys` beyond the counted sources keep the line, re-review of
+  #1240); every read of that place in the chat is recorded file by file (`read-scope.ts scopeWithListing`); no listing
+  showed that place's other names in this answer; and each of those files reaches each person the source counts, as a
+  copy or through the view the card grants that person for that file (a guest never gets a view). Any
   other source those people cannot see (another room, a file that does not go, anything not known) keeps the line, and so
   does any doubt. The decision is made from sources and people, so it is the same in every language. Only the words
   change: the explicit-ask skip and the per-chat approval still go by the full set of lines.
@@ -60,9 +63,10 @@
   question and the facts that matter.
 - **Tests:** `tests/unit/b-ai-save-place.test.ts` ("the card in fewer words (QA TC-4815)": the same-room side chat has no
   reason line, another room, a pasted quote, another room's quote and a file shared by a grant keep it under the
-  buttons, a shared chat and a chat others write in keep it (`sameRoomOnly`), links, comments, reference definitions
+  buttons, a chat others write in keeps it (a whole turn) and so does a shared chat (`sameRoomOnly`), links, comments, reference definitions
   and math stay plain, an instruction file and an edit stay plain and the edit keeps its Action row; the words in six
   languages), `tests/unit/b-post-to-room.test.ts` (reference links, comments and math stay plain on the post card too;
-  the asker's own file that Send shares drops the sources line, another file of theirs read or another room keeps it),
+  the asker's own file that Send shares drops the sources line; another file of theirs read, another room, rooms read
+  without the scope naming them, a file whose view misses someone and a teammate's folder keep it),
   `tests/unit/b-chat-rooms.test.ts`, `tests/unit/b-skill-save-one-card.test.ts`, `tests/unit/plural-counts.test.ts`.
 - **Version impact:** patch (the same card with fewer words).

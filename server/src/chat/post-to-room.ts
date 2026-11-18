@@ -159,31 +159,39 @@ function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: numb
 }
 
 /** Does the provenance line say something the share line does not (review of #1240)? False only when every source it
- * counts is a file of the asker's own or a folder (never a room, a chat, a connection, the browser or anything unknown),
- * every read of that place in this chat is recorded file by file (read-scope.ts scopeWithListing: an answer's source
- * list or this answer's SourceLog, never a read only its place records), each of those files goes with Send or is given
- * a view on this card (`shared`), no folder listing of that place showed other names in this answer, and everyone it
- * counts is someone Send lets in (`letIn`). True on any doubt, so the line stays. */
-export async function provenanceSaid(exec: TurnExec, p: PreparedShare, attached: ReadonlySet<string>, viewed: readonly string[], letIn: ReadonlySet<string>): Promise<boolean> {
+ * counts is the asker's own folder or a folder (never a teammate's folder reached through a share, a room, a chat, a
+ * connection, the browser or anything unknown), nothing else is in the provenance (rooms read without the scope saying
+ * which, a room hidden by history: `keys` beyond the counted sources), every read of each place in this chat is recorded
+ * file by file (read-scope.ts scopeWithListing: an answer's source list or this answer's SourceLog), no listing showed
+ * that place's other names in this answer, and each of those files reaches each person the source counts: as a copy
+ * (`attached`: everyone there gets it) or through the view this card grants that person for that file (`view`; a guest
+ * never gets one). True on any doubt, so the line stays. */
+export async function provenanceSaid(exec: Pick<TurnExec, 'rt' | 'spec' | 'files'>, p: Pick<PreparedShare, 'check'>, attached: ReadonlySet<string>, view: { paths: readonly string[]; files: readonly { people: readonly string[] }[] } | null): Promise<boolean> {
   try {
     const db = exec.rt.db
     const prov = await p.check.provenance(attached)
     const counted = prov.counted ?? []
-    if (prov.unknown || !counted.length || [...prov.missing].some((id) => !letIn.has(id))) return true
+    if (prov.unknown || prov.hidden || !counted.length || prov.keys.length !== counted.length) return true
     const scope = scopeWithListing(db, exec.spec.chatId)
     if (!scope) return true
     const rules = exec.rt.files.rules()
-    const shared = new Set([...attached, ...viewed])
     const keyOf = (rel: string) => sourceKey(sourceOf(db, rules, rel))
+    // who may open each file once Send goes: everyone there for a copy, else the people this card grants a view
+    const reaches = (rel: string, id: string) => {
+      if (attached.has(rel)) return true
+      const i = view ? view.paths.indexOf(rel) : -1
+      return i >= 0 && !!view!.files[i]?.people.includes(id)
+    }
     // every file this chat's answers read (any branch) and this answer's own reads so far
     const earlier = (db.query('SELECT DISTINCT s.path FROM message_sources s JOIN messages m ON m.id = s.message_id WHERE m.chat_id = ?').all(exec.spec.chatId) as { path: string }[]).map((r) => r.path)
     const read = [...new Set([...earlier, ...exec.files.sources.entries().map((e) => e.path)])]
     const listed = [...exec.files.namePaths, ...exec.files.listedNames]
     for (const c of counted) {
-      if ((c.source.type !== 'user' && c.source.type !== 'folder') || (c.source.type === 'user' && c.source.via)) return true
-      if (!scope.listed(c.source)) return true
+      const s = c.source
+      if (!(s.type === 'folder' || (s.type === 'user' && s.id === exec.spec.userId && !s.via && !s.share))) return true
+      if (!scope.listed(s)) return true
       const from = read.filter((rel) => keyOf(rel) === c.key)
-      if (!from.length || from.some((rel) => !shared.has(rel))) return true
+      if (!from.length || from.some((rel) => c.missing.some((id) => !reaches(rel, id)))) return true
       if (listed.some((rel) => keyOf(rel) === c.key)) return true
     }
     return false
@@ -451,7 +459,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // when every source it counts is a file that line names and Send shares (the owner, review of #1240): it is left
         // off the card then. Kept for any other source those people cannot see (another room, a file that does not go,
         // a folder listing, anything not known), and on any doubt. Only the words: `lines` above still decides the rest
-        const shownLines = letIn.size && chosen.confirm.provenance && !pendingTo && prepared && !(await provenanceSaid(exec, prepared, attached, view?.paths ?? [], letIn))
+        const shownLines = letIn.size && chosen.confirm.provenance && !pendingTo && prepared && !(await provenanceSaid(exec, prepared, attached, view))
           ? [...linesOf(chosen, { files: left.length, people: leftIds.size, names: nameable(leftRows.map((r) => r.rel)) ? names(leftIds) : [] }, L, sharedFile, sharedCount, true), ...grantLines]
           : lines
         const question = [ask, [shareLine, ...shownLines, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
