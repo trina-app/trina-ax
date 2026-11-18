@@ -4,7 +4,7 @@
 // local relay, a fake desktop app here that answers as an MCP server), the AI is told in plain words when the message
 // came from elsewhere, and the team's switch turns it off.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { API, LocalAppSpec, LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type ServerFrame } from '@mycel/shared/api'
+import { API, LocalAppSpec, LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type Integration, type ServerFrame } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { getRow, mayUse, usable } from '../../server/src/integrations/connections/store'
 import { setSetting } from '../../server/src/admin/settings'
@@ -54,7 +54,7 @@ function serveLocal(sock: TestSocket) {
 }
 
 const deskApi = () => h.api('alice', { window: DESK, client: 'desktop' })
-let made: Awaited<ReturnType<ReturnType<typeof deskApi>['call']>> & { id: string }
+let made: Integration
 
 describe('the shared shape', () => {
   test('the known tools are valid specs; the confirm\'s key covers the command and its template, not words', () => {
@@ -75,9 +75,9 @@ describe('the shared shape', () => {
 
 describe('kind local: the person\'s own, through their desktop window', () => {
   test('added from the desktop window: checked there at once, its tools saved; the command shape only', async () => {
-    made = await deskApi().call(API.createLocalIntegration, { body: { name: 'Aside', spec: SPEC } }) as typeof made
+    made = await deskApi().call(API.createLocalIntegration, { body: { name: "Aside", spec: SPEC } })
     expect(made).toMatchObject({ kind: 'local', scope: 'personal', status: 'connected', url: '', auth: 'none', local: SPEC, canManage: true })
-    expect(made.tools.map((t: { name: string }) => t.name)).toEqual(['echo'])
+    expect(made.tools.map((t) => t.name)).toEqual(['echo'])
     expect(seen.map((s) => s.method)).toEqual(['initialize', 'notifications/initialized', 'tools/list'])
     expect(seen.every((s) => s.connectionId === made.id && s.turnId === null)).toBe(true)
     expect(web.frames.some((f) => f.type === 'local.call')).toBe(false)
@@ -130,7 +130,7 @@ describe('kind local: the person\'s own, through their desktop window', () => {
     const changed = await deskApi().call(API.updateLocalIntegration, { params: { id: made.id }, body: { spec: { ...SPEC, args: ['mcp', '--computer-use'] } } })
     expect(changed).toMatchObject({ status: 'connected', local: { args: ['mcp', '--computer-use'] } })
     expect(seen.slice(n).map((s) => s.method)).toContain('tools/list')
-    made = await deskApi().call(API.updateLocalIntegration, { params: { id: made.id }, body: { spec: SPEC } }) as typeof made
+    made = await deskApi().call(API.updateLocalIntegration, { params: { id: made.id }, body: { spec: SPEC } })
   })
 })
 
