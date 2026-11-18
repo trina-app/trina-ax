@@ -229,7 +229,7 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
       throw e
     } finally { zip.close() }
     if (!done.length && !folders.length) throw new ToolError('none of the files could be read for the zip, so nothing was saved')
-    const made = await placeProduced(ctx, files, c, target.segs, tmp, 'make_zip', undefined, { turnBytes: guest, detail: { files: done.length } })
+    const made = await placeProduced(ctx, files, c, target.segs, tmp, 'make_zip', undefined, { turnBytes: guest, thisAnswerOnly: true, detail: { files: done.length } })
     return { path: made.path, size: made.size, files: done, folders: folders.length, total, skipped, renamed, ...(made.conflictCopyOf ? { conflictCopyOf: made.conflictCopyOf } : {}) }
   } finally {
     release?.()

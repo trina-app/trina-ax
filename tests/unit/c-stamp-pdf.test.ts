@@ -244,7 +244,7 @@ describe('the folder rules', () => {
     const call = turn('alice')
     const r = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', output: rel })
     expect(r.isError).toBe(true)
-    expect(r.text).toContain('read it in this turn first')
+    expect(r.text).toContain('read it in this chat first')
     expect(fs.readFileSync(file(rel)).equals(before)).toBe(true)
     // read first: a new version, the old one in its history
     expect((await call('read', { file_path: rel, pages: '1' })).isError).toBe(false)

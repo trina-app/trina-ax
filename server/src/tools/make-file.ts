@@ -48,7 +48,7 @@ import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
-import type { ToolCtx } from '../files/service'
+import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
 import { conflictCopyName, fileEvent, readRegular, recordConflictCopy, sha256 } from '../files/store'
 import { sourceOf, widening } from '../chat/read-scope'
 import { authorize } from '../policy/authorize'
@@ -321,6 +321,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, a.format)
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
 
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
@@ -428,6 +430,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, this.files.rules(), c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
     const printed = await printTeamHtml(this.ctx, this.files, c.user, a.source!, { signal: c.signal })
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
@@ -456,6 +460,8 @@ export class MakeFile {
     const outRel = makeFileOutputPath(a.output, 'pdf')
     const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
     if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    // before any work: a file read earlier that changed since, or that this session does not hold, asks for a new read
+    if (out.exists) readForMakeFile(c.files, out.rel)
     const why = htmlPdfUnavailable()
     const browser = findPdfBrowser()
     if (why || !browser) throw new ToolError(`this server cannot make a PDF of a deck (${why ?? 'no headless browser is installed'}); nothing was saved. Tell the user so, and that PowerPoint or Keynote can (File > Export > PDF); never rewrite the slides as a document instead`, 'html_pdf_unavailable')
@@ -857,7 +863,10 @@ const MADE_BY = new Set(['make_file', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'st
  * card over 1 GB and the disk check bounds (tools/save-url.ts). `turnFiles: false`: the file does not count against the
  * turn's file count (maxFilesWrittenPerTurn): unzip_file, whose zip has its own limits (files/unzip.ts) and a budget per
  * answer (tools/unzip.ts). `detail`: more for the file event (the source URL). */
-export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown> }
+/** thisAnswerOnly: a save of a new thing (a web page, a room's file, a video, an unzip): an existing file there is
+ * replaced only when this answer read it (a read in an earlier message keeps both, as before); make_file and the
+ * tools that change a named file count the chat's earlier reads too (files/service.ts ReadHashes) */
+export interface PlaceOptions { turnBytes?: boolean; turnFiles?: boolean; detail?: Record<string, unknown>; thisAnswerOnly?: boolean }
 
 export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCtx, segs: string[], produced: string, tool = 'make_file', guard?: () => void, po: PlaceOptions = {}): Promise<MadeFile> {
   const cfg = ctx.engineConfig
@@ -889,11 +898,14 @@ export async function placeProduced(ctx: AppContext, files: TeamFiles, c: ToolCt
     const abs = path.join(fx.root, ...segs)
     checkRegular(abs)
     const cur = sha256(readRegular(abs, undefined, now.st).bytes)
-    if (c.files.readHashes.get(rel0) === cur) {
+    // make_file replaces a whole file: only from a read this session still holds (readForMakeFile); the in-place tools
+    // (edit_hwp, comment_docx, the PDF and image tools) work from the old bytes and use every unchanged read
+    if ((po.thisAnswerOnly ? readThisAnswer(c.files, rel0) : tool === 'make_file' ? readForMakeFile(c.files, rel0) : c.files.readHashes.get(rel0)) === cur) {
       snapshotVersion(ctx.db, fx.root, rel0, { userId: c.user.id, turnId: c.turnId }, 'edit', cur)
       action = 'update'
     } else {
-      // never overwrite a file the AI has not read in this turn: keep both
+      // never overwrite a file the AI has not read in this chat (this answer or, unchanged, an earlier one of the
+      // person's: files/service.ts ReadHashes; changed since then it asks for a new read): keep both
       const dir = segs.slice(0, -1)
       let name = conflictCopyName(segs[segs.length - 1]!, c.user.name, new Date(), teamDefaultLocale(ctx.db), teamTimeZone(ctx.db))
       if (badSegment(name)) name = `copy-${Date.now()}-${segs[segs.length - 1]}`

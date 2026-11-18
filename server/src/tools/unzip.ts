@@ -289,7 +289,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
           if (!part) throw new ToolError('the attachment is no longer in the email')
           fs.writeFileSync(tmp, part.data, { flag: 'wx', mode: 0o600 })
         } else await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
-        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, detail: { from: src.rel } })
+        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}), ...(instructionFileName(want) ? { instruction: true as const } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e

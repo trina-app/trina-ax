@@ -145,7 +145,7 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
   if (a.replace === true && a.output !== undefined) throw new ToolError('give either replace: true or output, not both')
   let out
   if (a.replace === true) {
-    if (!c.files.readHashes.has(src.rel)) throw new ToolError(`to replace '${src.rel}' (its old version stays in its history), read it in this turn first. Replace it only when the user asked for that; otherwise leave replace out to save a new file next to it`)
+    if (!c.files.readHashes.has(src.rel)) throw new ToolError(`to replace '${src.rel}' (its old version stays in its history), read it in this chat first. Replace it only when the user asked for that; otherwise leave replace out to save a new file next to it`)
     out = authorize(files.fx, files.rules(), c.user, src.rel, 'write', { mustExist: true })
     if (skillRootOf(out.rel)) throw new ToolError('a PDF in a skill folder is not changed here; save the result in a project or the person\'s own folder')
   } else if ((a.output === undefined || a.output.trim() === '') && madeThisTurn(c, src.rel, src.bytes)) {
@@ -223,7 +223,7 @@ async function pageCount(ctx: AppContext, c: ToolCtx, src: Part): Promise<number
 /** The tool result for the AI: what was saved, and how to check it. */
 export function pdfResultText(tool: string, r: PdfResult, link: (p: string) => string, check: boolean): string {
   const lines = r.made.map((m, i) => m.conflictCopyOf
-    ? `'${m.conflictCopyOf}' already exists and was not read in this turn (or changed after the read), so this result was saved as '${m.path}' (${r.pages[i]} page${r.pages[i] === 1 ? '' : 's'}). Tell the user about both.`
+    ? `'${m.conflictCopyOf}' already exists and was not read in this chat (or changed after the read), so this result was saved as '${m.path}' (${r.pages[i]} page${r.pages[i] === 1 ? '' : 's'}). Tell the user about both.`
     : `Saved ${m.path} (${r.pages[i]} page${r.pages[i] === 1 ? '' : 's'}). Link for the user: ${link(m.path)}`)
   const replaced = tool === 'edit_pdf' && r.made[0] && r.sources[0] === r.made[0].path && !r.made[0].conflictCopyOf
   const kept = replaced ? `This is a new version of ${r.sources[0]}; the previous version is in its file history.` : `${r.sources.join(', ')} ${r.sources.length === 1 ? 'is' : 'are'} unchanged.`

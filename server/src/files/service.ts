@@ -75,11 +75,97 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
 }
 
-/** "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. */
-class ReadHashes extends Map<string, string> {
-  constructor(private readonly all: Map<string, string> | null) { super() }
-  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+/**
+ * What the person's earlier answers in this chat read (chat/carried-reads.ts): path -> the sha256 of the version their
+ * AI last saw, and the sha256 of the file now, or null when the person may not read it now (permission checked at that
+ * moment), it is gone, not a regular file or too large to hash. Never another person's reads, never another branch's.
+ */
+export interface CarriedReads {
+  hashes: ReadonlyMap<string, string>
+  current(rel: string): string | null
+  /** the engine session this turn runs in when it resumed one (null: a fresh session, Codex, the API engine) */
+  inSession(sid: string | null): void
+  /** the read of `rel` was made in that same session, which still holds the file's text: a whole-file replace (write,
+   * make_file) may use it. Otherwise only edit and the in-place tools may (they need the exact old text, not a guess) */
+  wholeFile(rel: string): boolean
 }
+
+const subViews = new WeakMap<CarriedReads, CarriedReads>()
+/** the earlier answers' reads as a sub-agent sees them: the same hashes and checks, no whole-file replace */
+function subagentCarried(c: CarriedReads): CarriedReads {
+  let v = subViews.get(c)
+  if (!v) { v = { hashes: c.hashes, current: (rel) => c.current(rel), inSession: () => {}, wholeFile: () => false }; subViews.set(c, v) }
+  return v
+}
+
+/** read_state_stale: a file read in an earlier message that changed since (the AI reads it again, nothing is saved) */
+export const staleReadText = (rel: string) =>
+  `'${rel}' changed after you read it earlier in this chat (someone saved a new version). Read it again, then make your change to what it says now.`
+
+/**
+ * "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. A path this
+ * agent did not read in this turn falls back to the chat's earlier reads (`carried`), but only while the file is still
+ * exactly that version and the person may still read it: get() throws 'stale_read' for a changed one (asks for a new
+ * read; never a conflict copy or an overwrite from an old read), has() says false.
+ */
+class ReadHashes extends Map<string, string> {
+  /** `seen`: the turn's path -> the engine session whose AI saw the text (null: a sub-agent's or an unknown call's read,
+   * which the main session never saw), filled with `all` */
+  constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null,
+    private readonly seen: { sessions: Map<string, string | null>; session: () => string | null } | null = null) { super() }
+  // newest last in `all` (saveReads keeps the newest when an answer read more than it keeps)
+  override set(k: string, v: string) {
+    this.all?.delete(k); this.all?.set(k, v)
+    if (this.seen) this.seen.sessions.set(k, this.seen.session())
+    return super.set(k, v)
+  }
+  private earlier(k: string): { was: string; now: string | null } | null {
+    if (super.has(k)) return null
+    const c = this.carried()
+    const was = c?.hashes.get(k)
+    return c && was ? { was, now: c.current(k) } : null
+  }
+  override get(k: string) {
+    const e = this.earlier(k)
+    if (!e) return super.get(k)
+    if (e.now === null) return undefined
+    if (e.now !== e.was) throw new ToolError(staleReadText(k), 'stale_read')
+    return e.was
+  }
+  override has(k: string) {
+    const e = this.earlier(k)
+    return e ? e.now !== null && e.now === e.was : super.has(k)
+  }
+}
+
+/** the hash `files`' agent recorded for `rel` in THIS answer only (never an earlier answer's read): for saves of a new
+ * thing (a web page, a room's file, a video, an unzip) that keep a copy next to a file the chat saw before */
+/** the hash a whole-file replace (write, make_file) may rely on for `rel`: this answer's read, or an earlier answer's only
+ * when it was made in the engine session this turn resumed (CarriedReads.wholeFile); throws 'stale_read' like get() */
+export function readForReplace(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined) return own
+  return files.carried?.wholeFile(rel) ? files.readHashes.get(rel) : undefined
+}
+/**
+ * make_file over an existing file: like readForReplace, but a read of an earlier answer that this session does not hold
+ * (a fresh engine session) asks for a new read instead of a conflict copy next to it. Undefined: never read in this
+ * chat (a copy is kept next to it, as before); throws 'stale_read' when it changed since the read.
+ */
+export function readForMakeFile(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined || !files.carried?.hashes.has(rel)) return own
+  const seen = files.readHashes.get(rel)
+  if (seen === undefined || files.carried.wholeFile(rel)) return seen
+  throw new ToolError(`'${rel}' was read in an earlier message of this chat, but this conversation was started again since, so its text is not at hand here. Read it again, then save over it (it is replaced, its old version stays in its history).`, 'not_read')
+}
+
+/** readForReplace without the throw: would a whole-file replace of `rel` find a read to rely on? */
+export function mayReplace(files: TurnFiles, rel: string): boolean {
+  return readThisAnswer(files, rel) !== undefined || (!!files.carried?.wholeFile(rel) && files.readHashes.has(rel))
+}
+
+export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined => Map.prototype.get.call(files.readHashes, rel) as string | undefined
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
 export const CALL_OWNER_WAIT_MS = 3000
@@ -93,7 +179,17 @@ export class TurnFiles {
   /** the files this agent read (or wrote) in this turn and their hashes then: write / edit / make_file refuse an
    * existing file that is not here and make a conflict copy when it changed since. Per agent (forAgent): siblings do
    * not share it, so one sub-agent cannot overwrite what another wrote after it read the file (review M3) */
-  readHashes: Map<string, string> = new ReadHashes(this.allReads)
+  /** path -> the engine session in which the main AI saw what allReads holds for it (null: a sub-agent's read, an unknown
+   * call's, or one made before the turn moved to another session): saved with the reads, so a later answer's whole-file
+   * replace (write, make_file) counts it only in that same session (chat/carried-reads.ts) */
+  readonly readSessions = new Map<string, string | null>()
+  /** the engine session the main AI runs in now (engineSession), null for Codex or the API engine */
+  private session: string | null = null
+  readHashes: Map<string, string> = new ReadHashes(this.allReads, () => this.carried, { sessions: this.readSessions, session: () => this.session })
+  /** the person's reads of earlier answers on this branch of the chat (chat/carried-reads.ts), set when a chat turn
+   * starts: the main AI and its sub-agents may change those files without reading them again while they are unchanged
+   * (ReadHashes). Null: every read is per answer (a guest, a restricted run, no chat) */
+  carried: CarriedReads | null = null
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
   /** files whose last read in this turn was a reformatted (pretty-printed JSON) view: an edit that does not match says
@@ -142,6 +238,23 @@ export class TurnFiles {
    * (files/shared-folder-reads.ts; the main AI passes what it needs on) */
   readonly agentView: boolean = false
 
+  /**
+   * The main AI runs in engine session `sid` from now on (a launch of the turn), `resumed`: it goes on with the session
+   * that earlier answers ran in. Another session than before (an account switch, a lost stash, a compaction that
+   * dropped the text) means the reads made so far are not in it: they stay usable for edits, never for a whole-file
+   * replace (readSessions -> null).
+   */
+  engineSession(sid: string | null, resumed: boolean) {
+    if (sid !== this.session) for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.session = sid
+    this.carried?.inSession(resumed ? sid : null)
+  }
+  /** the session lost text (Claude Code compacted it): as a move to another session for what was read so far */
+  sessionLostText() {
+    for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.carried?.inSession(null)
+  }
+
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
   private owners = new Map<string, string | null>()
@@ -188,18 +301,22 @@ export class TurnFiles {
       })
       this.ownerWaits.delete(toolUseId)
     }
-    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(), agent: null, known: false } : { files: this, agent: null, known: false }
+    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(null, false), agent: null, known: false } : { files: this, agent: null, known: false }
     const agent = this.owners.get(toolUseId) ?? null
     return { files: agent ? this.forAgent(agent) : this, agent, known: true }
   }
 
   /** this turn's state with read-before-write hashes of its own; `agent`: the sub-agent it is for (its sources are
-   * marked so), null for a call whose agent is not known */
-  private view(agent: string | null = null): TurnFiles {
-    const own = new ReadHashes(this.allReads)
+   * marked so), null for a call whose agent is not known; `carry`: it may use the chat's earlier reads (a sub-agent
+   * may, a call whose agent is not known may not: it fails closed) */
+  private view(agent: string | null = null, carry = true): TurnFiles {
+    // a sub-agent never saw the earlier answers' text: it may edit from their reads, never replace a whole file from
+    // them (wholeFile false), and its own reads are saved without a session (the main session never saw them)
+    const sub = (): CarriedReads | null => (carry && this.carried ? subagentCarried(this.carried) : null)
+    const own = new ReadHashes(this.allReads, sub, { sessions: this.readSessions, session: () => null })
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }
@@ -1582,7 +1699,8 @@ export class FileService {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
-      const before = seen.get(r.rel)
+      // the AI's write: a read of this answer, or of an earlier one in this same engine session (readForReplace)
+      const before = tool === 'write' && seen === ctx.files.readHashes ? readForReplace(ctx.files, r.rel) : seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }
