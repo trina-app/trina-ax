@@ -82,6 +82,11 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
 export interface CarriedReads {
   hashes: ReadonlyMap<string, string>
   current(rel: string): string | null
+  /** the engine session this turn runs in when it resumed one (null: a fresh session, Codex, the API engine) */
+  inSession(sid: string | null): void
+  /** the read of `rel` was made in that same session, which still holds the file's text: a whole-file replace (write,
+   * make_file) may use it. Otherwise only edit and the in-place tools may (they need the exact old text, not a guess) */
+  wholeFile(rel: string): boolean
 }
 
 /** read_state_stale: a file read in an earlier message that changed since (the AI reads it again, nothing is saved) */
@@ -96,7 +101,8 @@ export const staleReadText = (rel: string) =>
  */
 class ReadHashes extends Map<string, string> {
   constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null) { super() }
-  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+  // newest last in `all` (saveReads keeps the newest when an answer read more than it keeps)
+  override set(k: string, v: string) { this.all?.delete(k); this.all?.set(k, v); return super.set(k, v) }
   private earlier(k: string): { was: string; now: string | null } | null {
     if (super.has(k)) return null
     const c = this.carried()
@@ -118,6 +124,31 @@ class ReadHashes extends Map<string, string> {
 
 /** the hash `files`' agent recorded for `rel` in THIS answer only (never an earlier answer's read): for saves of a new
  * thing (a web page, a room's file, a video, an unzip) that keep a copy next to a file the chat saw before */
+/** the hash a whole-file replace (write, make_file) may rely on for `rel`: this answer's read, or an earlier answer's only
+ * when it was made in the engine session this turn resumed (CarriedReads.wholeFile); throws 'stale_read' like get() */
+export function readForReplace(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined) return own
+  return files.carried?.wholeFile(rel) ? files.readHashes.get(rel) : undefined
+}
+/**
+ * make_file over an existing file: like readForReplace, but a read of an earlier answer that this session does not hold
+ * (a fresh engine session) asks for a new read instead of a conflict copy next to it. Undefined: never read in this
+ * chat (a copy is kept next to it, as before); throws 'stale_read' when it changed since the read.
+ */
+export function readForMakeFile(files: TurnFiles, rel: string): string | undefined {
+  const own = readThisAnswer(files, rel)
+  if (own !== undefined || !files.carried?.hashes.has(rel)) return own
+  const seen = files.readHashes.get(rel)
+  if (seen === undefined || files.carried.wholeFile(rel)) return seen
+  throw new ToolError(`'${rel}' was read in an earlier message of this chat, but this conversation was started again since, so its text is not at hand here. Read it again, then save over it (it is replaced, its old version stays in its history).`, 'not_read')
+}
+
+/** readForReplace without the throw: would a whole-file replace of `rel` find a read to rely on? */
+export function mayReplace(files: TurnFiles, rel: string): boolean {
+  return readThisAnswer(files, rel) !== undefined || (!!files.carried?.wholeFile(rel) && files.readHashes.has(rel))
+}
+
 export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined => Map.prototype.get.call(files.readHashes, rel) as string | undefined
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
@@ -1595,7 +1626,8 @@ export class FileService {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs, undefined, r.st).bytes
       if (tool === 'write') refuseLegacyText(r.rel, cur)
-      const before = seen.get(r.rel)
+      // the AI's write: a read of this answer, or of an earlier one in this same engine session (readForReplace)
+      const before = tool === 'write' && seen === ctx.files.readHashes ? readForReplace(ctx.files, r.rel) : seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }

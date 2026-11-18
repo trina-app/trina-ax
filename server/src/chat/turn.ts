@@ -35,7 +35,7 @@ import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { TurnFiles } from '../files/service'
+import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
@@ -134,7 +134,7 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
-import { carriedReads, saveReads } from './carried-reads'
+import { carriedReads, mayCarryReads, saveReads } from './carried-reads'
 
 export { noSearchPath } from './search-path'
 
@@ -317,6 +317,10 @@ export class TurnExec {
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
+  /** the person's reads carry over between answers in this chat (not a guest, not a restricted run: chat/carried-reads.ts) */
+  private carryReads = false
+  /** the Claude session this answer last ran in (its reads are saved under it), null for Codex or the API engine */
+  private readSession: string | null = null
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
@@ -871,7 +875,8 @@ export class TurnExec {
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
     // the person's own reads of the answers above on this branch (chat/carried-reads.ts): not for a guest or a restricted
     // run (theirs stay per answer); a failure only means a read again, as before
-    if (!guestTurn && !this.restricted) {
+    this.carryReads = !guestTurn && mayCarryReads(rt.db, spec.userId, this.restricted)
+    if (this.carryReads) {
       try { this.files.carried = carriedReads(rt.db, rt.files, { chatId: spec.chatId, userId: spec.userId, answers: rt.store.pathTo(userMsg.parent_id).filter((m) => m.role === 'assistant').map((m) => m.id) }) } catch (e) { rt.log.warn('loading earlier reads failed', { err: e, turn: this.id }) }
     }
     const promptInput = (fresh: boolean): PromptInput => ({
@@ -1103,6 +1108,10 @@ export class TurnExec {
         // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
+        // whole-file replaces (write, make_file) from an earlier answer's read only inside the very engine session that
+        // read it (it still holds the text); a fresh session gets edit and the in-place tools only (chat/carried-reads.ts)
+        this.files.carried?.inSession(resume ? sid : null)
+        this.readSession = sid
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
@@ -3698,7 +3707,7 @@ export class TurnExec {
     let after: string | null = null
     if (r.exists) {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
-      if (r.st!.isDirectory() || (!produced && !files.readHashes.has(r.rel))) return null
+      if (r.st!.isDirectory() || (!produced && !(tool === 'write' ? mayReplace(files, r.rel) : files.readHashes.has(r.rel)))) return null
       try {
         const cur = readRegular(r.abs, undefined, r.st).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
@@ -4201,7 +4210,7 @@ export class TurnExec {
       }
     }
     // what this answer's AI read or saved, for the person's next answers in this chat (chat/carried-reads.ts)
-    if (this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId }, this.files.allReads))
+    if (this.carryReads && this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId, sessionId: this.readSession }, this.files.allReads))
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })

@@ -13,7 +13,8 @@ Plan: docs/AGENTS/plan/20261118-1000-read-state-for-the-chat.md.
   read it in message 1, made it read the file again, or write/edit refused with "read it first", and make_file saved
   "report (2).docx" next to the original.
 - **Shape:** each finished turn keeps what its AI read or saved (TurnFiles.allReads: path -> sha256 of the version it last
-  saw, sub-agents included) in `chat_reads`, under its answer and its person (migration 418_b). The next turn of the
+  saw, sub-agents included) in `chat_reads`, under its answer, its person and its engine session (migration 419_b; rows go with the chat, the
+  answer and a deleted account: chat/account-cleanup.ts). The next turn of the
   same person gets the rows of the answers above its message on that branch, the newest per path
   (chat/carried-reads.ts). The main AI and its sub-agents fall back to them for a path they did not read in this answer
   (files/service.ts ReadHashes). An answer's own reads stay per agent, as before.
@@ -21,15 +22,21 @@ Plan: docs/AGENTS/plan/20261118-1000-read-state-for-the-chat.md.
   and (2) the person may read it now (authorize with the current folder rules and a fresh principal); the write itself
   checks write access as always. A changed file is refused with `stale_read` "read it again" (nothing saved, no
   conflict copy, no overwrite from an old read). A file the person can no longer open counts as never read.
+- **Whole-file replaces only in the same session:** `write` and `make_file` may rely on an earlier answer's read only
+  when this turn resumed the very engine session that made it (it still holds the file's text). A fresh session
+  (Codex, the API engine, a lost or oversized stash, an engine switch, another person's turn in between, a summarized
+  history) gets `edit` and the in-place tools only (edit_hwp, comment_docx, the PDF and image tools work from the exact
+  old bytes): `write` asks for a read, `make_file` asks for a new read before any conversion instead of a copy.
 - **Per person:** rows carry the turn's person and only that person's rows load. In a shared chat person B's turn never
   uses person A's reads, because their access differs. An edited or regenerated message starts a branch without the
   other branch's reads.
-- **Not carried:** guests and restricted runs (their reads stay per answer); a tool call whose agent is not known while
+- **Not carried:** guests and restricted runs (neither saved nor loaded; their reads stay per answer); a tool call whose agent is not known while
   sub-agents run (fails closed, as before); saves of a new thing (save_url, save_room_file, save_promo_video,
   generate_video, unzip_file: `thisAnswerOnly`), which keep a copy next to a file the chat saw earlier, as before.
 - **make_file:** an output the person's AI read (or made) earlier in the chat and that is unchanged is replaced, with
   its old version in its history; changed since: asked to read again; never read: a conflict copy as before (asking
   for a new file still makes a new file). The tools that change a named file (edit_hwp, comment_docx, stamp_pdf,
   edit_pdf, resize_images with replace) follow the same reads.
-- **Bounds:** at most 2,000 paths per answer; rows go with the chat and the answer (ON DELETE CASCADE). Paths and
-  hashes only, never content.
+- **Bounds:** the newest 2,000 paths per answer and the newest 20,000 rows per chat; the load reads only the branch's
+  answers; a file's current hash is remembered while its lstat (ns times, inode, size) is unchanged. Paths and hashes
+  only, never content.

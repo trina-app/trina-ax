@@ -24,13 +24,15 @@ model remembers of the file's text.
 
 ## Steps
 
-1. Migration 418_b_chat_reads.sql: chat_reads(chat_id, message_id, user_id, path, sha256), cascades with the chat and
-   the answer.
+1. Migration 419_b_chat_reads.sql: chat_reads(id, chat_id, message_id, user_id, session_id, path, sha256), cascades
+   with the chat, the answer and the person (and the chat account-cleanup hook).
 2. chat/carried-reads.ts: save a turn's reads (allReads) under its answer at finish; load the person's own rows of the
    answers above the new message on its branch, newest first wins.
 3. TurnFiles.carried + ReadHashes.get/has fall back to it: the file's sha256 now (read permission checked now, fresh
    principal) must equal the carried one; changed -> ToolError 'stale_read' "read it again". An unknown-agent call
    view gets none (fails closed).
+3b. write and make_file use an earlier answer's read only in the resumed engine session that made it; edit and the
+   in-place tools always (review of #1285).
 4. placeProduced `thisAnswerOnly` for saves of a new thing (save_url, save_room_file, save_promo_video,
    generate_video, unzip_file): they keep a copy next to a file seen in an earlier message, as before.
 5. Tool wording: "read it in this turn" -> "in this chat" where the read state is meant (not "made in this turn").
