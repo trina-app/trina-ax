@@ -287,6 +287,8 @@ export const TEXT = {
   postRoomAskThreadNoQuote: t('{room}({n}명)의 메시지 스레드에 보낼까요?', 'Send to a message\'s thread in {room} ({n, plural, one {# person} other {# people}})?', 'Kirim ke utas sebuah pesan di {room} ({n} orang)?', '{room}（{n, plural, one {#人} other {#人}}）のメッセージのスレッドに送りますか？', '¿Enviar al hilo de un mensaje en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中一条消息的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskNewDm: t('{name}님과의 새 1:1 대화로 보낼까요?', 'Send to {name} in a new 1:1 chat?', 'Kirim ke {name} di obrolan 1:1 baru?', '{name}さんとの新しい1:1で送りますか？', '¿Enviar a {name} en un chat 1:1 nuevo?', '要在新的私信中发送给{name}吗？'),
   postRoomOwnWords: t('내 메시지', 'Your message', 'Pesan Anda', 'あなたのメッセージ', 'Su mensaje', '你的消息'),
+  postRoomMentions: t('알림 받을 사람 (멘션)', 'Mentions (they get a notice)', 'Disebut (mendapat pemberitahuan)', 'メンション（通知が届きます）', 'Menciones (reciben un aviso)', '提及（会收到通知）'),
+  postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di ruang ini ({word})', 'このルームの全員（{word}）', 'Todos en esta sala ({word})', '此聊天室的所有人（{word}）'),
   postRoomNote: t('내 이름으로 보일 한마디', 'Your note, shown under your name', 'Catatan Anda, tampil atas nama Anda', 'あなたの名前で表示されるひとこと', 'Su nota, que aparece con su nombre', '你的备注，显示在你的名下'),
   postRoomFilesToSend: t('함께 보낼 파일', 'Files sent with it', 'Berkas yang ikut dikirim', '一緒に送るファイル', 'Archivos que se envían', '一起发送的文件'),
   postRoomText: t('보낼 내용', 'What will be sent', 'Yang akan dikirim', '送る内容', 'Lo que se enviará', '将要发送的内容'),
