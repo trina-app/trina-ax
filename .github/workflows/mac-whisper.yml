@@ -87,7 +87,7 @@ jobs:
           [ "$EVENT" = push ] || [ "$EVENT" = workflow_dispatch ] || refuse "event $EVENT"
           [[ "$REF" == refs/tags/v* ]] || refuse "ref $REF"
           [[ "$WORKFLOW_REF" == "trina-app/trina-ax/.github/workflows/release.yml@refs/tags/v"* ]] || refuse "workflow $WORKFLOW_REF"
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
@@ -151,7 +151,7 @@ jobs:
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/devid.p12"
       - name: Pack (tar keeps the file mode; an artifact does not)
         run: tar -C dist -cf dist/mac-whisper.tar mac-whisper
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mac-whisper
           path: dist/mac-whisper.tar
