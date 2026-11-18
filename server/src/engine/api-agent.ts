@@ -22,6 +22,8 @@ export interface ApiEngineConf { baseUrl: string; model: string; label: string; 
 
 const MAX_STEPS = 30
 const TOOL_OUTPUT_MAX = 30_000
+/** the end of a cut tool result that is kept (a read's next call is there) */
+const TOOL_OUTPUT_TAIL = 1_000
 
 /**
  * Added to the team instructions for this engine only. Models behind an OpenAI-compatible API made up preview and
@@ -258,7 +260,11 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
 
 /** What the model gets back for one tool call: the output, and the team links in it named once more at the end. */
 function toolContent(out: string, links: string[]): string {
-  const text = out.slice(0, TOOL_OUTPUT_MAX) || '(no output)'
+  // a cut result says so and keeps its last lines, where a read says how to go on (never a silent cut, QA TC-4901)
+  const tail = out.length > TOOL_OUTPUT_MAX ? out.slice(-TOOL_OUTPUT_TAIL) : ''
+  const text = (out.length > TOOL_OUTPUT_MAX
+    ? `${out.slice(0, TOOL_OUTPUT_MAX - TOOL_OUTPUT_TAIL)}\n… (${out.length - TOOL_OUTPUT_MAX} characters of this result were left out here; call the tool again for a smaller part, e.g. read with offset and limit) …\n${tail}`
+    : out) || '(no output)'
   if (!links.length) return text
   return `${text}\n\nLinks for the user from this result (copy them exactly; there are no other links to these files):\n${links.slice(0, 20).map((l) => `- ${l}`).join('\n')}`
 }

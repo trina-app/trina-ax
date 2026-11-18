@@ -23,6 +23,7 @@ import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
+import { numberedLines, prettyAllowed, prettyJsonView } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -528,6 +529,7 @@ export class FileService {
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
+    if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')
     if ((a.time !== undefined || a.frames !== undefined || a.transcript !== undefined) && !kind) throw new ToolError('time, frames and transcript are only for video and audio files', 'bad_media_args')
     if (kind) return this.readMedia(ctx, a, kind)
     if (isVisionImage(a.file_path)) return this.readImage(ctx, a)
@@ -625,7 +627,9 @@ export class FileService {
     ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
-    return numberedLines(r.rel, text, a)
+    // a .json file that is one long line reads as pretty-printed JSON (pretty: false for the raw text)
+    const pretty = prettyJsonView(r.rel, text, a)
+    return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, text, a, {}, isOffice(r.rel))
   }
 
   /**
@@ -692,7 +696,7 @@ export class FileService {
       ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash, locs })
     }
 
-    if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined)) {
+    if (a.pages === undefined && (a.offset !== undefined || a.limit !== undefined || a.char_offset !== undefined)) {
       // the same extraction as the grep text cache (OfficeCache: pdftotext, then Apple Vision when a page has no text
       // layer; PDFKit's text without poppler): on a Mac the text layer alone numbers lines differently
       const cached = this.cfg.ocr
@@ -1675,7 +1679,7 @@ export class FileService {
   }
 }
 
-type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
+type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
@@ -1729,18 +1733,6 @@ function partLocs(rel: string, text: string, a: { offset?: number; limit?: numbe
   if (a.offset === undefined && a.limit === undefined) return []
   const off = a.offset ?? 1
   return locsOfRange(text, rel, off, off + (a.limit ?? 2000) - 1, SOURCE_LOCS_MAX)
-}
-
-/** Text as numbered lines (cat -n), from `offset` (1-based), `limit` lines (default 2000), long lines cut. */
-function numberedLines(rel: string, text: string, a: { offset?: number; limit?: number }): ToolOutput {
-  const lines = text.split(/\r?\n/)
-  if (lines.length && lines[lines.length - 1] === '') lines.pop()
-  const off = a.offset ?? 1, lim = a.limit ?? 2000
-  if (!lines.length) return { text: '(empty file)', summary: `read ${rel} -> empty` }
-  if (off > lines.length) throw new ToolError(`offset ${off} is past the end of the file (${lines.length} lines)`)
-  const slice = lines.slice(off - 1, off - 1 + lim).map((l, i) => `${String(off + i).padStart(6)}\t${l.length > 2000 ? l.slice(0, 2000) + '… (line cut)' : l}`)
-  const more = off - 1 + lim < lines.length ? `\n… (${lines.length} lines in total; use offset/limit to read more)` : ''
-  return { text: slice.join('\n') + more, summary: `read ${rel} -> ${slice.length} lines${isOffice(rel) ? ' (converted)' : ''}` }
 }
 
 const short = (p: unknown) => (typeof p === 'string' ? p.slice(0, 200) : '')
