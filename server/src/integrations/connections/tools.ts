@@ -157,13 +157,24 @@ function noteAnswer(ctx: AppContext, chat: string, row: Row) {
 async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolContext, h: Hiding): Promise<Row> {
   if (!b.shared) return row
   if (row.scope === 'team' && b.shared.guestHere()) throw new CallError(GUEST_HERE(row.name), 'refused (guest in the shared chat)')
-  const no = await b.shared.confirm({ id: row.id, name: row.name, sources: answerSources(row) })
+  const no = await b.shared.confirm({ id: row.id, key: sharedKey(row), name: row.name, sources: answerSources(row) })
   if (no) throw new CallError(no, 'not fetched (shared chat)')
   const now = h.use(integrationsOf(ctx).forCall(tc.userId, row.id))
   if (now.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
   if (now.scope === 'team' && b.shared.guestHere()) throw new CallError(GUEST_HERE(row.name), 'refused (guest in the shared chat)')
   return now
 }
+
+/** "Always in this chat" on the shared connection card holds for the connection as it is: its version (a new address,
+ * key or sign-in, a changed rule) and the account it is signed in to; reconnecting to another account asks again */
+const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
+
+/** A team file handed to a connection's tool in a shared chat: refused, in plain words */
+const SHARED_NO_TEAM_FILES = (name: string) => refusal({
+  done: `Nothing was sent to ${name}.`,
+  why: { kind: 'mode', mode: 'this shared chat', why: 'team files are not sent to a connected service from a shared chat' },
+  next: 'say so in one or two sentences; the user can send the file in a chat only they see', names: [name],
+})
 
 /** A team connection while a guest sees the shared chat: for the AI, in plain words */
 const GUEST_HERE = (name: string) => refusal({
@@ -454,7 +465,12 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // connection is final (owner 2026-11-13; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking",
   // 20261116-always-allow-final-rule-a.md): no card then, with files too
   const attachAsks = !!sent.attach?.length && !b.scheduled && !!tc.files.person?.attachAsks?.(sent.attach)
-  if (allowed && !outside && (!attachAsks || ownAllow)) return false
+  // a shared chat (BuildCtx.shared): other people's messages are in the transcript and can steer the AI, so every change
+  // at a service asks the person on its own card naming the action, every time: no rule or Always allow of theirs, no
+  // explicit-ask skip, no earlier yes in the chat, and the shared connection card ("shows what it returns") never covers
+  // a change (docs/decisions/20261118-shared-chat-connections.md, security review of #1276)
+  const sharedMode = !!b.shared
+  if (allowed && !outside && (!attachAsks || ownAllow) && !sharedMode) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -472,7 +488,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
   // (our own text match, not the person's choice: never where other people's words are in the chat)
-  if (person && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -488,7 +504,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
-  if (live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
+  if (!sharedMode && live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
@@ -504,7 +520,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // content still asks (a Slack question)
   // (also on a card that shows because of attached team files where an admin's rule sends without asking: the person's
   // own choice counts there)
-  if (person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
+  if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
@@ -522,7 +538,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
     }), cardEndShort(end))
   }
-  keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
+  if (!sharedMode) keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
   return true
 }
 
@@ -770,7 +786,10 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       try {
         chat = turnChat(ctx, tc, !!b.shared)
         current = h.use(svc.forCall(tc.userId, row.id))
-        // a shared chat: the asker's card (or the guest refusal) before anything else, the tool list included
+        // a shared chat: no team file goes to a service from here (what the service says back about it would reach
+        // everyone in the chat without the file read card; the person attaches it in a chat only they see), then the
+        // asker's card (or the guest refusal) before anything else
+        if (b.shared && teamFileHandles(args).length) throw new CallError(SHARED_NO_TEAM_FILES(current.name), 'refused (team file in a shared chat)')
         current = await sharedGate(ctx, b, current, tc, h)
         noteScheduleUse(ctx.db, tc.turnId, current)
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)

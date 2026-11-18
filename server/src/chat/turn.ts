@@ -361,7 +361,7 @@ export class TurnExec {
   private sharedConnAllowed = new Map<string, Set<string>>()
   private sharedConnRefused = new Map<string, SharedNo>()
   /** a connection card already open (parallel calls wait for that one answer) */
-  private sharedConnPending = new Map<string, Promise<SharedDecision | 'always'>>()
+  private sharedConnPending = new Map<string, { asked: string[]; p: Promise<SharedDecision | 'always'> }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
@@ -3337,50 +3337,70 @@ export class TurnExec {
    * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
    * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
    */
-  async confirmSharedConnection(c: { id: string; name: string; sources: ReadSource[] }): Promise<string | null> {
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
     if (!this.shared) return null
-    let audience: string[], missing: { missing: string[] }[]
-    try {
-      audience = this.sharedAudience()
-      missing = missingReaders(this.rt.db, this.rt.files.rules(), c.sources, audience)
-    } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return this.sharedConnText(c.name, 'failed') }
-    // everyone here may see what it returns (a team connection all of them may use): no card
-    if (!missing.length) return this.noteSharedReads(c.sources, audience, false, true) ? null : this.sharedConnText(c.name, 'failed')
-    const covers = (people: Iterable<unknown>) => { const set = new Set(people); return audience.every((id) => set.has(id)) }
-    const before = this.sharedConnRefused.get(c.id)
-    if (before) return this.sharedConnText(c.name, before)
-    const once = this.sharedConnAllowed.get(c.id)
-    const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.id })
-      .some((d) => Array.isArray(d.c) && covers(d.c))
-    if (!(once && covers(once)) && !always) {
-      let pending = this.sharedConnPending.get(c.id)
+    const failed = () => this.sharedConnText(c.name, 'failed')
+    // at most a few rounds: a card answered while more people came to see the chat asks once more for them
+    for (let round = 0; round < 3; round++) {
+      let audience: string[], missing: { missing: string[] }[]
+      try {
+        audience = this.sharedAudience()
+        missing = missingReaders(this.rt.db, this.rt.files.rules(), c.sources, audience)
+      } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
+      // nobody found to see the chat (missingReaders then finds nobody missing): fails closed, no silent fetch
+      if (!audience.length) return failed()
+      // everyone here may see what it returns (a team connection all of them may use): no card
+      if (!missing.length) return this.noteSharedReads(c.sources, audience, false, true) ? null : failed()
+      const covers = (people: Iterable<unknown>) => { const set = new Set(people); return audience.every((id) => set.has(id)) }
+      const before = this.sharedConnRefused.get(c.id)
+      if (before) return this.sharedConnText(c.name, before)
+      // covered: the people the card was answered for (recorded as they were: those who were told)
+      const once = this.sharedConnAllowed.get(c.key)
+      if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
+      const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
+        .find((d) => Array.isArray(d.c) && covers(d.c))
+      if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
+      // one card per connection at a time; the people it names go with it, so a parallel call whose audience is wider
+      // (someone joined meanwhile) is not covered by it and asks again on the next round
+      let pending = this.sharedConnPending.get(c.key)
       if (!pending) {
-        pending = this.askSharedConnection(c, audience.length).finally(() => this.sharedConnPending.delete(c.id))
-        this.sharedConnPending.set(c.id, pending)
+        const asked = [...new Set(audience)].sort()
+        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        pending = made
+        this.sharedConnPending.set(c.key, made)
+        const decision = await made.p
+        if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
+        this.sharedConnAllowed.set(c.key, new Set(asked))
+        if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        continue
       }
-      const decision = await pending
-      if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
-      this.sharedConnAllowed.set(c.id, new Set(audience))
-      if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.id, detail: { c: [...new Set(audience)].sort() } })
+      const decision = await pending.p
+      if (decision !== 'shared' && decision !== 'always') return this.sharedConnText(c.name, decision)
+      // (the asker of that card saved what it covers; the next round checks this call's audience against it)
     }
-    return this.noteSharedReads(c.sources, audience, true, true) ? null : this.sharedConnText(c.name, 'failed')
+    return failed()
   }
 
-  /** The connection card and its audit row (counts, never who). */
-  private async askSharedConnection(c: { id: string; name: string }, audience: number): Promise<SharedDecision | 'always'> {
+  /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
+   * said: someone outside the team). */
+  private async askSharedConnection(c: { id: string; name: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
     const L = this.spec.locale
     const scheduled = this.spec.clientKind === 'schedule'
     const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
+    let guests = 0
+    try { guests = asked.filter((id) => isGuestUser(this.rt.db, id)).length } catch { guests = 1 }
     const { value, missing: none } = await this.askPerson({
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      question: tr('sharedConnectionConfirm', L, { service: name, n: String(audience) }),
+      question: guests
+        ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
+        : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
       options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr('sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
       multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
     const v = Array.isArray(value) && value.length === 1 ? value[0] : value
     const decision: SharedDecision | 'always' = v === 'always' ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
-    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience, turnId: this.id } }) }
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
     catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
     return decision
   }

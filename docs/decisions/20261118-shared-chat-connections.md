@@ -24,8 +24,18 @@
   this answer), Always in this chat (`chat_card_approvals` kind `shared_connection`, with who saw the chat then: a
   person who joins later makes it ask again; 12 hours and cleared with the chat's session like the other card
   approvals), Cancel. Cancel, no answer in time, a scheduled run or a check that fails: nothing is fetched, and the AI
-  is told why and that the person can ask in a chat only they see. Parallel calls of one connection share one card. A
-  write at the service still asks on its own card after this one (`gate`).
+  is told why and that the person can ask in a chat only they see. Parallel calls of one connection share one card,
+  which keeps the people it named: a call whose audience grew meanwhile asks again, and only people a card named are
+  recorded. "Always in this chat" is kept for the connection as it is (its version and a hash of its account), so a
+  reconnect, another account or a changed rule asks again. No one found to see the chat counts as a failed check
+  (nothing is fetched). When a guest is among the people, the card says so: "…including a guest (someone outside the
+  team)".
+- **Rule, changes at the service (security review of #1276):** in a shared chat every call that changes something at
+  the service asks the person on its own card naming the action, every time: the connection's rule or the person's
+  own Always allow, the explicit-ask skip and an earlier yes in the chat do not apply, and that card offers no Always
+  allow there. Other people's messages are in the transcript and could steer the AI; the shared card ("shows what it
+  returns") never covers a change. Team files (`team-file:` handles) are not sent to a service from a shared chat at
+  all: refused before any card, the person sends them from a chat only they see.
 - **Rule, guests:** while a guest sees the chat (a guest's own chat in their project, a chat shared with people that
   names a guest) the team's connections are not offered or run, because guests have connectors off; the list in the
   instructions names them and says why, so the AI says so plainly. The asker's own connection stays, behind its card,
@@ -44,5 +54,7 @@
 - **Tests:** `tests/unit/b-shared-chat-connections.test.ts` (a team connection with no card and its record; the guest
   case; the card to the asker only, its words and options, nothing fetched before the answer, Cancel, no answer, Allow
   once, Always in this chat and a new person; bob's turn never runs alice's connection; the key never in what bob
-  sees; a later joiner does not see the answer; the provider's lines and the instructions; `lateHides` with `k`).
+  sees; a later joiner does not see the answer; the provider's lines and the instructions; `lateHides` with `k`; a change
+  with the person's Always allow and Always in this chat still asks; a team file refused; a parallel call whose
+  audience grew; no audience; the guest line on the card; a reconnected connection asks again).
 - **Version impact:** minor (shared chats offer connected services).

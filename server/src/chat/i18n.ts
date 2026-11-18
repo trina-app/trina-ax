@@ -452,6 +452,13 @@ export const TEXT = {
     "AIが{service}を使おうとしています。{service}から返ってきた内容が、このチャットの{n}人に表示されます。",
     "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat.",
     'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人。'),
+  /** ...when a guest sees the chat (someone outside the team) */
+  sharedConnectionConfirmGuest: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요. 여기에는 게스트(팀 밖의 사람) {g}명도 있어요.',
+    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat, including {g, plural, one {a guest (someone outside the team)} other {# guests (people outside the team)}}.",
+    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini, termasuk {g} tamu (orang di luar tim).',
+    "AIが{service}を使おうとしています。{service}から返ってきた内容が、ゲスト（チーム外の人）{g}人を含む、このチャットの{n}人に表示されます。",
+    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
+    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
   sharedConnectionOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅允许这一次"),
   sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
   sharedConnectionCancel: t('취소', 'Cancel', 'Batal', "キャンセル", "Cancelar", "取消"),

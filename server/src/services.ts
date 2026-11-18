@@ -199,8 +199,9 @@ export interface SharedConnections {
   guestHere(): boolean
   /** Before a call: the people who see the chat but could not see what `sources` hold get the asker's card first (Allow
    * once / Always in this chat / Cancel; only the asker sees it), and what the call brings in joins the answer's read
-   * record. null: go on; else the refusal for the AI (nothing was fetched). */
-  confirm(c: { id: string; name: string; sources: import('./chat/read-scope').ReadSource[] }): Promise<string | null>
+   * record. `key`: the connection as it is now (version and account): "Always in this chat" holds for that only. Never
+   * covers a change at the service (its own card, gate). null: go on; else the refusal for the AI (nothing was fetched). */
+  confirm(c: { id: string; key: string; name: string; sources: import('./chat/read-scope').ReadSource[] }): Promise<string | null>
 }
 
 export interface JobHandle {

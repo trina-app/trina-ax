@@ -17,6 +17,7 @@ import { integrationToolProvider } from '../../server/src/integrations/connectio
 import { answerRecord, lateHides, type ParsedGroup } from '../../server/src/chat/shared-answers'
 import { sharedSection } from '../../server/src/chat/prompt'
 import type { SharedConnections } from '../../server/src/services'
+import { TurnExec } from '../../server/src/chat/turn'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -24,6 +25,7 @@ const cm = () => 'cm-' + crypto.randomUUID()
 const TEAM_TOOL = 'team_brightdata__search_tasks'
 const MINE_TOOL = 'my_alicemail__search_tasks'
 const MINE_ECHO = 'my_alicemail__echo_text'
+const MINE_WRITE = 'my_alicemail__create_task'
 
 let h: Harness, svc: FakeServices
 const ws: Record<string, TestSocket> = {}
@@ -68,6 +70,23 @@ async function askWithCard(user: string, chatId: string, content: string, value:
   return { started, card: card.data.request as { question: string; options: { label: string; value: string }[] }, done: await done(user, chatId, started.assistantMessage.id) }
 }
 const calls = () => svc.calls.length
+/** a turn whose cards are answered in order by `pick` (the card, its index) until it ends; returns the cards */
+async function askCards(user: string, chatId: string, content: string, pick: (card: { question: string; options: { label: string; value: string }[] }, i: number) => string) {
+  const started = await send(user, chatId, content)
+  const seen = new Set<string>()
+  const cards: { question: string; options: { label: string; value: string }[] }[] = []
+  const timer = setInterval(() => {
+    for (const f of ws[user]!.frames) {
+      if (f.type !== 'turn.request') continue
+      const d = (f as { data: { turnId: string; request: { requestId: string; question: string; options: { label: string; value: string }[] } } }).data
+      if (d.turnId !== started.turnId || seen.has(d.request.requestId)) continue
+      seen.add(d.request.requestId)
+      cards.push(d.request)
+      void h.api(user).call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: d.request.requestId, answer: pick(d.request, cards.length - 1) } }).catch(() => {})
+    }
+  }, 20)
+  try { return { started, cards, done: await done(user, chatId, started.assistantMessage.id) } } finally { clearInterval(timer) }
+}
 const events = (turnId: string) => (db().query('SELECT tool, summary FROM tool_events WHERE turn_id = ? ORDER BY id').all(turnId) as { tool: string; summary: string }[])
 const cardsTo = (user: string, turnId: string) => ws[user]!.frames.filter((f) => f.type === 'turn.request' && (f as { data: { turnId?: string } }).data.turnId === turnId)
 const messages = async (user: string, chatId: string): Promise<Message[]> => (await h.api(user).call(API.listMessages, { params: { id: chatId }, query: {} })).items
@@ -104,6 +123,9 @@ describe('a team connection (TC-4885)', () => {
       expect(calls()).toBe(n)
       // (the tool is not offered: the turn's call of it fails); the instructions say why
       expect(r.done.content).not.toContain('search_tasks: ')
+      // alice's own connection still asks her, and the card says a guest is among the people (security review of #1276)
+      const own = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'g' }, sayResult: true }), 'cancel')
+      expect(own.card.question).toBe('The AI wants to use Alice Mail. This will show what Alice Mail returns to the 2 people in this chat, including a guest (someone outside the team).')
       const said = await ask('alice', chat.id, fake({ echo: 'system' }))
       expect(said.done.content).toContain("The team's connections (Bright Data): not usable in this shared chat, because a guest is in it and guests have no connected services")
       expect(said.done.content).toContain('When a guest is in this chat the team\'s connections are off')
@@ -192,6 +214,90 @@ describe("the asker's own connection (TC-4886)", () => {
     expect(forBob).not.toContain(MCP_KEY)
     expect(JSON.stringify(r.done)).not.toContain(MCP_KEY)
     expect(JSON.stringify(events(r.started.turnId))).not.toContain(MCP_KEY)
+  })
+})
+
+describe('security review of #1276', () => {
+  test("a change through alice's own connection always asks on its own card, also with her Always allow and Always in this chat", async () => {
+    const chat = await newShared()
+    // alice once chose Always allow for changes at Alice Mail (her own connection's rule)
+    db().query("UPDATE integrations SET write_policy = 'allow' WHERE name = 'Alice Mail'").run()
+    try {
+      await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+      const n = svc.calls.filter((c) => c.name === 'create_task').length
+      // no shared card (Always in this chat), but the change's own card names it; alice says no: nothing is created
+      const r = await askCards('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'from the shared chat' }, sayResult: true }), (c) => c.options.at(-1)!.value)
+      expect(r.cards.length).toBe(1)
+      expect(r.cards[0]!.question).toContain('The AI wants to send this to Alice Mail: Create a task')
+      expect(svc.calls.filter((c) => c.name === 'create_task').length).toBe(n)
+      // "Allow once" on the shared card in the same answer covers only what comes back, never the change
+      const chat2 = await newShared()
+      const r2 = await askCards('alice', chat2.id, fake({ tool: MINE_TOOL, args: { q: 'b' } }, { tool: MINE_WRITE, args: { title: 'again' }, sayResult: true }), (c, i) => (i === 0 ? 'once' : c.options.at(-1)!.value))
+      expect(r2.cards.map((c) => c.question.includes('Create a task'))).toEqual([false, true])
+      expect(svc.calls.filter((c) => c.name === 'create_task').length).toBe(n)
+    } finally { db().query("UPDATE integrations SET write_policy = 'ask' WHERE name = 'Alice Mail'").run() }
+  })
+
+  test('Always in this chat holds for the connection as it is: reconnected (a new version or account), it asks again', async () => {
+    const chat = await newShared()
+    await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'a' }, sayResult: true }), 'always')
+    db().query("UPDATE integrations SET version = version + 1, account = '{\"email\":\"other@example.com\"}' WHERE name = 'Alice Mail'").run()
+    const again = await askWithCard('alice', chat.id, fake({ tool: MINE_TOOL, args: { q: 'b' }, sayResult: true }), 'cancel')
+    expect(again.card.question).toContain('Alice Mail')
+  })
+
+  test('a team file handed to a connection in a shared chat is refused before any card, and nothing is sent', async () => {
+    const chat = await newShared()
+    const n = calls()
+    const r = await ask('alice', chat.id, fake({ tool: MINE_WRITE, args: { title: 'team-file:projects/falcon/notes.md' }, sayResult: true }))
+    expect(cardsTo('alice', r.started.turnId)).toEqual([])
+    expect(calls()).toBe(n)
+    expect(events(r.started.turnId).find((e) => e.tool === MINE_WRITE)?.summary).toContain('refused (team file in a shared chat)')
+  })
+
+  /** a stand-in turn (no engine) for confirmSharedConnection: its audience and its card are the test's */
+  function standIn(o: { audience: () => string[]; ask: (asked: readonly string[]) => Promise<string> }) {
+    const t = Object.create(TurnExec.prototype) as any
+    const own = (o2: Record<string, unknown>) => { for (const [k, v] of Object.entries(o2)) Object.defineProperty(t, k, { value: v, writable: true, configurable: true }) }
+    own({
+      shared: { kind: 'project', project: {} }, rt: { db: db(), files: h.ctx.files, log: { warn() {} } }, spec: { chatId: 'none', userId: 'alice', locale: 'en' },
+      principal: { name: 'Alice Kim' }, id: 'stand-in', sharedConnAllowed: new Map(), sharedConnRefused: new Map(), sharedConnPending: new Map(),
+      recorded: [] as string[][],
+    })
+    own({
+      sharedAudience: o.audience,
+      askSharedConnection: (_c: unknown, asked: readonly string[]) => o.ask(asked),
+      noteSharedReads: (_s: unknown, audience: string[]) => { t.recorded.push([...audience]); return true },
+    })
+    return t
+  }
+  const conn = { id: 'conn-1', key: 'conn-1\u00001\u0000', name: 'Alice Mail', sources: [{ type: 'user' as const, id: 'alice', via: 'connection' as const }] }
+
+  test('a parallel call whose audience grew while the card was open asks again; only the asked people are recorded', async () => {
+    let people = ['alice', 'bob']
+    const asked: string[][] = []
+    let release!: (v: string) => void
+    const first = new Promise<string>((r) => { release = r })
+    const t = standIn({ audience: () => people, ask: (a) => { asked.push([...a]); return asked.length === 1 ? first : Promise.resolve('shared') } })
+    const one = t.confirmSharedConnection(conn)
+    await Bun.sleep(5)
+    people = ['alice', 'bob', 'gina']
+    const two = t.confirmSharedConnection(conn)
+    await Bun.sleep(5)
+    release('shared')
+    expect([await one, await two]).toEqual([null, null])
+    expect(asked).toEqual([['alice', 'bob'], ['alice', 'bob', 'gina']])
+    // every record names exactly the people one card was answered for (gina only after the card that named her)
+    expect(t.recorded.length).toBe(2)
+    for (const r of t.recorded) expect(asked.map((a) => a.join())).toContain(r.join())
+    expect(t.recorded.every((r: string[]) => !r.includes('gina') || asked[1]!.includes('gina'))).toBe(true)
+  })
+
+  test('nobody found to see the chat: no card and nothing fetched (fails closed)', async () => {
+    let asked = 0
+    const t = standIn({ audience: () => [], ask: async () => { asked++; return 'shared' } })
+    expect(await t.confirmSharedConnection(conn)).toContain('Nothing was fetched from Alice Mail')
+    expect(asked).toBe(0)
   })
 })
 
