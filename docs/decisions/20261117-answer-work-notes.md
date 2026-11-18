@@ -73,5 +73,6 @@ Plan: docs/AGENTS/plan/20261117-0549-ai-wording-narration.md.
   correctly. Now post to the room." (CHT-02.room): a bracket of at most 12 characters holding another script and no
   Latin letter or sentence mark (a form's own label such as "(인)") now counts as a name, and "Now post / send / save /
   stamp / write / …" after a sentence is a note's shape next to a work word (so "Good layout. Now overwrite the original
-  PDF." is no longer a known gap). Korean outside the bracket, and a bracketed label next to an amount, keep the piece. "Please add …", a name as an address and a quote that is not the
+  PDF." is no longer a known gap). Korean outside the bracket, and a bracket with a digit or a currency sign ("(339,400원)", "(₩5)"), keep the piece; a
+  bracket of several words is found while streaming too. "Please add …", a name as an address and a quote that is not the
   person's words keep the line.

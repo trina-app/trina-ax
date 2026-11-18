@@ -132,10 +132,13 @@ export function narrationScript(locale: Locale, message: string, previous?: stri
 
 /** The piece without `code` and file names, quoted or not ("Existing pattern: "매장-전경.jpg" (hyphenated Korean)."):
  * a Korean file name does not make a line Korean, and quote marks around a file name do not make it a quote. */
+/** A bracket's inside that is a label in another script, not content: non-ASCII, no Latin letter, no digit, currency
+ * or sentence mark ("인", "서명 날인"; not "339,400원", "₩5") */
+const isBracketName = (inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z0-9.!?。！？$€£¥₩%]/.test(inner)
 const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
   // a short piece of another script in brackets is a name too: a form's own label ("Seal lands on (인) correctly.",
   // 2026-11-18 CHT-02.room); no Latin letter and no sentence mark in it
-  .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z.!?。！？]/.test(inner) ? '' : m)
+  .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => isBracketName(inner) ? '' : m)
   .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
   .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
 
@@ -167,9 +170,11 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   if (t.length > NARRATION_MAX_CHARS) return true
   const theirs = withoutTheirWords(partial ? piece : t, said, partial)
   // still coming: a bracket still open at the end may be such a name ("(인")
-  const openName = partial && !theirs.open ? /\(([^()\n]{1,12})$/.exec(theirs.text) : null
-  const named = openName && /[^\x00-\x7F]/.test(openName[1]!) && !/[A-Za-z.!?。！？]/.test(openName[1]!) ? theirs.text.slice(0, openName.index) : null
-  const words = withoutNames(named ?? (partial && !theirs.open ? theirs.text.replace(/\S+$/, '') : theirs.text))
+  // (after the last word, maybe not whole, is cut: "(서명 날인)" cut to "(서명 " is still such a bracket)
+  const base = partial && !theirs.open ? theirs.text.replace(/\S+$/, '') : theirs.text
+  const openName = partial && !theirs.open ? /\(([^()\n]{1,12})$/.exec(base) : null
+  const named = openName && isBracketName(openName[1]!) ? base.slice(0, openName.index) : null
+  const words = withoutNames(named ?? base)
   if (SCRIPT_LETTER[script].test(words)) return true
   // only ASCII text is ever a status line ("Hola equipo, ya está listo." is not one)
   if (/[^\x00-\x7F]/.test(words)) return true

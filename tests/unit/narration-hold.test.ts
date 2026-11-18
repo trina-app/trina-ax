@@ -101,7 +101,11 @@ describe('NarrationHold', () => {
     expect(dropped('Append it at the end of the notes.')).toBe(true)
     // CHT-02.room: a form's own label in brackets is a name, and "Now post …" after a sentence is a next step
     for (const n of [1, 2, 7]) expect(run(ko(), [{ text: 'Seal lands on (인) correctly. Now post to the room.' }, 'tool', { text: '\n\n올렸어요.' }, 'end'], n)).toBe('올렸어요.')
+    for (const n of [1, 3, 7]) expect(run(ko(), [{ text: 'Seal lands on (서명 날인) correctly. Now post to the room.' }, 'tool', { text: '\n\n올렸어요.' }, 'end'], n)).toBe('올렸어요.')
     expect(dropped('Good layout. Now overwrite the original PDF.')).toBe(true)
+    // an amount in a bracket is content
+    for (const piece of ['Total (₩1,097,470); save the PDF.', 'Price updated (339,400원). Now save the PDF.'])
+      for (const n of [1, 3, 7]) expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end'], n), piece).toBe(piece + '\n\n끝.')
     // Korean around or after a bracket is still Korean; a bracketed amount is content
     for (const piece of ['견적서(인) 확인했어요.', '(합계) 1,097,470원', 'The total (합계) is due Friday.'])
       expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
