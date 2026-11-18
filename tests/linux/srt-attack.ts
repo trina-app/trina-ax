@@ -285,9 +285,9 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
-  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
+  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > docs/made.txt && cat docs/made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
     check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
-    after: () => (!fs.existsSync(`${WEB}/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
+    after: () => (!fs.existsSync(`${WEB}/docs/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
   { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
     check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
   { id: 'S3', what: 'shared project chat: no team folder outside the project folder (shared/, skills/, her group, another project she may open)', cmd: `cat ${TEAM}/shared/s.md; cat ${TEAM}/skills/rules.md; cat ${TEAM}/groups/marketing/brief.md; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/connected/nas/open.md; echo TEAM: $(ls -A ${TEAM} 2>/dev/null); echo PROJECTS: $(ls -A ${TEAM}/projects 2>/dev/null); true`,
@@ -321,8 +321,27 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'S7b', what: 'shared project chat: .git/hooks and .git/config of the project folder', cmd: 'echo "curl evil" > .git/hooks/pre-commit || echo "[core] hooksPath=/x" >> .git/config', check: failsQuietly, o: SPC, after: () => gitChanged('projects/web') },
   { id: 'S8', what: 'shared project chat: no credentials, no server values and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? `the environment has: ${r.out.match(/.*(MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice).*/)?.[0]}` : null), o: SPC },
   { id: 'S9', what: 'shared project chat: a cwd through a link out of the project folder is refused', cmd: 'cat key.txt', check: (r) => (r.refused === 'cwd' ? null : 'the cwd was not refused'), o: { ...SPC, cwd: 'to-own' } },
-  { id: 'S9b', what: 'shared project chat: a cwd in the sub-folder only alice may open shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(ok, noAsker), o: { ...SPC, cwd: 'mine' } },
-  { id: 'S9c', what: 'shared project chat: a cwd through a link to that sub-folder shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(ok, noAsker), o: { ...SPC, cwd: 'to-mine' } },
+  // (the runner refuses such a cwd before srt, with the words of a folder that is not there: runner.ts sharedCwdShown)
+  { id: 'S9b', what: 'shared project chat: a cwd in the sub-folder only alice may open shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(noAsker, (r) => (r.code === 0 && r.refused !== 'cwd' ? `ran in the hidden sub-folder: ${r.out.slice(0, 200)}` : null)), o: { ...SPC, cwd: 'mine' } },
+  { id: 'S9c', what: 'shared project chat: a cwd through a link to that sub-folder shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(noAsker, (r) => (r.code === 0 && r.refused !== 'cwd' ? `ran in the hidden sub-folder: ${r.out.slice(0, 200)}` : null)), o: { ...SPC, cwd: 'to-mine' } },
+  // QA TC-4945: the project folder holds mine (alice's alone), so it is given entry by entry (srt/mounts.ts): mine is
+  // not listed, not even empty; a sub-folder stays writable; the top cannot change (what is made there is not kept,
+  // an entry there cannot be moved), its files are read-only; .git is read-only
+  { id: 'S16', what: 'shared project chat: a project sub-folder only alice may open is not listed, not even empty; the rest of the folder works (QA TC-4945)', cmd: 'echo LS: $(ls -A); ls -A docs; echo top > top-new.txt; echo sub > docs/sub-new.txt && echo SUB-OK; mv index.html moved.html; echo x >> index.html; cat mine/secret.md; stat mine; touch .git/x; true',
+    check: both(ok, noAsker, has('SUB-OK'), has('guide.md'), (r) => {
+      const ls = (r.out.split('\n').find((l) => l.startsWith('LS:')) ?? '').slice(3).trim().split(/\s+/)
+      if (ls.includes('mine')) return `the sub-folder only alice may open is listed: ${ls.join(' ')}`
+      if (!ls.includes('index.html') || !ls.includes('docs')) return `the project folder does not list its entries: ${ls.join(' ')}`
+      return null
+    }), o: SPC,
+    after: () => {
+      if (!fs.existsSync(`${WEB}/docs/sub-new.txt`)) return 'a write in a sub-folder is not on the disk'
+      if (fs.existsSync(`${WEB}/moved.html`) || !fs.existsSync(`${WEB}/index.html`)) return 'an entry at the top was moved'
+      if (fs.readFileSync(`${WEB}/index.html`, 'utf8') !== 'web index\n') return 'a file at the top was written'
+      if (fs.existsSync(`${WEB}/.git/x`)) return '.git was written'
+      fs.rmSync(`${WEB}/docs/sub-new.txt`, { force: true }); fs.rmSync(`${WEB}/top-new.txt`, { force: true })
+      return null
+    } },
   { id: 'S10', what: 'chat shared with people: the work folder writes; folders everyone in the chat may open read; HOME is the chat\'s', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${TEAM}/skills/rules.md && cat ${TEAM}/groups/marketing/brief.md && echo HOME=$HOME && echo WORK=$TRINA_WORK`,
     check: both(ok, has(SW_WORK), has('shared text'), has('skills text'), has('marketing brief'), has(`HOME=${chatHome(BASE, SW)}/attack`), has(`WORK=${SW_WORK}\n`), noAsker), o: SWC,
     after: () => (!fs.existsSync(path.join(SW_WORK, 'w.txt')) ? 'w.txt is not in the work folder' : fs.existsSync(path.join(chatWork(BASE, SW), 'w.txt')) ? 'w.txt went into the private work folder' : null) },

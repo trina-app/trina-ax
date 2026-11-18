@@ -23,7 +23,7 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
+import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedLockedTops, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import path from 'node:path'
@@ -151,6 +151,10 @@ export interface BoxShellHost {
   redact(s: string): string
 }
 
+/** What a shared chat's command cannot do in a folder given entry by entry (srt/mounts.ts). Names only folders everyone
+ * in the chat may open, and never what is hidden or why. */
+export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (what it makes there is not kept), and the files there are read-only; folders whose names start with a dot (.git) and skill folders there are read-only too. Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
+
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 
 /** The answer to the AI after a command ran. */
@@ -216,6 +220,10 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   if (h.shared) {
     const see = sharedVisible(ctx, space)
     w = { ...w, changes: w.changes.filter((c) => see(c.path)), background: w.background.filter((c) => see(c.path)), conflicts: w.conflicts.filter(see) }
+    // a writable folder that holds a folder some of them cannot open is given entry by entry (srt/mounts.ts): its top
+    // cannot change in a command, which the AI must know (else a file it makes there is silently not kept)
+    const locked = sharedLockedTops(ctx, space)
+    if (locked.length) notes.push(lockedTopsNote(locked))
   }
   if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
   const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }

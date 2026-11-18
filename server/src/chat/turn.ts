@@ -31,7 +31,8 @@ import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
-import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, loadPrincipal, withHiddenFolders, type HiddenFolders, type Principal, type RuleSet } from '../policy/access'
+import { sharedHiddenFolders } from '../devenv/srt/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { badSegment, hiddenEntry } from '../policy/names'
@@ -3099,6 +3100,29 @@ export class TurnExec {
     const p = this.rt.store.projectRow(this.shared.project.id)
     const owner = (this.rt.db.query('SELECT user_id FROM chats WHERE id = ?').get(this.spec.chatId) as { user_id: string } | null)?.user_id ?? this.spec.userId
     return p ? chatAudienceOf(this.rt.db, this.rt.files, p, owner) : []
+  }
+
+  /** A shared project chat's sub-folders that not everyone who sees it may open (devenv/srt/access.ts
+   * sharedHiddenFolders), hidden from the person for one tool call (policy/access.ts withHiddenFolders, set by
+   * mcp/protocol.ts; QA TC-4945): a listing, search, zip or path there answers as for a name that is not there, and no
+   * read card is about them. The audience as it is when the call starts. Anyone who cannot be loaded, nobody found, or
+   * a check that fails: every folder with rules of its own inside the project folder is hidden (fails closed). */
+  sharedHiddenScope(): HiddenFolders | null {
+    if (this.shared?.kind !== 'project') return null
+    const within = this.shared.project.folder_path
+    return withHiddenFolders(null, () => {
+      let rules: RuleSet
+      // (no rules to look at: the project folder itself is hidden, so the call finds nothing)
+      try { rules = this.rt.files.rules() } catch { return { userId: this.spec.userId, folders: [within] } }
+      const all = () => ({ userId: this.spec.userId, folders: rules.boundaryFolders().filter((f) => f.startsWith(within + '/')) })
+      try {
+        const me = this.livePrincipal()
+        const ids = this.sharedAudience()
+        const people = ids.map((id) => loadPrincipal(this.rt.db, id))
+        if (!ids.length || people.some((q) => !q)) return all()
+        return { userId: me.id, folders: sharedHiddenFolders(rules, me, people as Principal[], within) }
+      } catch (e) { this.rt.log.warn('shared hidden folders not worked out', { err: e, turn: this.id }); return all() }
+    })
   }
 
   /**

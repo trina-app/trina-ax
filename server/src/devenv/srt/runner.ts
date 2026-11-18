@@ -43,7 +43,7 @@ import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedW
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
-import { hideDeniedNames } from './mounts'
+import { hideDeniedNames, lockedTops } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -291,6 +291,30 @@ export function sharedVisible(ctx: AppContext, space: Space): (rel: string) => b
   }
 }
 
+/** May a shared chat's command start in `cwd` (a real path the runner resolved)? Outside the team folder (its work
+ * folder): yes; in it: only where the run may name the folder (sharedVisible). */
+function sharedCwdShown(ctx: AppContext, space: Space, cwd: string): boolean {
+  let team: string
+  try { team = fs.realpathSync(ctx.files.fx.root) } catch { return false }
+  const rel = path.relative(team, cwd)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return rel !== ''
+  return sharedVisible(ctx, space)(rel.split(path.sep).join('/'))
+}
+
+/** A shared chat's run: the writable folders whose top a command cannot change because they hold a folder not
+ * everyone in the chat may open (srt/mounts.ts hideDeniedNames gives them entry by entry), shallowest first. For the
+ * tool's note; they are folders everyone in the chat may open. None when the run cannot be worked out (it then does not
+ * start either). */
+export function sharedLockedTops(ctx: AppContext, space: Space): string[] {
+  if (!space.shared) return []
+  try {
+    const run = runWrites(ctx, srtConfig(), space)
+    const scope = sharedScopeNow(ctx, space.shared)
+    const view = scope ? personView(ctx, space.userId, run, space.shared, scope) : null
+    return view ? lockedTops(view, hideDeniedNames(view, ctx.files.fx.root)) : []
+  } catch { return [] }
+}
+
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
  * read. */
 export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: FolderView): boolean {
@@ -457,6 +481,9 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
+    // a shared chat: a cwd in a folder the run does not show (a sub-folder some of its people may not open) is refused
+    // with the same words as one that is not there (QA TC-4945)
+    if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)

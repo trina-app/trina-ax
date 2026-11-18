@@ -32,6 +32,9 @@ export interface TurnToolSet {
    * connected service (integrations/connections/hide-args.ts); `hidden`: something was replaced, `note`: what the AI
    * is told then. Runs before every other check; throws KeyRefusal for a call that is not sent at all */
   hideKeys?(name: string, args: unknown): { args: unknown; hidden: boolean; note?: string }
+  /** the folders that do not exist for the person during each tool call (a shared project chat's sub-folders not
+   * everyone in it may open: chat/turn.ts sharedHiddenScope); mcp/protocol.ts runs every call inside them */
+  hiddenFolders?(): import('./policy/access').HiddenFolders | null
   /** before a batch tool's first file (edit_files): a refusal stops the whole batch */
   beforeBatch?(name: string, args: unknown, caller?: ToolCaller): Promise<{ refusal: string; summary: string } | null>
 }

@@ -5,6 +5,7 @@
 // projects/<name> (the project exception). The rules from before (deepest folder decides, person > group > role >
 // everyone) were converted once (policy/convert-additive.ts; the old resolver is kept in policy/legacy-deepest.ts).
 import type { Database } from 'bun:sqlite'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { PRODUCT } from '@mycel/shared'
 
 export type Access = 'none' | 'read' | 'write'
@@ -111,6 +112,29 @@ export interface Explained { access: Access; reason: AccessReason }
 
 /** Where decide() leaves why it answered. access() passes none, so the hot path allocates nothing for it. */
 interface Why { kind: AccessReasonKind; folderLen: number; cutLen: number; rules: readonly Rule[] | null; best: number; who?: Principal }
+
+/**
+ * Folders that do not exist for one person while a call runs (docs/decisions/20261118-shared-hide-subfolder-names.md,
+ * QA TC-4945): in a shared project chat, every sub-folder of the project folder that not everyone who sees the chat may
+ * open. access() is "none" at and below them for that person, whatever the rules give, so every tool answers there
+ * exactly as for a name that is not there (authorize: the same refusal), lists and searches leave them out, and the
+ * read card is never about them. Set for one tool call by mcp/protocol.ts (withHiddenFolders); other people's access
+ * is unchanged. Names compare after NFC and lower case (fails closed on a case-sensitive disk: a look-alike hides too).
+ */
+export interface HiddenFolders { userId: string; folders: readonly string[] }
+const hiddenScope = new AsyncLocalStorage<{ userId: string; keys: readonly string[] } | null>()
+const hiddenKey = (p: string) => p.normalize('NFC').toLowerCase()
+/** Run `fn` with `scope`'s folders hidden from its person (null: nothing hidden, also inside an outer scope). */
+export function withHiddenFolders<T>(scope: HiddenFolders | null, fn: () => T): T {
+  return hiddenScope.run(scope && scope.folders.length ? { userId: scope.userId, keys: scope.folders.map(hiddenKey) } : null, fn)
+}
+/** Is `segs` at or below a folder hidden from `p` in the running call? */
+export function hiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): boolean {
+  const h = hiddenScope.getStore()
+  if (!h || h.userId !== p.id || !segs.length) return false
+  const k = hiddenKey(segs.join('/'))
+  return h.keys.some((f) => k === f || k.startsWith(f + '/'))
+}
 
 export function loadPrincipal(db: Database, userId: string): Principal | null {
   // the role as the API knows it: a guest is stored as role 'member' with users.guest = 1 (migration 122_a_guests.sql)
@@ -351,6 +375,8 @@ export class RuleSet {
   /** THE resolution. Both access() and explain() come from here, so the answer and its reason never drift apart. */
   private decide(p: Principal, segs: readonly string[], why: Why | null): Access {
     if (segs.length && segs[0] === PRODUCT.systemDir) { if (why) why.kind = 'system'; return 'none' }
+    // a shared project chat's sub-folder not everyone in it may open: not there for the person in this call
+    if (hiddenNow(p, segs)) { if (why) why.kind = 'no-rule'; return 'none' }
     for (let i = 0; i < segs.length; i++) if (segs[i]!.startsWith(PRODUCT.tmpPrefix)) { if (why) why.kind = 'temp'; return 'none' }
     // users/<id>/ (tab 2 rules 2-3): the person's own folder is always write; anyone else's is none for every role,
     // owner and admin included, and rules there are ignored (the admin API refuses them; a moved folder or a
@@ -420,6 +446,7 @@ export class RuleSet {
   /** true when something strictly below `segs` is readable (so the folder may be listed for navigation) */
   hasVisibleDescendant(p: Principal, segs: readonly string[]): boolean {
     if (segs.length && segs[0] === PRODUCT.systemDir) return false
+    if (hiddenNow(p, segs)) return false
     if (segs[0] === 'users') {
       if (segs.length === 1) return true // own personal folder below
       return segs[1] === p.id
