@@ -339,12 +339,15 @@ export class ChatStore {
   /** `view`: a shared project chat's message as one viewer sees it (MessageView); absent: the chat's own person. */
   toMessage(r: MessageRow, live?: { content: string; steps: StoredStep[] }, view?: MessageView): Message {
     const siblings = this.siblingIds(r)
-    // a shared chat: the turn's person sees the answer as it is; anyone else not its live text, usage or failure reason
+    // a shared chat: the turn's person sees the answer as it is; anyone else not its usage or failure reason, and its
+    // steps as viewSteps shows them to them
     const runner = !view || (r.role === 'assistant' ? !!r.turn_id && this.turnUser(r.turn_id) === view.viewer : r.author_id === view.viewer)
     if (view) view = { ...view, runner }
-    const hideLive = !!view && !runner && r.status === 'streaming'
-    // an answer hidden from the viewer: its place in the branch and nothing else (Message.withheld); a running one shows
-    // nothing to anyone but its runner anyway
+    // a running answer: its text so far for everyone it is not hidden from, as its live events give it to them
+    // (chat/live-answer.ts, docs/decisions/20261118-shared-chat-live-answers.md); nothing when that cannot be told
+    const hideLive = !!view && !runner && r.status === 'streaming' && view.withheld?.(r.id) !== false
+    // an answer hidden from the viewer: its place in the branch and nothing else (Message.withheld); a running one hidden
+    // from them shows no text (hideLive)
     if (view && !runner && r.role === 'assistant' && r.status !== 'streaming' && view.withheld?.(r.id)) {
       const branch = { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings }
       return { id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: null, content: '', attachments: [], steps: [], status: r.status, error: null,

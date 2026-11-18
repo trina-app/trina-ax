@@ -596,8 +596,13 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(b.getByTestId('send-later')).toBeVisible()
       await expect(b.getByTestId('composer-input')).toHaveValue('나도 물어볼게')
       await expect(b.getByTestId('composer-input')).toHaveAccessibleDescription(/Olga님의 질문에 답하는 중이에요/)
-      // the question appears for him (no live text): read again when the turn started
+      // the question appears for him (read again when the turn started), and the answer as it is written (QA TC-4961,
+      // docs/decisions/20261118-shared-chat-live-answers.md): the first half while it is still running
       await expect(b.getByTestId('user-message').last()).toContainText('hold 일정표 다시 봐 줘')
+      await expect(b.getByTestId('assistant-message').last()).toHaveAttribute('data-status', 'streaming')
+      await expect(b.getByTestId('assistant-message').last()).toContainText('네, 정리했어요.')
+      await expect(b.getByTestId('assistant-message').last()).not.toContainText('안내 문구는')
+      await shotIf(b, 'bob-live')
       await audit(b, 'queue line')
       // the server says the same to a send or a stop of his
       const busy = await post(b, `/api/chats/${chatId}/messages`, { content: 'x', clientMessageId: uuidv7() })

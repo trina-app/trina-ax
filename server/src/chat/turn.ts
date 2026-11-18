@@ -125,6 +125,7 @@ import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
@@ -352,6 +353,9 @@ export class TurnExec {
    * (confirmSharedRead). Every gate of a shared chat (SHARED_TOOLS, no browser, no dev environment, no memories, the read
    * gate, the instructions' allowlist) is on this being set, whatever its kind; null elsewhere */
   shared: { kind: 'project'; project: ProjectRow } | { kind: 'people'; chat: ChatRow } | null = null
+  /** a shared chat: the others who see it get this answer's text and steps as they are written, as they see the
+   * finished answer (chat/live-answer.ts); null elsewhere */
+  private live: LiveAnswer | null = null
   /** a people-shared chat: where a search without a path looks (the one folder everyone in it may read), or why it does
    * not run; worked out once per turn */
   private peopleSearch: { path: string } | { refuse: string } | null = null
@@ -510,7 +514,12 @@ export class TurnExec {
       const project = rt.store.projectRow(row.project_id!)
       this.shared = { kind: 'project', project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
+    if (this.shared) this.live = new LiveAnswer(rt, spec.chatId, spec.assistantId, spec.turnId, spec.userId)
   }
+
+  /** Someone may have stopped seeing this shared chat, or the answer's record changed: the live text's viewers are
+   * worked out again before the next piece (chat/live-answer.ts). */
+  forgetLiveViewers() { this.live?.forget() }
 
   get id() { return this.spec.turnId }
   redactor(): Redactor { return (this.redactorNow ??= redactorFor(this.rt.ctx, this.spec.userId)) }
@@ -1915,6 +1924,7 @@ export class TurnExec {
     this.content = this.content.slice(0, at)
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
+    this.live?.text(at, '', true)
   }
 
   private emitText(t: string) {
@@ -1923,6 +1933,8 @@ export class TurnExec {
     this.content += t
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
+    // the others in a shared chat: the same text (it went through the redactor above, as the saved answer does)
+    this.live?.text(offset, t)
   }
 
   addStep(s: Partial<StoredStep> & Pick<Step, 'kind' | 'label' | 'status'>): StoredStep {
@@ -2016,6 +2028,8 @@ export class TurnExec {
     // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
     const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
     this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step } })
+    // the others in a shared chat: the step as the finished answer shows it to each of them (ChatStore.viewSteps)
+    this.live?.step(stored)
   }
 
   private closeThinking() {
@@ -3168,6 +3182,8 @@ export class TurnExec {
     for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
     if (!changed) return true
     const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}), ...(x.k ? { k: 1 as const } : {}) }))
+    // (who may see the live text depends on this record: worked out again before the next piece)
+    this.live?.forget()
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
@@ -4557,6 +4573,8 @@ export class TurnExec {
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
+      // the others in a shared chat: the finished message as each of them may see it
+      if (this.shared) publishDoneToOthers(this.rt, this.spec.chatId, this.spec.assistantId, this.spec.userId, status)
     })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled

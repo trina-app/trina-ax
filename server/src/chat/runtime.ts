@@ -39,6 +39,7 @@ import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
 
@@ -572,6 +573,8 @@ export class ChatRuntime {
     // their messages waiting there no longer hold a place in line (shared-waiting.ts)
     this.sharedWaiting.dropUser(userId, chatIds)
     const lost = new Set(chatIds)
+    // an answer running there for someone else goes on, but its live text no longer reaches them (chat/live-answer.ts)
+    for (const e of this.running.values()) if (lost.has(e.spec.chatId)) e.forgetLiveViewers()
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
     // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
@@ -767,6 +770,7 @@ export class ChatRuntime {
       {
         const row = this.store.messageRow(spec.assistantId), chatRow = this.store.chatRow(spec.chatId)
         if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId: spec.chatId, messageId: spec.assistantId, status: 'error', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+        if (row && chatRow) publishDoneToOthers(this, spec.chatId, spec.assistantId, spec.userId, 'error')
       }
       this.publishChat(spec.userId, spec.chatId, 'updated')
     } catch (e) {
@@ -878,6 +882,7 @@ export class ChatRuntime {
     const row = this.store.messageRow(spec.assistantId)
     const chatRow = this.store.chatRow(chatId)
     if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+    if (row && chatRow) publishDoneToOthers(this, chatId, spec.assistantId, spec.userId, 'stopped')
     this.publishChat(spec.userId, chatId, 'updated')
     this.schedule()
     this.publishPositions()
