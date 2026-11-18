@@ -70,7 +70,7 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await manage('Backup alerts')
       await page.getByTestId('apps-icon-change').click()
       const chooser = page.waitForEvent('filechooser')
-      await page.getByTestId('apps-icon-upload').click()
+      await page.getByTestId(vp.name === '390' ? 'apps-icon-files' : 'apps-icon-upload').click()
       await (await chooser).setFiles({ name: 'backup.png', mimeType: 'image/png', buffer: WIDE_PNG })
       await expect(page.getByTestId('apps-icon').getByTestId('app-tile')).toHaveAttribute('data-icon', 'image')
       await shot('07-settings-image')

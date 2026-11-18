@@ -51,7 +51,7 @@ import { Badge, Button, CopyButton, EmptyState, Field, IconButton, Modal, Skelet
 import { LoadError } from '../components/LoadError'
 import { SourceCodeLinks, useServerSource } from '../components/SourceCodeLink'
 import { Avatar } from '../components/Avatar'
-import { squarePhoto, type Photo } from '../lib/avatar'
+import { PHOTO_ACCEPT, squarePhoto, type Photo } from '../lib/avatar'
 import { Notifications } from '../components/settings/Notifications'
 import { DevEnvSites } from '../components/settings/DevEnvSites'
 import { AiAllowances } from '../components/settings/AiAllowances'
@@ -65,6 +65,7 @@ import { PhoneChecks } from '../components/phone/PhoneChecks'
 import { SettingsBarAction, useSettingsBar } from '../components/settings/SettingsBar'
 import { SettingRow } from '../components/settings/SettingRow'
 import { MenuButton } from '../components/rooms/MenuButton'
+import { useDevicePick, type DevicePick } from '../components/DevicePick'
 import { useGoBack } from '../lib/back'
 import MyUsage from '../components/settings/MyUsage'
 
@@ -175,6 +176,8 @@ function Profile() {
     if (!p) return setPhotoNote(t('profile.photoProblem'))
     setPhoto(p)
   }
+  // a phone: the photo's sheet starts from our device rows (components/DevicePick.tsx), never iOS's raw menu
+  const device = useDevicePick({ onFiles: (f) => void choose(f[0]), accept: PHOTO_ACCEPT, testIds: 'profile-photo' })
   const save = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!changed || !name.trim() || busy) return
@@ -213,7 +216,7 @@ function Profile() {
                 hasPhoto={hasPhoto}
                 note={photoNote}
                 hintId={`${ids}-photo-hint`}
-                onPick={() => pick.current?.click()}
+                pick={device}
                 onRemove={removePhoto}
               />
               {/* the hints under the group: the email's and who sees what */}
@@ -264,7 +267,8 @@ function Profile() {
           <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
           )}
-          <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          <input ref={pick} type="file" accept={PHOTO_ACCEPT} className="hidden" tabIndex={-1} aria-hidden data-testid="profile-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          {phone && device.inputs}
           {changed && !bar && (
             <div className="flex justify-end pt-3 max-sm:[&>button]:w-full">
               <Button type="submit" variant="primary" busy={busy} disabled={!name.trim()} data-testid="profile-save">
@@ -377,7 +381,7 @@ function Profile() {
 /** The profile's photo on a phone: the photo (or the first letter) centred, with "사진 바꾸기" ("사진 넣기" when there is
  * none) under it; one tap target for both. With a photo, a tap opens the photo choices as a sheet (a new one, or take it
  * away: the computer's two buttons); without one, it opens the photo picker. Nothing is saved before Save. */
-function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, onPick, onRemove }: { user: { id: string; name: string; avatarVersion?: number }; previewUrl: string | null; hasPhoto: boolean; note: string | null; hintId: string; onPick: () => void; onRemove: () => void }) {
+function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, pick, onRemove }: { user: { id: string; name: string; avatarVersion?: number }; previewUrl: string | null; hasPhoto: boolean; note: string | null; hintId: string; pick: DevicePick; onRemove: () => void }) {
   const t = useT()
   const face = (
     <span className="flex flex-col items-center gap-2">
@@ -391,24 +395,20 @@ function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, onPick, onRemove
   )
   return (
     <div className="flex flex-col items-center pt-2 pb-2" data-testid="profile-photo">
-      {hasPhoto ? (
-        <MenuButton
-          label={t('profile.photoChange')}
-          tip={t('profile.photo')}
-          heading={t('profile.photo')}
-          icon={face}
-          items={[
-            { label: t('profile.photoChange'), onSelect: onPick, testId: 'profile-photo-new' },
-            { label: t('profile.photoRemove'), onSelect: onRemove, danger: true, testId: 'profile-photo-remove' },
-          ]}
-          buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
-          testId="profile-photo-pick"
-        />
-      ) : (
-        <button type="button" onClick={onPick} aria-label={t('profile.photoAdd')} aria-describedby={hintId} className="rounded-2xl px-3 py-2 hover:bg-hover" data-testid="profile-photo-pick">
-          {face}
-        </button>
-      )}
+      {/* our sheet: 사진 보관함, 사진 찍기, 파일 (components/DevicePick.tsx), and 삭제 when there is a photo */}
+      <MenuButton
+        label={t(hasPhoto ? 'profile.photoChange' : 'profile.photoAdd')}
+        tip={t('profile.photo')}
+        heading={t('profile.photo')}
+        icon={face}
+        items={[
+          ...pick.items,
+          ...(hasPhoto ? [{ label: t('profile.photoRemove'), onSelect: onRemove, danger: true, testId: 'profile-photo-remove' }] : []),
+        ]}
+        describedBy={hasPhoto ? undefined : hintId}
+        buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
+        testId="profile-photo-pick"
+      />
       {/* the size and kind of photo it takes, for screen readers; a photo it could not read says so */}
       <p id={hintId} className={note ? 'mt-1 text-center text-xs text-danger' : 'sr-only'} role={note ? 'alert' : undefined}>{note ?? t('profile.photoHint')}</p>
     </div>

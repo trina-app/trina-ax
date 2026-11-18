@@ -47,7 +47,8 @@ import { cloudName, workFilesBridge } from '../../lib/workFiles'
 import { hasResume, takeResume } from '../../lib/workFilesResume'
 import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
-import { Button, ErrorNote, Modal, useMediaQuery } from '../ui'
+import { Button, buttonClass, ErrorNote, Modal, useMediaQuery } from '../ui'
+import { PhonePickButton, useDevicePick } from '../DevicePick'
 import { storagePlansAction } from '../StoragePlansLink'
 
 const L = TEAM_FILES_LIMITS
@@ -446,8 +447,11 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
     onDrop: drop,
   }
 
+  // a phone: "파일 직접 올리기" opens our sheet's device rows (components/DevicePick.tsx), never iOS's raw menu
+  const device = useDevicePick({ onFiles: (list) => void pickFiles(list), testIds: 'welcome-team-files', filesTestId: 'welcome-team-files-files-input', off: stepBusy })
   const inputs = (
     <>
+      {narrow && device.inputs}
       <input
         ref={input}
         type="file"
@@ -493,9 +497,15 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         {/* a narrow Mac or Windows browser: the app finds the files (never on a real phone: components/onboarding/OpenAppLine.tsx) */}
         <OpenAppLine />
         <div className="space-y-2">
-          <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
-            <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
-          </Button>
+          {narrow ? (
+            <PhonePickButton pick={device} label={t('welcome.teamFiles.pickFiles')} className={buttonClass({ variant: 'primary', className: 'w-full' })} inputs={false} wrapClassName="w-full" testId="welcome-team-files-pick-files">
+              <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
+            </PhonePickButton>
+          ) : (
+            <Button variant="primary" className="w-full" disabled={stepBusy} onClick={() => filesInput.current?.click()} data-testid="welcome-team-files-pick-files">
+              <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
+            </Button>
+          )}
           {progress.steps.files === 'done' && !dialog ? (
             <Button variant="ghost" className="w-full" disabled={stepBusy} onClick={() => onDone(0)} data-testid="welcome-team-files-next">{nextLabel}</Button>
           ) : later && <div className="flex justify-center">{later}</div>}
