@@ -593,7 +593,7 @@ export const id: Record<MessageKey, string> = {
   "chat.limit.continue": "Lanjutkan",
   "chat.limit.message": "Silakan lanjutkan.",
   "chat.memory.note": "Percakapan ini panjang, jadi AI hanya mengingat bagian terbarunya.",
-  "chat.memory.tip": "Ulangi hal yang penting, atau lanjutkan di chat baru dengan ringkasan singkat.",
+  "chat.memory.tip": "Jika ada hal penting dari sebelumnya yang terlewat, sampaikan lagi.",
   'chat.send': 'Kirim',
   'chat.sending': 'Mengirim…',
   'chat.notSent': 'Gagal terkirim.',

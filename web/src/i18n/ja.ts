@@ -578,7 +578,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.limit.continue": "続ける",
   "chat.limit.message": "続けてください。",
   "chat.memory.note": "会話が長いため、AIは最近の部分だけを覚えています。",
-  "chat.memory.tip": "大事な内容はもう一度伝えるか、要約して新しいチャットで続けてください。",
+  "chat.memory.tip": "前に伝えた大事な内容が抜けていたら、もう一度伝えてください。",
   'chat.send': "送信",
   'chat.sending': "送信中…",
   'chat.notSent': "送信できませんでした。",

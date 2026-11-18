@@ -577,7 +577,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.limit.continue": "继续",
   "chat.limit.message": "请继续。",
   "chat.memory.note": "这段对话很长，AI 只记得最近的部分。",
-  "chat.memory.tip": "请重复重要的内容，或附上简短摘要在新对话中继续。",
+  "chat.memory.tip": "如果前面说过的重要内容没被记住，请再说一遍。",
   "chat.send": "发送",
   "chat.sending": "发送中…",
   "chat.notSent": "未发送。",

@@ -116,7 +116,13 @@ class ReadHashes extends Map<string, string> {
   constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null,
     private readonly seen: { sessions: Map<string, string | null>; session: () => string | null } | null = null) { super() }
   // newest last in `all` (saveReads keeps the newest when an answer read more than it keeps)
+  /** this answer's reads made in an engine run the AI no longer has (a fresh start after a full conversation,
+   * chat/context-recover.ts): edits from them go on, a whole-file replace asks for a new read (readThisAnswer) */
+  readonly textGone = new Set<string>()
+  /** every read so far becomes edit-only (textGone) until it is read again */
+  forgetText() { for (const k of super.keys()) this.textGone.add(k) }
   override set(k: string, v: string) {
+    this.textGone.delete(k)
     this.all?.delete(k); this.all?.set(k, v)
     if (this.seen) this.seen.sessions.set(k, this.seen.session())
     return super.set(k, v)
@@ -167,7 +173,8 @@ export function mayReplace(files: TurnFiles, rel: string): boolean {
   return readThisAnswer(files, rel) !== undefined || (!!files.carried?.wholeFile(rel) && files.readHashes.has(rel))
 }
 
-export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined => Map.prototype.get.call(files.readHashes, rel) as string | undefined
+export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined =>
+  files.readHashes instanceof ReadHashes && files.readHashes.textGone.has(rel) ? undefined : Map.prototype.get.call(files.readHashes, rel) as string | undefined
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
 export const CALL_OWNER_WAIT_MS = 3000
@@ -253,6 +260,13 @@ export class TurnFiles {
     if (sid !== this.session) for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
     this.session = sid
     this.carried?.inSession(resumed ? sid : null)
+  }
+  /** the answer goes on in a fresh engine run (a full conversation, chat/context-recover.ts): what the main AI read so
+   * far in this answer is not text it still has, so those reads count for edits only, as an earlier answer's do in a
+   * fresh session (a whole-file replace asks for a new read) */
+  answerTextGone() {
+    if (this.readHashes instanceof ReadHashes) this.readHashes.forgetText()
+    this.sessionLostText()
   }
   /** the session lost text (Claude Code compacted it): as a move to another session for what was read so far */
   sessionLostText() {

@@ -186,6 +186,8 @@ export const STEP_TEXT = {
   engineNoConnection: t('고른 AI에 연결된 계정이 없어 다른 AI로 답해요', 'The chosen AI has no account connected; answering with another AI', 'AI yang dipilih tidak punya akun terhubung; menjawab dengan AI lain', "選んだAIにアカウントが接続されていないため、別のAIで回答します", "La IA elegida no tiene una cuenta conectada; se responde con otra IA", "所选AI没有连接账号，改用另一个AI回答"),
   /** "다른 AI로 대신 답하기": the Claude subscription limit was hit and the admin allowed the fallback */
   limitFallback: t('사용 한도에 닿아 다른 AI로 이어서 답해요', 'Usage limit reached; continuing with another AI', 'Batas pemakaian tercapai; dilanjutkan dengan AI lain', "使用量の上限に達したため、別のAIで続けます", "Se alcanzó el límite de uso; se continúa con otra IA", "已达到用量上限，换用另一个AI继续回答"),
+  /** the conversation got too long for the AI: the same answer goes on in a fresh session (server/src/chat/context-recover.ts) */
+  contextRecover: t('대화가 길어져서 AI가 정리하고 이어서 답해요', 'The conversation got long, so the AI made room and is continuing', 'Percakapan makin panjang, jadi AI merapikannya dan melanjutkan', "会話が長くなったため、AIが整理して回答を続けます", "La conversación se alargó, así que la IA hizo espacio y continúa", "对话变长了，AI整理后继续回答"),
   credentialSwitchLimit: t('사용 한도에 닿아 다른 AI 계정으로 이어서 답해요', 'Usage limit reached; continuing with another AI account', 'Batas pemakaian tercapai; dilanjutkan dengan akun AI lain', "使用量の上限に達したため、別のAIアカウントで続けます", "Se alcanzó el límite de uso; se continúa con otra cuenta de IA", "已达到用量上限，换用另一个AI账号继续回答"),
   /** a dev-environment command that runs as a long job, or in the background (box_shell job / background) */
   jobSuffix: t('오래 걸리는 작업', 'long task', 'tugas panjang', "時間のかかる作業", "tarea larga", "耗时任务"),
@@ -538,6 +540,7 @@ export function localizeStep(step: { kind: string; tool?: string; label: string;
   else if (tool === 'history_summary') label = retemplate(['historySummary'], step.label, locale)
   else if (tool === 'engine') label = retemplate(['engineOffDefault', 'engineNoConnection', 'limitFallback', 'credentialSwitchLimit', 'credentialSwitchInvalid'], step.label, locale)
   else if (tool === 'attachment') label = retemplate(['attachChanged', 'attachMoved', 'attachUnavailable'], step.label, locale)
+  else if (tool === 'context') label = retemplate(['contextRecover'], step.label, locale)
   else if (tool === 'agent') label = retemplate(['subtask'], step.label, locale)
   else if (tool === 'ask_user') label = retemplate(['asked'], step.label, locale)
   else if (tool === 'remember') label = retemplate(['remembered', 'notRemembered', 'rememberAsking'], step.label, locale)
