@@ -9,7 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { _active, setSrtSystem, type SharedRun } from '../../server/src/devenv/srt/runner'
+import { _active, setSrtSystem, sharedWorkOf, type SharedRun } from '../../server/src/devenv/srt/runner'
 import { chatHome, chatLogs, chatWork, personHome, personLogs, sharedWork, sharedWorkKey, unitName } from '../../server/src/devenv/srt/config'
 import { peopleAudience } from '../../server/src/chat/chat-audience'
 import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
@@ -211,6 +211,26 @@ describe('a shared project chat', () => {
     h.ctx.db.query("DELETE FROM dev_env_runs").run()
   })
 
+  // re-review B: a restricted folder that is no longer on disk (renamed or in the trash) keeps its paths out of the notes
+  test('notes: paths in a restricted folder that is gone from the disk are not named', async () => {
+    const at = new Date().toISOString()
+    // gone-hr: limited to alice, its rules still there, the folder itself moved away
+    const fid = crypto.randomUUID()
+    h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(fid, `${P.folderPath}/gone-hr`)
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(crypto.randomUUID(), fid)
+    const ev = h.ctx.db.query("INSERT INTO file_events (user_id, path, action, at) VALUES ('dana', ?, 'update', ?)")
+    ev.run(`${P.folderPath}/gone-hr/pay-RULEDGONE.md`, at)
+    // renamed-hr: renamed away, its rules went with it: by the rules alone the old path would be readable
+    ev.run(`${P.folderPath}/renamed-hr/pay-RENAMEDGONE.md`, at)
+    ev.run(`${P.folderPath}/still-OPENNAME2.md`, at)
+    try {
+      const first = out(await shell('alice', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo 1' }))
+      expect(first).toContain('still-OPENNAME2.md')
+      expect(first).not.toContain('RULEDGONE')
+      expect(first).not.toContain('RENAMEDGONE')
+    } finally { h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(fid) }
+  })
+
   // review 5: the reason a run is refused names folders (personal ones too): only in the log in a shared chat
   test('refused settings: a generic reason in a shared chat', async () => {
     const id = crypto.randomUUID()
@@ -270,7 +290,8 @@ describe('a chat shared with people and groups', () => {
     const people = (await h.api('alice').call(API.createChat, { body: {} })).id
     await shell('alice', sharedRun(['alice', 'bob'], null), people).call({ command: 'echo ok' })
     const r = last()
-    const work = sharedWork(base, people, sharedWorkKey(['alice', 'bob']))
+    const work = sharedWorkOf(h.ctx, people, 'alice', sharedRun(['alice', 'bob'], null))!
+    expect(work.startsWith(path.join(base, 'devenv', 'work-shared', people) + '/')).toBe(true)
     expect(r.spec.cwd).toBe(fs.realpathSync(work))
     expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
     expect(fsOf(r).allowWrite).toContain(work)
@@ -309,6 +330,28 @@ describe('a chat shared with people and groups', () => {
     expect(fs.readdirSync(both)).toEqual([])
     await shell('alice', sharedRun(['bob', 'alice'], null), c).call({ command: 'echo 3' })
     expect(last().spec.cwd).toBe(both)
+  })
+
+  // re-review A: the same people, but someone's access narrowed: what a run copied while they could read it stays away
+  test('the same people, someone\'s access narrowed: an empty work folder', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo 1' })
+    const before = last().spec.cwd
+    fs.writeFileSync(path.join(before, 'copy-from-project.md'), 'x')
+    const access = await h.api('dana').call(API.getProjectAccess, { params: { id: P.id } })
+    await h.api('dana').call(API.putProjectParticipants, { params: { id: P.id }, body: { participants: [user('alice')], expectedHash: access.rulesHash } })
+    try {
+      await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo 2' })
+      const after = last().spec.cwd
+      expect(after).not.toBe(before)
+      expect(fs.readdirSync(after)).toEqual([])
+    } finally {
+      const a = await h.api('dana').call(API.getProjectAccess, { params: { id: P.id } })
+      await h.api('dana').call(API.putProjectParticipants, { params: { id: P.id }, body: { participants: [user('alice'), user('bob')], expectedHash: a.rulesHash } })
+    }
+    // bob back: the folder of that view again
+    await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo 3' })
+    expect(last().spec.cwd).toBe(before)
   })
 
   test('the people change between choosing the work folder and the run: nothing runs', async () => {

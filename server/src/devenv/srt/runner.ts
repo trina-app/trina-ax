@@ -38,7 +38,7 @@ import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import type { Principal } from '../../policy/access'
-import { folderView, runSkillFolders, sharedFolderView, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
+import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
@@ -215,6 +215,20 @@ function sharedScopeNow(ctx: AppContext, shared: SharedRun): SharedScopeNow | nu
   } catch { return null }
 }
 
+/** The work folder of a shared chat with no project now: keyed by its people and by the view a run there gets
+ * (config.ts sharedWorkKey; the view of everyone in it is the same whoever asks: a people chat writes no team folder).
+ * Null when the people cannot be loaded. */
+export function sharedWorkOf(ctx: AppContext, chatId: string, userId: string, shared: SharedRun, scope?: SharedScopeNow | null): string | null {
+  const s = scope ?? sharedScopeNow(ctx, shared)
+  if (!s) return null
+  let p: Principal | null = null
+  try { p = ctx.files.principal(userId) } catch {}
+  if (!p) return null
+  let v: FolderView
+  try { v = sharedFolderView(ctx.files.rules(), p, { start: null }, { audience: s.audience, within: null }, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/'))) } catch { return null }
+  return sharedWork(srtConfig().base, chatId, sharedWorkKey(s.audience.map((q) => q.id), viewHash(v)))
+}
+
 /** A shared chat's run: record what it may read for the answer (SharedRun.noteReads) before it starts. Throws when the
  * record cannot be written. */
 function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedScopeNow | null) {
@@ -257,15 +271,23 @@ export function accessHash(ctx: AppContext, space: Space): string {
   return v ? runHash(v, run, scope) : 'off'
 }
 
-/** A shared chat's run: which team paths it may see now (its view, viewAccess). The tool's notes (changes by other
- * people, files changed in the background, conflict copies) name only those: they go to everyone in the chat. Not a
- * shared run: every path. No view (the audience cannot be loaded): none. */
+/** A shared chat's run: which team paths it may name now (access.ts sharedPathAccess: the rules for the person and
+ * everyone in the chat, and the path's folder on disk). The tool's notes (changes by other people, files changed in the
+ * background, conflict copies) name only those: they go to everyone in the chat. Not a shared run: every path. The
+ * people cannot be loaded: none. */
 export function sharedVisible(ctx: AppContext, space: Space): (rel: string) => boolean {
   if (!space.shared) return () => true
-  let run: RunWrites
-  try { run = runWrites(ctx, srtConfig(), space) } catch { return () => false }
-  const v = personView(ctx, space.userId, run, space.shared)
-  return v ? (rel) => viewAccess(v, rel) !== 'none' : () => false
+  let run: RunWrites, p: Principal | null = null
+  try { run = runWrites(ctx, srtConfig(), space); p = ctx.files.principal(space.userId) } catch { return () => false }
+  const scope = sharedScopeNow(ctx, space.shared)
+  if (!scope || !p) return () => false
+  const rules = ctx.files.rules(), root = ctx.files.fx.root
+  // by the rules for everyone in the chat, path by path (a renamed or trashed restricted folder has no entry in the
+  // run's view, whose folders are only those on disk), and only where the folder is on disk now
+  const onDisk = (rel: string) => { const d = path.posix.dirname(rel); try { return fs.lstatSync(d === '.' ? root : path.join(root, d)).isDirectory() } catch { return false } }
+  return (rel) => {
+    try { return onDisk(rel) && sharedPathAccess(rules, p!, run, scope, rel) !== 'none' } catch { return false }
+  }
 }
 
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
@@ -298,10 +320,9 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
   // a shared chat: a work folder of its own for the people who see it now (never the private one, sharedWork)
   let root: string
   if (o.shared) {
-    let audience: readonly string[]
-    try { audience = o.shared.audience() } catch { return null }
-    if (!audience.length) return null
-    root = sharedWork(c.base, o.chatId, sharedWorkKey(audience))
+    const w = sharedWorkOf(ctx, o.chatId, o.userId, o.shared)
+    if (!w) return null
+    root = w
   } else root = chatWork(c.base, o.chatId)
   fs.mkdirSync(path.dirname(root), { recursive: true, mode: 0o700 })
   fs.mkdirSync(root, { recursive: true, mode: 0o700 })
@@ -388,7 +409,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   // (the view below is made for the same people as the record)
   const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
   // a shared chat's work folder belongs to the people it was made for: they changed since (spaceOf) -> no run
-  if (space.shared && run.start === null && (!scope || space.root !== sharedWork(c.base, space.chatId!, sharedWorkKey(scope.audience.map((q) => q.id))))) throw new Error('the people of this chat changed; run the command again')
+  if (space.shared && run.start === null && (!scope || space.root !== sharedWorkOf(ctx, space.chatId!, space.userId, space.shared, scope))) throw new Error('the people of this chat changed; run the command again')
   noteSharedRun(ctx, space, run, scope)
   const view = personView(ctx, space.userId, run, space.shared, scope)
   if (!view) throw new Error('the person cannot use the dev environment now')

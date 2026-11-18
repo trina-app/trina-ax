@@ -88,8 +88,11 @@ export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.
  * work folder (chatWork) is never mounted in a shared run (it may hold copies of the person's own files), and a new
  * audience gets an empty folder (nothing an earlier, smaller audience's run copied there reaches someone new). */
 export const sharedWork = (base: string, chatId: string, audienceKey: string) => path.join(devenvPaths(base).workShared, safeId(chatId), safeId(audienceKey))
-/** the key of an audience: the same people, the same key */
-export const sharedWorkKey = (audience: readonly string[]) => crypto.createHash('sha256').update([...new Set(audience)].sort().join('\n')).digest('hex').slice(0, 32)
+/** The key of a shared chat's work folder: its people and what a run there may read (`view`, the hash of the shared
+ * view, srt/runner.ts sharedWorkOf). The same people with the same view, the same key; anyone more, or anyone whose
+ * access narrowed (out of a group, a folder rule changed), a new empty folder: what a run copied there while they could
+ * read it never reaches a run that could not. */
+export const sharedWorkKey = (audience: readonly string[], view = '') => crypto.createHash('sha256').update([...new Set(audience)].sort().join('\n') + '\0' + view).digest('hex').slice(0, 32)
 /** the work folder of a chat with no project (read and write); removed when the chat is purged */
 export const chatWork = (base: string, chatId: string) => path.join(devenvPaths(base).work, safeId(chatId))
 

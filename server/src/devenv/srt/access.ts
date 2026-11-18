@@ -199,6 +199,14 @@ export function sharedReadable(rules: Pick<RuleSet, 'access' | 'boundaryFolders'
   return sorted.filter((c) => at(c) !== 'none')
 }
 
+/** The access a shared chat's run gives one path by the rules themselves (not by the run's view, which leaves out
+ * folders not on disk): the person and everyone in the chat, inside the project folder of a project chat, never a
+ * personal folder. For the tool's notes (srt/runner.ts sharedVisible). Throws as sharedFolderView does. */
+export function sharedPathAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, rel: string): Access {
+  if (rel.split('/').some((x) => x === '' || x === '.' || x === '..')) return 'none'
+  return sharedAccess(rules, p, run, scope, []).at(rel)
+}
+
 function sharedAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, zoneFolders: readonly string[]) {
   const w = scope.within
   if (w !== null && (w === '' || w.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a project folder: ${JSON.stringify(w)}`)

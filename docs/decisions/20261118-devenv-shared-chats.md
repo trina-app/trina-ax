@@ -14,10 +14,13 @@
   (`chat/turn.ts` sharedAudience: the project's audience, or the creator and people of a chat shared with people and
   groups) may read it. A shared project chat sees only its project folder (the run starts there); a chat shared with
   people sees any team folder they all may read, read-only, and starts in a work folder of its own for the people who
-  see it now (`devenv/work-shared/<chat>/<key of its people>`, `srt/config.ts` sharedWork): never the chat's private
-  work folder (`devenv/work/<chat>`, which may hold copies of the person's own files from before the share), and a
-  different set of people gets a different, empty folder, so nothing a run of a smaller audience copied there reaches
-  someone new (the same people get theirs back). When nothing is common, only that work folder. Writes: only where the person may write in that set, and only in the project folder
+  see it now and what they may read (`devenv/work-shared/<chat>/<key>`, `srt/config.ts` sharedWork, the key = its
+  people and the hash of the shared view, `srt/runner.ts` sharedWorkOf): never the chat's private work folder
+  (`devenv/work/<chat>`, which may hold copies of the person's own files from before the share). A different set of
+  people, or the same people after someone's access narrowed (out of a group, a folder rule changed), gets a different,
+  empty folder, so nothing a run copied there while they could read it reaches a run that could not (the same people
+  with the same view get theirs back). A new rule folder anywhere they read also changes the view, and with it the
+  folder (fail closed: the files there are not lost, the folder is kept until the chat is purged or cleaned). When nothing is common, only that work folder. Writes: only where the person may write in that set, and only in the project folder
   (owner decision Q0 (b) as before; never a skill folder); a people chat writes no team folder. Never a personal folder,
   the person's own included, never `.system/`, never another chat's work folder.
 - **Rule, the audience changes:** every command builds its view again from the audience read at that moment, and the
@@ -42,11 +45,19 @@
   rows, logs and notices are per person); foreground commands only, up to 1800 s. Results of the person's jobs are not
   given to the AI there. The site card stays and goes to the person of the turn only, like every card of a shared chat.
 - **What others see:** the command and its output, like any answer; only folders they all may open are mounted. The
-  tool's notes name only paths the run may see now: changes by other people since the last command (and no count of
+  tool's notes name only paths the run may name now, by the rules for the person and everyone in the chat path by path
+  (`access.ts` sharedPathAccess) and only where the path's folder is on disk (a renamed or trashed restricted folder is
+  not in the run's view, which lists only folders on disk): changes by other people since the last command (and no count of
   the others), files changed in the background or in the command's window (someone's save in a restricted subfolder
   lands there too), conflict copies. Other people's jobs and dev servers are not listed in a shared chat. The audit
   line keeps them all (admins only). A run refused by the settings check says only "refused settings (see the server
   log)" in a shared chat: the reasons name folders, a personal one too, and go to the log.
+- **Processes left behind:** none outlive the command. Linux: bwrap runs with `--die-with-parent --unshare-pid`, so
+  when srt ends every process of the run ends, a `setsid nohup … &` too (attack A20 in the Docker suite), and the run's
+  unit (`devenv-run.service.in`, `KillMode=control-group`) kills what is left in its cgroup when its main process ends.
+  macOS: each run has its own dev slot account, and `run-wrap-mac` kills every process of that account when the
+  program ends, also one that left its process group; a slot is not reused while it has processes. So a shared chat's
+  command cannot leave something running that reads a later audience's folders.
 - **Known, as with the file tools:** a command may copy a file from a subfolder everyone in the chat may read into the
   project folder, which may have more readers later (the project folder's audience is the chat's audience, so nobody
   in the chat learns anything new; a later project member can read the copy). copy_files and move_files behave the same
