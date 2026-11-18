@@ -561,3 +561,51 @@ test('an edited message keeps its blank lines and the mark; the plain surfaces s
   expect(asked(long)).toContain('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
   expect(asked(long)).not.toContain('\n'.repeat(MAX_BLANK_LINES + 2))
 })
+
+// ---------------- review follow-ups (QA TC-4967) ----------------
+test('a link definition shows nothing and adds no empty line; a footnote stays its words', () => {
+  // the blank lines on its two sides are one run
+  expect(spacers(words('a\n\n[r]: https://example.com/r\n\nb'))).toEqual([1])
+  expect(spacers(words('a\n\n\n[r]: https://example.com/r\n\nb'))).toEqual([2])
+  expect(spacers(words('a\n\n[r]: https://example.com/r\n[s]: https://example.com/s\n\n\nb'))).toEqual([2])
+  // none after the last shown block, none before the first
+  const tail = words('[docs][r]\n\n[r]: https://example.com/d')
+  expect(spacers(tail)).toEqual([])
+  expect(tail).toMatch(/<a href="https:\/\/example\.com\/d"[^>]*>docs<\/a>/)
+  expect(spacers(words('[r]: https://example.com/d\n\n\n[docs][r]'))).toEqual([])
+  // in a quote too
+  expect(spacers(words('> a\n>\n> [r]: https://example.com/r\n>\n> b'))).toEqual([1])
+  // a footnote's definition is its words, so it is a neighbour like any paragraph
+  expect(spacers(words('x[^1]\n\n[^1]: note'))).toEqual([1])
+})
+
+test('lines of only U+3000 or NBSP are blank lines: counted and capped like empty ones', () => {
+  for (const ch of ['　', ' ', ' 　 \t']) {
+    // a paragraph of them is its lines in the run
+    expect(spacers(words(`a\n\n${ch}\n\nb`))).toEqual([3])
+    expect(spacers(words(`a\n\n${(ch + '\n').repeat(50)}\nb`))).toEqual([MAX_BLANK_LINES])
+    // inside a paragraph: at most MAX_BLANK_LINES empty lines in a row
+    const inside = words(`a\n${(ch + '\n').repeat(50)}b`)
+    expect((inside.match(/<br\/>/g) ?? []).length).toBe(MAX_BLANK_LINES + 1)
+    expect(inside).toContain('b</p>')
+    // the plain surfaces
+    expect(capBlankLines(`a\n${(ch + '\n').repeat(20)}b`)).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+    expect(capBlankLines(`a\n${ch}\n${ch}\nb`)).toBe(`a\n${ch}\n${ch}\nb`)
+  }
+  // a message of nothing but them still shows (nothing to space out)
+  expect(words('　\n\n　')).toContain('<p>　</p>')
+  // other text with an NBSP is words, not a blank line
+  expect(spacers(words('a\n\nx y\n\nb'))).toEqual([1, 1])
+  // linear on big runs of them
+  for (const big of ['　\n'.repeat(100_000), ('\n' + ' '.repeat(50)).repeat(4000)]) expect(fastest(() => capBlankLines(big))).toBeLessThan(50)
+  md('warm')
+  for (const body of [('　\n').repeat(5000), 'a\n\n' + ' \n\n'.repeat(3000), 'x\n　\n'.repeat(2500)]) {
+    const s = body.slice(0, 10_000)
+    const ms = fastest(() => md(s))
+    if (ms >= 200) throw new Error(`${Math.round(ms)} ms: ${JSON.stringify(s.slice(0, 20))}`)
+  }
+})
+
+test('the blocks around empty lines have no margin of their own there', () => {
+  expect(md('a\n\n\n```\nx\n```')).toContain('[&amp;_[data-blank-lines]+*]:mt-0 [&amp;_*:has(+[data-blank-lines])]:mb-0')
+})
