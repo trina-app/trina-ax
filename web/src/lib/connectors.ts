@@ -226,3 +226,14 @@ export const connectorFor = (url: string): Connector | undefined => { const at =
 
 /** A connection to this service is already in `urls`. */
 export const isConnected = (c: Connector, urls: string[]) => urls.some((u) => servesAt(c, u))
+
+/** What Settings › Connectors offers next to its search for adding a service by its address (docs/DECISIONS.md "Plain
+ * words for members": members do not add one, owner decision 2026-11-11): `add` ("Add custom connector") for an owner
+ * or admin while the team lets people add their own connections; `ask` ("Not listed? Ask an admin to add it.") for a
+ * member, in the same place, so the reason there is no Add is on screen and not under Discover's last card; nothing
+ * while the list is loading (`personalAllowed` unknown) or for an owner or admin with own connections turned off. */
+export function customConnectorAction(personalAllowed: boolean | undefined, admin: boolean): 'add' | 'ask' | null {
+  if (personalAllowed === undefined) return null
+  if (admin) return personalAllowed ? 'add' : null
+  return 'ask'
+}

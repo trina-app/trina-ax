@@ -46,6 +46,7 @@ contextBridge.exposeInMainWorld('mycelUi', {
     select: (id: string) => ipcRenderer.send('ui:pane-select', String(id)),
     closeTab: (id: string) => ipcRenderer.send('ui:pane-close-tab', String(id)),
     close: () => ipcRenderer.send('ui:pane-close'),
+    openExternal: () => ipcRenderer.send('ui:pane-open-external'),
     stop: () => ipcRenderer.send('ui:pane-stop'),
     answer: (id: string, decision: 'once' | 'always' | 'deny') => ipcRenderer.send('ui:pane-answer', { id: String(id), decision }),
     toolbarHeight: (h: number) => ipcRenderer.send('ui:pane-toolbar-height', Number(h)),
