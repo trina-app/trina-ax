@@ -828,18 +828,33 @@ describe('review fixes', () => {
     }
   })
 
-  test("a card's answer, another person's error code and the queue place stay with the runner", async () => {
+  test("the AI's question in a shared chat: the asker's card only, answered only by them, the answer their message; another person's error code and the queue place stay with the runner", async () => {
     const chat = await newShared()
     const started = await send('alice', chat.id, fake({ tool: 'ask_user', args: { question: 'Your note?', allowText: true }, sayResult: true }))
     const card = await cardOf('alice', started.turnId)
-    // while alice's card is open: bob sees who is answering and that it waits, never the turn or its place
+    // while alice's answer runs: bob sees who is answering, never the turn or its place
     const q = await h.api('bob').call(API.getChatQueue, { params: { id: chat.id } })
     expect([q.turnId, q.messageId, q.position]).toEqual([null, null, null])
-    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).shared?.answering).toEqual({ name: 'Alice Kim', waiting: true })
-    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'ALICE-PRIVATE-CARD-ANSWER' } })
+    // the answer ends with the card open (chat/open-questions.ts): it waits for alice alone
     await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 20_000)
-    const bobSteps = JSON.stringify((await messages('bob', chat.id)).find((m) => m.id === started.assistantMessage.id)!.steps)
-    expect(bobSteps).not.toContain('ALICE-PRIVATE-CARD-ANSWER')
+    await waitFor(() => h.rt().runState(chat.id) === 'idle', { timeoutMs: 10_000 })
+    expect((await h.api('alice').call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+    expect((await h.api('bob').call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+    expect((await h.api('alice').call(API.getChat, { params: { id: chat.id } })).waiting).toBe(true)
+    expect((await h.api('bob').call(API.getChat, { params: { id: chat.id } })).waiting).toBeUndefined()
+    expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && f.data.request.requestId === card.data.request.requestId)).toBe(false)
+    // only alice may answer it: bob cannot, by alice's turn or by the question
+    const bobTry = await h.req('bob', `/api/turns/${started.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind: 'ask_user', requestId: card.data.request.requestId, answer: 'BOB-ANSWER' }) })
+    expect(bobTry.status).toBe(404)
+    expect(h.ctx.db.query('SELECT answer FROM open_questions WHERE request_id = ?').get(card.data.request.requestId)).toEqual({ answer: null })
+    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'ALICE-CARD-ANSWER' } })
+    // her answer is her message in the chat (in a shared chat everything is shared: owner 2026-11-19), and the AI goes on
+    const u = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === started.assistantMessage.id, 20_000)
+    expect(u.data.message).toMatchObject({ role: 'user', content: 'ALICE-CARD-ANSWER' })
+    const a = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+    await ws.alice!.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
+    const bobSees = (await messages('bob', chat.id)).find((m) => m.id === u.data.message.id)!
+    expect(bobSees).toMatchObject({ content: 'ALICE-CARD-ANSWER', author: { id: 'alice' } })
     const failed = await ask('bob', chat.id, fake({ fail: 'rate limit exceeded' }))
     expect((await messages('alice', chat.id)).find((m) => m.id === failed.done.id)!.error?.code).toBe('internal')
     expect(failed.done.error?.code).not.toBe('internal')

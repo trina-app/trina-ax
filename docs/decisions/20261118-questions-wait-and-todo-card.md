@@ -33,10 +33,13 @@ Plan: docs/AGENTS/plan/20261118-2200-questions-wait-and-todo-card.md.
   before.
 - **Kept inside the call:** the server's own safety cards (delete, share, save where more people see it, a browser or
   dev-environment site, connect_service): their answer decides what that same call does, so they keep the admin's
-  wait. A question asked from Slack (its answer goes back to Slack from the same turn), a scheduled run (nobody
-  watches: skipped at once, as before) and a shared chat keep the old path too. In a shared chat the answer would
-  become a user message everyone there reads, where a card's answer has stayed with the person who gave it (a limit
-  that keeps one person's words from the others).
+  wait (a follow-up PR gives them the same treatment). A question asked from Slack (its answer goes back to Slack
+  from the same turn) and a scheduled run (nobody watches: skipped at once, as before) keep the old path too.
+- **Shared chats:** the same flow (owner, 2026-11-19, item D: "in a shared chat everything is shared"). The card is
+  listed for the asker only and only the asker may answer it (POST /answer checks the turn's and the question's
+  person); the answer becomes the asker's message in the chat, which everyone there reads, like anything they type
+  there. Before, a card's answer stayed in the asker's step. Another person's message in the chat closes the question,
+  as any turn does.
 - **Rule (to-do list):** a tool of ours, `todo_write { todos: [{ content, status: pending | in_progress | completed,
   activeForm? }] }`, the input of Claude Code's TodoWrite, on every engine (Claude Code, Codex, the API engine), in
   shared chats and for guests (it writes nothing but the AI's own words on its answer). Claude Code's own TodoWrite

@@ -6,9 +6,10 @@
 // answer as its user message, continuing from the asking answer (Claude resumes its session there). Several questions
 // of one answer: the turn starts once the last one is answered. Any other turn started in the chat closes them
 // (ChatRuntime.createTurn): the conversation went on without them.
-// A Slack turn, a scheduled run and a shared chat keep the wait inside the call (chat/turn.ts waitForPerson): Slack's
-// answer goes back from that same turn, nobody watches a scheduled run, and in a chat shared with others the answer
-// would become a message everyone there reads, where a card's answer stays with the person who gave it.
+// In a shared chat the card is the asker's only (listed for them, answered only by them: the turn's own person), and
+// the answer becomes their message there, which everyone in the chat reads (owner 2026-11-19: in a shared chat
+// everything is shared). A Slack turn and a scheduled run keep the wait inside the call (chat/turn.ts waitForPerson):
+// Slack's answer goes back from that same turn, and nobody watches a scheduled run.
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
 

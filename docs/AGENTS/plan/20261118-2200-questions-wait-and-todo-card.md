@@ -52,8 +52,8 @@ docs/decisions/20261118-questions-wait-and-todo-card.md.
 
 ## Risks
 
-Many tests answer an ask_user card inside the same turn: they move to the new flow. Shared chats keep the wait inside
-the call (see Result).
+Many tests answer an ask_user card inside the same turn: they move to the new flow. Shared chats: the card is the
+asker's only; the answer becomes their message there.
 
 ## Tests
 
@@ -64,8 +64,8 @@ open-questions and todo tests.
 
 Built as planned, with two changes found on the way:
 
-- Shared chats (project or people-shared) keep the wait inside the call: there the answer would become a user message
-  everyone reads, where a card's answer has stayed with the person who gave it (tested by b-shared-chats).
+- Shared chats use the same flow (owner 2026-11-19, item D): only the asker sees and answers the card, and the
+  answer becomes their message in the chat, which everyone there reads.
 - An answer given while the asking answer is still writing its last line is taken (not "an answer is in progress"):
   the runtime starts the next turn when that answer ends (ChatRuntime.startAnswered).
 - Skip on the card goes on as "(Skipped the question)", the AI reading `"skipped": true` as before.

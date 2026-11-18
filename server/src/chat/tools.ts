@@ -1085,8 +1085,9 @@ function bTools(exec: TurnExec): Tool[] {
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }
         // a chat a person watches: the card waits as long as it takes, after this answer ends (chat/open-questions.ts).
-        // Not in a shared chat: the answer would become a message everyone there reads (a card's answer stays the asker's)
-        if (!questionsWaitInCall(spec.clientKind) && !exec.shared) {
+        // A shared chat too: its answer becomes the asker's message there, which everyone in the chat reads (owner
+        // 2026-11-19: in a shared chat everything is shared); only the asker answers it
+        if (!questionsWaitInCall(spec.clientKind)) {
           const { expiresAt: _no, ...open } = request
           if (!exec.askLater(open as typeof request & { kind: 'ask_user' })) return { ...text(JSON.stringify({ skipped: true })), summary: 'ask_user -> skipped' }
           return { ...text(JSON.stringify({ asked: true, note: ASK_USER_LATER_NOTE })), summary: 'ask_user -> asked' }
