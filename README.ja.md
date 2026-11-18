@@ -21,27 +21,27 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 設定は一度だけ。チーム全員が使える。
 
-1人がチームのサーバーで設定すれば、全員の AI が最初の質問からそれを使えます。ブラウザーでもアプリでも。ほかの人は Claude Code を入れたり、キーを貼ったり、スキルをコピーしたりする必要はありません。
+1人がチームのサーバーで設定すれば、全員の AI が最初の質問からそれを使えます。ブラウザーでもアプリでも。ほかの人は Claude Code を入れたり、スキルをコピーしたりする必要はありません。せいぜい自分のアカウントにサインインするくらいです。
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-ja-dark.webp"><img src="docs/images/readme/v4/set-up-once-ja-light.webp" width="100%" alt="1人が AI アカウント、Google、アプリ、会社の API、Slack、スキル、チームのファイルを Trina サーバーで一度設定すると、Mac の Alex、iPhone の Mina、Windows の Sam、ブラウザーの Leo、Android の Jordan の AI がみんなそれを使えます。"></picture>
 
 | 一度だけ設定 | 全員が使えるもの |
 | --- | --- |
-| **AI アカウント。** オーナーが Claude か OpenAI の API キー、または規約上許されるプランを接続します。 | チーム全員が回答を受け取れます。トークン上限は人、グループ、チームごとに設定できます。 |
+| **AI アカウント。** オーナーか管理者が Claude か OpenAI の API キー、または規約上許されるプランを接続します。 | チーム全員が回答を受け取れます。トークン上限は人、グループ、チームごとに設定できます。 |
 | **Google。** ドライブのフォルダーをチームと共有するか、チームのアカウント（共有メールボックスやカレンダー）を1つ Gmail、Calendar、Docs、Sheets に接続します。 | 選んだ人が自分のチャットで使えます。各自の Google アカウントを別に接続することもできます。 |
-| **アプリ。** アプリ一覧の Higgsfield、Notion、Linear、Figma など、またはアドレスで追加する MCP サーバー（例：Bright Data）。 | 全員のチャットでそのアプリのツールが使えます。チームで1つのサインインか、各自のサインインかを選べます。 |
+| **アプリ。** アプリ一覧の Higgsfield、Notion、Linear、Figma など、またはアドレスさえあればどの MCP サーバーでも（例：Bright Data）。 | 全員のチャットでそのアプリのツールが使えます。チームで1つのサインインか、各自のサインインかを選べます。 |
 | **会社の API。** アドレス、キー、使い方のメモ。 | AI が自社のシステムを呼び出します。そのアドレスの配下だけです。 |
-| **Slack。** 管理者が一度追加します。 | どのチャンネルや DM でも Trina に聞けます。自分の権限で。 |
+| **Slack。** オーナーか管理者が一度追加します。 | DM や Trina を招待したチャンネルで Trina に聞けます。自分の権限で。 |
 | **スキル。** `SKILL.md` を書くか、`.claude` や `.codex` フォルダーのスキルをそのまま持ち込みます。 | 全員の AI が同じ手順で動きます。`/` で呼び出せます。 |
 | **チームのファイル。** 1つのドライブ：全社、グループ、プロジェクト、チームのスキル、個人フォルダー。 | 全員の AI がチームのファイルから始め、その人が開けるものだけを開きます。 |
 
 <table>
 <tr>
-<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、使う人"><br><sub>チーム全体にアプリを追加</sub></td>
-<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、チーム全員、チームで1つの接続"><br><sub>チーム全体にアプリを追加</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
 </tr>
 </table>
 
@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew トークで、Mina が自分にだけ見えるサイドチャットで Trina に出展規定をチェックリストにしてもらい、トークに送ります。">
 
-**それぞれ、開けるものだけが見える。** Mina が Finance を開けなければ、Mina の AI も開けません。[権限のしくみ](docs/PERMISSIONS.md)
+**それぞれの AI も、本人が開けるものだけが見える。** Mina が Finance を開けなければ、Mina の AI も開けません。[権限のしくみ](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理者が Sales フォルダーを開ける人を変え、Mina が開けるフォルダーを確認します。Finance は一覧にありません。">
 
@@ -72,7 +72,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 - **変更はすべて残る。** 人が変えても、その人の AI が変えても、どのバージョンにも戻せます。
 - **アプリの更新をトークに。** Sentry、GitHub、Stripe、Jira、HubSpot の更新がカードで届きます。
-- **議事録。** Mac アプリが Zoom、Meet、Teams の通話を書き起こします。
+- **議事録。** Mac アプリ（macOS 14.4 以降）が Zoom、Meet、Teams の通話を書き起こします。
 - **仕事のファイルを探す。** デスクトップアプリが手元のパソコンから最近の仕事のファイルを見つけ、選んだものだけ追加します。
 - **ドキュメント。** ハングル（HWP/HWPX）の本文を読み、PDF と PowerPoint をプレビューできます。
 - **どの端末でも。** Mac、Windows、iPhone、Android、そしてどのブラウザーからでも。6つの言語で。
@@ -94,7 +94,7 @@ Bun 1.3.12 と Go 1.27 以上が必要です。本番環境向けのインスト
 
 ## しくみ
 
-1台のサーバーで Claude Code と Codex がエンジンとして動きます。アプリからのリクエストは、すべて1つの権限チェックを通ります。Linux サーバーでは、エンジンは専用アカウントで bubblewrap、Landlock、seccomp のサンドボックス内で動きます。シェルと組み込みのファイルツールはオフなので、ファイルは Trina のツール経由でしか開けません。[セキュリティと権限](docs/security-and-permissions.md)
+1台のサーバーで Claude Code と Codex がエンジンとして動きます。人でもその人の AI でも、ファイルへのリクエストはすべてサーバーの1つの権限チェックを通ります。Linux サーバーでは、エンジンは専用アカウントで bubblewrap、Landlock、seccomp のサンドボックス内で動きます。シェルと組み込みのファイルツールはオフなので、ファイルは Trina のツール経由でしか開けません。[セキュリティと権限](docs/security-and-permissions.md)
 
 Trina が提供するのはワークスペースで、AI そのものではありません。自分たちの使い方が認められている Claude や OpenAI のアカウントとプランを接続してください。AI の利用料は、接続したアカウントに請求されます。
 
