@@ -230,11 +230,17 @@ export const ResizeImagesInput = z.strictObject({
 export const ResizeImagesOutput = z.object({ paths: z.array(z.string()) })
 // The files of a zip into a folder (server/src/tools/unzip.ts, docs/decisions/20261118-unzip-file.md)
 export const UnzipFileInput = z.strictObject({
-  path: relPath.describe('The .zip file, e.g. "projects/falcon/files.zip"'),
+  path: relPath.describe('The .zip file, e.g. "projects/falcon/files.zip", or an email file (.eml, .msg) whose attachments are saved'),
   to_folder: optRelPath.describe('Where the files go (made when missing; default: a new folder next to the zip, named after it)'),
   list_only: z.boolean().optional().describe('true: only list what is inside; nothing is saved'),
 })
 export const UnzipFileOutput = z.object({ folder: z.string(), paths: z.array(z.string()), failed: z.array(z.object({ name: z.string(), why: z.string() })) })
+// Files and folders into one .zip (server/src/tools/make-zip.ts, docs/decisions/20261118-make-zip-and-mail-attachments.md)
+export const MakeZipInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(50).describe('Files and folders to put in the zip (1-50), e.g. ["projects/falcon/contracts", "shared/price-list.xlsx"]; a folder goes in with everything in it the user can open'),
+  output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it)'),
+})
+export const MakeZipOutput = z.object({ path: z.string(), files: z.number(), size: z.number() })
 export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
 
 export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
@@ -513,6 +519,7 @@ export const OTHER_TOOLS = {
   split_pdf: { input: SplitPdfInput, output: PdfFilesOutput },
   resize_images: { input: ResizeImagesInput, output: ResizeImagesOutput },
   unzip_file: { input: UnzipFileInput, output: UnzipFileOutput },
+  make_zip: { input: MakeZipInput, output: MakeZipOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },

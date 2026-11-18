@@ -23,7 +23,10 @@ export const UNZIP_ENTRIES_MAX = 5000
 /** folder levels inside the zip */
 export const UNZIP_DEPTH_MAX = 30
 
-export interface PlannedFile { segs: string[]; entry: ZipEntry; size: number }
+/** `part`: an email's attachment (tools/unzip.ts with an .eml / .msg: files/mail-parts.ts), by its place in the list;
+ * its `entry` is then MAIL_ENTRY and unused */
+export interface PlannedFile { segs: string[]; entry: ZipEntry; size: number; part?: number }
+export const MAIL_ENTRY: ZipEntry = { nameBytes: new Uint8Array(0), flags: 0, extra: new Uint8Array(0), madeBy: 0, external: 0, method: 0, crc: 0, csize: 0, usize: 0, local: 0 }
 export interface ZipPlan {
   files: PlannedFile[]
   /** folders the zip names (also empty ones), each as its segments; parents of files are implied */

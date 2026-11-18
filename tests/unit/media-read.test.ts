@@ -597,17 +597,29 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(hits.length).toBe(1)
     expect(r.out.text).toMatch(/Access denied/)
   })
-  test('this server: whisper.cpp or its model missing says so and never downloads the model', async () => {
+  test('this server: a model that cannot be downloaded says the server tries again (never "use voice input"); no whisper.cpp says so', async () => {
+    // QA TC-4919: a read on any server starts the download it needs (before: a Mac only, and the person was told to use
+    // voice input once); a failed one is tried again by the server, not on every read
     const dl: string[] = []
     const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { dl.push(req.url); return new Response('no') } })
     try {
       Object.assign(F().speech, { baseUrl: `http://127.0.0.1:${srv.port}/`, modelOverride: { file: 'absent.bin', size: 10, sha256: 'x' } })
-      expect((await read({ file_path: put('nomodel.mp4') })).out.text).toContain('The speech model is not downloaded yet')
-      expect(dl).toEqual([])
+      let text = (await read({ file_path: put('nomodel.mp4') })).out.text
+      expect(dl).toHaveLength(1)
+      expect(text).toContain('The speech model could not be downloaded yet')
+      expect(text).toContain('Never ask them to use voice input')
+      expect(text).not.toMatch(/uses? voice input in chat|use voice input once/)
+      // the next read within the pause does not download again
+      text = (await read({ file_path: put('nomodel2.mp4') })).out.text
+      expect(dl).toHaveLength(1)
+      expect(text).toContain('The server tries again by itself')
       expect(local.calls).toBe(0)
       F().speech.whisperBin = null
       expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('The transcription tool is missing here')
-    } finally { srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' }
+    } finally {
+      srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/'
+      ;(F() as unknown as { modelFailedAt: number }).modelFailedAt = 0
+    }
   })
   test('an Apple silicon Mac: the first read downloads the model in its time and goes on, or says it is downloading', async () => {
     const body = 'ten bytes!'
@@ -630,7 +642,9 @@ describe('who transcribes, and when sound may leave the server', () => {
       gate = new Promise((resolve) => { open = resolve })
       local.calls = 0
       r = await read({ file_path: put('first-slow.m4a') }, { turnId: null })
-      expect(r.out.text).toContain('The speech model (about 488 MB, needed only the first time) is downloading now')
+      expect(r.out.text).toContain('The speech model (about 488 MB, needed only the first time) is still downloading (0 MB so far)')
+      expect(r.out.text).toContain('Read this file again now with the same arguments')
+      expect(r.out.text).not.toMatch(/voice input once|Try again in a few minutes/)
       expect(local.calls).toBe(0)
       // it goes on without the read and lands
       open()

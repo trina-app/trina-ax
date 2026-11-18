@@ -42,6 +42,7 @@ const KEEP: Record<string, readonly string[]> = {
   split_pdf: ['file_path', 'parts', 'every'],
   resize_images: ['paths', 'longest_side', 'width', 'max_mb', 'preset'],
   unzip_file: ['path', 'list_only'],
+  make_zip: ['paths'],
   comment_docx: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],

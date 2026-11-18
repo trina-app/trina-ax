@@ -48,7 +48,7 @@ import { normalizeForModel } from './vision'
 import { openChecked } from '../team-files/place'
 import { JobFailure } from '../jobs/service'
 import { FREE_USED, HOSTED_SPEECH_MODEL, hostedSpeechFreeHours } from '../credentials/hosted-speech'
-import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
+import { converterInputName, ensureModel, missingLocalTools, modelDownloading, modelOnDisk, modelProgress, modelReady, transcribeConfig, WHISPER_MODELS, whisperFile, type TranscribeConfig } from '../jobs/transcribe'
 import { openRouterAudio, openRouterServed, sendToOpenRouter, wavData, type OpenRouterAnswer } from '../jobs/openrouter-stt'
 import { keepLongRetry, LONG_PIECE_SEC, longRetryLanguage } from '../jobs/speech-language'
 import { pieceTurn, pieceWait } from '../jobs/whisper-turns'
@@ -119,6 +119,8 @@ export class TurnFiles {
    * sub-agent's view (a Proxy over this object) adds to the same counts */
   unzippedBytes = 0
   unzippedFiles = 0
+  /** what make_zip put into zips in this answer (tools/make-zip.ts MAKE_ZIP_ANSWER_MAX), the same way */
+  zippedBytes = 0
   /** PDFs and documents the AI made in this turn (make_file and the PDF tools, not files it saved from the web or a room)
    * and the sha256 it wrote, turn-wide: a later read does not change it, so "saved over by someone since" stays
    * visible (tools/stamp-pdf.ts madeThisTurn) */
@@ -1292,10 +1294,11 @@ export class FileService {
       else speech = { provider, key, model: orModel }
     } else if (!this.speech.whisperBin) blocked = 'noWhisper'
     else {
-      // an Apple silicon Mac's first use may be this read: the model download starts here, and the read goes on with it
-      // when it is done in time (docs/decisions/20261116-mac-local-speech.md); Linux keeps it for voice input
-      const modelPath = await modelReady(this.speech) ?? (this.speech.mac ? await this.firstModel(ctx.signal, budget) : null)
-      if (!modelPath) blocked = this.speech.mac && modelDownloading() ? 'modelDownloading' : 'noModel'
+      // the model is normally there already (jobs/model-prefetch.ts downloads it ahead); when it is not, this read starts
+      // the download or meets the one running, and goes on with it when it is done in time, on any server
+      // (docs/decisions/20261118-speech-model-ahead.md; before, a Mac only: docs/decisions/20261116-mac-local-speech.md)
+      const modelPath = await modelReady(this.speech) ?? await this.firstModel(ctx.signal, budget)
+      if (!modelPath) blocked = modelDownloading() ? 'modelDownloading' : 'noModel'
       else speech = { provider, modelPath }
     }
     // a hosted server transcribes at most HOSTED_LOCAL_NEW_SEC of new sound here a read (founder Q8)
@@ -1470,7 +1473,13 @@ export class FileService {
     // how far it got, and that reading again goes on from there (the pieces made are kept)
     else if (stopped === 'time') notes.push(covered > w.from ? say('timeUp', { from: media.clock(w.from), to: media.clock(covered) }) : say('timeNone'))
     else if (stopped === 'freeUsed') notes.push(say('freeUsed', { hours: hostedSpeechFreeHours() }))
-    else if (stopped === 'modelDownloading') notes.push(say('modelDownloading', { mb: Math.round(WHISPER_MODELS[this.speech.model].size / 1e6) }))
+    else if (stopped === 'modelDownloading') {
+      // how far it is, and what the AI does next: read again (that read waits for the download), never send the person
+      // anywhere (the second limits audit, TC-4919: "use voice input once and ask me again")
+      const p = modelProgress()
+      const mb = Math.round(WHISPER_MODELS[this.speech.model].size / 1e6)
+      notes.push(say('modelDownloading', { mb, done: Math.min(mb, Math.round((p?.got ?? 0) / 1e6)) }) + MODEL_WAIT_FOR_AI)
+    } else if (stopped === 'noModel') notes.push(say('noModel') + MODEL_RETRY_FOR_AI)
     else if (stopped && stopped !== 'failed') notes.push(say(stopped as MediaTextKey))
     if (failure) notes.push(say('failed', { why: failure.replace(/[.。]\s*$/, '') }))
     return { segments, from: w.from, covered, notes, label, languages: media.transcriptLanguages(pieces), provider, made, cached, silent, stopped }
@@ -1712,6 +1721,9 @@ const MEDIA_NOTE: Record<string, MediaTextKey | undefined> = {
 const PROBE_MEMO_MS = 10 * 60_000
 /** a Mac read starts the model download again at most this often after one failed */
 const MODEL_RETRY_MS = 5 * 60_000
+/** what the AI does with the speech model's notes (QA TC-4919): the person has nothing to do */
+const MODEL_WAIT_FOR_AI = '\n(For the AI: the download goes on by itself. Read this file again now with the same arguments: the next read waits for the download and then turns the sound into text. Tell the user only that the speech part is being set up for the first time, if it takes long. Never ask them to use voice input or do anything else.)'
+const MODEL_RETRY_FOR_AI = '\n(For the AI: the server tries the download again by itself. Tell the user plainly that the sound could not be turned into text yet because the speech part is still being set up, and offer to try again in a few minutes. Never ask them to use voice input or do anything else.)'
 const probeFailures = new Map<string, { code: string; at: number }>()
 /** room in the work folder's file system for a copy of `size` bytes and MEDIA_DISK_RESERVE (unknown: yes) */
 function diskRoom(base: string, size: number): boolean {

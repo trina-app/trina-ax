@@ -122,6 +122,10 @@ const modelSpec = (cfg: TranscribeConfig): ModelSpec => cfg.modelOverride ?? WHI
 let downloading: Promise<string> | null = null
 /** the model is being downloaded now (an AI read on a Mac says so instead of "not on this server yet") */
 export const modelDownloading = () => downloading !== null
+/** how far the running download is (bytes so far, the model's size, when it started), null when none runs: an AI read
+ * that meets it says how much is left (files/service.ts) */
+let progress: { got: number; total: number; startedAt: number } | null = null
+export const modelProgress = (): { got: number; total: number; startedAt: number } | null => (downloading && progress ? { ...progress } : null)
 
 /** Path of the model file, downloading it first if needed (one download at a time). */
 /** sha256 of a shared model file, checked once per file version per process (the small model is 488 MB) */
@@ -144,7 +148,10 @@ async function sharedModel(cfg: TranscribeConfig, spec: ModelSpec): Promise<stri
 export async function ensureModel(cfg: TranscribeConfig, h?: Pick<JobHandle, 'progress' | 'signal'>, locale: Locale = DEFAULT_LOCALE): Promise<string> {
   const ready = await modelReady(cfg)
   if (ready) return ready
-  if (!downloading) downloading = download(cfg, path.join(cfg.modelDir, modelSpec(cfg).file), h, locale).finally(() => { downloading = null })
+  if (!downloading) {
+    progress = { got: 0, total: modelSpec(cfg).size, startedAt: Date.now() }
+    downloading = download(cfg, path.join(cfg.modelDir, modelSpec(cfg).file), h, locale).finally(() => { downloading = null; progress = null })
+  }
   return downloading
 }
 
@@ -205,6 +212,7 @@ async function downloadTo(cfg: TranscribeConfig, spec: ModelSpec, file: string, 
       if (got > spec.size) break
       hash.update(value)
       await fh.write(value)
+      if (progress) progress.got = got
       h?.progress(0.5 * (got / spec.size), label)
     }
   } catch (e) {

@@ -76,6 +76,23 @@ export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
   } finally { fs.closeSync(fd) }
 }
 
+/** A regular, singly linked file in pieces of at most 4 MiB (same refusals and `seen` as readRegular), up to the size
+ * its fstat gave, never the whole file in memory: `each` gets every piece in order and may wait (make_zip's deflate). */
+export async function readRegularPieces(abs: string, seen: fs.Stats | undefined, each: (piece: Buffer) => Promise<void> | void, signal?: AbortSignal): Promise<fs.Stats> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      signal?.throwIfAborted()
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      await each(Buffer.from(buf.subarray(0, n)))
+      pos += n
+    }
+    return st
+  } finally { fs.closeSync(fd) }
+}
+
 /**
  * sha256 of a regular, singly linked file (no final symlink followed), read in 4 MiB pieces: no size limit and never
  * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular, and the

@@ -1,11 +1,20 @@
 // What a downloaded file is, judged by its first bytes, never by what the site or the service said (save_url,
-// docs/DECISIONS.md "save_url"). It takes images (PNG, JPEG, GIF, WebP), PDF, video (MP4, MOV, WebM) and audio (MP3,
-// WAV, M4A, AAC, FLAC, Ogg with Vorbis or Opus): what image, video and voice services return (fal, Replicate,
+// docs/DECISIONS.md "save_url"). sniffKind takes images (PNG, JPEG, GIF, WebP), PDF, video (MP4, MOV, WebM) and audio
+// (MP3, WAV, M4A, AAC, FLAC, Ogg with Vorbis or Opus): what image, video and voice services return (fal, Replicate,
 // ElevenLabs). Everything else is refused, named when it is something people would recognise (SVG, HTML, an archive,
 // a program), so the AI can say why.
+// save_url also takes office documents, CSV and ZIP files (docs/decisions/20261118-office-zip-from-the-web.md):
+// sniffDownload adds a zip or compound-file container and CSV text on the first bytes, and settleKind decides what the
+// whole file is once it is downloaded (the names in a zip's directory, the streams of a compound file, the text of a
+// CSV), refusing program packages and installers.
+import { readCfb } from '../files/cfb'
+import { sniff as sniffWhole, zipEntries } from '../file-list/sniff'
 
 export type KindName = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'mp4' | 'mov' | 'webm' | 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg' | 'opus'
-export interface FileKind { name: KindName; ext: string; mime: string; label: string; image: boolean; media: 'image' | 'document' | 'video' | 'audio' }
+  | 'docx' | 'docm' | 'xlsx' | 'xlsm' | 'pptx' | 'pptm' | 'doc' | 'xls' | 'ppt' | 'hwp' | 'hwpx' | 'odt' | 'ods' | 'odp' | 'msg' | 'zip' | 'csv' | 'tsv'
+  /** a compound file (OLE2) whose kind settleKind decides after the download; never saved as it is */
+  | 'ole'
+export interface FileKind { name: KindName; ext: string; mime: string; label: string; image: boolean; media: 'image' | 'document' | 'video' | 'audio' | 'archive' | 'data' }
 
 const K = (name: KindName, ext: string, mime: string, label: string, media: FileKind['media']): FileKind => ({ name, ext, mime, label, image: media === 'image', media })
 export const KINDS: Record<KindName, FileKind> = {
@@ -24,10 +33,37 @@ export const KINDS: Record<KindName, FileKind> = {
   flac: K('flac', 'flac', 'audio/flac', 'FLAC', 'audio'),
   ogg: K('ogg', 'ogg', 'audio/ogg', 'Ogg', 'audio'),
   opus: K('opus', 'opus', 'audio/ogg', 'Opus', 'audio'),
+  docx: K('docx', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'Word', 'document'),
+  docm: K('docm', 'docm', 'application/vnd.ms-word.document.macroEnabled.12', 'Word (with macros)', 'document'),
+  xlsx: K('xlsx', 'xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Excel', 'document'),
+  xlsm: K('xlsm', 'xlsm', 'application/vnd.ms-excel.sheet.macroEnabled.12', 'Excel (with macros)', 'document'),
+  pptx: K('pptx', 'pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'PowerPoint', 'document'),
+  pptm: K('pptm', 'pptm', 'application/vnd.ms-powerpoint.presentation.macroEnabled.12', 'PowerPoint (with macros)', 'document'),
+  doc: K('doc', 'doc', 'application/msword', 'Word 97-2003', 'document'),
+  xls: K('xls', 'xls', 'application/vnd.ms-excel', 'Excel 97-2003', 'document'),
+  ppt: K('ppt', 'ppt', 'application/vnd.ms-powerpoint', 'PowerPoint 97-2003', 'document'),
+  hwp: K('hwp', 'hwp', 'application/x-hwp', 'Hangul (HWP)', 'document'),
+  hwpx: K('hwpx', 'hwpx', 'application/hwp+zip', 'Hangul (HWPX)', 'document'),
+  odt: K('odt', 'odt', 'application/vnd.oasis.opendocument.text', 'OpenDocument text', 'document'),
+  ods: K('ods', 'ods', 'application/vnd.oasis.opendocument.spreadsheet', 'OpenDocument spreadsheet', 'document'),
+  odp: K('odp', 'odp', 'application/vnd.oasis.opendocument.presentation', 'OpenDocument presentation', 'document'),
+  msg: K('msg', 'msg', 'application/vnd.ms-outlook', 'Outlook email', 'document'),
+  zip: K('zip', 'zip', 'application/zip', 'ZIP', 'archive'),
+  csv: K('csv', 'csv', 'text/csv', 'CSV', 'data'),
+  tsv: K('tsv', 'tsv', 'text/tab-separated-values', 'TSV', 'data'),
+  ole: K('ole', 'bin', 'application/x-ole-storage', 'compound file', 'document'),
 }
 /** extensions that already name a kind correctly (kept as written) */
-const SAME_EXT: Partial<Record<KindName, string[]>> = { jpeg: ['jpg', 'jpeg'], mov: ['mov', 'qt'], ogg: ['ogg', 'oga'], opus: ['opus', 'ogg'] }
-export const ACCEPTED = 'PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, and MP3, WAV, M4A, AAC, FLAC and Ogg (Vorbis, Opus) audio'
+const SAME_EXT: Partial<Record<KindName, string[]>> = {
+  jpeg: ['jpg', 'jpeg'], mov: ['mov', 'qt'], ogg: ['ogg', 'oga'], opus: ['opus', 'ogg'],
+  // templates and shows are the same formats as the documents
+  docx: ['docx', 'dotx'], docm: ['docm', 'dotm'], xlsx: ['xlsx', 'xltx'], xlsm: ['xlsm', 'xltm'], pptx: ['pptx', 'potx', 'ppsx'], pptm: ['pptm', 'potm', 'ppsm'],
+  doc: ['doc', 'dot'], xls: ['xls', 'xlt'], ppt: ['ppt', 'pot', 'pps'], odt: ['odt', 'ott'], ods: ['ods', 'ots'], odp: ['odp', 'otp'],
+  // zip-based formats that are not documents read here (an e-book, Apple's iWork files) keep their name
+  zip: ['zip', 'epub', 'pages', 'numbers', 'key'], csv: ['csv', 'txt'], tsv: ['tsv', 'tab', 'txt'],
+}
+export const ACCEPTED = 'PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, MP3, WAV, M4A, AAC, FLAC and Ogg (Vorbis, Opus) audio, ' +
+  'Word, Excel, PowerPoint, Hangul (HWP, HWPX) and OpenDocument files, Outlook emails (.msg), CSV / TSV tables and ZIP archives'
 
 const ascii = (b: Uint8Array, at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n))
 /** MP4 major / compatible brands that are a video file (not HEIC / AVIF images; QuickTime's `qt  ` is MOV) */
@@ -117,6 +153,109 @@ export function withExtension(name: string, kind: FileKind): { name: string; cha
   const cur = m?.[1]?.toLowerCase()
   if (cur && (cur === kind.ext || SAME_EXT[kind.name]?.includes(cur))) return { name, changed: false }
   // a known media / document extension is replaced; any other dot in the name stays part of the name
-  const replace = cur && /^(png|jpe?g|gif|webp|avif|heic|svg|bmp|tiff?|pdf|mp4|m4v|mov|qt|webm|mkv|mp3|wav|m4a|aac|ogg|oga|opus|flac|bin|dat|tmp|html?|txt|json|xml)$/.test(cur)
+  const replace = cur && /^(png|jpe?g|gif|webp|avif|heic|svg|bmp|tiff?|pdf|mp4|m4v|mov|qt|webm|mkv|mp3|wav|m4a|aac|ogg|oga|opus|flac|bin|dat|tmp|html?|txt|json|xml|docx?|docm|xlsx?|xlsm|pptx?|pptm|hwpx?|od[tsp]|msg|zip|csv|tsv)$/.test(cur)
   return { name: (replace ? name.slice(0, -(cur!.length + 1)) : name) + '.' + kind.ext, changed: true }
+}
+
+// ---------------------------------------------------------------- documents, tables and archives (save_url)
+
+const EXT_OF = (name: string) => (/\.([A-Za-z0-9]{1,8})$/.exec(name)?.[1] ?? '').toLowerCase()
+/** what a site's Content-Type says, for the kinds whose bytes alone cannot tell them apart (a compound file, CSV) */
+const DECLARED: Record<string, KindName> = {
+  'application/msword': 'doc', 'application/vnd.ms-excel': 'xls', 'application/vnd.ms-powerpoint': 'ppt',
+  'application/x-hwp': 'hwp', 'application/haansofthwp': 'hwp', 'application/vnd.hancom.hwp': 'hwp', 'application/vnd.ms-outlook': 'msg',
+  'text/csv': 'csv', 'application/csv': 'csv', 'text/x-csv': 'csv', 'application/x-csv': 'csv', 'text/comma-separated-values': 'csv',
+  'text/tab-separated-values': 'tsv',
+}
+const declaredKind = (declared: string): KindName | undefined => DECLARED[declared.split(';')[0]!.trim().toLowerCase()]
+const isZipHead = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4
+const isOleHead = (b: Uint8Array) => b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1
+/** a table as text: says CSV / TSV (its Content-Type, or the address's or the asked name's extension), no NUL in its
+ * first bytes (a UTF-16 table with a byte order mark too), and not a page, a picture or a script */
+function tableKind(b: Uint8Array, declared: string, name: string): FileKind | null {
+  const said = declaredKind(declared)
+  const e = EXT_OF(name)
+  // Excel's CSV download often comes as application/vnd.ms-excel, text/plain or octet-stream with a .csv name
+  const kind: KindName | null = said === 'csv' || said === 'tsv' ? said : e === 'csv' || e === 'tsv' ? e : null
+  if (!kind) return null
+  const bom16 = b.length >= 2 && ((b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff))
+  if (!bom16 && b.subarray(0, 8192).includes(0)) return null
+  if (!bom16 && refusedName(b) && !/JSON or text/.test(refusedName(b)!)) return null
+  return KINDS[kind]
+}
+
+/**
+ * save_url's kind from the first bytes: sniffKind's, or a zip / compound-file container (settled after the download by
+ * settleKind) or a CSV / TSV table (its Content-Type or name says so and the bytes are text). `name`: the address's or
+ * the asked file name (its extension is only a hint, for a table and an old Office file).
+ */
+export function sniffDownload(first: Uint8Array, declared: string, name: string): FileKind | null {
+  const k = sniffKind(first)
+  if (k) return k
+  if (isZipHead(first)) return KINDS.zip
+  if (isOleHead(first)) return KINDS.ole
+  return tableKind(first, declared, name)
+}
+
+/** A refusal of a downloaded container: a program package or an installer. */
+export class RefusedKind extends Error { constructor(readonly what: string) { super(what); this.name = 'RefusedKind' } }
+
+/** the largest file whose directory settleKind reads in full (a bigger one stays a ZIP, or what its name says) */
+export const SETTLE_READ_MAX = 256 * 1024 * 1024
+const PROGRAM_EXT = new Set(['apk', 'aab', 'jar', 'war', 'ear', 'xpi', 'crx', 'ipa', 'appx', 'appxbundle', 'msix', 'msixbundle', 'vsix', 'nupkg', 'whl', 'msi', 'msp', 'exe', 'dll'])
+
+/**
+ * What a downloaded zip, compound file or table really is, from all of its bytes (`whole`, null when it is larger than
+ * SETTLE_READ_MAX). A zip: Word / Excel / PowerPoint (with macros when it carries a VBA project), Hangul HWPX,
+ * OpenDocument, else a plain ZIP; an app package (APK, JAR, browser extensions, Windows app packages) is refused. A
+ * compound file: by its streams (WordDocument, Workbook, PowerPoint Document, Hangul's FileHeader, an Outlook
+ * message), else what the site or the name said among those; an installer (MSI) or anything else is refused. A table:
+ * the first 8 KB must hold no NUL.
+ */
+export function settleKind(k: FileKind, whole: Uint8Array | null, declared: string, name: string): FileKind {
+  const e = EXT_OF(name)
+  if (k.name === 'zip') {
+    if (PROGRAM_EXT.has(e)) throw new RefusedKind('a program package')
+    if (!whole) return KINDS[(['docx', 'xlsx', 'pptx', 'hwpx', 'odt', 'ods', 'odp'] as const).find((x) => x === e) ?? 'zip']
+    const entries = zipEntries(whole)
+    if (!entries) throw new RefusedKind('a damaged ZIP file (its list of files cannot be read)')
+    const names = entries.map((x) => x.name)
+    const has = (n: string) => names.includes(n)
+    if (has('AndroidManifest.xml') || has('classes.dex') || has('META-INF/MANIFEST.MF') && names.some((n) => n.endsWith('.class'))
+      || has('AppxManifest.xml') || has('extension.vsixmanifest') || names.some((n) => /^Payload\/[^/]+\.app\//.test(n)) || (has('manifest.json') && e === 'crx')) {
+      throw new RefusedKind('a program package (an app or a browser extension)')
+    }
+    const w = sniffWhole(whole.subarray(0, 4096), e, whole)
+    const vba = (dir: string) => has(`${dir}/vbaProject.bin`)
+    if (w === 'docx') return vba('word') ? KINDS.docm : KINDS.docx
+    if (w === 'xlsx') return vba('xl') ? KINDS.xlsm : KINDS.xlsx
+    if (w === 'pptx') return vba('ppt') ? KINDS.pptm : KINDS.pptx
+    if (w === 'hwpx' || w === 'odt' || w === 'ods' || w === 'odp') return KINDS[w]
+    return KINDS.zip
+  }
+  if (k.name === 'ole') {
+    if (PROGRAM_EXT.has(e)) throw new RefusedKind('an installer or another program file')
+    const byName = (['doc', 'xls', 'ppt', 'hwp', 'msg'] as const).find((x) => x === e || SAME_EXT[x]?.includes(e)) ?? (['doc', 'xls', 'ppt', 'hwp', 'msg'] as const).find((x) => x === declaredKind(declared))
+    if (whole) {
+      let streams: string[] | null = null
+      try { streams = [...readCfb(whole).streams.keys()] } catch { streams = null }
+      if (streams) {
+        const top = new Set(streams.map((s) => s.split('/')[0]!))
+        if (top.has('WordDocument')) return KINDS.doc
+        if (top.has('Workbook') || top.has('Book')) return KINDS.xls
+        if (top.has('PowerPoint Document')) return KINDS.ppt
+        if (top.has('FileHeader') && (top.has('DocInfo') || top.has('BodyText'))) return KINDS.hwp
+        if (top.has('__properties_version1.0') && streams.some((s) => s.includes('__substg1.0_'))) return KINDS.msg
+        throw new RefusedKind('a compound file that is not a Word, Excel, PowerPoint, Hangul or Outlook file (an installer, for example)')
+      }
+    }
+    if (byName) return KINDS[byName]
+    throw new RefusedKind('a compound file that is not a Word, Excel, PowerPoint, Hangul or Outlook file (an installer, for example)')
+  }
+  if (k.name === 'csv' || k.name === 'tsv') {
+    const head = whole ? whole.subarray(0, 8192) : null
+    const bom16 = !!head && head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))
+    if (head && !bom16 && head.includes(0)) throw new RefusedKind('a binary file, not a CSV table')
+  }
+  return k
 }
