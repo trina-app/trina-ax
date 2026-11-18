@@ -2,9 +2,9 @@
 // inline as base64 (get_gmail_attachment_content with return_base64, its stateless mode keeps nothing on disk); Trina
 // turns them into what the AI can use with the same readers as drive_read (tools/drive.ts: PDF text layer, Hangul and
 // Office files through files/extract.ts, pictures through the vision converter) and never hands the model base64.
-// A copy goes into the team files only when the person asks: a PDF or a picture is kept for this chat like any
-// connection's file (connections/media.ts) and saved with save_url; other kinds are saved from their text with the file
-// tools.
+// A copy goes into the team files only when the person asks: every attachment is kept for this chat as it came, like
+// any connection's file (connections/media.ts), and save_connector_file saves the original bytes (a Word, Excel or
+// Hangul file as that file, not its text).
 import type { AppContext } from '../../context'
 import type { TurnToolContext } from '../../services'
 import { extractText, looksScanned } from '../../files/extract'
@@ -76,17 +76,16 @@ export async function readAttachment(ctx: AppContext, tc: TurnToolContext, o: { 
     lines.push('It could not be read as text.')
   }
   lines.push('--- END OF ATTACHMENT ---')
-  // a PDF or a picture: kept for this chat, so it can be saved when the person asks (save_url, into their own folder
-  // unless they name another one); other kinds are saved from their text with the file tools
+  // every attachment is kept for this chat as it came (its original bytes, any kind: a Word, Excel or Hangul file too),
+  // so it can be saved into the team files as the file it is when the person asks (save_connector_file, into their own
+  // folder unless they name another one; tools/save-connector-file.ts)
   let handle: string | null = null
-  if (kind && (kind.image || kind.name === 'pdf')) {
-    try {
-      const meta = putMedia(ctx.engineConfig.dataDir, { chatId: o.chatId, userId: tc.userId, integrationId: o.integrationId, bytes, declared: kind.mime })
-      if (meta) handle = `${MEDIA_PREFIX}${meta.id}`
-    } catch (e) { ctx.log.warn('attachment not kept', { err: e }) }
-  }
+  try {
+    const meta = putMedia(ctx.engineConfig.dataDir, { chatId: o.chatId, userId: tc.userId, integrationId: o.integrationId, bytes, declared: kind?.mime ?? '', name })
+    if (meta) handle = `${MEDIA_PREFIX}${meta.id}`
+  } catch (e) { ctx.log.warn('attachment not kept', { err: e }) }
   lines.push(handle
-    ? `Only if the user asks to keep it in the team files: save_url with "${handle}", into the user's own folder unless they name another one.`
+    ? `Only if the user asks to keep it in the team files: save_connector_file with "${handle}" saves the original file${name ? ` ("${name}")` : ''}, into the user's own folder unless they name another one.`
     : 'Only if the user asks to keep it in the team files: write its text into a file in the user\'s own folder unless they name another one.')
   return { text: lines.join('\n'), images }
 }

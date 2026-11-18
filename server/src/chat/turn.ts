@@ -4776,6 +4776,13 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const folder = !want ? `users/${me}/downloads` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [want, `${folder.replace(/\/+$/, '')}/${nameFromUrl(str(a.url)) || 'download'}`].filter(Boolean), shown: false }
     }
+    case 'save_connector_file': {
+      // the original of a connection's file: named by save_as, or for a folder ("…/") or none by the file's own name,
+      // which the handle does not tell here (tools/save-connector-file.ts refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}file`], shown: false }
+    }
     case 'save_room_file': {
       // a copy of a room file: named by save_as, or for a folder ("…/") or none by the file's own name, which an id does
       // not tell here (the tool refuses an instruction file's name itself)
@@ -4857,6 +4864,8 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'save_connector_file':
+      return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':
       return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
     case 'save_room_file': {

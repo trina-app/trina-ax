@@ -38,6 +38,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página", "制作页面"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página", "获取网页"),
   save_url: t('파일 받아 저장', 'Download file', 'Unduh berkas', "ファイルをダウンロード", "Descargar archivo", "下载文件"),
+  // a Gmail attachment or a Drive file saved as the original file (server/src/tools/save-connector-file.ts)
+  save_connector_file: t('원본 파일 저장', 'Save original file', 'Simpan berkas asli', "元のファイルを保存", "Guardar archivo original", "保存原始文件"),
   hwp_render: t('한글 문서 쪽 보기', 'View Hangul document page', 'Lihat halaman dokumen Hangul', "ハングル文書のページを表示", "Ver página del documento Hangul", "查看韩文（HWP）文档页面"),
   // the removed search by meaning tool and the removed knowledge graph's tool (docs/DECISIONS.md, 2026-11-11): their
   // steps stay in older chats
@@ -312,6 +314,7 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'artifact': return `${verb} · ${clip(a.title ?? a.key, 80)}`
     case 'web_fetch': return `${verb} · ${clip(a.url, 80)}`
     case 'save_url': return `${verb} · ${clip(a.save_as || a.url, 80)}`
+    case 'save_connector_file': return a.save_as ? `${verb} · ${clip(a.save_as, 80)}` : verb!
     case 'hwp_render': return `${verb} · ${clip(a.source, 80)}${typeof a.page === 'number' ? ` #${a.page}` : ''}`
     case 'search': case 'drive_search': case 'knowledge_explore': return `${verb} "${clip(a.query, 60)}"${a.path ? ` · ${clip(a.path, 50)}` : ''}`
     case 'schedule_create': return `${verb} · ${clip(a.title, 80)}`

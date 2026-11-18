@@ -701,7 +701,7 @@ function mcpText(r: Record<string, any>, hide: (text: string) => string, keep?: 
     const k = keep?.(c)
     if (!k) return false
     kept.push(k)
-    parts.push(`[${what} ${k.label}: ${MEDIA_PREFIX}${k.meta.id} (save it with save_url to put it in the team folder)]`)
+    parts.push(`[${what} ${k.label}: ${MEDIA_PREFIX}${k.meta.id} (save it with save_url, or as any kind of file with save_connector_file, to put it in the team folder)]`)
     return true
   }
   for (const c of Array.isArray(r.content) ? r.content : []) {
@@ -728,11 +728,15 @@ function keeper(ctx: AppContext, o: { chatId: string; userId: string; integratio
     // the declared type is the service's text: its secrets hidden before it is kept or shown (hide.ts)
     const declared = hide(String((c.type === 'resource' ? c.resource?.mimeType : c.mimeType) ?? '').slice(0, 300))
     let meta: MediaMeta | null
-    try { meta = putMedia(ctx.engineConfig.dataDir, { ...o, bytes, declared }) } catch (e) { ctx.log.warn('connection media not kept', { err: e }); return null }
+    // an embedded file's name: the last part of its address (save_connector_file names the copy by it), its secrets hidden
+    const uri = c.type === 'resource' && typeof c.resource?.uri === 'string' ? hide(c.resource.uri).slice(0, 2000) : ''
+    let name = ''
+    try { name = decodeURIComponent(uri.split(/[?#]/)[0]!.split('/').filter(Boolean).pop() ?? '') } catch { /* none */ }
+    try { meta = putMedia(ctx.engineConfig.dataDir, { ...o, bytes, declared, name: name || null }) } catch (e) { ctx.log.warn('connection media not kept', { err: e }); return null }
     if (!meta) return null
     const kind = meta.kind ? KINDS[meta.kind] : null
     const dim = kind?.image ? imageSize(bytes) : null
-    const label = [kind ? kind.mime : `unknown type (said ${declared.replace(/[^\w.+/-]/g, ' ').slice(0, 60) || 'nothing'}; save_url will refuse it)`, dim ? `${dim.width}×${dim.height}` : '', human(bytes.length)].filter(Boolean).join(' ')
+    const label = [kind ? kind.mime : `unknown type (said ${declared.replace(/[^\w.+/-]/g, ' ').slice(0, 60) || 'nothing'}; save_connector_file saves it as it is)`, dim ? `${dim.width}×${dim.height}` : '', human(bytes.length)].filter(Boolean).join(' ')
     return { meta, bytes, label }
   }
 }

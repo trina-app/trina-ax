@@ -118,7 +118,7 @@ export interface SaveUrlOptions extends Pick<DownloadOptions, 'lookup' | 'testAl
 
 type Input = z.output<typeof SaveUrlInput>
 
-const cleanName = (s: string) => {
+export const cleanName = (s: string) => {
   let n = s
   try { n = decodeURIComponent(s) } catch { /* as written */ }
   n = n.normalize('NFC').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '-').replace(/\s+/g, ' ').trim().replace(/^[. ]+|[. ]+$/g, '').slice(0, 100)

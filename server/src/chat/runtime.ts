@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import { dropChatMedia } from '../integrations/connections/media'
 import { chatFilesOf } from './chat-files'
 import type { Database } from 'bun:sqlite'
 import fs from 'node:fs'
@@ -1289,6 +1290,8 @@ export class ChatRuntime {
     })()
     // the files kept with a chat shared with people (chat/chat-files.ts): their rows went with the chat, their folder now
     try { chatFilesOf(this.ctx).removeChat(chatId) } catch (e) { this.log.warn('chat files not removed (the sweep tries again)', { err: e }) }
+    // the files its connections' answers and Gmail attachments left (integrations/connections/media.ts; else 24 hours)
+    try { dropChatMedia(this.ctx.engineConfig.dataDir, chatId) } catch (e) { this.log.warn('connection files not removed (the hourly sweep takes them)', { err: e }) }
   }
 
   /** Stop taking new turns and wait for the running ones (planned restart / update). */
