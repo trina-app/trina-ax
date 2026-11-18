@@ -21,7 +21,10 @@
   refusal, the per-answer budget and the guests' own per-answer limits are the zip path's code, unchanged.
 - **Bounds (files/tar.ts):** every header's checksum is checked; numbers must be octal digits or GNU base-256 (no
   negative); every size, including a pax `size`, must fit in what is left of the archive ("cut short" otherwise); pax
-  records must have exactly their stated length; a pax header or GNU long name is at most 1 MB; at most 5,000 entries
+  records must have exactly their stated length; a pax header or GNU long name is at most 1 MB, a pax header holds at
+  most 256 records, and at most 32 such headers may come in a row before an entry (security review of #1345: 4,000 pax
+  headers stalled the server for two minutes); of pax keys only `path`, `size` and a GNU sparse flag are kept, merged in
+  place; the ustar prefix field is read only in POSIX headers (`ustar\0`; old GNU keeps times there); at most 5,000 entries
   and 200 MB of files (the zip limits). Old GNU sparse ('S') and multi-volume ('M') tars are refused. A gzip is
   unpacked as a stream and stopped as soon as it passes 232 MB (200 MB of files plus room for headers) or, above
   10 MB, 100 times its packed size: the zip's expansion rule, so a gzip bomb never fills memory. The unpacked tar is

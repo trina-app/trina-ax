@@ -77,13 +77,22 @@ export function isTar(b: Uint8Array): boolean {
   return checksumOk(h)
 }
 
-/** pax extended-header records ("<len> <key>=<value>\n"), each exactly its stated length. Only the keys read here
- * (path, size, GNU.sparse.*) keep their value as text: others, such as extended attributes, may be binary. A path that
- * is not UTF-8 (hdrcharset=BINARY) is read like a ustar name. */
-function paxRecords(d: Uint8Array): Map<string, string> {
-  const out = new Map<string, string>()
+/** what pax headers set for the next entry: only what is read here (everything else, such as extended attributes, is
+ * dropped as it is parsed) */
+interface Pax { path?: string; size?: string; sparse?: true }
+/** pax records in one header, and meta headers ('x', 'g', 'L', 'K') in a row before one entry: real writers use one or
+ * two; a crafted tar of thousands must not cost minutes */
+export const PAX_RECORDS_MAX = 256
+export const META_RUN_MAX = 32
+
+/** pax extended-header records ("<len> <key>=<value>\n"), each exactly its stated length, merged into `into` in place.
+ * Only path, size and a GNU.sparse.* flag are kept (others may be binary). A path that is not UTF-8
+ * (hdrcharset=BINARY) is read like a ustar name. */
+function paxRecords(d: Uint8Array, into: Pax): void {
   let p = 0
+  let n = 0
   while (p < d.length) {
+    if (++n > PAX_RECORDS_MAX) throw new ZipProblem('complex', `more than ${PAX_RECORDS_MAX} records in a pax header`)
     if (d[p] === 0) break // padding some writers leave
     let q = p
     let len = 0
@@ -95,12 +104,11 @@ function paxRecords(d: Uint8Array): Map<string, string> {
     let key: string
     try { key = UTF8.decode(rec.subarray(0, eq)) } catch { throw new ZipProblem('damaged', 'a pax header that is not UTF-8') }
     const v = rec.subarray(eq + 1)
-    if (key === 'path') out.set(key, decodeLegacy(v))
-    else if (key === 'size' || key.startsWith('GNU.sparse.')) out.set(key, String.fromCharCode(...v.subarray(0, 64)))
-    else out.set(key, '')
+    if (key === 'path') into.path = decodeLegacy(v)
+    else if (key === 'size') into.size = String.fromCharCode(...v.subarray(0, 64))
+    else if (key.startsWith('GNU.sparse.')) into.sparse = true
     p += len
   }
-  return out
 }
 
 /**
@@ -111,9 +119,10 @@ function paxRecords(d: Uint8Array): Map<string, string> {
 export function readTar(tar: Uint8Array): RawEntry[] {
   const out: RawEntry[] = []
   let off = 0
-  let pax: Map<string, string> | null = null
+  let pax: Pax | null = null
   let longName: string | null = null
   let meta = 0
+  let run = 0
   let total = 0
   for (;;) {
     if (off + BLOCK > tar.length) {
@@ -129,8 +138,8 @@ export function readTar(tar: Uint8Array): RawEntry[] {
     // a pax "size" sets the size of the entry it comes before (only that one; numbers only)
     let size = headerSize
     const meta1 = type === 'x' || type === 'g' || type === 'L' || type === 'K'
-    if (!meta1 && pax?.has('size')) {
-      const v = pax.get('size')!
+    if (!meta1 && pax?.size !== undefined) {
+      const v = pax.size
       if (!/^\d{1,16}$/.test(v)) throw new ZipProblem('damaged', 'a bad size in a pax header')
       size = Number(v)
     }
@@ -140,8 +149,9 @@ export function readTar(tar: Uint8Array): RawEntry[] {
     const data = tar.subarray(dataOff, dataOff + size)
     if (meta1) {
       if (++meta > UNZIP_ENTRIES_MAX * 4) throw new ZipProblem('complex', `more than ${UNZIP_ENTRIES_MAX} parts in the file`)
+      if (++run > META_RUN_MAX) throw new ZipProblem('complex', `more than ${META_RUN_MAX} tar headers in a row before a file`)
       if (size > META_MAX) throw new ZipProblem('complex', 'a tar header larger than 1 MB')
-      if (type === 'x') { const r = paxRecords(data); pax = new Map([...(pax ?? []), ...r]) }
+      if (type === 'x') paxRecords(data, (pax ??= {}))
       else if (type === 'L') longName = decodeLegacy(field(data, 0, data.length))
       // 'g' (global pax defaults) and 'K' (a long link target): links are never saved, and a global default never
       // names an entry here; each entry's own name decides
@@ -149,13 +159,14 @@ export function readTar(tar: Uint8Array): RawEntry[] {
       continue
     }
     if (type === 'S' || type === 'M') throw new ZipProblem('complex', 'a sparse or multi-volume tar')
-    if (type === 'V') { pax = null; longName = null; off = next; continue } // a volume label, not a file
+    if (type === 'V') { pax = null; longName = null; run = 0; off = next; continue } // a volume label, not a file
     if (out.length >= UNZIP_ENTRIES_MAX) throw new ZipProblem('complex', `more than ${UNZIP_ENTRIES_MAX} parts in the file`)
-    const ustar = h[257] === 0x75 && h[258] === 0x73 && h[259] === 0x74 && h[260] === 0x61 && h[261] === 0x72
+    // POSIX "ustar\0" only: an old GNU header ("ustar  ") keeps atime and ctime where the prefix would be
+    const ustar = h[257] === 0x75 && h[258] === 0x73 && h[259] === 0x74 && h[260] === 0x61 && h[261] === 0x72 && h[262] === 0
     const prefix = ustar ? field(h, 345, 155) : new Uint8Array(0)
     const own = field(h, 0, 100)
-    const name = pax?.get('path')?.normalize('NFC') ?? longName ?? (prefix.length ? `${decodeLegacy(prefix)}/${decodeLegacy(own)}` : decodeLegacy(own))
-    const sparse = !!pax && [...pax.keys()].some((k) => k.startsWith('GNU.sparse.'))
+    const name = pax?.path?.normalize('NFC') ?? longName ?? (prefix.length ? `${decodeLegacy(prefix)}/${decodeLegacy(own)}` : decodeLegacy(own))
+    const sparse = !!pax?.sparse
     let kind: RawEntry['kind']
     if (sparse) kind = 'sparse'
     else if (type === '0' || type === '\0' || type === '7') kind = name.endsWith('/') ? 'dir' : 'file'
@@ -170,6 +181,7 @@ export function readTar(tar: Uint8Array): RawEntry[] {
     out.push({ name, kind, size: kind === 'file' ? size : 0, entry: MAIL_ENTRY, ...(kind === 'file' ? { data: { off: dataOff, len: size } } : {}) })
     pax = null
     longName = null
+    run = 0
     off = next
   }
   return out
@@ -196,21 +208,28 @@ export function planGz(gzName: string, unpacked: number): ZipPlan {
 export function gunzipBounded(gz: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const g = zlib.createGunzip({ chunkSize: 64 * 1024 })
-    const chunks: Buffer[] = []
+    // one buffer, doubled as it fills (no list of chunks to join at the end)
+    let buf = Buffer.allocUnsafe(Math.min(TAR_LIMITS.expanded, Math.max(64 * 1024, gz.length * 2)))
     let n = 0
     let done = false
     const onAbort = () => fail(new ZipProblem('damaged', 'stopped'))
-    const fail = (e: Error) => { if (done) return; done = true; signal?.removeEventListener('abort', onAbort); g.destroy(); chunks.length = 0; reject(e) }
+    const fail = (e: Error) => { if (done) return; done = true; signal?.removeEventListener('abort', onAbort); g.destroy(); buf = Buffer.alloc(0); reject(e) }
     signal?.addEventListener('abort', onAbort, { once: true })
     g.on('data', (c: Buffer) => {
       if (done) return
-      n += c.length
-      if (n > TAR_LIMITS.expanded) { fail(new ZipProblem('complex', `it expands to more than ${Math.round(UNZIP_TOTAL_MAX / MIB)} MB`)); return }
-      if (n > ZIP_RATIO_FROM && n > gz.length * ZIP_RATIO_MAX) { fail(new ZipProblem('complex', `it expands more than ${ZIP_RATIO_MAX} times`)); return }
-      chunks.push(c)
+      const m = n + c.length
+      if (m > TAR_LIMITS.expanded) { fail(new ZipProblem('complex', `it expands to more than ${Math.round(UNZIP_TOTAL_MAX / MIB)} MB`)); return }
+      if (m > ZIP_RATIO_FROM && m > gz.length * ZIP_RATIO_MAX) { fail(new ZipProblem('complex', `it expands more than ${ZIP_RATIO_MAX} times`)); return }
+      if (m > buf.length) {
+        const bigger = Buffer.allocUnsafe(Math.min(TAR_LIMITS.expanded, Math.max(m, buf.length * 2)))
+        buf.copy(bigger, 0, 0, n)
+        buf = bigger
+      }
+      c.copy(buf, n)
+      n = m
     })
     g.on('error', () => fail(new ZipProblem('damaged', 'bad compressed data')))
-    g.on('end', () => { if (done) return; done = true; signal?.removeEventListener('abort', onAbort); resolve(Buffer.concat(chunks, n)) })
+    g.on('end', () => { if (done) return; done = true; signal?.removeEventListener('abort', onAbort); resolve(buf.subarray(0, n)) })
     g.end(gz)
   })
 }

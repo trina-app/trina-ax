@@ -166,6 +166,31 @@ describe('reading a tar', () => {
     expect(why['pack/sparse.img']).toMatch(/sparse/)
     expect(p.junk).toBe(2)
   })
+  test('many pax headers: refused fast, unknown keys dropped, records per header capped (review of #1345)', () => {
+    // 4,000 'x' headers in a row, each with many unknown keys: once a 121 s stall (the map copied on each merge)
+    const junk = Object.fromEntries(Array.from({ length: 200 }, (_, i) => [`LIBARCHIVE.xattr.k${i}`, 'v'.repeat(50)]))
+    const parts: Buffer[] = []
+    const d = paxData(junk)
+    for (let i = 0; i < 4000; i++) parts.push(hdr({ name: 'PaxHeader', type: 'x', size: d.length }), pad(d))
+    const many = Buffer.concat([...parts, tar([{ name: 'a.txt', data: 'a' }])])
+    const t0 = performance.now()
+    expect(() => readTar(many)).toThrow(/more than 32 tar headers in a row/)
+    expect(performance.now() - t0).toBeLessThan(2000)
+    // a few in a row are fine (real writers use one or two), and only path / size / sparse are kept
+    const ok = Buffer.concat([...parts.slice(0, 2 * 5), tar([{ name: 'b.txt', pax: { path: 'kept.txt' }, data: 'b' }])])
+    expect(readTar(ok).map((e) => e.name)).toEqual(['kept.txt'])
+    // and across entries the run starts again
+    expect(readTar(tar(Array.from({ length: 100 }, (_, i) => ({ name: `f${i}`, pax: { path: `p${i}.txt` }, data: 'x' })))).length).toBe(100)
+    const tooMany = paxData(Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`k${i}`, 'v'])))
+    expect(() => readTar(Buffer.concat([hdr({ name: 'P', type: 'x', size: tooMany.length }), pad(tooMany), tar([{ name: 'c', data: 'c' }])]))).toThrow(/more than 256 records/)
+  })
+  test('the prefix field is read only in POSIX ustar headers (old GNU keeps times there)', () => {
+    const t = tar([{ name: 'a.txt', prefix: '12345670123', data: 'x' }])
+    t.write('ustar  \0', 257, 'latin1')
+    let sum = 0; t.fill(0x20, 148, 156); for (const b of t.subarray(0, 512)) sum += b
+    t.write(sum.toString(8).padStart(6, '0') + '\0 ', 148)
+    expect(readTar(t).map((e) => e.name)).toEqual(['a.txt'])
+  })
   test('the entry cap: more than 5,000 entries refuse the tar', () => {
     const many = tar(Array.from({ length: 5001 }, (_, i) => ({ name: `f${i}`, data: '' })))
     expect(() => readTar(many)).toThrow(/more than 5000 parts/)
