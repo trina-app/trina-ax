@@ -44,7 +44,7 @@ import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
-import { grantOnly, othersSource, roomsReadOnly, seenWhy } from './grant-reads'
+import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
 import { looseArea, placementNote } from './file-placement'
 import { FileLinkRepair, fileLinkResolver } from './file-link-repair'
@@ -2339,9 +2339,10 @@ export class TurnExec {
     }))
   }
   /** What the wider-audience card shows of a call the room card would show (roomCardDetails; QA TC-4815,
-   * docs/decisions/20261117-save-card-plain.md): the question already says it saves and where, so the Action row goes,
-   * and so does a File row that names that same place; the other rows stay (a source, a template, a save-as name). No
-   * size. The text of a whole file written (write, make_file) is formatted with the chat's Markdown renderer when
+   * docs/decisions/20261117-save-card-plain.md): for a whole file written (write, make_file) the question already says
+   * it saves and where, so its Action row goes, and so does a File row that names that same place; any other call (an
+   * edit, edit_hwp, stamp_pdf, comment_docx…) keeps its Action row, so the card still says it changes a file (review of
+   * #1240). The other rows stay (a source, a template, a save-as name). No size. The text of a whole file written (write, make_file) is formatted with the chat's Markdown renderer when
    * nothing in it could hide where a link goes (share-words.ts formatsSafely), never for an instruction file (a planted
    * instruction stays exactly as written). */
   private widenCardDetails(tool: string, details: ConfirmDetailT[], need: WidenNeed, instruction: boolean): ConfirmDetailT[] {
@@ -2351,7 +2352,7 @@ export class TurnExec {
     const place = this.place(need.segs.join('/'))
     const whole = tool === 'write' || tool === 'make_file'
     return details.map((d) => {
-      const fields = d.fields?.filter((f) => f.name !== action && !(f.name === file && f.value === place))
+      const fields = whole ? d.fields?.filter((f) => f.name !== action && !(f.name === file && f.value === place)) : d.fields
       const { fields: _old, ...rest } = d
       return {
         ...rest, ...(fields?.length ? { fields } : {}), noSize: true,
@@ -2581,7 +2582,7 @@ export class TurnExec {
       // why changes are asked here goes in the small line under the buttons (as on the send-to-room card, #1235), and none
       // when every room this chat read is its side chat's own room (grant-reads.ts roomsReadOnly); the card still shows
       const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)?.id ?? ''
-      const why = this.shared || this.othersWrote || !roomsReadOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
+      const why = !sameRoomOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
       const no = await this.askWidening(need, { details: widenDetails, extra: instruction, ...(why ? { why } : {}), room: true })
       // one card for both: the room's reason and next step (a save elsewhere needs the same card here), and where it saves
       if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
@@ -3424,7 +3425,7 @@ export class TurnExec {
     const { value: answer, missing } = await ask({
       // the place in words, not its path; a PowerPoint's SHA-256 (safe operations) is not on the card: the approval is
       // bound to those bytes on the server (o.binding, safe-ops/publication.ts) and the hash is in the activity log
-      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + (o.extra ?? ''),
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(), question: question + (o.extra?.trim() ? `\n${o.extra.trim()}` : ''),
       options: [{ label: tr('widenSave', L), value: 'save' }, { label: tr('widenDont', L), value: 'skip' }], multiple: false, allowText: false,
       ...(o.why ? { note: o.why } : {}),
       ...(o.details?.length ? { details: o.details } : {}),

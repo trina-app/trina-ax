@@ -56,7 +56,7 @@ import { ALWAYS_VALUE, RAN_UNDER_ALWAYS, alwaysHere, withAlways } from './always
 import { approved, noteApproval } from './card-approvals'
 import { actionOff, asksFor, askerPicks, askerText, asksToSend, fold, fromAsker, madeInTurn, mainOnly, namedInFull, namesRecipient as namesPlace, othersWordsIn, soleNames, ownWords, POST_ASK } from './shared-actions'
 import { readRooms } from './read-rooms'
-import { grantOnly, roomsReadOnly, seenWhy } from './grant-reads'
+import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
@@ -72,6 +72,7 @@ import { roomsOf } from '../rooms/service'
 import { groupName, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
 import { historyKinds } from '../rooms/history'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
+import { scopeWithListing, sourceKey, sourceOf } from './read-scope'
 import { tr } from './i18n'
 import { neutralizeTags } from './prompt'
 import { sideRoomOf } from './side-room'
@@ -142,10 +143,10 @@ export function peopleWords(names: readonly string[], L: Locale): string {
 
 /** The card's lines for the choice its Send makes: who cannot see some sources, who still cannot open a linked file
  * after it (by name); none when nothing applies. */
-function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: number; people: number; names: string[] }, L: Locale, sharedFile = false, sharedCount: number | null = null): string[] {
+function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: number; people: number; names: string[] }, L: Locale, sharedFile = false, sharedCount: number | null = null, noProvenance = false): string[] {
   const out: string[] = []
   const p = c.confirm.provenance
-  if (p) {
+  if (p && !noProvenance) {
     const places = [...new Set(p.places.map((x) => placeName(x, L, sharedFile)))]
     // a source that is a file shared with the sender: the people who cannot open it, as the file line counts them
     // (its owner and anyone who can open it left out); only when that is the one place named
@@ -155,6 +156,40 @@ function linesOf(c: Awaited<ReturnType<typeof shareChoice>>, cant: { files: numb
   // by name only when the caller may say who (a file the asker may share, or an admin); else how many
   if (cant.files > 0 && cant.people > 0) out.push(cant.names.length ? tr('postRoomFilesWho', L, { names: peopleWords(cant.names, L), files: String(cant.files) }) : tr('postRoomFiles', L, { files: String(cant.files), n: String(cant.people) }))
   return out
+}
+
+/** Does the provenance line say something the share line does not (review of #1240)? False only when every source it
+ * counts is a file of the asker's own or a folder (never a room, a chat, a connection, the browser or anything unknown),
+ * every read of that place in this chat is recorded file by file (read-scope.ts scopeWithListing: an answer's source
+ * list or this answer's SourceLog, never a read only its place records), each of those files goes with Send or is given
+ * a view on this card (`shared`), no folder listing of that place showed other names in this answer, and everyone it
+ * counts is someone Send lets in (`letIn`). True on any doubt, so the line stays. */
+export async function provenanceSaid(exec: TurnExec, p: PreparedShare, attached: ReadonlySet<string>, viewed: readonly string[], letIn: ReadonlySet<string>): Promise<boolean> {
+  try {
+    const db = exec.rt.db
+    const prov = await p.check.provenance(attached)
+    const counted = prov.counted ?? []
+    if (prov.unknown || !counted.length || [...prov.missing].some((id) => !letIn.has(id))) return true
+    const scope = scopeWithListing(db, exec.spec.chatId)
+    if (!scope) return true
+    const rules = exec.rt.files.rules()
+    const shared = new Set([...attached, ...viewed])
+    const keyOf = (rel: string) => sourceKey(sourceOf(db, rules, rel))
+    // every file this chat's answers read (any branch) and this answer's own reads so far
+    const earlier = (db.query('SELECT DISTINCT s.path FROM message_sources s JOIN messages m ON m.id = s.message_id WHERE m.chat_id = ?').all(exec.spec.chatId) as { path: string }[]).map((r) => r.path)
+    const read = [...new Set([...earlier, ...exec.files.sources.entries().map((e) => e.path)])]
+    const listed = [...exec.files.namePaths, ...exec.files.listedNames]
+    for (const c of counted) {
+      if ((c.source.type !== 'user' && c.source.type !== 'folder') || (c.source.type === 'user' && c.source.via)) return true
+      if (!scope.listed(c.source)) return true
+      const from = read.filter((rel) => keyOf(rel) === c.key)
+      if (!from.length || from.some((rel) => !shared.has(rel))) return true
+      if (listed.some((rel) => keyOf(rel) === c.key)) return true
+    }
+    return false
+  } catch {
+    return true
+  }
 }
 
 export function postToRoomTool(exec: TurnExec): Tool {
@@ -411,8 +446,15 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // after a room read (the side chat reads its room) this card is the call's only one (no room card before it,
         // rooms/ai-tools.ts): why it asks goes in the small line under the buttons, not above the question; and none when
         // every room this chat read is the one the post goes to (grant-reads.ts roomsReadOnly: the server's read scope)
-        const seenLine = exec.roomsSeen && (exec.shared || exec.otherAuthors || !roomsReadOnly(exec, roomId)) ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
-        const question = [ask, [shareLine, ...lines, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
+        const seenLine = exec.roomsSeen && !sameRoomOnly(exec, roomId) ? tr(seenWhy(exec, 'roomsSeenWhy'), L) : ''
+        // the provenance line ("3 people can't see some sources of this (my files)") says nothing the share line does not
+        // when every source it counts is a file that line names and Send shares (the owner, review of #1240): it is left
+        // off the card then. Kept for any other source those people cannot see (another room, a file that does not go,
+        // a folder listing, anything not known), and on any doubt. Only the words: `lines` above still decides the rest
+        const shownLines = letIn.size && chosen.confirm.provenance && !pendingTo && prepared && !(await provenanceSaid(exec, prepared, attached, view?.paths ?? [], letIn))
+          ? [...linesOf(chosen, { files: left.length, people: leftIds.size, names: nameable(leftRows.map((r) => r.rel)) ? names(leftIds) : [] }, L, sharedFile, sharedCount, true), ...grantLines]
+          : lines
+        const question = [ask, [shareLine, ...shownLines, laterLine].filter(Boolean).join('\n')].filter(Boolean).join('\n\n')
         const shown = first.body.slice(first.at)
         // (on the card a link to a team file reads as its name and place; the message keeps the link: QA TC-4059)
         const fileShares = fileSharesOf(ctx)

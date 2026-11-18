@@ -101,3 +101,11 @@ export function roomsReadOnly(exec: GrantReadExec, roomId: string): boolean {
     return false
   }
 }
+
+/** May a card leave out its "messages from your conversations came in here" line for `roomId` (the room a post goes to,
+ * or a side chat's own room)? Only when every room's words in the chat came from that room (roomsReadOnly), and never
+ * in a shared chat or a chat others write in: their messages are other people's words no read scope records. The
+ * send-to-room card (chat/post-to-room.ts) and the save-where-more-people-can-see card (chat/turn.ts) use it. */
+export function sameRoomOnly(exec: GrantReadExec & { shared?: unknown; otherAuthors?: boolean }, roomId: string): boolean {
+  return !exec.shared && !exec.otherAuthors && roomsReadOnly(exec, roomId)
+}
