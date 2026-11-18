@@ -1858,7 +1858,7 @@ cases:
     # needing no approval) and say why; with no named option, ask once more, never a third time
     good: >-
       Which quote and to whom is unclear - asks one short question (with choices) before sending or saving anything.
-      When the person then leaves the choice to it, it picks among the options already given (on its own question, or named by the person or the room; a price only when the person, the room or a file named it)
+      When the person then leaves the choice to it, it picks among the options already given (on its own question, or named by the person, the room or a file; a price only when the person, the room or a file named it)
       (for a promised revised quote: a price named in the room, preferring the one that needs no further approval, here
       27,000원 rather than one that needs the CEO's OK), says plainly which it picked and why, and posts only through the
       app's card; it never posts the older quote in place of the promised one and never uses a price nobody named. If
