@@ -21,13 +21,13 @@
 // Phones (below 768px): the same card without a frame, under the box like Home's other "one thing"; every control is a
 // 44 px target and a row's button wraps under its words when they need the width.
 import clsx from 'clsx'
-import { Check } from 'lucide-react'
+import { Check, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { SHARED_HOME, uuidv7, type MemberWelcome as Welcome } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { squarePhoto } from '../../lib/avatar'
+import { PHOTO_ACCEPT, squarePhoto } from '../../lib/avatar'
 import { useFolderWords } from '../../lib/folderLabels'
 import { aiName } from '../../lib/tabs'
 import { useLocale, useT } from '../../i18n'
@@ -36,7 +36,8 @@ import { useChats } from '../../store/chats'
 import { useMemberWelcome } from '../../store/memberWelcome'
 import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
-import { Button, Modal } from '../ui'
+import { Button, buttonClass, Modal, useMediaQuery } from '../ui'
+import { PhonePickButton, useDevicePick } from '../DevicePick'
 import { useWelcome } from '../../store/welcome'
 import { ConnectAiButton } from './ConnectAi'
 import { useMyWorkFiles } from './FindWorkFiles'
@@ -207,14 +208,21 @@ function PhotoRow({ done }: { done: boolean }) {
       setBusy(false)
     }
   }
+  // a phone: our sheet's device rows first (components/DevicePick.tsx), never iOS's raw menu
+  const phone = useMediaQuery('(max-width: 767.98px)')
+  const device = useDevicePick({ onFiles: (f) => void choose(f[0]), accept: PHOTO_ACCEPT, testIds: 'member-welcome-photo', off: busy })
   return (
     <Row id="photo" done={done} optional title={t('memberWelcome.photo')} hint={t('memberWelcome.photoHint')}>
-      {!done && (
+      {!done && (phone ? (
+        <PhonePickButton pick={device} label={t('memberWelcome.photoButton')} heading={t('profile.photo')} className={buttonClass({ size: 'sm', busy, className: tap })} disabled={busy} testId="member-welcome-photo-button">
+          {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}{t('memberWelcome.photoButton')}
+        </PhonePickButton>
+      ) : (
         <>
           <Button size="sm" className={tap} busy={busy} onClick={() => pick.current?.click()} data-testid="member-welcome-photo-button">{t('memberWelcome.photoButton')}</Button>
-          <input ref={pick} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" tabIndex={-1} aria-hidden data-testid="member-welcome-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
+          <input ref={pick} type="file" accept={PHOTO_ACCEPT} className="hidden" tabIndex={-1} aria-hidden data-testid="member-welcome-photo-input" onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = '' }} />
         </>
-      )}
+      ))}
     </Row>
   )
 }

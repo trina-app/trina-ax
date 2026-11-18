@@ -39,7 +39,6 @@ import { rememberChat } from '../lib/teamAttach'
 import { readDraft } from '../lib/localData'
 import { fromWire } from '../lib/roomRefs'
 import { useBackLink } from '../lib/back'
-import { openHome } from '../lib/screenHistory'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
@@ -82,7 +81,6 @@ import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
 import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
-import { AiMark } from '../components/rooms/AiFace'
 import { useFolderWords } from '../lib/folderLabels'
 
 /** Where a link goes inside a translated sentence ({projects} in chat.notFoundManage): split there. */
@@ -611,9 +609,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
         </div>
       )}
       {/* like the top of a Claude chat: the project it is in, then its name, which opens rename and delete. On a phone
-          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts),
-          the name, and a new chat (✦, as a room's header asks Trina). */}
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1">
+          it is the only bar (Layout drops its own here): ‹ back (where I came from, else the 트리나 tab: lib/back.ts,
+          whose box is the new chat), the name and Share. No ✦: this already is a chat with Trina, and a computer's
+          header never had one; ✦ in a header is a room's side chat (docs/decisions/20261118-phone-trina-button-in-ai-chats.md). */}
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 max-md:gap-1 max-md:px-1" data-testid="chat-bar">
         <Tooltip label={t('tabs.back')}>
           <Link to="/" replace onClick={backLink} aria-label={t('tabs.back')} className="inline-flex items-center justify-center rounded-md p-3 text-muted hover:bg-hover hover:text-ink md:hidden" data-testid="chat-back">
             <ChevronLeft size={20} aria-hidden />
@@ -644,14 +643,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
-        {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only, beside a new chat */}
+        {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only */}
         {chat && !phone && <HeaderShare who={headerWho} onShare={onShare} testId="chat-share" />}
         {isDesktop() && <BrowserToggle />}
         {chat && phone && <HeaderShare icon onShare={onShare} testId="chat-share" />}
-        {/* a new chat: 트리나's Home, as that tab at its root when this chat sits on another tab's stack (a project's) */}
-        <IconButton label={t('sidebar.askAi', { name: aiName(t) })} onClick={() => openHome(navigate, me.user.id, { compose: true })} className="size-11 shrink-0 md:hidden" data-testid="chat-new">
-          <AiMark />
-        </IconButton>
       </div>
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8 max-md:py-4">

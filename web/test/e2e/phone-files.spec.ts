@@ -91,10 +91,11 @@ test('step 1: Team folder › Groups › leads: one bar with ‹ and the folder 
   await expect(search).not.toBeInViewport()
   await expect(bar).toBeInViewport()
 
-  // ⊕: New folder and Upload in a sheet from the bottom, 44 px rows; New folder makes one here
+  // ⊕: New folder and the device rows (사진 보관함, 사진 찍기, 파일; never iOS's raw menu) in a sheet from the bottom, 44 px
+  // rows; New folder makes one here
   await page.getByTestId('files-add').click()
   const sheet = page.getByRole('menu')
-  await expect(sheet.getByRole('menuitem')).toHaveText([t['files.newFolder'], t['files.upload']])
+  await expect(sheet.getByRole('menuitem')).toHaveText([t['files.newFolder'], t['composer.photos'], t['composer.camera'], t['composer.files']])
   const box = (await sheet.boundingBox())!
   expect(Math.round(box.x)).toBe(0)
   expect(Math.round(box.width)).toBe(390)
@@ -187,7 +188,7 @@ test('step 3: three files uploaded from ⊕ fold into one finished line and are 
   await expect(title(page)).toHaveText('leads')
   await page.getByTestId('files-add').click()
   const chooser = page.waitForEvent('filechooser')
-  await page.getByRole('menu').getByRole('menuitem', { name: t['files.upload'] }).click()
+  await page.getByRole('menu').getByRole('menuitem', { name: t['composer.files'], exact: true }).click()
   await (await chooser).setFiles(['one', 'two', 'three'].map((n) => ({ name: `견적-${n}.txt`, mimeType: 'text/plain', buffer: Buffer.from(`quote ${n}`) })))
   // the finished ones: one line, not a row each
   const list = page.getByTestId('upload-list')

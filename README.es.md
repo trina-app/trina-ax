@@ -21,6 +21,8 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## Se configura una vez. Lo usa todo tu equipo.
 
+**Una sola cuenta de IA para todo el equipo.** Conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan, y todo el equipo pregunta con ella, con límites de tokens por persona, grupo o equipo.
+
 Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desde la primera pregunta, en el navegador o en las apps. Nadie más instala Claude Code ni copia skills; como mucho, inicia sesión en sus propias cuentas.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-es-dark.webp"><img src="docs/images/readme/v4/set-up-once-es-light.webp" width="100%" alt="Una persona configura una vez en el servidor de Trina la cuenta de IA, Google, las apps, la API de la empresa, Slack, las skills y los archivos del equipo, y la IA de Alex en Mac, Mina en iPhone, Sam en Windows, Leo en el navegador y Jordan en Android lo tiene todo."></picture>
@@ -37,11 +39,11 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave, para todo el equipo, una conexión para el equipo"><br><sub>Añadir una app para todo el equipo</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Administración › Apps conectadas, para todo el equipo: Google Drive, Gmail, Calendar, Docs y Sheets (una configuración y cada miembro solo inicia sesión en Google), Slack, Notion, Linear, Atlassian, Canva y Añadir una por su dirección"><br><sub>Administración › Apps conectadas: se configura una vez para todo el equipo</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 
@@ -55,22 +57,28 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Un admin cambia quién puede abrir la carpeta Sales y luego mira qué puede abrir Mina: Finance no está en su lista.">
 
-**Retoma la sesión de trabajo de un compañero.** Abre la sesión de proyecto de un compañero y sigue; lo que tú pidas se hace con tus permisos.
+**Retoma la sesión de trabajo de un compañero en un proyecto del equipo.** Las sesiones de un proyecto del equipo se comparten con sus miembros: abre la de un compañero y sigue, con tus propios permisos. Cualquier otra sesión la puedes compartir con personas o grupos, como un archivo de Google Drive.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
 
+**Encuentra archivos por lo que son.** Cada noche, la IA del equipo lee los archivos nuevos y modificados de las carpetas compartidas, de grupo y de proyecto, y guarda una línea por archivo que dice qué es, así que un escaneo llamado `temp.pdf` o una foto llamada `IMG_2031.jpg` se encuentran por su contenido. Usa la cuenta de IA del equipo y nunca lee las carpetas personales. En una prueba con 2.238 archivos ficticios, Claude Code encontró el archivo correcto en 181 de 184 preguntas con estas líneas, y en 172 sin ellas.
+
 <table>
 <tr>
-<td width="50%"><b>Tareas programadas.</b> Pídelo una vez y Trina lo repite según tu calendario, en la zona horaria del equipo.<br><br><img src="docs/site/images/scheduled/task.webp" alt="Una tarea de resumen semanal que se ejecuta cada lunes a las 9:00"></td>
-<td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="Un chat de grupo con un invitado"></td>
+<td width="50%"><b>Tareas programadas.</b> Pídelo una vez y Trina lo repite según tu calendario, en la zona horaria del equipo.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="El resumen semanal que escribió una tarea programada: lo encontrado, decisiones y trabajo pendiente, guardado como archivo"></td>
+<td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="El chat de grupo Launch email con Morgan Reyes, invitado de una agencia: opciones de asunto, una mención y la respuesta de Trina"></td>
 </tr>
 <tr>
 <td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona; límites de tokens por persona, grupo o equipo.<br><br><img src="docs/site/images/usage/team.webp" alt="La página de uso del admin: tokens, respuestas y coste estimado por persona"></td>
 <td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
 </tr>
+<tr>
+<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, la respuesta de Trina en el canal y un hilo abierto a la derecha"></td>
+</tr>
 </table>
 
 - **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
+- **Navegador integrado.** En la app de escritorio, Trina abre sitios web en un panel junto a tu chat, los lee, hace clic y rellena formularios mientras miras; Stop lo detiene. Pregunta antes de abrir un sitio nuevo, salvo que permitas todos los sitios.
 - **Las apps publican en las conversaciones.** Las novedades de Sentry, GitHub, Stripe, Jira y HubSpot llegan como tarjetas.
 - **Notas de reuniones.** La app de Mac (macOS 14.4 o posterior) toma notas de las llamadas de Zoom, Meet y Teams.
 - **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
@@ -82,6 +90,16 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 - **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
 - **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
+
+<b>Autoalojamiento con Docker</b> (Linux, o un Mac con OrbStack)
+
+```sh
+git clone https://github.com/trina-app/trina-ax.git && cd trina-ax/docker
+cp env.example .env && docker compose up -d --build
+docker compose exec trina-ax trina-ax-setup-link   # abre el enlace y crea el propietario
+```
+
+Es más nuevo y está menos probado que la instalación en Linux; un servidor Ubuntu 24.04 necesita antes un ajuste del host. [Guía de Docker](docs/INSTALL-DOCKER.md)
 
 <b>Pruébalo en tu ordenador en 10 minutos</b> (equipo ficticio, IA desactivada)
 
