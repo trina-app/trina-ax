@@ -75,7 +75,9 @@ for (const vp of SIZES) {
       const field = page.getByTestId('apps-icon')
       await expect(field.getByTestId('app-tile')).toHaveAttribute('data-icon', 'letter')
       await page.getByTestId('apps-icon-change').click()
-      await expect(page.getByTestId('apps-icon-upload')).toHaveText('Upload an image')
+      // a phone: our sheet's device rows (Photo library, Files) in place of the upload row, never iOS's raw menu
+      if (vp.name === '390') await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText(['Photo library', 'Files', 'Pick an emoji'])
+      else await expect(page.getByTestId('apps-icon-upload')).toHaveText('Upload an image')
       await expect(page.getByTestId('apps-icon-emoji')).toHaveText('Pick an emoji')
       // nothing to remove yet
       await expect(page.getByTestId('apps-icon-remove')).toHaveCount(0)
@@ -91,7 +93,7 @@ for (const vp of SIZES) {
       // the image: the file chooser, cut to a square in the browser (sent as WebP or JPEG, never the original PNG)
       await page.getByTestId('apps-icon-change').click()
       const chooser = page.waitForEvent('filechooser')
-      await page.getByTestId('apps-icon-upload').click()
+      await page.getByTestId(vp.name === '390' ? 'apps-icon-files' : 'apps-icon-upload').click()
       await (await chooser).setFiles({ name: 'alert.png', mimeType: 'image/png', buffer: WIDE_PNG })
       await expect(field.getByTestId('app-tile')).toHaveAttribute('data-icon', 'image')
       expect(apps.calls.at(-1)).toMatch(new RegExp(`^icon:${ALERT.id}:image/(webp|jpeg):bytes$`))
@@ -115,7 +117,7 @@ for (const vp of SIZES) {
       await settingsOf(page, 'Dr Alaseo Alert')
       await page.getByTestId('apps-icon-change').click()
       const chooser = page.waitForEvent('filechooser')
-      await page.getByTestId('apps-icon-upload').click()
+      await page.getByTestId(vp.name === '390' ? 'apps-icon-files' : 'apps-icon-upload').click()
       await (await chooser).setFiles({ name: 'logo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>') })
       await expect(page.getByText("This file can't be used as an icon. Choose a PNG, JPEG or WebP image.")).toBeVisible()
       expect(apps.calls.filter((c) => c.startsWith('icon'))).toEqual([])
