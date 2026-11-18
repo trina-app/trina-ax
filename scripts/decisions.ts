@@ -12,7 +12,7 @@ import { baseFile } from './changelog'
 
 export const ARCHIVE = 'docs/DECISIONS.md'
 export const DIR = 'docs/decisions'
-export const STATUSES = ['accepted', 'superseded', 'dropped'] as const
+export const STATUSES = ['accepted', 'proposed', 'superseded', 'dropped'] as const
 const MARKER = /^(<<<<<<<|\|\|\|\|\|\|\||=======|>>>>>>>)( |$)/m
 const NAME = /^(\d{4})(\d{2})(\d{2})-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 
