@@ -2,37 +2,80 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Trina AX ロゴ"></picture>
 
-<h1>チーム全員で使う AI。</h1>
+<h1>Trina AX</h1>
 
+<b>チーム全員で使う AI。</b><br>
 Trina AX は、チームのファイル、スキル、ツールを1台のサーバーにまとめます。みんなの AI がそこから始まり、<br>AI が開くファイルは、すべて質問した本人の権限でチェックされます。
 
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store からダウンロード"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ja.png" height="40" alt="Mac 版をダウンロード"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ja.png" height="40" alt="Windows 版をダウンロード"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store からダウンロード"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a>
 
-[Web サイト](https://ax.trina.app) · [Mac・Windows 版をダウンロード](https://ax.trina.app/download) · [ドキュメント](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
+[Web サイト](https://ax.trina.app) · [ドキュメント](docs/README.md) · [プラン](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 [English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<br>
-
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="97秒のストーリーを見る。同じ Claude に同じお願いをしても、結果が違います。チームリーダーの Alex は7ページの提案書を受け取り、空のフォルダーで初出社した Mina は「Trina Logistics? Who are they?」と返されます。Trina があれば、Mina の AI もチームのファイルとスキルから始まります。"></a>
-
 </div>
 
-## チームでできること
+https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
+
+<p align="center"><sub>同じ Claude、同じ依頼、違う結果。97秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし</p>
+
+## 設定は一度だけ。チーム全員が使える。
+
+1人がチームのサーバーで設定すれば、全員の AI が最初の質問からそれを使えます。ブラウザーでもアプリでも。ほかの人は Claude Code を入れたり、スキルをコピーしたりする必要はありません。せいぜい自分のアカウントにサインインするくらいです。
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-ja-dark.webp"><img src="docs/images/readme/v4/set-up-once-ja-light.webp" width="100%" alt="1人が AI アカウント、Google、アプリ、会社の API、Slack、スキル、チームのファイルを Trina サーバーで一度設定すると、Mac の Alex、iPhone の Mina、Windows の Sam、ブラウザーの Leo、Android の Jordan の AI がみんなそれを使えます。"></picture>
+
+| 一度だけ設定 | 全員が使えるもの |
+| --- | --- |
+| **AI アカウント。** オーナーか管理者が Claude か OpenAI の API キー、または規約上許されるプランを接続します。 | チーム全員が回答を受け取れます。トークン上限は人、グループ、チームごとに設定できます。 |
+| **Google。** ドライブのフォルダーをチームと共有するか、チームのアカウント（共有メールボックスやカレンダー）を1つ Gmail、Calendar、Docs、Sheets に接続します。 | 選んだ人が自分のチャットで使えます。各自の Google アカウントを別に接続することもできます。 |
+| **アプリ。** アプリ一覧の Higgsfield、Notion、Linear、Figma など、またはアドレスさえあればどの MCP サーバーでも（例：Bright Data）。 | 全員のチャットでそのアプリのツールが使えます。チームで1つのサインインか、各自のサインインかを選べます。 |
+| **会社の API。** アドレス、キー、使い方のメモ。 | AI が自社のシステムを呼び出します。そのアドレスの配下だけです。 |
+| **Slack。** オーナーか管理者が一度追加します。 | DM や Trina を招待したチャンネルで Trina に聞けます。自分の権限で。 |
+| **スキル。** `SKILL.md` を書くか、`.claude` や `.codex` フォルダーのスキルをそのまま持ち込みます。 | 全員の AI が同じ手順で動きます。`/` で呼び出せます。 |
+| **チームのファイル。** 1つのドライブ：全社、グループ、プロジェクト、チームのスキル、個人フォルダー。 | 全員の AI がチームのファイルから始め、その人が開けるものだけを開きます。 |
+
+<table>
+<tr>
+<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、チーム全員、チームで1つの接続"><br><sub>チーム全体にアプリを追加</sub></td>
+<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+</tr>
+<tr>
+<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
+</tr>
+</table>
+
+## みんなでできること
 
 **どのトークの横でも聞けて、ワンクリックで送れる。** 自分にだけ見えるサイドチャットで聞いて、ワンクリックで Trina の回答をトークに送れます。
 
-<img src="docs/images/readme/v3/room.gif" width="100%" alt="Expo booth crew トークで、Mina が自分にだけ見えるサイドチャットで Trina に11月17日の搬入について聞き、ボタンひとつでその回答をトークに送ります。">
+<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew トークで、Mina が自分にだけ見えるサイドチャットで Trina に出展規定をチェックリストにしてもらい、トークに送ります。">
 
-**それぞれ、開けるものだけが見える。** Mina が Finance を開けなければ、Mina の AI も開けません。[権限のしくみ](docs/PERMISSIONS.md)
+**それぞれの AI も、本人が開けるものだけが見える。** Mina が Finance を開けなければ、Mina の AI も開けません。[権限のしくみ](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-band.png" width="100%" alt="フォルダーごとに、開ける人の顔が並びます。Mina は shared/Finance を開けません。">
+<img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理者が Sales フォルダーを開ける人を変え、Mina が開けるフォルダーを確認します。Finance は一覧にありません。">
 
-- 🤝 **同僚の AI チャットを引き継げる。** 同僚のプロジェクトチャットの続きを、自分の権限で進められます。
-- 📋 **チームのスキル。** チームの仕事のやり方を一度書いておけば、みんなの AI がそのとおりに動きます。
-- 🔌 **いつものツール。** どの MCP サーバーでも、Google Drive、Slack、会社の API も。人ごとに権限をチェックします。
-- 🕘 **変更はすべて残る。** 人が変えても、その人の AI が変えても、どのバージョンにも戻せます。
-- 📱 **どの端末でも。** Mac、iPhone、Android、Windows、そしてどのブラウザーからでも。
+**同僚のセッションを引き継げる。** 同僚のプロジェクトセッションを開いて続きを進められます。自分の質問は自分の権限で処理されます。
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina が Sam のプロジェクトセッションを開いて、カードニュースの続きを直します。Mina の質問は Mina の権限で処理されます。">
+
+<table>
+<tr>
+<td width="50%"><b>予約タスク。</b> 一度頼めば、Trina が決めたスケジュールで繰り返します。時刻はチームのタイムゾーンです。<br><br><img src="docs/site/images/scheduled/task.webp" alt="毎週月曜9時に動く週次サマリーの予約タスク"></td>
+<td width="50%"><b>ゲスト。</b> 社外の人をグループトークやプロジェクトに招待し、AI を使えるかどうかを決められます。<br><br><img src="docs/site/images/guests/guest-room.webp" alt="ゲストが1人いるグループトーク"></td>
+</tr>
+<tr>
+<td width="50%"><b>使用量と上限。</b> 人ごとの回答数、トークン、推定コスト。トークン上限は人、グループ、チームごとに。<br><br><img src="docs/site/images/usage/team.webp" alt="管理者の使用量画面：人ごとのトークン、回答数、推定コスト"></td>
+<td width="50%"><b>すべてを検索。</b> ⌘K でチャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探す ⌘K 検索"></td>
+</tr>
+</table>
+
+- **変更はすべて残る。** 人が変えても、その人の AI が変えても、どのバージョンにも戻せます。
+- **アプリの更新をトークに。** Sentry、GitHub、Stripe、Jira、HubSpot の更新がカードで届きます。
+- **議事録。** Mac アプリ（macOS 14.4 以降）が Zoom、Meet、Teams の通話を書き起こします。
+- **仕事のファイルを探す。** デスクトップアプリが手元のパソコンから最近の仕事のファイルを見つけ、選んだものだけ追加します。
+- **ドキュメント。** ハングル（HWP/HWPX）の本文を読み、PDF と PowerPoint をプレビューできます。
+- **どの端末でも。** Mac、Windows、iPhone、Android、そしてどのブラウザーからでも。6つの言語で。
 
 ## はじめる
 
@@ -40,10 +83,7 @@ Trina AX は、チームのファイル、スキル、ツールを1台のサー�
 - **アプリ：** [Mac、iPhone、Android、Windows](https://ax.trina.app/download)、またはどのブラウザーからでも。
 - **セルフホスト：** 自社の Linux サーバー、Docker、オフィスの Mac で。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィス Mac](docs/OFFICE.en.md) · [AI エージェントでインストール](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
-<details>
-<summary><b>自分のパソコンで10分で試す</b>（架空のチーム、AI はオフ）</summary>
-
-<br>
+<b>自分のパソコンで10分で試す</b>（架空のチーム、AI はオフ）
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
@@ -52,7 +92,9 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Bun 1.3.12 と Go 1.27 以上が必要です。本番環境向けのインストールではありません。[詳しい手順](docs/QUICKSTART.md)
 
-</details>
+## しくみ
+
+1台のサーバーで Claude Code と Codex がエンジンとして動きます。人でもその人の AI でも、ファイルへのリクエストはすべてサーバーの1つの権限チェックを通ります。Linux サーバーでは、エンジンは専用アカウントで bubblewrap、Landlock、seccomp のサンドボックス内で動きます。シェルと組み込みのファイルツールはオフなので、ファイルは Trina のツール経由でしか開けません。[セキュリティと権限](docs/security-and-permissions.md)
 
 Trina が提供するのはワークスペースで、AI そのものではありません。自分たちの使い方が認められている Claude や OpenAI のアカウントとプランを接続してください。AI の利用料は、接続したアカウントに請求されます。
 
