@@ -150,7 +150,9 @@ describe('the settings and environment of a shared run', () => {
   test('the environment names the chat\'s folders and nothing of the person', () => {
     const env = runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId })
     expect(env.HOME).toBe(home)
-    expect(env.TMPDIR).toBe(path.join(home, 'tmp'))
+    // a short temp folder of its own: srt's sockets there must fit a unix socket path (dev-env-socket-path.test.ts)
+    expect(env.TMPDIR).toBe(path.join(base, 'devenv', 'rt', runId))
+    expect(env.CLAUDE_CODE_TMPDIR).toBe(env.TMPDIR)
     expect(env.TRINA_LOGS).toBe(logs)
     expect(env.npm_config_cache.startsWith(home)).toBe(true)
     // a shared chat's run with no run id: refused (no shared home to fall back to)

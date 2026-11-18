@@ -70,6 +70,8 @@ const ROOM_MENTION_ALL_WORD = {
   zh: '所有人',
 } as const
 export const ROOM_MENTION_ALL_WORDS: readonly string[] = Object.values(ROOM_MENTION_ALL_WORD)
+/** The word "@<word>" is written with in this language (the AI's post_to_room writes it in the asker's language). */
+export const roomMentionAllWord = (locale: Locale): string => ROOM_MENTION_ALL_WORD[locale] ?? ROOM_MENTION_ALL_WORD.en
 /** Does "@<one of ROOM_MENTION_ALL_WORDS>" stand in the text where a mention may start (the start, a space or an opening
  * mark before it)? Without regard to case. */
 export function roomMentionAllIn(body: string): boolean {

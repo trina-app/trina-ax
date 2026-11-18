@@ -66,6 +66,8 @@ export function devenvPaths(base: string) {
     workShared: path.join(root, 'work-shared'),
     /** the output files of the commands of one shared chat */
     chatLogs: path.join(root, 'chat-logs'),
+    /** TMPDIR of a shared chat's command (runTmp): short, because srt makes its proxy sockets there */
+    runTmp: path.join(root, 'rt'),
   }
 }
 /** HOME, TMPDIR and the caches of one person's runs (read and write) */
@@ -82,6 +84,19 @@ const sharedRunId = (o: RunOwnerPaths) => { if (!o.runId || !RUN_ID_RE.test(o.ru
 /** the home of a run: in a shared chat a fresh folder per command (chat-home/<chat>/<run>, removed when it ends: nothing
  * one audience's run left there reaches a later one), else the person's */
 export const runHome = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatHome(base, o.sharedChat), sharedRunId(o)) : personHome(base, o.userId))
+/** TMPDIR of a run. srt makes its two proxy bridge sockets there (srtSocketPaths), and a unix socket path has at most
+ * SUN_PATH_MAX bytes: a shared chat's per-command home (chat-home/<chat uuid>/<run>) made them 124 bytes long on a
+ * production base (/var/lib/mycel) and every command failed with "Failed to create bridge sockets" (QA TC-4848). So a
+ * shared chat's command gets a short temp folder of its own, devenv/rt/<run>, removed when it ends like its home; a
+ * person's run keeps <home>/tmp. */
+export const runTmp = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(devenvPaths(base).runTmp, sharedRunId(o)) : path.join(runHome(base, o), 'tmp'))
+/** The longest path of a unix socket on Linux: sun_path is 108 bytes with its closing NUL. */
+export const SUN_PATH_MAX = 107
+/** The unix sockets srt 0.0.81 makes in TMPDIR for its network bridge (linux-sandbox-utils.js
+ * initializeLinuxNetworkBridge: claude-http-<16 hex>.sock and claude-socks-<16 hex>.sock). */
+export const srtSocketPaths = (tmp: string) => ['claude-http-', 'claude-socks-'].map((p) => path.join(tmp, `${p}${'0'.repeat(16)}.sock`))
+/** srt's sockets in `tmp` that would not fit a unix socket path */
+export const srtSocketProblems = (tmp: string): string[] => srtSocketPaths(tmp).filter((sp) => Buffer.byteLength(sp) > SUN_PATH_MAX).map((sp) => `srt's socket path is too long (${Buffer.byteLength(sp)} bytes, at most ${SUN_PATH_MAX}): ${sp}`)
 /** the logs of a run: in a shared chat one folder per command (chat-logs/<chat>/<run>), else the person's */
 export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatLogs(base, o.sharedChat), sharedRunId(o)) : personLogs(base, o.userId))
 /** The work folder of a shared chat with no project, for one audience (`audienceKey`, sharedWorkKey): a chat's private
@@ -241,7 +256,7 @@ export function srtSettings(i: SettingsInput) {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
       allowRead,
-      allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.work ? [i.work] : [])),
+      allowWrite: uniq(i.view.write.map((r) => abs(i.teamRoot, r)).concat([home], i.sharedChat ? [runTmp(i.base, i)] : [], i.work ? [i.work] : [])),
       denyWrite: uniq(i.view.denyWrite.map((r) => abs(i.teamRoot, r))),
     },
     network: {
@@ -311,7 +326,7 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   if (i.work !== null && (i.work === workRoot || !inside(i.work, workRoot))) out.push(`the work folder is not in the base folder's ${path.relative(i.base, workRoot)}: ${i.work}`)
   /** a path a run may get: a team folder (not .system, not another person's personal folder), the home, the work folder */
   const allowed = (p: string, extra: string[]) => {
-    if (p === home || (i.work !== null && p === i.work) || extra.includes(p)) return true
+    if (p === home || (i.sharedChat && p === runTmp(i.base, i)) || (i.work !== null && p === i.work) || extra.includes(p)) return true
     if (!inside(p, i.teamRoot)) return false
     if (inside(p, system)) return false
     if (inside(p, users)) return inside(p, own)
@@ -337,6 +352,15 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   // a host secret in /etc must not be given back
   for (const r of s.filesystem.allowRead) if (host.etcSecrets.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
+  // Linux: srt's bridge sockets in TMPDIR must fit a unix socket path, else every command fails with "Failed to create
+  // bridge sockets" (QA TC-4848); refused here with the reason instead
+  // (on a Linux host only: the sockets are made on this machine; the tests of a fake Linux system on a Mac have long
+  // temp folders and make no sockets)
+  if (platform === 'linux' && process.platform === 'linux') {
+    let tmp = ''
+    try { tmp = runTmp(i.base, i) } catch { out.push('a shared chat\'s run has no run id') }
+    if (tmp) out.push(...srtSocketProblems(tmp))
+  }
   // the network: the private, link-local and metadata ranges are always denied, with every site list and Full internet
   const n = s.network
   // macOS: localhost is the whole Mac's (the server's ports, other runs' dev servers)
@@ -368,7 +392,7 @@ export interface EnvInput { base: string; userId: string; teamRoot: string; work
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */
 export function runEnv(i: EnvInput): Record<string, string> {
-  const home = runHome(i.base, i)
+  const home = runHome(i.base, i), tmp = runTmp(i.base, i)
   const mac = (i.platform ?? devPlatform()) === 'darwin'
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   return {
@@ -379,9 +403,10 @@ export function runEnv(i: EnvInput): Record<string, string> {
     HOME: home,
     // srt's own temp files (proxy sockets) land here too. A server-only TMPDIR for the srt process was tried (S7,
     // 2026-11-04, Docker suite): srt then binds that folder into the sandbox writable and the allowed-site proxy broke
-    TMPDIR: path.join(home, 'tmp'),
+    // (a shared chat's command: a short folder of its own, runTmp: srt's sockets there must fit SUN_PATH_MAX)
+    TMPDIR: tmp,
     // srt sets TMPDIR in the sandbox to this value (else /tmp/claude, which the settings hide)
-    CLAUDE_CODE_TMPDIR: path.join(home, 'tmp'),
+    CLAUDE_CODE_TMPDIR: tmp,
     // node 22.21+ sends http, https and fetch through HTTPS_PROXY only with this: without it a node program (the
     // Remotion browser download, for example) has no network in srt (spike VM, 2026-11-04)
     NODE_USE_ENV_PROXY: '1',

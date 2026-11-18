@@ -156,7 +156,7 @@ export function wideningAnswers(db: Database, rules: { now: RuleSet; after: Rule
       if (!misses) continue
       // an answer that stays hidden from them anyway widens nothing: an older one no card covered (rule b, its own
       // record), a newer one by an x group
-      if (n.late ? lateHides(groups, p.id) : groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
+      if (n.late ? lateHides(groups, p.id, (s) => newOf(s).has(p.id)) : groupsHide(groups, p.id, (s) => newOf(s).has(p.id))) continue
       widens.add(p.id)
     }
     if (widens.size) o.collect?.set(id, new Set(widens))
