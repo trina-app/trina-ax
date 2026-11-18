@@ -37,9 +37,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="33%"><img src="docs/site/images/connect/template.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥和使用的人"><br><sub>为全队添加应用</sub></td>
-<td width="33%"><img src="docs/site/images/files/files.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
-<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
+<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="管理员为团队添加应用的窗口：名称、MCP 地址、密钥和使用的人"><br><sub>为全队添加应用</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="团队云盘：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>一个团队云盘</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="团队技能列表和 Bring my skills"><br><sub>团队技能，也能带来你自己的</sub></td>
 </tr>
 </table>
 
