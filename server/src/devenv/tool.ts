@@ -126,14 +126,21 @@ export function foreignLines(f: { items: ForeignChange[]; total: number }): stri
 }
 
 /** what the AI gets of a stdout or stderr: its first and last half of OUT_SHOWN, never only the start (limits audit 1 #21:
- * the error at the end of a long build was lost) */
+ * the error at the end of a long build was lost). The runner already cut a long output this way with its own line
+ * (srt/runner.ts readEnds, the same size): that one is kept, never cut again. Cuts go to a line break when one is near,
+ * so a value on one line is never split (the redaction after this matches whole values). */
 export const clip = (s: string) => {
-  if (s.length <= OUT_SHOWN) return s
+  if (s.length <= OUT_SHOWN || RUNNER_CUT.test(s) && s.length <= OUT_SHOWN + 200) return s
   let head = s.slice(0, OUT_SHOWN / 2), tail = s.slice(-OUT_SHOWN / 2)
+  const nl = head.lastIndexOf('\n')
+  if (nl >= 0 && head.length - nl <= 4096) head = head.slice(0, nl + 1)
+  const tn = tail.indexOf('\n')
+  if (tn >= 0 && tn < 4096) tail = tail.slice(tn + 1)
   if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
   if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
   return `${head}\n… (${s.length - head.length - tail.length} characters in the middle left out; the end follows) …\n${tail}`
 }
+const RUNNER_CUT = /\n… \(\d+ bytes in the middle of this output were left out; the end follows\) …\n/
 
 export interface BoxShellHost {
   ctx: AppContext
@@ -164,8 +171,9 @@ type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
   const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
-  parts.push(e.stdout ? `--- stdout ---\n${clip(e.stdout)}` : '--- stdout: empty ---')
-  if (e.stderr) parts.push(`--- stderr ---\n${clip(e.stderr)}`)
+  // hidden before any cut (a value split at a cut would not match), and the whole answer again below
+  parts.push(e.stdout ? `--- stdout ---\n${clip(h.redact(e.stdout))}` : '--- stdout: empty ---')
+  if (e.stderr) parts.push(`--- stderr ---\n${clip(h.redact(e.stderr))}`)
   if (e.truncated) parts.push('(output cut)')
   if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)

@@ -638,6 +638,13 @@ describe('api_request', () => {
     // another answer (another person's or the next one) does not reach it
     expect(turn('bob').tools.has('connection_result')).toBe(false)
     expect((await turn('alice').call('connection_result', { id, offset: 40_000 })).text).toContain(`No answer "${id}" is kept`)
+    // the tools built again in the same answer (connect_service: refreshTools) reach the same answer under the same id
+    const again = integrationToolProvider(A.ctx).build({ userId: 'alice', chatId: a.chat, turnId: a.turnId, browser: false, scheduled: false }).tools.find((x) => x.name === 'connection_result')!
+    const tc = { turnId: a.turnId, chatId: a.chat, userId: 'alice', messageId: 'm', locale: 'en', signal: new AbortController().signal, files: { user: A.ctx.files.principal('alice'), turnId: a.turnId, files: new TurnFiles() } } as unknown as TurnToolContext
+    const r2 = await again.call({ id, offset: 40_000 }, tc)
+    expect((r2.content[0] as { text: string }).text).toStartWith(`Answer ${id} from AI PM, read on (characters 40000-`)
+    // another person calling with this turn's id gets nothing
+    expect((await again.call({ id, offset: 40_000 }, { ...tc, userId: 'bob' } as TurnToolContext)).isError).toBe(true)
     expect((await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/image' })).text).toContain('binary content')
     const inj = await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/inject' })
     expect(inj.text.match(/<\/external_data>/g)).toHaveLength(1)

@@ -45,6 +45,37 @@ describe('readEnds: the runner keeps the first and the last part of a long outpu
   })
 })
 
+describe('the runner cuts once, clip keeps its line (review of #1321)', () => {
+  test('10 MB of output: the count left out is the real one, not clip\'s second cut', () => {
+    const line = 'x'.repeat(99) + '\n'
+    const body = line.repeat(100_000) + 'FATAL: the end\n'
+    const r = readEnds(file('ten-mb.log', body), 16 << 10, 16 << 10)
+    const shown = clip(r.text)
+    expect(shown).toBe(r.text)
+    const left = Number(shown.match(/\((\d+) bytes in the middle of this output were left out/)![1])
+    expect(left).toBeGreaterThan(9_900_000)
+    expect(shown.endsWith('FATAL: the end\n')).toBe(true)
+    expect(shown).not.toContain('characters in the middle left out')
+  })
+
+  test('both cuts land on line breaks: a token on one line is never split (so redaction still finds it whole)', () => {
+    const token = 'sk-' + 'Q'.repeat(60)
+    const lines: string[] = []
+    for (let i = 0; i < 3000; i++) lines.push(`step ${i} key=${token}`)
+    const body = lines.join('\n') + '\n'
+    for (const [h, t] of [[1000, 1000], [1033, 997], [4000, 3001]] as const) {
+      const r = readEnds(file(`tokens-${h}.log`, body), h, t)
+      const [head, tail] = r.text.split(/\n… \(\d+ bytes[^\n]*\n/) as [string, string]
+      for (const part of [head, tail]) for (const l of part.split('\n').filter(Boolean)) expect(l).toMatch(new RegExp(`^step \\d+ key=${token}$`))
+    }
+    const long = lines.join('\n').repeat(3)
+    const c = clip(long)
+    const [ch, ct] = c.split(/\n… \(\d+ characters[^\n]*\n/) as [string, string]
+    for (const part of [ch, ct]) for (const l of part.split('\n').filter(Boolean)) expect(l.endsWith(token) || l.startsWith('step')).toBe(true)
+    expect(ch.endsWith('\n')).toBe(true)
+  })
+})
+
 describe('clip: what the AI gets of one stream', () => {
   test('up to 32 KiB unchanged; longer: the first and the last 16 KiB with a line between', () => {
     expect(clip('x'.repeat(32 << 10))).toBe('x'.repeat(32 << 10))

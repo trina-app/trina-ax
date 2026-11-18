@@ -55,8 +55,9 @@ export const WAIT_MAX_MS = 24 * 3600_000
 export const JOB_MAX_SEC = 6 * 3600
 export const SERVER_MAX_SEC = 8 * 3600
 export const LOG_MAX_BYTES = 64 << 20
-/** a command's stdout and stderr each: its first and last half of this (readEnds) */
-const OUT_READ = 64 << 10
+/** a command's stdout and stderr each: its first and last half of this (readEnds). The same as what box_shell shows
+ * (devenv/tool.ts OUT_SHOWN), so the output is cut once, here, and the count of what was left out is the real one */
+const OUT_READ = 32 << 10
 const TAIL_BYTES = 4 << 10
 /** a dev server under this CPU share for idleStopMin stops (reason idle) */
 const IDLE_CPU_SHARE = 0.02
@@ -498,6 +499,8 @@ function readHead(file: string, max: number): { text: string; cut: boolean } {
 /** A command's output as the AI gets it (limits audit 1 #21): all of it up to `head + tail` bytes, else its first `head`
  * and its last `tail` bytes with a line that says how much was left out in between, so the error a long build prints
  * at its end is there. Neither part ends inside a UTF-8 character; the tail starts at a line when one is near. */
+/** how far a cut moves to reach a line break */
+const LINE_SNAP = 4096
 export function readEnds(file: string, head: number, tail: number): { text: string; cut: boolean } {
   let fd: number
   try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return { text: '', cut: false } }
@@ -519,12 +522,16 @@ export function readEnds(file: string, head: number, tail: number): { text: stri
     const lead = k > 0 ? start[k - 1]! : 0
     const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
     if (start.length - (k - 1) < need) start = start.subarray(0, k - 1)
+    // both cuts at a line break when there is one near (a key or token on one line is never split, so the redaction
+    // that runs on the result, which matches whole values, still finds it)
+    const lastNl = start.lastIndexOf(0x0a)
+    if (lastNl >= 0 && start.length - lastNl <= LINE_SNAP) start = start.subarray(0, lastNl + 1)
     let end = b.subarray(0, nb)
     let j = 0
     while (j < end.length && j < 4 && (end[j]! & 0xc0) === 0x80) j++
     end = end.subarray(j)
     const nl = end.indexOf(0x0a)
-    if (nl >= 0 && nl < 512) end = end.subarray(nl + 1)
+    if (nl >= 0 && nl < LINE_SNAP) end = end.subarray(nl + 1)
     const left = size - start.length - end.length
     return { text: `${start.toString('utf8')}\n… (${left} bytes in the middle of this output were left out; the end follows) …\n${end.toString('utf8')}`, cut: true }
   } finally { fs.closeSync(fd) }
