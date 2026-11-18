@@ -39,7 +39,7 @@ import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
@@ -341,7 +341,7 @@ function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId?: st
 function dropSharedRun(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId: string) {
   if (!space.shared) return
   const o = runOwner(space, runId)
-  for (const d of [runHome(c.base, o), runLogs(c.base, o)]) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
+  for (const d of [runHome(c.base, o), runLogs(c.base, o), runTmp(c.base, o)]) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
 }
 
 interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
@@ -352,9 +352,10 @@ function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'
   // a shared chat's runs: a home and logs of their own per command (nothing of the person's, nothing of an earlier
   // command: docs/decisions/20261118-devenv-shared-chats.md)
   const o = runOwner(space, runId)
-  if (o.sharedChat) for (const d of [p.chatHome, p.chatLogs, path.join(p.chatHome, o.sharedChat), path.join(p.chatLogs, o.sharedChat)]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
+  if (o.sharedChat) for (const d of [p.chatHome, p.chatLogs, p.runTmp, path.join(p.chatHome, o.sharedChat), path.join(p.chatLogs, o.sharedChat)]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   const home = runHome(c.base, o), logs = runLogs(c.base, o)
-  fs.mkdirSync(path.join(home, 'tmp'), { recursive: true, mode: 0o700 })
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 })
+  fs.mkdirSync(runTmp(c.base, o), { recursive: true, mode: 0o700 })
   fs.mkdirSync(logs, { recursive: true, mode: 0o750 })
   return { ...p, personHome: home, personLogs: logs }
 }
