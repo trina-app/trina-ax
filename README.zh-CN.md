@@ -49,10 +49,6 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 ## 每个人用它做什么
 
-**像 Slack 一样的团队聊天。** 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。
-
-<img src="docs/site/images/chats/room.webp" width="100%" alt="Marketing 频道：一条提到 Jordan 的消息、一个有 2 条回复的话题，以及从侧边聊天发出的 Trina 回答">
-
 **在任何对话旁边提问，一键发出。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到对话里。
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里请 Trina 把参展规定做成清单，再把它发到对话里。">
@@ -61,22 +57,28 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理员修改谁能打开 Sales 文件夹，然后查看 Mina 能打开哪些：Finance 不在她的列表里。">
 
-**接着同事的会话做。** 打开同事的项目会话继续做，你的提问按你自己的权限处理。
+**在团队项目里接着同事的会话做。** 团队项目里的会话会共享给项目成员：打开同事的会话继续做，按你自己的权限处理。其他会话也可以像 Google 云端硬盘文件一样共享给个人或群组。
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改卡片新闻；她的提问按她自己的权限处理。">
 
+**按内容找文件。** 每天夜里，团队的 AI 会读取共享、群组和项目文件夹里新增和修改的文件，为每个文件记下一行说明它是什么。所以名叫 `temp.pdf` 的扫描件、名叫 `IMG_2031.jpg` 的照片，也能按内容找到。它使用团队的 AI 账户，从不读取个人文件夹。在 2,238 个虚构文件的测试中，Claude Code 回答 184 个问题时，有这些说明能找对 181 个，没有时找对 172 个。
+
 <table>
 <tr>
-<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间重复，时间按团队时区。<br><br><img src="docs/site/images/scheduled/task.webp" alt="每周一 9:00 运行的每周总结定时任务"></td>
-<td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/site/images/guests/guest-room.webp" alt="有一位访客的群聊"></td>
+<td width="50%"><b>定时任务。</b> 交代一次，Trina 就按你定的时间重复，时间按团队时区。<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="定时任务写出的每周总结：发现的内容、决定和未完成的工作，并保存为文件"></td>
+<td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="有代理公司访客 Morgan Reyes 的 Launch email 群聊：标题方案、@提及和 Trina 的回答"></td>
 </tr>
 <tr>
 <td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；可按人、群组或团队设置 token 上限。<br><br><img src="docs/site/images/usage/team.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
 </tr>
+<tr>
+<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的 Trina 回答，右侧打开了一个话题"></td>
+</tr>
 </table>
 
 - **每次改动都会保留。** 不管是人改的还是 AI 改的，任何版本都能恢复。
+- **应用内浏览器。** 在桌面应用里，Trina 会在聊天旁边的面板中打开网站、阅读、点击并填写表单，你可以看着它操作，点 Stop 就会停止。除非你允许所有网站，否则打开新网站前会先询问。
 - **应用动态发到对话里。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的动态以卡片形式送达。
 - **会议记录。** Mac 应用（macOS 14.4 及以上）为 Zoom、Meet 和 Teams 通话做记录。
 - **查找工作文件。** 桌面应用在你的电脑上找出最近的工作文件，只添加你选中的。
