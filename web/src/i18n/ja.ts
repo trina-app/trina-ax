@@ -3017,6 +3017,7 @@ export const ja: Record<MessageKey, string> = {
   'ask.skillShowFile': 'ファイルを表示',
   'ask.skillFiles': '{count, plural, one {一緒に保存されるファイル#件（開くと内容を表示）：} other {一緒に保存されるファイル#件（開くと内容を表示）：}}',
   'ask.detailSize': "{n, plural, one {#文字} other {#文字}}",
+  'ask.detailPartial': "{n}文字のうち{shown}文字を表示しています",
   'ask.detailAll': "すべて表示",
   'ask.detailLess': "折りたたむ",
   "ask.exactShow": "送信内容をそのまま見る",

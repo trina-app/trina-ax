@@ -253,6 +253,16 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
       expect(rulesAt('BatchE').some((x) => x.s === 'bob')).toBe(false)
     })
 
+    test('security review of #1338 (L1): a folder and one inside it in one call → refused, no card, nothing saved', async () => {
+      fresh('BatchG'); fresh('BatchG/Payroll')
+      const r = await turn('carol', many([{ folder: 'BatchG', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchG/Payroll', action: 'add', who: { name: 'finance' } }]), { answer: 'change' })
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain('is inside')
+      expect(rulesAt('BatchG').some((x) => x.s === 'bob')).toBe(false)
+      expect(rulesAt('BatchG/Payroll').some((x) => x.s === finance)).toBe(false)
+      expect(audits('folder.ai_access', r.turnId)[0]).toMatchObject({ outcome: 'refused', reason: 'nested' })
+    })
+
     test('both forms at once, or neither, is refused as invalid input', async () => {
       const r = await turn('carol', call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' }, changes: [{ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } }] }), { answer: 'change' })
       expect(r.cards).toHaveLength(0)

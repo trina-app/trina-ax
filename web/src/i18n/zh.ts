@@ -3012,6 +3012,7 @@ export const zh: Record<MessageKey, string> = {
   'ask.skillShowFile': '查看文件',
   'ask.skillFiles': '{count, plural, one {同时保存的文件 # 个（展开查看内容）：} other {同时保存的文件 # 个（展开查看内容）：}}',
   "ask.detailSize": "{n, plural, one {#个字符} other {#个字符}}",
+  "ask.detailPartial": "显示 {n} 个字符中的 {shown} 个",
   "ask.detailAll": "显示全部",
   "ask.detailLess": "收起",
   "ask.exactShow": "显示实际发送的内容",

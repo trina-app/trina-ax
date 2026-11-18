@@ -578,6 +578,8 @@ function DetailText({ d, plain, full }: { d: ConfirmDetail; plain?: boolean; ful
           <Marked text={text} marks={d.marks} alerts={d.alerts} />
         </pre>
       )}
+      {/* the card carries only the start: it says so, with the whole size, before anyone opens it */}
+      {more && !whole && <p className={clsx('text-xs text-muted', plain ? 'mt-1 ml-3' : 'border-t border-line px-3 py-1.5')} data-testid="ask-detail-partial">{t('ask.detailPartial', { shown: (open ? d.text.length : Math.min(d.collapsedAt ?? d.text.length, d.text.length)).toLocaleString(locale), n: d.fullChars!.toLocaleString(locale) })}</p>}
       {long && (
         <button
           type="button"

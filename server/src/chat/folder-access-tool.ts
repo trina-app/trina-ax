@@ -370,6 +370,13 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
       if ('text' in w) return stop(i, c, w)
       where.push(w.path)
     }
+    // a folder and one inside it in one call (Reports with Reports/Payroll): each folder's preview is made from what is
+    // saved now, so the second save would act on rules the card did not show (security review of #1338, L1)
+    const inside = where.findIndex((p, i) => where.some((q, j) => j !== i && q !== p && p.startsWith(q + '/')))
+    if (inside >= 0) {
+      const outer = where.find((q) => where[inside]!.startsWith(q + '/'))!
+      return refused('nested', `${NONE}: "${ai(where[inside]!)}" is inside "${ai(outer)}", and one call changes folders that are not inside each other. Call change_folder_access for "${ai(outer)}" first, then again for "${ai(where[inside]!)}" (a card each).`, where[inside]!, { changes: list.length })
+    }
     // a member: nothing is planned; an "Ask an admin" button for each folder (T18)
     if (!isStaff(me)) {
       const people = everyone().filter((x) => x.subjectType === 'user')

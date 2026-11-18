@@ -276,13 +276,22 @@ describe('calls', () => {
     // (the recipients alone as lines; chat/card-fold.ts folds it when the card goes out)
     const big1 = ask(true)
     const at = fake.calls.length
-    const ok = await turn('alice', { person: big1 }).call('my_tasks__create_task', { title: 'y'.repeat(100_001), to: 'team@example.com' })
+    // (a recipient of 5,000 characters is shown whole on its line, not cut at the gate's 2,000: L2)
+    const to = 'team@example.com,' + 'x'.repeat(5_000) + '@example.com'
+    const ok = await turn('alice', { person: big1 }).call('my_tasks__create_task', { title: 'y'.repeat(100_001), to })
     expect(ok.isError).toBe(false)
     expect(big1.questions).toHaveLength(1)
     expect(big1.details[0]![0]!.text).toContain('y'.repeat(100_001))
     expect(big1.details[0]![0]!.exact).toBeUndefined()
-    expect(big1.details[0]![0]!.fields).toEqual([{ name: 'to', value: 'team@example.com' }])
+    expect(big1.details[0]![0]!.fields).toEqual([{ name: 'to', value: to }])
     expect(fake.calls.length).toBe(at + 1)
+    // security review of #1338 (L2): where it goes is never folded, so a recipient over 10,000 characters is refused
+    const longTo = ask(true)
+    const at2 = fake.calls.length
+    const lr = await turn('alice', { person: longTo }).call('my_tasks__create_task', { title: 'short', to: 'a'.repeat(10_001) + '@example.com' })
+    expect(lr.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
+    expect(longTo.questions).toHaveLength(0)
+    expect(fake.calls.length).toBe(at2)
     const before = fake.calls.length
     const huge = ask(true)
     const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(MAX_CARD_PAYLOAD + 1) })

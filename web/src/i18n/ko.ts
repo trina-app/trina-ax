@@ -3057,6 +3057,7 @@ export const ko = {
   'ask.skillShowFile': '파일 보기',
   'ask.skillFiles': '함께 저장되는 파일 {count}개 (눌러서 내용 보기):',
   'ask.detailSize': '{n}자',
+  'ask.detailPartial': "전체 {n}자 중 {shown}자를 보여 주고 있어요",
   'ask.detailAll': "전체 보기",
   'ask.detailLess': "접기",
   "ask.exactShow": "보내는 내용 그대로 보기",

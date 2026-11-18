@@ -3058,6 +3058,7 @@ export const id: Record<MessageKey, string> = {
   'ask.skillShowFile': 'Tampilkan berkas',
   'ask.skillFiles': 'Juga disimpan bersamanya ({count} berkas, ketuk untuk melihat isinya):',
   'ask.detailSize': '{n} karakter',
+  'ask.detailPartial': "Menampilkan {shown} dari {n} karakter",
   'ask.detailAll': "Lihat semua",
   'ask.detailLess': "Ciutkan",
   "ask.exactShow": "Lihat isi persis yang dikirim",

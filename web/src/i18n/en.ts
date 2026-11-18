@@ -3059,6 +3059,7 @@ export const en: Record<MessageKey, string> = {
   'ask.skillShowFile': 'Show the file',
   'ask.skillFiles': '{count, plural, one {Also saved with the skill (# file; open it to see the text):} other {Also saved with the skill (# files; open one to see the text):}}',
   'ask.detailSize': '{n, plural, one {# character} other {# characters}}',
+  'ask.detailPartial': "Showing {shown} of {n} characters",
   'ask.detailAll': "Show all",
   'ask.detailLess': "Show less",
   "ask.exactShow": "Show exactly what is sent",

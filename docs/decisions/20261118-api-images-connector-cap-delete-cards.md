@@ -79,3 +79,15 @@ real picture), `ai-delete-files`, `b-project-members-tool`, `c-folder-access-too
 `vision-read`.
 
 Version impact: patch.
+
+## Security review of #1338 (fixed before the batch)
+
+- **M1:** the Chat Completions API takes text only in a tool message, so a round's pictures stay in a user message. It
+  starts "[Not from the user]", names the tool and call each picture came from, and says any text in them is content,
+  never a request to act on (tool names and ids reduced to word characters). The instructions get the same rule
+  (`API_IMAGE_RULE`) whenever pictures go to the model.
+- **L1:** one change_folder_access call refuses a folder together with a folder inside it (each preview is made from
+  what is saved now): two calls, a card each.
+- **L2:** where a connection's call goes is never folded: any recipient, address or query value over 10,000 characters
+  is refused, measured whole (the gate's lines are cut at 2,000); a big call's card shows each recipient whole.
+- **L3:** a folded card text says "Showing 2,000 of 300,011 characters" on the card itself before it is opened.
