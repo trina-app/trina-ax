@@ -16,6 +16,7 @@ import { newId } from '../db'
 import { Schedules } from './schedules'
 import { Hub, type HubOptions } from '../realtime/hub'
 import { BrowserRelay, type BrowserRelayOptions } from '../realtime/browser-relay'
+import { LocalRelay } from '../realtime/local-relay'
 import { startPresence, type Presence, type PresenceOptions } from '../realtime/presence'
 import { startRoomTyping } from '../rooms/typing'
 import { startLooking, type Looking } from '../realtime/looking'
@@ -207,6 +208,8 @@ export class ChatRuntime {
   readonly schedules: Schedules
   readonly hub: Hub
   readonly relay: BrowserRelay
+  /** apps on the person's computer (realtime/local-relay.ts; integrations/connections/local.ts) */
+  readonly localRelay: LocalRelay
   readonly presence: Presence
   /** what each open window shows now, in memory only (realtime/looking.ts): the AI's looking_at tool reads it */
   readonly looking: Looking
@@ -308,6 +311,7 @@ export class ChatRuntime {
     }
     this.hub = new Hub(ctx, o.hub)
     this.relay = new BrowserRelay(this.hub, ctx.log.child({ c: 'browser' }), o.relay)
+    this.localRelay = new LocalRelay(this.hub, ctx.log.child({ c: 'local-apps' }), o.relay ? { windowGoneMs: o.relay.windowGoneMs, sweepMs: o.relay.sweepMs, pollStaleMs: o.relay.pollStaleMs, repollMs: o.relay.repollMs } : {})
     // online status from the same windows (docs/DECISIONS.md "접속 상태")
     this.presence = startPresence(this.hub, ctx, o.presence)
     // "Alice is typing…" in rooms, on the same sockets (docs/DECISIONS.md "입력 중 표시")
@@ -1330,6 +1334,7 @@ export class ChatRuntime {
       for (const e of execs) e.interruptForRequeue(cause)
       await Promise.race([Promise.all(execs.map((e) => e.done)), Bun.sleep(6000)])
       this.relay.close()
+      this.localRelay.close()
       this.hub.close()
     })()
     return this.shutdownP

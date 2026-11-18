@@ -47,6 +47,8 @@ import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOL
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
+import { offlineWords, turnWindow, type LocalVia } from './local'
+import { PRODUCT } from '@mycel/shared'
 
 export const MAX_RESULT_CHARS = 40_000
 /** connection tools offered as tools of their own in one answer: at most this many, with at most MAX_TURN_TOOL_CHARS of
@@ -772,6 +774,15 @@ function toolDescription(row: Row, tool: RemoteTool): string {
  * arguments (docs/DECISIONS.md "Plain words in errors, cards and steps"; the card before a write shows every value). */
 const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>) => `${row.name} · ${toolTitle(tool)}`
 
+/** An app on the person's computer (local.ts): its calls go only to the desktop window this turn was sent from, and
+ * only from the main AI (a sub-agent never drives the person's computer, like the in-app browser). */
+function localVia(ctx: AppContext, tc: TurnToolContext, row: Row): LocalVia {
+  if (tc.files.files.agentView) throw new CallError(`${row.name} runs on the user's computer and only the main AI uses it, not a sub-agent: do this step yourself.`, 'refused (sub-agent)')
+  const windowId = turnWindow(ctx.db, tc.turnId)
+  if (!windowId) throw new CallError(offlineWords(row.name), 'not from the desktop app')
+  return { windowId, turnId: tc.turnId }
+}
+
 function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name: string): TurnTool {
   return {
     name,
@@ -795,6 +806,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // asker's card (or the guest refusal) before anything else
         if (b.shared && teamFileHandles(args).length) throw new CallError(SHARED_NO_TEAM_FILES(current.name), 'refused (team file in a shared chat)')
         current = await sharedGate(ctx, b, current, tc, h)
+        // an app on the computer: from this turn's desktop window only, before anything is asked or sent
+        if (current.local_app) localVia(ctx, tc, current)
         noteScheduleUse(ctx.db, tc.turnId, current)
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
@@ -864,7 +877,7 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
           recheckTeamFiles(ctx, tc, files)
           sending = withTeamFiles(args, files)
         }
-        const r = await svc.callTool(current, t.name, sending, tc.signal).catch((e) => {
+        const r = await svc.callTool(current, t.name, sending, tc.signal, current.local_app ? localVia(ctx, tc, current) : null).catch((e) => {
           // an attachment whose answer was cut off at the size limit: said plainly (the connection is fine)
           if (current!.google_app && t.name === ATTACHMENT_TOOL && e instanceof CallError && e.kind === 'too_large') throw new CallError(tooLargeMessage(fileName), 'attachment too large')
           throw e
@@ -1357,6 +1370,17 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           else lines.push(`- ${row.name} (${who} connection${sharedAccount(row)}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app && row.scope === 'personal' ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
+        // an app on the person's computer (local.ts): only in a turn sent from the desktop app (b.browser: a desktop
+        // window that is connected, never a shared chat, a scheduled run or a restricted one); elsewhere the AI is told
+        // in plain words why not
+        if (row.local_app && !b.browser) {
+          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): not usable in this answer, because it works only when the user writes from the ${PRODUCT.displayName} desktop app on that computer${b.scheduled ? ' (never in a scheduled run)' : ''}. When they ask for it, say so in one or two plain sentences; do not try another way`)
+          continue
+        }
+        if (row.local_app && !savedTools(ctx.db, row).length) {
+          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): not set up on the computer yet. When they ask for it, tell them to open ${SCREEN.connectors(b.shared?.locale ?? 'en', row.name)} in the desktop app on that computer and press Check again`)
+          continue
+        }
         if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"${sharedNote(row)}`); continue }
         const saved = savedTools(ctx.db, row)
         const off = disabledTools(row)
@@ -1388,7 +1412,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
             // a list saved before every tool was kept: checking the connection again gets the rest
             : ` (the service offers ${offered.total} tools; ${saved.length} were saved when the connection was last checked; if the user needs one that is not here, say so: whoever manages the connection can check it again in its settings)`
         const offNote = skipped ? ` (${skipped} more turned off by whoever manages this connection; do not try to reach them another way)` : ''
-        const shared = sharedAccount(row)
+        const shared = sharedAccount(row) + (row.local_app ? ', an app on the user\'s own computer that the desktop app runs; only you use it, not a sub-agent' : '')
         // no "MCP server" here: the AI repeated it to people ("Calendar MCP server", AI scenario CON-01.calendar,
         // 2026-11-17); the tool names say how to call them
         if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection${shared}): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)

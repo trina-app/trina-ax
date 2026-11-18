@@ -11,7 +11,7 @@
 import clsx from 'clsx'
 import { Globe, Link2, RotateCcw, Undo2, Waypoints } from 'lucide-react'
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { INTEGRATION_REQUEST_DAYS, type IntegrationKind, type IntegrationRequest, type User } from '@mycel/shared/api'
+import { INTEGRATION_REQUEST_DAYS, type RemoteIntegrationKind as IntegrationKind, type IntegrationRequest, type User } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorFor } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'

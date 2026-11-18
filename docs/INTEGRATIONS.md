@@ -707,6 +707,26 @@ connections with their address and the first 1,000 characters of their notes.
   `<connection name> · <tool>` and `<connection name> · <METHOD> <path>` (no translated words, so they show the same in
   every language).
 
+## Apps on your computer (kind `local`)
+
+Decision: [Apps on your own computer as connectors](decisions/20261118-local-app-connectors.md).
+
+- **What it is.** It is a program on the person's own computer that the desktop app runs for the AI. There are two kinds:
+  - an MCP server over stdio, such as `aside mcp`;
+  - a plain CLI declared as tools, such as ego lite's `ego-browser nodejs` with the script on stdin and its guide from `ego-browser skill`.
+- **What the server keeps.** It is the person's own connection only. In the database it is a column `integrations.local_app` (migration 364), and the API calls it kind `local`. The server keeps the command's shape: the program, its arguments, the setting names and the CLI templates. It never keeps a setting's value.
+- **Adding one.** Only the person adds it, in Settings › Connectors › An app on your computer, in the desktop app. It cannot be added through `POST /api/integrations/local`'s team counterparts, templates, requests or the connect card.
+- **How calls travel.** The calls go through the local relay (`server/src/realtime/local-relay.ts`, the sibling of the browser relay) to the desktop window the message was sent from. They never go out over the network.
+  - From anywhere else, the AI says that the app works only from the desktop app on that computer.
+  - Scheduled runs, shared chats, rooms and sub-agents never get its tools.
+- **On the computer** (`desktop/src/common/local-apps.ts`):
+  - The desktop app asks once in its own dialog ("Connect this program?"), and again only when the command changes.
+  - It starts the program from an argument list, never through a shell, and never runs as root.
+  - Setting values are sealed with safeStorage. They are hidden in every answer before it leaves the computer, then `hide.ts` and `redact.ts` run as usual.
+  - Stop and quitting the app end the program.
+- **Asking before changes.** Writes ask on the normal card with Always allow, like any connection.
+- **Turning it off.** The team switch `localApps` (Admin › Team settings › Members can connect apps on their computer) turns it off.
+
 ## Audit
 
 - Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed

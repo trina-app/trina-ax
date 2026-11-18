@@ -51,6 +51,7 @@ import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
+import { LocalAppDialog, localAppsBridge } from '../components/integrations/LocalApp'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -168,6 +169,8 @@ function ConnectorsHome() {
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
+  // "An app on your computer" (LocalApp.tsx): only in the desktop app, while the team allows it
+  const [local, setLocal] = useState(false)
   const [params, setParams] = useSearchParams()
   // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
   const inApp = !!mobileApp()
@@ -238,7 +241,11 @@ function ConnectorsHome() {
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
   // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
   // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
-  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...listed, ...askable]
+  const localCard: Card[] = list.data?.localAllowed && localAppsBridge() ? [{
+    id: 'local-app', name: t('localApps.title'), line: t('localApps.line'), logo: '/favicon.svg', state: 'available',
+    onOpen: () => setLocal(true), onAdd: () => setLocal(true),
+  }] : []
+  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCard, ...listed, ...askable]
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -341,6 +348,7 @@ function ConnectorsHome() {
         )}
       </div>
       {fromTeam.dialog}
+      {local && <LocalAppDialog onClose={() => setLocal(false)} onSaved={(i) => { setLocal(false); actions.saved(i, null, true); navigate(connectionHref(i.id)) }} />}
     </div>
   )
 }
@@ -449,7 +457,8 @@ function CustomConnectorPage() {
   const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to={CONNECTORS_HOME} replace />
   return (
-    <McpShell>
+    // an app on the computer keeps no key or sign-in on the server (its settings stay on that computer): no privacy note
+    <McpShell privacy={i.kind !== 'local'}>
       <MinePage i={i} about={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} />
     </McpShell>
   )
@@ -464,12 +473,12 @@ function MinePage({ i, about }: { i: Integration; about: string }) {
 }
 
 /** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */
-function McpShell({ children }: { children: ReactNode }) {
+function McpShell({ children, privacy = true }: { children: ReactNode; privacy?: boolean }) {
   const t = useT()
   return (
     <div className="pb-6">
       {children}
-      <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
+      {privacy && <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>}
     </div>
   )
 }

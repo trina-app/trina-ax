@@ -12,7 +12,7 @@ import { useState, type ReactNode } from 'react'
 import type { Integration } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
-import { computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
+import { awayFromComputer, computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
 import { signsInOnComputer } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
 import { useLocale, useT } from '../../i18n'
@@ -22,6 +22,7 @@ import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
 import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
+import { LocalAppDetails, LocalAppWhere, localAppsBridge } from './LocalApp'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -159,7 +160,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const items: CardMenuItem[] = [
     ...(manage ? [{ label: t('integrations.refresh'), onSelect: () => void actions.refresh(i), disabled: checking, testId: 'integration-refresh' }] : []),
     ...(signInHere && i.status !== 'needs_auth' && !flow ? [{ label: t(i.hasSecret ? 'integrations.signInAgain' : 'integrations.signIn'), onSelect: () => void actions.signIn.start(i.id), testId: 'integration-signin-again' }] : []),
-    ...(manage && !phone ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
+    // an app on the computer has no address, key or sign-in to edit (LocalApp.tsx keeps what is its own)
+    ...(manage && !phone && i.kind !== 'local' ? [{ label: t('common.edit'), onSelect: onEdit, testId: 'integration-edit' }] : []),
     ...(ownAllow && (i.alwaysAllowedByMe || manage) ? [{ label: t('integrations.alwaysAllow.stop'), onSelect: () => void actions.askAgain(i), testId: 'integration-always-allow-stop' }] : []),
     ...(manage ? [{ label: t('common.delete'), onSelect: () => void actions.remove(i), danger: true, testId: 'integration-delete' }] : []),
   ]
@@ -168,6 +170,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     <span role="status" className="flex items-center gap-1 text-xs text-muted" data-testid="connection-status" data-state="checking"><RefreshCw size={14} className="animate-spin" aria-hidden />{t('connectors.page.checking')}</span>
   ) : teamOff ? (
     <span className="text-xs text-muted" data-testid="connection-status" data-state="personal-off">{t('appConnectors.off')}</span>
+  ) : awayFromComputer(i) ? (
+    // checked from somewhere other than its computer: where it works, never a red "Error" (that is for a real failure)
+    <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(localAppsBridge() ? 'localApps.status.otherComputer' : 'localApps.status.desktopOnly')}</span>
   ) : i.status === 'connected' ? (
     <span className="flex items-center gap-1 text-xs text-ok" data-testid="connection-status" data-state="connected"><Check size={14} aria-hidden />{t('integrations.status.connected')}</span>
   ) : i.status === 'needs_auth' && signInHere ? (
@@ -182,12 +187,15 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const signInLine = i.auth === 'oauth'
     ? (i.hasSecret ? (i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn')) : t('connectors.page.notSignedIn'))
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
+  // an app on a computer, read away from the desktop app: its "works only from the desktop app there" note already says
+  // why its check failed there, so the same words do not come twice in a second box
+  const elsewhereOnly = awayFromComputer(i) && !localAppsBridge()
   const lastUsed = i.lastUsedAt ? formatDateTime(i.lastUsedAt, locale) : t('integrations.neverUsed')
   const name = c?.name ?? i.name
   const { links, help } = docsRows(t, name, c)
   // before its tools are known (not signed in, not answering), it may change things: the line says it asks first
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
-  const toolsNote = i.kind !== 'mcp' ? null : (
+  const toolsNote = i.kind === 'http' ? null : (
     <>
       {!i.tools.length && <span className="block">{t(i.status === 'connected' ? 'integrations.noTools' : i.status === 'error' ? 'connectors.page.toolsWhenWorks' : 'connectors.toolsAfter')}</span>}
       {short && <span className="block" data-testid="integration-tools-capped">{t(short, { n: i.tools.length, total: i.toolsTotal! })}</span>}
@@ -211,7 +219,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
     <>
       <AppDetail embedded inSettings={place.inSettings} list={place.list} testId="connector-detail" state={flow ? `flow-${flow.state}` : i.status}
         logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name}
-        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : hostOf(i.url)}
+        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : i.kind === 'local' ? t('localApps.title') : hostOf(i.url)}
         actions={(status || items.length > 0) && (
           <>
             {status}
@@ -219,11 +227,12 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {items.length > 0 && <div className="max-sm:ml-auto"><CardMenu label={t('appConnectors.more', { name: i.name })} testId="connection-menu" items={items} /></div>}
           </>
         )}
-        status={(flow || failing || note || alert || teamOff) ? (
+        status={(flow || failing || note || alert || teamOff || i.kind === 'local') ? (
           <>
+            {i.kind === 'local' && <LocalAppWhere />}
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
+            {trouble && !flow && !elsewhereOnly && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>
@@ -231,12 +240,13 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         about={about}
         canChange={canChange} asks={allowed ? 'allow' : 'ask'}
         abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t(alwaysOff ? 'connectors.page.teamAllowLineOff' : 'connectors.page.teamAllowLine') : undefined}
-        developer={c?.name} signIn={signInLine} links={links}
+        developer={c?.name} signIn={i.kind === 'local' ? undefined : signInLine} links={links}
         more={<>
           {help}
           {/* a call that failed counts as tried: while it is failing, "Last tried" (QA retest 2026-11-12) */}
           <Detail label={t(failing && i.lastUsedAt ? 'connectors.page.lastTried' : 'connectors.page.lastUsed')} testId="integration-meta">{lastUsed}</Detail>
-          {!c && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {!c && i.kind !== 'local' && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
+          {i.kind === 'local' && <LocalAppDetails i={i} onChanged={() => void actions.refresh(i)} />}
         </>}
         tools={(allChips ? i.tools : i.tools.slice(0, LISTED_TOOLS)).map((x) => ({ name: x.name, title: x.title || x.name, description: x.description || undefined, changes: !x.readOnly, off: x.enabled === false }))}
         toolsNote={toolsNote}>
