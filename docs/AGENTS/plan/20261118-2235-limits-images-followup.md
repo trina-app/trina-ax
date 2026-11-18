@@ -22,8 +22,10 @@ request in the proxy. Its re-review found:
 - `turnSized` for PDF page images and video frames, like reads.
 - A picture read a second time in the same answer comes back at full size (it counts like any other); the read tool
   says so.
-- Retry cap: after 2 limit stops of the same picture (time, memory; not a busy server) it counts as "cannot be made
+- Retry cap: after 2 failures of the same picture (not a busy or overloaded server) it counts as "cannot be made
   smaller".
+- After review: caps count the engine session's pictures (resumed sessions send them all again); a session past half
+  the caps starts the next answer fresh; second reads share the 16 / 10 MB full-size allowance (12 new + 4 again).
 - LRU on a cache hit; a queue of at most 64 conversions waiting, past it the picture goes on as it is.
 
 ## Tests

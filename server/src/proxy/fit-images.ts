@@ -37,8 +37,8 @@ export const FIT_WAIT_MS = 1500
 /** the cache of smaller pictures (base64 characters together), and of pictures that cannot be made smaller (a count) */
 let cacheMax = 64 * 1024 ** 2
 const NULL_MAX = 2048
-/** a picture whose conversion a limit stopped this many times (time, memory: not a busy server) counts as "cannot be
- * made smaller": the same picture would stop the converter on every request */
+/** a picture whose conversion failed this many times (not a busy or overloaded server: vision_busy, vision_heavy) counts
+ * as "cannot be made smaller": the same picture would fail on every request */
 export const FIT_TRIES = 2
 /** conversions waiting at most; past it a picture goes on as it is (made smaller by a later request) */
 export const FIT_QUEUE_MAX = 64
@@ -157,8 +157,10 @@ function convert(key: string, data: string, shrink: Shrink): Promise<void> | nul
     if (cache.has(key) || cannot.has(key)) return
     let out: Buffer | null
     try { out = await shrink(Buffer.from(data, 'base64')) } catch (e) {
-      // not finished: tried again later; a limit (not a busy server) that stops the same picture again ends the tries
-      if ((e as { code?: unknown } | null)?.code !== 'vision_busy') stoppedOnce(key)
+      // not finished: tried again later. A busy or overloaded server (vision_busy, vision_heavy: time or memory) says
+      // nothing about the picture; any other failure of the same picture FIT_TRIES times ends the tries
+      const code = (e as { code?: unknown } | null)?.code
+      if (code !== 'vision_busy' && code !== 'vision_heavy') stoppedOnce(key)
       return
     }
     stops.delete(key)

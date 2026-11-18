@@ -41,15 +41,27 @@ export const b64Len = (n: number) => Math.ceil(n / 3) * 4
  * video frames all count (docs/decisions/20261118-limits-images.md). */
 export const VISION_TURN_IMAGES = 90
 export const VISION_TURN_BYTES = 20 * 1024 ** 2
-/** In every turn, the first VISION_TURN_FULL images (or VISION_TURN_FULL_BYTES, base64) go at full size; read images
- * after them go smaller (smallForModel), so many fit and the engine's request stays small. */
+/** In every turn, at most VISION_TURN_FULL images (and VISION_TURN_FULL_BYTES of them, base64) go at full size: the
+ * first VISION_TURN_FULL_NEW new ones, and the rest of the allowance for pictures read a second time in the turn (the
+ * AI asked for their details). The others go smaller (smallForModel), so many fit and the engine's request stays
+ * small. Images, PDF pages and video frames alike. */
 export const VISION_TURN_FULL = 16
+export const VISION_TURN_FULL_NEW = 12
 export const VISION_TURN_FULL_BYTES = 10 * 1024 ** 2
 /** The caps when the turn's requests pass the model proxy, which fits each request's images itself before it goes on
  * (proxy/fit-images.ts). The engine's request must still reach the proxy: it takes at most PROXY_BODY_MAX
  * (proxy/model-proxy.ts, 64 MB), so the images of one turn stay at 48 MB of base64 with room for the text. */
 export const VISION_FITTED_IMAGES = 200
 export const VISION_FITTED_BYTES = 48 * 1024 ** 2
+/** The caps count the pictures of the whole engine session, not only this turn's: a resumed session sends every
+ * picture it holds again (chat/session-slim.ts sessionPictures). Past this share of the cap every new picture goes
+ * smaller, and a session that would carry more than half the cap into the next answer is not kept (chat/turn.ts
+ * stashSession: the next answer starts fresh, from the chat's summary). */
+export const VISION_SESSION_SHRINK_SHARE = 0.8
+/** whether a saved session may carry these pictures into the next answer (chat/turn.ts stashSession): at most half the
+ * caps, so the next answer has room for its own */
+export const sessionPicturesKept = (kept: { count: number; bytes: number }, caps: { images: number; bytes: number }) =>
+  kept.bytes <= caps.bytes / 2 && kept.count <= caps.images / 2
 /** a smaller image: longest side and most bytes (about 600 tokens instead of about 2,500) */
 export const VISION_SMALL_SIDE = 768
 export const VISION_SMALL_BYTES = 150_000

@@ -109,16 +109,18 @@ describe('fitting the pictures of one request', () => {
     expect((await fitRequestImages(two, flaky))!.shrunk).toBe(12)
   })
 
-  test(`a picture a limit stopped ${FIT_TRIES} times counts as "cannot be made smaller"; a busy server never does`, async () => {
+  test(`a picture that failed ${FIT_TRIES} times counts as "cannot be made smaller"; a busy or overloaded server never does`, async () => {
     let calls = 0
-    const heavy: Shrink = async () => { calls++; throw Object.assign(new Error('image conversion stopped (memory)'), { code: 'vision_heavy' }) }
-    for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), heavy)
+    const damaged: Shrink = async () => { calls++; throw Object.assign(new Error('image conversion stopped (workdir)'), { code: 'vision_damaged' }) }
+    for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), damaged)
     expect(calls).toBe(12 * FIT_TRIES)
-    fitCacheClear()
-    calls = 0
-    const busy: Shrink = async () => { calls++; throw Object.assign(new Error('too many image conversions'), { code: 'vision_busy' }) }
-    for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), busy)
-    expect(calls).toBe(12 * (FIT_TRIES + 2))
+    for (const code of ['vision_busy', 'vision_heavy']) {
+      fitCacheClear()
+      calls = 0
+      const overloaded: Shrink = async () => { calls++; throw Object.assign(new Error('the server is busy'), { code }) }
+      for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), overloaded)
+      expect(calls, code).toBe(12 * (FIT_TRIES + 2))
+    }
   })
 
   test('the cache lets the least recently used copy go first: a copy in use stays', async () => {
