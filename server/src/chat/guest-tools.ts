@@ -57,7 +57,7 @@ const GUEST_REWRITES: [RegExp, string][] = [
 ]
 /** A sentence still about what only team members have after GUEST_REWRITES (fail closed: a new member-only sentence in
  * a description a guest gets is left out rather than read to them). */
-const MEMBER_ONLY = /Admin\s*[>›]|\bplugin|connect_service|desktop app|save_url|save_room_file|team drive/i
+const MEMBER_ONLY = /Admin\s*[>›]|\bplugin|connect_service|desktop app|save_url|save_room_file|save_chat_file|team drive/i
 
 /**
  * A tool's description for a guest's turn: the member-only parts rewritten (QA: a guest asked "can I connect apps?" and

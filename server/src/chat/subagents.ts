@@ -28,7 +28,7 @@ export const MAX_SUBAGENT_TURNS = 50
  * folders: one card the person answers; chat/skill-files.ts refuses a sub-agent's call on the server too).
  * Turn.patchToolStep relies on this: every tool that patches its step is here, so its FIFO per tool stays right.
  */
-export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', 'delete_files', 'change_project_members', 'change_folder_access', 'skill_files', ...SCHEDULE_TOOLS, 'generate_video', 'save_promo_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'chat_file', 'save_room_file', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'who_can_open', 'shared_with_me', 'looking_at', 'answer_comments'])
+export const PARENT_ONLY_TOOLS: ReadonlySet<string> = new Set(['ask_user', 'connect_service', 'set_title', 'remember', 'forget', 'move_skill', 'delete_files', 'change_project_members', 'change_folder_access', 'skill_files', ...SCHEDULE_TOOLS, 'generate_video', 'save_promo_video', ...BROWSER_TOOL_NAMES, 'box_shell', 'rooms', 'room_read', 'room_file', 'chat_file', 'save_chat_file', 'save_room_file', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'who_can_open', 'shared_with_me', 'looking_at', 'answer_comments'])
 /** what the read-only Explore helper may use (of the tools the turn has): the tools that only look things up, which the
  * web app's steps list also uses (shared READ_ONLY_TOOLS) */
 export const EXPLORE_TOOLS: ReadonlySet<string> = READ_ONLY_TOOLS
