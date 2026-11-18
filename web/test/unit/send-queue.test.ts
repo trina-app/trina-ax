@@ -1,6 +1,6 @@
 // Messages sent while an answer runs (lib/sendQueue.ts rules, store/sendQueue.ts runner) against a fake REST server.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { uuidv7, type Attachment, type TurnStarted } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, uuidv7, type Attachment, type TurnStarted } from '@mycel/shared/api'
 import { combine, combinedClientId, nextStep, parseQueue, queueKey, restoredQueue, serializeQueue, QUEUE_CONTENT_MAX, QUEUE_ITEMS_MAX, type QueuedMessage } from '../../src/lib/sendQueue'
 import { useChats } from '../../src/store/chats'
 import { QueueFull, useSendQueue } from '../../src/store/sendQueue'
@@ -37,7 +37,8 @@ describe('rules', () => {
     expect(r.content).toBe('first\n\nthird')
     expect(r.attachments.map((x) => x.name)).toEqual(['shared.txt', 'b.txt'])
     expect(combinedClientId(r.take)).toBe(`${a.id}.3`)
-    const many = Array.from({ length: 16 }, (_, i) => att(`f${i}.txt`))
+    // the second message's 5 new files would take the first past the attachment limit by one: it waits
+    const many = Array.from({ length: MESSAGE_ATTACHMENTS_MAX - 4 }, (_, i) => att(`f${i}.txt`))
     const big = combine([item('one', many), item('two', many.slice(0, 5).map((x) => ({ ...x, id: uuidv7() }))), item('three')])
     expect(big.take.map((x) => x.content)).toEqual(['one'])
     const long = combine([item('x'.repeat(150_000)), item('y'.repeat(60_000)), item('z')])
