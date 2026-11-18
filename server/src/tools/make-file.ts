@@ -1,6 +1,6 @@
 // make_file (design tab 3): Markdown / CSV -> Word, PowerPoint, Excel, PDF in the team folder.
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
-//   optional --reference-doc template from skills/
+//   optional --reference-doc template: any .docx / .pptx the person can read (docs/decisions/20261118-any-file-template.md)
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
 //   remote images are never fetched); the fonts and typst's language follow the document's writing (pdfLanguage: a
 //   Japanese document gets Japanese faces first, Chinese Chinese ones, else the team's language). A Linux bundle brings its own (Noto Sans CJK in
@@ -22,7 +22,7 @@
 // - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
 //   expected_notes before anything is saved (tools/pptx-check.ts)
 // - hwpx (Hangul): pandoc's tree of the Markdown (or a CSV's table), written by our OWPML writer in the office worker
-//   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
+//   (files/hwpx-write.ts, never in this process) with the built-in or a template the person can read; anything the
 //   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
 //   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
 // - pdf from an .html `source`: printed by the server's headless browser exactly as a browser prints the page (its CSS,
@@ -47,6 +47,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
+import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
@@ -389,12 +390,13 @@ export class MakeFile {
           // pptx: an explicit slide level, never pandoc's guess from the document shape (B-W24-1: one slide)
           if (shape) args.push(`--slide-level=${shape.level}`)
           if (a.template) {
-            const tpl = this.template(c, a.template, a.format, work)
+            const tpl = await this.template(c, a.template, a.format, work)
             sources.push(tpl.rel)
             args.push('--reference-doc', tpl.local)
           }
-          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
-          if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
+          // a memory cap: a small template (any readable file now) can expand to hundreds of MB in pandoc (QA TC-4948)
+          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000, maxRssMiB: PANDOC_RSS_MIB })
+          if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? `the conversion needed more than ${PANDOC_RSS_MIB} MB of memory${a.template ? ' (the template is too large or too complex; use another one)' : ''}; nothing was saved` : convertError('pandoc', r.stderr, r.killed, work))
           // docx: text colours, page, header and footer (docx-format.ts); docx and pptx: no link or reference out of
           // the file but to the web and mail, whoever wrote it (a template too; office-links.ts, TC-4949). Written
           // under a name pandoc could not plant.
@@ -662,14 +664,20 @@ export class MakeFile {
     return confirmSources(this.ctx, this.files, c, target, targetSegs, sources, binding)
   }
 
-  private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
+  private async template(c: ToolCtx, tpl: string, format: string, work: string): Promise<{ local: string; rel: string }> {
+    // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
+    // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
+    // fetches something, an external relationship or an embedded object would be in every new file, so the template
+    // is checked first in the office worker (files/office-template.ts, QA TC-4948), and the checked bytes are used
+    const bytes = readRegular(r.abs, 50 * 1024 * 1024, r.st).bytes
+    await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
     const local = freshName(work, 'template', format)
-    fs.copyFileSync(r.abs, path.join(work, local), fs.constants.COPYFILE_EXCL)
+    fs.writeFileSync(path.join(work, local), bytes, { flag: 'wx', mode: 0o600 })
     return { local, rel: r.rel }
   }
 
@@ -697,10 +705,12 @@ export class MakeFile {
     try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
   }
 
-  /** A team's .hwpx template under skills/: its bytes go to the office worker, which checks them (files/hwpx-write.ts). */
+  /** A .hwpx template the person can read: its bytes go to the office worker, which checks them as untrusted (files/hwpx-write.ts).
+   * Only its header's style lists and its first section's page setup are used, never its text (so no field or link
+   * in it reaches the new file); scripts, OLE objects and addresses or paths in what is kept are refused there. */
   private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .hwpx file as the template`, 'is_folder')
     if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
     if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
     return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX, r.st).bytes, rel: r.rel }
@@ -1037,6 +1047,9 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
 
 /** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text.
  * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
+/** pandoc's memory for a .docx / .pptx (with or without a template) */
+export const PANDOC_RSS_MIB = 1024
+
 export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
   if (s.startsWith('=') && startsLikeFormula(s.slice(1))) {

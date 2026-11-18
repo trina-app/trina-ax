@@ -115,7 +115,7 @@ export const MakeFileInput = z.strictObject({
   content: z.string().optional(),
   format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
-  template: optRelPath.describe('Template file under skills/ (.docx, .pptx or .hwpx, the same format as the output)'),
+  template: optRelPath.describe('A file the person can read whose styles the new file takes (.docx, .pptx or .hwpx, the same format as the output), e.g. their earlier document or a team template under skills/'),
   expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
   expected_notes: z.number().int().min(0).max(500).optional().describe('pptx only: how many slides must have speaker notes (e.g. the slide count when the user wants notes on every slide)'),
   charts: z.array(z.strictObject({

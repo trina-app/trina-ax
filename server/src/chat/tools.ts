@@ -520,7 +520,8 @@ export function widenOf(name: string, args: unknown, hwpTarget?: (args: unknown)
   const a = args && typeof args === 'object' && !Array.isArray(args) ? args as Record<string, unknown> : null
   if (!a) return undefined
   if (name === 'write' || name === 'edit') return typeof a.file_path === 'string' ? { target: a.file_path, extra: [] } : undefined
-  if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: typeof a.source === 'string' ? [a.source] : [] } : undefined
+  // make_file: its source and template are both copied into the output (one card for both, QA TC-4948)
+  if (name === 'make_file') return typeof a.output === 'string' ? { target: a.output, extra: [a.source, a.template].filter((x): x is string => typeof x === 'string') } : undefined
   if (name === 'edit_hwp') {
     const target = hwpTarget ? hwpTarget(a) : typeof a.output === 'string' ? hwpOutputPath(a.output, typeof a.file_path === 'string' ? a.file_path : '') : a.file_path
     return typeof target === 'string' ? { target, extra: typeof a.output === 'string' && typeof a.file_path === 'string' ? [a.file_path] : [] } : undefined
