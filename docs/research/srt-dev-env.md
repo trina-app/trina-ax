@@ -109,6 +109,7 @@ after an access change).
 | HOME, TMPDIR, caches (`<base>/devenv/home/<userId>`) | person |
 | logs, command output, exit files (`<base>/devenv/logs/<userId>`, `$TRINA_LOGS`) | person: another person's job log can hold text from folders this person cannot open |
 | HOME, caches and command output of a shared chat's runs (`<base>/devenv/chat-home/<chatId>/<runId>`, `<base>/devenv/chat-logs/<chatId>/<runId>`) | command, removed when it ends (section 0.3a) |
+| TMPDIR of a shared chat's command (`<base>/devenv/rt/<runId>`: short, srt's bridge sockets there must fit the 107-byte unix socket path) | command, removed when it ends |
 | work folder of a shared chat with no project (`<base>/devenv/work-shared/<chatId>/<key of its people>`) | chat and its people (section 0.3a) |
 | log names of jobs and dev servers | person |
 | waiting jobs: at most 3 | person |

@@ -8,8 +8,10 @@
 // reply. The checks below are the same for both: the audience is every member of the room (a reply is seen by everyone
 // who sees its root, never more).
 // It is posted through Rooms.send, so the sending budget (429), notices, events and "the same clientMessageId again is
-// the first message" are a message's. It mentions nobody and never calls the room's AI, whatever the answer's text
-// says ("@트리나", "@Name" in it are the AI's words). The author is the person; editing it is refused, deleting works.
+// the first message" are a message's. The button's share mentions nobody and never calls the room's AI, whatever the
+// answer's text says ("@트리나", "@Name" in it are the AI's words); the AI's post_to_room passes the people it may
+// mention, picked by the server among the room's members (chat/post-mentions.ts). The author is the person; editing it
+// is refused, deleting works.
 //
 // Before it goes, two questions, asked apart and only when one applies (otherwise it goes at once):
 // A. Access: the files the answer, as the room gets it, links to or shows (answerFilePaths). For each, how many members
@@ -638,8 +640,9 @@ export async function shareChoice(ctx: AppContext, userId: string, p: PreparedSh
  * chose) or an older client's number; nothing applies now: it goes at once (also after a "confirm"). Anything changed
  * since the key was made answers "confirm" again. `via`: 'ai' when the AI's post_to_room sent it (the audit row says so);
  * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
+ * `mentions` / `mentionsAll`: only with `via: 'ai'` (the people the card named; Rooms.send keeps only room members).
  */
-export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean; mentions?: readonly string[]; mentionsAll?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
   const rooms = roomsOf(ctx)
   const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
@@ -684,7 +687,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: [], fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
+    const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

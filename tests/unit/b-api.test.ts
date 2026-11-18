@@ -311,14 +311,14 @@ describe('memories paging and engine session reset', () => {
 })
 
 describe('prompt pieces', () => {
-  test('history keeps the newest 40,000 characters and counts what it left out; memories are capped', () => {
-    const msgs = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `#${i} ` + 'y'.repeat(3000) }))
+  test('history keeps the newest 40,000 tokens (160,000 Latin characters) and counts what it left out; memories are capped', () => {
+    const msgs = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: `#${i} ` + 'y'.repeat(24_000) }))
     const b = historyBlock(msgs)
     expect(b.length).toBeLessThan(HISTORY_MAX_CHARS + 500)
     expect(b).toContain('#29 ')
     expect(b).not.toContain('#10 ')
     expect(b).toMatch(/\((\d+) earlier messages omitted\)/)
-    const one = historyBlock([{ role: 'user', content: 'z'.repeat(50_000) }])
+    const one = historyBlock([{ role: 'user', content: 'z'.repeat(200_000) }])
     expect(one.length).toBeLessThan(HISTORY_MAX_CHARS + 500)
     const mem = memoryBlock(Array.from({ length: 60 }, (_, i) => ({ id: `id${i}`, text: 'm'.repeat(1200) })))
     expect(mem.length).toBeLessThan(MEMORY_BLOCK_MAX + 800)
@@ -339,11 +339,11 @@ describe('prompt pieces', () => {
     expect(historyTrimmed([])).toBe(false)
     expect(historyTrimmed(short)).toBe(false)
     expect(historyWindow(short)).toMatchObject({ omitted: 0, cut: false })
-    const many = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: 'y'.repeat(3000) }))
+    const many = Array.from({ length: 30 }, (_, i) => ({ role: (i % 2 ? 'assistant' : 'user') as 'user' | 'assistant', content: 'y'.repeat(24_000) }))
     expect(historyWindow(many).omitted).toBeGreaterThan(0)
     expect(historyTrimmed(many)).toBe(true)
-    expect(historyWindow([{ role: 'user', content: 'z'.repeat(50_000) }])).toMatchObject({ omitted: 0, cut: true })
-    expect(historyTrimmed([{ role: 'user', content: 'z'.repeat(50_000) }])).toBe(true)
+    expect(historyWindow([{ role: 'user', content: 'z'.repeat(200_000) }])).toMatchObject({ omitted: 0, cut: true })
+    expect(historyTrimmed([{ role: 'user', content: 'z'.repeat(200_000) }])).toBe(true)
     // right at the limit nothing is lost
     const exact = [{ role: 'user' as const, content: 'x'.repeat(HISTORY_MAX_CHARS - 'User: '.length) }]
     expect(historyTrimmed(exact)).toBe(false)

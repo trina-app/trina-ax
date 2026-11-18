@@ -374,6 +374,7 @@ describe('a chat shared with people and groups', () => {
     for (const sp of [first, second]) {
       expect(fs.existsSync(sp.env.HOME!)).toBe(false)
       expect(fs.existsSync(sp.env.TRINA_LOGS!)).toBe(false)
+      expect(fs.existsSync(sp.env.TMPDIR!)).toBe(false)
     }
   })
 

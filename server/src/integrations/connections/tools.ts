@@ -46,7 +46,7 @@ import { audit } from '../../admin/audit'
 import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOLS } from '../google-apps/catalog'
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
-import { sourceOf } from '../../chat/read-scope'
+import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
 
 export const MAX_RESULT_CHARS = 40_000
 /** connection tools offered as tools of their own in one answer: at most this many, with at most MAX_TURN_TOOL_CHARS of
@@ -120,25 +120,68 @@ function hiding(ctx: AppContext, start: Row[], run: (args: unknown, tc: TurnTool
 const fail = (name: string, e: CallError, confirmed = false): TurnToolResult =>
   ({ content: [{ type: 'text', text: 'Error: ' + e.message }], isError: true, summary: `${name} -> ${e.kind}${confirmed ? ' (confirmed by the user)' : ''}` })
 
-/** The chat of a running turn of this person (tools are for chat turns only). */
-function turnChat(ctx: AppContext, tc: TurnToolContext): string {
+/** The chat of a running turn of this person (tools are for chat turns only): their own chat, or (`shared`, a shared
+ * chat's turn: BuildCtx.shared) a shared chat they run a turn in, whoever made it. */
+function turnChat(ctx: AppContext, tc: TurnToolContext, shared = false): string {
   if (tc.signal.aborted) throw new CallError('the turn was stopped', 'stopped')
-  const r = ctx.db.query(`SELECT t.chat_id FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ? AND t.user_id = ? AND c.user_id = ?
-    AND c.deleted_at IS NULL AND t.status = 'running'`).get(tc.turnId, tc.userId, tc.userId) as { chat_id: string } | null
+  const r = ctx.db.query(`SELECT t.chat_id FROM turns t JOIN chats c ON c.id = t.chat_id WHERE t.id = ? AND t.user_id = ?
+    AND (c.user_id = ? OR (? AND (c.shared_at IS NOT NULL OR c.people_shared_at IS NOT NULL)))
+    AND c.deleted_at IS NULL AND t.status = 'running'`).get(tc.turnId, tc.userId, tc.userId, shared ? 1 : 0) as { chat_id: string } | null
   if (!r) throw new CallError('this tool only works inside a running chat turn', 'no turn')
   return r.chat_id
+}
+
+/** Where a connection's answer comes from, for the chat's read scope and a shared answer's read record: a person's own
+ * connection is theirs alone (a Google app's answer is also from outside the team files); a team connection's may reach
+ * the people its rule includes (the account an admin shared with the team for a Google app too). */
+export function answerSources(row: Pick<Row, 'id' | 'scope' | 'google_app' | 'owner_user_id'>): ReadSource[] {
+  return row.google_app && row.scope === 'personal' ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
+    : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }]
 }
 
 /** The service answered: the chat now holds what this connection's people may see, and outside content. */
 function noteAnswer(ctx: AppContext, chat: string, row: Row) {
   ctx.db.transaction(() => {
-    // a person's own Google app's answer (their mail, calendar, documents) is also from outside the team files; the
-    // account shared with the team is a team connection: its answer may reach the people its rule includes
-    addSources(ctx.db, chat, row.google_app && row.scope === 'personal' ? [{ type: 'user', id: row.owner_user_id!, via: 'connection' }, { type: 'integration', id: row.id }]
-      : [row.scope === 'personal' ? { type: 'user', id: row.owner_user_id!, via: 'connection' } : { type: 'integration', id: row.id }])
+    addSources(ctx.db, chat, answerSources(row))
     ctx.db.query('UPDATE chats SET session_tainted = 1, others_words = 1 WHERE id = ?').run(chat)
   })()
 }
+
+/**
+ * A shared chat (BuildCtx.shared; docs/decisions/20261118-shared-chat-connections.md): before anything is fetched, a
+ * team connection is refused while a guest sees the chat (guests have connectors off), and the people who see the chat
+ * but could not see what the connection returns (a person's own connection: everyone but its owner; a team one: whoever
+ * its rule leaves out) make the asker's card come first (SharedConnections.confirm). Throws the refusal; returns the row
+ * as it is after the card (read again: rules, settings and the connection may have changed meanwhile).
+ */
+async function sharedGate(ctx: AppContext, b: BuildCtx, row: Row, tc: TurnToolContext, h: Hiding): Promise<Row> {
+  if (!b.shared) return row
+  if (row.scope === 'team' && b.shared.guestHere()) throw new CallError(GUEST_HERE(row.name), 'refused (guest in the shared chat)')
+  const no = await b.shared.confirm({ id: row.id, key: sharedKey(row), name: row.name, sources: answerSources(row) })
+  if (no) throw new CallError(no, 'not fetched (shared chat)')
+  const now = h.use(integrationsOf(ctx).forCall(tc.userId, row.id))
+  if (now.version !== row.version) throw new CallError('the connection changed while the user was asked; try again', 'changed')
+  if (now.scope === 'team' && b.shared.guestHere()) throw new CallError(GUEST_HERE(row.name), 'refused (guest in the shared chat)')
+  return now
+}
+
+/** "Always in this chat" on the shared connection card holds for the connection as it is: its version (a new address,
+ * key or sign-in, a changed rule) and the account it is signed in to; reconnecting to another account asks again */
+const sharedKey = (row: Pick<Row, 'id' | 'version' | 'account'>) => `${row.id}\u0000${row.version}\u0000${crypto.createHash('sha256').update(row.account ?? '').digest('hex').slice(0, 16)}`
+
+/** A team file handed to a connection's tool in a shared chat: refused, in plain words */
+const SHARED_NO_TEAM_FILES = (name: string) => refusal({
+  done: `Nothing was sent to ${name}.`,
+  why: { kind: 'mode', mode: 'this shared chat', why: 'team files are not sent to a connected service from a shared chat' },
+  next: 'say so in one or two sentences; the user can send the file in a chat only they see', names: [name],
+})
+
+/** A team connection while a guest sees the shared chat: for the AI, in plain words */
+const GUEST_HERE = (name: string) => refusal({
+  done: `Nothing was fetched from ${name}.`,
+  why: { kind: 'mode', mode: 'this shared chat', why: 'a guest is in it, and guests have no connected services, so the team\'s connections are off here' },
+  next: 'say so plainly in one or two sentences; the user can ask again in a chat only they see', names: [name],
+})
 
 /** What a write sends: the whole text and the parts that say where it goes (counted for the card's size limit); `dest`:
  * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
@@ -422,7 +465,12 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // connection is final (owner 2026-11-13; docs/decisions/20261116-mail-attach-team-file.md "Sends without asking",
   // 20261116-always-allow-final-rule-a.md): no card then, with files too
   const attachAsks = !!sent.attach?.length && !b.scheduled && !!tc.files.person?.attachAsks?.(sent.attach)
-  if (allowed && !outside && (!attachAsks || ownAllow)) return false
+  // a shared chat (BuildCtx.shared): other people's messages are in the transcript and can steer the AI, so every change
+  // at a service asks the person on its own card naming the action, every time: no rule or Always allow of theirs, no
+  // explicit-ask skip, no earlier yes in the chat, and the shared connection card ("shows what it returns") never covers
+  // a change (docs/decisions/20261118-shared-chat-connections.md, security review of #1276)
+  const sharedMode = !!b.shared
+  if (allowed && !outside && (!attachAsks || ownAllow) && !sharedMode) return false
   // the person's own connection in a scheduled run whose task's card listed it: only to the recipients it pinned (Q2 a)
   const pins = b.scheduled && row.scope === 'personal' ? pinsFor(ctx, b.turnId, row) : null
   if (pins) {
@@ -440,7 +488,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // (docs/decisions/20261116-no-card-after-explicit-ask.md, QA TC-3812; shared-actions.ts writtenByAsker): only a
   // service tool that adds or changes content (explicitWriteTool: not api_request, never one that sends, deletes or shares), only in a turn the person watches from their own app
   // (our own text match, not the person's choice: never where other people's words are in the chat)
-  if (person && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
+  if (person && !sharedMode && !person.unattended && live && !attachAsks && !person.othersWords?.() && sent.tool && !sent.request && explicitWriteTool(sent.tool) && writeAsked(ctx, b.turnId, sent.raw)) return true
   if (!person || person.unattended) {
     throw new CallError(refusal({
       done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
@@ -456,7 +504,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
   if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
-  if (live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
+  if (!sharedMode && live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
   const lead = outside && !person.roomsSeen ? `${say(allowed ? 'outsideAsks' : 'outsideAsksOnce', L)}\n\n` : ''
@@ -472,7 +520,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // content still asks (a Slack question)
   // (also on a card that shows because of attached team files where an admin's rule sends without asking: the person's
   // own choice counts there)
-  if (person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
+  if (!sharedMode && person.choose && freely && !ownAllow && (!allowed || attachAsks)) {
     // the values of the yes / no card (chat/tools.ts confirmWhy: 'allow', 'deny'), so a client that answers those still works
     const v = await person.choose(question, [{ label: say('once', L), value: 'allow' }, { label: say('alwaysAllow', L), value: 'always' }, { label: say('no', L), value: 'deny' }], { details, buttons: true, note: say('alwaysNote', L, { name: row.name }) })
     if (v === 'allow') { keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.()); return true }
@@ -490,7 +538,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       next: end === 'declined' ? 'ask the user what they want' : cardNext(end), names: [row.name],
     }), cardEndShort(end))
   }
-  keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
+  if (!sharedMode) keepWrite(ctx, row, sent, b, live && !!person.cardApprovals?.())
   return true
 }
 
@@ -736,8 +784,13 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
       let chat = ''
       let sent: Sent | null = null
       try {
-        chat = turnChat(ctx, tc)
+        chat = turnChat(ctx, tc, !!b.shared)
         current = h.use(svc.forCall(tc.userId, row.id))
+        // a shared chat: no team file goes to a service from here (what the service says back about it would reach
+        // everyone in the chat without the file read card; the person attaches it in a chat only they see), then the
+        // asker's card (or the guest refusal) before anything else
+        if (b.shared && teamFileHandles(args).length) throw new CallError(SHARED_NO_TEAM_FILES(current.name), 'refused (team file in a shared chat)')
+        current = await sharedGate(ctx, b, current, tc, h)
         noteScheduleUse(ctx.db, tc.turnId, current)
         const t = savedTools(ctx.db, current).find((x) => x.name === tool.name)
         if (!t) throw new CallError(`${current.name} no longer offers ${tool.name}`, 'tool gone')
@@ -1003,11 +1056,12 @@ function apiRequestTool(ctx: AppContext, b: BuildCtx, rows: Row[]): TurnTool {
       let confirmed = false
       let key = a.connection
       try {
-        const chat = turnChat(ctx, tc)
+        const chat = turnChat(ctx, tc, !!b.shared)
         const picked = resolve(a.connection)
         if (!picked) throw new CallError(`unknown connection "${a.connection}"; use one of: ${[...byKey.keys()].join(', ')}`, 'unknown connection')
         key = connectionKey(picked)
-        const row = h.use(svc.forCall(tc.userId, picked.id))
+        // a shared chat: the asker's card (or the guest refusal) before the request is built or sent
+        const row = await sharedGate(ctx, b, h.use(svc.forCall(tc.userId, picked.id)), tc, h)
         noteScheduleUse(ctx.db, tc.turnId, row)
         if (row.kind !== 'http') throw new CallError('this connection is not an HTTP API', 'unknown connection')
         const url = buildUrl(row.url, a.path, a.query)
@@ -1247,10 +1301,12 @@ function sharedAccount(row: Row): string {
 export const NO_CONNECTIONS = 'Checked by the server for this answer: this user has no app connection (none of their own, none the team shares with them). Google Drive and Slack are separate: Slack\'s state is in its own section, and whether Google Drive is connected shows when you use the Drive tools. When the user asks what is connected, state this plainly as the current state.'
 /** How connections are added, for "where do I connect X / can I connect it myself". `personal`: the team lets people
  * add their own connections (Team settings); `scheduled`: a scheduled run, where no connect card is shown. */
-export function connectionWays(personal: boolean, scheduled = false): string {
+export function connectionWays(personal: boolean, scheduled = false, shared = false): string {
   const team = 'How connections are added: an owner or admin adds an app for the whole team in Admin › Connected apps' +
     (personal ? ', and there can ask a member to connect their own (Ask a member to connect). ' : '. ')
   if (!personal) return team + 'On this team people cannot add their own app connections (an admin turned that off); Google Drive and Google apps, and apps from a team template, can still be connected in Settings › Connectors. For anything else, ask an owner or admin.'
+  // a shared chat: no connect card (connect_service is not offered there)
+  if (shared) return team + 'Each person can also connect their own apps in Settings › Connectors, or ask you to connect one in a chat only they see; connecting is not done in a shared chat.'
   return team + `Each person can also connect their own apps in Settings › Connectors${scheduled ? '.' : ', or ask you to connect one (connect_service).'}`
 }
 
@@ -1259,7 +1315,23 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
   return {
     name: 'integrations',
     build(b) {
-      const rows = integrationsOf(ctx).usable(b.userId)
+      // a shared chat (docs/decisions/20261118-shared-chat-connections.md): the person's own connections and the team's,
+      // but no team connection while a guest sees the chat; nobody connects a new one here
+      const sh = b.shared
+      const guestHere = !!sh?.guestHere()
+      const all = integrationsOf(ctx).usable(b.userId)
+      const rows = guestHere ? all.filter((r) => r.scope !== 'team') : all
+      const audience = sh ? sh.audience() : []
+      /** a shared chat: does a call ask the person on the card first (someone here could not see what it returns)? */
+      const asks = (row: Row): boolean => {
+        try { return missingReaders(ctx.db, ctx.files.rules(), answerSources(row), audience).length > 0 } catch { return true }
+      }
+      const sharedNote = (row: Row): string => !sh ? ''
+        : asks(row)
+          ? row.scope === 'personal'
+            ? `; in this shared chat it is the user's own: before its first call the server asks them on a card only they see whether what it returns may be shown to the ${audience.length} people here (Allow once, Always in this chat, Cancel). Never ask in your own words first; if they cancel, answer without it and do not try another way`
+            : `; some people in this shared chat may not use it: before its first call the server asks the user on a card only they see whether what it returns may be shown to everyone here. If they cancel, answer without it and do not try another way`
+          : '; everyone in this shared chat may use it, so it works here with no extra card'
       const tools: TurnTool[] = []
       const taken = new Set<string>()
       const http: Row[] = []
@@ -1274,13 +1346,14 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         const key = connectionKey(row)
         if (row.status === 'needs_auth' || (row.auth !== 'none' && !row.secret_enc)) {
           // made from an admin's template: the person connects their own key again on a card in the chat
-          if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
+          if (sh && (row.template_id || row.scope === 'personal')) lines.push(`- ${row.name} (${row.template_id ? 'team template, the user\'s own key' : 'personal connection'}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. Connecting is not done in a shared chat: the user fixes it in ${SCREEN.connectors(sh.locale)} or in a chat only they see`)
+          else if (row.template_id) lines.push(`- ${row.name} (team template, the user's own key${row.status === 'needs_auth' ? ' stopped working' : ' is not connected yet'}): when they ask for ${row.name}, call connect_service with template "${row.template_id}" and name "${row.name}" so they can connect their own key (not in a scheduled run)`)
           // the person's own connection: they sign in again (or give a new key) on a card in the chat (QA TC-127)
           else if (row.scope === 'personal' && !row.google_app) lines.push(`- ${row.name} (personal connection): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'}. When they ask for ${row.name}, call connect_service with connection "${row.id}" and name "${row.name}" so they can ${row.auth === 'oauth' ? 'sign in again' : 'give the key'} on a card in this chat (not in a scheduled run)`)
           else lines.push(`- ${row.name} (${who} connection${sharedAccount(row)}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app && row.scope === 'personal' ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
-        if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"`); continue }
+        if (row.kind === 'http') { http.push(row); lines.push(`- ${row.name} (${who} connection, HTTP API): api_request with connection "${key}"${sharedNote(row)}`); continue }
         const saved = savedTools(ctx.db, row)
         const off = disabledTools(row)
         const entries: TurnEntry[] = []
@@ -1315,8 +1388,8 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
         // no "MCP server" here: the AI repeated it to people ("Calendar MCP server", AI scenario CON-01.calendar,
         // 2026-11-17); the tool names say how to call them
         if (!entries.length && skipped && offered === null) lines.push(`- ${row.name} (${who} connection${shared}): every tool is turned off by whoever manages this connection (they can turn them on in its settings)`)
-        else if (direct) lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools named ${key}__…${capped}${offNote}`)
-        else lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}`)
+        else if (direct) lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools named ${key}__…${capped}${offNote}${sharedNote(row)}`)
+        else lines.push(`- ${row.name} (${who} connection${shared}): ${entries.length} tools, not loaded: look them up with find_tools and run them with call_tool (see "Tools to look up")${capped}${offNote}${sharedNote(row)}`)
       }
       // admins' templates for this person that they have not connected yet: the AI offers the card for their own key
       // when they ask for the service (connect_service with the template's id). Never another member's connection.
@@ -1324,6 +1397,7 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       const templates = ctx.db.query('SELECT id, name FROM integration_templates ORDER BY name, id').all() as { id: string; name: string }[]
       for (const t of templates) {
         if (mine.has(t.id) || !templateCovers(ctx.db, t.id, b.userId)) continue
+        if (sh) { lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): connecting is not done in a shared chat; the user connects it in ${SCREEN.connectors(sh.locale)} or in a chat only they see`); continue }
         lines.push(`- ${t.name} (team template, not connected yet: each person connects their own key): when the user asks for ${t.name}, call connect_service with template "${t.id}" and name "${t.name}" so they can connect it (not in a scheduled run)`)
       }
       if (http.length) tools.push(apiRequestTool(ctx, b, http))
@@ -1332,7 +1406,9 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
       // what is connected is a fact the server checked for this answer, also when it is nothing, and the ways to add one
       // (QA TC-4528: asked about team connections, the AI said "nothing connected" from silence and left out the
       // member's own route); docs/decisions/20261117-connections-check-first.md
-      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations, b.scheduled)
+      const how = connectionWays(getTeamSettings(ctx.db).personalIntegrations, b.scheduled, !!sh)
+      // the team's connections left out because a guest sees this shared chat: said, never silent
+      if (guestHere && all.some((r) => r.scope === 'team')) lines.push(`- The team's connections (${[...new Set(all.filter((r) => r.scope === 'team').map((r) => r.name))].join(', ')}): not usable in this shared chat, because a guest is in it and guests have no connected services. When the user asks for one, say so plainly in one or two sentences, and that they can ask again in a chat only they see`)
       if (!lines.length) {
         // a resumed session gets only the fact (it is sent with every message there), the instructions both
         return { tools, prompt: ['## Connected services', NO_CONNECTIONS, how].join('\n'), context: ['## Connected services', NO_CONNECTIONS].join('\n') }

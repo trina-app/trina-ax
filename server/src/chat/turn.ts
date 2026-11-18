@@ -74,7 +74,7 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
-import type { ToolCard } from '../services'
+import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
 import type { SharedRun } from '../devenv/srt/runner'
@@ -136,6 +136,9 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
+import { ensureSummary, hashChain, HISTORY_SUMMARY_TOOL, lookupSummary, markSummaryFailed, summaryAi, summaryLines, summaryMode, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
+import { ownerId } from '../file-list/engine-reader'
+import { slimSession } from './session-slim'
 
 export { noSearchPath } from './search-path'
 
@@ -157,7 +160,10 @@ export const OWN_CALL_PAUSE_MAX_MS = 2 * 60 * 60_000
 export const QUARANTINE_HOLD_MAX_MS = 45 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
-export const SESSION_STASH_MAX = 20 * 1024 * 1024
+/** the most a saved engine session may be: below the launcher's 48 MiB collect cap, with a margin under the 64 MiB
+ * request line its base64 travels in; pictures of older turns are taken out of it first (chat/session-slim.ts), so
+ * pictures alone no longer make a chat start over */
+export const SESSION_STASH_MAX = 40 * 1024 * 1024
 
 
 /** Where a call saves and what it copies, for the wider-audience check asked with a room change (chat/tools.ts widenOf,
@@ -289,6 +295,10 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
+  private summaryAfter: (() => void) | null = null
+  /** the attempt that answers started a fresh session (its prompt carried the history) */
+  private ranFresh = false
   /** the engine wrote text or called a tool in this turn (any attempt) */
   private producedOutput = false
   /** steps still running when the turn was stopped (Stop, the stall guard): if the answer pauses at a limit they were
@@ -368,7 +378,13 @@ export class TurnExec {
   private sharedSkipped = new Set<string>()
   /** a shared chat: what this answer read, by the people who saw the chat then (chat/shared-answers.ts; one group per
    * set of people, its places by sourceKey) */
-  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource>; y?: boolean }>()
+  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource>; y?: boolean; k?: boolean }>()
+  /** a shared chat: the connections the person allowed on the connection card for this answer ("Allow once"), with
+   * who saw the chat then (a person who joins meanwhile makes it ask again), and the ones refused, with why */
+  private sharedConnAllowed = new Map<string, Set<string>>()
+  private sharedConnRefused = new Map<string, SharedNo>()
+  /** a connection card already open (parallel calls wait for that one answer) */
+  private sharedConnPending = new Map<string, { asked: string[]; p: Promise<SharedDecision | 'always'> }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
@@ -886,6 +902,47 @@ export class TurnExec {
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
+    const several = !!this.shared || othersWrote
+    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld } : null)
+    // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
+    // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
+    const summaryOn = !guestTurn && !confidential && !this.restricted
+    const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
+    // the branch up to a message with its summary lines and their hash chain, made once per turn and message. The
+    // attempts of this turn (a refusal retry, a failed resume, another connection, the Codex fallback) all reuse what
+    // was read at its start: the history, the attachments as the person could see them then and the hidden answers
+    // (sharedWithheld, read once above). A change during the turn applies from the next turn on
+    const prepared = new Map<string, { h: HistoryItem[]; lines: string[]; chain: string[] }>()
+    const prep = (leaf: string | null) => {
+      let p = prepared.get(leaf ?? '')
+      if (!p) {
+        const h = historyOf(leaf)
+        const lines = summaryOn ? summaryLines(rt.store, h, viewer) : []
+        p = { h, lines, chain: summaryOn ? hashChain(lines) : [] }
+        prepared.set(leaf ?? '', p)
+      }
+      return p
+    }
+    const summaryOf = (leaf: string | null) => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length) return null
+      try { return lookupSummary(rt.db, spec.chatId, spec.userId, p.lines, p.chain) } catch (e) { rt.log.warn('reading the chat summary failed', { err: e, turn: this.id }); return null }
+    }
+    /** the summary made (or extended) for the branch up to `leaf`, when the window leaves out messages no summary
+     * covers; null: nothing to do, a "block" budget reached (the person's, or the owner's whose turns the calls are:
+     * file-list/service.ts), or no AI for it */
+    const summaryJob = (leaf: string | null): Promise<unknown> | null => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length || uncovered(p.h, summaryOf(leaf)) === 0) return null
+      try {
+        const owner = ownerId(rt.ctx)
+        if (budgetBlock(rt.db, spec.userId, 'en') || (owner && budgetBlock(rt.db, owner, 'en'))) return null
+      } catch { return null }
+      const ai = summaryAi(rt.ctx)
+      if (!ai) return null
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain })
+    }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
@@ -893,7 +950,9 @@ export class TurnExec {
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
-      history: fresh ? rt.history(userMsg.parent_id, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
+      historySummary: fresh ? summaryOf(userMsg.parent_id) : null,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -919,7 +978,8 @@ export class TurnExec {
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
-      this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.ranFresh = fresh
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
@@ -998,6 +1058,30 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
+    // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
+    // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
+    // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
+    const mode = summaryMode(spec.chatId, spec.userId)
+    if (!replay && (!claude || !resume) && mode !== 'skip') {
+      const job = summaryJob(userMsg.parent_id)
+      if (job && mode === 'background') job.catch(() => {})
+      else if (job) {
+        const step = this.addStep({ kind: 'tool', tool: HISTORY_SUMMARY_TOOL, label: tr('historySummary', spec.locale), status: 'running' })
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const stopped = new Promise<'stopped'>((r) => { if (this.abort.signal.aborted) r('stopped'); else this.abort.signal.addEventListener('abort', () => r('stopped'), { once: true }) })
+        const end = await Promise.race([job.then(() => 'done' as const, () => 'done' as const), new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), SUMMARY_WAIT_MS) }), stopped])
+        clearTimeout(timer)
+        if (end === 'late') markSummaryFailed(spec.chatId, spec.userId)
+        // the step says whether this answer has the summary (an error mark: it started with the recent part only)
+        const got = summaryOf(userMsg.parent_id)
+        const used = !!got && uncovered(prep(userMsg.parent_id).h, got) === 0
+        this.updateStep(step.id, { status: used ? 'ok' : 'error', endedAt: new Date().toISOString() })
+        if (this.stopReason) return
+      }
+    }
+    // after an answer that started fresh (Codex, an edit, another writer in a shared chat): the summary for the history
+    // with it, so the next fresh session does not wait. Not after a resumed session (rarely needed there)
+    this.summaryAfter = () => { if (this.ranFresh && summaryMode(spec.chatId, spec.userId) !== 'skip') summaryJob(spec.assistantId)?.catch(() => {}) }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
@@ -3100,16 +3184,16 @@ export class TurnExec {
    * `yes`: after a read card's yes (the group gets y: nothing hides by it, it tells a later widening warning and an
    * older build's walk apart from a silent read). false: the record could not be written (the caller does not read:
    * fails closed). */
-  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false): boolean {
+  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     const c = [...new Set(audience)].sort()
-    const k = `${yes ? 'y' : ''}|${c.join(',')}`
+    const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
-    if (!g) this.sharedReads.set(k, (g = { c, s: new Map(), ...(yes ? { y: true } : {}) }))
+    if (!g) this.sharedReads.set(k, (g = { c, s: new Map(), ...(yes ? { y: true } : {}), ...(kept ? { k: true } : {}) }))
     let changed = false
     for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
     if (!changed) return true
-    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}) }))
+    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}), ...(x.k ? { k: 1 as const } : {}) }))
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
@@ -3334,6 +3418,112 @@ export class TurnExec {
     catch (e) { this.rt.log.warn('shared read audit failed', { err: e, turn: this.id }) }
     // the AI's text goes by how the card ended (a closed card without a choice is a no; scheduled: nobody asked)
     return yes ? 'shared' : scheduled ? 'unattended' : none ?? 'declined'
+  }
+
+  /** The connection tools' side of a shared chat (BuildCtx.shared, integrations/connections/tools.ts sharedGate). */
+  sharedConnections(): SharedConnections {
+    return {
+      locale: this.spec.locale,
+      audience: () => this.sharedAudience(),
+      // fails closed: a check that cannot be done counts as a guest being here (no team connection)
+      guestHere: () => { try { return this.sharedAudience().some((id) => isGuestUser(this.rt.db, id)) } catch { return true } },
+      confirm: (c) => this.confirmSharedConnection(c),
+    }
+  }
+
+  /**
+   * A connected service in a shared chat (docs/decisions/20261118-shared-chat-connections.md, QA TC-4885/TC-4886): before
+   * a call fetches anything, the people who see the chat now and could not see what the connection returns
+   * (missingReaders on its sources: everyone but its owner for a person's own connection, whoever a team connection's
+   * rule leaves out) make the card come first, to the person whose turn it is only: "Allow once" (this answer), "Always
+   * in this chat" (chat_card_approvals kind shared_connection, with who saw the chat then: a person who joins later
+   * makes it ask again) or "Cancel". Cancel, no answer, a scheduled run or a failed check fetch nothing. What the call
+   * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
+   * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
+   */
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
+    if (!this.shared) return null
+    const failed = () => this.sharedConnText(c.name, 'failed')
+    // at most a few rounds: a card answered while more people came to see the chat asks once more for them
+    for (let round = 0; round < 3; round++) {
+      let audience: string[], missing: { missing: string[] }[]
+      try {
+        audience = this.sharedAudience()
+        missing = missingReaders(this.rt.db, this.rt.files.rules(), c.sources, audience)
+      } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
+      // nobody found to see the chat (missingReaders then finds nobody missing): fails closed, no silent fetch
+      if (!audience.length) return failed()
+      // everyone here may see what it returns (a team connection all of them may use): no card
+      if (!missing.length) return this.noteSharedReads(c.sources, audience, false, true) ? null : failed()
+      const covers = (people: Iterable<unknown>) => { const set = new Set(people); return audience.every((id) => set.has(id)) }
+      const before = this.sharedConnRefused.get(c.id)
+      if (before) return this.sharedConnText(c.name, before)
+      // covered: the people the card was answered for (recorded as they were: those who were told)
+      const once = this.sharedConnAllowed.get(c.key)
+      if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
+      const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
+        .find((d) => Array.isArray(d.c) && covers(d.c))
+      if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
+      // one card per connection at a time; the people it names go with it, so a parallel call whose audience is wider
+      // (someone joined meanwhile) is not covered by it and asks again on the next round
+      let pending = this.sharedConnPending.get(c.key)
+      if (!pending) {
+        const asked = [...new Set(audience)].sort()
+        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        pending = made
+        this.sharedConnPending.set(c.key, made)
+        const decision = await made.p
+        if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
+        this.sharedConnAllowed.set(c.key, new Set(asked))
+        if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        continue
+      }
+      const decision = await pending.p
+      if (decision !== 'shared' && decision !== 'always') return this.sharedConnText(c.name, decision)
+      // (the asker of that card saved what it covers; the next round checks this call's audience against it)
+    }
+    return failed()
+  }
+
+  /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
+   * said: someone outside the team). */
+  private async askSharedConnection(c: { id: string; name: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
+    const L = this.spec.locale
+    const scheduled = this.spec.clientKind === 'schedule'
+    const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
+    let guests = 0
+    try { guests = asked.filter((id) => isGuestUser(this.rt.db, id)).length } catch { guests = 1 }
+    const { value, missing: none } = await this.askPerson({
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      question: guests
+        ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
+        : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr('sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      multiple: false, allowText: false,
+      expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    const v = Array.isArray(value) && value.length === 1 ? value[0] : value
+    const decision: SharedDecision | 'always' = v === 'always' ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
+    catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
+    return decision
+  }
+
+  /** Why a connection call in a shared chat fetched nothing, for the AI (docs/DECISIONS.md "Refusals say why, who and
+   * what next"): the real reason, and where the person can ask instead. */
+  private sharedConnText(service: string, no: SharedNo): string {
+    const who = neutralizeTags(this.principal?.name ?? 'the user')
+    const name = neutralizeTags(service)
+    const why = no === 'failed' ? { kind: 'failed' as const, what: `who in this shared chat may see what ${name} returns` } : no === 'declined' ? { kind: 'declined' as const, who } : cardReason(no, { who })
+    return refusal({
+      done: `Nothing was fetched from ${name}.`,
+      why,
+      also: `It needed ${who}'s yes because what ${name} returns would be shown to everyone in this shared chat, and not all of them may use it. Do not try another tool or another person's connection to get it`,
+      next: no === 'declined' ? `answer without it; ${who} can ask in a chat only they see`
+        : no === 'failed' ? `answer without it; ${who} can ask again, or ask in a chat only they see`
+        : `answer without it; ${who} can ask again and answer the card, or ask in a chat only they see`,
+      names: [name],
+    })
   }
 
   /** The step of a call refused on the read card: one neutral line, no path, not red (sharedSkipped). */
@@ -4173,7 +4363,10 @@ export class TurnExec {
 
   // ---------------- session stash ----------------
   private stashSession(sid: string, b64: string) {
-    const bytes = Buffer.from(b64, 'base64')
+    // pictures of older turns out first (chat/session-slim.ts): they are what made sessions too big to keep
+    const slim = slimSession(Buffer.from(b64, 'base64'))
+    if (slim.removed) this.rt.log.info('pictures taken out of the saved session', { turn: this.id, pictures: slim.removed })
+    const bytes = slim.bytes
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
     if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
       // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
@@ -4225,6 +4418,7 @@ export class TurnExec {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
     }
+    if (status === 'done') { try { this.summaryAfter?.() } catch (e) { this.rt.log.warn('the chat summary after the answer failed', { err: e, turn: this.id }) } }
     this.status = 'finished'
     try {
       if (this.terminationUnconfirmed) this.quarantine()
