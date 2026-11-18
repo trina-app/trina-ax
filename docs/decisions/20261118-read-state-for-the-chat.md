@@ -30,7 +30,8 @@ Plan: docs/AGENTS/plan/20261118-1000-read-state-for-the-chat.md.
   The session is recorded per path when the text is seen: a sub-agent's read (the main session never saw it) and a read
   made before the turn moved to another session (an account switch, a "No conversation found" retry) are saved without
   one. A sub-agent never replaces a whole file from an earlier answer's read (it never saw that text); it may edit.
-  A compaction in the stash (Claude Code's "compact_boundary" line) clears the chat's sessions on its reads: edits
+  A compaction in the stash (Claude Code's `compact_boundary` or `microcompact_boundary` system line, both checked in
+  the shipped binary) clears the chat's sessions on its reads: edits
   only from then on. A stash slimmed by the session summary (#1283) must do the same (TODO in chat/turn.ts
   stashSession, `forgetSessionText`).
 - **Per person:** rows carry the turn's person and only that person's rows load. In a shared chat person B's turn never

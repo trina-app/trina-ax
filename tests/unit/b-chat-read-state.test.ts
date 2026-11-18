@@ -340,6 +340,7 @@ describe('the session a read was made in', () => {
     const line = (o: unknown) => JSON.stringify(o) + '\n'
     expect(compactionsIn(Buffer.from(line({ type: 'user' })))).toBe(0)
     expect(compactionsIn(Buffer.from(line({ type: 'system', subtype: 'compact_boundary' }) + line({ type: 'user' })))).toBe(1)
+    expect(compactionsIn(Buffer.from(line({ type: 'system', subtype: 'microcompact_boundary' }) + line({ type: 'system', subtype: 'compact_boundary' })))).toBe(2)
     const chat = await newChat('alice')
     const a1 = await ask('alice', chat, 'one')
     const db = h.ctx.db

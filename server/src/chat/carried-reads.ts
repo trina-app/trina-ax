@@ -24,8 +24,10 @@ export const CARRIED_READS_PER_ANSWER = 2000
 /** the most rows one chat keeps (its newest; older answers' reads are dropped first) */
 export const CARRIED_READS_PER_CHAT = 20_000
 
-/** Claude Code's session file marks a compaction with a "compact_boundary" system line: the text before it is gone */
-export const compactionsIn = (stash: Uint8Array): number => Buffer.from(stash).toString('latin1').split('"compact_boundary"').length - 1
+/** Claude Code's session file marks a compaction with a system line {"subtype":"compact_boundary"} (the text before it
+ * is summarized away) and a micro-compaction, which clears old tool results such as file text, with
+ * {"subtype":"microcompact_boundary"} (both strings checked in the shipped 2.1.327 binary, 2026-11-18) */
+export const compactionsIn = (stash: Uint8Array): number => Buffer.from(stash).toString('latin1').match(/"(?:micro)?compact_boundary"/g)?.length ?? 0
 
 /** The chat's engine session no longer holds the text of what its earlier answers read (a compaction, a slimmed
  * stash): their reads stay usable for edits, never again for a whole-file replace. */
