@@ -96,6 +96,9 @@ export class TurnFiles {
   readHashes: Map<string, string> = new ReadHashes(this.allReads)
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
+  /** files whose last read in this turn was a reformatted (pretty-printed JSON) view: an edit that does not match says
+   * to copy from the raw text (files/read-lines.ts) */
+  prettyReads = new Set<string>()
   /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
    * AI session and a Slack chat count them like reads (chat/turn.ts noteReads; their answers may repeat the names in a
    * room or a channel), other chats do not */
@@ -629,6 +632,7 @@ export class FileService {
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
     // a .json file that is one long line reads as pretty-printed JSON (pretty: false for the raw text)
     const pretty = prettyJsonView(r.rel, text, a)
+    if (pretty?.view.pretty) ctx.files.prettyReads.add(r.rel); else ctx.files.prettyReads.delete(r.rel)
     return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, text, a, {}, isOffice(r.rel))
   }
 
@@ -1596,7 +1600,9 @@ export class FileService {
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'conflict', detail: { tool: 'edit', copy: null } })
       throw new ToolError(`'${r.rel}' was changed by someone else after you read it, and your edit no longer applies. Read it again.`, 'conflict')
     }
-    if (n === 0) throw new ToolError('old_string not found in the file')
+    if (n === 0) throw new ToolError(ctx.files.prettyReads.has(r.rel)
+      ? `old_string not found in the file. Your last read of '${r.rel}' showed a reformatted (pretty-printed) view, not the file's text: read it again with pretty=false and copy old_string from the raw text.`
+      : 'old_string not found in the file')
     if (n > 1 && !a.replace_all) throw new ToolError(`old_string appears ${n} times; add more surrounding text to make it unique, or set replace_all`)
     const data = Buffer.from(apply(), 'utf8')
     this.limits(ctx, r.rel, data.length)

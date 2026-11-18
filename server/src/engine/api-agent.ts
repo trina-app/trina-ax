@@ -259,11 +259,14 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
 }
 
 /** What the model gets back for one tool call: the output, and the team links in it named once more at the end. */
-function toolContent(out: string, links: string[]): string {
+export function toolContent(out: string, links: string[]): string {
   // a cut result says so and keeps its last lines, where a read says how to go on (never a silent cut, QA TC-4901)
-  const tail = out.length > TOOL_OUTPUT_MAX ? out.slice(-TOOL_OUTPUT_TAIL) : ''
+  // neither part starts or ends inside a surrogate pair (an emoji)
+  let tail = out.length > TOOL_OUTPUT_MAX ? out.slice(-TOOL_OUTPUT_TAIL) : ''
+  if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
+  const head = out.slice(0, TOOL_OUTPUT_MAX - TOOL_OUTPUT_TAIL).replace(/[\uD800-\uDBFF]$/, '')
   const text = (out.length > TOOL_OUTPUT_MAX
-    ? `${out.slice(0, TOOL_OUTPUT_MAX - TOOL_OUTPUT_TAIL)}\n… (${out.length - TOOL_OUTPUT_MAX} characters of this result were left out here; call the tool again for a smaller part, e.g. read with offset and limit) …\n${tail}`
+    ? `${head}\n… (${out.length - TOOL_OUTPUT_MAX} characters of this result were left out here; call the tool again for a smaller part, e.g. read with offset and limit) …\n${tail}`
     : out) || '(no output)'
   if (!links.length) return text
   return `${text}\n\nLinks for the user from this result (copy them exactly; there are no other links to these files):\n${links.slice(0, 20).map((l) => `- ${l}`).join('\n')}`

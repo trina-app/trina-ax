@@ -11,7 +11,7 @@ import { walk } from '../policy/resolve'
 import { projectZoneFolders } from '../policy/zone'
 import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
-import { readRegular, sha256 } from './store'
+import { openToRead, readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
 import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { isFileListName, type SourceLoc } from '@mycel/shared/api'
@@ -699,51 +699,103 @@ const LONG_CONTEXT_HEAD = 300
 /** at most this many bytes of one match are shown in a long line */
 const LONG_MATCH_BYTES = 400
 const numEn = (n: number) => n.toLocaleString('en-US')
-/** back to the start of a UTF-8 character */
-const charStart = (b: Buffer, i: number, min: number) => { while (i > min && (b[i]! & 0xc0) === 0x80) i--; return i }
+/** bytes read at a time while a long line is measured */
+const LONG_CHUNK = 1024 * 1024
+
+/** The bytes ripgrep searched, by position: the file itself (ripgrep's offsets start after a UTF-8 BOM, which it
+ * strips, as read does), or text decoded first (legacy Korean, UTF-16) as a buffer. */
+/** `read` may reuse its buffer: a piece is used before the next read */
+export interface LongSource { size: number; read(pos: number, len: number): Buffer }
+export const bufferSource = (b: Buffer): LongSource => ({ size: b.length, read: (pos, len) => b.subarray(pos, Math.min(b.length, pos + len)) })
+/** a file read in pieces through `fd` (never whole) into one reused buffer, so each piece is valid until the next
+ * read; `base` bytes of a BOM are skipped */
+export function fdSource(fd: number, size: number, base: number): LongSource {
+  let scratch: Buffer | null = null
+  return {
+    size: size - base,
+    read(pos, len) {
+      const n = Math.max(0, Math.min(len, size - base - pos))
+      if (!scratch || scratch.length < n) scratch = Buffer.allocUnsafe(Math.max(n, 64 * 1024))
+      const buf = scratch
+      let got = 0
+      while (got < n) { const k = fs.readSync(fd, buf, got, n - got, base + pos + got); if (k <= 0) break; got += k }
+      return buf.subarray(0, got)
+    },
+  }
+}
+/** back to the start of a UTF-8 character inside `b` (relative positions) */
+const charStart = (b: Buffer, i: number) => { while (i > 0 && i < b.length && (b[i]! & 0xc0) === 0x80) i--; return i }
+const isHigh = (c: number) => c >= 0xd800 && c <= 0xdbff
+const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff
+/** the last `n` UTF-16 units of `s`, never starting inside a surrogate pair */
+const lastUnits = (s: string, n: number) => { let t = s.slice(-n); if (t && isLow(t.charCodeAt(0)) && t.length < s.length) t = t.slice(1); return t }
+/** the first `n` UTF-16 units of `s`, never ending inside a surrogate pair */
+const firstUnits = (s: string, n: number) => { let t = s.slice(0, n); if (t.length < s.length && t && isHigh(t.charCodeAt(t.length - 1))) t = t.slice(0, -1); return t }
 
 /**
- * A line over the record cap (LongRecord) as grep shows it, from the very file ripgrep searched (`bytes`, UTF-8 as
- * ripgrep searched it; legacy Korean text decoded first): the text around the first matches with their character
- * positions in the line (UTF-16, as read's char_offset counts them) and the read call that shows more, or the head of a
- * context line. Null when the record does not fit the file (it changed in between).
+ * A line over the record cap (LongRecord) as grep shows it, from the very bytes ripgrep searched: the text around the
+ * first matches with their character positions in the line (UTF-16 units, as read's char_offset counts them) and the
+ * read call that shows more, or the head of a context line. The line is measured in pieces from its UTF-8 bytes
+ * (never decoded whole), so memory stays at one piece. Null when the record does not fit the file (it changed).
  */
-export function longLineText(bytes: Buffer, l: LongRecord): { note: string; text: string } | null {
+export function longLineText(src: LongSource, l: LongRecord): { note: string; text: string } | null {
   const ls = l.offset
-  if (ls > bytes.length) return null
-  let le = bytes.indexOf(10, ls)
-  if (le < 0) le = bytes.length
-  if (le > ls && bytes[le - 1] === 13) le--
-  const chars = bytes.toString('utf8', ls, le).length
-  const charAt = (b: number) => bytes.toString('utf8', ls, b).length
-  if (l.type === 'context' || !l.subs.length) {
-    const end = charStart(bytes, Math.min(le, ls + LONG_CONTEXT_HEAD * 4), ls)
-    const head = bytes.toString('utf8', ls, end).slice(0, LONG_CONTEXT_HEAD)
-    return { note: `[line of ${numEn(chars)} characters, its start shown; read offset=${l.line} char_offset=${head.length} for the rest] `, text: head + '…' }
+  if (ls >= src.size) return null
+  // one pass over the line: its end and the UTF-16 position of each match start (a 4-byte character is 2 units)
+  const starts = l.type === 'match' ? [...new Set(l.subs.map((s) => ls + s.start))].sort((x, y) => x - y) : []
+  const unitsAt = new Map<number, number>()
+  let units = 0, le = -1, si = 0
+  for (let pos = ls; le < 0 && pos < src.size; pos += LONG_CHUNK) {
+    const b = src.read(pos, LONG_CHUNK)
+    if (!b.length) break
+    for (let i = 0; i < b.length; i++) {
+      while (si < starts.length && starts[si] === pos + i) unitsAt.set(starts[si++]!, units)
+      const c = b[i]!
+      if (c === 10) { le = pos + i; break }
+      if ((c & 0xc0) !== 0x80) units += c >= 0xf0 ? 2 : 1
+    }
+  }
+  if (le < 0) le = src.size
+  let chars = units
+  if (le > ls && src.read(le - 1, 1)[0] === 13) { le--; chars-- }
+  if (l.type === 'context' || !starts.length) {
+    const piece = src.read(ls, Math.min(le - ls, LONG_CONTEXT_HEAD * 4))
+    const text = piece.toString('utf8')
+    const head = firstUnits(piece.length === le - ls ? text : text.replace(/\uFFFD+$/, ''), LONG_CONTEXT_HEAD)
+    return { note: `[line of ${numEn(chars)} characters, its start shown; read offset=${l.line} char_offset=${head.length} for the rest] `, text: head + (head.length < chars ? '…' : '') }
   }
   const parts: string[] = []
   const at: number[] = []
+  let first = -1
   let shownTo = -1
   for (const sub of l.subs) {
     if (parts.length >= LONG_WINDOWS) break
     const ms = ls + sub.start
-    if (ms > le || ms < shownTo) continue
-    const me = charStart(bytes, Math.min(ls + sub.end, ms + LONG_MATCH_BYTES, le), ms)
-    const b0 = charStart(bytes, Math.max(ls, ms - LONG_WINDOW * 4), ls)
-    const before = bytes.toString('utf8', b0, ms).slice(-LONG_WINDOW)
-    const a1 = charStart(bytes, Math.min(le, me + LONG_WINDOW * 4), me)
-    const after = bytes.toString('utf8', me, a1).slice(0, LONG_WINDOW)
-    const c = charAt(ms)
-    at.push(c)
-    const startsAt = c - before.length
-    const endsAt = c + bytes.toString('utf8', ms, me).length + after.length
-    parts.push(`${startsAt > 0 ? '…' : ''}${before}${bytes.toString('utf8', ms, me)}${after}${endsAt < chars ? '…' : ''}`)
-    shownTo = Math.min(le, me + LONG_WINDOW * 4)
+    const u = unitsAt.get(ms)
+    if (u === undefined || ms > le || ms < shownTo) continue
+    const from = Math.max(ls, ms - LONG_WINDOW * 4)
+    const to = Math.min(le, ls + sub.end + LONG_WINDOW * 4, ms + LONG_MATCH_BYTES + LONG_WINDOW * 4)
+    const w = src.read(from, to - from)
+    const mStart = ms - from
+    const mEnd = charStart(w, Math.min(ls + sub.end, ms + LONG_MATCH_BYTES, to) - from)
+    // the window may start inside a character: from its next character on
+    let b0 = 0
+    while (b0 < mStart && (w[b0]! & 0xc0) === 0x80) b0++
+    const before = lastUnits(w.subarray(b0, mStart).toString('utf8'), LONG_WINDOW)
+    const match = w.subarray(mStart, mEnd).toString('utf8')
+    // ... and end inside one: a cut character decodes as U+FFFD, left out
+    const tail = to === le ? w.subarray(mEnd).toString('utf8') : w.subarray(mEnd).toString('utf8').replace(/\uFFFD+$/, '')
+    const after = firstUnits(tail, LONG_WINDOW)
+    const startsAt = u - before.length
+    const endsAt = u + match.length + after.length
+    if (first < 0) first = startsAt
+    at.push(u)
+    parts.push(`${startsAt > 0 ? '…' : ''}${before}${match}${after}${endsAt < chars ? '…' : ''}`)
+    shownTo = to
   }
   if (!parts.length) return null
-  const from = Math.max(0, at[0]! - LONG_WINDOW)
   const where = at.length === 1 ? `match at character ${numEn(at[0]!)}` : `matches at characters ${at.map(numEn).join(', ')}`
-  return { note: `[line of ${numEn(chars)} characters; ${where}; read offset=${l.line} char_offset=${from} to see more of it] `, text: parts.join(' … ') }
+  return { note: `[line of ${numEn(chars)} characters; ${where}; read offset=${l.line} char_offset=${first} to see more of it] `, text: parts.join(' … ') }
 }
 
 /** One matching line (content mode): the shown path, its 1-based line number and the line text; for a document line,
@@ -801,19 +853,29 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     return legacy.get(real) ?? false
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
-  /** the file of the last over-long line (one is read for each such line, so the same file is read once in a row) */
-  let longFile: { abs: string; legacy: boolean; bytes: Buffer | null } | null = null
-  const longBytes = (abs: string, legacy: boolean) => {
-    if (longFile?.abs !== abs || longFile.legacy !== legacy) {
-      let bytes: Buffer | null = null
-      try {
-        bytes = readRegular(abs, RG_MAX_FILE).bytes
-        // pass 2 searched the CP949 text as UTF-8 (ripgrep --encoding): its offsets are of that text
-        if (legacy) { const t = cp949Text(bytes); bytes = t === null ? null : Buffer.from(t, 'utf8') }
-      } catch { bytes = null }
-      longFile = { abs, legacy, bytes }
-    }
-    return longFile.bytes
+  /** the bytes ripgrep searched in one file, for an over-long line: read in pieces through the file (closed once
+   * grep is done), or decoded text (legacy Korean as pass 2 searched it, UTF-16) */
+  let longFile: { abs: string; legacy: boolean; src: LongSource | null; fd: number | null } | null = null
+  const closeLong = () => { if (longFile?.fd != null) try { fs.closeSync(longFile.fd) } catch {} longFile = null }
+  const longSource = (abs: string, legacy: boolean): LongSource | null => {
+    if (longFile?.abs === abs && longFile.legacy === legacy) return longFile.src
+    closeLong()
+    let src: LongSource | null = null, fd: number | null = null
+    try {
+      const o = openToRead(abs)
+      fd = o.fd
+      const size = o.st.size
+      const head = Buffer.alloc(Math.min(4, size)); fs.readSync(fd, head, 0, head.length, 0)
+      const utf16 = (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)
+      if (legacy || utf16) {
+        // ripgrep searched these as transcoded UTF-8 text: its offsets are of that text (at most RG_MAX_FILE bytes)
+        const bytes = readRegular(abs, RG_MAX_FILE).bytes
+        const t = legacy ? cp949Text(bytes) : new TextDecoder(head[0] === 0xff ? 'utf-16le' : 'utf-16be').decode(bytes)
+        src = t === null ? null : bufferSource(Buffer.from(t, 'utf8'))
+      } else src = fdSource(fd, size, head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf ? 3 : 0)
+    } catch { src = null }
+    longFile = { abs, legacy, src, fd }
+    return src
   }
   const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true, virtualPass = false) => (rec: string | LongHit) => {
     // a real file where this person has a virtual one (its name in any letter case): the virtual one stands in for it
@@ -829,8 +891,9 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       if (typeof rec === 'string') text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
       else {
         // a line over the record cap: the text around the match, read from the file ripgrep searched (after the checks)
-        const bytes = longBytes(path.join(rec.cwd, raw), rec.legacy)
-        const w = bytes ? longLineText(bytes, rec.long) : null
+        const src = longSource(path.join(rec.cwd, raw), rec.legacy)
+        let w: ReturnType<typeof longLineText> = null
+        try { w = src ? longLineText(src, rec.long) : null } catch { w = null }
         if (!w) { stats.longSkipped++; return }
         text = w.text; note = w.note
       }
@@ -1047,5 +1110,6 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     for (const dir of snapshots.values()) fs.rmSync(dir, { recursive: true, force: true })
     if (virtualDir) fs.rmSync(virtualDir, { recursive: true, force: true })
     admission.close()
+    closeLong()
   }
 }

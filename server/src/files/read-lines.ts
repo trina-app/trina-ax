@@ -22,6 +22,8 @@ export interface ReadLinesView {
   head?: string
   /** added to every "read again with …" instruction (e.g. " pretty=true") */
   again?: string
+  /** the lines are a reformatted view, not the file's text (an edit must copy from the raw text) */
+  pretty?: boolean
 }
 export interface ReadLinesOut { text: string; summary: string; shown: number }
 
@@ -45,6 +47,8 @@ function fitEnd(s: string, from: number, chars: number, tokens: number): number 
   }
   return i
 }
+const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff
+const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff
 function cost(s: string, from: number, to: number) { let t = 0; for (let i = from; i < to; i++) t += tokenCost(s.charCodeAt(i)); return t }
 
 const num = (n: number) => n.toLocaleString('en-US')
@@ -61,6 +65,8 @@ export function numberedLines(rel: string, text: string, a: ReadLinesArgs, view:
   let start = a.char_offset ?? 0
   const first = lines[off - 1]!
   if (start > 0 && start >= first.length) throw new ToolError(`char_offset ${start} is past the end of line ${off} (${num(first.length)} characters)`)
+  // a start inside a surrogate pair (an emoji) goes back to the pair's start
+  if (start > 0 && start < first.length && isLowSurrogate(first.charCodeAt(start)) && isHighSurrogate(first.charCodeAt(start - 1))) start--
   const end = Math.min(lines.length, off - 1 + lim)
   const out: string[] = []
   let chars = READ_TEXT_CHARS, tokens = READ_TEXT_TOKENS
@@ -69,6 +75,8 @@ export function numberedLines(rel: string, text: string, a: ReadLinesArgs, view:
   for (let i = off - 1; i < end; i++, start = 0) {
     const l = lines[i]!
     const n = i + 1
+    // the budget is spent (also by many empty lines): the next call starts here
+    if (out.length && (chars <= 8 || tokens <= 3)) { next = { line: n, char: start }; break }
     // the line number and the tab count too
     chars -= 8; tokens -= 3
     const stop = fitEnd(l, start, chars, tokens)
@@ -99,9 +107,34 @@ const isJson = (rel: string) => /\.json$/i.test(rel)
 const isJsonl = (rel: string) => /\.(jsonl|ndjson)$/i.test(rel)
 export const prettyAllowed = (rel: string) => isJson(rel) || isJsonl(rel)
 
+/** `text` without the white space between JSON tokens (the text inside strings kept exactly) */
+function minified(text: string): string {
+  let out = ''
+  let from = 0
+  let inStr = false
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (inStr) { if (c === 92) i++; else if (c === 34) inStr = false; continue }
+    if (c === 34) inStr = true
+    else if (c === 32 || c === 9 || c === 10 || c === 13) { out += text.slice(from, i); from = i + 1 }
+  }
+  return out + text.slice(from)
+}
+/** The value of a JSON text, re-serialised exactly as written, or null: a text whose re-serialisation would differ in
+ * anything but white space (a number over 15 digits or written as 1.0 or 1e3, an escape such as \u00e9 or \/, a
+ * duplicate key, invalid JSON) is never reformatted, so the view never shows a value other than the file's. */
+export function exactJson(text: string): unknown | undefined {
+  const t = text.replace(/^\uFEFF/, '')
+  let v: unknown
+  try { v = JSON.parse(t) } catch { return undefined }
+  return minified(t) === JSON.stringify(v) ? v : undefined
+}
+const REFORMATTED = 'This is a reformatted view: values are as written, only spaces and line breaks are added. To edit the file, read it with pretty=false and copy old_string from the raw text.'
+
 /**
  * The pretty-printed view of a .json file (or of each record of a .jsonl file), when it is asked for (`pretty: true`)
- * or, for .json, when no offset is given and the file is a long line (`pretty` not false). Null: the raw text.
+ * or, for .json, when no offset is given and the file is a long line (`pretty` not false). Only JSON that re-serialises
+ * exactly as written is reformatted (exactJson). Null: the raw text.
  */
 export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { pretty?: boolean }): { text: string; view: ReadLinesView } | null {
   if (a.pretty === false || !prettyAllowed(rel) || text.length > PRETTY_JSON_MAX) return null
@@ -110,24 +143,25 @@ export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { p
   if (isJson(rel)) {
     const auto = a.pretty === undefined && a.offset === undefined && a.char_offset === undefined && raw.some((l) => l.length > PRETTY_JSON_LINE)
     if (!a.pretty && !auto) return null
-    let v: unknown
-    try { v = JSON.parse(text.replace(/^﻿/, '')) } catch {
-      if (a.pretty) throw new ToolError(`'${rel}' is not valid JSON, so it cannot be pretty-printed; read it with pretty: false (long lines come back in pieces)`, 'bad_json')
-      return null
+    const v = exactJson(text)
+    if (v === undefined) {
+      if (!a.pretty) return null
+      return { text, view: { head: `(${rel} is shown as raw text: it is not valid JSON, or reformatting it would change how some values are written (long numbers, escapes, repeated keys). Long lines come back in pieces.)` } }
     }
     const pretty = JSON.stringify(v, null, 2)
     const n = pretty.split('\n').length
-    const head = `(${rel}: ${num(text.length)} characters of JSON on ${raw.length === 1 ? 'one line' : `${raw.length} lines`}, shown pretty-printed as ${num(n)} lines. ` +
-      `Line numbers below are of this view: to go on, read with pretty=true and offset. pretty=false gives the raw text, where grep's line numbers and character positions apply.)`
-    return { text: pretty, view: { head, again: ' pretty=true' } }
+    const head = `(${rel}: ${num(text.length)} characters of JSON on ${raw.length === 1 ? 'one line' : `${raw.length} lines`}, shown pretty-printed as ${num(n)} lines. ${REFORMATTED} ` +
+      `Line numbers below are of this view: to go on, read with pretty=true and offset. In the raw text (pretty=false) grep's line numbers and character positions apply.)`
+    return { text: pretty, view: { head, again: ' pretty=true', pretty: true } }
   }
   if (!a.pretty) return null
   const out: string[] = []
   raw.forEach((l, i) => {
-    out.push(`// line ${i + 1} of the file`)
-    if (!l.trim()) return
-    try { out.push(JSON.stringify(JSON.parse(l), null, 2)) } catch { out.push(l) }
+    if (!l.trim()) { out.push(`// line ${i + 1} of the file`); return }
+    const v = exactJson(l)
+    if (v === undefined) { out.push(`// line ${i + 1} of the file (raw: reformatting it would change it)`, l); return }
+    out.push(`// line ${i + 1} of the file`, JSON.stringify(v, null, 2))
   })
-  const head = `(${rel}: ${num(raw.length)} JSON lines, each shown pretty-printed under "// line N of the file". Line numbers below are of this view: to go on, read with pretty=true and offset. pretty=false gives the raw lines.)`
-  return { text: out.join('\n'), view: { head, again: ' pretty=true' } }
+  const head = `(${rel}: ${num(raw.length)} JSON lines, each shown pretty-printed under "// line N of the file". ${REFORMATTED} Line numbers below are of this view: to go on, read with pretty=true and offset.)`
+  return { text: out.join('\n'), view: { head, again: ' pretty=true', pretty: true } }
 }

@@ -3,8 +3,9 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeEnv } from '../lib/env'
-import { numberedLines, READ_TEXT_CHARS, READ_TEXT_TOKENS } from '../../server/src/files/read-lines'
-import { longRecordOf } from '../../server/src/files/search'
+import { exactJson, numberedLines, READ_TEXT_CHARS, READ_TEXT_TOKENS } from '../../server/src/files/read-lines'
+import { bufferSource, longLineText, longRecordOf, type LongSource } from '../../server/src/files/search'
+import { toolContent } from '../../server/src/engine/api-agent'
 
 const env = makeEnv('unit-files-long-lines')
 const T = env.fx.team
@@ -131,5 +132,103 @@ describe('grep: a match deep inside a very long line is found', () => {
     expect(longRecordOf('{"type":"match","data":{"path":{"text":"a"},"lines":{"text":"', null)).toBeNull()
     expect(longRecordOf('{"type":"match","data":{"path":{"text":"a\\"b"},"lines":{"text":"', '},"line_number":7,"absolute_offset":12,"submatches":[{"match":{"text":"x"},"start":3,"end":4}]}}'))
       .toEqual({ type: 'match', path: { text: 'a"b' }, line: 7, offset: 12, subs: [{ start: 3, end: 4 }] })
+  })
+})
+
+describe('review fixes: exact views, pairs, budget, BOM, CRLF', () => {
+  test('pretty view only when the JSON re-serialises exactly as written; the head says it is reformatted', async () => {
+    const pad = 'p'.repeat(3000)
+    const cases = [`{"id":12345678901234567890,"t":"${pad}"}`, `{"v":1.0,"t":"${pad}"}`, `{"t":"caf\\u00e9 ${pad}"}`, `{"a":1,"a":2,"t":"${pad}"}`, `{"v":1e3,"t":"${pad}"}`, `{"u":"a\\/b","t":"${pad}"}`]
+    for (const [i, c] of cases.entries()) {
+      expect(exactJson(c)).toBeUndefined()
+      put(`shared/hn-exact/n${i}.json`, c)
+      const r = await env.files.call('read', { file_path: `shared/hn-exact/n${i}.json` }, env.ctx('alice'))
+      expect(r.text).not.toContain('pretty-printed')
+      expect(textOf([r.text])).toBe(c)
+    }
+    // the raw form is kept exactly when pretty=true is asked for and cannot be honoured
+    const asked = await env.files.call('read', { file_path: 'shared/hn-exact/n0.json', pretty: true }, env.ctx('alice'))
+    expect(asked.text).toContain('shown as raw text')
+    expect(asked.text).toContain('12345678901234567890')
+    expect(exactJson('{ "a" : [1, 2.5, "x y"],\n "b": null }')).toEqual({ a: [1, 2.5, 'x y'], b: null })
+    put('shared/hn-exact/ok.json', `{"id":46045987,"t":"${pad}"}`)
+    const ok = await env.files.call('read', { file_path: 'shared/hn-exact/ok.json' }, env.ctx('alice'))
+    expect(ok.text).toContain('This is a reformatted view')
+    expect(ok.text).toContain('read it with pretty=false and copy old_string from the raw text')
+  })
+
+  test('an edit copied from the pretty view says to copy from the raw text', async () => {
+    const c = env.ctx('alice', 'pretty-edit')
+    put('shared/hn-exact/edit.json', `{"title":"old title","t":"${'q'.repeat(3000)}"}`)
+    const r = await env.files.call('read', { file_path: 'shared/hn-exact/edit.json' }, c)
+    expect(r.text).toContain('"title": "old title"')
+    const e = await env.files.call('edit', { file_path: 'shared/hn-exact/edit.json', old_string: '"title": "old title"', new_string: '"title": "new title"' }, c)
+    expect(e.isError).toBe(true)
+    expect(e.text).toContain('read it again with pretty=false and copy old_string from the raw text')
+    await env.files.call('read', { file_path: 'shared/hn-exact/edit.json', pretty: false }, c)
+    const e2 = await env.files.call('edit', { file_path: 'shared/hn-exact/edit.json', old_string: '"title":"old title"', new_string: '"title":"new title"' }, c)
+    expect(e2.isError).toBeFalsy()
+    // a raw read since: a miss is a plain miss
+    const e3 = await env.files.call('edit', { file_path: 'shared/hn-exact/edit.json', old_string: 'nothing like this', new_string: 'x' }, c)
+    expect(e3.text).not.toContain('pretty=false')
+  })
+
+  test('a char_offset inside a surrogate pair starts at the pair; pieces never split one', () => {
+    const line = 'a' + '😀'.repeat(10)
+    const r = numberedLines('e.md', line, { offset: 1, char_offset: 2 })
+    expect(r.text).toContain('[characters 1–21 of 21] ' + '😀'.repeat(10))
+  })
+
+  test('empty lines count against the budget', () => {
+    const r = numberedLines('blank.md', '\n'.repeat(20_000) + 'end\n', { limit: 20_000 })
+    expect(r.text.length).toBeLessThan(READ_TEXT_CHARS + 1_000)
+    expect(r.text).toMatch(/Read again with offset=\d+ for the rest/)
+  })
+
+  test('CRLF lines: read and grep agree on line numbers and positions', async () => {
+    const line2 = 'c'.repeat(90_000) + ' CRLF-4901 ' + 'd'.repeat(10)
+    put('shared/hn-crlf/a.txt', 'first\r\n' + line2 + '\r\nthird\r\n')
+    const c = env.ctx('alice')
+    const g = await env.files.call('grep', { pattern: 'CRLF-4901', path: 'shared/hn-crlf', output_mode: 'content' }, c)
+    expect(g.text).toContain('a.txt:2:[line of 90,021 characters; match at character 90,001; read offset=2 char_offset=89801')
+    expect(g.text).not.toMatch(/\r/)
+    const rd = await env.files.call('read', { file_path: 'shared/hn-crlf/a.txt', offset: 2, char_offset: 90_001, limit: 1 }, c)
+    expect(rd.text).toContain('[characters 90,001–90,021 of 90,021] CRLF-4901 dddddddddd')
+  })
+
+  test('a UTF-8 BOM does not shift grep positions (read drops it too)', async () => {
+    const line = 'b'.repeat(80_000) + ' BOM-4901 tail'
+    put('shared/hn-bom/a.txt', '\uFEFF' + line + '\n')
+    const c = env.ctx('alice')
+    const g = await env.files.call('grep', { pattern: 'BOM-4901', path: 'shared/hn-bom', output_mode: 'content' }, c)
+    expect(g.text).toContain('match at character 80,001;')
+    const rd = await env.files.call('read', { file_path: 'shared/hn-bom/a.txt', offset: 1, char_offset: 80_001 }, c)
+    expect(rd.text).toContain('] BOM-4901 tail')
+  })
+
+  test('grep windows and positions never split an emoji; the line is read in pieces, never whole', () => {
+    const line = '😀'.repeat(40_000) + 'X-4901' + '😀'.repeat(300)
+    const bytes = Buffer.from(line + '\n', 'utf8')
+    let biggest = 0
+    const inner = bufferSource(bytes)
+    const src: LongSource = { size: inner.size, read: (p, n) => { biggest = Math.max(biggest, n); return inner.read(p, n) } }
+    const start = Buffer.byteLength('😀'.repeat(40_000))
+    const w = longLineText(src, { type: 'match', path: { text: 'x' }, line: 1, offset: 0, subs: [{ start, end: start + 6 }] })!
+    expect(w.note).toContain('match at character 80,000;')
+    const from = Number(/char_offset=(\d+)/.exec(w.note)![1])
+    expect(from % 2).toBe(0)
+    expect(w.text).not.toMatch(/^…?[\uDC00-\uDFFF]/)
+    expect(w.text).not.toMatch(/[\uD800-\uDBFF]…?$/)
+    expect(w.text).toContain('X-4901')
+    expect(biggest).toBeLessThanOrEqual(1024 * 1024)
+  })
+
+  test('the API engine\'s cut says so and never splits an emoji', () => {
+    const out = '😀'.repeat(20_000) + 'END'
+    const t = toolContent(out, [])
+    expect(t).toContain('characters of this result were left out')
+    expect(t.endsWith('END')).toBe(true)
+    expect(t).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/)
+    expect(t).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/)
   })
 })

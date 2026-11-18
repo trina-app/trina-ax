@@ -23,14 +23,23 @@
   the result ends with the exact next call: `offset=<line> char_offset=<position>`. The new input `char_offset`
   (0-based, UTF-16 characters, as grep's positions) starts inside the line at `offset`. A many-line file stops at the
   budget with the next `offset`, where before Claude Code cut the result itself.
-- **Rule: JSON.** A `.json` file with a line over 2,000 characters, read with no offset, is shown pretty-printed, with a
-  note saying the line numbers are of that view and how to get the raw text (`pretty: false`, where grep's line numbers
-  and positions apply). `pretty: true` pretty-prints a `.json` file or each record of a `.jsonl` file under
-  "// line N of the file". Text over 20 MB, or text that is not JSON, stays raw (in pieces).
+- **Rule: JSON.** A `.json` file with a line over 2,000 characters, read with no offset, is shown pretty-printed only
+  when the reformatted text holds exactly what the file says: its value, re-serialised, must equal the file's text with
+  the white space between tokens taken out (`exactJson`). A number over 15 digits, `1.0` or `1e3`, an escape such as
+  `\u00e9` or `\/`, a repeated key or invalid JSON keeps the raw text (in pieces). The view's first line says it is a
+  reformatted view and that an edit needs the raw text (`pretty: false`); an edit that does not match after such a read
+  says so too (`prettyReads`). `pretty: true` asks for the view (a `.jsonl` file per record, a record that would change
+  stays raw); text over 20 MB stays raw.
+- **Rule: positions.** Character positions are UTF-16 units of the line, as read's `char_offset` counts them; a start
+  inside a surrogate pair (an emoji) goes back to the pair, and no piece, window or cut ends or starts inside one.
+  ripgrep drops a UTF-8 BOM and read does too, so grep's positions count from after it; CRLF lines end before the CR.
+  Empty lines count against the budget (8 characters each for the line number).
 - **Rule: grep.** The 64 K record cap stays (memory). An over-long record keeps its head (type, path) and the part after
   the line text (line number, byte offset of the line, the first matches' byte offsets); the line itself is never held.
   After the access checks, grep reads the text around the first three matches from the very file ripgrep searched (the
-  admitted snapshot, the office text cache, or legacy Korean text decoded as pass 2 searched it) and shows
+  admitted snapshot, the office text cache, or legacy Korean / UTF-16 text decoded as ripgrep searched it). The line is
+  measured from its UTF-8 bytes in 1 MB pieces through one reused buffer, never decoded whole (a 48 MB one-line file:
+  no measurable memory over the search without it, whose own snapshot copy is about 100–150 MB). It shows
   `[line of 200,013 characters; match at character 120,001; read offset=1 char_offset=119801 to see more of it] …text
   around… NEEDLE …text around…`. A long context line shows its first 300 characters. Only a record whose parts cannot
   be read, or a file that changed in between, is still skipped, with a note to read the file. The file screen's content
