@@ -256,9 +256,22 @@ describe('the look through Documents, Desktop and Downloads', () => {
       }
       // one hung link: skipped and the root cut; the rest of the share is walked as when it answers (a link is never entered)
       expect(await run(hangs(['Junction']))).toEqual({ names: ['Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Mount', 'Sales', 'Team'], cut: true })
-      // two hung reparse entries: the second ends the walk (each may hold a file thread), with what was found
+      // two hung reparse entries: the second ends the walk and no call follows, not even the lstat of the documents listed
+      // before it (each hung call may hold one of the system's file threads)
       const two = await run(hangs(['Back', 'Junction']))
-      expect(two).toMatchObject({ names: ['Team.docx'], entered: ['Team'], cut: true })
+      expect(two).toMatchObject({ names: [], entered: ['Team'], cut: true })
+      // a hung link, then a hung folder date, on a share: the date is the second and ends the walk there
+      const linkThenDate = await run((f) => {
+        const fs = hangs(['Junction'])(f)
+        return { ...fs, lstat: (q) => (q.endsWith('Sales') ? new Promise(() => {}) : fs.lstat(q)) }
+      })
+      expect(linkThenDate).toMatchObject({ entered: ['Team'], cut: true })
+      // a link whose lstat answers late (after the cap) stops counting: two such entries do not end the walk
+      const slow = await run((f) => {
+        const fs = reparse(f, marks, { Plain: HOME })
+        return { ...fs, lstat: (q) => (/(Back|Junction)$/.test(q) ? new Promise<WorkStat>((ok) => setTimeout(ok, 1700)).then(() => fs.lstat(q)) : fs.lstat(q)) }
+      })
+      expect(slow).toEqual({ names: ['Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Mount', 'Sales', 'Team'], cut: true })
       // a hung entry whose lstat would have said "folder" is not entered either: what it is was never told
       expect((await run(hangs(['Mount']))).entered).not.toContain('Mount')
       // a local pick skips it as before

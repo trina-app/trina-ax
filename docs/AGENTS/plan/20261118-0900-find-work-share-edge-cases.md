@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 09:00
 - Branch: `fix/find-work-share-edge-cases`
-- Status: in progress
+- Status: done
 - Where: desktop/src/common (work-files.ts, folder-access.ts) and desktop/src/main/work-files.ts. Why: the walk and the
   pick checks of "find work files" live there (see docs/REPOSITORY-RULES.md).
 - Version impact: patch, a fix to the picked-folder walk and one more check on a pick
@@ -28,8 +28,10 @@ In: A, B, C with unit tests. Out: D (needs a product decision, TC-4883).
    cut and the folders beside it are walked.
 2. scanRoots: on a picked share (one call at a time), a link entry whose lstat does not answer is skipped (cut), never
    entered or listed.
-3. Both keep a bound on hung calls per walk (HUNG_MAX): a call that never answers may hold one of the system's few file
-   threads, so the second one ends the walk, as before on a share (a folder date that hung counts too).
+3. Both keep a bound on hung calls per walk (HUNG_MAX = 2): a call that did not answer in time counts while it is still
+   pending (one that answers late stops counting); the second ends the walk, and on a share no call follows (a folder
+   date that hung counts too there). Local walks change too: a listing that does not answer waits LIST_MS, not the
+   folder's whole time, and the second such listing ends the walk.
 4. folder-access.ts exports isDevicePath; pickFolder and pickRoot refuse a device path as picked, before realpath.
 5. Unit tests in tests/unit/e-desktop-work-files.test.ts and tests/unit/e-desktop-folder-window.test.ts.
 
@@ -50,4 +52,6 @@ LIST_MS is cut where it used to be listed.
 
 ## Result
 
-Filled in at the end.
+Built as planned. The independent review asked for the pending-only count (a slow listing that answers is no stuck
+thread) and for the folder date on a share to end the walk at HUNG_MAX, so a share walk keeps at most two stuck calls
+(origin/dev: three). D stays as it is (TC-4883, deferred).

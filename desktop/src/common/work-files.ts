@@ -108,9 +108,10 @@ const STAT_MS = 1500
  * most: one that does not answer is skipped (cut) and the folders beside it are still walked, instead of the walk
  * waiting out the folder's whole time (Windows QA of 0.5.16: a listing that hung while its date answered held 10 s). */
 const LIST_MS = 3000
-/** Calls of one walk that may not answer: each may hold one of the system's few file threads until the drive answers,
- * so the HUNG_MAX-th one ends the walk (cut). Counted: listings, a Windows link's lstat on a picked share, and a folder
- * date there (one call at a time). A share's identity check or a document's lstat that does not answer ends it at once. */
+/** Calls of one walk that did not answer in time and are still pending: each may hold one of the system's few file
+ * threads until the drive answers, so the HUNG_MAX-th ends the walk (cut), and on a picked share no call follows (not even
+ * the documents' lstat of that folder). Counted: listings, and on a picked share a Windows link's lstat and a folder's
+ * date. A share's identity check or a document's lstat that does not answer ends the walk at once. */
 const HUNG_MAX = 2
 
 /** One file of a look, as the session keeps it: where it was found and what it was then. */
@@ -219,8 +220,15 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     const inTime = <T,>(q: Promise<T>) => within(q, Math.max(CALL_MIN_MS, left()))
     const statInTime = <T,>(q: Promise<T>) => within(q, Math.min(STAT_MS, Math.max(CALL_MIN_MS, left())))
     const listInTime = <T,>(q: Promise<T>) => within(q, Math.min(LIST_MS, Math.max(CALL_MIN_MS, left())))
-    /** the calls of this walk that did not answer (HUNG_MAX) */
+    /** the calls of this walk that did not answer in time and are still pending (HUNG_MAX): one that answers later,
+     * however late, stops counting (a slow listing is no stuck thread) */
     let hung = 0
+    /** a call that did not answer in time: counted while it is pending; true when it is the HUNG_MAX-th */
+    const pending = (q: Promise<unknown>): boolean => {
+      hung++
+      q.then(() => { hung-- }, () => { hung-- })
+      return hung >= HUNG_MAX
+    }
     // a picked share whose folder date did not answer: the rest of the walk is not ordered (no more such calls)
     let unordered = false
     // a network share (\\nas\company, a mapped drive: its real path is the network one): every folder below its top is
@@ -290,13 +298,14 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
           }
           if (!before) continue
         }
+        let list: Promise<WorkDirent[]> | null = null
         try {
-          const list = fs.readdir(at, Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
+          list = fs.readdir(at, Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
           entries = await (stuck ? statInTime(list) : listInTime(list))
         } catch (e) {
-          // a folder that does not answer in time is skipped (cut) and the folders beside it are walked, up to HUNG_MAX
-          // calls that never answered; any other error skips that folder
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (++hung >= HUNG_MAX) { end = true; break } }
+          // a folder that does not answer in time (LIST_MS, after the root's first read) is skipped (cut) and the folders
+          // beside it are walked, up to HUNG_MAX calls still pending; any other error skips that folder
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT' && list) { r.cut = true; if (pending(list)) { end = true; break } }
           continue
         }
         // asked again after the listing: a folder swapped for a junction meanwhile gives another identity (or a guarded
@@ -332,8 +341,9 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         if (kind === 'link' && p === 'win32') {
           // one that does not answer is skipped, never entered or listed (what it is was not told); on a picked share (one
           // call at a time) the folder is cut and it counts towards HUNG_MAX
-          try { reparse = await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name))); kind = reparse.kind } catch (x) {
-            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (++hung >= HUNG_MAX) { end = true; break } }
+          const q = fs.lstat(join(p, real, ...dir.parts, e.name))
+          try { reparse = await statInTime(q); kind = reparse.kind } catch (x) {
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (pending(q)) { end = true; break } }
             continue
           }
         }
@@ -389,10 +399,10 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         if (left() <= 0 || o.stopped?.()) break
         const b = next.slice(i, i + step)
         let stuck = false
-        const st = await Promise.all(b.map((d) => statInTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => {
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')); if (o.serial) hung++ }
+        const st = await Promise.all(b.map((d) => { const q = fs.lstat(join(p, real, ...d)); return statInTime(q).catch((e: unknown) => {
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')); if (o.serial && pending(q)) { r.cut = true; end = true } }
           return null
-        })))
+        }) }))
         b.forEach((d, j) => { const m = st[j]?.mtimeMs; if (m === undefined) undated.push(d); else queue.push({ parts: d, mtimeMs: m }) })
         // a picked share (one call at a time) that did not answer one: no more dates are asked of it, the rest of its
         // folders are walked in the order listed
@@ -408,6 +418,8 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         // Stop and the time count between batches too (a folder of thousands of documents on a slow drive)
         if (o.stopped?.()) { out.stopped = true; end = true; break }
         if (left() <= 0) { r.cut = true; end = true; break }
+        // a picked share with HUNG_MAX calls still pending: no more calls (each holds one of the system's file threads)
+        if (o.serial && hung >= HUNG_MAX) { r.cut = true; end = true; break }
         const batch = files.slice(i, i + step)
         let late = false
         const stats = await Promise.all(batch.map((f) => inTime(fs.lstat(join(p, real, ...f.parts))).catch((e: unknown) => {
