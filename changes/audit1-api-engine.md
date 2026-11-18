@@ -1,0 +1,1 @@
+- Answers by the API engine (models connected through an OpenAI-compatible API) now follow the team's "Tool rounds per answer" setting, as Claude Code does, instead of always pausing after 30 rounds.

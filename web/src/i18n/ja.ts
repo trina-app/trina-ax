@@ -3580,7 +3580,7 @@ export const ja: Record<MessageKey, string> = {
   'teamSettings.aiSubagents': "AIが作業をサブタスクに分けて任せる",
   'teamSettings.aiSubagentsHint': "Claude Code と同じように、大きな依頼では AI が作業の一部を同時に動く補助 AI（最大 4 つ）に任せます。補助 AI も同じツールを使い、その人が見られるファイルだけを見ます。手順は回答の下に表示され、監査ログにも残ります。補助 AI も AI サービスを使うため、大きな依頼は費用が増えることがあります。オフにすると AI がすべての作業を自分で行います。",
   'teamSettings.answerStepLimit': "1回の回答でのツール使用回数",
-  'teamSettings.answerStepLimitHint': "AIが1回の回答でツールを使える回数です（{min}〜{max}、既定は{def}）。同時に使ったツールは1回と数えます。上限に達すると回答は一時停止し、「続ける」で再開できます。上限を上げると1回の回答で長く作業できる分、費用が増えることがあります。予算はそのまま適用されます。Claude Code での回答が対象です。",
+  'teamSettings.answerStepLimitHint': "AIが1回の回答でツールを使える回数です（{min}〜{max}、既定は{def}）。同時に使ったツールは1回と数えます。上限に達すると回答は一時停止し、「続ける」で再開できます。上限を上げると1回の回答で長く作業できる分、費用が増えることがあります。予算はそのまま適用されます。Claude Code と APIエンジンでの回答が対象です。",
   'teamSettings.deckTier': '会社紹介資料の作成時間',
   'teamSettings.deckTierHint': '長くするほどサイトを多く読み、出典のある記事から事実を集めますが、AIの使用量が増えます(5分は3分の約1.5〜2倍、10分は約2.5〜3.5倍)。作っている間はほかの作業ができます。',
   'teamSettings.row.deckTierDesc': '会社紹介資料を作るのにかける時間です。',

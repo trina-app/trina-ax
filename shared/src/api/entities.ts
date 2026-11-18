@@ -538,7 +538,7 @@ export type MessageSources = z.infer<typeof MessageSources>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds), or, for
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150, the API engine's rounds too), or, for
  * answers from before 2026-11-14, the old limit of working time (`time_limit`, 20 active minutes or 45 in total; one
  * answer has no time limit since then, docs/DECISIONS.md "No time limit on one answer"). Its status stays 'done': not
  * an error, not a stop by the person; the screen offers "continue". */
