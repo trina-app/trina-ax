@@ -1,0 +1,1 @@
+- Blank lines in messages: a link definition no longer adds an empty line, a code block, table, heading, rule or quote after blank lines sits exactly as many lines down as typed, and lines of only ideographic or no-break spaces count as blank lines (at most 5 in a row).
