@@ -49,10 +49,6 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 ## What everyone does with it
 
-**Team chat, like Slack.** Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.
-
-<img src="docs/site/images/chats/room.webp" width="100%" alt="The Marketing channel: a message that names Jordan, a thread with 2 replies, and Trina's answer sent from the side chat">
-
 **Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="In the Expo booth crew room, Mina asks Trina in a side chat only she sees to turn the exhibitor rules into a checklist, then sends it to the room.">
@@ -61,22 +57,28 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="An admin changes who can open the Sales folder, then checks what Mina can open: Finance is not on her list.">
 
-**Pick up a teammate's session.** Open a teammate's project session and keep going; your turns run with your access.
+**Pick up a teammate's session in a team project.** Sessions in a team project are shared with its members: open a teammate's and keep going, with your own access. Any other session you can share with people or groups, like a file in Google Drive.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina opens Sam's project session and keeps editing the card news; her turns run with her access.">
 
+**Files found by what they are.** Every night the team's AI reads new and changed files in shared, group and project folders and keeps one line per file saying what it is, so a scan named `temp.pdf` or a photo named `IMG_2031.jpg` is found by its content. It uses the team's AI account and never reads personal folders. In a test with 2,238 made-up files, Claude Code found the right file for 181 of 184 questions with these lines, and for 172 without them.
+
 <table>
 <tr>
-<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/site/images/scheduled/task.webp" alt="A weekly summary task that runs every Monday at 9:00"></td>
-<td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="A group chat with one guest"></td>
+<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="The weekly summary a scheduled task wrote: what it found, decisions and unfinished work, saved as a file"></td>
+<td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="The Launch email group chat with Morgan Reyes, a guest from an agency: subject line options, a mention and Trina's answer"></td>
 </tr>
 <tr>
 <td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/site/images/usage/team.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
+<tr>
+<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, Trina's answer in the channel, and a thread open on the right"></td>
+</tr>
 </table>
 
 - **Every change is kept.** By a person or their AI; bring back any version.
+- **In-app browser.** In the desktop app, Trina opens websites in a pane beside your chat, reads them, clicks and fills in forms while you watch; Stop ends it. It asks before a new site unless you allow all websites.
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
 - **Meeting notes.** The Mac app (macOS 14.4+) takes notes from Zoom, Meet and Teams calls.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
