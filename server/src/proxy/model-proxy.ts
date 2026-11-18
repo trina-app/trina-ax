@@ -25,6 +25,10 @@ import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
+import { accountRefusal, upstreamSpeaksForAccount } from './anthropic-refusal'
+
+/** 403s of two different accounts within this time: a cause on this server's side, nothing is marked */
+const SERVER_WIDE_403_MS = 5 * 60_000
 
 const h = (t: string) => crypto.createHash('sha256').update(t).digest('hex')
 
@@ -60,7 +64,12 @@ export type ProxyTurnEvent =
   /** a short 429 or a 529: the engine tries again by itself (on); the provider answered again (off). Shown to the person
    * while it lasts (QA TC-388); the turn goes on */
   | { type: 'busy'; on: boolean }
-  | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' }
+  /** 'no_credit': an API key out of credit (held out); 'skip': refused for a reason that may not be the account's,
+   * skipped in this turn only (nothing marked) */
+  | { type: 'credential'; credentialId: string; reason: 'invalid' | 'needs_reconnect' | 'over_limit' | 'gone' | 'no_credit' | 'skip' }
+  /** the proxy itself refused a request (its forwarding rules, the peer check, a token for the other path): never the
+   * AI account's fault, so the turn does not switch accounts on the engine's error that follows */
+  | { type: 'refused'; reason: string }
   /** a request named a tool outside the turn's lockdown (checkToolNames): the answer stops */
   | { type: 'lockdown'; reason: string }
   /** a Codex web search the proxy answered with something Codex ends its item on (codex-path.ts: the upstream's answer,
@@ -282,6 +291,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
   // turns told "busy" (a short 429 or a 529) and not yet told it is over: only those hear "busy: off" on the next answer.
   // A turn that ends while busy stays here; the set is emptied when it grows large (the web app clears the line itself)
   const busyTurns = new Set<string>()
+  /** AI connections Anthropic refused with an account-level 403 lately (connection id -> when) */
+  const recent403 = new Map<string, number>()
   const busy = (turnId: string, on: boolean) => {
     if (on === busyTurns.has(turnId)) return
     if (on) { if (busyTurns.size >= 10_000) busyTurns.clear(); busyTurns.add(turnId) } else busyTurns.delete(turnId)
@@ -307,10 +318,14 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     // ChatGPT sign-in token (the engine's process passes the peer check, so the token has to say what it is for)
     if (row.family !== family) {
       refusedAudit(row, family === 'anthropic' ? 'not a Claude turn' : 'not a Codex turn', { path: path.slice(0, 120) })
+      o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'wrong_path' })
       return apiError(403, 'permission_error', `this token is not for the ${family === 'anthropic' ? 'Claude' : 'Codex'} path`)
     }
     if (o.peerCheck) {
-      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) return apiError(403, 'permission_error', 'caller is not part of this turn')
+      if (!clientPort || !(await o.peerCheck(clientPort, serverPort, row.turn_id))) {
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: 'peer' })
+        return apiError(403, 'permission_error', 'caller is not part of this turn')
+      }
     }
     return row
   }
@@ -341,6 +356,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         ?? checkProxyRequest(req.method, url, parsed, gateway ? new Set(gatewayModelIds(gateway)) : undefined)
       if (refused) {
         refusedAudit(row, refused)
+        o.onTurnEvent?.(row.turn_id, { type: 'refused', reason: refused.slice(0, 200) })
         return apiError(403, 'permission_error', `refused by the team server: ${refused}`)
       }
       // the lockdown of the turn's tools, for the main AI and every sub-agent alike: the answer stops (M1)
@@ -411,6 +427,34 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
         await broker.onUnauthorized(cred.credentialId, sent)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+      }
+      // Anthropic's own refusal of the account (a subscription that ended, an API key out of credit, an account switched
+      // off): marked, so it is not "healthy" again on the next turn, and the turn moves on (QA TC-4835,
+      // ./anthropic-refusal.ts). Any other 403 skips the account in this turn only. Only /v1/messages, only an answer
+      // in Anthropic's error shape with a request-id, only from Anthropic itself (never a gateway or another upstream).
+      if ((up.status === 400 || up.status === 402 || up.status === 403) && broker && 'kind' in cred && upstreamSpeaksForAccount(cred.upstream, !!gateway)) {
+        const text = await up.text()
+        let r = accountRefusal({ path: url.pathname, status: up.status, body: text, requestId: up.headers.get('request-id'), kind: cred.kind })
+        if (r?.action === 'invalid' && up.status === 403) {
+          // two different accounts refused with a 403 within a few minutes: more likely this server (a region, an IP)
+          // than both accounts, so nothing is marked, the account is only skipped
+          const now = Date.now()
+          for (const [id, at] of recent403) if (now - at > SERVER_WIDE_403_MS) recent403.delete(id)
+          const others = [...recent403.keys()].some((id) => id !== cred.credentialId)
+          recent403.set(cred.credentialId, now)
+          if (others) r = { action: 'skip' }
+        }
+        if (r?.action === 'invalid') {
+          broker.markInvalid(cred.credentialId, r.code, up.status)
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
+        } else if (r?.action === 'no_credit') {
+          broker.onNoCredit(cred.credentialId)
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'no_credit' })
+        } else if (r?.action === 'skip') {
+          o.log?.warn('model proxy: the provider refused an AI connection (403); it is skipped in this turn', { turn: row.turn_id, credential: cred.credentialId })
+          o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'skip' })
+        }
+        return new Response(text, { status: up.status, headers: outHeaders })
       }
       if (up.status === 429) {
         const s = retryAfterSeconds(up.headers.get('retry-after'))

@@ -34,7 +34,7 @@ const teamOfFamily = (fam: Family) => (x: Credential) => x.scope === 'team' && F
 const KIND_ORDER: CredentialKind[] = ['anthropic-api-key', 'anthropic-oauth', 'openai-api-key', 'chatgpt']
 const PERSONAL_KIND_ORDER: CredentialKind[] = ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key']
 const TONE: Record<Credential['state'], 'ok' | 'warn' | 'danger' | 'neutral'> = {
-  ok: 'ok', unverified: 'neutral', expiring: 'warn', expired: 'danger', invalid: 'danger', needs_reconnect: 'danger', limited: 'warn', over_limit: 'warn', disabled: 'neutral', kind_off: 'neutral', sharing_off: 'warn',
+  ok: 'ok', unverified: 'neutral', expiring: 'warn', expired: 'danger', invalid: 'danger', needs_reconnect: 'danger', no_credit: 'danger', limited: 'warn', over_limit: 'warn', disabled: 'neutral', kind_off: 'neutral', sharing_off: 'warn',
 }
 const CLAUDE_TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
 /** the code the Claude page shows after approval (server/src/credentials/login.ts CLAUDE_LOGIN_CODE_RE) */

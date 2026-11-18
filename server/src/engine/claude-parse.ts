@@ -4,7 +4,9 @@ import type { AgentStats, EngineEvent, EngineErrorCode } from '@mycel/shared'
 
 export function classifyError(msg: string): EngineErrorCode {
   const m = msg.toLowerCase()
-  if (/not logged in|authentication|invalid api key|401|unauthorized|oauth/.test(m)) return 'auth'
+  // the error class or the leading text, never a number inside an id (a request_id with "401" in it is not a sign-in error)
+  if (/not logged in|authentication_error|authentication_failed|authentication failed|failed to authenticate|invalid api key|invalid x-api-key|oauth token (has expired|has been revoked|is invalid)|please run \/login|\bunauthorized\b/.test(m)
+    || /(^|\bapi error:?\s*|\bstatus:?\s*)401\b/.test(m.trim())) return 'auth'
   if (/rate.?limit|429|overloaded|usage limit|quota/.test(m)) return 'rate_limit'
   if (/prompt is too long|context|too many tokens/.test(m)) return 'context'
   if (/refus/.test(m)) return 'refused'

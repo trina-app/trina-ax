@@ -13,7 +13,7 @@ import { costOf, estimateOf, setUnknownPriceHook, type ClaudeUsage, type OpenAiU
 import { candidates, familyOfKind, teamCredentialSummary, type Family } from './resolve'
 import { personalConnectionsAllowed } from './policy'
 import {
-  getRow, markInvalid, notifyAboutConnection, secretOf, teamDay, unusable,
+  getRow, markInvalid, markNoCredit, notifyAboutConnection, secretOf, teamDay, unusable,
   type CredCtx, type CredRow, type Secrets,
 } from './store'
 
@@ -41,6 +41,8 @@ export interface CredentialBroker {
   onUnauthorized(credentialId: string, sentAccess: string): Promise<'retry' | 'refused' | 'temporary'>
   /** refused for good (after a retry still 401, or a plan without Codex) */
   markInvalid(credentialId: string, code: string, upstreamStatus: number | null): void
+  /** an API key out of credit (Anthropic's billing answer): held out for a while, shown as out of credit */
+  onNoCredit(credentialId: string): void
   /** a long limit (subscription 5-hour / weekly, out of credit): no request goes out on it until then */
   onLongLimit(credentialId: string, until: Date, code?: string): void
   /** usage of one request: the turn's totals, the connection's day, last used; cost from the price table */
@@ -93,7 +95,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
           const secs = Math.max(1, Math.ceil((Date.parse(u.retryAt!) - now.getTime()) / 1000))
           return fail(403, 'permission_error', 'subscription_limited', { type: 'rate_limit', retryAt: u.retryAt, credentialId: row.id }, secs)
         }
-        const reason = u.why === 'invalid' || u.why === 'expired' ? 'invalid' : u.why === 'needs_reconnect' ? 'needs_reconnect' : u.why === 'over_limit' ? 'over_limit' : 'gone'
+        const reason = u.why === 'invalid' || u.why === 'expired' ? 'invalid' : u.why === 'needs_reconnect' ? 'needs_reconnect' : u.why === 'over_limit' ? 'over_limit' : u.why === 'no_credit' ? 'no_credit' : 'gone'
         return fail(403, 'permission_error', `credential_${reason}`, { type: 'credential', credentialId: row.id, reason })
       }
       if (row.kind === 'chatgpt') {
@@ -129,6 +131,8 @@ export function createBroker(cc: CredCtx): CredentialBroker {
     },
 
     markInvalid(credentialId, code, upstreamStatus) { markInvalid(cc, credentialId, code, upstreamStatus) },
+
+    onNoCredit(credentialId) { markNoCredit(cc, credentialId) },
 
     onLongLimit(credentialId, until, code) {
       const row = getRow(cc.db, credentialId)
