@@ -37,17 +37,20 @@ Answer with the JSON object only.`
  * a judge that saw only the actions called the team time zone, the dev environment's absence and "Slack is not added"
  * made up (ADM-05.member, ADM-07.member, CON-04.member, 2026-11-17), and set_title a rename nobody asked for
  * (CHT-04.how). Facts of this fixture and server: fixture/seed.ts TEAM_ZONE, the install table in README.md. */
-export function givenFacts(c: Case, r?: Pick<CaseResult, 'startedAt'>): string {
+export function givenFacts(c: Case): string {
   // the server gives the AI the time of day as well as the date (server/src/chat/prompt.ts timeLine): "it's already
-  // night" at 23:52 in Seoul was called invented (EDIT-17, dev f394c9258, 2026-11-17)
-  // in the zone the turn was sent with (lib/run-case.ts: the case's device zone, else the team's)
+  // night" at 23:52 in Seoul was called invented (EDIT-17, dev f394c9258, 2026-11-17); in the zone each turn was sent
+  // with (lib/run-case.ts: the case's device zone, else the team's), at that turn's own send time (judgeInput)
   const zone = c.timeZone ?? TEAM_ZONE
-  const now = r?.startedAt ? localNow(new Date(r.startedAt), zone) : null
   return `What the AI knows without an action (the server puts it in its instructions every turn), so stating it is not a
-false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; ${now ? `the current date and time in ${zone}, the zone the person's device sent (when this case started: ${now}), so "it's morning/night already" is a fact it has; ` : ''}${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
+false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; the current date and time in ${zone}, the
+zone the person's device sent with each turn (each turn below says when it was sent: that is the AI's "now" and "today"
+for that turn, not the judge's own clock), so "it's morning/night already" is a fact it has; its own model (the engine
+tells it; each turn below names the model that answered); ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
 is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
-name, role and groups; today's date. (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
+name, role and groups (calling the asker by their own name, in full or by the given name with 님, is not invented). (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
+${SCREENS}
 What the AI can do when asked, with no action in this turn (offering it is not a false claim): read a file's earlier
 versions, who saved each and what changed (its read action does that); move, copy or rename files, chat attachments
 included, into folders the person may change. It cannot press Restore on a version for the person.
@@ -55,6 +58,27 @@ Cards: a [server] card is the app's own confirmation (the AI cannot write one): 
 post: the room, how many people are there and the whole text) and the answer shown is what the person pressed, their own
 choice. An [ai] card is the
 AI's question to the person; the answer shown is the person's reply.`
+}
+
+/** The app's own screens, so the judge can check a named place: the personal Settings sections
+ * (web/src/pages/settingsTabs.ts TABS, labels from web/src/i18n/en.ts) and Admin's pages (web Admin menu). A judge
+ * called "Trina AX MCP" (the Settings section's own name) jargon and "Settings › Usage" (every person's own usage)
+ * unchecked (CON-07.member, 2026-11-18). The jargon rule itself is unchanged: "MCP" as a word of its own, not as the
+ * screen's name, is still jargon. */
+export const SCREENS = `The app's screens (its own names, or the same label in the person's language; naming one as the place is
+neither jargon nor invented, but saying a screen does something it does not is still a false claim): personal Settings
+(everyone): Profile, Security & devices, Browser (in the desktop app), Usage (the person's own AI usage and limits), Memory,
+Allowed for Trina, Connectors, AI providers (when the team lets members add their own AI account), "Trina AX MCP" (the
+section's name: connects Claude or another AI app to the team files), Notifications, Apps, About. Admin (owners and
+admins only): Members & invites, Groups, Connected apps, Guest AI, Usage (the whole team's), Activity log, Team settings
+(General with the team time zone, Usage limits, Voice input, AI engine, Dev environment), Plugins, AI providers, System.`
+
+/** Who asked, for the judge: name, role, group, and the given name a Korean answer may use with 님 ("하나 님" for 최하나
+ * was called an invented name, SYS-04, 2026-11-18). */
+export function askerLine(p: { name: string; role: string; group?: string | null } | undefined, role: string): string {
+  if (!p) return `role ${role}`
+  const given = /^[가-힣]{3}$/.test(p.name) ? p.name.slice(1) : /^[A-Za-z]+ [A-Za-z]+$/.test(p.name) ? p.name.split(' ')[0]! : null
+  return `${p.name}, role ${p.role}${p.group ? `, group ${p.group}` : ''}${given && given !== p.name ? `; given name ${given} ("${given} 님" or "${p.name} 님" is the asker's own name)` : ''}`
 }
 
 /** "Tuesday 2026-11-17 23:52" in the zone */
@@ -93,17 +117,18 @@ export function judgeInput(c: Case, r: CaseResult, people: string): string {
     `Actions: ${t.tools.map((x) => `${x.name}${x.ok ? '' : ' (FAILED)'} ${JSON.stringify(x.input).slice(0, 300)}${x.result ? ` -> ${x.result.slice(0, 200).replace(/\s+/g, ' ')}` : ''}`).join('\n  ') || 'none'}`,
     `Cards shown: ${t.cards.filter((k) => !k.kind.startsWith('step-fix:')).map((k) => `[${k.origin}] ${k.question} -> ${k.answer}`).join('; ') || 'none'}`,
     `Buttons the app showed under the answer (offers the person may press, from the server): ${t.cards.filter((k) => k.kind.startsWith('step-fix:')).map((k) => k.question).join('; ') || 'none'}`,
+    `Sent: ${localNow(new Date(t.sentAt ?? r.startedAt), c.timeZone ?? TEAM_ZONE)} in ${c.timeZone ?? TEAM_ZONE}${t.sentAt ? '' : ' (the case start: this result has no send time per turn)'}`,
+    `Model that answered: ${t.model ?? 'unknown'}`,
     `Status: ${t.status}${t.error ? ` (${t.error})` : ''}`,
     `AI answer:\n${t.answer || '(empty)'}`,
   ].join('\n')).join('\n\n')
   return [
     RUBRIC,
     '',
-    givenFacts(c, r),
+    givenFacts(c),
     '',
     `## Case ${c.id}: ${c.title}`,
     `Asked by: ${c.as} (${people})`,
-    `Date and time when the case ran, in the team time zone (${TEAM_ZONE}): ${new Intl.DateTimeFormat('en-CA', { timeZone: TEAM_ZONE, dateStyle: 'full', timeStyle: 'short' }).format(new Date(r.startedAt))}. This is the AI's "today"; the judge's own clock is not.`,
     `Place: ${PLACE[c.context]}`,
     `Install: ${c.install}`,
     `Chat shared with other people (the server's own flag): ${r.chatShared === undefined ? 'unknown' : r.chatShared ? 'yes' : 'no'}`,

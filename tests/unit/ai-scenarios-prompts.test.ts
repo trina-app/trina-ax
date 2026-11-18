@@ -3,7 +3,8 @@
 import { describe, expect, test } from 'bun:test'
 import { normUrl, type FlowResult } from '../ai-scenarios/lib/flow'
 import { absurdPrompts } from '../ai-scenarios/lib/flow-report'
-import { givenFacts } from '../ai-scenarios/lib/judge'
+import { askerLine, givenFacts, judgeInput } from '../ai-scenarios/lib/judge'
+import type { Case, CaseResult } from '../ai-scenarios/lib/types'
 import { roomPostsOf } from '../ai-scenarios/lib/run-case'
 
 const card = (question: string, hasAlways = true) => ({ kind: 'server-card', origin: 'server' as const, question, answer: 'yes', options: [], hasAlways })
@@ -40,15 +41,36 @@ describe('absurd prompts', () => {
 })
 
 describe('what the judge is told, and what a case leaves behind', () => {
-  test('the judge knows the time of day the AI was given, in the team zone (EDIT-17: "already night" at 23:52)', () => {
-    const c = { install: 'local-login' } as unknown as Parameters<typeof givenFacts>[0]
-    expect(givenFacts(c, { startedAt: '2026-11-17T14:52:00.000Z' })).toContain('when this case started: Tuesday 2026-11-17 23:52')
-    expect(givenFacts(c)).not.toContain('when this case started')
+  test('the judge gets each turn\'s own send time in the zone the turn was sent with (EDIT-17: "already night" at 23:52)', () => {
+    const c = { id: 'EDIT-17', title: 't', as: 'hana', context: 'personal', install: 'local-login', expect: { outcome: 'do', good: 'g', checks: [] } } as unknown as Case
+    const turn = (sentAt: string | undefined) => ({ prompt: 'p', sentAt, status: 'done', error: null, answer: 'a', tools: [], cards: [], saved: [], ms: 1, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, apiCalls: 0 }, model: 'claude-opus-5-5' })
+    const r = { id: 'EDIT-17', runId: 'x', commit: 'x', startedAt: '2026-11-17T14:40:00.000Z', chatId: 'c', turns: [turn('2026-11-17T14:52:00.000Z'), turn('2026-11-17T15:10:00.000Z')], changed: [], checks: [], jargon: [], error: null } as unknown as CaseResult
+    const s = judgeInput(c, r, 'x')
+    expect(s).toContain('Sent: Tuesday 2026-11-17 23:52 in Asia/Seoul')
+    expect(s).toContain('Sent: Wednesday 2026-11-18 00:10 in Asia/Seoul')
+    expect(s).not.toContain('23:40')
     // a case sent from a Jakarta device: the time there
-    expect(givenFacts({ ...c, timeZone: 'Asia/Jakarta' }, { startedAt: '2026-11-17T14:52:00.000Z' })).toContain('in Asia/Jakarta, the zone the person\'s device sent (when this case started: Tuesday 2026-11-17 21:52')
+    expect(judgeInput({ ...c, timeZone: 'Asia/Jakarta' } as Case, r, 'x')).toContain('Sent: Tuesday 2026-11-17 21:52 in Asia/Jakarta')
+    // an older result without send times falls back on the case start, and says so
+    expect(judgeInput(c, { ...r, turns: [turn(undefined)] } as unknown as CaseResult, 'x')).toContain('Sent: Tuesday 2026-11-17 23:40 in Asia/Seoul (the case start')
+    // the model that answered (CON-07: "Opus 5.5" was disputed)
+    expect(s).toContain('Model that answered: claude-opus-5-5')
+  })
+  test('the judge knows the screens, the asker\'s name, what the AI can do and what a card\'s answer is', () => {
+    const c = { install: 'local-login' } as unknown as Case
+    const f = givenFacts(c)
+    expect(f).toContain('"Trina AX MCP" (the\nsection\'s name')
+    expect(f).toContain('Usage (the person\'s own AI usage and limits)')
+    expect(f).toContain('its own model')
+    // the jargon rule itself is unchanged
+    expect(judgeInput({ ...c, id: 'X', title: 't', as: 'a', context: 'personal', expect: { outcome: 'explain', good: 'g', checks: [] } } as unknown as Case, { startedAt: '2026-11-17T00:00:00Z', turns: [], changed: [], checks: [] } as unknown as CaseResult, 'x')).toContain('command, shell, server, sandbox, engine, MCP, API')
+    expect(askerLine({ name: '최하나', role: 'member', group: '마케팅' }, 'member')).toBe('최하나, role member, group 마케팅; given name 하나 ("하나 님" or "최하나 님" is the asker\'s own name)')
+    expect(askerLine({ name: 'Daniel Kim', role: 'member', group: '영업' }, 'member')).toContain('given name Daniel')
+    expect(askerLine({ name: '라마바카페 구매담당', role: 'guest' }, 'guest')).toBe('라마바카페 구매담당, role guest')
+    expect(askerLine(undefined, 'member')).toBe('role member')
     // what the AI can do when asked (SYS-04) and what a card's answer is (CHT-02)
-    expect(givenFacts(c)).toContain("read a file's earlier\nversions")
-    expect(givenFacts(c)).toContain('the answer shown is what the person pressed')
+    expect(f).toContain("read a file's earlier\nversions")
+    expect(f).toContain('the answer shown is what the person pressed')
   })
   test('the room posts a case made are found for clean-up, only the ones that went', () => {
     const tool = (result: string, ok = true) => ({ name: 'post_to_room', input: {}, ok, result })

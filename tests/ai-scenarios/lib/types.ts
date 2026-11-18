@@ -117,6 +117,8 @@ export interface CardSeen {
 }
 export interface TurnRecord {
   prompt: string
+  /** when the message was sent (ISO): the AI's "now" for this turn; missing in results from before 2026-11-18 */
+  sentAt?: string
   status: string
   error: string | null
   answer: string
