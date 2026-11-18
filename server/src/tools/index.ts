@@ -123,6 +123,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       const extraLines = (r.conditional ? `\nThe file has ${r.conditional} conditional formatting rule${r.conditional === 1 ? '' : 's'}.` : '') +
         (r.svgPictures ? `\n${r.svgPictures} SVG picture${r.svgPictures === 1 ? ' was' : 's were'} put in as PNG.` : '') +
+        (r.linksRemoved?.length ? `\n${r.linksRemoved.length === 1 ? 'One link was' : `${r.linksRemoved.length} links were`} kept as plain text, because a link may only go to a web page (http, https), a mail address (mailto) or a heading in the document: ${r.linksRemoved.slice(0, 10).map((t) => JSON.stringify(t)).join(', ')}${r.linksRemoved.length > 10 ? ', ...' : ''}. Tell the user.` : '') +
         (a.format === 'png' ? `\nTo put the picture into a Word or PowerPoint file, refer to it in the Markdown: ![](${r.path}){width=15cm}.` : '')
       const sheetLine = r.csvSheet ? `\nThe CSV's sheet is named '${r.csvSheet}', not after the whole file name (Excel allows 31 characters and no \\ / ? * [ ] :): use that name in formulas and tell the user if they named it.` : ''
       const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
