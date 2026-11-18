@@ -38,18 +38,27 @@ export function readBytes(out: string): number {
 export class ReadLog {
   private readonly bytes = new Map<string, number>()
 
-  /** A finished tool call: a read records the file's size, a save records the new one, an edit forgets it (its new
-   * size is not known here, and an old size could refuse a fair rewrite later). */
+  /** A finished tool call: a read records the file's size; a save of a file read before records its new size (a file
+   * the AI only wrote itself is never guarded: condensing its own draft is fine); any other call that worked forgets
+   * every recorded file it names (an edit, a rename, a move, a delete, edit_files …: the size after it is not known
+   * here, and an old size could refuse a fair rewrite later). */
   note(tool: string, args: unknown, ok: boolean, out: string) {
     if (!ok) return
     const a = (args && typeof args === 'object' ? args : {}) as Record<string, unknown>
     const p = samePath(a.file_path)
-    if (!p) return
     if (tool === 'read') {
-      const n = readBytes(out)
-      if (n > 0) this.bytes.set(p, Math.max(n, this.bytes.get(p) ?? 0))
-    } else if (tool === 'write' && typeof a.content === 'string') this.bytes.set(p, Buffer.byteLength(a.content, 'utf8'))
-    else if (tool === 'edit') this.bytes.delete(p)
+      const n = p ? readBytes(out) : 0
+      if (p && n > 0) this.bytes.set(p, Math.max(n, this.bytes.get(p) ?? 0))
+      return
+    }
+    if (tool === 'write' && p && typeof a.content === 'string') {
+      if (this.bytes.has(p)) this.bytes.set(p, Buffer.byteLength(a.content, 'utf8'))
+      return
+    }
+    for (const v of Object.values(a)) for (const x of Array.isArray(v) ? v : [v]) {
+      const q = samePath(typeof x === 'object' && x !== null ? (x as { path?: unknown }).path : x)
+      if (q) this.bytes.delete(q)
+    }
   }
 
   /** null = the write may run (with `args` as the tool takes them); else the refusal for the model. */
@@ -94,26 +103,31 @@ export class FailedSteps {
       this.open.delete(key)
       // a call with a target also settles the same tool's earlier failure that had none (bad arguments the first time)
       this.open.delete(`${key.slice(0, key.indexOf('|'))}|`)
+      // a file made or changed after a read that failed (often "not found" before it was created) settles the read
+      if (key.startsWith('change|') && key !== 'change|') this.open.delete(`read|${key.slice('change|'.length)}`)
     } else {
       this.open.delete(key)
       this.open.set(key, tool)
     }
   }
 
-  /** The failed tools, in the order they failed, each once. */
-  tools(): string[] { return [...new Set(this.open.values())] }
+  /** The failed steps' tools, one per step still open, in the order they failed (a tool can be there twice: two files). */
+  tools(): string[] { return [...this.open.values()] }
 }
 
 /** Words that say a step did not work, in the six languages of the app. The answer that holds one already tells the
  * person; then nothing is added (the model's own words are only read here, never repeated). */
+// Only phrases that say an action did not work: never a bare word for "error" ("오류를 고쳤어요", "I fixed an error" are
+// what a model says after a save that failed, TC-4829), and "failed" only as "failed to" or at the end of a sentence.
+const DID = '(?:save|write|change|update|edit|create|make|open|finish|complete|do|apply|fix|delete|move|rename|upload|send)'
 const SAYS_FAILED = new RegExp([
-  "didn'?t work", 'did not work', '\\bfailed\\b', '\\bfail(?:s|ed)? to\\b', "couldn'?t", 'could not', "wasn'?t able", 'was not able', 'unable to',
-  "(?:was|were)n'?t (?:saved|changed|updated)", '(?:was|were) not (?:saved|changed|updated)', 'not saved', 'an error', 'error occurred',
-  '실패', '못\\s?했', '못\\s?해', '안\\s?됐', '안\\s?되었', '오류', '에러', '할 수 없었', '수 없었어', '되지 않았',
-  '失敗', 'できませんでした', 'できなかった', 'エラー', 'されませんでした',
-  '失败', '未能', '无法', '错误', '没能', '没有成功',
-  'no se pudo', 'no pude', 'falló', 'no funcionó', 'un error',
-  'gagal', 'tidak bisa', 'tidak dapat', 'kesalahan', 'tidak berhasil',
+  "didn'?t work", 'did not work', '\\bfail(?:s|ed)? to\\b', '\\bfailed(?=\\s*(?:[.!]|$))', `(?:couldn'?t|could not|wasn'?t able to|was not able to|unable to) ${DID}\\b`,
+  "(?:was|were)n'?t (?:saved|changed|updated|created)", '(?:was|were) not (?:saved|changed|updated|created)', '\\bnot saved\\b',
+  '실패했', '실패하였', '못\\s?했', '안\\s?됐', '안\\s?되었', '할 수 없었', '수 없었어', '저장되지 않았', '바뀌지 않았',
+  '失敗しました', 'できませんでした', 'できなかった', 'されませんでした',
+  '失败了', '未能', '没能', '没有成功',
+  'no se pudo', 'no pude', 'falló', 'no funcionó',
+  'gagal', 'tidak berhasil', 'tidak bisa (?:menyimpan|mengubah|membuat|membuka)',
 ].join('|'), 'i')
 
 export function saysSomethingFailed(answer: string): boolean { return SAYS_FAILED.test(answer) }
@@ -127,7 +141,7 @@ export function saysSomethingFailed(answer: string): boolean { return SAYS_FAILE
 export function failedStepsNote(failed: string[], answer: string, locale: Locale): string | null {
   if (!failed.length || saysSomethingFailed(answer)) return null
   const names = [...new Set(failed.map((tool) => stepWords({ kind: 'tool', tool }, locale)))]
-  return tr(names.length === 1 && failed.length === 1 ? 'apiStepFailed' : 'apiStepsFailed', locale, { names: names.join(', ') })
+  return tr(failed.length === 1 ? 'apiStepFailed' : 'apiStepsFailed', locale, { names: names.join(', ') })
 }
 
 // ---------------- empty links (TC-4831) ----------------

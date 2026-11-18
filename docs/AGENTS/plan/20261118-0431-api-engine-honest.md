@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 04:31
 - Branch: `fix/api-engine-honest`
-- Status: in progress
+- Status: done
 - Where: trina-ax `server/src/engine/`, `server/src/chat/` (i18n, turn), `shared/src/` (error words), `web/src/i18n/`. Why: the API engine and chat errors are core (docs/REPOSITORY-RULES.md)
 - Version impact: patch, server bug fixes with no new setting or API
 
@@ -41,4 +41,8 @@ docs/decisions/20261118-api-engine-honest.md
 
 ## Result
 
-(filled in at the end)
+Built as planned in `server/src/engine/api-honest.ts` and `api-agent.ts`, tests in
+`tests/unit/api-engine-honest.test.ts`. After the independent review: bare "error" words no longer count as the answer
+saying a step failed, a failed read is settled by creating the file, the AI's own drafts and files it renamed, moved or
+deleted are not guarded, and the singular/plural line follows the number of failed steps. The API engine's answer now
+appears when its round ends instead of streaming.

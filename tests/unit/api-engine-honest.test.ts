@@ -79,6 +79,16 @@ describe('TC-4829: a save that would wipe most of a file read in this answer', (
     expect(log.check('write', { file_path: 'note.md', content: '' }).refusal).toBeNull()
     log.note('read', { file_path: 'big.md' }, false, numbered(QUOTE))
     expect(log.check('write', { file_path: 'big.md', content: '' }).refusal).toBeNull()
+    // a file the AI only wrote itself (its own draft) is never guarded: condensing it is fine
+    log.note('write', { file_path: 'draft.md', content: QUOTE }, true, 'saved')
+    expect(log.check('write', { file_path: 'draft.md', content: 'short' }).refusal).toBeNull()
+    // read, then deleted or renamed: forgotten, so a new short file of that name can be written
+    log.note('read', { file_path: 'd.md' }, true, numbered(QUOTE))
+    log.note('delete_files', { paths: ['./d.md'] }, true, 'deleted')
+    expect(log.check('write', { file_path: 'd.md', content: 'new' }).refusal).toBeNull()
+    log.note('read', { file_path: 'm.md' }, true, numbered(QUOTE))
+    log.note('edit_files', { file_paths: ['m.md'], old_string: 'a', new_string: 'b' }, true, 'ok')
+    expect(log.check('write', { file_path: 'm.md', content: 'new' }).refusal).toBeNull()
     // read, then saved short with confirmation: the next write compares with the new size
     log.note('read', { file_path: 'q.md' }, true, numbered(QUOTE))
     log.note('write', { file_path: 'q.md', content: 'short' }, true, 'ok')
@@ -126,6 +136,24 @@ describe('TC-4829: a save that would wipe most of a file read in this answer', (
     expect(text).toBe('Fixed the third line.')
   })
 
+  test('in the loop: a read that failed (not there yet), then the file was made -> nothing added', async () => {
+    const { text } = await run([
+      sse({ calls: [{ id: 'r1', name: 'read', args: JSON.stringify({ file_path: 'a.md' }) }] }),
+      sse({ calls: [{ id: 'w1', name: 'write', args: JSON.stringify({ file_path: 'a.md', content: 'hi' }) }] }),
+      sse({ text: ['Created a.md.'] }),
+    ], (name) => (name === 'read' ? { text: 'Error: not found', isError: true } : { text: 'saved' }))
+    expect(text).toBe('Created a.md.')
+  })
+
+  test('in the loop: "I fixed the error" after a refused save still gets the line', async () => {
+    const { text } = await run([
+      sse({ calls: [{ id: 'r1', name: 'read', args: JSON.stringify({ file_path: 'q.md' }) }] }),
+      sse({ calls: [{ id: 'w1', name: 'write', args: JSON.stringify({ file_path: 'q.md', content: '' }) }] }),
+      sse({ text: ['견적서의 오류를 고쳤어요.'] }),
+    ], (name) => (name === 'read' ? { text: numbered(QUOTE) } : { text: 'saved' }), { locale: 'ko' })
+    expect(text).toBe(`견적서의 오류를 고쳤어요.\n\n${tr('apiStepFailed', 'ko', { names: '파일 저장' })}`)
+  })
+
   test('in the loop: the user asked to empty the file -> the confirmed write runs without the extra argument', async () => {
     const { calls, text } = await run([
       sse({ calls: [{ id: 'r1', name: 'read', args: JSON.stringify({ file_path: 'q.md' }) }] }),
@@ -156,6 +184,15 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     f.note('grep', {}, false)
     f.note('grep', { path: 'shared' }, true)
     expect(f.tools()).toEqual([])
+    // a read that failed before the file existed, then the file was made: settled
+    f.note('read', { file_path: 'new.md' }, false)
+    f.note('write', { file_path: 'new.md', content: 'x' }, true)
+    expect(f.tools()).toEqual([])
+    // two reads of different files failed: two steps
+    f.note('read', { file_path: 'a.md' }, false)
+    f.note('read', { file_path: 'b.md' }, false)
+    expect(f.tools()).toEqual(['read', 'read'])
+    expect(failedStepsNote(f.tools(), 'Done.', 'en')).toBe("Some steps didn't work: Read.")
   })
 
   test('the line: server words only, nothing when the answer already says something failed', () => {
@@ -167,11 +204,8 @@ describe('TC-4829: a failed step the answer does not mention', () => {
     expect(failedStepsNote([], 'Done.', 'en')).toBeNull()
     for (const said of ["I couldn't save the file.", '저장에 실패했어요.', '파일을 저장하지 못했어요.', '保存できませんでした。', '保存失败了。', 'No se pudo guardar.', 'Gagal menyimpan.'])
       expect([said, failedStepsNote(['write'], said, 'en')]).toEqual([said, null])
-    for (const l of LOCALES) {
-      const line = failedStepsNote(['write'], 'ok', l)!
-      expect(line).toBe(tr('apiStepFailed', l, { names: failedStepsNote(['write'], 'ok', l)!.match(/[:：](.+?)[.。]$/)![1]!.trim() }))
-      expect(line).not.toContain('{names}')
-    }
+    const save = { ko: '파일 저장', en: 'Save', id: 'Simpan berkas', ja: '保存', es: 'Guardar', zh: '保存' } as const
+    for (const l of LOCALES) expect(failedStepsNote(['write'], 'ok', l)).toBe(tr('apiStepFailed', l, { names: save[l] }))
   })
 
   test('nothing in the line comes from the model: not its answer, not the call\'s arguments', async () => {
@@ -255,8 +289,9 @@ describe('TC-4832: the provider is busy', () => {
     for (const l of LOCALES) expect(CHAT_ERROR_MESSAGES.provider_busy[l]).not.toBe(CHAT_ERROR_MESSAGES.rate_limit[l])
   })
 
-  test('saysSomethingFailed is not fooled by plain answers', () => {
-    expect(saysSomethingFailed('The quote has 30 items.')).toBe(false)
-    expect(saysSomethingFailed('견적서를 고쳤어요.')).toBe(false)
+  test('saysSomethingFailed is not fooled by plain answers, or by a claim that an error was fixed', () => {
+    for (const plain of ['The quote has 30 items.', '견적서를 고쳤어요.', '견적서의 오류를 고쳤어요.', '엑셀 에러 수식을 고쳤어요', 'I fixed an error in the totals.', '错误已修正。',
+      'Saya memperbaiki kesalahan ketik.', 'The test that failed now passes.', "I couldn't find duplicates, so I saved the cleaned list.", 'エラーを直しました。', 'Corregí un error en la tabla.'])
+      expect([plain, saysSomethingFailed(plain)]).toEqual([plain, false])
   })
 })
