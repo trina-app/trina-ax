@@ -64,7 +64,7 @@ export const QUERY_DATA_DESCRIPTION = 'Calculate over data files in the team fol
   'with grep or retyping rows; never tell the user such work cannot be done here. ' +
   'First call it with only `paths` to see the tables, column names and types and the first rows; then give `sql`. One file is the table ' +
   '"data"; several are t1, t2, ... in the order given; a workbook\'s further sheets are data_2, data_3 (t1_2, ...). The SQL is SQLite: put ' +
-  'names with spaces, other letters or capitals in double quotes ("매출액", "Order Date"); months: substr(date, 1, 7) for "2025-03-15", ' +
+  'names with spaces, other letters or capitals in double quotes ("Sales total", "Order Date", Korean or other non-Latin names); months: substr(date, 1, 7) for "2025-03-15", ' +
   'strftime(\'%Y-%m\', date) for ISO dates; numbers stored as text: CAST(x AS REAL); ROUND(x, 2); window functions and WITH work. ' +
   'Cells that are all numbers are INTEGER or REAL columns (codes with a leading zero like "007" stay text); sheet dates are "YYYY-MM-DD". ' +
   'Only reading queries run; the files are never changed. ' +
