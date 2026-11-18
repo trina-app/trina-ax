@@ -27,7 +27,8 @@ const decodeName = (b: Uint8Array) => new TextDecoder('utf-8').decode(b)
 
 /**
  * The zip with every part that is not text emptied, or null when there is nothing to drop (the original is used as it
- * is) or the zip cannot be read here (the reader then gives its own error on the original). `keep`: also keep a part
+ * is) or the zip cannot be read here: damaged, zip64, encrypted, or parts that share or overlap their bytes (the reader
+ * then gives its own error on the original). `keep`: also keep a part
  * that is not text (the caller's own rule), by its name.
  */
 export function slimZip(bytes: Uint8Array, keep: (name: string) => boolean = () => false): Slim | null {
@@ -37,17 +38,25 @@ export function slimZip(bytes: Uint8Array, keep: (name: string) => boolean = () 
     throw e
   }
   const kept: { e: ZipEntry; data: Uint8Array | null }[] = []
-  let dropped = 0, droppedBytes = 0
+  let dropped = 0, droppedBytes = 0, keptBytes = 0
+  // every part's place in the file, [local header, end of its data): parts that share or overlap a place (central
+  // entries that point at one local header, an overlap bomb) would make the copy many times the file
+  const spans: [number, number][] = []
   try {
     for (const e of entries) {
       const name = decodeName(e.nameBytes)
-      if (isTextPart(name) || keep(name) || e.csize === 0) kept.push({ e, data: entryData(bytes, e) })
+      const data = entryData(bytes, e)
+      spans.push([e.local, data.byteOffset - bytes.byteOffset + data.length])
+      if (isTextPart(name) || keep(name) || e.csize === 0) { kept.push({ e, data }); keptBytes += data.length }
       else { kept.push({ e, data: null }); dropped++; droppedBytes += e.csize }
     }
   } catch (e) {
     if (e instanceof ZipProblem) return null
     throw e
   }
+  spans.sort((a, b) => a[0] - b[0])
+  for (let i = 1; i < spans.length; i++) if (spans[i]![0] < spans[i - 1]![1]) return null
+  if (keptBytes > bytes.length) return null
   if (!dropped) return null
   // local headers and data, then the central directory, then its end
   let size = 22

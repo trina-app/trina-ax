@@ -249,7 +249,9 @@ export async function extractText(name: string, original: Uint8Array, tools: Too
   const e = ext(name)
   // what makes a big Office file big is its pictures and media, which no reader turns into text: they are emptied
   // first, so a 150 MB deck reads like the few MB of its slides (docs/decisions/20261118-limits-office-read.md)
-  const bytes = SLIM_EXT.has(e) && original.byteLength >= SLIM_FROM ? slimZip(original)?.bytes ?? original : original
+  const slim = SLIM_EXT.has(e) && original.byteLength >= SLIM_FROM ? slimZip(original) : null
+  // only when it saves a real part of the file: a copy of an .xlsx with one small picture is not worth its memory
+  const bytes = slim && slim.droppedBytes > original.byteLength / 4 ? slim.bytes : original
   // a spreadsheet or Hangul file expands many times in memory: refused above the cap where limits apply (Linux, a
   // plan; system/limits.ts) before a worker starts, counted without the emptied media; smaller ones still meet the
   // worker's own limits (memory, time)

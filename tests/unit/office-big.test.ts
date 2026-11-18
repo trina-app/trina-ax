@@ -5,6 +5,7 @@
 // read's sheet / range for the rest, a big .hwp is read without its pictures, and the cap is 200 MB of text parts.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
+import zlib from 'node:zlib'
 import path from 'node:path'
 import * as XLSX from 'xlsx'
 import { extractText, officeWorkerTimeoutMs, TOO_BIG_IN_PROCESS } from '../../server/src/files/extract'
@@ -304,5 +305,117 @@ describe('read takes sheet and range', () => {
     const bad = await call('read', { file_path: 'shared/QA/notes.txt', range: 'A1:B2' })
     expect(bad.isError).toBe(true)
     expect(bad.text).toContain('sheet and range are only for spreadsheets')
+  })
+})
+
+// ---------------- hostile input (security review of #1290) ----------------
+
+/** A zip built by hand: an entry may alias an earlier entry's local header (`alias`), lie about its size (`usize`), or
+ * carry flags (`flags`, e.g. 1 = encrypted). */
+type HE = { name: string; data?: Uint8Array | string; deflate?: boolean; alias?: number; usize?: number; flags?: number }
+function hzip(es: HE[], o: { count?: number } = {}): Uint8Array {
+  const locals: Buffer[] = [], cds: Buffer[] = []
+  const info: { off: number; crc: number; cs: number; us: number; m: number }[] = []
+  let off = 0
+  for (const e of es) {
+    const nb = Buffer.from(e.name)
+    let a: (typeof info)[number]
+    if (e.alias !== undefined) a = info[e.alias]!
+    else {
+      const raw = Buffer.from(typeof e.data === 'string' ? Buffer.from(e.data) : e.data!)
+      const comp = e.deflate ? zlib.deflateRawSync(raw) : raw
+      a = { off, crc: Bun.hash.crc32(raw) >>> 0, cs: comp.length, us: e.usize ?? raw.length, m: e.deflate ? 8 : 0 }
+      const l = Buffer.alloc(30)
+      l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt16LE(e.flags ?? 0, 6); l.writeUInt16LE(a.m, 8); l.writeUInt32LE(a.crc, 14); l.writeUInt32LE(a.cs, 18); l.writeUInt32LE(a.us, 22); l.writeUInt16LE(nb.length, 26)
+      locals.push(l, nb, comp)
+      off += 30 + nb.length + comp.length
+    }
+    info.push(a)
+    const c = Buffer.alloc(46)
+    c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(e.flags ?? 0, 8); c.writeUInt16LE(a.m, 10)
+    c.writeUInt32LE(a.crc, 16); c.writeUInt32LE(a.cs, 20); c.writeUInt32LE(a.us, 24); c.writeUInt16LE(nb.length, 28); c.writeUInt32LE(a.off, 42)
+    cds.push(c, nb)
+  }
+  const cd = Buffer.concat(cds)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(o.count ?? es.length, 8); end.writeUInt16LE(o.count ?? es.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(off, 16)
+  return new Uint8Array(Buffer.concat([...locals, cd, end]))
+}
+const pic = (n = 4096): HE => ({ name: 'word/media/a.png', data: photo(n) })
+
+describe('zip-slim: hostile zips give null (the reader then refuses the original)', () => {
+  test('central entries that alias one local header (200 x 20 MB would be 4 GB) or overlap', () => {
+    const doc: HE = { name: 'word/document.xml', data: new Uint8Array(20 * MIB).fill(0x41) }
+    const z = hzip([doc, pic(), ...Array.from({ length: 200 }, (_, i): HE => ({ name: `word/x${i}.xml`, alias: 0 }))])
+    const rss0 = process.memoryUsage().rss
+    expect(slimZip(z)).toBeNull()
+    expect(process.memoryUsage().rss - rss0).toBeLessThan(200 * MIB)
+    // one alias of the picture is enough
+    expect(slimZip(hzip([{ name: 'word/document.xml', data: '<w:document/>' }, pic(), { name: 'word/b.png', alias: 1 }]))).toBeNull()
+  })
+  test('zip64, encrypted, damaged', () => {
+    const parts = [{ name: 'word/document.xml', data: '<w:document/>' }, pic()]
+    expect(slimZip(hzip(parts))).not.toBeNull()
+    expect(slimZip(hzip(parts, { count: 0xffff }))).toBeNull()
+    expect(slimZip(hzip([parts[0]!, { ...pic(), flags: 1 }]))).toBeNull()
+    const z = hzip(parts)
+    expect(slimZip(z.subarray(0, z.length - 30))).toBeNull()
+  })
+  test('the slim copy is used only when the emptied parts are over a quarter of the file', async () => {
+    // a 1.5 MB sheet with a 4 KB picture: the original goes to the reader (no copy), the text is the same
+    const b = withParts(book({ Data: orders(20) }), { 'xl/media/image1.png': photo(4096), 'xl/worksheets/pad.xml': 'x'.repeat(1536 * 1024) }, true)
+    expect(slimZip(b)!.droppedBytes).toBeLessThan(b.length / 4)
+    expect(await extractText('a.xlsx', b, tools)).toStartWith('# sheet: Data · A1:D23 (tab-separated)')
+  })
+})
+
+const WB = '<workbook xmlns:r="r"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'
+const WBR = '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'
+/** a one-sheet .xlsx of hand-written parts, deflated (the sheet's declared size can lie: `sheetUsize`) */
+function rawBook(sheet: string, shared?: string, sheetUsize?: number): Uint8Array {
+  return hzip([
+    { name: 'xl/workbook.xml', data: WB, deflate: true },
+    { name: 'xl/_rels/workbook.xml.rels', data: WBR, deflate: true },
+    { name: 'xl/worksheets/sheet1.xml', data: sheet, deflate: true, usize: sheetUsize },
+    ...(shared ? [{ name: 'xl/sharedStrings.xml', data: shared, deflate: true }] : []),
+  ])
+}
+/** `unit` n times, with a random comment every `every` (real files do not deflate 100 times; zip-guard refuses those) */
+function vary(unit: string, n: number, every = 8): string {
+  const out: string[] = []
+  for (let i = 0; i < n; i++) out.push(i % every ? unit : unit + `<!--${Math.random().toString(36).slice(2, 8)}-->`)
+  return out.join('')
+}
+const ws = (rows: string, head = '') => `<worksheet>${head}<sheetData>${rows}</sheetData></worksheet>`
+
+describe('sheet-stream: hostile workbooks are refused or cut, within bounded memory and time', () => {
+  test('a row that never ends, and a part that inflates past its declared size', async () => {
+    await expect(bigSheetText(rawBook(`<worksheet><sheetData><row r="1">${vary('<c><v>1</v></c>', 1_200_000)}`))).rejects.toThrow(/a sheet row is over 16 MB or does not end/)
+    const sheet = ws(vary('<row r="1"><c><v>1</v></c></row>', 20_000))
+    await expect(bigSheetText(rawBook(sheet, undefined, 1000))).rejects.toThrow(/larger than its header says/)
+  })
+  test('a long row is read in one pass (the search for its end goes on where it stopped)', async () => {
+    const t0 = Date.now()
+    const text = await bigSheetText(rawBook(ws(vary(`<row>${vary('<c><v>7</v></c>', 16_000)}</row>`, 50, 1))))
+    expect(Date.now() - t0).toBeLessThan(15_000)
+    expect(text.split('\n')).toHaveLength(51)
+  })
+  test('one cell in column XFD does not pad every row to 16,384 fields: the overview instead', async () => {
+    const rows = '<row r="1"><c r="XFD1"><v>1</v></c></row>' + Array.from({ length: 3000 }, (_, i) => `<row r="${i + 2}"><c r="A${i + 2}"><v>1</v></c></row>`).join('')
+    const text = await bigSheetText(rawBook(ws(rows, '<dimension ref="A1:A1"/>')), { fullMax: 1 * MIB })
+    expect(text).toStartWith('# workbook: 1 sheet, too large to give whole.')
+    expect(text.length).toBeLessThan(200_000)
+  })
+  test('shared text: past the item count or size, cells say their text was not read', async () => {
+    const sst = '<sst>' + vary('<si/>', 6_500_000, 90) + '<si><t>late</t></si></sst>'
+    const text = await bigSheetText(rawBook(ws('<row r="1"><c t="s"><v>6500000</v></c></row>'), sst))
+    expect(text).toContain('(text not read: the workbook holds too much text)')
+  })
+  test('a cell is cut at 32,767 characters with a note; a row over 8 MB of text is refused as too large', async () => {
+    const long = 'x'.repeat(40_000)
+    const text = await bigSheetText(rawBook(ws(`<row r="1"><c t="inlineStr"><is><t>${long}</t></is></c><c><v>2</v></c></row>`)))
+    expect(text).toContain(`${'x'.repeat(32_767)}… (cut: the cell holds 40,000 characters)\t2`)
+    const shared = `<sst><si><t>${'y'.repeat(40_000)}</t></si></sst>`
+    await expect(bigSheetText(rawBook(ws(`<row r="1">${'<c t="s"><v>0</v></c>'.repeat(300)}</row>`), shared))).rejects.toThrow(/a row holds more than 8 MB of text/)
   })
 })

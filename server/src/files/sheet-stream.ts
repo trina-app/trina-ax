@@ -39,8 +39,20 @@ export const PART_ROWS_MAX = 2000
 const PART_TEXT_MAX = 8 * MIB
 /** characters of the workbook's shared text kept (a cell past it says so) */
 const SHARED_TEXT_MAX = 48 * 1024 * 1024
-/** the unread end of a piece (an open row) may not grow past this */
-const CARRY_MAX = 64 * MIB
+/** the unread end of a piece (an open row or shared text item) may not grow past this; the search for its end tag
+ * goes on where it stopped (`resume`), so a long row costs one scan, not one per piece */
+const CARRY_MAX = 16 * MIB
+/** the part of a sheet before its data (sheetPr, dimension, views, column widths) */
+const HEAD_MAX = 8 * MIB
+/** shared text items kept at most; each counts at least SHARED_ITEM_MIN characters against SHARED_TEXT_MAX */
+const SHARED_ITEMS_MAX = 10_000_000
+const SHARED_ITEM_MIN = 8
+/** characters of one cell (Excel's own limit is 32,767): a longer text is cut, with a note */
+export const CELL_TEXT_MAX = 32_767
+/** characters of one row's cells together: past this the workbook is refused as too large */
+export const ROW_TEXT_MAX = 8 * MIB
+/** what is left of the search for an end tag when a piece ends: enough for `</x:row` cut in two */
+const END_BACKOFF = 16
 /** small parts read whole (workbook, its relationships, styles) */
 const SMALL_PART_MAX = 32 * MIB
 /** inflated bytes between garbage collections: the scans make many short-lived strings, and the collector left alone
@@ -247,6 +259,9 @@ function cellStyles(bytes: Uint8Array, ix: Index): Map<number, StyleKind> {
   return out
 }
 
+/** A cell's text, cut at CELL_TEXT_MAX with a note of how long it was. */
+export const cellText = (t: string) => t.length <= CELL_TEXT_MAX ? t : `${t.slice(0, CELL_TEXT_MAX)}… (cut: the cell holds ${t.length.toLocaleString('en-US')} characters)`
+
 /** `_x000D_`-style escapes of OOXML text (a character Excel could not write as XML). */
 const unescapeOoxml = (s: string) => s.indexOf('_x') < 0 ? s : s.replace(/_x([0-9A-Fa-f]{4})_/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
 
@@ -284,8 +299,16 @@ async function sharedText(bytes: Uint8Array, ix: Index): Promise<{ shared: Share
   const shared = new SharedTable()
   if (!e) return { shared, cut: false }
   let carry = ''
+  let resume = 0
   let size = 0
+  let items = 0
   let cut = false
+  const add = (t: string) => {
+    items++
+    size += Math.max(t.length, SHARED_ITEM_MIN)
+    if (!cut && (size > SHARED_TEXT_MAX || items > SHARED_ITEMS_MAX)) cut = true
+    shared.push(cut ? undefined : cellText(t))
+  }
   for await (const piece of pieces(bytes, e)) {
     let xml = carry + piece
     let pos = 0
@@ -294,20 +317,16 @@ async function sharedText(bytes: Uint8Array, ix: Index): Promise<{ shared: Share
       if (s < 0) { pos = Math.max(pos, xml.lastIndexOf('<')); break }
       const gt = xml.indexOf('>', s)
       if (gt < 0) { pos = s; break }
-      if (xml.charCodeAt(gt - 1) === 0x2f) { shared.push(''); pos = gt + 1; continue }
-      const end = findEnd(xml, 'si', gt)
-      if (end < 0) { pos = s; break }
-      if (cut) shared.push(undefined)
-      else {
-        const t = itemText(xml.slice(gt + 1, end))
-        size += t.length
-        if (size > SHARED_TEXT_MAX) { cut = true; shared.push(undefined) } else shared.push(t)
-      }
+      if (xml.charCodeAt(gt - 1) === 0x2f) { add(''); pos = gt + 1; continue }
+      const end = findEnd(xml, 'si', Math.max(gt, resume))
+      resume = 0
+      if (end < 0) { pos = s; resume = Math.max(0, xml.length - s - END_BACKOFF); break }
+      add(cut ? '' : itemText(xml.slice(gt + 1, end)))
       pos = xml.indexOf('>', end) + 1
     }
     carry = pos < 0 ? '' : xml.slice(Math.max(0, pos))
     xml = ''
-    if (carry.length > CARRY_MAX) throw tooComplex('a shared text item does not end')
+    if (carry.length > CARRY_MAX) throw tooComplex(`a shared text item is over ${CARRY_MAX / MIB} MB or does not end`)
   }
   shared.seal()
   return { shared, cut }
@@ -363,6 +382,7 @@ type Row = { r: number; cells: string[] }
 /** The cells of one <row>…</row> (its inner XML) as text by column; empty when no cell has a value or a formula. */
 function rowCells(xml: string, book: Book): string[] {
   const cells: string[] = []
+  let rowSize = 0
   let next = 0
   let pos = 0
   for (;;) {
@@ -401,7 +421,13 @@ function rowCells(xml: string, book: Book): string[] {
       const f = elementText(inner, 'f')
       if (f) text = '=' + unescapeXml(f)
     }
-    if (text !== undefined) cells[col] = text
+    if (text !== undefined) {
+      // shared text was cut once when it was read (sharedText)
+      if (t !== 's') text = cellText(text)
+      rowSize += text.length
+      if (rowSize > ROW_TEXT_MAX) throw tooComplex(`a row holds more than ${ROW_TEXT_MAX / MIB} MB of text`)
+      cells[col] = text
+    }
   }
   return cells
 }
@@ -446,6 +472,7 @@ function dimOf(ref: string | undefined): Dim | null {
  * declared range (or null) before the first row. */
 async function scanSheet(bytes: Uint8Array, e: ZipEntry, book: Book, onRow: (row: Row) => boolean | void, onDim?: (d: Dim | null) => void): Promise<void> {
   let carry = ''
+  let resume = 0
   let last = 0
   let dimSeen = !onDim
   for await (const piece of pieces(bytes, e)) {
@@ -454,7 +481,7 @@ async function scanSheet(bytes: Uint8Array, e: ZipEntry, book: Book, onRow: (row
     if (!dimSeen) {
       // the dimension comes before the sheet's data (CT_Worksheet's order)
       const data = findTag(xml, 'sheetData', 0)
-      if (data >= 0 || xml.length > CARRY_MAX) {
+      if (data >= 0 || xml.length > HEAD_MAX) {
         const head = data >= 0 ? xml.slice(0, data) : ''
         const d = findTag(head, 'dimension', 0)
         const gt = d >= 0 ? head.indexOf('>', d) : -1
@@ -471,15 +498,16 @@ async function scanSheet(bytes: Uint8Array, e: ZipEntry, book: Book, onRow: (row
       const rAttr = Number(fa(head, 'r'))
       const r = Number.isInteger(rAttr) && rAttr > 0 ? rAttr : last + 1
       if (xml.charCodeAt(gt - 1) === 0x2f) { last = r; pos = gt + 1; continue }
-      const end = findEnd(xml, 'row', gt)
-      if (end < 0) { pos = s; break }
+      const end = findEnd(xml, 'row', Math.max(gt, resume))
+      resume = 0
+      if (end < 0) { pos = s; resume = Math.max(0, xml.length - s - END_BACKOFF); break }
       last = r
       const cells = rowCells(xml.slice(gt + 1, end), book)
       pos = end + 5
       if (filled(cells) && onRow({ r, cells }) === false) return
     }
     carry = xml.slice(pos)
-    if (carry.length > CARRY_MAX) throw tooComplex('a sheet row does not end')
+    if (carry.length > CARRY_MAX) throw tooComplex(`a sheet row is over ${CARRY_MAX / MIB} MB or does not end`)
   }
 }
 
@@ -566,6 +594,11 @@ export async function bigSheetText(bytes: Uint8Array, o: { fullMax?: number } = 
         const declared = d && (f.last - r0 + 1) * (d.e.c - c0 + 1) <= RANGE_CELLS_MAX ? d.e.c : -1
         const c1 = Math.max(declared, f.cols - 1, c0)
         const width = c1 - c0 + 1
+        // the empty fields count too (one cell in column XFD makes every row 16,384 fields): past the size, the overview
+        let pad = 0
+        for (let i = 0; i < lines.length; i++) if (fields[i]! >= 0 && fields[i]! < width) pad += width - Math.max(fields[i]!, 1)
+        fullSize += pad
+        if (fullSize > fullMax) { full = null; lines.length = 0; fields.length = 0; continue }
         for (let i = 0; i < lines.length; i++) if (fields[i]! >= 0 && fields[i]! < width) lines[i] += '\t'.repeat(width - Math.max(fields[i]!, 1))
         full.push([`# sheet: ${labelName(ref.name)} · ${colName(c0)}${r0}:${colName(c1)}${f.last} (tab-separated)`, ...lines].join('\n'))
       }

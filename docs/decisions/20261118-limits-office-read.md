@@ -56,6 +56,14 @@ Plan: docs/AGENTS/plan/20261118-1100-limits-office-read.md.
   existing .docx files get their chart data when they change) and its 50 MB per-file limit; chat_file, room_file and
   Drive attachments keep their own size limits (audit items #7, #23); .xls and .ods have no streaming reader (SheetJS
   under the worker's limits); old formats and other archives (audit #9).
+- **Hostile input (security review of #1290):** zip-slim gives up (the reader gets the original and refuses it) when
+  central entries share a local header or their [header, data end) ranges overlap, when the kept data is larger than
+  the file, and on zip64, encryption or damage; the slim copy is used only when the emptied parts are over a quarter
+  of the file. sheet-stream: an open row or shared text item may grow to 16 MB (the head before the sheet data to
+  8 MB), and the search for its end tag goes on where it stopped (one pass, not one per piece); at most 10 M shared
+  text items, each counted as at least 8 characters; a cell's text is cut at 32,767 characters (Excel's own limit) with
+  a note, a row of more than 8 MB of text is refused as too large; the empty fields that pad rows to the last column
+  count against the whole-text size (one cell in column XFD falls back to the overview).
 - **Real-AI check (2026-11-18, Claude Code on this Mac, a copy of the QA team with a plan file so the limits apply):**
   a fake 60 MB sales export (4 sheets, 1.1 M rows) and a 160 MB deck of photos with two speaker notes and a chart.
   "What are the totals on its last sheet?": one read, the overview's last rows, the exact TOTAL row (6,489,148 orders,
