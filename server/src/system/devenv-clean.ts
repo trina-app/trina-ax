@@ -153,6 +153,15 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     }
   }
 
+  // a shared chat's command's TMPDIR (devenv/rt/<run>, srt/config.ts runTmp), removed when it ends: one a crash left
+  // goes after TMP_KEEP_DAYS (a command runs at most 30 minutes, and a live one has new files)
+  for (const r of await ls(p.runTmp)) {
+    const abs = path.join(p.runTmp, r.name)
+    if (!r.isDirectory() || !await plain(p.runTmp, abs)) continue
+    const s = await scan(abs)
+    if (now - s.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', s.bytes, {})
+  }
+
   // caches and tmp of every person
   for (const u of await ls(p.home)) {
     if (!u.isDirectory() || !SAFE_ID_RE.test(u.name)) continue

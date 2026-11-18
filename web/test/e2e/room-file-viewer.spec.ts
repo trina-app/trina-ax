@@ -579,7 +579,7 @@ test("a team file named in the column's thread opens in the side panel: the view
   await expect(column(page).getByTestId('room-message')).toHaveCount(3)
   // opened from the keyboard: a message's hover bar can lie over a link at the end of its first line and take the click
   // (seen with the Linux runner's fonts; a layout point for the redesign); the route is what is tested here
-  await column(page).getByTestId('room-link').focus()
+  await column(page).getByTestId('app-link-chip').focus()
   await page.keyboard.press('Enter')
   await expect(viewer(page)).toHaveCount(0)
   await expect(page.getByTestId('file-panel').getByTestId('file-panel-title')).toHaveText('handbook.pdf')
