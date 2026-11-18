@@ -359,7 +359,9 @@ export class LocalApps {
         try { argv = cliArgv(tool, p.arguments) } catch (e) { return ok({ content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }], isError: true }) }
         const run = await this.runCli(team, call, spec, argv, signal)
         if ('failure' in run) return run
-        const text = [run.stdout, run.stderr && run.code !== 0 ? run.stderr : ''].filter(Boolean).join('\n').trim() || '(no output)'
+        // both streams, also on success: some CLIs print their whole result on stderr (ego lite's `ego-browser nodejs`
+        // writes the script's console.log there and exits 0)
+        const text = [run.stdout, run.stderr].filter(Boolean).join('\n').trim() || '(no output)'
         return ok({ content: [{ type: 'text', text }], isError: run.code !== 0 })
       }
       default: return { message: rpcError(id, -32601, 'not offered') }
@@ -398,7 +400,8 @@ export class LocalApps {
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
       child.stdout.on('data', (c: string) => { if (stdout.length < CLI_OUTPUT_MAX) stdout += c })
-      child.stderr.on('data', (c: string) => { stderr = (stderr + c).slice(-STDERR_KEEP) })
+      // kept like stdout (the AI reads it: a CLI may print its result there), not only a short tail for errors
+      child.stderr.on('data', (c: string) => { if (stderr.length < CLI_OUTPUT_MAX) stderr += c })
       child.on('error', (e) => finish({ failure: 'start_failed', error: e.message }))
       child.on('exit', (code) => finish({ stdout: stdout.slice(0, CLI_OUTPUT_MAX), stderr, code: code ?? 1 }))
       child.stdin.on('error', () => {})

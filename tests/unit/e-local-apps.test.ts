@@ -174,6 +174,14 @@ describe('adapter (b): a declared CLI', () => {
     expect(ran).toContain(`ran ${odd.length} chars`)
     expect(ran).toContain(`token: ${HIDDEN_VALUE}`)
     expect(ran).not.toContain(SECRET)
+    // ego lite's ego-browser prints the script's output on stderr and exits 0: the AI still gets all of it, also past
+    // the short tail kept for start failures
+    const onStderr = await h.tool('run_script', { script: 'STDERR_OUT ECHO_TOKEN' }, c)
+    expect(onStderr.message!.result).toMatchObject({ isError: false })
+    expect(h.text(onStderr)).toContain('printed on stderr')
+    expect(h.text(onStderr)).toContain(`token: ${HIDDEN_VALUE}`)
+    expect(h.text(onStderr)).not.toContain(SECRET)
+    expect(h.text(onStderr)).toContain('line 499 of the long result')
     const failed = await h.tool('run_script', { script: 'FAIL' }, c)
     expect(failed.message!.result).toMatchObject({ isError: true })
     expect(h.text(failed)).toContain('script failed on purpose')

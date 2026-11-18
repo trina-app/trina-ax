@@ -6,6 +6,12 @@ if (cmd === 'skill') { console.log('# fake guide\nUse taskSpace() and page.goto(
 if (cmd === 'args') { console.log(JSON.stringify(rest)); process.exit(0) }
 if (cmd === 'nodejs') {
   const script = await new Response(Bun.stdin.stream()).text()
+  // like ego lite's ego-browser: the whole result on stderr, exit 0 (longer than a short error tail)
+  if (script.includes('STDERR_OUT')) {
+    console.error(`printed on stderr\ntoken: ${process.env.FAKE_TOKEN ?? '(none)'}`)
+    for (let i = 0; i < 500; i++) console.error(`line ${i} of the long result`)
+    process.exit(0)
+  }
   if (script.includes('ECHO_TOKEN')) console.log(`token: ${process.env.FAKE_TOKEN ?? '(none)'}`)
   console.log(`ran ${script.length} chars: ${JSON.stringify(script.slice(0, 80))}`)
   if (script.includes('FAIL')) { console.error('script failed on purpose'); process.exit(3) }
