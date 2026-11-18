@@ -17,7 +17,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit</p>
+<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>If Trina AX could help your team, a star helps more teams find it.</sub></p>
 
 ## Set up once. Your whole team gets it.
 
@@ -133,6 +133,8 @@ Trina provides the workspace, not the AI: connect Claude or OpenAI accounts and 
 </details>
 
 ## Community
+
+If Trina AX helps your team, a ⭐ on GitHub helps other teams find it.
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Releases](https://github.com/trina-app/trina-ax/releases/latest) · [Changes](CHANGELOG.md) · [Support](SUPPORT.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Development](docs/DEVELOPMENT.md) · [Configuration](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
