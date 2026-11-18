@@ -7,7 +7,7 @@
 // something is selected, and a tap on a row then adds or takes it away instead of opening it. Phones also leave out
 // refresh, and new folder / upload where the folder takes no new files.
 // Phones also get one app bar in place of the title, the Team folder / Trash pills, the toolbar and the breadcrumbs: ‹ to
-// the folder above (named), the folder's name, and ⊕ with New folder / Upload as a sheet. The search box and the
+// the folder above (named), the folder's name, and ⊕ as a sheet: New folder and the device rows (사진 보관함, 사진 찍기, 파일; components/DevicePick.tsx, never iOS's raw menu), as an empty folder's 올리기 has them. The search box and the
 // folder's notes are the top of the list (they scroll away), rows have two lines (name; date · size), the trash is a
 // place (a row at the end of the team folder), and the selection's actions sit at the bottom, above the tab bar. Each
 // row's ⋯ is the app's menu (rooms/MenuButton.tsx: a sheet on phones), with "Select" on phones.
@@ -77,8 +77,9 @@ import { SkillIssues } from '../components/SkillIssues'
 import { isSkillsPath } from '../lib/skillIssues'
 import { chatItemKey } from '../lib/appWording'
 import { isAdmin, useMeStrict } from '../store/session'
-import { Badge, Button, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
+import { Badge, Button, buttonClass, EmptyState, ErrorNote, IconButton, Modal, Skeleton, TabPanel, Tabs, confirmDialog, promptDialog, useMediaQuery } from '../components/ui'
 import { MenuButton, type MenuItem } from '../components/rooms/MenuButton'
+import { PhonePickButton, useDevicePick } from '../components/DevicePick'
 import { AiMark } from '../components/rooms/AiFace'
 import { PhonePageBar } from '../components/phone/PhonePageBar'
 import { LoadError } from '../components/LoadError'
@@ -686,6 +687,9 @@ function Files() {
     const generation = folderGeneration()
     planFromEntries(entries).then((plan) => { if (generation === folderGeneration()) startFolder(plan, into) }, fail).finally(release)
   }
+  // a phone's ⊕ and an empty folder's 올리기: our sheet's device rows (사진 보관함, 사진 찍기, 파일), never iOS's raw menu
+  // of a file input with no type (components/DevicePick.tsx)
+  const device = useDevicePick({ onFiles: (list) => startUploads(list), testIds: 'files-add', filesTestId: 'files-add-files-input' })
   // a folder upload ended (also one started before this page opened): the new files are listed
   const folderUploadsSettled = useFolderUploadsSettled()
   useEffect(() => {
@@ -1019,9 +1023,10 @@ function Files() {
                 buttonClassName="size-11"
                 testId="files-add"
                 items={[
-                  { label: t('files.newFolder'), icon: <FolderPlus size={16} className="shrink-0" aria-hidden />, onSelect: () => void mkdir(), testId: 'files-add-folder' },
-                  // no folder upload: a phone has no folder picker (the attribute can be there and do nothing)
-                  { label: t('files.upload'), icon: <Upload size={16} className="shrink-0" aria-hidden />, onSelect: () => fileInput.current?.click(), testId: 'files-add-upload' },
+                  { label: t('files.newFolder'), icon: <FolderPlus size={18} className="shrink-0 text-muted" aria-hidden />, onSelect: () => void mkdir(), testId: 'files-add-folder' },
+                  // the device rows, each one picker (no folder upload: a phone has no folder picker, the attribute
+                  // can be there and do nothing)
+                  ...device.items,
                 ]}
               />
             ) : null
@@ -1074,7 +1079,9 @@ function Files() {
       </div>
       )}
       {findWork.dialog}
-      {/* the pickers New folder / Upload open (the computer's toolbar, the phone's ⊕ sheet, an empty folder's button) */}
+      {/* a phone's ⊕ sheet and its empty folder's 올리기: the device rows' pickers (one set for both) */}
+      {phone && device.inputs}
+      {/* the pickers New folder / Upload open on a computer (its toolbar, an empty folder's button) */}
       <input
         ref={fileInput}
         type="file"
@@ -1177,11 +1184,15 @@ function Files() {
                 {!tree && !error && <Skeleton lines={8} className="p-4" />}
                 {tree && !tree.entries.length && (
                   <EmptyState screen icon={<Upload size={28} />} title={canAdd ? t(touchPhone ? 'files.emptyTap' : 'files.emptyDrop') : t('files.emptyReadOnly')}>
-                    {canAdd && (
-                      <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()}>
+                    {canAdd && (phone ? (
+                      <PhonePickButton pick={device} label={t('files.upload')} className={buttonClass({ size: 'sm', className: 'mt-2' })} inputs={false} testId="files-empty-upload">
+                        {t('files.upload')}
+                      </PhonePickButton>
+                    ) : (
+                      <Button size="sm" className="mt-2" onClick={() => fileInput.current?.click()} data-testid="files-empty-upload">
                         {t('files.upload')}
                       </Button>
-                    )}
+                    ))}
                   </EmptyState>
                 )}
                 {tree && tree.entries.length > 0 && (
