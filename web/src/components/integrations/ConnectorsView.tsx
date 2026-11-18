@@ -7,6 +7,7 @@ import { useId, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Integration } from '@mycel/shared/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
+import { desktop } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
 import { RoomAppEntry } from './RoomAppEntry'
@@ -126,7 +127,7 @@ export function InitialTile({ name, className }: { name: string; className?: str
 
 /** What one row of "Your connectors" says on its right: one status or one button, nothing else. `off`: set up and
  * turned off (Admin › Connected apps › Slack); `connecting`: on and not connected yet (Slack, lib/slackState.ts). */
-export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'connect'
+export type RowStatus = 'connected' | 'on' | 'off' | 'connecting' | 'signin' | 'reconnect' | 'attention' | 'elsewhere' | 'connect'
 
 /** One row of Connectors' "Your connectors", like Claude's list: logo, name (a small "Team" label for what the team
  * provides) and one status on the right. The row opens the connector's page, where everything else is (switches,
@@ -163,6 +164,9 @@ export function ConnectorRow({ id, catalogId, logo, name, team, note, status, on
           </span>
         ) : status === 'off' ? (
           <span className="text-xs text-muted" data-testid="connector-row-status">{t('appConnectors.off')}</span>
+        ) : status === 'elsewhere' ? (
+          // an app on a computer, read away from it: where it works, in the neutral style (not a fault)
+          <span className="text-xs text-muted" data-testid="connector-row-status">{t(desktop()?.localApps ? 'localApps.status.otherComputer' : 'localApps.status.desktopOnly')}</span>
         ) : status === 'connecting' ? (
           // a spinner: it is under way (QA TC-2132); its page says how long it can take
           <span className="flex items-center gap-1 text-xs text-warn" role="status" data-testid="connector-row-status">

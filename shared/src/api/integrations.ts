@@ -7,9 +7,15 @@
 import { z } from 'zod'
 import { IsoTime } from './common'
 import { endpoint, empty } from './endpoint'
+import { LocalAppSpec, LocalIntegrationInput, LocalIntegrationPatch } from './local-apps'
 
-export const IntegrationKind = z.enum(['mcp', 'http'])
+/** mcp: an MCP server over https; http: a plain HTTP API with a key; local: an app on the person's own computer that the
+ * desktop app runs (local-apps.ts; always the person's own connection, never a team one, a template or a request) */
+export const IntegrationKind = z.enum(['mcp', 'http', 'local'])
 export type IntegrationKind = z.infer<typeof IntegrationKind>
+/** what a team connection, a template, a request and the address form take: a service on the internet only */
+export const RemoteIntegrationKind = z.enum(['mcp', 'http'])
+export type RemoteIntegrationKind = z.infer<typeof RemoteIntegrationKind>
 export const IntegrationScope = z.enum(['personal', 'team'])
 export type IntegrationScope = z.infer<typeof IntegrationScope>
 /** none; bearer = "Authorization: Bearer <key>"; header = "<authHeader>: <key>"; oauth = sign in at the service (an MCP
@@ -82,7 +88,7 @@ export const OAuthClientView = z.object({
 })
 export type OAuthClientView = z.infer<typeof OAuthClientView>
 /** sign-in at an HTTP API needs your own app with its addresses (there is nothing to find them from) */
-const oauthFits = (v: { kind: IntegrationKind; auth: IntegrationAuth; oauthClient?: OAuthClientInput | null }) =>
+const oauthFits = (v: { kind: RemoteIntegrationKind; auth: IntegrationAuth; oauthClient?: OAuthClientInput | null }) =>
   v.auth !== 'oauth' || v.kind === 'mcp' || !!v.oauthClient?.tokenUrl
 const clientFits = (v: { auth?: IntegrationAuth; oauthClient?: OAuthClientInput | null }) => !v.oauthClient || v.auth === undefined || v.auth === 'oauth'
 const OAUTH_HTTP = { message: 'sign-in at an API needs your own app with its sign-in and token addresses', path: ['oauthClient'] }
@@ -143,6 +149,9 @@ export const Integration = z.object({
   /** the caller's own connection, kept but not used in chats and not signed in again, while the team has "Members can
    * add their own connections" off (not one from a template, not a Google app). Absent otherwise and on older servers. */
   personalOff: z.literal(true).optional(),
+  /** kind 'local': what runs on the computer, for its owner (never a setting's value: only their names). Older servers
+   * omit it. */
+  local: LocalAppSpec.optional(),
 })
 export type Integration = z.infer<typeof Integration>
 
@@ -150,7 +159,7 @@ const Name = z.string().trim().min(1).max(60)
 const Notes = z.string().max(4000)
 /** A new connection. slug: derived from the name when missing. secret: the key (auth bearer / header); write-only. */
 export const IntegrationInput = z.object({
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   slug: Slug.optional(),
   url: ServiceUrl,
@@ -197,6 +206,9 @@ export const IntegrationList = z.object({
   items: z.array(Integration),
   /** the team lets members add their own connections (TeamSettings.personalIntegrations) */
   personalAllowed: z.boolean(),
+  /** the team lets members add apps on their own computer (TeamSettings.localApps, and personalAllowed). Older servers
+   * omit it. */
+  localAllowed: z.boolean().optional(),
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 
@@ -215,7 +227,7 @@ export type IntegrationRequestState = z.infer<typeof IntegrationRequestState>
 const Person = z.object({ id: z.string(), name: z.string() })
 export const IntegrationRequest = z.object({
   id: z.string(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   url: z.string(),
   /** never 'none': the point of a request is the member's own key or sign-in */
@@ -243,7 +255,7 @@ export type IntegrationRequest = z.infer<typeof IntegrationRequest>
  * (the member's own, as for any personal connection) and no access rule (a personal connection is its owner's only). */
 export const IntegrationRequestInput = z.object({
   userId: z.string().min(1).max(200),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   url: ServiceUrl,
   auth: z.enum(['bearer', 'header', 'oauth']),
@@ -276,7 +288,7 @@ export const INTEGRATION_TEMPLATES_MAX = 50
 
 export const IntegrationTemplate = z.object({
   id: z.string(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   url: z.string(),
   /** never 'none': the point of a template is each member's own key or sign-in */
@@ -298,7 +310,7 @@ export const IntegrationTemplate = z.object({
 export type IntegrationTemplate = z.infer<typeof IntegrationTemplate>
 
 export const IntegrationTemplateInput = z.object({
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: Name,
   url: ServiceUrl,
   auth: z.enum(['bearer', 'header', 'oauth']),
@@ -334,7 +346,7 @@ export const MyIntegrationTemplate = z.object({
   id: z.string(),
   /** sent back when connecting: a template that changed since (its address above all) is refused with 409 */
   version: z.number().int().positive(),
-  kind: IntegrationKind,
+  kind: RemoteIntegrationKind,
   name: z.string(),
   /** the address without its query (where my key or sign-in will go) */
   url: z.string(),
@@ -371,6 +383,8 @@ export const INTEGRATIONS = {
   createIntegration: endpoint({ method: 'POST', path: '/api/integrations', auth: 'user', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A personal connection (403 when the team turned personal connections off). Checked right away; status says how it went.' }),
   updateIntegration: endpoint({ method: 'PATCH', path: '/api/integrations/:id', auth: 'user', owner: 'C', body: IntegrationPatch, response: Integration, summary: 'Change a connection: the owner of a personal one, an admin for a team one. A new address drops the stored key.' }),
   deleteIntegration: endpoint({ method: 'DELETE', path: '/api/integrations/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Delete a connection (OAuth: revocation is tried, the local tokens go first).' }),
+  createLocalIntegration: endpoint({ method: 'POST', path: '/api/integrations/local', auth: 'user', owner: 'C', status: 201, body: LocalIntegrationInput, response: Integration, summary: 'An app on my own computer (docs/decisions/20261118-local-app-connectors.md): the command\'s shape only, never a setting\'s value. Always a personal connection; 403 when the team turned these or personal connections off. Checked right away through this desktop window (x-mycel-window), whose app asks once on the computer before it runs anything.' }),
+  updateLocalIntegration: endpoint({ method: 'PATCH', path: '/api/integrations/:id/local', auth: 'user', owner: 'C', body: LocalIntegrationPatch, response: Integration, summary: 'Change what an app on my computer runs (its owner only). A new command asks again on the computer before it runs.' }),
   refreshIntegration: endpoint({ method: 'POST', path: '/api/integrations/:id/refresh', auth: 'user', owner: 'C', body: z.object({}), response: Integration, summary: 'Check the connection now; MCP: save its current tool list.' }),
   // loopbackPort: the desktop app's one-time return address on 127.0.0.1 (DesktopBridge.signInReturn), used only from a
   // desktop session and only for a service that refuses the team's https address (Canva, Intercom, Square); loopback:
