@@ -43,7 +43,7 @@ import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedW
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
-import { hideDeniedNames, lockedTops } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -444,11 +444,14 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
+  // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
+  // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
+  // command checks them first inside the sandbox (entryGuard)
+  const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
+  const guard = space.shared && runPlatform() === 'linux' ? entryGuard(entryPins(view, given, ctx.files.fx.root)) : ''
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
-    // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
-    // below stays the view's
-    view: space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId,
+    view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -465,7 +468,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
     throw new Error(`refused settings: ${problems.join('; ')}`)
   }
-  return { settings, work, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
+  return { settings, work, guard, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
@@ -477,7 +480,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   try {
-    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    const { settings, work, guard, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
@@ -491,7 +494,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId }),
-    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
+    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${s.command}` : s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }

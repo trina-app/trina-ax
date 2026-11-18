@@ -153,7 +153,7 @@ export interface BoxShellHost {
 
 /** What a shared chat's command cannot do in a folder given entry by entry (srt/mounts.ts). Names only folders everyone
  * in the chat may open, and never what is hidden or why. */
-export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (what it makes there is not kept), and the files there are read-only; folders whose names start with a dot (.git) and skill folders there are read-only too. Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
+export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (what it makes there is not kept), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
 
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 

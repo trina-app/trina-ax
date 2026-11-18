@@ -10,7 +10,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { hiddenNow, withHiddenFolders, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedHiddenFolders, sharedPathAccess, viewAccess } from '../../server/src/devenv/srt/access'
-import { hideDeniedNames, lockedTops } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops } from '../../server/src/devenv/srt/mounts'
+import { authorize } from '../../server/src/policy/authorize'
+import { Denied } from '../../server/src/policy/errors'
 import { lockedTopsNote } from '../../server/src/devenv/tool'
 import { ruleWorld } from '../lib/rule-world'
 
@@ -90,10 +92,11 @@ describe('a run of a shared project chat', () => {
     const g = hideDeniedNames(v, root)
     expect(g.write).not.toContain(F)
     expect(g.write.sort()).toEqual([`${F}/docs`, `${F}/src`])
-    // its files, the dot folders and the skill folder are read-only; the link is not given
-    expect(g.read.sort()).toEqual([`${F}/.git`, `${F}/notes.md`, `${F}/skills`])
+    // its files and the skill folder are read-only; the link and .git (its history may hold the hidden folder) are not
+    // given at all
+    expect(g.read.sort()).toEqual([`${F}/notes.md`, `${F}/skills`])
     expect(g.denyRead).toEqual([])
-    expect([...g.read, ...g.write, ...g.denyRead, ...g.denyWrite].some((p) => /hr-PAYROLL|secret-PLAN|link/.test(p))).toBe(false)
+    expect([...g.read, ...g.write, ...g.denyRead, ...g.denyWrite].some((p) => /hr-PAYROLL|secret-PLAN|link|\.git/.test(p))).toBe(false)
     expect(viewAccess(g, `${F}/src/lib/a.ts`)).toBe('write')
     expect(viewAccess(g, `${F}/hr-PAYROLL/x`)).toBe('none')
     expect(lockedTops(v, g)).toEqual([F])
@@ -105,5 +108,57 @@ describe('a run of a shared project chat', () => {
     const v = sharedFolderView(RULES, alice, { start: F }, { audience: [alice], within: F })
     expect(hideDeniedNames(v, root)).toEqual(v)
     expect(lockedTops(v, hideDeniedNames(v, root))).toEqual([])
+  })
+
+  test('a read-only folder that holds a writable one and a hidden one is opened too; the writable one stays given', () => {
+    const v = { read: [F], write: [`${F}/src`], denyRead: [`${F}/hr-PAYROLL`], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    expect(g.read).not.toContain(F)
+    expect(g.write).toEqual([`${F}/src`])
+    expect([...g.read, ...g.denyRead].some((p) => p.includes('hr-PAYROLL'))).toBe(false)
+    expect(g.read).toContain(`${F}/docs`)
+    expect(viewAccess(g, `${F}/src/lib/a.ts`)).toBe('write')
+  })
+
+  test('the entries given one by one are pinned; a folder swapped for a link is refused before the run', () => {
+    const v = sharedFolderView(RULES, alice, { start: F }, { audience: [alice, bob], within: F })
+    const g = hideDeniedNames(v, root)
+    const pins = entryPins(v, g, root)
+    expect(Object.keys(pins).sort()).toEqual([...g.read, ...g.write].map((r) => path.join(root, r)).sort())
+    const st = fs.statSync(path.join(root, F, 'src'), { bigint: true })
+    expect(pins[path.join(root, F, 'src')]).toBe(`${st.dev}:${st.ino}`)
+    const guard = entryGuard(pins)
+    expect(guard).toContain(`stat -c %d:%i -- '${path.join(root, F, 'src')}'`)
+    expect(guard).toContain('exit 97')
+    expect(guard).not.toMatch(/hr-PAYROLL|secret-PLAN/)
+    expect(entryGuard({})).toBe('')
+    // swapped after the listing: a link where a folder was
+    fs.renameSync(path.join(root, F, 'src'), path.join(root, F, 'src-was'))
+    fs.symlinkSync(path.join(root, F, 'hr-PAYROLL'), path.join(root, F, 'src'))
+    try { expect(() => entryPins(v, g, root)).toThrow('a folder changed') } finally {
+      fs.rmSync(path.join(root, F, 'src')); fs.renameSync(path.join(root, F, 'src-was'), path.join(root, F, 'src'))
+    }
+    // a quote in a name stays one argument
+    expect(entryGuard({ "/t/it's": '1:2' })).toContain(`'/t/it'\\''s'`)
+  })
+})
+
+describe('a write directly in a folder that holds a hidden one', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-writes-')))
+  for (const d of [`${F}/hr-PAYROLL`, `${F}/docs`]) fs.mkdirSync(path.join(root, d), { recursive: true })
+  fs.writeFileSync(path.join(root, F, 'notes.md'), 'n')
+  const fx = { root, caseInsensitive: false } as never
+  const why = (p: string) => { try { authorize(fx, RULES, alice, p, 'write', { mustExist: false, createDirs: true }); return 'ok' } catch (e) { return e instanceof Denied ? e.message : String(e) } }
+  test('one text for the hidden name, a path inside it and a free name; a sub-folder and an existing file work', () => {
+    withHiddenFolders({ userId: 'alice', folders: [`${F}/hr-PAYROLL`] }, () => {
+      const texts = [why(`${F}/hr-PAYROLL`), why(`${F}/hr-PAYROLL/x.md`), why(`${F}/HR-payroll/x.md`), why(`${F}/free-name.md`), why(`${F}/free/x.md`)]
+      expect(new Set(texts).size).toBe(1)
+      expect(texts[0]).toContain(`'${F}'`)
+      expect(texts[0]).not.toContain('hr-PAYROLL')
+      expect(why(`${F}/docs/new.md`)).toBe('ok')
+      expect(why(`${F}/notes.md`)).toBe('ok')
+    })
+    // outside the call: as the rules say
+    expect(why(`${F}/free-name.md`)).toBe('ok')
   })
 })

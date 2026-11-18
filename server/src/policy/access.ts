@@ -136,6 +136,15 @@ export function hiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): bo
   return h.keys.some((f) => k === f || k.startsWith(f + '/'))
 }
 
+/** Does the folder `segs` directly hold a folder hidden from `p` in the running call? A new entry there is refused
+ * with one text (policy/authorize.ts LOCKED_TOP), so a write cannot tell a hidden name from a free one. */
+export function holdsHiddenNow(p: Pick<Principal, 'id'>, segs: readonly string[]): boolean {
+  const h = hiddenScope.getStore()
+  if (!h || h.userId !== p.id) return false
+  const k = hiddenKey(segs.join('/'))
+  return h.keys.some((f) => { const i = f.lastIndexOf('/'); return (i < 0 ? '' : f.slice(0, i)) === k })
+}
+
 export function loadPrincipal(db: Database, userId: string): Principal | null {
   // the role as the API knows it: a guest is stored as role 'member' with users.guest = 1 (migration 122_a_guests.sql)
   const u = db.query("SELECT id, name, CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role, status FROM users WHERE id = ?").get(userId) as any

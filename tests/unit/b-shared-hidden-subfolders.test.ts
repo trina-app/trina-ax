@@ -95,6 +95,22 @@ describe('a sub-folder not everyone in the shared project chat may open', () => 
     expect(upper.content).not.toContain('CANARY-HR')
   })
 
+  test('a write there and a new name beside it get one refusal; a sub-folder everyone opens still takes a new file', async () => {
+    const chat = await newChat()
+    const w = (p: string) => ({ tool: 'write', args: { file_path: p, content: 'x' }, sayResult: true })
+    const hidden = await ask(chat, fake(w(`${HIDDEN}/new.md`)))
+    const free = await ask(chat, fake(w(`${F}/brand-new.md`)))
+    expect(hidden.asked).toBe(false)
+    expect(hidden.content).toBe(free.content)
+    expect(leaks(hidden.content)).toBe(false)
+    expect(fs.existsSync(path.join(h.team, F, 'brand-new.md'))).toBe(false)
+    expect(fs.existsSync(path.join(h.team, HIDDEN, 'new.md'))).toBe(false)
+    fs.mkdirSync(path.join(h.team, F, 'drafts'), { recursive: true })
+    const sub = await ask(chat, fake(w(`${F}/drafts/ok.md`)))
+    expect(fs.existsSync(path.join(h.team, F, 'drafts/ok.md'))).toBe(true)
+    expect(leaks(sub.content)).toBe(false)
+  })
+
   test('bob sees no step, label or text that names it', async () => {
     const chat = await newChat()
     const r = await ask(chat, fake({ tool: 'list', args: { path: F } }, { tool: 'glob', args: { pattern: '**/*', path: F } }, { say: 'done' }))

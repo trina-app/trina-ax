@@ -9,8 +9,13 @@
 //     writable, its files are given read-only, and the folder itself is only a place. A command there cannot add,
 //     rename or delete an entry at its top (Linux: what it makes there lands in srt's empty place and is not kept;
 //     a rename or delete of an entry fails as busy; macOS: refused), which the tool tells the AI (lockedTops). Not the
-//     skill folders and no folder whose name starts with a dot (.git, .vscode, .claude): srt protects names inside a
+//     skill folders and no folder whose name starts with a dot (.vscode, .claude): srt protects names inside a
 //     writable root it is given, not one given as a root of its own, so those are read-only there (fail closed).
+//   - Either way a `.git` in an opened folder is not given: it is at or above a hidden folder, and its history may hold
+//     that folder's files (QA TC-4945 review).
+//   - Each entry given one by one is pinned (entryPins: device and inode as listed); the command first checks inside
+//     the sandbox that each mount is that very entry (entryGuard), so a folder swapped for a link between the listing
+//     and srt's bind (which follows links) stops the command before it runs.
 // Links are never given one by one (a link given by its own path would be followed by the mount and show its target).
 // Only for the settings of a run: the view's hash stays the view's (a file saved in such a folder must not stop a
 // running command).
@@ -34,9 +39,11 @@ export function hideDeniedNames(v: FolderView, teamRoot: string, max = 5000): Fo
   let added = 0
   const holdsDeny = (r: string) => denyRead.some((d) => d !== r && isUnder(d, r))
   for (let guard = 0; guard < 10_000; guard++) {
-    // a read folder below a write folder is a denyWrite there, not here: only the read list's own folders; a write
-    // folder with another write folder inside it is opened from the top (the inner one is then one of its entries)
-    const r = read.find((x) => holdsDeny(x) && !write.some((w) => isUnder(w, x) || isUnder(x, w)))
+    // a read folder below a write folder is a denyWrite there, not here: only the read list's own folders. A read
+    // folder with a write folder inside it is opened too (the write one stays given as it is: srtSettings binds it
+    // writable again over the read one); a write folder with another write folder inside it is opened from the top
+    // (the inner one is then one of its entries)
+    const r = read.find((x) => holdsDeny(x) && !write.some((w) => isUnder(x, w)))
     const w = r === undefined ? write.find((x) => holdsDeny(x)) : undefined
     const g = r ?? w
     if (g === undefined) break
@@ -51,6 +58,9 @@ export function hideDeniedNames(v: FolderView, teamRoot: string, max = 5000): Fo
       // a deeper entry of the view decides there already
       if (read.includes(c) || write.includes(c)) continue
       if (e.isSymbolicLink() || (!e.isDirectory() && !e.isFile())) continue
+      // a git repository at or above a hidden folder may hold its files (a commit made before the folder was limited):
+      // git status, show and checkout would bring them back, so it is not given at all
+      if (e.name === '.git') continue
       if (++added > max) return { read: read.filter((x) => !isUnder(x, g)), write: write.filter((x) => !isUnder(x, g)), denyRead, denyWrite: denyWrite.filter((x) => !isUnder(x, g)) }
       // a read-only folder inside a writable one (a skill folder, a shared folder): given read-only on its own now
       if (denyWrite.includes(c)) { denyWrite = denyWrite.filter((x) => x !== c); read.push(c); continue }
@@ -68,4 +78,30 @@ export function hideDeniedNames(v: FolderView, teamRoot: string, max = 5000): Fo
  * first. For the tool's note to the AI (they are folders everyone in the chat may open: their names may show). */
 export function lockedTops(v: FolderView, given: FolderView): string[] {
   return v.write.filter((w) => !given.write.includes(w)).sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1))
+}
+
+/** Device and inode (`dev:ino`) of every entry `given` adds to `v` (hideDeniedNames), by absolute path. Throws when one
+ * is a link or gone now (fail closed: the run does not start). */
+export function entryPins(v: FolderView, given: FolderView, teamRoot: string): Record<string, string> {
+  const before = new Set([...v.read, ...v.write])
+  const out: Record<string, string> = {}
+  for (const rel of [...given.read, ...given.write]) {
+    if (before.has(rel)) continue
+    const abs = rel === '' ? teamRoot : path.join(teamRoot, rel)
+    const st = fs.lstatSync(abs, { bigint: true })
+    if (st.isSymbolicLink() || (!st.isDirectory() && !st.isFile())) throw new Error('a folder changed while the command started; run it again')
+    out[abs] = `${st.dev}:${st.ino}`
+  }
+  return out
+}
+
+const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+/** The first line of a command whose run has pinned entries (Linux, GNU stat): inside the sandbox, every pinned path
+ * must be the very entry that was listed, else the command does not run (exit 97). Names only entries everyone in the
+ * chat may see; prints no path. Empty when nothing is pinned. */
+export function entryGuard(pins: Record<string, string>): string {
+  const ps = Object.entries(pins)
+  if (!ps.length) return ''
+  const checks = ps.map(([p, id]) => `[ "$(stat -c %d:%i -- ${shq(p)} 2>/dev/null)" = ${shq(id)} ]`).join(' && ')
+  return `{ ${checks}; } || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }`
 }

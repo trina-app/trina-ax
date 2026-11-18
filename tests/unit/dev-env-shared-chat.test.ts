@@ -31,7 +31,9 @@ const fake: SrtSystem = {
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     // the settings file is removed when the run ends: read it now
     runs.set(spec.runId, { spec, settings: JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')), state: 'active', resolve })
-    const m = /^echo (.*)$/.exec(spec.command)
+    // (a shared run's command starts with the check of its pinned entries, srt/mounts.ts entryGuard: the AI's command
+    // is the last line)
+    const m = /^echo (.*)$/.exec(spec.command.split('\n').pop()!)
     if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); runs.get(spec.runId)!.state = 'gone'; resolve({ code: 0, signal: null }) })
     return { pid: 999_999, exited }
   },
@@ -116,6 +118,10 @@ describe('a shared project chat', () => {
     expect(fsOf(r).allowWrite).not.toContain(abs(P.folderPath))
     expect(named(r).some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
     expect(done.data.message.content).toContain(lockedTopsNote([P.folderPath]))
+    // the entries given one by one are checked inside the sandbox before the command (QA TC-4945 review)
+    expect(r.spec.command.split('\n')[0]).toMatch(/stat -c %d:%i -- '.+'.*exit 97/)
+    expect(r.spec.command.split('\n').pop()).toBe('echo hi')
+    expect(r.spec.command).not.toContain('secret')
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
     expect(readable(r).filter((p) => p.startsWith(team + '/')).every((p) => p.startsWith(abs(P.folderPath)))).toBe(true)
     // the answer's record (chat/shared-answers.ts): the project folder, with alice and bob

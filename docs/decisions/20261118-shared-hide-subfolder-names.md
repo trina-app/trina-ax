@@ -31,7 +31,13 @@
     folders whose names start with a dot (`.git`, `.vscode`, `.claude`) and skill folders are read-only (srt protects
     names inside a root it is given, not one given as a root of its own). The folder itself is only a place: a command
     cannot add, rename or delete an entry at its top (Linux: what it makes there is not kept, a rename or delete fails as
-    busy; macOS: refused). Checked in the Docker suite (S16). Each command's result says which folders (names everyone
+    busy; macOS: refused). A read-only folder that holds a hidden one is opened the same way, also when a writable
+    folder is inside it (that one stays given as it is). A `.git` in an opened folder is not given at all: it sits at or
+    above a hidden folder, and its history may hold that folder's files (`git status`, `git show HEAD:…`, `checkout`).
+    Every entry given one by one is pinned by device and inode as listed (`entryPins`), and on Linux the command's
+    first line checks inside the sandbox that each mount is that very entry (`entryGuard`): a folder swapped for a link
+    between the listing and srt's bind (which follows links) stops the command (exit 97) before it runs. Checked in the
+    Docker suite (S16, S17, S18). Each command's result says which folders (names everyone
     may see) and what to do instead (`devenv/tool.ts` lockedTopsNote). A cwd in a hidden folder is refused with the words
     of a folder that is not there (`srt/runner.ts` sharedCwdShown). The tool's path notes use the same rule
     (sharedPathAccess).
@@ -43,13 +49,25 @@
   a listing); places outside the project folder (another team folder, the person's own folder, the whole team with "/")
   still ask on the card, but the project's hidden sub-folders stay out of a "/" search too. Chats shared with people and
   groups (no project) keep the card.
-- **Known:** a write (write, make_file, a copy) into a path inside a hidden folder is refused with "no access", while
-  the same path below a writable folder that is not there would be made. That is the same for every folder a person may
-  not open (`policy/authorize.ts` hiddenWrite) and needs the AI to name the path itself. In a project with such a
-  folder, a command can no longer make a file at the top of the folder that holds it, git cannot commit there (`.git`
-  is read-only), and an editor that saves by renaming fails on a file at that top: the AI saves with the file tools.
+  - **Writes** (`policy/authorize.ts` lockedTop): during such a call, a new entry directly in a folder that holds a
+    hidden folder, the hidden name itself and any path through it are refused with one text naming only that folder,
+    whatever the name. Before, a hidden name said "no access" while a free name was made, which told the AI which names
+    exist. Existing files there and every sub-folder work as before. The file tools now match commands here.
+- **Known:**
+  - In a project with such a folder, a command can no longer make anything at the top of the folder that holds it.
+    On Linux this is silent: `npm install`, `git init`, `unzip` or a build writing there seems to work, but the new
+    files are not kept. The note after each command says so, and the AI saves with the file tools or works in a
+    sub-folder. git does not work at that level (`.git` is not there), and an editor that saves by renaming fails on a
+    file at that top.
+  - The note (`devenv/tool.ts` lockedTopsNote), and the file tools' refusal of a new entry there, name the folder
+    that holds a hidden one. Everyone in the chat may open that folder, so its name is no secret, but they tell the
+    chat that something in it is hidden from someone (never what, or from whom). That cannot be avoided once writes
+    behave differently there.
+  - A folder that someone with write access renames on disk to a visible name is visible under that name. That is
+    the same as copying its files out, which they may do anyway.
 - **Tests:** `tests/unit/shared-hidden-subfolders.test.ts` (the set, the access in a call, the view, the writable
-  folder given entry by entry), `tests/unit/b-shared-hidden-subfolders.test.ts` (whole turns: list, glob, grep, read
+  folder and a read-only one with a writable folder inside given entry by entry, `.git` left out, the pins and the
+  guard, one refusal for writes), `tests/unit/b-shared-hidden-subfolders.test.ts` (whole turns: list, glob, grep, read
   with no card, the same words as a missing path, nothing for another viewer), `tests/unit/dev-env-shared-chat.test.ts`,
-  `tests/linux/srt-attack.ts` S16 and S9b/S9c.
+  `tests/linux/srt-attack.ts` S16, S17, S18 and S9b/S9c.
 - **Version impact:** patch.
