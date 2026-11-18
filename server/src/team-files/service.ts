@@ -7,7 +7,7 @@ import path from 'node:path'
 import type { FileChange, FileContent, FileEntry, FileHistoryEvent, FileVersion, FolderAudience, Page, SaveResult, TrashItem, TreeResponse, UserRef } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
-import { resetEngineSessions } from '../chat/runtime'
+import { forgetLiveViewers, resetEngineSessions } from '../chat/runtime'
 import { projectsRestored } from '../chat/project-restore'
 import { newId } from '../db'
 import { ext, isOffice } from '../files/extract'
@@ -1440,6 +1440,9 @@ export class TeamFiles {
       if (!rescued) throw new TrashStranded(r.rel, s.storage)
     }
     const followUp = () => {
+      // a team project's folder in the trash: nobody sees its shared chats; their running answers' live text works out
+      // who gets it again (chat/live-answer.ts)
+      if (isDir) { try { forgetLiveViewers(this.ctx) } catch { /* nothing running */ } }
       this.dropTextCache(r.rel, isDir)
       // whoever could read it and cannot see it in the trash either (they could restore it from there) lost it
       const t = this.trashRow(id)

@@ -7888,7 +7888,9 @@ export class MockServer {
       this.sharedWaitingPlaces = new Map()
       baseReset(o)
     }
-    // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
+    // the events of a shared chat: chat.updated to everyone who sees it (their own view); the answer's text, steps and
+    // end to everyone who sees it too (chat/live-answer.ts: a step without its detail, the end without usage); the rest
+    // (cards, queue positions) to the runner
     const basePublish = this.publish.bind(this)
     this.publish = (ev) => {
       const chatId = (ev.data as { chatId?: unknown }).chatId
@@ -7907,6 +7909,17 @@ export class MockServer {
         })
       }
       const to = s.runner ?? s.by.id
+      if (ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done') {
+        const p = project(s)
+        const sees = new Set(p ? this.sharedAudience(p).map((u) => u.id) : [])
+        return this.sharedSend((uid) => {
+          if (uid === to) return ev
+          if (!sees.has(uid)) return null
+          if (ev.type === 'message.step') { const { detail: _d, ...step } = ev.data.step; return { ...ev, data: { ...ev.data, step } } }
+          if (ev.type === 'message.done') return { ...ev, data: { ...ev.data, message: { ...ev.data.message, usage: null } } }
+          return ev
+        })
+      }
       return this.sharedSend((uid) => (uid === to ? ev : null))
     }
     const baseControl = this.testControl.bind(this)
@@ -8328,11 +8341,18 @@ export class MockServer {
       put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요' }) })
       text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
-    if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    const half = Math.ceil(text.length / 2)
+    // "hold": the first half is written before the answer waits, so the others see it as it is written
+    // (docs/decisions/20261118-shared-chat-live-answers.md)
+    const held = /hold/i.test(prompt) && !this.stopped.has(turnId)
+    if (held) {
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      assistant.content = text.slice(0, half)
+      await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    }
     if (gen !== this.generation) return
     if (!this.stopped.has(turnId)) {
-      const half = Math.ceil(text.length / 2)
-      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      if (!held) pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
       await sleep(30)
       pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: half, text: text.slice(half) } })
       assistant.content = text

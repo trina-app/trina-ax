@@ -622,6 +622,8 @@ export const chatsRoutes: RouteModule = {
         unfiled = dropChatFolderItems(ctx.db, [chat.id])
       })()
       chatFoldersChanged(ctx, unfiled)
+      // (an answer still ending there sends nobody else its live text: chat/live-answer.ts)
+      rt.forgetLiveViewers()
       if (a.shared && !a.creator) audit(ctx.db, { actor: auth.user.id, action: 'chat.delete', target: chat.id, detail: { shared: true, projectId: chat.project_id } })
       rt.publishChat(auth.user.id, chat.id, 'deleted')
       return { id: chat.id, deletedAt: now.toISOString(), purgeAt: new Date(now.getTime() + rt.chatTrashDays() * 86400_000).toISOString() }

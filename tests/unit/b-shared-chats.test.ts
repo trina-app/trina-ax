@@ -214,7 +214,7 @@ describe('who sees a shared chat', () => {
 
 // ---------------- turns are their sender's ----------------
 describe("each turn is its sender's", () => {
-  test("bob continues alice's chat: his turn, his usage, the chat's engine stays alice's; alice gets the chat, not his live answer", async () => {
+  test("bob continues alice's chat: his turn, his usage, the chat's engine stays alice's; alice gets his answer live, never his own things", async () => {
     const chat = await newShared()
     await ask('alice', chat.id, 'q1\n' + fake({ say: 'a1' }))
     const before = ws.alice!.frames.length
@@ -229,10 +229,14 @@ describe("each turn is its sender's", () => {
     expect(answerB.usage).not.toBeNull()
     expect(forAlice.find((m) => m.content.startsWith('q2 from bob'))?.author).toEqual({ id: 'bob', name: 'Bob Lee' })
     expect(db().query('SELECT engine FROM chats WHERE id = ?').get(chat.id)).toEqual({ engine: 'claude-code' })
-    // alice heard the chat change, never bob's text, steps or card
+    // alice heard the chat change and got bob's answer as it was written and when it ended, as she sees it (no usage;
+    // docs/decisions/20261118-shared-chat-live-answers.md); never his busy notice, queue position or card
     const later = ws.alice!.frames.slice(before)
     expect(later.some((f) => f.type === 'chat.updated' && f.data.chatId === chat.id)).toBe(true)
-    expect(later.some((f) => (f.type === 'message.delta' || f.type === 'message.step' || f.type === 'message.done' || f.type === 'message.created') && (f.data as { chatId: string }).chatId === chat.id)).toBe(false)
+    expect(later.some((f) => f.type === 'message.delta' && f.data.messageId === r.done.id)).toBe(true)
+    const doneForAlice = later.find((f) => f.type === 'message.done' && f.data.messageId === r.done.id) as Extract<ServerFrame, { type: 'message.done' }> | undefined
+    expect([doneForAlice?.data.message.content, doneForAlice?.data.message.usage]).toEqual(['a2 for bob', null])
+    expect(later.some((f) => (f.type === 'turn.busy' || f.type === 'queue.position' || f.type === 'turn.request' || f.type === 'message.created') && (f.data as { chatId: string }).chatId === chat.id)).toBe(false)
   })
 
   test('one turn at a time: 409 shared_chat_busy names the runner; only the runner stops it or sees its cards', async () => {

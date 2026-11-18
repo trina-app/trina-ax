@@ -118,6 +118,27 @@ export class Hub implements RealtimeHub {
     }
   }
 
+  /** One event to each of these people who has a window open now: a running answer's live text and steps to the others
+   * in a shared chat (chat/live-answer.ts). The event's data is serialized once for all of them. Someone with no open
+   * window gets nothing (nothing is buffered for them either): they read the chat over REST when they open it, and a
+   * window that resumes over a gap in the text reads it again (store/thread.ts applyDelta 'gap'). */
+  publishOpen(userIds: Iterable<string>, ev: ServerEventInput): void {
+    let data: string | null = null
+    for (const userId of userIds) {
+      if (!this.hasOpenWindow(userId)) continue
+      data ??= JSON.stringify(ev.data)
+      this.emit(userId, ev, null, data)
+    }
+  }
+
+  /** At least one ready window of this person. */
+  hasOpenWindow(userId: string): boolean {
+    const u = this.users.get(userId)
+    if (!u) return false
+    for (const s of u.sockets.values()) if (s.ready && !s.closed) return true
+    return false
+  }
+
   /** Mark a buffered browser.call as received by its window (not re-sent on resume). */
   ackBrowserCall(userId: string, callId: string) {
     const u = this.users.get(userId)
@@ -134,12 +155,13 @@ export class Hub implements RealtimeHub {
     return u
   }
 
-  private emit(userId: string, input: ServerEventInput, window: string | null): number {
+  private emit(userId: string, input: ServerEventInput, window: string | null, data?: string): number {
     const u = this.state(userId)
     const now = this.o.now()
     const seq = ++u.seq
     const ev = { ...input, seq, at: now } as ServerEvent
-    const json = JSON.stringify(ev)
+    // (publishOpen: the data serialized once for everyone it goes to; the frame is the same JSON)
+    const json = data !== undefined ? `{"type":${JSON.stringify(input.type)},"data":${data},"seq":${seq},"at":${now}}` : JSON.stringify(ev)
     this.remember(u, ev, window, json.length, now)
     this.expire(u, now)
     for (const s of u.sockets.values()) {
