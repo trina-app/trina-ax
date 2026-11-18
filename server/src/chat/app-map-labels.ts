@@ -49,7 +49,6 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "fileShare.stop": { ko: "공유 중지", en: "Stop sharing", id: "Hentikan berbagi", ja: "共有を停止", es: "Dejar de compartir", zh: "停止共享" },
   "common.undo": { ko: "실행 취소", en: "Undo", id: "Urungkan", ja: "元に戻す", es: "Deshacer", zh: "撤销" },
   "rooms.replyInThread": { ko: "스레드에서 답장", en: "Reply in thread", id: "Balas di utas", ja: "スレッドで返信", es: "Responder en el hilo", zh: "在话题中回复" },
-  "chat.thread.sendToAi": { ko: "{name}에게 보내기", en: "Send to {name}", id: "Kirim ke {name}", ja: "{name}に送る", es: "Enviar a {name}", zh: "发送给{name}" },
   "openApp.lineLink": { ko: "앱에서 열기", en: "Open the app", id: "Buka aplikasi", ja: "アプリで開く", es: "Abrir la app", zh: "打开应用" },
   "openApp.mac": { ko: "Mac 앱에서 계속", en: "Continue in the Mac app", id: "Lanjutkan di aplikasi Mac", ja: "Macアプリで続ける", es: "Continuar en la app de Mac", zh: "在 Mac 应用中继续" },
   "openApp.download": { ko: "앱 내려받기", en: "Download the app", id: "Unduh aplikasi", ja: "アプリをダウンロード", es: "Descargar la app", zh: "下载应用" },

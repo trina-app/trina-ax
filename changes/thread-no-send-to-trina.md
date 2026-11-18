@@ -1,0 +1,1 @@
+- The thread under an AI answer no longer has a "Send to Trina" row under the reply box. The AI still reads the thread when someone in the chat asks it to.
