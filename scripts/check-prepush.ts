@@ -1,8 +1,8 @@
 // `bun run check:prepush`: run before pushing a pull request. It runs the fast checks of CI's job "typecheck, docs,
 // native" (.github/workflows/ci.yml: typecheck, features:check, check:docs, check:migrations) with the base set to
-// origin/dev, plus the unit-test files that kept failing a CI round after a dev merge or a new tool: the i18n
-// completeness and voice rules, the product-name and Korean-literal rules, and the exact tool lists (CI runs those in its
-// unit shards). `check:i18n` is the one extra: CI covers it through i18n-completeness.test.ts, it names the key sooner. The native build and the other unit tests stay in CI.
+// origin/dev, plus the repo-wide guard tests (scripts/ci/guard-tests.ts: the i18n completeness and voice rules, the
+// product-name and Korean-literal rules, the exact tool lists, route coverage of the permission matrix, ...; CI runs the
+// same list on every pull request). `check:i18n` is the one extra: CI covers it through i18n-completeness.test.ts, it names the key sooner. The native build and the other unit tests stay in CI.
 //
 // - fetches origin/dev first; warns (never fails) when the branch is behind it ("merge origin/dev first");
 // - prints one hint line per failing step ("migration 410 is taken on dev, use 412");
@@ -12,25 +12,13 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse, MIGRATIONS_PATH, RANGES } from './check-migrations'
+import { GUARD_TESTS } from './ci/guard-tests'
 
 export const BASE = 'origin/dev'
 /** CI's Bun version (.github/workflows/ci.yml env BUN_VERSION). */
 export const CI_BUN = '1.3.12'
-/** Unit-test files run besides CI's static job: each failed a CI round more than once. */
-export const GUARD_TESTS = [
-  'tests/unit/i18n-completeness.test.ts', // every language has every text (and check:i18n's rules)
-  'tests/unit/i18n-languages.test.ts', // no Korean outside the screen-text tables
-  'tests/unit/product-name.test.ts', // no product name in code or comments: write <app>
-  'tests/unit/product-brand.test.ts',
-  'tests/unit/c-tools.test.ts', // exact tool lists: change them when a PR adds a tool
-  'tests/unit/i-wiring.test.ts',
-  'tests/unit/b-browser.test.ts',
-  // guards that failed batch CIs on 2026-11-17 though check:prepush was green (about 30 s together)
-  'tests/unit/c-reader-counters.test.ts', // every new access check or users/ shortcut is reviewed for folder shares
-  'tests/unit/a-account-removal-coverage.test.ts', // every new user-id column goes with a deleted account or is kept on purpose
-  'tests/unit/system-packages.test.ts', // no script pins a download of its own: scripts/system/packages.json
-  'tests/unit/ai-scenarios-catalog.test.ts', // every feature has a feature-scope line and, if the AI reaches it, a case
-]
+/** The repo-wide guard tests, one list shared with CI's pull request checks (scripts/ci/guard-tests.ts). */
+export { GUARD_TESTS }
 
 export interface Step { name: string, cmd: string[], env?: Record<string, string>, hint: (out: string) => string[] }
 
@@ -110,6 +98,7 @@ export function hintsFor(stepName: string, out: string): string[] {
     if (/counts readers|reviewed for folder shares/.test(out)) h.push('a new access check or users/ shortcut: add the file and its new count to REVIEWED in tests/unit/c-reader-counters.test.ts with the reason it is safe for folder shares (or go through files/share-readers.ts)')
     if (/user column is removed or kept|cleanup hook \(auth\/account-removal\.ts\)/.test(out)) h.push('a new table with a user id: add table.column to a cleanup hook (e.g. server/src/chat/account-cleanup.ts) or to KEPT_WITH_ACCOUNT in server/src/auth/account-removal.ts with the reason')
     if (/pins a download of its own/.test(out)) h.push('a script pins its own download: read it from scripts/system/packages.json, or add a narrow PINS_ALLOWED entry in tests/unit/system-packages.test.ts with the reason')
+    if (/routes with no matrix case/.test(out)) h.push('a new route: add a permission matrix case in tests/security/lib/*cases.ts (who may call it, aimed at something the wrong person must not reach) and its spread in tests/security/lib/cases.ts SPECS')
     if (/catalog does not hold together|has no line in tests\/ai-scenarios\/feature-scope\.ts|every feature the AI reaches has a case/.test(out)) h.push('a new feature in docs/features.ts: add its line to tests/ai-scenarios/feature-scope.ts and, for acts or explains, a case in tests/ai-scenarios/cases.yaml')
     if (/missing|placeholder|plural/i.test(out) && stepName === 'check:i18n') h.push('a text is missing in a language, or its {placeholders} differ: add it in all six languages (merge origin/dev first if a dev merge brought the key)')
   }
