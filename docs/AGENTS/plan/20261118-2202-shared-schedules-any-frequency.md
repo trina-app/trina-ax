@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 22:02
 - Branch: `feat/shared-schedules-any-frequency`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/chat/`, `server/src/tools/`, `web/src/`. Why: schedules, shared chats and their
   tools are core chat features (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, new schedule kinds and tools offered in shared chats
@@ -46,7 +46,7 @@ E. Any frequency
 
 ## Risks
 
-- Migration 424 (420, 421 and 423 are taken by open PRs). Additive columns only.
+- Migration 426 (420, 421, 423 and 424 are taken by open PRs). Additive columns only.
 - Security: a run in a shared chat must never skip a gate an ordinary turn has. Tested.
 
 ## Tests
@@ -57,4 +57,10 @@ light/dark.
 
 ## Result
 
-(filled in at the end)
+Built as planned. Differences: the migration is 426 (the lower numbers were taken by open PRs while this was built); a
+chat already shared with people stays changeable after a run posted in it. A real-AI check on a copy of the QA team: in
+a chat shared with a second person the AI made "every Monday and Thursday at 9:00" (`weekdays: [1, 4]`) and "the last
+day of each month at 18:00" (`day: "last"`) behind the card, which said the runs post there; "Run now" posted the
+summary in that shared chat as the maker; "every 2 hours, check my own folder" was declined by the AI because a run
+there skips a folder others cannot open. The tool text now says a run in a shared chat reads that chat (the AI first
+thought each run starts in a fresh chat).

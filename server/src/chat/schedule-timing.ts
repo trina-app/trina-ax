@@ -5,7 +5,7 @@
 // schedule (five fields, minute hour day-of-month month day-of-week, `L` = the last day of the month). No working
 // hours and no shortest interval: each run still passes the team's AI budget and runs of one task never overlap.
 //
-// Those are kept in `schedules.rule` (JSON, migration 424) without changing the `repeat` CHECK of migration 203. The
+// Those are kept in `schedules.rule` (JSON, migration 426) without changing the `repeat` CHECK of migration 203. The
 // old columns of such a task hold a one-time task in the past (STORED_PAST), so an older build after a rollback runs
 // it at most once more (its next time as stored) and then stops; it never runs it more often than asked.
 import { zonedParts, zonedToUtc } from '../system/time-zone'
