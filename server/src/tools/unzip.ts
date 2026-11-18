@@ -19,6 +19,10 @@
 // - An email file (.eml, .msg; QA TC-4920, docs/decisions/20261118-make-zip-and-mail-attachments.md): its attachments
 //   (files/mail-parts.ts) are its files, saved the same way; by default next to the email (no new folder), each under its
 //   own name, " (2)" when taken. The zip limits apply to the email and its attachments.
+// - A .tar, .tar.gz / .tgz (QA TC-5057, docs/decisions/20261118-tar-archives.md): read by files/tar.ts into the same
+//   plan (files/unzip.ts planEntries: the zip's path, link, junk, name and size rules), unpacked again in the slot for
+//   the extraction and checked against the planned bytes; each file is a range of the unpacked tar. A lone .gz is one
+//   file, saved next to it (as gunzip does).
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -32,6 +36,7 @@ import { readRegular } from '../files/store'
 import { detachPlan, inflateEntryToFile, MAIL_ENTRY, planZip, unzipSlot, UNZIP_ENTRIES_MAX, UNZIP_TOTAL_MAX, UNZIP_ZIP_MAX, UnsafeZip, type ZipPlan } from '../files/unzip'
 import { isMailFile, MailProblem, mailParts } from '../files/mail-parts'
 import { isZip, ZipProblem } from '../files/zip-guard'
+import { gunzipBounded, isGzip, isTar, planGz, planTar } from '../files/tar'
 import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { badSegment, instructionFileName } from '../policy/names'
@@ -48,12 +53,12 @@ import { turnWriteLimits } from '../files/turn-write-limits'
 
 type UnzipIn = z.output<typeof UnzipFileInput>
 
-export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip file in the team folder: its files and folders are saved into a folder, with their names kept ' +
+export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip, .tar, .tar.gz / .tgz or .gz file in the team folder: its files and folders are saved into a folder, with their names kept ' +
   '(Korean names too, also from zips made on Windows). By default a new folder next to the zip, named after it (" (2)" is added when the name is ' +
   'taken). Leave to_folder out for the usual "unzip it" / "unzip it here" ask; give it only when the user names another folder (made when missing). Nothing is ever saved over an existing file: a taken name gets " (2)". ' +
   'list_only: true lists what is inside without saving anything. For a zip the user attached in a chat (their .attachments folder), give to_folder ' +
   '(where they want the files). Password-protected, damaged or very large zips, and zips with unsafe paths, are refused and nothing is saved; links ' +
-  'and system junk (__MACOSX, .DS_Store) are left out. Other archive types (7z, rar, alz, egg, tar) cannot be opened here. ' +
+  'and system junk (__MACOSX, .DS_Store) are left out. A lone .gz becomes its one file, saved next to it. Other archive types (7z, rar, alz, egg, .tar.bz2, .tar.xz) cannot be opened here. ' +
   'An email file (.eml, .msg) works the same way for its attachments ("save the attachment", "take the PDF out of this email"): they are saved next to the email by default, under their own names.'
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
@@ -72,12 +77,25 @@ export interface UnzipResult {
   failed: { name: string; why: string }[]
   plan: ZipPlan
   listOnly: boolean
+  /** what was opened: a zip, a tar (also gzipped), one gzipped file, or an email */
+  kind?: ArchiveKind
+}
+
+type ArchiveKind = 'zip' | 'tar' | 'gz' | 'mail'
+/** the name of an archive's own folder: its file name without the archive ending */
+export const archiveStem = (name: string) => name.replace(/\.(tar\.gz|tgz|tar|zip)$/i, '')
+
+/** A range of bytes into a new file (made here, never there before), in 1 MiB writes. */
+function writeRange(dest: string, b: Uint8Array, off: number, len: number) {
+  const fd = fs.openSync(dest, 'wx', 0o600)
+  try { for (let p = 0; p < len;) p += fs.writeSync(fd, b, off + p, Math.min(1 << 20, len - p)) } finally { fs.closeSync(fd) }
 }
 
 /** The refusal of a zip that cannot be opened, in plain words (nothing was saved). */
-function zipRefusal(e: unknown, zip: string): ToolError | null {
+function zipRefusal(e: unknown, zip: string, kind: ArchiveKind = 'zip'): ToolError | null {
+  const noun = kind === 'zip' || kind === 'mail' ? 'zip' : 'archive'
   if (e instanceof MailProblem) return new ToolError(`the attachments of '${zip}' could not be taken out: ${e.message}, so nothing was saved. Tell the user in plain words`)
-  if (e instanceof UnsafeZip) return new ToolError(`'${zip}' was not unzipped: it has a file whose path points outside its folder (${e.entry.slice(0, 200)}), which a normal zip never has, so nothing was saved. Tell the user the zip looks unsafe and was not opened`)
+  if (e instanceof UnsafeZip) return new ToolError(`'${zip}' was not unzipped: it has a file whose path points outside its folder (${e.entry.slice(0, 200)}), which a normal ${noun} never has, so nothing was saved. Tell the user the ${noun} looks unsafe and was not opened`)
   if (!(e instanceof ZipProblem)) return null
   if (e.kind === 'busy') return new ToolError(`the server is unzipping other files right now, so '${zip}' was not unzipped and nothing was saved. Tell the user in plain words to try again in a moment`, 'busy')
   if (e.kind === 'encrypted') return new ToolError(`'${zip}' is password-protected, so it cannot be unzipped here and nothing was saved. Tell the user; they can unzip it on their computer with the password and upload the files`)
@@ -100,13 +118,26 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const readZip = () => {
     const bytes = readRegular(src.abs, UNZIP_ZIP_MAX, checkRegular(src.abs)).bytes
     ctx.files.quarantine.assertBytes(bytes)
-    if (!mail && !isZip(bytes)) {
+    if (!mail && !isZip(bytes) && !isGzip(bytes) && !isTar(bytes)) {
       const kind = ext(zipName)
-      throw new ToolError(['7z', 'rar', 'alz', 'egg', 'tar', 'gz', 'tgz', 'bz2', 'xz'].includes(kind)
-        ? `'${src.rel}' is a .${kind} archive; only .zip files can be unzipped here. Nothing was saved. Tell the user; they can unzip it on their computer or save it as a .zip`
+      throw new ToolError(['7z', 'rar', 'alz', 'egg', 'bz2', 'xz', 'tbz', 'tbz2', 'txz', 'zst', 'lz', 'lzma', 'cab', 'iso'].includes(kind)
+        ? `'${src.rel}' is a .${kind} archive; only .zip, .tar, .tar.gz / .tgz and .gz files can be unzipped here. Nothing was saved. Tell the user; they can unzip it on their computer or save it as a .zip`
+        : ['tar', 'gz', 'tgz'].includes(kind) ? `'${src.rel}' is named .${kind} but is not a .${kind} file (it may be damaged), so it cannot be unzipped. Nothing was saved`
         : `'${src.rel}' is not a zip file, so it cannot be unzipped`)
     }
     return bytes
+  }
+  /** what the archive is and the bytes its plan's ranges point into: a gzip unpacked (bounded), the tar itself, or
+   * the zip / email as read */
+  let kind: ArchiveKind = mail ? 'mail' : 'zip'
+  const unpack = async (bytes: Buffer): Promise<{ kind: ArchiveKind; data: Uint8Array }> => {
+    if (mail) return { kind: 'mail', data: bytes }
+    if (isZip(bytes)) return { kind: 'zip', data: bytes }
+    if (isGzip(bytes)) {
+      const out = await gunzipBounded(bytes, c.signal)
+      return { kind: isTar(out) ? 'tar' : 'gz', data: out }
+    }
+    return { kind: 'tar', data: bytes }
   }
   const slot = async () => { try { return await unzipSlot(c.signal) } catch (e) { c.signal?.throwIfAborted(); throw zipRefusal(e, src.rel) ?? e } }
   let plan: ZipPlan
@@ -114,24 +145,29 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   {
     const release = await slot()
     try {
-      const bytes = readZip()
-      sha = crypto.createHash('sha256').update(bytes).digest('hex')
+      const raw = readZip()
+      sha = crypto.createHash('sha256').update(raw).digest('hex')
       try {
+        const u = await unpack(raw)
+        kind = u.kind
+        const bytes = u.data
         // one folder around everything is dropped when it would be doubled: by default (the new folder is named after
         // it), and when to_folder already ends in that name ("…/계약-묶음" for a zip of "계약-묶음/…", QA TC-4865)
-        if (mail) plan = mailPlan(bytes, zipName)
+        if (kind === 'mail') plan = mailPlan(bytes, zipName)
+        else if (kind === 'gz') plan = planGz(zipName, bytes.length)
         else {
-          let p = planZip(bytes)
+          const planOf = kind === 'tar' ? planTar : planZip
+          let p = planOf(bytes)
           const same = (x: string, y: string) => x.normalize('NFC').toLowerCase() === y.normalize('NFC').toLowerCase()
-          if (toFolder !== null && p.top && !same(p.top, toFolder.split('/').at(-1) ?? '')) p = planZip(bytes, { unwrap: false })
+          if (toFolder !== null && p.top && !same(p.top, toFolder.split('/').at(-1) ?? '')) p = planOf(bytes, { unwrap: false })
           plan = detachPlan(p)
         }
-      } catch (e) { throw zipRefusal(e, src.rel) ?? e }
+      } catch (e) { throw zipRefusal(e, src.rel, kind) ?? e }
     } finally { release() }
   }
   // its names go to the model: the zip counts as read in this chat (also when nothing is saved)
   c.files.readPaths.add(src.rel)
-  const base: UnzipResult = { zip: src.rel, folder: '', newFolder: false, saved: [], folders: [], failed: [], plan, listOnly: !!a.list_only }
+  const base: UnzipResult = { zip: src.rel, folder: '', newFolder: false, saved: [], folders: [], failed: [], plan, listOnly: !!a.list_only, kind }
   if (a.list_only) return base
   if (mail && !plan.files.length) throw new ToolError(`'${src.rel}' has no attachments to save${plan.skipped.length ? ` (${plan.skipped.slice(0, 5).map((s) => `${s.name}: ${s.why}`).join('; ')})` : ''}${plan.junk ? `; ${plan.junk} picture${plan.junk === 1 ? ' is' : 's are'} only shown inside the email's text` : ''}; nothing was saved`)
   if (!plan.files.length && !plan.folders.length) throw new ToolError(`'${src.rel}' has no files to unzip${plan.skipped.length ? ` (left out: ${plan.skipped.slice(0, 5).map((s) => `${s.name}: ${s.why}`).join('; ')})` : ''}; nothing was saved`)
@@ -166,13 +202,13 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     if (t.exists && !t.st!.isDirectory()) throw new ToolError(`'${t.rel}' is a file, not a folder`, 'not_folder')
     folder = t.rel
     newFolder = !t.exists
-  } else if (mail) {
-    // an email's attachments go next to it (no new folder for one or two files)
+  } else if (mail || kind === 'gz') {
+    // an email's attachments go next to it (no new folder for one or two files), and a lone .gz's one file
     folder = src.segs.slice(0, -1).join('/')
     newFolder = false
   } else {
     const parent = src.segs.slice(0, -1)
-    let name = (plan.top ?? zipName.replace(/\.zip$/i, '')).trim().replace(/[. ]+$/, '')
+    let name = (plan.top ?? archiveStem(zipName)).trim().replace(/[. ]+$/, '')
     if (!name || badSegment(name)) name = 'unzipped'
     name = freeName(path.join(fx.root, ...parent), name, true)
     folder = [...parent, name].join('/')
@@ -254,12 +290,17 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   // the zip again, in a slot, for the extraction; the same bytes as planned (it may have been saved over during the card)
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
   let release: (() => void) | null = null
-  let bytes: Buffer | null = null
+  let bytes: Uint8Array | null = null
   let mailNow: ReturnType<typeof mailParts> | null = null
   try {
     release = await slot()
-    bytes = readZip()
-    if (crypto.createHash('sha256').update(bytes).digest('hex') !== sha) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
+    const raw = readZip()
+    if (crypto.createHash('sha256').update(raw).digest('hex') !== sha) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
+    try {
+      const u = await unpack(raw)
+      if (u.kind !== kind) throw new ToolError(`'${src.rel}' changed while this call waited, so nothing was saved. Unzip it again`)
+      bytes = u.data
+    } catch (e) { throw zipRefusal(e, src.rel, kind) ?? e }
     // and the audiences once more, with no wait since the slot: a rule or share changed after the last card (or while
     // this call waited for the slot) refuses the call rather than saving where no card asked (QA TC-4854)
     for (const [k, segs] of ordered) {
@@ -290,6 +331,10 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
           const part = mailNow.attachments[f.part]
           if (!part) throw new ToolError('the attachment is no longer in the email')
           fs.writeFileSync(tmp, part.data, { flag: 'wx', mode: 0o600 })
+        } else if (f.data) {
+          // a tar's file: its range of the unpacked archive (readTar checked it lies inside), the planned size
+          if (f.data.off + f.data.len > bytes.length || f.data.len !== f.size) throw new ZipProblem('damaged', 'a part is not where the archive said')
+          writeRange(tmp, bytes, f.data.off, f.data.len)
         } else await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
         const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}), ...(instructionFileName(want) ? { instruction: true as const } : {}) })

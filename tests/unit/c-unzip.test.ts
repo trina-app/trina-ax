@@ -270,7 +270,7 @@ describe('refused, nothing saved', () => {
     await nothing('cut.zip', good.subarray(0, good.length - 10), /damaged/)
     await nothing('bomb.zip', zip([{ name: 'zeros.bin', data: Buffer.alloc(30 * 1024 * 1024) }]), /too large or too complex.*expands more than 100 times/)
     await nothing('huge.zip', zip([{ name: 'big.bin', data: 'x', usize: 300 * 1024 * 1024 }]), /too large or too complex/)
-    await nothing('rar.rar', Buffer.from('Rar!\x1a\x07\x00 not really'), /only \.zip files can be unzipped/)
+    await nothing('rar.rar', Buffer.from('Rar!\x1a\x07\x00 not really'), /only \.zip, \.tar, \.tar\.gz \/ \.tgz and \.gz files can be unzipped/)
     // the header says 5 bytes, the data inflates to more: that file is not saved
     const r = await turn('alice')('unzip_file', { path: (put(`${D}/bad/liar.zip`, zip([{ name: 'liar.txt', data: 'much more than five', usize: 5 }])), `${D}/bad/liar.zip`) })
     expect(r.isError).toBe(true)
