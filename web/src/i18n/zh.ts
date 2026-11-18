@@ -2579,6 +2579,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.project.adopted": "没有项目的文件夹变成了项目",
   "audit.act.project.share_chats": "项目对话共享设置已更改",
   "audit.act.chat.shared_read": "共享对话读取检查",
+  "audit.act.chat.shared_connection": "共享对话的连接服务确认",
   "audit.act.chat.delete": "共享对话已删除",
   "audit.act.chat.share": "共享了对话",
   "audit.act.chat.side_chat_unshared": "聊天旁的对话已移出项目",
