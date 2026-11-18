@@ -33,6 +33,7 @@ import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
 import { LanguageSelect } from '../../components/LanguageSelect'
 import { PhoneListGroup, PhoneListRow } from '../../components/phone/PhoneList'
+import { PhonePickSheet, useDevicePick } from '../../components/DevicePick'
 import { PhoneChoiceRow, phoneNumberCls } from '../../components/phone/PhoneChoice'
 import { AdminPageHeader, BarTitleProvider, FlatCardsProvider, Loadable, SettingRow, SettingsSection, useAction, useLoad } from './common'
 import { safeHash, teamSettingsGroup, teamSettingsGroups } from './teamSettingsGroups'
@@ -249,6 +250,7 @@ export default function TeamSettingsPage() {
                         <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                         <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
                         <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                        <LocalAppsSwitch value={f.localApps !== false} onChange={(v) => setF({ ...f, localApps: v })} />
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
@@ -342,6 +344,9 @@ export function TeamIconRow() {
       setBusy(null)
     }
   }
+  // a phone: the upload row opens our sheet's device rows (components/DevicePick.tsx), never iOS's raw menu
+  const device = useDevicePick({ onFiles: (f) => { if (f[0]) void upload(f[0]) }, accept: TEAM_ICON_TYPES.join(','), camera: false, testIds: 'team-icon', off: busy !== null })
+  const [sheet, setSheet] = useState(0)
   const remove = async () => {
     if (!(await confirmDialog({ title: t('teamIcon.removeTitle'), body: t('teamIcon.removeBody'), confirm: t('teamIcon.removeConfirm'), danger: true }))) return
     setError(null)
@@ -384,11 +389,12 @@ export function TeamIconRow() {
           // upload icon, the words and the logo now on the right; "back to the default" a row under it
           <>
             <ul className="-mx-4 flex-1 border-y border-line" data-testid="team-icon-rows">
-              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => input.current?.click()} disabled={busy !== null} testId="team-icon-upload"
+              <PhoneListRow icon={<Upload size={16} />} title={version ? t('teamIcon.replace') : t('teamIcon.upload')} onClick={() => setSheet((n) => n + 1)} disabled={busy !== null} testId="team-icon-upload"
                 end={busy === 'upload' ? spinner : <img src={logoSrc} alt="" width={32} height={32} className="size-8 shrink-0 rounded-lg border border-line object-cover" />} />
               {version && <PhoneListRow icon={<RotateCcw size={16} />} title={t('teamIcon.remove')} onClick={() => void remove()} disabled={busy !== null} testId="team-icon-remove" end={busy === 'remove' ? spinner : undefined} />}
             </ul>
             {fileInput}
+            <PhonePickSheet pick={device} heading={t('teamIcon.title')} request={sheet} focusBack={() => document.querySelector<HTMLElement>('[data-testid="team-icon-upload"]')?.focus()} testId="team-icon-sheet" />
           </>
         ) : (
           <span className="inline-flex flex-wrap items-center gap-2">
@@ -553,6 +559,14 @@ export function WebAllowAllSwitch({ value, parentOn, onChange }: { value: boolea
 export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return <SwitchRow id="ts-personal-integrations" testId="team-personal-integrations" value={value} onChange={onChange} title={t('teamSettings.personalIntegrations')} desc={t('teamSettings.row.personalIntegrationsDesc')} more={t('teamSettings.personalIntegrationsHint')} />
+}
+
+/** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a program on
+ * their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added, the ones there
+ * are not used. */
+export function LocalAppsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return <SwitchRow id="ts-local-apps" testId="team-local-apps" value={value} onChange={onChange} title={t('teamSettings.localApps')} desc={t('teamSettings.row.localAppsDesc')} more={t('teamSettings.localAppsHint')} />
 }
 
 /** "Send images, PDF pages and video frames to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no

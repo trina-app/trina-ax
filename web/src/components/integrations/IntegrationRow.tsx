@@ -9,9 +9,9 @@ import { Link } from 'react-router-dom'
 import { adminAllowsDomains } from '@mycel/shared'
 import type { Group, Integration, IntegrationAccess, IntegrationFlow, User } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError } from '../../lib/api'
-import { closeSignInReturn, openSignInReturn } from '../../lib/desktop'
+import { closeSignInReturn, desktop, openSignInReturn } from '../../lib/desktop'
 import { mobileApp } from '../../lib/mobile'
-import { audienceOf, authorizationUrl, flowReasonKey, signInReturnHost } from '../../lib/integrations'
+import { audienceOf, authorizationUrl, awayFromComputer, flowReasonKey, signInReturnHost } from '../../lib/integrations'
 import { openSignInWindow, reserveSignInWindow as reserveWindow, signInPlace } from '../../lib/driveSignIn'
 import { useLocale, useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
@@ -283,6 +283,8 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     if (!ok) return
     try {
       await api.call(API.deleteIntegration, { params: { id: i.id } })
+      // an app on this computer: its program ends with it
+      if (i.kind === 'local') desktop()?.localApps?.stop(i.id)
       toast({ level: 'success', text: t('integrations.deleted') })
       reload()
     } catch (e) {
@@ -304,7 +306,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     if (created && i.scope === 'personal' && i.auth === 'oauth') reload()
     if (next && i.status === 'needs_auth') return void signIn.start(i.id, next.window)
     next?.window?.close()
-    if (i.status === 'error') toast({ level: 'warn', text: t('integrations.savedWithError') })
+    if (i.status === 'error' && !awayFromComputer(i)) toast({ level: 'warn', text: t('integrations.savedWithError') })
     else if (i.status === 'needs_auth') toast({ level: 'info', text: t('integrations.savedNeedsSignIn') })
     else toast({ level: 'success', text: created ? t('integrations.connected') : t('common.saved') })
   }

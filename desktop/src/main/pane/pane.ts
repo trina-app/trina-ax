@@ -29,6 +29,7 @@ import { BROWSER_TOOLS, IN_APP_BROWSER_UA_MARK, PRODUCT, WEB_ALLOW_ALL_WARNING_V
 import { blockedMessage, blockedUrl, type BlockReason } from '../../common/browser-block'
 import { isBlankPage, RUNS_AI_SCRIPT } from '../../common/net-policy'
 import { paneGrab } from '../../common/pane-width'
+import { externalUrl } from '../../common/pane-chrome'
 import { HostClassifier } from './classify'
 import { installNetGuard, stopIfRebound } from './net-guard'
 import { clearSessionData, type ClearResult } from '../clear-session'
@@ -308,6 +309,17 @@ export class BrowserPane {
 
   private emitPrompts() {
     this.host.onPrompts(this.prompts.map(({ id, scope, host, url, tool, hint }) => ({ id, scope, host, url, tool, ...(hint ? { hint } : {}) })))
+  }
+
+  /** The toolbar's page loaded again (app-window.ts): the questions waiting for the person are told once more. */
+  resendPrompts() {
+    this.emitPrompts()
+  }
+
+  /** The address of the tab on screen for the person's own browser (http/https only), or null. */
+  externalUrl(): string | null {
+    const t = this.activeTab()
+    return t && !t.popup && !t.wc.isDestroyed() ? externalUrl(t.wc.getURL()) : null
   }
 
   /** Log what happened; `topLevel`: it stopped a whole page load (decides whether it is shown over the page). */

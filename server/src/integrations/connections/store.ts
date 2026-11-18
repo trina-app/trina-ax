@@ -12,6 +12,7 @@ import { audit } from '../../admin/audit'
 import { getTeamSettings } from '../../admin/settings'
 import type { RemoteTool } from './mcp'
 import { reasonText } from './text'
+import { kindOf, localOn, localSpecOf } from './local'
 
 export interface Row {
   id: string; scope: 'personal' | 'team'; owner_user_id: string | null; created_by: string | null
@@ -38,6 +39,10 @@ export interface Row {
   /** a person's own Gmail, Calendar, Docs or Sheets (migration 341, google-apps/): its calls go only to the library on
    * this machine, it is hidden from the generic list, and the app's team switch decides whether it may be used */
   google_app?: GoogleAppId | null
+  /** an app on its owner's computer (migration 364, local.ts): the LocalAppSpec as JSON; its calls go only through the
+   * local relay to the owner's desktop window, and the team's switches for members' own connections and for apps on
+   * the computer decide whether it may be used */
+  local_app?: string | null
 }
 
 /** what is not secret about an own app (integrations.oauth_client, integration_templates.oauth_client). foundTokenUrl:
@@ -185,8 +190,8 @@ const personalOn = (db: Database) => getTeamSettings(db).personalIntegrations
 /** A member's own connection the team's switch for members' own connections ("Members can add their own connections")
  * turns off now: not one made from an admin's template, not a Google app (those keep working, store.ts mayUse). It stays
  * saved but is not used in chats, and it is not signed in again while the switch is off (QA TC-2930). */
-export function offByTeam(db: Database, row: Pick<Row, 'scope' | 'template_id' | 'google_app'>): boolean {
-  return row.scope === 'personal' && !row.template_id && !row.google_app && !personalOn(db)
+export function offByTeam(db: Database, row: Pick<Row, 'scope' | 'template_id' | 'google_app' | 'local_app'>): boolean {
+  return row.scope === 'personal' && !row.template_id && !row.google_app && (!personalOn(db) || (!!row.local_app && !localOn(db)))
 }
 
 /** May this (active) person use the connection in their chats now? Personal: only its owner, only while the team
@@ -199,6 +204,9 @@ export function mayUse(db: Database, row: Row, userId: string): boolean {
   // an admin shared with the team for an app (scope 'team', migration 349) follows the team rule below like any team
   // connection
   if (row.google_app && row.scope === 'personal') return row.owner_user_id === userId
+  // an app on its owner's computer: only its owner (never a team connection: a row that says otherwise is used by
+  // nobody), while the team allows members' own connections and apps on the computer
+  if (row.local_app) return row.scope === 'personal' && row.owner_user_id === userId && !row.template_id && personalOn(db) && localOn(db)
   if (row.scope === 'personal') return row.owner_user_id === userId && (row.template_id ? templateCovers(db, row.template_id, userId) : personalOn(db))
   return !!db.query(`SELECT 1 FROM integration_access a WHERE a.integration_id = ? AND (a.subject_type = 'everyone'
     OR (a.subject_type = 'user' AND a.subject_id = ?)
@@ -254,9 +262,10 @@ export function usable(db: Database, userId: string): Row[] {
   if (!activeUser(db, userId)) return []
   // a member's own connections while the team allows them; the ones made from an admin's template while it covers them
   const on = personalOn(db)
+  const local = on && localOn(db)
   const personal = (db.query(`${selectRows(db)} WHERE scope = 'personal' AND owner_user_id = ? ORDER BY name, id`).all(userId) as Row[])
-    .filter((r) => (r.google_app ? true : r.template_id ? templateCovers(db, r.template_id, userId) : on))
-  const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(db, r, userId))
+    .filter((r) => (r.local_app ? local && !r.template_id : r.google_app ? true : r.template_id ? templateCovers(db, r.template_id, userId) : on))
+  const team = (db.query(`${selectRows(db)} WHERE scope = 'team' ORDER BY name, id`).all() as Row[]).filter((r) => !r.local_app && mayUse(db, r, userId))
   return [...personal, ...team]
 }
 
@@ -305,7 +314,8 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
   const creator = row.created_by ? db.query('SELECT id, name FROM users WHERE id = ?').get(row.created_by) as { id: string; name: string } | null : null
   return {
     // made from an admin's template: the bare address even to its member (a query there is the admin's, never theirs)
-    id: row.id, scope: row.scope, kind: row.kind, name: row.name, slug: row.slug, url: manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
+    // an app on the computer has no address (its url is a placeholder, local.ts): its command is `local`
+    id: row.id, scope: row.scope, kind: kindOf(row), name: row.name, slug: row.slug, url: row.local_app ? '' : manage && !row.template_id ? row.url : bareUrl(row.url), auth: row.auth, authHeader: row.auth_header,
     hasSecret: !!row.secret_enc, account: row.account, notes: row.notes, writePolicy: row.write_policy, status: row.status,
     // in words this reader can act on: a member on a team connection, or on the address of one made from a team template
     // (an admin changes it there), is told to tell an admin (QA TC-235)
@@ -322,6 +332,7 @@ export function view(db: Database, row: Row, viewer: Viewer, locale: Locale): In
     // the app's ID and addresses are for whoever manages the connection (a template's app is the admin's)
     oauthClient: manage && !row.template_id ? clientView(row.oauth_client, row.oauth_client_enc, row.url) : null,
     // the viewer's own Always allow on a team connection, while its address is the one they chose it for (tools.ts gate)
+    ...(manage && row.local_app ? ((spec) => (spec ? { local: spec } : {}))(localSpecOf(row)) : {}),
     ...(row.scope === 'team' ? { alwaysAllowedByMe: (db.query('SELECT url FROM integration_user_allow WHERE integration_id = ? AND user_id = ?').get(row.id, viewer.id) as { url: string } | null)?.url === row.url } : {}),
   }
 }

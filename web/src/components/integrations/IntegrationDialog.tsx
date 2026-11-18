@@ -20,7 +20,7 @@
 import clsx from 'clsx'
 import { Check, ChevronRight, Copy, Plus, Search, TriangleAlert, UserPlus } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
-import type { Group, Integration, IntegrationAccess, IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
+import type { Group, Integration, IntegrationAccess, RemoteIntegrationKind as IntegrationKind, IntegrationTemplate, IntegrationTemplatePatch, User, WritePolicy } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { connectorLogo, type Connector } from '../../lib/connectors'
 import {
