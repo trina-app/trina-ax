@@ -229,8 +229,11 @@ describe('NarrationHold', () => {
       expect(run(ko(), [{ text: READ_ONLY_LINE + '\n\n' + KO_ANSWER }, 'end'], n), String(n)).toBe(KO_ANSWER)
       expect(run(ko(), [{ text: READ_ONLY_LINE + '\n' + KO_ANSWER }, 'tool', { text: '\n\n끝.' }, 'end'], n), String(n)).toBe(KO_ANSWER + '\n\n끝.')
     }
-    for (const line of ['I should call the tool and let the server decide.', 'The folder is marked as read-only; just call the tool.', 'I need to try the write; the server decides.'])
+    for (const line of ['I should call the tool and let the server decide.', 'The folder is marked as read-only; just call the tool.', "I'll just try the tool and see."])
       expect(run(ko(), [{ text: line + '\n\n' + KO_ANSWER }, 'end']), line).toBe(KO_ANSWER)
+    // review of #1272: report lines above Korean text stay (only a status opening or thinking aloud about the tool goes)
+    for (const top of ['No files found.', 'Two rows were added.', 'The server checks the token.', 'The server decides the retry policy.', 'Use this tool for invoices.', 'I need to call the vendor.', 'Read me first'])
+      for (const n of [1, 7, 500]) expect(run(ko(), [{ text: top + '\n\n' + KO_ANSWER }, 'end'], n), top).toBe(top + '\n\n' + KO_ANSWER)
     // a status line at the top of the answer goes the same way; content at the top stays
     expect(run(ko(), [{ text: 'Let me check the folder.\n\n' + KO_ANSWER }, 'end'])).toBe(KO_ANSWER)
     for (const top of ['Q3 Sales Report', 'Dear Ms. Kim, thank you for the order.', 'Let me know if anything is missing.', 'Total: 42 files'])

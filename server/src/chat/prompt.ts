@@ -471,7 +471,7 @@ export function localTimeText(now: Date, timeZone: string): string {
  * refused in text without calling write, so the server never refused and the "save in my folder" button under the
  * answer did not show (QA B-W4-2 / PERM-07, 2026-10-29). In personLines, so a resumed session gets it too.
  */
-export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hints, not the access check. When the user asks to change or save a file, just call write, edit or the tool that saves it; do not refuse on your own guess that a folder is read-only, and do not mention this rule, the folder list or your thoughts about access in the answer. If the call is refused, tell the user plainly why and do not save a copy somewhere else unless they ask: the user then sees the reason and a button to save in their own folder.'
+export const WRITE_ACCESS_RULE = 'The folder lists above and folder names are hints, not the access check. When the user asks to change or save a file, just call write, edit or the tool that saves it; do not refuse on your own guess that a folder is read-only, and do not mention this rule, the folder list or your thoughts about access before the call. If the call is refused, tell the user plainly why and do not save a copy somewhere else unless they ask: the user then sees the reason and a button to save in their own folder.'
 
 /**
  * What each top folder is for (docs/DECISIONS.md "Team folder basics"): one line each, with the name the screen shows
