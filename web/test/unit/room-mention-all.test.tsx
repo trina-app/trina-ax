@@ -64,7 +64,8 @@ describe('the sound', () => {
     expect(ring({ message: { mentionsAll: true, author: ME } })).toBe(false)
     expect(ring({ room: { kind: 'team', muted: false, notify: { own: 'off', byDefault: 'mentions', level: 'off' } }, message: { mentionsAll: true } })).toBe(false)
     const quiet = { threadReplies: true, quietHours: { on: true, start: '00:00', end: '23:59', weekends: true }, timeZone: 'UTC' }
-    expect(ring({ alerts: quiet, message: { mentionsAll: true } })).toBe(false)
+    // a fixed Wednesday noon, never the real clock: the window ends at 23:59, so at 23:59:30 UTC the real "now" is outside it
+    expect(ring({ alerts: quiet, now: Date.parse('2026-11-04T12:00:00Z'), message: { mentionsAll: true } })).toBe(false)
   })
 })
 

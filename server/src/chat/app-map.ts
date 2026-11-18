@@ -44,6 +44,9 @@ export interface AppMapInput {
   devEnv: boolean
   /** an office Mac (config.office): admins see System's updates there too (web systemGroups.ts `office`) */
   office: boolean
+  /** this person may pick their own AI and model for new chats (admin/engine-choice.ts canChooseEngine; an owner or
+   * admin always may); not known (a shared chat, whose map says nothing about the asker): "if allowed" */
+  pickModel?: boolean
 }
 
 /** What the dev environment does, in everyday words: "server" and "programs" came back in answers to members (AI
@@ -89,14 +92,16 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
-    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name; own AI and model, if allowed), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
+    // the person's own AI and model only for someone who may pick one: a member read "if allowed" and told the asker
+    // Profile might let them (CON-07.member, dev f394c9258 rerun 2026-11-17)
+    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name${o.pickModel === undefined ? '; own AI and model, if allowed' : o.pickModel ? '; own AI and model for new chats' : ''}), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
     `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
     `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
     `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; on a Mac ${q('meeting.entry')} (team voice input on: no bot joins, asks first, ${q('meeting.stop')} anytime, sound not kept, a line to tell the call, notes saved every 2 min in ${MEETINGS_LABEL[L]}; the AI cannot listen or start it); in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
-    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}, so nobody can turn it on`}).`)
+    lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, ${o.pickModel === false ? 'who may pick their own AI model, ' : ''}system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}, so nobody can turn it on`}).`)
     return lines.join('\n')
   }
   lines.push(
