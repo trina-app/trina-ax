@@ -20,6 +20,7 @@ import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-hon
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
 export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null; setBy?: 'admin' }
 
+/** rounds of one answer when the caller gives none (a chat turn gives the team's answerStepLimit, chat/turn.ts) */
 const MAX_STEPS = 30
 /** characters of one tool result the model gets (toolContent); a longer result is cut (chat/prompt.ts SKILL_TOOL_LIMIT) */
 export const TOOL_OUTPUT_MAX = 30_000
@@ -275,7 +276,7 @@ export function toolContent(out: string, links: string[]): string {
 
 /**
  * Run one turn: system prompt + the message, the turn's tools offered as functions, tool calls answered through `rpc`
- * (the MCP handler), until the model answers without tools (or 30 rounds: then a 'limit' event). Events go to `emit`
+ * (the MCP handler), until the model answers without tools (or maxSteps rounds, the team's limit in a chat turn: then a 'limit' event). Events go to `emit`
  * like a parsed engine's.
  * A failed tool call (error result, bad arguments, or a handler that throws) goes back to the model as the tool's
  * answer and the loop goes on, so the model can correct the call (QA B-API-1). Team-file links in the answer must

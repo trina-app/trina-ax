@@ -1338,7 +1338,10 @@ export class TurnExec {
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
       try {
+        // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
+        // it was a fixed 30)
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
+          maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
