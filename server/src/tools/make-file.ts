@@ -38,6 +38,7 @@ import path from 'node:path'
 import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
 import { finishDocx, markTextColors, type TextMark } from './docx-format'
+import { checkOfficePackage, stripUnsafeLinks } from './office-links'
 import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
 import { svgToPng, SVG_MAX, SVG_RSS_MIB } from './svg-png'
 import type { z } from 'zod'
@@ -79,7 +80,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; linksRemoved?: string[] }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -334,6 +335,8 @@ export class MakeFile {
       /** docx: the text colours the document uses (docx-format.ts) */
       let marks = new Map<string, TextMark>()
       let svgPictures = 0
+      /** link targets that became plain text (office-links.ts) */
+      let linksRemoved: string[] = []
       if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
@@ -357,6 +360,8 @@ export class MakeFile {
           const ast = JSON.parse(got.bytes.toString('utf8'))
           // raw markup for the writer (`...`{=openxml}) would go into the file as it is: refused (TC-4941)
           checkRawMarkup(ast)
+          // a link to anything but a web page, a mail address or a place in the document becomes its text (TC-4949)
+          linksRemoved = stripUnsafeLinks(ast)
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
@@ -390,17 +395,27 @@ export class MakeFile {
           }
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
           if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
-          // docx: text colours, page, header and footer (docx-format.ts), written under a name pandoc could not plant
-          if (a.format === 'docx' && (marks.size || a.page)) {
+          // docx: text colours, page, header and footer (docx-format.ts); docx and pptx: no link or reference out of
+          // the file but to the web and mail, whoever wrote it (a template too; office-links.ts, TC-4949). Written
+          // under a name pandoc could not plant.
+          if (a.format === 'docx' || a.format === 'pptx') {
             const got = readOutput(work, path.basename(produced), MAX_DOCX)
             if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
-            const finished = path.join(work, freshName(work, 'finished', 'docx'))
-            fs.writeFileSync(finished, finishDocx(new Uint8Array(got.bytes), marks, a.page), { flag: 'wx', mode: 0o600 })
-            produced = finished
+            let bytes: Uint8Array = new Uint8Array(got.bytes)
+            const finish = a.format === 'docx' && (marks.size || a.page)
+            if (finish) bytes = finishDocx(bytes, marks, a.page)
+            const checked = checkOfficePackage(bytes, a.format, a.template ? `the file (with the template ${a.template})` : 'the file')
+            if (finish || checked.changed) {
+              const finished = path.join(work, freshName(work, 'finished', a.format))
+              fs.writeFileSync(finished, checked.bytes, { flag: 'wx', mode: 0o600 })
+              produced = finished
+            }
           }
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
+      // xlsx: exceljs writes no link from the cells, and HYPERLINK formulas are refused; checked all the same (TC-4949)
+      if (a.format === 'xlsx') checkOfficePackage(new Uint8Array(readRegular(produced, MAX_DOCX).bytes), 'xlsx')
       // the slides that were really made, checked before the person is asked anything or a file is placed
       let deck: Deck | undefined
       if (a.format === 'pptx') {
@@ -411,7 +426,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}) }
+      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}) }
       return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
