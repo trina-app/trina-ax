@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 15:17
 - Branch: `fix/chat-live-and-reload`
-- Status: in progress
+- Status: done
 - Where: Team AX core: `server/src/chat/turn.ts`, `server/src/chat/store.ts`, `server/src/chat/runtime.ts` (live text
   of shared chats), `web/src/lib/stickToBottom.ts` and `web/src/pages/Chat.tsx` (reload), `web/src/pages/Room.tsx` and
   `web/src/components/rooms/SideChatPanel.tsx` (side chat). Why: chats, permissions and the room side chat are core.
@@ -38,8 +38,8 @@ Out: live artifact previews for the others (they see the artifact when it is sav
    the chat, built by `messageFor` for them.
 2. `ChatStore.toMessage`: a running answer shows its live text and steps to a viewer it is not hidden from (it showed
    nothing before).
-3. Web: the chat page drops its "read the messages again when someone else's turn ends" fallback only where the
-   events now carry it (kept: it still reads again when a turn starts, to get the question).
+3. Web: the chat page keeps reading the messages again when someone else's turn starts (that brings the question and
+   the answer's text so far) and ends (a missed event); the live events fill in between.
 4. Web: find and fix why a reloaded chat opens above the bottom; keep following while content above grows.
 5. Web: remember per tab (sessionStorage) which rooms had the side chat open; on the room page, reopen it after a
    reload when it was open, and on a computer when its newest side chat has queued messages.
@@ -63,4 +63,14 @@ web unit tests, `web/test/e2e/shared-project-chats.spec.ts`.
 
 ## Result
 
-(filled in at the end)
+- TC-4961: `server/src/chat/live-answer.ts` (new): the live viewers of a shared chat's answer and what each gets;
+  `TurnExec` sends text, resets and steps to them, `message.done` goes to everyone who sees the chat (also for a queued
+  turn that failed or was stopped); `ChatStore.toMessage` shows a running answer's text and steps to a viewer it is not
+  hidden from. The test mock sends the same, and its "hold" answer writes its first half before it waits.
+- TC-4962: the cause was the browser's scroll anchoring: after the jump to the bottom, the running answer and the
+  waiting messages took their place under it and Chromium moved the list up 160 px; that scroll event read as the
+  reader scrolling up. `anchorWhileFollowing` turns anchoring off while a list follows its newest message (every list
+  using `useStickToBottom`).
+- TC-4963: `lib/sideChatOpenKeep.ts` (sessionStorage per tab and person) and `sideChatComesBack` on the room page. On a
+  phone only "was open" brings it back (decision file).
+- PR: see the pull request of branch `fix/chat-live-and-reload`.
