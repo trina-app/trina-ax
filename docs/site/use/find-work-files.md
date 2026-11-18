@@ -123,6 +123,8 @@ macOS remembers your answer, so it asks only once per folder.
 - **Find by file name** searches everything the app found, also files not in either group.
 - Files over 50 MB are not listed; add those on the Files page. A very big folder is looked at only in part, and the
   list says so.
+- **Choose a folder…** points the app at one folder it missed. Pick the folder in the window that opens; the app looks
+  through it, and its files show right away. Nothing is added until you tick files and click **Add**.
 
 Click **Add n files**. The files go to **My files › From this computer**, in folders named after where they were
 (Documents › Clients › …, OneDrive – Acme › …).

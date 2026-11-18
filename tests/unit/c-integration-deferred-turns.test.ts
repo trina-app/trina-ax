@@ -82,7 +82,7 @@ describe('the same two tools for every engine and sub-agent', () => {
     expect(allowed).toEqual(expect.arrayContaining(['mcp__team__find_tools', 'mcp__team__call_tool']))
     expect(studioNames(allowed)).toEqual([])
     // the instructions list the tools to look up within their budget
-    expect(system).toContain('- Studio (personal connection, MCP server): 186 tools, not loaded')
+    expect(system).toContain('- Studio (personal connection): 186 tools, not loaded')
     expect(system).toContain(`- ${TOOL_150}\n`)
     // #150 found with its schema, and run: its answer is external data
     expect(found).toContain(`## ${FULL}`)
@@ -241,7 +241,7 @@ describe("a mid-sized connection over Claude Code's 10% line (MAX_TURN_TOOL_CHAR
     expect(mine(fns, 'notes')).toHaveLength(3)
     expect(mine(fns, 'mid')).toEqual([])
     expect(fns).toEqual(expect.arrayContaining(['find_tools', 'call_tool']))
-    expect(String(seen[0].messages[0].content)).toContain('- Mid (personal connection, MCP server): 12 tools, not loaded')
+    expect(String(seen[0].messages[0].content)).toContain('- Mid (personal connection): 12 tools, not loaded')
     expect(svc.calls.slice(before).map((c) => [c.name, c.args])).toEqual([[MID.slice('my_mid__'.length), midArgs]])
   })
 })

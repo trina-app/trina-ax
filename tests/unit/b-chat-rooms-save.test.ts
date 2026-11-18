@@ -90,7 +90,7 @@ function putWithFile(roomId: string, fileId: string, o: { ai?: { askedBy: string
   return { id, seq }
 }
 const newChat = async (user: string) => (await h.api(user).call(API.createChat, { body: {} })).id
-type Card = { requestId: string; question: string; options?: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[]; text?: string }[] }
+type Card = { requestId: string; question: string; note?: string; options?: { value: string }[]; buttons?: boolean; details?: { fields?: { name: string; value: string }[]; text?: string }[] }
 /** one turn; each card it raises is answered by `answer` ("skip" by default); its cards, steps and answer */
 async function run(user: string, chatId: string, content: string, answer: (c: Card) => string = () => 'skip') {
   const r = await h.api(user).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
@@ -173,14 +173,17 @@ describe('saving a room file from my own chat', () => {
     const { file, bytes } = await sentPdf('erin', roomId)
     const chat = await newChat('alice')
     const r = await run('alice', chat, `leads 방에 올린 사업자 등록증, 다른 사람들도 다 볼 수 있게 저장해줘\n${fake({ tool: 'room_read', args: { room: roomId } }, save(roomId, file.id, 'shared/company/'))}`, () => 'save')
-    // shared/ is wider than the room: the wider-audience card, the rooms-seen line in front, with what the call saves
+    // shared/ is wider than the room: the wider-audience card, the rooms-seen line under its buttons (QA TC-4815), with
+    // what the call saves
     expect(r.cards).toHaveLength(1)
     const c = r.cards[0]!
     expect(c.options?.map((o) => o.value)).toEqual(['save', '__always', 'skip'])
-    expect(c.question).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first. ')
+    expect(c.question).toStartWith(`Save to ${W(`shared/company/${file.name}`)} (`)
+    expect(c.note).toStartWith('Messages from your conversations (other people\'s words) came in here, so changes are asked first.')
     expect(c.question).toContain(`messages of the conversation '${name}'`)
     expect(c.question).toContain(W(`shared/company/${file.name}`))
     const fields = c.details?.[0]?.fields ?? []
+    // (not a whole file written: the Action row stays, so the card says what the call does; review of #1240)
     expect(fields.map((f) => f.name)).toEqual(['Action', 'File', 'Save as'])
     expect(fields[0]!.value).toBe('Save conversation file')
     // the file by its name, its room as alice sees it, who sent it, when and how big; never its id

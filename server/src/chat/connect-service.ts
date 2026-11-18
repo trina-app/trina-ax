@@ -30,6 +30,9 @@ import { activeUser, disabledTools, getRow, isAdmin, mayUse, offByTeam, savedToo
 import type { Database } from 'bun:sqlite'
 import { say } from '../integrations/connections/text'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { googleAppsOf } from '../integrations/google-apps/service'
+import { APP_NAMES } from '../integrations/google-apps/catalog'
+import { googleAppAsked, googleAppWay } from './connect-google-app'
 import { getTemplate, templatesOf } from '../integrations/connections/templates'
 import { DRIVE_TOOL_NAMES } from '../tools/drive'
 import { tr } from './i18n'
@@ -185,6 +188,16 @@ export async function connectService(exec: TurnExec, args: unknown): Promise<Too
   // Slack is never a connection: it is read through the person's Slack link (docs/SLACK.md "Marketplace-safe reading"); without
   // this the AI offered a card for Slack that does nothing (2026-11-13)
   if (target === 'service' && isSlack(a.data.name, a.data.url)) return early(`No card: Slack is not connected with connect_service. ${slackWay(db, spec.userId)}`, 'slack')
+  // Gmail, Google Calendar, Docs and Sheets are built in: their own page, never an address (AI scenario CON-01.calendar)
+  const gApp = target === 'service' && !a.data.connection && !a.data.template ? googleAppAsked(a.data.name, a.data.url) : null
+  if (gApp) {
+    let way: ReturnType<typeof googleAppWay>
+    try {
+      const v = googleAppsOf(rt.ctx).view(viewer.id, gApp)
+      way = googleAppWay({ name: APP_NAMES[gApp], status: v.status, reason: v.reason, serviceDown: v.serviceDown, shared: v.shared ?? null }, isAdmin(viewer.role), L)
+    } catch { way = { connected: false, text: `${APP_NAMES[gApp]} cannot be connected for this account now.` } }
+    return early(way.text, way.connected ? 'google app connected' : 'google app', !way.connected)
+  }
   // the person approves what the card shows, and the name and notes reach the AI in later chats: no character they
   // cannot see or that turns the text around (hiddenText)
   for (const [field, v] of [['name', a.data.name], ['notes', a.data.notes], ['why', a.data.why]] as const) {

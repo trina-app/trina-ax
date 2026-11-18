@@ -18,6 +18,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { FileShares } from '../files/shares'
 import { hiddenEntry } from '../policy/names'
 import { SCREEN } from '../policy/refusal'
+import { carriesAddress, opaqueParts } from '../tools/url-gate'
 import { placeWords } from './place-words'
 import { tr } from './i18n'
 import { alwaysHere, type AlwaysPlace } from './always-allow'
@@ -129,7 +130,9 @@ export const SHARE_NO = {
     return `${lead}${team} Next step: tell the user that in one sentence and offer to share the ${n === 1 ? 'file' : `${n} files`} in it instead; with their yes, call share_with_person again with ${n === 1 ? 'this file' : 'these files'} (at most 10 a call; files added to the folder later are not shared by this):\n${list}${o.more ? `\n(and ${o.more} more: list the folder for the rest)` : ''}`
   },
   /** nobody matches: a guest, a person not active in the team and a group the user is not in read the same, on purpose */
-  nobody: (ref: string) => `Nothing was shared: no teammate or group matches ${q(ref)}. Files are shared with active teammates and with groups the user is in; a guest, someone who is not on the team and a group the user is not in all read the same here. Next step: ask the user who they mean (a full name or a user name). If they mean a guest or someone outside the team, say files cannot be shared with them this way and offer what works: posting the file to a chat that person is in (post_to_room with the file linked in text), which sends them a copy.`,
+  // `group`: the words read as a group ("마케팅팀", "Sales team"; share-with-person.ts looksLikeGroup); a member then gets the
+  // plain limit and what they can do (AI scenario SHR-01), the same whether such a group exists or not
+  nobody: (ref: string, o: { group?: boolean; staff?: boolean } = {}) => `Nothing was shared: no teammate or group matches ${q(ref)}. Files are shared with active teammates and with groups the user is in; a guest, someone who is not on the team and a group the user is not in all read the same here.${o.group && !o.staff ? ` If they mean a group: the user is not in a group by that name, and a member shares files only with groups they are in. Next step then: say that plainly in one sentence (nothing was shared), and offer what works: sharing it with the people of that group by name, or asking the team owner or an admin, who can share it with the whole group. You cannot see who is in a group the user is not in, so there are no names to offer as choices: ask for the names once, in your answer (not with ask_user), and share when the user gives them.` : ''} Next step: ask the user who they mean (a full name or a user name). If they mean a guest or someone outside the team, say files cannot be shared with them this way and offer what works: posting the file to a chat that person is in (post_to_room with the file linked in text), which sends them a copy.`,
   /** a file that could not be shared after the yes (it changed while the card waited); `sofar`: the links already made */
   changed: (file: string, why: string, sofar: string) => `Nothing more was shared: ${q(file)} ${why}.${sofar} Next step: tell the user which files were shared and which one was not, and offer to try that one again.`,
 } as const
@@ -193,6 +196,23 @@ export function plainQuote(s: string): string {
     .replace(/`+([^`\n]+)`+/g, '$1')
     .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/gm, '')
     .replace(/\*\*|__|~~|`/g, '')
+}
+
+/** A Markdown link or image ("](") or an autolink ("<…>"): formatted, it would show its words and hide its target
+ * (mailto:, tel:, a relative or # link), so such a text stays as written on a card (review of #1235) */
+const HIDES_TARGET = /\]\(|<[^<>\s]+>/
+/** What the renderer does not show at all (review of #1240): an HTML comment ("<!--"), a reference definition line
+ * ("[x]: …", which also hides a reference link's target) and math, where commands such as \phantom or \color can
+ * hide text: any "$$", or a "$…$" with a backslash in it. The simple rule: any of these keeps the text as written. */
+const RENDERER_HIDES = /<!--|^\s{0,3}\[[^\]]+\]:|\$\$|\$[^$]*\\[^$]*\$/m
+
+/** May a card show this text formatted with the chat's Markdown renderer (ConfirmDetail.markdown)? Only when nothing in
+ * it could hide where a link goes or hide words from the person who approves it: no web address, no long random-looking
+ * part, no Markdown link or image, no autolink, no HTML comment, no reference definition, no math with a command.
+ * The send-to-room card (chat/post-to-room.ts, QA TC-4791) and the save-where-more-people-can-see card (chat/turn.ts
+ * askWidening, QA TC-4815) use the same rule. */
+export function formatsSafely(text: string): boolean {
+  return opaqueParts(text).length === 0 && !carriesAddress(text) && !HIDES_TARGET.test(text) && !RENDERER_HIDES.test(text)
 }
 
 /** A post's text as its card shows it: without the bold marks ("**3 tips**" reads "3 tips"; QA TC-4060, MAN-013/014/015).

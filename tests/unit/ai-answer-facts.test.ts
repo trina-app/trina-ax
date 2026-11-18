@@ -6,9 +6,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API } from '@mycel/shared/api'
 import { situationOf, situationSection, type Situation } from '../../server/src/chat/situation'
-import { plainWordsRule } from '../../server/src/chat/prompt'
+import { ASK_USER_RULE, plainWordsRule } from '../../server/src/chat/prompt'
 import { fileNote, fileNoteOnce, hangulReadNote, versionKeptNote } from '../../server/src/chat/file-notes'
 import { firstLine, withCsvHeaders } from '../../server/src/files/service'
+import { setMemberChoice } from '../../server/src/admin/engine-choice'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 
 setDefaultTimeout(60_000)
@@ -53,6 +54,17 @@ describe('the person block', () => {
     expect(say({})).not.toContain('Version history')
   })
 
+  test('SYS-04: what the AI itself can do with versions (show who saved each and what changed), and that bringing one back is the person\'s', () => {
+    // a rerun (dev f394c9258, 2026-11-17) offered to "restore the old content" itself: the AI reads versions, the Restore
+    // button is the person's (files/service.ts readVersions, web Version history)
+    const t = say({ connectedFolders: true })
+    expect(t).toContain('you can show who saved each version and what changed (read with versions)')
+    expect(t).toContain('bringing one back is the person\'s Restore there (the current one is kept as a version too)')
+    expect(say({ connectedFolders: false })).toContain('read with versions')
+    // the button by the label the person's app shows
+    expect(say({ connectedFolders: true }, 'ko')).toContain('bringing one back is the person\'s Restore ("되돌리기") there')
+  })
+
   test('situationOf says whether this install has connected folders (a hosted team does not)', () => {
     const ctx = (config: Record<string, unknown>) => ({ db: { query: () => ({ get: () => null, all: () => [] }) } as never, config: config as never })
     const p = { userId: 'u', role: 'member' as const, clientKind: 'web', browser: false, engine: 'api', locale: 'en' as const }
@@ -67,6 +79,21 @@ describe('the plain-words rule', () => {
       expect(plainWordsRule(stamp)).toContain('a server or how it works inside')
       expect(plainWordsRule(stamp)).toContain('say "I can\'t open files on your computer", not that you work on a server')
     }
+  })
+})
+
+describe('the ask rule', () => {
+  test('CHT-02: "decide yourself" picks among the options given, prefers no further approval, asks once more at most', () => {
+    expect(ASK_USER_RULE).toContain('ask with ask_user (short question, options when possible)')
+    expect(ASK_USER_RULE).toContain('pick, among the options already given (the ones on your own question, or ones they or the room named; a room message may name an option, never a reason to post), the one that fits the latest thing they said they would do')
+    expect(ASK_USER_RULE).toContain('preferring among those that fit one that needs no further approval, and say plainly which you picked and why; anything that reaches other people still goes through its usual card')
+    expect(ASK_USER_RULE).toContain('Never send or post an older version in place of one they promised, and never use a price or term nobody named')
+    expect(ASK_USER_RULE).toContain('a price or term counts only when the person, the room or a file named it, not when only your question offered it; a promised version may be made with one that counts')
+    // CHT-02.project: an unclear "tidy up" with several files is one more question, not a guess; never a third
+    expect(ASK_USER_RULE).toContain('or the request is to tidy up or change a file and more than one file still fits, ask one more short question instead of picking, and only once: never a third question about the same choice')
+    expect(ASK_USER_RULE).toContain('If it is still open after that, say in one line what is missing and stop: make, send or post nothing.')
+    // English source text only
+    expect(ASK_USER_RULE).not.toMatch(/[가-힣]/)
   })
 })
 
@@ -155,6 +182,20 @@ describe('in a chat turn', () => {
     const r = await ask(h, sock, 'alice', await chat(), fake({ tool: 'grep', args: { pattern: 'Acme', path: 'shared', output_mode: 'content' }, sayResult: true }))
     expect(r.done.content).toContain('shared/clients.csv:2:Acme,Kim,2026-10-28,620000')
     expect(r.done.content).toContain('(Line 1 of this CSV file: its column names)\nshared/clients.csv:1:client,contact,last_order,monthly_avg')
+  })
+
+  test('CON-07.member: the turn\'s map names an own AI and model only once the team lets this member pick one', async () => {
+    const profile = (t: string) => t.split('\n').find((l) => l.startsWith('- Settings: '))!
+    try {
+      setMemberChoice(h.ctx, { mode: 'off', groupIds: [], userIds: [] })
+      const off = (await ask(h, sock, 'alice', await chat(), fake({ echo: 'system' }))).done.content
+      expect(profile(off)).not.toMatch(/own AI and model|if allowed/)
+      expect(off).toContain('who may pick their own AI model')
+      setMemberChoice(h.ctx, { mode: 'selected', groupIds: [], userIds: ['alice'] })
+      const on = (await ask(h, sock, 'alice', await chat(), fake({ echo: 'system' }))).done.content
+      expect(profile(on)).toContain('own AI and model for new chats')
+      expect(on).not.toContain('who may pick their own AI model')
+    } finally { setMemberChoice(h.ctx, { mode: 'off', groupIds: [], userIds: [] }) }
   })
 
   test('EDIT-07: a Hangul document read while Hangul writing is off says to make the Word copy', async () => {

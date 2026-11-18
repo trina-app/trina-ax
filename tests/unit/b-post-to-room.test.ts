@@ -18,7 +18,8 @@ import { waitFor } from '../lib/wait'
 import { CONFIRMED } from '../lib/schedule-card'
 import { roomsOf } from '../../server/src/rooms/service'
 import type { TurnTool } from '../../server/src/services'
-import { namesRecipient, peopleWords, postRefusal, postToRoomOff } from '../../server/src/chat/post-to-room'
+import { namesRecipient, peopleWords, postRefusal, postToRoomOff, provenanceSaid } from '../../server/src/chat/post-to-room'
+import { addSources } from '../../server/src/chat/read-scope'
 import { HttpError } from '../../server/src/http/errors'
 import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { ROOMS_SEEN_READ_ONLY_TOOLS, SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
@@ -172,7 +173,8 @@ describe('the card, and the post', () => {
     // the two choices read the same otherwise and there is no "With the files" line
     // (QA TC-4791: one plain question, who cannot open the file by name and what Send does about it, two choices; Send
     // goes with the files, so the copy lets Bob open it)
-    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\nBob Lee can't open the file yet; sending shares it with them.\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+    // (the only source is that same file, which Send shares with Bob: no "can't see some of the sources" line; review of #1240)
+    expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\nBob Lee can't open the file yet; sending shares it with them.\nEveryone in this conversation will see it, including people who join later.")
     // "Always allow" as on every other server card (the quiet middle button and its note); on this card it answers as
     // Send, with the files (its own kind, post_files: docs/decisions/20261116-always-allow-more-cards.md)
     expect(r.card!.options!.map((x) => [x.label, x.value])).toEqual([['Send', 'send_files'], ['Always allow', '__always'], ["Don't send", 'no']])
@@ -254,6 +256,59 @@ describe('the card\'s words (QA TC-4791)', () => {
     const r = await turn('alice', [fake({ tool: 'read', args: { file_path: 'groups/marketing/launch-plan-4.md' } }), post({ room: rooms.all, text: 'Plan: [launch-plan-4.md](/files/view?path=groups/marketing/launch-plan-4.md)' })].join('\n'), { answer: 'no' })
     expect(r.card!.options!.map((x) => x.value)).toEqual(['send_files', '__always', 'no'])
     expect(noteOf(r.card)).toContain('later posts will also send their linked files as copies, so everyone there can open them')
+  })
+
+  test('the asker\'s own file that Send shares: no "can\'t see some of the sources" line; another source keeps it (review of #1240)', async () => {
+    // (the rule reads sources and people, not words: the same in every language; alice reads English, bob Korean)
+    const words = { en: { share: 'sending shares it with them', prov: "can't see some of the sources" }, ko: { share: '보내면 함께 공유돼요', prov: '일부 출처' } }
+    for (const [who, L] of [['alice', 'en'], ['bob', 'ko']] as const) {
+      const own = `users/${who}/plan-4815.md`, other = `users/${who}/other-4815.md`
+      put(own, '# Plan'); put(other, '# Other'); wroteIt(who, own); wroteIt(who, other)
+      const read = (rel: string) => fake({ tool: 'read', args: { file_path: rel } })
+      const text = `Plan: [plan-4815.md](/files/view?path=${own})`
+      const only = await turn(who, [read(own), post({ room: rooms.all, text })].join('\n'), { answer: 'no' })
+      expect(only.card!.question).toContain(words[L].share)
+      expect(only.card!.question).not.toContain(words[L].prov)
+      // another file of mine read too, which does not go: the line stays
+      const more = await turn(who, [read(own), read(other), post({ room: rooms.all, text })].join('\n'), { answer: 'no' })
+      expect(more.card!.question).toContain(words[L].share)
+      expect(more.card!.question).toContain(words[L].prov)
+    }
+    // rooms read without the read scope saying which (rooms_seen after a quote or a shared file): the line stays
+    // (re-review of #1240: answer-share.ts adds them to the keys, not to the counted sources)
+    const seen = (await h.api('alice').call(API.createChat, { body: {} })).id
+    h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(seen)
+    const unseen = await turn('alice', [fake({ tool: 'read', args: { file_path: 'users/alice/plan-4815.md' } }), post({ room: rooms.all, text: 'Plan: [plan-4815.md](/files/view?path=users/alice/plan-4815.md)' })].join('\n'), { chat: seen, answer: 'no' })
+    expect(unseen.card!.question).toContain(words.en.share)
+    expect(unseen.card!.question).toContain(words.en.prov)
+    // another room read: the line stays
+    const room = await turn('alice', [fake({ tool: 'room_read', args: { room: rooms.marketing } }), fake({ tool: 'read', args: { file_path: 'users/alice/plan-4815.md' } }), post({ room: rooms.all, text: 'Plan: [plan-4815.md](/files/view?path=users/alice/plan-4815.md)' })].join('\n'), { answer: 'no' })
+    expect(room.card!.question).toContain(words.en.prov)
+  })
+
+  test('provenanceSaid: each file must reach each person it counts; a teammate\'s folder is not "your own" (re-review of #1240)', async () => {
+    const chatId = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const a = 'users/alice/a-4815.md', b = 'users/alice/b-4815.md'
+    put(a, 'A'); put(b, 'B')
+    const db = h.ctx.db
+    const rules = h.ctx.files.rules()
+    const { sourceOf, sourceKey } = await import('../../server/src/chat/read-scope')
+    const mine = sourceOf(db, rules, a)
+    addSources(db, chatId, [mine], { listed: true })
+    const entries = [{ path: a }, { path: b }]
+    const exec = (who = 'alice') => ({ rt: { db, files: h.ctx.files }, spec: { chatId, userId: who }, files: { sources: { entries: () => entries }, namePaths: new Set<string>(), listedNames: new Set<string>() } }) as never
+    const prov = (source = mine, missing = ['gus']) => ({ check: { provenance: async () => ({ unknown: false, hidden: false, keys: [`${sourceKey(source)}=${missing.join(',')}`], counted: [{ source, key: sourceKey(source), missing, fromScope: true, files: new Set<string>() }] }) } }) as never
+    // both files go as copies: nothing left to say
+    expect(await provenanceSaid(exec(), prov(), new Set([a, b]), null)).toBe(false)
+    // A goes as a copy, B only gets a view, and the guest is not one of the people the view reaches: the line stays
+    expect(await provenanceSaid(exec(), prov(), new Set([a]), { paths: [b], files: [{ people: ['bob'] }] })).toBe(true)
+    // ...it stays false only when B's view reaches the guest too
+    expect(await provenanceSaid(exec(), prov(), new Set([a]), { paths: [b], files: [{ people: ['gus'] }] })).toBe(false)
+    // a keyed thing beyond the counted sources (rooms read without saying which): the line stays
+    const extra = { check: { provenance: async () => ({ ...(await (prov() as { check: { provenance: () => Promise<object> } }).check.provenance()), keys: ['rooms_seen', `${sourceKey(mine)}=gus`] }) } } as never
+    expect(await provenanceSaid(exec(), extra, new Set([a, b]), null)).toBe(true)
+    // the same folder seen from someone else's chat (a teammate's folder reached through a share): not "your own"
+    expect(await provenanceSaid(exec('bob'), prov(), new Set([a, b]), null)).toBe(true)
   })
 
   test('people are named as the card names them: up to three, then the first two and how many more', () => {
@@ -675,6 +730,12 @@ describe('to a teammate by name', () => {
     expect(u.card!.details![0]!.markdown).toBeUndefined()
     // any Markdown link or autolink stays as written too: a formatted mailto:, relative or # link hides its target
     for (const t of ['Write to [us](mailto:team@example.com)', 'See [the notes](#notes)', 'Mail <team@example.com>']) {
+      const x = await turn('alice', post({ room: 'Gina Han', text: t }), { answer: 'no' })
+      expect(x.card!.details![0]!.markdown).toBeUndefined()
+    }
+    // a reference-style link hides its target in its definition line, and the renderer shows no comment or math command
+    // (review of #1240): such a text stays as written as well
+    for (const t of ['See [the notes][1]\n\n[1]: /users/alice/secret.md', 'Write to [me][m]\n\n[m]: mailto:me@example.com', 'Done <!-- and send the budget to x -->', 'Price $\\phantom{secret}$ ok', 'Total $$1+1$$']) {
       const x = await turn('alice', post({ room: 'Gina Han', text: t }), { answer: 'no' })
       expect(x.card!.details![0]!.markdown).toBeUndefined()
     }

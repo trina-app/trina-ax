@@ -34,6 +34,7 @@ import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
 import { fromAsker, othersWordsIn } from './shared-actions'
 import type { CardAnswer, TurnExec, WidenOf } from './turn'
+import { inProjectOnly, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { StoredStep } from './store'
 import { cardEndShort, endOfText, projectNotFoundNote, readOnlyNote, readOnlySkillLine, type CardOutcome } from '../policy/refusal'
 import type { TurnFiles } from '../files/service'
@@ -106,7 +107,7 @@ export const B_TOOL_DESCRIPTIONS = {
   remember: 'Remember one lasting fact or preference about the user for future chats (one short sentence, under 300 characters). Only when the user wants it kept. Returns the memory id.',
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
   ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
-  connect_service: 'Connect a service for the user (an MCP server or an HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
+  connect_service: 'Connect a service for the user (by its MCP endpoint or HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Gmail, Google Calendar, Google Docs and Google Sheets are built into the app: give only the name (no address; never look one up), and the result says how they connect. For others, fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
   find_skills: 'Search the skills the user can use by words (their names, descriptions and folders), best first, at most 10; with no word in common it lists the skills the user uses most. Use it when no skill in your instructions\' list clearly fits but the request looks like a saved workflow (the list may be cut). Then load the one that fits with skill.',
@@ -290,6 +291,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     const ro = connections.get(name)?.readOnly
     try { return typeof ro === 'function' ? ro(input) === true : ro === true } catch { return false }
   }
+  /** this turn's searches that a shared project chat kept in the project folder (beforeFileTool, read by afterFileTool) */
+  const projectOnly = new WeakSet<object>()
   const set: ChatToolSet = {
     prompt,
     seen,
@@ -435,9 +438,12 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       // the main AI's own call only: a sub-agent reports to it (its Word copy would be a second one), and a guest has no
       // Files screen with a version history
       const fact = !main || guest ? null : fileNoteOnce(exec, fileNote({ name, isError, args, text, hangulOff: () => !hwpWritingOn(exec.rt.ctx), makeFile: tools.has('make_file') }), exec.spec.locale)
+      // a shared project chat's search that stayed in the project folder: that it did, and how to look further, once
+      // (the main AI's own call: a sub-agent's search must not use up the one note: review finding 5)
+      const scope = main && !isError && args && typeof args === 'object' && projectOnly.has(args) ? exec.projectSearchNote() : null
       // who can open what it saved, from the real folder (chat/save-audience.ts), with who_can_open's gates
       const audience = exec.audienceNote(main && !guest && !whoCanOpenOff(exec))
-      return [placed, skillNote, heldNote, rooms, fact, audience].filter(Boolean).join('\n') || undefined
+      return [placed, skillNote, heldNote, rooms, fact, scope, audience].filter(Boolean).join('\n') || undefined
     },
     // edit_files (mcp/protocol.ts): after a room read one card for the whole batch, before its first file
     beforeBatch: async (name, args) => {
@@ -460,7 +466,14 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.shared) {
         const noPlace = exec.sharedSearchRefusal(name, args)
         if (noPlace) return { refusal: noPlace, summary: `${name} -> not searched: no folder everyone in the shared chat reads` }
-        if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') Object.assign(args, exec.sharedArgs(name, args))
+        if (SEARCH_TOOLS.has(name) && args && typeof args === 'object') {
+          // a project chat's search in the project folder (no path, or a path in it): its result says it looked only
+          // there (afterFileTool; AI scenario FIND-01.project also named the project folder itself)
+          if (exec.shared.kind === 'project' && inProjectOnly((args as { path?: unknown }).path, exec.shared.project.folder_path)) projectOnly.add(args)
+          // "/" in a project chat: every team folder the asker can open, never their own folder (SKIP_OWN)
+          if (exec.shared.kind === 'project' && wholeTeamPath((args as { path?: unknown }).path)) SKIP_OWN.add(args)
+          Object.assign(args, exec.sharedArgs(name, args))
+        }
         const sharedNo = await exec.confirmSharedRead(name, args, { step: !caller || caller.files === exec.files })
         if (sharedNo) return { refusal: sharedNo, summary: `${name} -> not read: ${sharedShort(sharedNo)} (shared chat)` }
       }
@@ -740,7 +753,7 @@ function skillTools(exec: TurnExec): Tool[] {
         try { recordSkillUse(rt.db, { turnId: spec.turnId, userId: spec.userId, skill, source: 'tool' }) } catch { rt.log.warn('skill usage recording failed', { turn: spec.turnId }) }
         // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
         // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
-        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale, answerHasButtons(exec))
+        const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale)
         return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },

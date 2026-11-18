@@ -8,7 +8,7 @@ import path from 'node:path'
 import { API, ApiClient, ApiError, type Message, type OpenTurnRequest } from '../../../shared/src/api'
 import { TEAM_TOOL_PREFIX } from '../../../shared/src/product'
 import { goAhead } from '../../../scripts/demo/company/chat-run'
-import { PASSWORD, type FixtureState } from '../fixture/seed'
+import { PASSWORD, TEAM_ZONE, type FixtureState } from '../fixture/seed'
 import { runChecks } from './checks'
 import type { Case, CaseResult, CardSeen, ToolCall, TurnRecord } from './types'
 
@@ -103,11 +103,13 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   const started = Date.now()
   let sent: { assistantMessage: { id: string } }
   try {
-    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), ...(c.timeZone ? { timeZone: c.timeZone } : {}) } })
+    // the device's zone, as the web app sends it with every turn (QA TC-4549): the case's, else the team's, so no turn
+    // falls back on whatever the server does without one
+    sent = await api.call(API.sendMessage, { params: { id: chatId }, body: { content: prompt, attachmentIds: [], clientMessageId: crypto.randomUUID(), ...{ timeZone: c.timeZone ?? TEAM_ZONE } } })
   } catch (e) {
     // the app itself said no (a guest without AI, a limit): what the person reads is the message
     if (!(e instanceof ApiError)) throw e
-    const rec: TurnRecord = { prompt, status: 'app-refused', error: `${e.status} ${e.code}`, answer: e.message, tools: [], cards: [], saved: [], ms: Date.now() - started, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, apiCalls: 0 }, model: null }
+    const rec: TurnRecord = { prompt, sentAt: new Date(started).toISOString(), status: 'app-refused', error: `${e.status} ${e.code}`, answer: e.message, tools: [], cards: [], saved: [], ms: Date.now() - started, usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, apiCalls: 0 }, model: null }
     return { rec, lines: seenLines }
   }
   const answerId = sent.assistantMessage.id
@@ -179,6 +181,7 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
   }
   const rec: TurnRecord = {
     prompt,
+    sentAt: new Date(started).toISOString(),
     status: slow ? 'slow' : m?.status ?? 'timeout',
     error: slow ? `stopped after ${Math.round(capMs / 1000)} s (slow)` : m?.error ? `${m.error.code}: ${m.error.message}` : m ? null : 'no answer within 15 minutes',
     // an answer that ended in an error shows the app's message where the answer would be: that is what the person reads
@@ -191,6 +194,15 @@ export async function oneTurn(api: ApiClient, env: Env, c: Case, chatId: string,
     model: t.model ?? m?.model ?? null,
   }
   return { rec, lines: all.length }
+}
+
+/** The room messages a case's AI posted (post_to_room results that say "sent"): where and which. */
+export function roomPostsOf(r: Pick<CaseResult, 'turns'>): { roomId: string; messageId: string }[] {
+  return r.turns.flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && x.result).flatMap((x) => {
+    const sent = /"status"\s*:\s*"sent"/.test(x.result!)
+    const room = /"room_id"\s*:\s*"([^"]+)"/.exec(x.result!)?.[1], msg = /"message_id"\s*:\s*"([^"]+)"/.exec(x.result!)?.[1]
+    return sent && room && msg ? [{ roomId: room, messageId: msg }] : []
+  })
 }
 
 export async function login(base: string, username: string): Promise<ApiClient> {

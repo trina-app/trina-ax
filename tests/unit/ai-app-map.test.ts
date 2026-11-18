@@ -128,8 +128,11 @@ describe('who gets which map', () => {
     const managed = appMapSection(base, 'ko')
     const local = appMapSection({ ...base, managed: false }, 'ko')
     expect(managed).toContain(DICTS.ko['guest.ai.team'])
-    expect(local).toContain("Guest AI: not on this team's")
-    expect(managed).not.toContain("Guest AI: not on")
+    // the setting is on screen on every install, where it is (ADM-03, 2026-11-17): a local one picks only No AI
+    for (const x of [managed, local]) expect(x).toContain(`Guest AI (${DICTS.ko['guest.invite.ai']}, at invite or on their row in ${DICTS.ko['guest.admin.title']})`)
+    expect(local).toContain(`only ${DICTS.ko['guest.ai.none']} can be picked on this team's ${PRODUCT.displayName}`)
+    expect(local).not.toContain(DICTS.ko['guest.ai.team'])
+    expect(managed).not.toContain('only ' + DICTS.ko['guest.ai.none'])
     const dev = appMapSection({ ...base, devEnv: true }, 'ko')
     expect(dev).toContain(DICTS.ko['devEnv.title'])
     // without it: the setting is named, not on this team's app, never "does not exist" (PRJ-05, ADM-07), in everyday
@@ -144,6 +147,22 @@ describe('who gets which map', () => {
     // System's updates: an admin's too only on an office Mac (web systemGroups.ts `office`)
     expect(managed).toContain(`owner also ${DICTS.ko['system.updates']}`)
     expect(appMapSection({ ...base, office: true }, 'ko')).not.toContain(`owner also ${DICTS.ko['system.updates']}`)
+  })
+  test('CON-07: Settings › Profile names an own AI and model only for someone who may pick one', () => {
+    // a member on the computer's own sign-in read "own AI and model, if allowed" and told the asker that Profile might
+    // let them pick one (dev f394c9258 rerun, 2026-11-17): the server knows whether this person may (canChooseEngine)
+    const profile = `${DICTS.en['settings.profile']} (photo, name`
+    const may = appMapSection({ ...base, view: 'member', pickModel: true }, 'en')
+    const mayNot = appMapSection({ ...base, view: 'member', pickModel: false }, 'en')
+    expect(may).toContain(`${profile}; own AI and model for new chats)`)
+    expect(mayNot).toContain(`${profile})`)
+    expect(mayNot).not.toMatch(/own AI and model|if allowed/)
+    // who may pick is the owner's or an admin's
+    expect(mayNot).toContain('who may pick their own AI model')
+    expect(may).not.toContain('who may pick their own AI model')
+    // an owner or admin always may; a shared chat says nothing about the asker
+    expect(appMapSection({ ...base, pickModel: true }, 'en')).toContain(`${profile}; own AI and model for new chats)`)
+    expect(appMapSection({ ...base, view: 'shared' }, 'en')).toContain(`${profile}; own AI and model, if allowed)`)
   })
   test('the person\'s language: an English answer gets the English labels', () => {
     const en = appMapSection(base, 'en')
@@ -188,8 +207,8 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
   const aiNameIn = (L: (typeof LOCALES)[number]) => PRODUCT_NAMED_AFTER_AI ? DICTS[L]['rooms.aiName'] : PRODUCT.shortName
   test('a shared chat: the thread line keeps only the labels and who is told (its instructions say the rest)', () => {
     const s = appMapSection({ ...base, view: 'shared' }, 'en')
-    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}, then `)
-    expect(s).toContain('the asker and repliers are told')
+    expect(s).toContain(`- Under a finished answer: ${DICTS.en['rooms.replyInThread']}: people's talk`)
+    expect(s).toContain('Asker and repliers are told')
     expect(s).not.toContain('not in a private chat')
   })
   test('every form, every language: each place by the label the app shows', () => {
@@ -221,6 +240,12 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     // (ai-reads-answer-comments, 2026-11-17: it no longer says the AI does not read it; CHT-16)
     expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
     expect(s).toContain('the AI there reads it when someone asks')
+    // Send to only fills the message box; in the shared form it is no longer "then Send to" (CHT-14, CHT-15, 2026-11-17)
+    expect(s).toContain('fills the message box, unsent')
+    const shared = appMapSection({ ...base, view: 'shared' }, 'en')
+    expect(shared).toContain('which you read when asked')
+    expect(shared).toContain("fills the person's message box, unsent")
+    expect(shared).not.toMatch(/, then .*Send to/)
     expect(s).not.toContain('the AI does not read')
     expect(s).toContain('not in a private chat')
     // app sign-in: a Mac or Windows browser, no second password, not from a phone
@@ -268,9 +293,12 @@ describe('size: it is in every turn', () => {
   // the cap was 900; 1,200 since the five places of 2026-11-17 (docs/decisions/20261117-ai-app-map-five-places.md: the
   // longest form, an owner's or admin's in Korean, measured about 1,189 after the other lines were cut); 1,250 since
   // where a chat is shared (docs/decisions/20261117-ai-facts-and-gaps.md: about 1,241)
+  // (fix/answer-slips, 2026-11-17: the longest form, staff in Korean, about 1,242: 8 to spare)
+  // (with fix/catalog-1117g in the same batch, 2026-11-18: about 1,248, 2 to spare; the next line added must cut words or
+  // raise the cap with a note)
   test('at most 20 lines and about 1,250 tokens in its longest form, in every language', () => {
-    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) {
-      const s = appMapSection({ view, managed: true, devEnv, office: false }, L)
+    for (const view of ['staff', 'member', 'shared'] as const) for (const L of ['ko', 'en', 'ja', 'zh', 'es', 'id'] as const) for (const devEnv of [true, false]) for (const managed of [true, false]) for (const pickModel of view === 'shared' ? [undefined] : view === 'staff' ? [true] : [true, false]) {
+      const s = appMapSection({ view, managed, devEnv, office: false, pickModel }, L)
       expect({ view, L, devEnv, lines: s.split('\n').length <= 20 }).toEqual({ view, L, devEnv, lines: true })
       expect({ view, L, devEnv, small: tokens(s) <= 1250 }).toEqual({ view, L, devEnv, small: true })
     }

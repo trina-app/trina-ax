@@ -9,7 +9,7 @@ import { jsonBody, makeCApp, type CApp } from '../lib/c-app'
 import { fileListOf } from '../../server/src/file-list/service'
 import { Units } from '../../server/src/file-list/units'
 import { RuleSet } from '../../server/src/policy/access'
-import { CANDIDATES_MAX, FILES_PER_FOLDER, FILES_SCORED, folderOf, namePattern, rank, same, THRESHOLD, words, WORDS_PER_FILE } from '../../server/src/team-files/move-suggest'
+import { CANDIDATES_MAX, conceptsOf, FILES_PER_FOLDER, FILES_SCORED, folderOf, namePattern, rank, same, THRESHOLD, words, WORDS_PER_FILE } from '../../server/src/team-files/move-suggest'
 
 let A: CApp
 const write = (rel: string, s = 'x') => { const p = path.join(A.team, ...rel.split('/')); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s) }
@@ -89,6 +89,33 @@ describe('words and scores', () => {
     // a folder as strong as the best stays
     const quotes2 = F('shared/견적', ['견적서_A', '견적서_B', '견적서_C'])
     expect(rank([q('견적서_삼성.xlsx')], [quotes, quotes2, forms], (p) => p === 'shared/견적서').map((x) => x.path)).toEqual(['shared/견적'])
+  })
+  test('common work folders across languages: 회의록 ↔ Meeting notes ↔ minutes, 견적 ↔ quotes, 계약 ↔ contracts … (TC-4805)', () => {
+    expect(conceptsOf(words('주간회의록_1117'))).toEqual(['meeting'])
+    expect(conceptsOf(words('Meeting notes'))).toEqual(['meeting'])
+    expect(conceptsOf(words('세금계산서_11월'))).toEqual(['invoice'])
+    expect(conceptsOf(words('Q4_마케팅_계획서'))).toEqual(['marketing'])
+    expect(conceptsOf(words('월별매출_2026'))).toEqual([])
+    const empty = (p: string) => F(p, [])
+    const pairs: [string, string][] = [['주간회의록_1117.md', 'shared/Meeting notes'], ['weekly-minutes.docx', 'shared/회의록'], ['acme_quote_v2.pdf', 'shared/견적'],
+      ['계약서_삼성전자.pdf', 'shared/Contracts'], ['세금계산서_11월.pdf', 'shared/Invoices'], ['인보이스_ACME.pdf', 'shared/Invoices'], ['월간보고서.docx', 'shared/Reports'],
+      ['로고_디자인_시안.png', 'shared/Design'], ['Q4_마케팅_계획서.md', 'shared/Marketing'], ['議事録_1117.docx', 'shared/Meetings']]
+    for (const [file, folder] of pairs) expect({ file, r: rank([q(file)], [empty(folder), empty('shared/Archive')]).map((x) => x.path) }).toEqual({ file, r: [folder] })
+    // a word that only looks alike is not one ("회계" is not "계약"; "notes" alone is no meeting)
+    expect(rank([q('회계_정산.xlsx')], [empty('shared/Contracts')])).toEqual([])
+    expect(rank([q('주간회의록.md')], [empty('shared/Notes')])).toEqual([])
+    // review 11-17: a cut-off word is not a group ("repo", "info", "fact"), a short Korean word inside another is not either
+    expect(conceptsOf(['repo', 'info', 'fact', 'desa'])).toEqual([])
+    expect(rank([q('월간보고서.docx')], [empty('shared/Info'), empty('shared/Repo')])).toEqual([])
+    expect(rank([q('게시안내문.pdf')], [empty('shared/Design')])).toEqual([])
+    expect(conceptsOf(words('협회의 자료 교회의 사회의'))).toEqual([])
+    expect(conceptsOf(words('주간회의'))).toEqual(['meeting'])
+  })
+  test('every: one folder for several files only when it fits each of them (the save sheet\'s one folder)', () => {
+    const files = [q('주간회의록_1117.md'), q('월별매출_2026-10.csv')]
+    const folders = [F('shared/Meeting notes', []), F('shared/Sales', ['월별매출_2026-09'], 'csv')]
+    expect(rank(files, folders, undefined, { every: true })).toEqual([])
+    expect(rank([files[0]!, q('월간회의록_11.md')], folders, undefined, { every: true }).map((x) => x.path)).toEqual(['shared/Meeting notes'])
   })
   test('the ✕ pattern drops digits', () => { expect(namePattern('견적서_SK_2025.xlsx')).toBe('견적서_sk_#.xlsx') })
 })

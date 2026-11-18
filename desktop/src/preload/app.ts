@@ -88,6 +88,7 @@ const bridge: DesktopBridge = {
           },
           openSettings: () => ipcRenderer.send('bridge:work-files-settings'),
           pickRoot: (id: 'documents' | 'desktop' | 'downloads') => ipcRenderer.invoke('bridge:work-files-pick', String(id)),
+          pickFolder: () => ipcRenderer.invoke('bridge:work-files-pick-folder'),
           ...(info.workFilesWide && info.platform === 'darwin'
             ? {
                 fullDisk: {

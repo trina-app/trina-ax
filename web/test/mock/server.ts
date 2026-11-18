@@ -4803,6 +4803,8 @@ export class MockServer {
     // like a server outside office mode (no automatic office updates)
     officeUpdateStatus: () => null,
     officeUpdateAction: () => fail('conflict', 409, '사무실 모드가 아니라 자동 업데이트가 없어요.'),
+    // like server/src/office/claude-mcp-notice.ts outside office mode: no Claude Code connections were removed, so no notice
+    officeClaudeMcpNotice: () => null,
     // ---------------- AI connections (like server/src/routes/credentials.ts) ----------------
     listCredentials: () => ({ items: this.credentials.map((c) => this.credentialView(c)), memberOwn: this.credMemberOwn, sharedSubscriptions: this.credSharedSubscriptions, allowedKinds: ['anthropic-oauth', 'anthropic-api-key', 'chatgpt', 'openai-api-key'], pricesAsOf: '2026-10-22', ...(this.hostSignIn ? { guestAiUnavailable: 'host_sign_in' as const } : {}) }),
     sealingKey: () => this.sealer.publicKey(),

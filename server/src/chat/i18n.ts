@@ -147,15 +147,25 @@ export const TEXT = {
   connectConnected: STEP_TEXT.connectConnected,
   connectNotConnected: STEP_TEXT.connectNotConnected,
   browserSite: t('사내망 주소 {host}를 열어도 될까요?', 'May the AI open the office-network address {host}?', 'Bolehkan AI membuka alamat jaringan kantor {host}?', "AIが社内ネットワークのアドレス{host}を開いてもよろしいですか？", "¿Puede la IA abrir la dirección de red interna {host}?", "允许AI打开办公网络地址{host}吗？"),
-  /** the wider-audience card, in plain words (docs/decisions/20261117-ai-save-my-files-default.md, QA TC-4792): where
-   * it came from, each source with how many people can see it (widenFrom / widenFromYou), and the place with how many
-   * can see it there, and how many of those cannot see where it came from ({m}: the card asks whenever anyone there
-   * cannot, also when the place holds no more people than the source). {ai} is passed for the room card's lead and not said here, so a card that asks for both says
-   * one name. Before: "{ai} read content fewer people can see ({sources}) and now wants to save to {target}, which {n}
-   * people can see. Save it?" */
-  widenConfirm: t('이 내용은 {sources}에서 왔어요. {target}({n}명, 그중 {m}명은 나온 곳을 볼 수 없음)에 저장할까요?',
-    'This came from {sources}. Save it to {target} ({n, plural, one {# person} other {# people}}, {m} of them can’t see where it came from)?',
-    'Ini berasal dari {sources}. Simpan ke {target} ({n} orang, {m} di antaranya tidak bisa melihat asalnya)?', "この内容は{sources}から来ています。{target}（{n}人、うち{m}人は元の場所を見られません）に保存しますか？", "Esto viene de {sources}. ¿Guardarlo en {target} ({n, plural, one {# persona} other {# personas}}; {m, plural, one {# no puede} other {# no pueden}} ver de dónde viene)?", "这些内容来自{sources}。要保存到{target}（{n, plural, one {#人} other {#人}}可以看到，其中{m}人看不到内容的来源）吗？"),
+  /** the wider-audience card's question, one plain line (docs/decisions/20261117-save-card-plain.md, QA TC-4815): the
+   * place and how many people can see it there; widenBlind / widenBlindChat follow with how many of them cannot see
+   * where it came from, and widenSource on its own line names each source with its count (widenFrom / widenFromYou).
+   * Before (PR #1232): "This came from {sources}. Save it to {target} ({n} people, {m} of them can't see where it came
+   * from)?", after the room card's reason line */
+  widenConfirm: t('{target}({n}명)에 저장할까요?',
+    'Save to {target} ({n, plural, one {# person} other {# people}})?',
+    'Simpan ke {target} ({n} orang)?', "{target}（{n}人）に保存しますか？", "¿Guardar en {target} ({n, plural, one {# persona} other {# personas}})?", "要保存到{target}（{n, plural, one {#人} other {#人}}）吗？"),
+  /** ...how many of the place's people cannot see at least one source (missingReaders); said whenever it is not 0, so
+   * an overlap ("3 people" from, "3 people" at the place) never reads as safe */
+  widenBlind: t('그중 {m}명은 원래 있던 곳을 못 봐요.',
+    '{m} of them can’t see where it came from.',
+    '{m} di antaranya tidak bisa melihat asalnya.', "うち{m}人は元の場所を見られません。", "{m, plural, one {# de ellas no puede} other {# de ellas no pueden}} ver de dónde viene.", "其中{m}人看不到内容的来源。"),
+  /** ...the same when every source is a conversation (a room, a chat, a Slack conversation) */
+  widenBlindChat: t('그중 {m}명은 원래 대화를 못 봐요.',
+    '{m} of them can’t see the chat it came from.',
+    '{m} di antaranya tidak bisa melihat percakapan asalnya.', "うち{m}人は元のトークを見られません。", "{m, plural, one {# de ellas no puede} other {# de ellas no pueden}} ver la conversación de donde viene.", "其中{m}人看不到原来的聊天。"),
+  /** ...the second line: each source with how many people can see it now */
+  widenSource: t('{sources}에서 가져온 내용이에요.', 'It came from {sources}.', 'Isinya berasal dari {sources}.', "{sources}から来た内容です。", "Viene de {sources}.", "内容来自{sources}。"),
   /** a source on the wider-audience card with how many people can see it now (read-scope.ts sourceViewerCount) */
   widenFrom: t('{source}({n}명)', '{source} ({n, plural, one {# person} other {# people}})', '{source} ({n} orang)', "{source}（{n}人）", "{source} ({n, plural, one {# persona} other {# personas}})", "{source}（{n, plural, one {#人} other {#人}}）"),
   /** ...when only the person can see it */

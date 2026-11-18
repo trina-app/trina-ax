@@ -22,13 +22,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, ApiClient } from '../../shared/src/api'
 import { DEV_ENV_SRT_WARNING_VERSION } from '../../shared/src/api/dev-env'
-import { PASSWORD, seedFixture, fixtureFile, type FixtureState } from './fixture/seed'
-import { judge } from './lib/judge'
+import { COMPANY, GUEST, PASSWORD, seedFixture, fixtureFile, type FixtureState } from './fixture/seed'
+import { askerLine, judge } from './lib/judge'
 import { FlowCatalog, flowChanged, runFlow, type Flow, type FlowResult } from './lib/flow'
 import { judgeFlow, writeFlowReport } from './lib/flow-report'
 import { mocksDown, mocksReset, mocksUp, readMocks } from './mock-services/up'
 import { writeReport } from './lib/report'
-import { runCase, type Env } from './lib/run-case'
+import { roomPostsOf, runCase, type Env } from './lib/run-case'
 import { driftOf, ensureFolder, resetTo, stateOf, type State } from './lib/state-guard'
 import { coverageMarkdown, firstPass, loadCatalog } from './lib/catalog'
 import type { Case, CaseResult } from './lib/types'
@@ -138,7 +138,16 @@ const personalFixture = (rel: string) => { const m = /^users\/([^/]+)\/(.+)$/.ex
 /** After a case: what it made goes to the trash and the fixture files it changed or removed come back, so the next
  * case sees the team as seeded (a stamped copy left by one case once made the next answer "it is done already").
  * Files in someone's own folder are handled as that person. */
-async function cleanUp(r: CaseResult) {
+async function cleanUp(r: CaseResult, actor?: string) {
+  // the AI's room posts are deleted by their sender (the case's person): a later case, or the same case run again on
+  // this server, read "the quote was posted 3 times tonight" and answered from that (CHT-02, dev f394c9258,
+  // 2026-11-17). A deleted message is left out of what the AI reads (server/src/rooms/reader.ts).
+  // a post whose result the transcript did not keep cannot be found here: said, so a leftover is known
+  const unread = r.turns.flatMap((t) => t.tools).filter((x) => x.name === 'post_to_room' && x.ok && !x.result).length
+  if (unread) say(`clean-up ${r.id}: ${unread} room post(s) without a result in the transcript: not deleted, check the room`)
+  if (actor) for (const p of roomPostsOf(r)) {
+    try { await (await as(actor)).call(API.deleteRoomMessage, { params: { id: p.roomId, messageId: p.messageId } }) } catch (e) { say(`clean-up room post ${p.messageId}: ${e instanceof Error ? e.message : e}`) }
+  }
   for (const rel of r.changed) {
     const owner = /^users\/([^/]+)\//.exec(rel)?.[1] ?? 'jiwoo'
     try {
@@ -202,13 +211,13 @@ async function run() {
     for (const c of parallel) { const b = c.id.split('.')[0]!; byBase.set(b, [...(byBase.get(b) ?? []), c]) }
     const queue = [...byBase.values()]
     await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
-      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); await guard(r); writeResult(dir, r); await cleanUp(r) }
+      for (let g = queue.shift(); g; g = queue.shift()) for (const c of g) { const r = await runCase(c, env); await guard(r); writeResult(dir, r); await cleanUp(r, c.as) }
     }))
     for (const c of serial) {
       const r = await runCase(c, env)
       await guard(r)
       writeResult(dir, r)
-      await cleanUp(r)
+      await cleanUp(r, c.as)
       for (const rel of c.restores) await restore(own, rel).catch((e) => say(`restore ${rel}: ${e instanceof Error ? e.message : e}`))
     }
   }
@@ -239,7 +248,7 @@ async function judgeRun(id: string) {
     for (let r = queue.shift(); r; r = queue.shift()) {
       const c = cases.get(r.id)!
       const role = fixture.people[c.as]?.role ?? 'unknown'
-      try { r.judge = await judge(c, r, `role ${role}`); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
+      try { r.judge = await judge(c, r, askerLine(c.as === GUEST.username ? { name: GUEST.name, role: 'guest' } : ((p) => p && { ...p, role })(COMPANY.people.find((p) => p.username === c.as)), role)); writeResult(runDir(id), r); say(`${r.id}: ${r.judge.pass ? 'pass' : 'FAIL'} (${r.judge.root_cause})`) } catch (e) { say(`${r.id}: judge failed: ${e instanceof Error ? e.message : e}`) }
     }
   }))
 }

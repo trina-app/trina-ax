@@ -2,14 +2,17 @@
 // 20261117-room-file-save-btn.md). Opened only by the person (the chip's icon, the file menu), never by itself. One
 // folder is picked for them when the server finds one (Suggested: matched by name, no AI; or Recent), "Choose another
 // folder…" opens the usual folder picker, and Save copies the message's files there. When people outside the
-// conversation can see the folder it says how many; a file that looks personal gets no suggestion and a gentle note.
+// conversation can see the folder it says how many; a file that looks personal gets no suggestion and a gentle note
+// (among ordinary files: they keep theirs and it starts unticked); an identical copy says "Same file as above" and the
+// toast says it was saved once (QA 11-17).
 // One instance on the room page (pages/Room.tsx), driven by store/roomSaves.ts.
 import { Folder, FileText } from 'lucide-react'
+import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import type { RoomSavePlan } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useFolderWords } from '../../lib/folderLabels'
-import { filesToSave, saveRefusalKey, startFolder } from '../../lib/roomSave'
+import { filesToSave, idsToSend, leaderOf, saveRefusalKey, saveSummary, somePersonal, startFolder, startTicks } from '../../lib/roomSave'
 import { formatSize } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { useRoomSaves } from '../../store/roomSaves'
@@ -36,6 +39,7 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [rev, setRev] = useState(0)
+  const [ticked, setTicked] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let live = true
@@ -44,8 +48,8 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
       (p) => {
         if (!live) return
         setPlan(p)
-        const s = startFolder(p)
-        setPlace(s)
+        setPlace(startFolder(p))
+        setTicked(startTicks(p))
       },
       (e) => live && setError(errorText(e, locale, t('error.network'))),
     )
@@ -70,14 +74,22 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
   }
 
   const todo = plan ? filesToSave(plan) : []
+  // a tick per file only when there is a choice to make (two files or more to save)
+  const choosing = todo.filter((f) => plan && leaderOf(plan, f) === f.id).length > 1
+  const sending = plan ? (choosing ? idsToSend(plan, ticked) : todo.map((f) => f.id)) : []
+  const mixed = plan ? somePersonal(plan) : false
+  const tick = (id: string, on: boolean) => setTicked((s) => { const n = new Set(s); if (on) n.add(id); else n.delete(id); return n })
   const save = async () => {
-    if (!place || !todo.length) return
+    if (!place || !sending.length) return
     setBusy(true)
     setError(null)
     try {
-      const r = await api.call(API.saveRoomFilesToTeam, { params: { id: roomId }, body: { fileIds: todo.map((f) => f.id), folder: place.path } })
+      const r = await api.call(API.saveRoomFilesToTeam, { params: { id: roomId }, body: { fileIds: sending, folder: place.path } })
       useRoomSaves.getState().put(roomId, r.saved)
-      toast({ level: 'success', text: t('rooms.save.saved', { folder: words.path(place.path, ' › ') }), detail: r.saved.some((s) => s.nextTo) ? t('rooms.save.savedNextTo') : undefined })
+      // honest about what happened: identical files are one copy, a different file of the name kept its place
+      const { same } = saveSummary(r.saved)
+      const detail = [same > 0 ? t('rooms.save.savedSame', { n: same }) : '', r.saved.some((s) => s.nextTo) ? t('rooms.save.savedNextTo') : ''].filter(Boolean).join(' ')
+      toast({ level: 'success', text: t('rooms.save.saved', { folder: words.path(place.path, ' › ') }), detail: detail || undefined })
       close()
     } catch (e) {
       const key = saveRefusalKey(e)
@@ -98,7 +110,7 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
             <Button variant="ghost" onClick={close}>
               {t('common.cancel')}
             </Button>
-            <Button variant="primary" busy={busy} disabled={!place || !todo.length} onClick={save} data-testid="room-save-confirm">
+            <Button variant="primary" busy={busy} disabled={!place || !sending.length} onClick={save} data-testid="room-save-confirm">
               {t('common.save')}
             </Button>
           </>
@@ -108,13 +120,25 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
           {!plan && !error && <Skeleton lines={2} />}
           {plan && (
             <ul className="space-y-1 text-sm" data-testid="room-save-files">
-              {plan.files.map((f) => (
-                <li key={f.id} className="flex min-w-0 items-center gap-2 text-muted">
-                  <FileText size={15} className="shrink-0 text-faint" aria-hidden />
-                  <span className="min-w-0 truncate font-medium text-ink">{f.name}</span>
-                  <span className="shrink-0 text-xs text-faint">{f.savedPath ? t('rooms.save.already') : formatSize(f.size, locale)}</span>
-                </li>
-              ))}
+              {plan.files.map((f) => {
+                const copy = !f.savedPath && leaderOf(plan, f) !== f.id
+                const box = choosing && !f.savedPath && !copy
+                const note = f.savedPath ? t('rooms.save.already') : copy ? t('rooms.save.sameFile') : f.sensitive ? t('rooms.save.personal') : formatSize(f.size, locale)
+                const Row = box ? 'label' : 'div'
+                return (
+                  <li key={f.id}>
+                    <Row className={clsx('flex min-h-6 min-w-0 items-center gap-2 text-muted', box && 'cursor-pointer')}>
+                      {box ? (
+                        <input type="checkbox" className="h-4 w-4 shrink-0 accent-[var(--c-accent)]" checked={ticked.has(f.id)} onChange={(e) => tick(f.id, e.target.checked)} data-testid="room-save-file-check" />
+                      ) : (
+                        <FileText size={15} className="shrink-0 text-faint" aria-hidden />
+                      )}
+                      <span className="min-w-0 truncate font-medium text-ink">{f.name}</span>
+                      <span className={clsx('shrink-0 text-xs', f.sensitive && !f.savedPath && !copy ? 'text-warn' : 'text-faint')}>{note}</span>
+                    </Row>
+                  </li>
+                )
+              })}
             </ul>
           )}
           {plan && todo.length > 0 && (
@@ -129,7 +153,7 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
               <Button variant={place ? 'ghost' : 'secondary'} onClick={() => setPicking(true)} className={place ? '-ml-2' : 'w-full'} data-testid="room-save-choose">
                 {t(place ? 'rooms.save.choose' : 'rooms.save.chooseFirst')}
               </Button>
-              {plan.sensitive && <p className="border-l-2 border-warn pl-3 text-sm text-muted" data-testid="room-save-sensitive">{t('rooms.save.sensitive')}</p>}
+              {plan.sensitive && todo.some((f) => f.sensitive) && <p className="border-l-2 border-warn pl-3 text-sm text-muted" data-testid="room-save-sensitive">{t(mixed ? 'rooms.save.sensitiveSome' : 'rooms.save.sensitive')}</p>}
               {place && place.outside > 0 && <p className="text-sm text-muted" data-testid="room-save-audience">{t('rooms.save.outside', { n: place.outside })}</p>}
             </>
           )}

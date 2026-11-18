@@ -56,7 +56,9 @@ describe('converter priority (tools/isolate.ts)', () => {
     expect(await priorityOf({ scope: () => false })).toBe(normal)
     expect(await priorityOf({ scope: () => true, background: false })).toBe(normal)
     if (process.platform === 'linux') expect(await priorityOf({ background: true })).toBe(Math.min(19, normal + 10))
-  })
+    // seven `sleep` runs one after the other, each found by a `ps` poll: on a loaded CI runner that passed bun's 5 s default
+    // (exit 143 in batch 6), so it gets its own, wider budget; the work itself does not change
+  }, 30_000)
   test.skipIf(!unix)('a background run may take BACKGROUND_WALL_FACTOR times its time limit (it can wait for the CPU)', async () => {
     const fg = await runIsolated({ cmd: sleepBin, args: ['0.8'], timeoutMs: 400 })
     expect(fg.killed).toBe('timeout')
