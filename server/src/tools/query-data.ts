@@ -212,6 +212,11 @@ export async function queryData(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
     if (e !== 'csv' && e !== 'tsv' && e !== 'xlsx') throw new ToolError('save_as must end in .csv, .tsv or .xlsx (for a Word or PDF report, save a .csv and make the report with make_file)')
     format = e
     if (inSkills(a.save_as)) throw new ToolError('a result cannot be saved into a skills folder (skills/, a group\'s or a project\'s); pick another folder')
+    // save_as naming one of the inputs (also in another letter case): the plain refusal below, before authorize, whose
+    // "almost the same name" check would answer first on a case-sensitive file system (Linux)
+    const asked = a.save_as.split('/').filter((x) => x && x !== '.').join('/')
+    const named = a.split_by === undefined ? inputs.find((x) => sameFile(x.rel, asked)) : undefined
+    if (named) throw new ToolError(`save_as is '${named.rel}', one of the files the data comes from, which is never changed; nothing was done. Save the result under a new name (for example "${named.rel.replace(/(\.[^./]+)$/, ' (result)$1')}")`)
     const probe = a.split_by !== undefined ? splitTarget(a.save_as, 'x', 1) : splitTarget(a.save_as, null, 0)
     const t = authorize(fx, rules, c.user, probe, 'write', { mustExist: false, createDirs: true })
     if (t.exists && t.st!.isDirectory()) throw new ToolError(`'${t.rel}' is a folder`, 'is_folder')

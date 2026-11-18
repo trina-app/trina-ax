@@ -37,10 +37,12 @@ function textParts(pkg: Pkg, main: string): string[] {
   return [main, ...extra, ...['footnotes.xml', 'endnotes.xml'].map((n) => dir + n).filter((n) => pkg.has(n))]
 }
 
-/** a run's text element with new text: tabs and line breaks become <w:tab/> and <w:br/> in the same run */
+/** a run's text element with new text: tabs and line breaks become <w:tab/> and <w:br/> in the same run. The element's
+ * own attributes stay as they are (pandoc writes xml:space="preserve" on every run): only text with a space at either
+ * end adds xml:space="preserve" when the element did not have it, so nothing but the text changes otherwise */
 function wText(head: string, text: string): string {
-  const keep = head.replace(/\sxml:space="[^"]*"/, '')
-  const t = (s: string) => `<w:t${keep}${/^\s|\s$/.test(s) ? ' xml:space="preserve"' : ''}>${escText(s)}</w:t>`
+  const preserved = /\sxml:space="preserve"/.test(head)
+  const t = (s: string) => `<w:t${preserved || !/^\s|\s$/.test(s) ? head : `${head.replace(/\sxml:space="[^"]*"/, '')} xml:space="preserve"`}>${escText(s)}</w:t>`
   return text.split('\n').map((line) => line.split('\t').map(t).join('<w:tab/>')).join('<w:br/>')
 }
 

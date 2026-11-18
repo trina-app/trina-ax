@@ -152,8 +152,9 @@ describe('the parts', () => {
   test('the query runs read-only over the loaded copies only', () => {
     const dir = fs.mkdtempSync(path.join(A.ctx.config.dataDir, 'dq-'))
     fs.writeFileSync(path.join(dir, 'in-1.csv'), 'x\n1\n2\n')
-    // a write inside a reading query (a CTE cannot write; a function that could is not there)
-    expect(() => runDataQuery({ inputs: [{ file: 'in-1.csv', name: 'x.csv', ext: 'csv', table: 'data' }], sql: "SELECT load_extension('x')", show: 5 }, dir)).toThrow('no such function')
+    // a write inside a reading query (a CTE cannot write; a function that could is not there, or SQLite's authorizer
+    // refuses it first, as on Linux CI)
+    expect(() => runDataQuery({ inputs: [{ file: 'in-1.csv', name: 'x.csv', ext: 'csv', table: 'data' }], sql: "SELECT load_extension('x')", show: 5 }, dir)).toThrow(/no such function|not authorized/)
     fs.writeFileSync(path.join(dir, 'in-1.csv'), 'x\n1\n2\n')
     fs.rmSync(path.join(dir, 'data.db'), { force: true })
     const r = runDataQuery({ inputs: [{ file: 'in-1.csv', name: 'x.csv', ext: 'csv', table: 'data' }], sql: 'SELECT sum(x) s, 0.1 + 0.2 f, x AS a, x AS a FROM data', show: 5 }, dir)
@@ -380,7 +381,9 @@ describe('the review cases', () => {
     const before = fs.readFileSync(file(`${D}/small.csv`), 'utf8')
     const r = await turn('alice')('query_data', { paths: [`${D}/small.csv`], sql: 'SELECT store FROM data', save_as: `${D}/SMALL.csv` })
     expect(r.isError).toBe(true)
+    // the same refusal on a case-insensitive Mac and on case-sensitive Linux (checked before authorize)
     expect(r.text).toContain('never changed')
+    expect(fs.readFileSync(file(`${D}/small.csv`), 'utf8')).toBe(before)
     put(`${D}/sp/x - Busan.csv`, 'keep\n')
     const s2 = await turn('alice')('query_data', { paths: [`${D}/small.csv`, `${D}/sp/x - Busan.csv`], sql: 'SELECT * FROM t1', save_as: `${D}/sp/x.csv`, split_by: 'store' })
     expect(s2.isError, s2.text).toBe(false)
