@@ -12,6 +12,7 @@ import { API, type Attachment, type PutChatAudienceResult } from '@mycel/shared/
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { CCITT_SCAN, makePagesPdf } from '../lib/pdf'
 import { readScope } from '../../server/src/chat/read-scope'
+import { roomsOf } from '../../server/src/rooms/service'
 
 setDefaultTimeout(90_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -22,6 +23,10 @@ const ws: Record<string, TestSocket> = {}
 beforeAll(async () => {
   h = await startHarness({ name: 'b-chat-files-read-save', askUserTimeoutMs: 4000, stallTimeoutMs: 60_000 })
   for (const u of ['alice', 'bob', 'erin']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
+  // a share is rate-limited like a room message (its clock): every share call is 10 s later, as b-chat-files.test.ts does,
+  // so the many shares of this file never trip the limit on a slow runner
+  let clock = Date.now()
+  roomsOf(h.ctx).clock = () => (clock += 10_000)
 })
 afterAll(async () => { for (const s of Object.values(ws)) s.close(); await h.close() })
 
