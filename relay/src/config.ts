@@ -64,8 +64,11 @@ export interface RelayConfig {
   clientWsCap: number
   /** expose GET /_stats to loopback callers */
   stats: boolean
-  /** extra reserved names (comma separated in RELAY_RESERVED) */
+  /** extra reserved names (comma separated in RELAY_RESERVED); the self names are added */
   reserved: string[]
+  /** host labels under each domain that mean the relay's own address (API, /connect), not a team: RELAY_SELF_NAMES,
+   *  default 'relay'. A second relay under the same domain uses its own label, e.g. 'relay-us' for relay-us.<domain>. */
+  selfNames?: string[]
   /** --dev only: built-in reserved names that may be registered anyway (RELAY_DEV_NAMES, default 'demo') */
   devNames: string[]
   /** registrations per IP per hour (memory only, never stored) */
@@ -142,6 +145,9 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
   const publicProto = (get('public-proto', 'RELAY_PUBLIC_PROTO') ?? (local ? 'http' : 'https')) as 'http' | 'https'
   if (publicProto !== 'http' && publicProto !== 'https') throw new Error('public proto must be http or https')
   const pp = get('public-port', 'RELAY_PUBLIC_PORT')
+  const selfNames = (get('self-names', 'RELAY_SELF_NAMES') ?? 'relay').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean)
+  if (selfNames.length === 0) throw new Error('RELAY_SELF_NAMES: at least one name')
+  for (const n of selfNames) if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(n)) throw new Error(`RELAY_SELF_NAMES: not a host label: ${n}`)
   return {
     dev,
     host: get('host', 'RELAY_HOST') ?? (dev ? '127.0.0.1' : '0.0.0.0'),
@@ -169,7 +175,8 @@ export function loadRelayConfig(argv: string[] = process.argv.slice(2), env: Rec
     maxConnsPerTeam: num(env.RELAY_MAX_CONNS, DEFAULTS.maxConnections),
     clientWsCap: num(env.RELAY_CLIENT_WS_CAP, DEFAULTS.clientWsCap),
     stats: bool.has('stats') || env.RELAY_STATS === '1' || dev,
-    reserved: (env.RELAY_RESERVED ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+    reserved: [...new Set([...(env.RELAY_RESERVED ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean), ...selfNames])],
+    selfNames,
     devNames: dev ? (env.RELAY_DEV_NAMES ?? 'demo').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean) : [],
     registerPerIpPerHour: num(env.RELAY_REGISTER_PER_IP, dev ? 1000 : 10),
     openRegistration: flag01(get('open-registration', 'RELAY_OPEN_REGISTRATION'), dev),

@@ -1,0 +1,1 @@
+- Relay operators: `RELAY_SELF_NAMES` sets the host labels that are the relay's own address (default `relay`), so a second relay can serve the same team domain under its own name, for example `relay-us`. These names are reserved as team names.
