@@ -198,3 +198,19 @@ describe('security: people outside the chat get nothing of it while it streams',
     await idle(chat.id)
   })
 })
+
+test('someone who starts seeing the chat while an answer runs gets none of it live, only its end as they may see it', async () => {
+  const chat = await newShared()
+  const from = { bob: ws.bob!.frames.length, gina: ws.gina!.frames.length }
+  const r = await send('alice', chat.id, 'q\n' + fake({ say: 'Before. ' }, { sleep: 1800 }, { say: 'After.' }))
+  await waitFor(() => liveText(ofMessage('bob', r.assistantMessage.id, from.bob)) === 'Before. ', { timeoutMs: 15_000 })
+  ginaJoins()
+  try {
+    // (an access change of the app would also reset the list at once: admin/folders.ts afterAccessChange)
+    h.rt().forgetLiveViewers()
+    const forGina = await doneFor('gina', r.assistantMessage.id)
+    expect(forGina.content).toBe('Before. After.')
+    expect(ofMessage('gina', r.assistantMessage.id, from.gina).filter((f) => f.type === 'message.delta' || f.type === 'message.step')).toEqual([])
+  } finally { ginaLeaves() }
+  await idle(chat.id)
+})

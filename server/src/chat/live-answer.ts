@@ -8,8 +8,9 @@
 // reason: those stay with the person of the turn (chat/turn.ts sends them to `spec.userId` only).
 //
 // Who gets it is worked out again at most every LIVE_VIEWERS_MS, at once after the answer's read record changes
-// (TurnExec.noteSharedReads) and when someone stops seeing the chat (ChatRuntime.stopUserTurnsIn, from every access
-// change). A check that fails gives nobody (fails closed).
+// (TurnExec.noteSharedReads), after every access change (admin/folders.ts afterAccessChange, ChatRuntime.stopUserTurnsIn)
+// and when an account is turned off (stopUserTurns); only among the people who saw the chat when its first piece went
+// out. A check that fails gives nobody (fails closed).
 import type { MessageStatus, Step } from '@mycel/shared/api'
 import { personLocale } from '../files/media-text'
 import type { ChatRuntime } from './runtime'
@@ -24,6 +25,10 @@ export interface LiveViewer { id: string; view: MessageView }
 
 export class LiveAnswer {
   private kept: { at: number; viewers: LiveViewer[] } | null = null
+  /** who saw the chat when the answer's first piece went out: someone who starts seeing it later gets the answer at its
+   * end (message.done, as they may see it then) and over REST, never part of it live. So a person the answer becomes
+   * hidden from later (a card's audience they were not in) never holds pieces of it they would then keep */
+  private first: Set<string> | null = null
   constructor(private rt: ChatRuntime, private chatId: string, private messageId: string, private turnId: string, private runner: string, private now: () => number = () => performance.now()) {}
 
   /** Work the viewers out again at the next event. */
@@ -38,12 +43,13 @@ export class LiveAnswer {
       const chat = this.rt.store.chatRow(this.chatId)
       if (chat && !chat.deleted_at && isSharedRow(chat)) {
         for (const id of new Set(new Audiences(this.rt.db, this.rt.files).ofChat(chat))) {
-          if (id === this.runner) continue
+          if (id === this.runner || (this.first && !this.first.has(id))) continue
           const view = messageView(this.rt, chat, id, personLocale(this.rt.db, id))
           // a chat of one person has no view (nobody else); an answer hidden from them: nothing of it
           if (!view || view.withheld?.(this.messageId) !== false) continue
           viewers.push({ id, view: { ...view, runner: false } })
         }
+        this.first ??= new Set(viewers.map((v) => v.id))
       }
     } catch (err) {
       this.rt.log.warn('live viewers of a shared answer not worked out', { err, turn: this.turnId })

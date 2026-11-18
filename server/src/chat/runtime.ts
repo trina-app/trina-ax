@@ -190,6 +190,12 @@ export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly s
   return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
 }
 
+/** Any access changed (admin/folders.ts afterAccessChange): every running answer of a shared chat works out who gets its
+ * live text again before its next piece (chat/live-answer.ts). */
+export function forgetLiveViewers(ctx: AppContext): void {
+  runtimes.get(ctx)?.forgetLiveViewers()
+}
+
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
 export function readSetting<T>(db: AppContext['db'], key: string, ok: (v: unknown) => v is T, fallback: T): T {
   try {
@@ -559,8 +565,12 @@ export class ChatRuntime {
     return n
   }
   queuedCount() { return this.queued.length }
+  /** Every running answer works out who gets its live text again (chat/live-answer.ts). */
+  forgetLiveViewers() { for (const e of this.running.values()) e.forgetLiveViewers() }
   /** Stop every running and queued turn of one person (account disabled / deleted). */
   stopUserTurns(userId: string): number {
+    // (their account is off: nobody's live text reaches them any more)
+    this.forgetLiveViewers()
     this.db.query('UPDATE schedules SET pending_due_at=NULL, retry_at=NULL, enabled=0 WHERE user_id=?').run(userId)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
     let n = 0

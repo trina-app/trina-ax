@@ -16,9 +16,12 @@
   `chat.updated`: a project's audience, or the creator and people of a chat shared with people; no guest but the
   chat's own) other than the asker, and only while the answer is not hidden from them (`messageView(...).withheld`,
   `chat/shared-answers.ts`: an answer that used the asker's own connection is hidden from someone who joined after it).
-  The list is worked out again at most every second, at once after the answer's read record changes
-  (`TurnExec.noteSharedReads`) and when someone stops seeing the chat (`ChatRuntime.stopUserTurnsIn`, which every access
-  change calls). A check that fails sends to nobody.
+  Only people who saw the chat when the answer's first piece went out get it live: someone who starts seeing the chat
+  meanwhile gets its end and the REST read, so nobody holds pieces of an answer that becomes hidden from them later (a
+  connection card's audience they were not in; independent review). The list is worked out again at most every second,
+  at once after the answer's read record changes (`TurnExec.noteSharedReads`), after every access change
+  (`admin/folders.ts afterAccessChange`, `ChatRuntime.stopUserTurnsIn`) and when an account is turned off
+  (`stopUserTurns`). A check that fails sends to nobody.
 - **Rule, what they get:** the text as the asker gets it (it already went through the redactor of the asker's stored
   connection secrets, as the saved answer does), a reset when a refused attempt's text is dropped, each step as the
   finished answer shows it to them (`ChatStore.viewSteps`: a line names its paths only when they may see them all; no
