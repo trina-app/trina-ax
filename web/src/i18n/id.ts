@@ -6779,6 +6779,8 @@ export const id: Record<MessageKey, string> = {
   "notifications.event.chat.thread_reply": "Seseorang membalas di utas.",
   "notifications.event.chat.thread_replyNamed": "{name} membalas di utas di {title}.",
   "notifications.event.chat.thread_replyGone": "Anda tidak bisa melihat ini lagi.",
+  "notifications.event.chat.thread_mention": "Seseorang menyebut Anda di utas.",
+  "notifications.event.chat.thread_mentionNamed": "{name} menyebut Anda di utas di {title}.",
   "audit.act.chat.thread_reply_deleted": "Balasan dihapus dari utas obrolan",
   "fileShare.holdsFiles": "{n} file",
   "fileShare.holdsFolders": "{n} folder",

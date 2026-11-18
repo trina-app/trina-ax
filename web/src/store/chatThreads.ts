@@ -21,7 +21,8 @@ export interface ChatThreadView extends Partial<Omit<ChatThreadPage, 'replies'>>
   error: unknown
 }
 /** a reply on its way: 'sending' (`updating`: waiting while Trina updates), or 'failed' (kept with "Send again") */
-export interface PendingReply { clientId: string; text: string; state: 'sending' | 'failed'; at: string; error?: string; updating?: true }
+/** `mentions`: the people picked with "@" (ids; the server keeps only those who see the thread) */
+export interface PendingReply { clientId: string; text: string; mentions?: string[]; state: 'sending' | 'failed'; at: string; error?: string; updating?: true }
 
 interface State {
   views: Record<string, ChatThreadView>
@@ -33,7 +34,7 @@ interface State {
   slowUntil: Record<string, number>
   load: (chatId: string, rootId: string) => Promise<void>
   loadOlder: (chatId: string, rootId: string) => Promise<void>
-  send: (chatId: string, rootId: string, text: string) => Promise<void>
+  send: (chatId: string, rootId: string, text: string, mentions?: string[]) => Promise<void>
   sendAgain: (chatId: string, rootId: string, clientId: string) => Promise<void>
   dropPending: (chatId: string, rootId: string, clientId: string) => void
   remove: (chatId: string, rootId: string, replyId: string) => Promise<void>
@@ -62,6 +63,9 @@ const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id 
 /** the replies with one added or replaced, in order (ids sort by time) */
 const withReply = (list: ChatThreadReply[], r: ChatThreadReply) => [...list.filter((x) => x.id !== r.id), r].sort(byId)
 
+/** the people a refused reply mentioned, given back with its text (takeReturnedMentions): per thread */
+const returnedMentions = new Map<string, string[]>()
+
 export const useChatThreads = create<State>((set, get) => {
   const patch = (key: string, f: (v: ChatThreadView) => ChatThreadView) => set((s) => ({ views: { ...s.views, [key]: f(s.views[key] ?? EMPTY_VIEW) } }))
   const setPending = (key: string, f: (list: PendingReply[]) => PendingReply[]) => set((s) => {
@@ -74,7 +78,7 @@ export const useChatThreads = create<State>((set, get) => {
   const post = async (chatId: string, rootId: string, p: PendingReply): Promise<void> => {
     const key = threadKey(chatId, rootId)
     try {
-      const r = await api.call(API.sendChatThreadReply, { params: { id: chatId, messageId: rootId }, body: { text: p.text, clientId: p.clientId } })
+      const r = await api.call(API.sendChatThreadReply, { params: { id: chatId, messageId: rootId }, body: { text: p.text, clientId: p.clientId, ...(p.mentions?.length ? { mentions: p.mentions } : {}) } })
       patch(key, (v) => ({ ...v, replies: withReply(v.replies, r) }))
       setPending(key, (list) => list.filter((x) => x.clientId !== p.clientId))
     } catch (e) {
@@ -105,6 +109,8 @@ export const useChatThreads = create<State>((set, get) => {
       // comes back to the box (the panel takes it) and the reason is told. A thread that is gone keeps the faint reply
       if (e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 401 && e.status !== 404) {
         setPending(key, (list) => list.filter((x) => x.clientId !== p.clientId))
+        if (p.mentions?.length) returnedMentions.set(key, p.mentions)
+        else returnedMentions.delete(key)
         set((s) => ({ returned: { ...s.returned, [key]: p.text } }))
         toast({ level: 'warn', text: error })
         if (e.body.params?.reason === 'thread_full' || e.body.params?.reason === 'safe_ops' || e.body.params?.reason === 'not_shared') void get().load(chatId, rootId)
@@ -145,9 +151,9 @@ export const useChatThreads = create<State>((set, get) => {
       }
     },
 
-    async send(chatId, rootId, text) {
+    async send(chatId, rootId, text, mentions) {
       const key = threadKey(chatId, rootId)
-      const p: PendingReply = { clientId: `ct-${uuidv7()}`, text, state: 'sending', at: new Date().toISOString() }
+      const p: PendingReply = { clientId: `ct-${uuidv7()}`, text, ...(mentions?.length ? { mentions } : {}), state: 'sending', at: new Date().toISOString() }
       setPending(key, (list) => [...list, p])
       await post(chatId, rootId, p)
     },
@@ -189,6 +195,7 @@ export const useChatThreads = create<State>((set, get) => {
     },
 
     reset() {
+      returnedMentions.clear()
       set({ views: {}, pending: {}, returned: {}, slowUntil: {} })
     },
   }
@@ -200,4 +207,12 @@ export function takeReturned(chatId: string, rootId: string): string | null {
   const text = useChatThreads.getState().returned[key] ?? null
   if (text !== null) useChatThreads.setState((s) => { const { [key]: _, ...rest } = s.returned; return { returned: rest } })
   return text
+}
+
+/** the people the refused reply mentioned (taken with its text, once) */
+export function takeReturnedMentions(chatId: string, rootId: string): string[] {
+  const key = threadKey(chatId, rootId)
+  const ids = returnedMentions.get(key) ?? []
+  returnedMentions.delete(key)
+  return ids
 }

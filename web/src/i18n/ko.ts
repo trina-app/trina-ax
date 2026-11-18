@@ -6779,6 +6779,8 @@ export const ko = {
   "notifications.event.chat.thread_reply": "스레드에 답글이 달렸어요.",
   "notifications.event.chat.thread_replyNamed": "{name}님이 {title}의 스레드에 답글을 달았어요.",
   "notifications.event.chat.thread_replyGone": "더 이상 볼 수 없어요.",
+  "notifications.event.chat.thread_mention": "스레드에서 나를 언급했어요.",
+  "notifications.event.chat.thread_mentionNamed": "{name}님이 {title}의 스레드에서 나를 언급했어요.",
   "audit.act.chat.thread_reply_deleted": "채팅 스레드의 답글 삭제",
   "fileShare.holdsFiles": "파일 {n}개",
   "fileShare.holdsFolders": "폴더 {n}개",

@@ -6735,6 +6735,8 @@ export const ja: Record<MessageKey, string> = {
   "notifications.event.chat.thread_reply": "スレッドに返信がありました。",
   "notifications.event.chat.thread_replyNamed": "{name}さんが{title}のスレッドに返信しました。",
   "notifications.event.chat.thread_replyGone": "これはもう表示できません。",
+  "notifications.event.chat.thread_mention": "スレッドであなたがメンションされました。",
+  "notifications.event.chat.thread_mentionNamed": "{name}さんが{title}のスレッドであなたをメンションしました。",
   "audit.act.chat.thread_reply_deleted": "チャットのスレッドの返信を削除",
   "fileShare.holdsFiles": "{n, plural, one {ファイル#件} other {ファイル#件}}",
   "fileShare.holdsFolders": "{n, plural, one {フォルダー#件} other {フォルダー#件}}",

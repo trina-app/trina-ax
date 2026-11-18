@@ -132,11 +132,13 @@ export class Notifications {
    * newest replier and reply; its time and push stay those of the first), so a burst of replies is one row and one
    * push; once read, the next reply makes a new one. Shown always; the push waits CHAT_THREAD_PUSH_DELAY_MS and follows
    * "Replies in threads I'm part of" (chat/threads.ts chatThreadWanted). */
-  chatThreadReply(userId: string, o: { chatId: string; rootId: string; replyId: string; by: string }, at = new Date().toISOString()) {
+  chatThreadReply(userId: string, o: { chatId: string; rootId: string; replyId: string; by: string; mention?: boolean }, at = new Date().toISOString()) {
     if (!this.active(userId)) return
-    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=? WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, userId, o.rootId)
-    if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed)
-      VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString())
+    // `mention`: this reply mentions them (docs/decisions/20261118-chat-thread-mentions.md): the notice keeps it (mention_id)
+    const mention = o.mention ? o.replyId : null
+    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(?, mention_id) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
+    if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed,mention_id)
+      VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0,?)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), mention)
     this.signal(userId)
   }
   /** A file shared with me, an access request to answer, a decline of mine, or my file's grants removed by someone
