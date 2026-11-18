@@ -14,6 +14,7 @@ import { SecretWarning, useSecretHold } from './SecretWarning'
 import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { SharedQueuedLine } from './ComposerFiles'
+import { UserText } from './Messages'
 
 /** a shared chat: who sees the files (as the line under the box counts them), and how many other people have messages waiting */
 export interface QueueShared { audience: number; kind?: 'project' | 'people'; othersWaiting: number }
@@ -179,9 +180,14 @@ function QueuedItem({ item, shared, editing, onEdit, onCancelEdit, onSave, onRem
           </div>
         </form>
       ) : (
-        item.content && (
+        (item.content || item.lead) && (
           <div className="max-w-full min-w-0 rounded-3xl border border-dashed border-line-strong bg-surface px-4 py-2.5 text-reading leading-7 text-muted max-md:leading-reading" data-testid="outbox-text">
-            <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+            {/* a side chat's thread line or quoted message: on top, as the bubble will show it once it is sent */}
+            {item.lead ? (
+              <UserText content={`${item.lead}\n\n${item.content}`} clamp quotes />
+            ) : (
+              <div className="line-clamp-[8] whitespace-pre-wrap [overflow-wrap:anywhere]"><WithRoomRefs text={item.content} /></div>
+            )}
           </div>
         )
       )}

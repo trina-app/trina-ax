@@ -363,3 +363,22 @@ test('an answer\'s own quotes go without the typography\'s marks: a shared answe
   expect(shared).toContain('&quot;Let&#x27;s move the review to 3 pm&quot;')
   expect(shared).not.toMatch(/[“”]/)
 })
+
+test('a post the AI made for a person mentions people for real: "@Name" in their line is marked, the quote is not (docs/decisions/20261118-ai-post-real-mentions.md)', () => {
+  // as the server stores post_to_room's message: the mentions in the person's line before the AI's quote
+  const head = '@Cy Park'
+  const answer = 'Forwarding a mail from the supplier. Ask @Ben too.'
+  const html = render([message({ roomId: R, seq: 1, author: ME, body: `${head}\n\n${answer}`, sharedAnswer: { at: head.length + 2, cut: false }, mentions: [CY.id] })])
+  const note = html.slice(0, html.indexOf('data-testid="room-shared-answer"'))
+  expect(note).toMatch(/<span class="font-medium text-accent-text">@Cy Park<\/span>/)
+  // inside the AI's quote a name is the AI's words: never marked (Ben is not mentioned either)
+  const quote = /data-testid="room-shared-answer"[\s\S]*?<\/figure>/.exec(html)![0]
+  expect(quote).toContain('Ask @Ben too.')
+  expect(quote).not.toContain('text-accent-text">@Ben')
+  // the same text with no mention stored (a button's share, an older post): plain
+  const plain = render([message({ roomId: R, seq: 1, author: ME, body: `${head}\n\n${answer}`, sharedAnswer: { at: head.length + 2, cut: false }, mentions: [] })])
+  expect(plain).not.toContain('text-accent-text">@Cy Park')
+  // "@everyone" the server kept (the asker wrote it): marked like a typed one
+  const all = render([message({ roomId: R, seq: 1, author: BEN, body: `@everyone\n\n${answer}`, sharedAnswer: { at: '@everyone'.length + 2, cut: false }, mentions: [], mentionsAll: true })])
+  expect(all).toContain('data-mention="all">@everyone</span>')
+})

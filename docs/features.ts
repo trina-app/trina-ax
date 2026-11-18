@@ -100,6 +100,7 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId'] },
   { id: 'rooms.reactions', name: 'Reactions', area: 'Rooms', endpoints: ['reactRoomMessage'] },
   { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
+  { id: 'rooms.app-link-names', name: 'Links to chats, projects, files and conversations show their names', area: 'Rooms', endpoints: ['linkNames'] },
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },

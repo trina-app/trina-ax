@@ -35,7 +35,7 @@ export class QueueFull extends Error {
   }
 }
 
-export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string } }
+export interface NewQueued { content: string; attachments: Attachment[]; author: { id: string; name: string }; lead?: string }
 
 interface SendQueueState {
   userId: string | null
@@ -164,7 +164,7 @@ export const useSendQueue = create<SendQueueState>((set, get) => {
       const q = current(chatId)
       if (q.items.length >= QUEUE_ITEMS_MAX) throw new QueueFull()
       const thread = useChats.getState().threads[chatId]
-      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString() }
+      const item: QueuedMessage = { id: uuidv7(), content: m.content, attachments: m.attachments, author: m.author, createdAt: new Date().toISOString(), ...(m.lead ? { lead: m.lead } : {}) }
       // a message added while an answer runs means "send when it is done" for everything waiting (a pause ends)
       put(chatId, { items: [...q.items, item], paused: null, after: (thread ? awaitedAnswer(thread.messages) : null) ?? q.after })
     },

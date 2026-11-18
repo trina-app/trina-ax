@@ -628,7 +628,7 @@ describe('what a shared turn has', () => {
   })
 
   test('the instructions: only SHARED_PROMPT_SECTIONS, nothing about the person; the transcript says who wrote what', async () => {
-    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'connected', 'memories', 'sideRoom', 'situation'])
+    expect(Object.entries(SHARED_PROMPT_SECTIONS).filter(([, ok]) => !ok).map(([id]) => id).sort()).toEqual(['browser', 'memories', 'sideRoom', 'situation'])
     const user = loadPrincipal(db(), 'alice')!
     const input: PromptInput = {
       user, groupNames: ['ZZ-GROUP-CANARY'], locale: 'en', timeZone: 'UTC', memories: [{ id: 'm1', text: 'MEMORY-CANARY' }],
@@ -645,7 +645,9 @@ describe('what a shared turn has', () => {
     ]
     for (const [sections, prompt] of built) {
       for (const sec of sections) if (sec.text) expect({ id: sec.id, in: prompt.includes(sec.text) }).toEqual({ id: sec.id, in: SHARED_PROMPT_SECTIONS[sec.id] === true })
-      for (const canary of ['MEMORY-CANARY', 'CONN-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
+      // (the connections section is there since 2026-11-18, in its shared form: tests/unit/b-shared-chat-connections.test.ts)
+      expect(prompt.includes('CONN-CANARY')).toBe(true)
+      for (const canary of ['MEMORY-CANARY', 'ZZ-GROUP-CANARY', 'role member', 'groups/marketing']) expect({ canary, in: prompt.includes(canary) }).toEqual({ canary, in: false })
     }
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Shared project chat')
     expect(buildTurnPrompt(h.ctx.files, input)).toContain('## Where things are in the app')

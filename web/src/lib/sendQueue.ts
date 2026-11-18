@@ -23,6 +23,9 @@ export interface QueuedMessage {
   attachments: AttachmentT[]
   author: { id: string; name: string }
   createdAt: string
+  /** what goes on top of the text when it is sent, kept as it was when it was queued (a room's side chat: the thread line
+   * or the quoted message the box showed then); not part of what is edited */
+  lead?: string
 }
 /** stopped: the person stopped the answer; error: the answer or a send failed; away: the answer ended while this
  * page was not open (or something else happened in the chat since). Each waits for "Send now". */
@@ -83,8 +86,11 @@ export const awaitedAnswer = (messages: readonly ViewMessage[]): string | null =
 export function combine(items: readonly QueuedMessage[]): { take: QueuedMessage[]; content: string; attachments: AttachmentT[] } {
   const take: QueuedMessage[] = []
   const attachments: AttachmentT[] = []
-  let length = 0
+  // messages about something else (another thread or quote: `lead`) go in the next message, each under its own lead
+  const lead = items[0]?.lead
+  let length = lead ? lead.length : 0
   for (const it of items) {
+    if (it.lead !== lead) break
     const have = new Set(attachments.map((a) => a.id))
     const add = it.attachments.filter((a) => !have.has(a.id))
     const extra = it.content.trim() ? it.content.length + (length ? 2 : 0) : 0
@@ -93,7 +99,8 @@ export function combine(items: readonly QueuedMessage[]): { take: QueuedMessage[
     attachments.push(...add)
     length += extra
   }
-  return { take, content: take.map((i) => i.content).filter((c) => c.trim()).join('\n\n'), attachments }
+  const text = take.map((i) => i.content).filter((c) => c.trim()).join('\n\n')
+  return { take, content: lead ? `${lead}\n\n${text}` : text, attachments }
 }
 
 /** The clientMessageId of a combined send: the same messages give the same id, so two windows sending the same
@@ -132,6 +139,7 @@ const Stored = z.object({
     attachments: z.array(Attachment).max(MESSAGE_ATTACHMENTS_MAX),
     author: z.object({ id: z.string().max(200), name: z.string().max(500) }),
     createdAt: z.string().max(40),
+    lead: z.string().optional(),
   })).max(QUEUE_STORED_MAX),
   paused: z.enum(['stopped', 'error', 'away']).nullable(),
   after: z.string().max(64).nullable(),
