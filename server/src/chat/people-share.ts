@@ -406,6 +406,8 @@ export async function putChatAudience(ctx: AppContext, rt: ChatRuntime, userId: 
     // could not be shared, filesNotCopied)
     let filesNotCopied = 0
     if (first) { try { filesNotCopied = (await chatFilesOf(ctx).copyEarlier(r.id)).notCopied } catch (e) { ctx.log.warn('earlier uploads of a shared chat not copied', { err: e }) } }
+    // a running answer there works out who gets its live text again, now that the change is saved (chat/live-answer.ts)
+    rt.forgetLiveViewers()
     // the people who lost it: their windows drop it (its id alone, nothing of it)
     for (const id of lost) rt.hub.publish(id, { type: 'chat.updated', data: { chatId: r.id, change: 'deleted', chat: null } })
     // everyone in it now hears the chat as they see it (the newly added get it as a new row of their list)

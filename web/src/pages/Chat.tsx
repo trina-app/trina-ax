@@ -357,7 +357,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, CHAT_ROW)
+      const keep = holdPlace(el, CHAT_ROW, list.reanchor)
       await loadOlder(chatId).catch(() => {})
       requestAnimationFrame(keep)
       setOlderBusy(false)

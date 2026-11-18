@@ -503,7 +503,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     if (fromBottom < 200 && th?.roomId === roomId && th.newerCursor && !th.loading) void useRooms.getState().loadNewer(roomId)
     if (el.scrollTop < 200 && th?.roomId === roomId && th.nextCursor && !th.loading) {
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, ROOM_ROW)
+      const keep = holdPlace(el, ROOM_ROW, list.reanchor)
       void useRooms
         .getState()
         .loadOlder(roomId)

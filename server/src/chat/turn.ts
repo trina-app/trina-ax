@@ -514,12 +514,15 @@ export class TurnExec {
       const project = rt.store.projectRow(row.project_id!)
       this.shared = { kind: 'project', project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
-    if (this.shared) this.live = new LiveAnswer(rt, spec.chatId, spec.assistantId, spec.turnId, spec.userId)
+    if (this.shared) this.live = new LiveAnswer(rt, spec.chatId, spec.assistantId, spec.turnId, spec.userId, () => this.redactor())
   }
 
   /** Someone may have stopped seeing this shared chat, or the answer's record changed: the live text's viewers are
    * worked out again before the next piece (chat/live-answer.ts). */
   forgetLiveViewers() { this.live?.forget() }
+  /** The running answer's text as anyone but its asker may get it now (the REST read of a running answer: chat/shared.ts
+   * messageFor); null: not a shared chat's answer. */
+  othersText(): string | null { return this.live ? this.live.others.of(this.content) : null }
 
   get id() { return this.spec.turnId }
   redactor(): Redactor { return (this.redactorNow ??= redactorFor(this.rt.ctx, this.spec.userId)) }
@@ -1924,7 +1927,7 @@ export class TurnExec {
     this.content = this.content.slice(0, at)
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
-    this.live?.text(at, '', true)
+    this.live?.text(this.content)
   }
 
   private emitText(t: string) {
@@ -1933,8 +1936,8 @@ export class TurnExec {
     this.content += t
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
-    // the others in a shared chat: the same text (it went through the redactor above, as the saved answer does)
-    this.live?.text(offset, t)
+    // the others in a shared chat: their own copy of the text (chat/live-answer.ts OthersText)
+    this.live?.text(this.content)
   }
 
   addStep(s: Partial<StoredStep> & Pick<Step, 'kind' | 'label' | 'status'>): StoredStep {

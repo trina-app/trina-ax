@@ -111,7 +111,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, fo
     list.onScroll()
     const v = useChatThreads.getState().views[key]
     if (el.scrollTop < 200 && v?.nextCursor && !v.loading) {
-      const keep = holdPlace(el, ROOM_ROW)
+      const keep = holdPlace(el, ROOM_ROW, list.reanchor)
       void useChatThreads.getState().loadOlder(chatId, rootId).finally(() => requestAnimationFrame(keep))
     }
     tryRead()

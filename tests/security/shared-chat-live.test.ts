@@ -214,3 +214,25 @@ test('someone who starts seeing the chat while an answer runs gets none of it li
   } finally { ginaLeaves() }
   await idle(chat.id)
 })
+
+test("a stored key written as zero-padded HTML entities (longer than the asker's stream holds back): never in bob's live text or his REST read", async () => {
+  // each character as &#000…0NN; with more zeros than RedactingText's hold (12 per character) covers
+  const padded = [...MCP_KEY].map((c) => `&#${'0'.repeat(24)}${c.codePointAt(0)};`).join('')
+  const chat = await newShared()
+  const from = ws.bob!.frames.length
+  const r = await send('alice', chat.id, 'q\n' + fake({ say: `The key is ${padded} and that is it. ` }, { sleep: 1500 }, { say: 'Done.' }))
+  await waitFor(() => liveText(ofMessage('bob', r.assistantMessage.id, from)).includes('that is it'), { timeoutMs: 15_000 })
+  const running = (await messagesOf('bob', chat.id)).find((m) => m.id === r.assistantMessage.id)!
+  expect(running.status).toBe('streaming')
+  const forBob = await doneFor('bob', r.assistantMessage.id)
+  const frames = ofMessage('bob', r.assistantMessage.id, from)
+  const live = liveText(frames)
+  for (const seen of [live, running.content, forBob.content, JSON.stringify(frames)]) {
+    expect(seen).not.toContain(`&#${'0'.repeat(24)}`)
+    expect(seen).not.toContain(MCP_KEY)
+  }
+  expect(live).toContain('[hidden key]')
+  expect(running.content).toContain('[hidden key]')
+  expect(live).toBe(forBob.content)
+  await idle(chat.id)
+})

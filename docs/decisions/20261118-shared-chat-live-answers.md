@@ -22,25 +22,34 @@
   at once after the answer's read record changes (`TurnExec.noteSharedReads`), after every access change
   (`admin/folders.ts afterAccessChange`, `ChatRuntime.stopUserTurnsIn`) and when an account is turned off
   (`stopUserTurns`). A check that fails sends to nobody.
-- **Rule, what they get:** the text as the asker gets it (it already went through the redactor of the asker's stored
-  connection secrets, as the saved answer does), a reset when a refused attempt's text is dropped, each step as the
-  finished answer shows it to them (`ChatStore.viewSteps`: a line names its paths only when they may see them all; no
-  step detail, no card's answer, no record of a post, a share or next steps), and at the end `message.done` with the
-  message as the API gives it to them (`messageFor`: no usage, a failure's reason replaced, an answer hidden from them
-  as its place alone). The REST read of a running answer gives them its text and steps so far the same way, so a
-  reload or a late open picks up where the events go on.
+- **Rule, what they get:** a copy of the text of their own (`OthersText`): the asker's stream holds back only a short
+  end for a stored secret's written forms, and an HTML entity form padded with zeros is longer than that (security
+  review of #1311, reproduced). The others' copy stops at the last character no written form of a stored secret of the
+  asker's is made of, with no length cap, and each part before it is redacted whole; past 64 KB held back nothing more
+  goes to them live (the end brings the answer). Deltas are sent against what they already have, and a reset when text
+  they have changes (a refused attempt's text dropped). Each step as the finished answer shows it to them
+  (`ChatStore.viewSteps`: a line names its paths only when they may see them all; no step detail, no card's answer, no
+  record of a post, a share or next steps), and at the end `message.done` with the message as the API gives it to them
+  (`messageFor`: no usage, a failure's reason replaced, an answer hidden from them as its place alone). The REST read
+  of a running answer gives them the same copy of the text (also from its last save when no turn runs), so a reload or
+  a late open picks up where the events go on.
+- **Rule, cost:** live events go only to people with a window open (`Hub.publishOpen`, each frame's data serialized once
+  for all of them); the others read the chat over REST when they open it. The viewer list reads the chat's records once
+  per refresh for all viewers (`AnswerSight`).
 - **Rule, what stays the asker's:** cards (`turn.request`, the shared read card, the connection card, every other
   card) and their answers, queue positions, the busy line, notices, usage, a failure's reason, live artifacts (the
   others see an artifact when it is saved). Nothing of the asker's own connection is fetched before the asker's yes on
   its card (unchanged), so nothing of it can stream before then.
-- **Known:** an escaped or base64 form of a stored secret padded past its longest length is found only by the check of
-  the whole answer at its end (`RedactingText`); while it streams such a form reaches the others as it reached the asker
-  before. The question itself still reaches the others by reading the messages when the turn starts (no
-  `message.created` to them).
+- **Known:**
+  - The question itself still reaches the others by reading the messages when the turn starts (no `message.created`
+    to them).
+  - A refused attempt's text streams to them before its reset drops it, as it did for the asker.
+  - Someone who loses access and gets it back while an answer runs keeps the text they had from before a card that
+    their absence left them out of; the answer's end is then judged by its record as usual.
 - **Tests:** `tests/unit/b-shared-chat-live.test.ts` (the text live and over REST, the end as bob sees it, nothing of
   alice's turn events; a step naming a place bob cannot see), `tests/security/shared-chat-live.test.ts` (alice's own
   connection before and after her card, its key, step details; a later joiner gets nothing of an answer built on her
   connection, live or over REST; someone who stops seeing the chat gets nothing more at once; people outside a project
-  chat or a chat shared with people get nothing), `tests/unit/b-shared-chats.test.ts` (updated), the e2e
+  chat or a chat shared with people get nothing; a key written as zero-padded entities), `tests/unit/others-text.test.ts`, `tests/unit/b-shared-chats.test.ts` (updated), the e2e
   `web/test/e2e/shared-project-chats.spec.ts` (Bob sees the first half of Olga's answer while it runs).
 - **Version impact:** minor (new behaviour in shared chats, no API shape change).

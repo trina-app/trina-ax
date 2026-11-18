@@ -157,9 +157,10 @@ export type HoldBox = Rect & { scrollTop: number; style: { overflowAnchor: strin
  * Before, the list added the height it grew by (scrollHeight) on top of what the browser's scroll anchoring had done
  * already (Chromium, current Safari): the view jumped down by a whole page. Doing it here, once, gives the same result
  * whether the engine anchors or not (an older iPhone does not), at the very top too, and what grew below the row (a
- * streaming answer, a new message) is not counted. A row that is gone by then: the list stays as it is.
+ * streaming answer, a new message) is not counted. A row that is gone by then: the list stays as it is. `reanchor`
+ * (useStickToBottom's): anchoring is put back as the list's following state says then (anchorWhileFollowing).
  */
-export function holdPlace(scroller: HoldBox, rows: string): () => void {
+export function holdPlace(scroller: HoldBox, rows: string, reanchor?: () => void): () => void {
   const top = () => scroller.getBoundingClientRect().top
   let row: (Rect & { isConnected: boolean }) | null = null
   for (const r of scroller.querySelectorAll(rows)) {
@@ -175,7 +176,10 @@ export function holdPlace(scroller: HoldBox, rows: string): () => void {
       const added = at(row) - before
       if (Math.abs(added) >= 1) scroller.scrollTop += added
     }
-    scroller.style.overflowAnchor = anchor
+    // anchoring as the list's following state says now (useStickToBottom reanchor: it may have changed meanwhile);
+    // without one, what it was before
+    if (reanchor) reanchor()
+    else scroller.style.overflowAnchor = anchor
   }
 }
 
@@ -222,6 +226,8 @@ export function useStickToBottom(canStick?: () => boolean) {
   /** what anchorWhileFollowing set last */
   const anchored = useRef<boolean | null>(null)
   const anchor = () => { const el = scroller.current; if (el) anchored.current = anchorWhileFollowing(el, follows(), anchored.current) }
+  /** anchoring set again from the following state, whatever was set last (holdPlace's end) */
+  const reanchor = () => { anchored.current = null; anchor() }
   useEffect(() => {
     const s = scroller.current, c = content.current
     if (!s || !c) return
@@ -240,6 +246,8 @@ export function useStickToBottom(canStick?: () => boolean) {
       anchor()
       return reader
     },
+    /** holdPlace's `reanchor`: the browser's anchoring as the list's following state says now */
+    reanchor,
     /** to the bottom while following (after new messages) */
     follow() {
       const el = scroller.current

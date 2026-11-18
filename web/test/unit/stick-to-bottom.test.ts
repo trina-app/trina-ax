@@ -383,3 +383,15 @@ test('the browser anchors only while the list does not follow: off at the bottom
   was = anchorWhileFollowing(el, false, was)
   expect(el.style.overflowAnchor).toBe('none')
 })
+
+test("holdPlace with the list's reanchor: anchoring is put back by the list's following state, not the value it saved", () => {
+  const list = new Rows(10, false)
+  list.scrollTop = 300
+  let asked = 0
+  const keep = holdPlace(list, '[data-message-id]', () => { asked++; list.style.overflowAnchor = 'none' })
+  expect(list.style.overflowAnchor).toBe('none')
+  list.style.overflowAnchor = 'auto'
+  list.add('old', 2, 'start')
+  keep()
+  expect([asked, list.style.overflowAnchor]).toEqual([1, 'none'])
+})
