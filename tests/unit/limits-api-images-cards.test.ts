@@ -81,7 +81,7 @@ describe('K: the whole text of an open card, through a real turn', () => {
     const requestId = crypto.randomUUID()
     const answer = exec!.waitForPerson({ kind: 'ask_user', origin: 'server', requestId, question: 'Send this?', options: [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], details: [{ label: 'Sends', text: long }] } as TurnRequest, { timeoutMs: 8000 })
     const ev = await waitFor(() => sock.frames.find((f) => f.type === 'turn.request' && f.data.request.requestId === requestId), { timeoutMs: 5000 })
-    const shown = (ev!.data.request as any).details[0]
+    const shown = ((ev as any).data.request as any).details[0]
     expect(shown.text).toHaveLength(CARD_TEXT_INLINE)
     expect(shown.text).not.toContain('END-OF-TEXT')
     expect(shown.fullChars).toBe(long.length)
