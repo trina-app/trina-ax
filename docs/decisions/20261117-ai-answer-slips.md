@@ -46,6 +46,13 @@
   - The judge is told that a server card's answer is the person's own press and an AI question's answer their reply.
   - After each case the runner deletes the room messages its AI posted, as their sender. The AI's room reads leave
     deleted messages out.
+- **After (3 real-AI runs on this branch, relay on, 2026-11-18):** SYS-04 names the button "되돌리기" in all 3 (the first rerun said
+  "복원"); one fail is the judge taking "하나 님" (the asker, 최하나) as invented. EDIT-17 3/3. CON-07.member: no run says
+  Profile may let the person pick an AI or model (2 of 3 before); its fails are the judge on "Trina AX MCP" (the screen's
+  own name) and on Settings › Usage. CHT-02 0/9 → 6/9: base 2/3, project 3/3, room 1/3: every room post went behind the card,
+  none twice. What is left is a judgement: with "decide yourself", the AI still sometimes posts the existing quote although
+  the person's own room message promised a revised, sealed one. Open, with EDIT-17.project's one answer that began with
+  English working notes.
 - **Tests:** `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
   before and after the team lets them pick), `tests/unit/ai-scenarios-prompts.test.ts`.
 - **Version impact:** patch (the AI's answers; no screen, API or migration).
