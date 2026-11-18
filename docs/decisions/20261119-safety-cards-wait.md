@@ -24,8 +24,14 @@ Plan: docs/AGENTS/plan/20261118-2325-safety-cards-wait.md.
   every check and card of the tool. The first card the call raises takes the saved answer when it is the same card
   (kind, words, rows and choices; the Always allow choice and the time limit do not count); a card that reads
   differently now (something changed) is asked again the same way. The AI gets each call's result with the message.
-- **Exactly once:** the answer is recorded in one transaction (a second answer gets 409 and runs nothing), the call runs
-  before the engine's attempts (a retry of the engine does not run it again), and the rows go when that turn starts. An
+- **Exactly once:** the answer is recorded in one transaction (a second answer gets 409 and runs nothing), the calls are
+  taken by the turn that runs them in one transaction (`answered_questions.calls_ran_turn`): a regenerate, an edit's
+  retry or any later turn of the same message runs none of them again (the AI is told they already ran), and the call
+  runs before the engine's attempts (a retry of the engine does not run it again).
+- **Never kept:** a call whose arguments hold a stored connection secret of the person (the turn's redactor finds one)
+  is not saved: its card waits inside the call as before, with its time limit.
+- **One window:** a browser card is answered only from its desktop window (another window gets 409), as before.
+- **Audit:** a delete whose card waits is recorded as `deferred` (not `no_answer`). An
   answer given while the asking answer is still ending starts the turn at its end, a quarantined slot's release or
   after a restart (docs/decisions/20261118-questions-wait-and-todo-card.md).
 - **Always allow:** stays final (owner rule): with it on, the call asks nobody, now or when it runs again; the person's

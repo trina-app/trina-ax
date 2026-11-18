@@ -13,6 +13,8 @@ import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { CARD_LATER_NOTE } from '../../server/src/chat/tools'
 import { sameCard } from '../../server/src/chat/open-questions'
+import { TurnExec } from '../../server/src/chat/turn'
+import { redactorOf } from '../../server/src/integrations/connections/redact'
 
 setDefaultTimeout(60_000)
 
@@ -122,6 +124,46 @@ describe('a delete card', () => {
     expect(next.user.content).not.toBe('Move to trash')
     expect(fs.existsSync(abs('users/alice/QA-del/keep.txt'))).toBe(true)
     expect(h.ctx.db.query("SELECT summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(next.turnId)).toEqual({ summary: 'delete_files -> not allowed by the user' })
+  })
+})
+
+describe('a saved yes runs once', () => {
+  test('a regenerate of the answer\'s message never runs the saved call again (no card, nothing deleted)', async () => {
+    put('users/alice/QA-del/again.txt')
+    const w = await askAndWait(`clean up\n${fake({ tool: 'delete_files', args: { paths: ['users/alice/QA-del/again.txt'] }, sayResult: true })}`)
+    // the call was left undone and audited so (not as a card nobody answered)
+    expect((h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'files.ai_trash' AND json_extract(detail, '$.turnId') = ?").all(w.turnId) as { detail: string }[]).map((r) => JSON.parse(r.detail).outcome)).toEqual(['deferred'])
+    await post('alice', w.turnId, { kind: 'ask_user', requestId: w.card.requestId, answer: 'trash' })
+    const next = await nextTurn(w.chatId, w.answerId)
+    expect(trashed('users/alice/QA-del/again.txt')).toEqual([{ turn_id: next.turnId }])
+    // the same path again, then the answer of that message asked again (and a retry is the same): nothing runs
+    put('users/alice/QA-del/again.txt')
+    const re = await h.api('alice').call(API.regenerate, { params: { id: w.chatId, messageId: next.done.id }, body: {} })
+    const d = await doneOf(re.assistantMessage.id)
+    expect(d.status).toBe('done')
+    expect(fs.existsSync(abs('users/alice/QA-del/again.txt'))).toBe(true)
+    expect(trashed('users/alice/QA-del/again.txt')).toHaveLength(1)
+    expect(h.ctx.db.query("SELECT COUNT(*) n FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(re.turnId)).toEqual({ n: 0 })
+    expect(alice.frames.some((f) => f.type === 'turn.request' && f.data.turnId === re.turnId)).toBe(false)
+  })
+})
+
+describe('what is never kept', () => {
+  test('a call that holds a stored connection secret is not saved: its card waits inside the call, as before', async () => {
+    const SECRET = 'sk-QA-SECRET-4f9a8b7c6d5e'
+    const proto = TurnExec.prototype as unknown as { redactor(): unknown }
+    const real = proto.redactor
+    proto.redactor = () => redactorOf([SECRET])
+    try {
+      const chatId = await newChat()
+      const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'web_fetch', args: { url: `https://card-secret.example/doc?k=${SECRET}` }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+      const card = (await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)).data.request as TurnRequest & { expiresAt?: string }
+      // the old wait: a time limit, and nothing in the database
+      expect(card.expiresAt).toBeDefined()
+      expect(openRows(chatId)).toBe(0)
+      expect(JSON.stringify(h.ctx.db.query('SELECT call_args FROM open_questions').all())).not.toContain(SECRET)
+      await doneOf(r.assistantMessage.id)
+    } finally { proto.redactor = real }
   })
 })
 

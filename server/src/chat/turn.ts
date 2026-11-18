@@ -66,7 +66,7 @@ import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
-import { answeredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
+import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
 import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
@@ -1090,8 +1090,10 @@ export class TurnExec {
     // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
     const answeredQ = answeredNote(rt.db, userMsg.id)
     // the calls whose safety cards this message answers run again now, once (replayCalls)
-    const waited = answeredCalls(rt.db, userMsg.id)
-    const ranAgain = waited.length && !this.restricted ? await this.replayCalls(waited, toolSet) : ''
+    // (taken once, by this turn: a regenerate of this message runs none of them again)
+    const waited = this.restricted ? { calls: [], ran: false } : takeAnsweredCalls(rt.db, userMsg.id, this.id)
+    const ranAgain = waited.calls.length ? await this.replayCalls(waited.calls, toolSet)
+      : waited.ran ? '<answered_cards>\nThe calls this message answered already ran, in an earlier answer to it. They do not run again: if the user still wants one of them, call it again (it asks them again).\n</answered_cards>' : ''
     if (this.stopReason) return
     const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
     const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
@@ -4281,6 +4283,10 @@ export class TurnExec {
     const call = this.callNow
     if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !CARD_LATER_TOOLS.has(call.name) || !this.rt.safetyCardsWait) return false
     if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
+    // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
+    // inside the call as before (with its time limit)
+    const r = this.redactor()
+    if (!nothingToHide(r)) { const raw = JSON.stringify(call.args ?? {}); if (r.hide(raw) !== raw) return false }
     const { expiresAt: _no, ...card } = request as TurnRequest & { expiresAt?: string }
     const window = o.window ?? null
     saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window } })

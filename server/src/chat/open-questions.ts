@@ -191,13 +191,26 @@ export function answeredNote(db: Database, messageId: string): string {
   return `<answered_questions>\nThis message is the user's answer to the question${list.length > 1 ? 's' : ''} you asked with ask_user in your previous answer (the card waited until they answered). Each answer as the card gave it: ${json}\nContinue the work from there.\n</answered_questions>`
 }
 
-/** The calls this user message's answers run again (chat/turn.ts replayCalls), each with the card it raised and the
- * person's answer, in the order they were asked. */
-export function answeredCalls(db: Database, messageId: string): (WaitingCall & { answer: unknown })[] {
-  const r = db.query('SELECT questions FROM answered_questions WHERE message_id = ?').get(messageId) as { questions: string } | null
-  if (!r) return []
+/**
+ * The calls this user message's answers run again (chat/turn.ts replayCalls), each with the card it raised and the
+ * person's answer, in the order they were asked; taken by `turnId` in the same step, once: a regenerate, an edit's
+ * retry or any later turn of the same message gets none (`ran`: they were taken by an earlier turn), so a saved yes
+ * never runs again without a card.
+ */
+export function takeAnsweredCalls(db: Database, messageId: string, turnId: string): { calls: (WaitingCall & { answer: unknown })[]; ran: boolean } {
+  return db.transaction(() => {
+    const r = db.query('SELECT questions, calls_ran_turn FROM answered_questions WHERE message_id = ?').get(messageId) as { questions: string; calls_ran_turn: string | null } | null
+    if (!r) return { calls: [], ran: false }
+    const calls = callsIn(r.questions)
+    if (!calls.length) return { calls, ran: false }
+    if (r.calls_ran_turn !== null) return { calls: [], ran: r.calls_ran_turn !== turnId }
+    db.query('UPDATE answered_questions SET calls_ran_turn = ? WHERE message_id = ? AND calls_ran_turn IS NULL').run(turnId, messageId)
+    return { calls, ran: false }
+  })()
+}
+function callsIn(questions: string): (WaitingCall & { answer: unknown })[] {
   try {
-    const list = JSON.parse(r.questions) as AnsweredQuestion[]
+    const list = JSON.parse(questions) as AnsweredQuestion[]
     return Array.isArray(list) ? list.flatMap((a) => (a.call ? [{ ...a.call, answer: a.answer }] : [])) : []
   } catch { return [] }
 }

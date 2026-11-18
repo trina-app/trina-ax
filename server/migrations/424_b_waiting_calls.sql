@@ -9,3 +9,6 @@
 ALTER TABLE open_questions ADD COLUMN call_tool TEXT;
 ALTER TABLE open_questions ADD COLUMN call_args TEXT;
 ALTER TABLE open_questions ADD COLUMN window_id TEXT;
+-- the turn that ran the answered calls again (chat/turn.ts replayCalls): set once, when that run starts, so a regenerate
+-- or a retry of the same message never runs a saved yes again without a card
+ALTER TABLE answered_questions ADD COLUMN calls_ran_turn TEXT;

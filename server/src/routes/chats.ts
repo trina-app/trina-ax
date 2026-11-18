@@ -923,6 +923,8 @@ export const chatsRoutes: RouteModule = {
       // (or a safety card that waits the same way, its call kept: chat/open-questions.ts)
       const later = !exec?.openRequest(body.requestId) ? openQuestion(ctx.db, params.id, body.requestId, auth.user.id) : null
       if (later && later.request.kind !== body.kind) fail('conflict', tr('requestClosed', c.get('locale')))
+      // a card for one desktop window (a browser site) is answered from that window only, as when it waited in its call
+      if (later?.window && windowOf(c) !== later.window) fail('conflict', tr('requestClosed', c.get('locale')))
       if (later) return answerLater(c, auth, params.id, body.requestId, later, value)
       const done = exec ? exec.answer(body.requestId, body.kind, value) : 'closed'
       if (done === 'closed') fail('conflict', tr('requestClosed', c.get('locale')))

@@ -179,6 +179,9 @@ describe('browser tools', () => {
       // after the answer ended: listed for the desktop window only, from the database
       expect((await h.api('alice', { window: DESK }).call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
       expect((await h.api('alice', { window: 'win-web-00001' }).call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+      // answered from that window only (another window of the same person: refused, the card stays)
+      const elsewhere = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-window': 'win-web-00001' }, body: JSON.stringify({ kind: 'browser_site', requestId: card.data.request.requestId, decision: 'always' }) })
+      expect(elsewhere.status).toBe(409)
       await h.api('alice', { window: DESK, client: 'desktop' }).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'once' } })
       const u = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === r.assistantMessage.id, 20_000)
       expect(u.data.message.content).toBe('Allow once')
