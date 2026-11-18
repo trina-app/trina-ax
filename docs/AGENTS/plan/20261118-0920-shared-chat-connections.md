@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18
 - Branch: `feat/shared-chat-connections`
-- Status: in progress
+- Status: done
 - Where: server (chat turn, connection tools, shared answers) and shared i18n. Why: the chat turn and the connection
   tools are Team AX core (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, shared chats offer connected services they did not offer before
@@ -54,4 +54,7 @@ joiner must not see an answer built on a personal connection. No migration (chat
 
 ## Result
 
-(filled in at the end)
+Built as planned. "Allow once" covers the rest of the answer (one card for an answer's several calls of the same
+connection), as the file read card's yes does. A team connection that some people in the chat may not use asks like
+a personal one (the same check: who could not see what it returns). Tests: `tests/unit/b-shared-chat-connections.test.ts`;
+screenshots of the asker's card and of what another member sees on a copy of the QA team.

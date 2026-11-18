@@ -21,10 +21,12 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
  * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no memories, no
- * chat title, no connection's tools, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
+ * chat title, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
  * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
- * card, which only they see; it brings nothing into the chat.
+ * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
+ * adds them in a shared chat from the connections' provider in its shared mode, each call behind the asker's card where
+ * someone here could not see the answer (docs/decisions/20261118-shared-chat-connections.md).
  */
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),

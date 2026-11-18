@@ -446,6 +446,17 @@ export const TEXT = {
   sharedReadYes: t('읽고 공유하기', 'Read and share', 'Baca dan bagikan', "読んで共有する", "Leer y compartir", "读取并共享"),
   sharedReadNo: t('읽지 않기', "Don't read", 'Jangan baca', "読まない", "No leer", "不读取"),
   sharedReadSkipped: t('이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요', 'Not read: not everyone who sees this chat can open that place', 'Tidak dibaca: tidak semua orang yang melihat obrolan ini bisa membuka tempat itu', "このチャットを見る全員が開ける場所ではないため、読みませんでした", "No se leyó: no todos los que ven este chat pueden abrir ese lugar", '未读取：不是所有能看到这个对话的人都能打开那个位置'),
+  /** a connected service in a shared chat (chat/turn.ts confirmSharedConnection): the card only the asker sees before
+   * anything is fetched (docs/decisions/20261118-shared-chat-connections.md) */
+  sharedConnectionConfirm: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요.',
+    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat.",
+    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini.',
+    "AIが{service}を使おうとしています。{service}から返ってきた内容が、このチャットの{n}人に表示されます。",
+    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat.",
+    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人。'),
+  sharedConnectionOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅允许这一次"),
+  sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
+  sharedConnectionCancel: t('취소', 'Cancel', 'Batal', "キャンセル", "Cancelar", "取消"),
   sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal", "你的个人文件夹"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat", "其他人在这个对话中打开的位置"),
   sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó.", "回答没有完成。"),
