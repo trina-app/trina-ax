@@ -5,6 +5,7 @@ import { peopleRoutes } from './people'
 import { artifactsRoutes } from './artifacts'
 import { authRoutes } from './auth'
 import { browserRoutes } from './browser'
+import { localAppsRoutes } from './local-apps'
 import { chatsRoutes } from './chats'
 import { filesRoutes } from './files'
 import { jobsRoutes } from './jobs'
@@ -50,6 +51,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B
+  localAppsRoutes, // C
   filesRoutes, // C
   artifactsRoutes, // C
   jobsRoutes, // C

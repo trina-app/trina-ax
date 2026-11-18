@@ -250,6 +250,7 @@ export default function TeamSettingsPage() {
                         <BrowserPolicySwitch value={f.browserAllowAll} onChange={(v) => setF({ ...f, browserAllowAll: v })} />
                         <WebAllowAllSwitch value={f.webAllowAll} parentOn={f.browserAllowAll} onChange={(v) => setF({ ...f, webAllowAll: v })} />
                         <PersonalIntegrationsSwitch value={f.personalIntegrations} onChange={(v) => setF({ ...f, personalIntegrations: v })} />
+                        <LocalAppsSwitch value={f.localApps !== false} onChange={(v) => setF({ ...f, localApps: v })} />
                         <AiVisionSwitch value={f.aiVision} onChange={(v) => setF({ ...f, aiVision: v })} />
                         <AiSubagentsSwitch value={f.aiSubagents} onChange={(v) => setF({ ...f, aiSubagents: v })} />
                         <SwitchRow id="ts-room-always" testId="team-room-always" value={f.roomAlwaysAllow} onChange={(v) => setF({ ...f, roomAlwaysAllow: v })} title={t('teamSettings.roomAlways')} desc={t('teamSettings.row.roomAlwaysDesc')} />
@@ -558,6 +559,14 @@ export function WebAllowAllSwitch({ value, parentOn, onChange }: { value: boolea
 export function PersonalIntegrationsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   return <SwitchRow id="ts-personal-integrations" testId="team-personal-integrations" value={value} onChange={onChange} title={t('teamSettings.personalIntegrations')} desc={t('teamSettings.row.personalIntegrationsDesc')} more={t('teamSettings.personalIntegrationsHint')} />
+}
+
+/** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a program on
+ * their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added, the ones there
+ * are not used. */
+export function LocalAppsSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useT()
+  return <SwitchRow id="ts-local-apps" testId="team-local-apps" value={value} onChange={onChange} title={t('teamSettings.localApps')} desc={t('teamSettings.row.localAppsDesc')} more={t('teamSettings.localAppsHint')} />
 }
 
 /** "Send images, PDF pages and video frames to the AI" (default on; server/src/files/vision.ts). Off: AI reads send no

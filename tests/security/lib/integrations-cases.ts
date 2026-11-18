@@ -11,6 +11,10 @@ export const INTEGRATION_SPECS: Record<string, Spec> = {
   updateIntegration: { build: c => c.patch(`/api/integrations/${NONE}`, { name: 'x' }), scope: 'nobody' },
   deleteIntegration: { build: c => c.del(`/api/integrations/${NONE}`), scope: 'nobody' },
   refreshIntegration: { build: c => c.post(`/api/integrations/${NONE}/refresh`, {}), scope: 'nobody' },
+  // an app on the caller's own computer (docs/decisions/20261118-local-app-connectors.md): saved for the caller; from a
+  // window that is not the desktop app it is not checked (tests/unit/c-local-apps.test.ts has the rules)
+  createLocalIntegration: { build: c => c.post('/api/integrations/local', { name: 'Matrix app', spec: { adapter: 'mcp', command: 'matrix-app', args: ['mcp'], env: [] } }), scope: 'self' },
+  updateLocalIntegration: { build: c => c.patch(`/api/integrations/${NONE}/local`, { spec: { adapter: 'mcp', command: 'matrix-app', args: [], env: [] } }), scope: 'nobody' },
   // turning one tool off: the manager of the connection only (owner / admin rules are in tests/unit/c-integrations-tools.test.ts)
   setIntegrationTool: { build: c => c.post(`/api/integrations/${NONE}/tools`, { name: 'search', enabled: false }), scope: 'nobody' },
   // ending one's own Always allow on a team connection: anyone who may use it (tests/unit/c-connector-approval-gate.test.ts)
