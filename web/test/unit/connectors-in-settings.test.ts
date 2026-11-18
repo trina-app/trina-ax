@@ -1,7 +1,7 @@
 // Connectors is Settings › Connectors since 2026-11-12 (QA TC-400, lib/connectors.ts): every link goes there, and its old
 // addresses lead to the same place with their query and hash; an outside app's consent page keeps its own address.
 import { describe, expect, test } from 'bun:test'
-import { connectionHref, connectorHref, CONNECTORS_HOME, isOldConnectorsPath, oldConnectorsTarget } from '../../src/lib/connectors'
+import { connectionHref, connectorHref, CONNECTORS_HOME, customConnectorAction, isOldConnectorsPath, oldConnectorsTarget } from '../../src/lib/connectors'
 
 describe('Settings › Connectors addresses', () => {
   test('the list and its pages', () => {
@@ -18,5 +18,17 @@ describe('Settings › Connectors addresses', () => {
     expect(oldConnectorsTarget('/connectors', '?add=1')).toBe('/settings/connectors?add=1')
     expect(oldConnectorsTarget('/connectors/mcp/x1', '?request=r', '#top')).toBe('/settings/connectors/mcp/x1?request=r#top')
     expect(oldConnectorsTarget('/connectors', '?slack=linked')).toBe('/settings/connectors?slack=linked')
+  })
+  // Add custom connector (a service by its address) is for owners and admins only (docs/DECISIONS.md "Plain words for
+  // members"); a member gets the ask-an-admin line in its place, next to the search (QA 2026-11-18)
+  test('Add custom connector: owners and admins while own connections are on; a member is told to ask an admin', () => {
+    expect(customConnectorAction(true, true)).toBe('add')
+    expect(customConnectorAction(true, false)).toBe('ask')
+    // the team turned own connections off: no Add for anyone (not widened); a member still reads where to go
+    expect(customConnectorAction(false, true)).toBeNull()
+    expect(customConnectorAction(false, false)).toBe('ask')
+    // the list has not answered yet: nothing, so neither flashes
+    expect(customConnectorAction(undefined, true)).toBeNull()
+    expect(customConnectorAction(undefined, false)).toBeNull()
   })
 })
