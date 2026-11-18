@@ -27,6 +27,7 @@ import { decodeStampResult, encodeStampRequest, imageKind, PDF_STAMP_MODE, STAMP
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import { authorize } from '../policy/authorize'
+import { stampOutputOf } from './make-file-path'
 import { ToolError } from '../policy/errors'
 import { checkRegular, freeName } from '../team-files/place'
 import type { TeamFiles } from '../team-files/service'
@@ -73,11 +74,7 @@ export function madeThisTurn(c: ToolCtx, rel: string, bytes: Uint8Array): boolea
 /** Where stamp_pdf saves when `output` is given (trimmed, ".pdf" added when missing), or null (none given: a new name
  * next to the original, or the AI's own PDF of this turn itself, which only the tool works out). Also the target of its cards (chat/tools.ts widenOf, chat/turn.ts
  * fileChangeTarget), so a card names the file the tool writes. */
-export function stampOutputOf(output: unknown): string | null {
-  if (typeof output !== 'string' || output.trim() === '') return null
-  const o = output.trim()
-  return /\.pdf$/i.test(o) ? o : `${o.replace(/\/+$/, '')}.pdf`
-}
+export { stampOutputOf }
 
 export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: Input): Promise<StampedPdf> {
   const fx = files.fx

@@ -12,6 +12,7 @@
 // - every result carries the bytes of what it is made from: the wider-audience check of make_file (confirmSources);
 // - never into a skill folder.
 import fs from 'node:fs'
+import { pdfOutputPath } from './make-file-path'
 import path from 'node:path'
 import type { z } from 'zod'
 import type { EditPdfInput, MergePdfsInput, SplitPdfInput } from '@mycel/shared'
@@ -97,8 +98,7 @@ class Inputs {
 function target(files: TeamFiles, c: ToolCtx, output: string | undefined, dir: string[], base: string, word: string) {
   let rel: string
   if (output !== undefined && output.trim() !== '') {
-    const o = output.trim().replace(/\/+$/, '')
-    rel = /\.pdf$/i.test(o) ? o : `${o}.pdf`
+    rel = pdfOutputPath(output)
   } else rel = [...dir, freeName(path.join(files.fx.root, ...dir), `${base.replace(/\.pdf$/i, '')} (${word}).pdf`)].join('/')
   const out = authorize(files.fx, files.rules(), c.user, rel, 'write', { mustExist: false, createDirs: true })
   if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder; give a file name ending in .pdf`, 'is_folder')

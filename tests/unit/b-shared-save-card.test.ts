@@ -17,8 +17,9 @@ import { z } from 'zod'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
 import { roomsOf } from '../../server/src/rooms/service'
-import { SAVE_CARD_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../../server/src/rooms/ai-tools'
+import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS, WRITE_TARGET_NOT_SAVES } from '../../server/src/rooms/ai-tools'
 import { toolRegistry } from '../../server/src/tools/registry'
+import { pluginsOf } from '../../server/src/plugins/manager'
 
 setDefaultTimeout(60_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -115,7 +116,7 @@ describe('the save card', () => {
     expect(audits(chat).length).toBe(n)
   })
 
-  test('save_url, make_file and write into a place there: the save card; unzip of her own file keeps the read card', async () => {
+  test('save_url and write into a place there: the save card (make_file: the extension probes below); unzip of her own file keeps the read card', async () => {
     const chat = await peopleChat()
     const q = async (d: unknown) => {
       const started = await send('alice', chat, fake(d, { say: 'ok' }))
@@ -126,7 +127,6 @@ describe('the save card', () => {
     }
     for (const d of [
       { tool: 'save_url', args: { url: 'http://127.0.0.1:9/x.pdf', save_as: 'users/alice/' } },
-      { tool: 'make_file', args: { content: '# x', format: 'docx', output: 'users/alice/todo.md' } },
       { tool: 'write', args: { file_path: 'users/alice/todo.md', content: 'x' } },
     ]) {
       const card = await q(d)
@@ -160,6 +160,45 @@ describe('the save card', () => {
     }
     expect(listing()).toEqual(before)
     expectNothingForBob(JSON.stringify((await messages('bob', chat)).filter((m) => m.role === 'assistant')))
+  })
+
+  // security re-review of #1314: tools that add an extension to `output` ("users/alice/hb" is written as hb.pdf, …):
+  // the card weighs the path the tool really writes (OUTPUT_PATH_OF)
+  test('probes: an output without its extension, over a file that is there, asks (make_file, merge_pdfs, edit_pdf, stamp_pdf, edit_hwp, comment_docx)', async () => {
+    for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx']) fs.writeFileSync(path.join(aliceDir(), f), 'QA-SSC')
+    const plugins = pluginsOf(h.ctx) as unknown as { hwpWriting: () => boolean }
+    const hwpWriting = plugins.hwpWriting
+    plugins.hwpWriting = () => true
+    try {
+      const chat = await peopleChat()
+      const before = listing()
+      const out = 'users/alice/hb'
+      for (const d of [
+        { tool: 'make_file', args: { content: '# x', format: 'pdf', output: out } },
+        { tool: 'merge_pdfs', args: { files: ['shared/handbook.pdf', 'shared/handbook.pdf'], output: out } },
+        { tool: 'edit_pdf', args: { file_path: 'shared/handbook.pdf', operations: [{ watermark: { text: 'X' } }], output: out } },
+        { tool: 'stamp_pdf', args: { file_path: 'shared/handbook.pdf', image: 'shared/seal.png', output: out } },
+        { tool: 'edit_hwp', args: { file_path: 'shared/form.hwpx', changes: [{ find: 'a', replace: 'b' }], output: out } },
+        { tool: 'comment_docx', args: { file_path: 'shared/note.docx', comments: [{ on: 'a', text: 'b' }], output: out } },
+      ]) {
+        if (d.tool === 'comment_docx' && !SHARED_TOOLS.has('comment_docx')) continue
+        const started = await send('alice', chat, fake({ ...d, sayResult: true }))
+        const card = await cardOf('alice', started.turnId)
+        expect(card.question, d.tool).toContain('wants to save a file in your personal folder')
+        await answer('alice', started.turnId, card.requestId, 'skip')
+        const done = await doneOf('alice', started.assistantMessage.id)
+        for (const s of ['already exists', 'conflict', 'hb.']) expect(done.content, `${d.tool} ${s}`).not.toContain(s)
+      }
+      expect(listing()).toEqual(before)
+      expectNothingForBob(JSON.stringify((await messages('bob', chat)).filter((m) => m.role === 'assistant')))
+      // the same rules as the tools
+      expect(OUTPUT_PATH_OF.make_file!(out, { format: 'pdf' })).toBe('users/alice/hb.pdf')
+      expect(OUTPUT_PATH_OF.edit_hwp!(out, { file_path: 'shared/form.hwp' })).toBe('users/alice/hb.hwp')
+      expect(OUTPUT_PATH_OF.comment_docx!(out + '/', {})).toBe('users/alice/hb.docx')
+    } finally {
+      plugins.hwpWriting = hwpWriting
+      for (const f of ['hb.pdf', 'hb.docx', 'hb.hwpx']) fs.rmSync(path.join(aliceDir(), f), { force: true })
+    }
   })
 
   test('a yes to save there does not let a read of her folder through in the same turn', async () => {

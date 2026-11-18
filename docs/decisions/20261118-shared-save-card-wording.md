@@ -48,9 +48,16 @@
   almost the same name": full-width letters, a case variant on Linux), a file on the way ("not a folder"), a path that
   cannot be read. Before, " users/alice/x" or "/users/alice/" counted as no path and the tool's "already existed …
   saved as a copy" told the others what was there.
-- **Leftover:** a save with no `save_as` goes to the person's own `downloads` folder without any card. If a file of
-  that name is there already, the answer says so. That is the same small leak; it is left as it was (asking on every
-  default save is noisy) and named here for the next review.
+- **The extension a tool adds (security re-review of #1314):** `make_file` (its format), `edit_pdf`, `merge_pdfs`,
+  `stamp_pdf` (".pdf"), `edit_hwp` (".hwp"/".hwpx" by its source) and `comment_docx` (".docx") write `output` with an
+  extension when it has none. The gate weighs that path, through `OUTPUT_PATH_OF` in `rooms/ai-tools.ts` (the same
+  functions the tools use, kept in `tools/make-file-path.ts` and `files/hwpx-check.ts`). Before, `output:
+  "users/alice/hb"` over an existing `hb.pdf` asked nothing, and the answer said "'users/alice/hb.pdf' already exists
+  … saved as a conflict copy" to everyone in the chat. This predates the save card.
+- **Left as it is: a save with no `save_as`** goes to the person's own `downloads` folder with no card. The only thing
+  it can show the others is that a file of the same name is already in the asker's own downloads folder (the answer
+  says it kept both). Asking on every default save would be noisy for that; the security re-review agreed. QA note:
+  check that a default save of a name already in the asker's downloads shows only that, and nothing else of the folder.
 - **Why not skip the card for the person's own folder:** it would be quieter, but the saved name can still tell the
   others that a file of that name was in a folder only the asker can open. The card is only for a place that is there
   already, it says what is shown, and "Always allow" turns it off for the person.

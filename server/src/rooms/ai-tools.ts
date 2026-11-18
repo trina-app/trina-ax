@@ -2,6 +2,8 @@
 // A leaf module: the chat turn (chat/turn.ts, chat/tools.ts) and the tool socket (mcp/socket.ts) read it. (It began as
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
+import { hwpOutputPath } from '../files/hwpx-check'
+import { commentDocxOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
 /**
  * Tools whose use keeps a chat to the team's own words (OWN_CHAT_TEAM_TOOLS below): the file tools and the ones that
@@ -64,6 +66,18 @@ export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
 
   // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
   save_connector_file: ['save_as'], save_room_file: ['save_as'], comment_docx: ['output'], skill_files: ['to_folder'], save_promo_video: ['save_as'],
+}
+
+/** The tools that add an extension to the `output` they are given, each by its own rule (make_file's format, ".pdf",
+ * ".docx", Hangul's own): a shared chat's card weighs the path the tool will really write (security re-review of #1314:
+ * "users/alice/hb" saved over an existing hb.pdf with no card, and the answer said it was there). */
+export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Record<string, unknown>) => string>> = {
+  make_file: (o, a) => (typeof a.format === 'string' ? makeFileOutputPath(o, a.format) : o),
+  edit_pdf: (o) => pdfOutputPath(o),
+  merge_pdfs: (o) => pdfOutputPath(o),
+  stamp_pdf: (o) => stampOutputOf(o) ?? o,
+  edit_hwp: (o, a) => hwpOutputPath(o, typeof a.file_path === 'string' ? a.file_path : ''),
+  comment_docx: (o) => commentDocxOutput(o),
 }
 
 /** The tools of WRITE_TARGET_ARGS that save what they made or fetched: in a shared chat, a place there already that

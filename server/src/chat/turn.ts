@@ -131,7 +131,7 @@ import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
-import { SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { savePathArg } from '../tools/save-target'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
@@ -3259,8 +3259,10 @@ export class TurnExec {
     // tools read it: savePathArg). Anything else counts as there (fails closed): a name that is there, a look-alike of
     // one ("already exists with almost the same name"), a file on the way ("not a folder"), a path that cannot be read.
     // Only a refusal for no access is new: the tool refuses it with the same words whether something is there or not.
-    const fresh = (v: string) => {
-      try { return !authorize(fx, rules, me, savePathArg(v), 'write', { mustExist: false, createDirs: true }).exists }
+    // (the path as the tool really writes it: an extension some tools add to `output`, OUTPUT_PATH_OF)
+    const asWritten = (k: string, v: string) => { const p = savePathArg(v); const f = k === 'output' ? OUTPUT_PATH_OF[tool] : undefined; return f ? f(p, a) : p }
+    const fresh = (k: string, v: string) => {
+      try { return !authorize(fx, rules, me, asWritten(k, v), 'write', { mustExist: false, createDirs: true }).exists }
       catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
     }
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
@@ -3272,9 +3274,9 @@ export class TurnExec {
       if (tool === 'list' && k === 'path') continue
       const w = writes.has(k)
       if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-      if (w && fresh(v)) continue
+      if (w && fresh(k, v)) continue
       const from = out.length
-      for (const p of this.roomNames(w ? savePathArg(v) : v)) note(p)
+      for (const p of this.roomNames(w ? asWritten(k, v) : v)) note(p)
       for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
     }
     const named = out.length
