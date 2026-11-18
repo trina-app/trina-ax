@@ -29,9 +29,10 @@ const decodeName = (b: Uint8Array) => new TextDecoder('utf-8').decode(b)
  * The zip with every part that is not text emptied, or null when there is nothing to drop (the original is used as it
  * is) or the zip cannot be read here: damaged, zip64, encrypted, or parts that share or overlap their bytes (the reader
  * then gives its own error on the original). `keep`: also keep a part
- * that is not text (the caller's own rule), by its name.
+ * that is not text (the caller's own rule), by its name. `minDropped`: null as well when the emptied parts come to no
+ * more than this many bytes.
  */
-export function slimZip(bytes: Uint8Array, keep: (name: string) => boolean = () => false): Slim | null {
+export function slimZip(bytes: Uint8Array, keep: (name: string) => boolean = () => false, o: { minDropped?: number } = {}): Slim | null {
   let entries: ZipEntry[]
   try { entries = readCentral(bytes, { total: SLIM_TOTAL_MAX, entries: ZIP_ENTRIES_MAX }) } catch (e) {
     if (e instanceof ZipProblem) return null
@@ -57,7 +58,8 @@ export function slimZip(bytes: Uint8Array, keep: (name: string) => boolean = () 
   spans.sort((a, b) => a[0] - b[0])
   for (let i = 1; i < spans.length; i++) if (spans[i]![0] < spans[i - 1]![1]) return null
   if (keptBytes > bytes.length) return null
-  if (!dropped) return null
+  // `minDropped`: not worth a copy unless the emptied parts are more than this (checked before the copy is made)
+  if (!dropped || droppedBytes <= (o.minDropped ?? 0)) return null
   // local headers and data, then the central directory, then its end
   let size = 22
   for (const { e, data } of kept) size += 30 + e.nameBytes.length + (data?.length ?? 0) + 46 + e.nameBytes.length

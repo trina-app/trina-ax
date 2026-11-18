@@ -29,6 +29,21 @@ async function readStdin(size: number): Promise<Uint8Array> {
   return new Uint8Array(out.buffer, out.byteOffset, at)
 }
 
+/**
+ * All of `b` to stdout before the worker exits. Bun.write(Bun.stdout, …) on a pipe could resolve after part of a
+ * large answer (64 KB of a 2 MB overview, then process.exit cut the rest) or spin (measured 2026-11-18, Bun 1.3.12):
+ * written here a MiB at a time, waiting while the pipe is full.
+ */
+async function writeStdout(b: Uint8Array): Promise<void> {
+  let at = 0
+  while (at < b.length) {
+    try { at += fs.writeSync(1, b, at, Math.min(1 << 20, b.length - at)) } catch (e) {
+      if ((e as { code?: string }).code !== 'EAGAIN') throw e
+      await Bun.sleep(1)
+    }
+  }
+}
+
 async function main() {
   const ext = process.argv[2] ?? ''
   if (!WORKER_EXT.has(ext) && !EXTRA_MODES.has(ext) && !WRITE_MODES.has(ext)) { process.stderr.write(`unknown format ${ext}\n`); process.exit(2) }
@@ -42,7 +57,7 @@ async function main() {
     process.stderr.write(String((e as Error)?.stack ?? e).slice(0, 2000))
     process.exit(1)
   }
-  await Bun.write(Bun.stdout, out)
+  await writeStdout(typeof out === 'string' ? Buffer.from(out, 'utf8') : out)
   process.exit(0)
 }
 

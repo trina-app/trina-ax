@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 import { extractText, officeWorkerTimeoutMs, TOO_BIG_IN_PROCESS } from '../../server/src/files/extract'
 import { sheetText, streamsSheets } from '../../server/src/files/office-parse'
 import {
-  bigSheetPart, bigSheetText, isDateFormat, OVERVIEW_HEAD, OVERVIEW_TAIL, PART_ROWS_MAX, parseRange, percentDecimals, serialDate,
+  bigSheetPart, bigSheetText, isDateFormat, OVERVIEW_HEAD, OVERVIEW_ROW_MAX, OVERVIEW_TAIL, PART_ROWS_MAX, parseRange, percentDecimals, serialDate,
 } from '../../server/src/files/sheet-stream'
 import { isTextPart, slimZip } from '../../server/src/files/zip-slim'
 import { checkZip } from '../../server/src/files/zip-guard'
@@ -372,9 +372,10 @@ describe('zip-slim: hostile zips give null (the reader then refuses the original
 const WB = '<workbook xmlns:r="r"><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets></workbook>'
 const WBR = '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'
 /** a one-sheet .xlsx of hand-written parts, deflated (the sheet's declared size can lie: `sheetUsize`) */
-function rawBook(sheet: string, shared?: string, sheetUsize?: number): Uint8Array {
+function rawBook(sheet: string, shared?: string, sheetUsize?: number, nSheets = 1): Uint8Array {
+  const wb = nSheets === 1 ? WB : `<workbook xmlns:r="r"><sheets>${Array.from({ length: nSheets }, (_, i) => `<sheet name="S${i || ''}" sheetId="${i + 1}" r:id="rId1"/>`).join('')}</sheets></workbook>`
   return hzip([
-    { name: 'xl/workbook.xml', data: WB, deflate: true },
+    { name: 'xl/workbook.xml', data: wb, deflate: true },
     { name: 'xl/_rels/workbook.xml.rels', data: WBR, deflate: true },
     { name: 'xl/worksheets/sheet1.xml', data: sheet, deflate: true, usize: sheetUsize },
     ...(shared ? [{ name: 'xl/sharedStrings.xml', data: shared, deflate: true }] : []),
@@ -418,4 +419,40 @@ describe('sheet-stream: hostile workbooks are refused or cut, within bounded mem
     const shared = `<sst><si><t>${'y'.repeat(40_000)}</t></si></sst>`
     await expect(bigSheetText(rawBook(ws(`<row r="1">${'<c t="s"><v>0</v></c>'.repeat(300)}</row>`), shared))).rejects.toThrow(/a row holds more than 8 MB of text/)
   })
+  // 40 rows x 255 references to 32,000-character texts: each row is 8 MB of text (security re-review of #1290: a
+  // 245 MB overview, 1.26 GB, the worker's 60 s gone)
+  const fat = (nSheets: number) => {
+    const str = () => { const a: string[] = []; for (let i = 0; i < 4000; i++) a.push(Math.random().toString(36).slice(2, 10).padEnd(8, 'q')); return a.join('') }
+    const sst = '<sst>' + Array.from({ length: 250 }, () => `<si><t>${str()}</t></si>`).join('') + '</sst>'
+    let rows = ''
+    for (let r = 1; r <= 40; r++) { rows += `<row r="${r}">`; for (let c = 0; c < 255; c++) rows += `<c t="s"><v>${c % 250}</v></c>`; rows += '</row>' }
+    return rawBook(ws(rows), sst, undefined, nSheets)
+  }
+  test('fat rows: the overview cuts each cell and row and stays within its size', async () => {
+    const t0 = Date.now()
+    const text = await bigSheetText(fat(1))
+    expect(Date.now() - t0).toBeLessThan(20_000)
+    expect(text.length).toBeLessThan(5 * MIB)
+    expect(text).toStartWith('# workbook: 1 sheet, too large to give whole.')
+    expect(text).toContain('… (cut: read row 1 with range for all of it)')
+    expect(text).toMatch(/… \(the rest of row 1 is cut: read it with range\)/)
+    for (const l of text.split('\n')) expect(l.length).toBeLessThan(OVERVIEW_ROW_MAX + 400)
+  })
+  test('through the office worker: the whole 2 MB overview arrives, quickly (the worker wrote it a pipe at a time)', async () => {
+    const b = fat(1)
+    const t0 = Date.now()
+    const text = await extractText('fat.xlsx', b, tools)
+    expect(Date.now() - t0).toBeLessThan(30_000)
+    expect(text.length).toBeGreaterThan(1 * MIB)
+    expect(text.split('\n').at(-1)).toMatch(/^.*… \(the rest of row 40 is cut: read it with range\)$/)
+  })
+  test('many sheets of fat rows: the overview fills up inside a sheet, later sheets are only named', async () => {
+    const t0 = Date.now()
+    const text = await bigSheetText(fat(300))
+    expect(Date.now() - t0).toBeLessThan(60_000)
+    expect(text.length).toBeLessThan(5 * MIB)
+    expect(text).toMatch(/# the overview is full from row \d+ on: read the other rows with sheet "S\d*" and a range/)
+    expect(text).toContain('# sheet: S299 · A1:IU40 (tab-separated)\n# 40 rows with data, rows 1 to 40, columns A to IU; not shown here')
+  }, 90_000)
 })
+

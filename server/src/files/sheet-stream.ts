@@ -572,8 +572,9 @@ export async function bigSheetText(bytes: Uint8Array, o: { fullMax?: number } = 
       f.rows++
       f.last = row.r
       if (row.cells.length > f.cols) f.cols = row.cells.length
-      if (f.head.length < OVERVIEW_HEAD) f.head.push(row)
-      else { f.tail.push(row); if (f.tail.length > OVERVIEW_TAIL) f.tail.shift() }
+      // the overview keeps its rows cut (overviewRow): 30 rows of 8 MB each would be a 240 MB answer
+      if (f.head.length < OVERVIEW_HEAD) f.head.push(overviewRow(row))
+      else { f.tail.push(overviewRow(row)); if (f.tail.length > OVERVIEW_TAIL) f.tail.shift() }
       if (full && lines) {
         if (row.r !== next) { lines.push(`# row ${row.r}`); fields.push(-1) }
         const fs = rowFields(row.cells, c0)
@@ -608,6 +609,24 @@ export async function bigSheetText(bytes: Uint8Array, o: { fullMax?: number } = 
   return overview(facts, b)
 }
 
+/** a cell of the overview, and a row of it: longer ones are cut, with a note to read the row by its range */
+export const OVERVIEW_CELL_MAX = 300
+export const OVERVIEW_ROW_MAX = 64 * 1024
+/** A row as the overview keeps it: each cell at most OVERVIEW_CELL_MAX characters, the row at most OVERVIEW_ROW_MAX. */
+function overviewRow(row: Row): Row {
+  const cells: string[] = []
+  let size = 0
+  for (let c = 0; c < row.cells.length; c++) {
+    let t = row.cells[c]
+    if (t === undefined) continue
+    if (t.length > OVERVIEW_CELL_MAX) t = `${t.slice(0, OVERVIEW_CELL_MAX)}… (cut: read row ${row.r} with range for all of it)`
+    size += t.length + 1
+    if (size > OVERVIEW_ROW_MAX) { cells[c] = `… (the rest of row ${row.r} is cut: read it with range)`; break }
+    cells[c] = t
+  }
+  return { r: row.r, cells }
+}
+
 function overview(facts: SheetFacts[], b: Book): string {
   const out: string[] = [
     `# workbook: ${facts.length} sheet${facts.length === 1 ? '' : 's'}, too large to give whole. Each sheet shows its first ${OVERVIEW_HEAD} and last ${OVERVIEW_TAIL} rows with data. ` +
@@ -625,15 +644,32 @@ function overview(facts: SheetFacts[], b: Book): string {
     const shown = f.head.length + f.tail.length
     const about = `# ${n(f.rows)} row${f.rows === 1 ? '' : 's'} with data, rows ${n(f.first)} to ${n(f.last)}, columns A to ${lastCol}${hidden}`
     if (size > OVERVIEW_MAX) { out.push(`${label}\n${about}; not shown here (read it with sheet "${name}" and a range)`); continue }
-    const lines = [label, about, `# row ${f.first}`, ...rowLines(f.head, f.first)]
-    if (f.tail.length) {
+    const lines = [label, about]
+    size += label.length + about.length + 2
+    // rows go in one at a time while the overview has room; past OVERVIEW_MAX the rest of the sheet is named, not shown
+    let full = false
+    const add = (rows: Row[]) => {
+      let next = -1
+      for (const row of rows) {
+        if (size > OVERVIEW_MAX) {
+          lines.push(`# the overview is full from row ${n(row.r)} on: read the other rows with sheet "${name}" and a range`)
+          full = true
+          return
+        }
+        if (row.r !== next) lines.push(`# row ${row.r}`)
+        const line = rowLine(row.cells)
+        lines.push(line)
+        size += line.length + 1
+        next = row.r + 1
+      }
+    }
+    add(f.head)
+    if (f.tail.length && !full) {
       const gapFrom = f.head[f.head.length - 1]!.r + 1, gapTo = f.tail[0]!.r - 1
       if (f.rows > shown && gapTo >= gapFrom) lines.push(`# ${n(f.rows - shown)} rows with data not shown here: read them with sheet "${name}", range "A${gapFrom}:${lastCol}${gapTo}"`)
-      lines.push(`# row ${f.tail[0]!.r}`, ...rowLines(f.tail, f.tail[0]!.r))
+      add(f.tail)
     }
-    const text = lines.join('\n')
-    size += text.length
-    out.push(text)
+    out.push(lines.join('\n'))
   }
   return out.join('\n\n')
 }

@@ -64,6 +64,13 @@ Plan: docs/AGENTS/plan/20261118-1100-limits-office-read.md.
   text items, each counted as at least 8 characters; a cell's text is cut at 32,767 characters (Excel's own limit) with
   a note, a row of more than 8 MB of text is refused as too large; the empty fields that pad rows to the last column
   count against the whole-text size (one cell in column XFD falls back to the overview).
+- **The overview's own size (security re-review of #1290):** the rows it keeps are cut, each cell at 300 characters and
+  each row at 64 KB, with a note to read the row by its range; rows are added one at a time while the overview is under
+  4 MB, and past that the rest of the sheet (and later sheets) are named, not shown. 40 rows of 8 MB gave a 245 MB
+  overview at 1.26 GB; now 2 MB in 0.5 s, 300 such sheets 4.3 MB in 5 s. The quarter rule for the slim copy is decided
+  before the copy is made. Found on the way: the worker's `Bun.write(Bun.stdout, …)` on a pipe could stop after 64 KB
+  of a large answer or spin until the time limit (Bun 1.3.12); the worker now writes stdout itself, a MiB at a time,
+  and runIsolated reads a converter's output before it writes its input, so neither waits for the other.
 - **Real-AI check (2026-11-18, Claude Code on this Mac, a copy of the QA team with a plan file so the limits apply):**
   a fake 60 MB sales export (4 sheets, 1.1 M rows) and a 160 MB deck of photos with two speaker notes and a chart.
   "What are the totals on its last sheet?": one read, the overview's last rows, the exact TOTAL row (6,489,148 orders,
