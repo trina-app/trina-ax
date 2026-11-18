@@ -1,6 +1,6 @@
 // make_file (design tab 3): Markdown / CSV -> Word, PowerPoint, Excel, PDF in the team folder.
 // - docx / pptx: pandoc --sandbox --fail-if-warnings (a missing or remote image is an error, not a silent hole),
-//   optional --reference-doc template from skills/
+//   optional --reference-doc template: any .docx / .pptx the person can read (docs/decisions/20261118-any-file-template.md)
 // - pdf: pandoc -t typst, then typst compile --root <work folder> (nothing outside the work folder can be read,
 //   remote images are never fetched); the fonts and typst's language follow the document's writing (pdfLanguage: a
 //   Japanese document gets Japanese faces first, Chinese Chinese ones, else the team's language). A Linux bundle brings its own (Noto Sans CJK in
@@ -22,7 +22,7 @@
 // - pptx: the slide level is set from the headings and the slides pandoc made are checked against expected_slides /
 //   expected_notes before anything is saved (tools/pptx-check.ts)
 // - hwpx (Hangul): pandoc's tree of the Markdown (or a CSV's table), written by our OWPML writer in the office worker
-//   (files/hwpx-write.ts, never in this process) with the built-in or a team template from skills/; anything the
+//   (files/hwpx-write.ts, never in this process) with the built-in or a template the person can read; anything the
 //   writer does not support is refused there, naming it. The file is then read back with hwp.ts, as read and grep
 //   read it: when its paragraphs and headings are not the document's, nothing is saved (files/hwpx-check.ts).
 // - pdf from an .html `source`: printed by the server's headless browser exactly as a browser prints the page (its CSS,
@@ -528,8 +528,9 @@ export class MakeFile {
   }
 
   private template(c: ToolCtx, tpl: string, format: string, work: string): { local: string; rel: string } {
+    // any file the person can read (not only skills/): it is a source of the output, so the wider-audience check covers it
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .${format} file as the template`, 'is_folder')
     if (ext(r.rel) !== format) throw new ToolError(`the template must be a .${format} file`)
     const st = checkRegular(r.abs)
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
@@ -562,10 +563,10 @@ export class MakeFile {
     try { fs.writeFileSync(produced, bytes, { flag: 'wx', mode: 0o600 }) } catch { throw new ToolError('the converter produced no file') }
   }
 
-  /** A team's .hwpx template under skills/: its bytes go to the office worker, which checks them (files/hwpx-write.ts). */
+  /** A .hwpx template the person can read: its bytes go to the office worker, which checks them as untrusted (files/hwpx-write.ts). */
   private hwpxTemplate(c: ToolCtx, tpl: string): { bytes: Uint8Array; rel: string } {
     const r = authorize(this.files.fx, this.files.rules(), c.user, tpl, 'read')
-    if (r.segs[0] !== 'skills') throw new ToolError('templates must be files under skills/')
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; give a .hwpx file as the template`, 'is_folder')
     if (ext(r.rel) !== 'hwpx') throw new ToolError('the template must be a .hwpx file (a .hwp can be saved as .hwpx in Hangul)')
     if (checkRegular(r.abs).size > HWPX_TEMPLATE_MAX) throw new ToolError(`template is too large (max ${HWPX_TEMPLATE_MAX / 1024 / 1024} MB)`)
     return { bytes: readRegular(r.abs, HWPX_TEMPLATE_MAX, r.st).bytes, rel: r.rel }

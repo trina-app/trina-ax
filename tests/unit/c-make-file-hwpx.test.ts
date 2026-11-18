@@ -1,6 +1,6 @@
 // make_file hwpx through the tool path (the MCP handler, as an engine calls it): a Hangul document from Markdown or
 // CSV, saved and readable by read/grep; unsupported content and untrusted templates refused with nothing saved; a
-// team template only from skills/ and only a .hwpx. And the AI's plain write and edit still refuse .hwp and .hwpx:
+// template from any file the person can read (skills/ or their own folder), only a .hwpx. And the AI's plain write and edit still refuse .hwp and .hwpx:
 // writing goes only through make_file.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -67,15 +67,23 @@ describe.skipIf(!pandoc)('make_file hwpx', () => {
     expect(fs.existsSync(file('users/alice/out/안됨.hwpx'))).toBe(false)
   })
 
-  test('a team template from skills/: its styles are used; other folders, other formats and unsafe templates are refused', async () => {
+  test('a template from skills/ or the person\'s own folder: its styles are used; unreadable files, other formats and unsafe templates are refused', async () => {
     fs.mkdirSync(file('skills/서식'), { recursive: true })
     fs.writeFileSync(file('skills/서식/공문.hwpx'), hwpxTemplate({ head: defaultHeaderXml().replace(/함초롬바탕/g, '나눔명조') }))
     const ok = await make({ content: MD, format: 'hwpx', output: 'users/alice/out/공문.hwpx', template: 'skills/서식/공문.hwpx' })
     expect(ok.isError, ok.text).toBe(false)
     expect(hwpxParts(fs.readFileSync(file('users/alice/out/공문.hwpx'))).get('Contents/header.xml')).toContain('face="나눔명조"')
 
-    fs.writeFileSync(file('users/alice/개인.hwpx'), hwpxTemplate())
-    expect((await make({ content: MD, format: 'hwpx', output: 'users/alice/out/a.hwpx', template: 'users/alice/개인.hwpx' })).text).toContain('skills/')
+    // the person's own earlier document is a template too (docs/decisions/20261118-any-file-template.md)
+    fs.writeFileSync(file('users/alice/개인.hwpx'), hwpxTemplate({ head: defaultHeaderXml().replace(/함초롬바탕/g, '나눔고딕') }))
+    const own = await make({ content: MD, format: 'hwpx', output: 'users/alice/out/a.hwpx', template: 'users/alice/개인.hwpx' })
+    expect(own.isError, own.text).toBe(false)
+    expect(hwpxParts(fs.readFileSync(file('users/alice/out/a.hwpx'))).get('Contents/header.xml')).toContain('face="나눔고딕"')
+    // someone else's own folder: not readable, so not a template either
+    fs.mkdirSync(file('users/bob'), { recursive: true })
+    fs.writeFileSync(file('users/bob/남의.hwpx'), hwpxTemplate())
+    expect((await make({ content: MD, format: 'hwpx', output: 'users/alice/out/a2.hwpx', template: 'users/bob/남의.hwpx' })).text).toContain('not found or no access')
+    expect(fs.existsSync(file('users/alice/out/a2.hwpx'))).toBe(false)
     fs.copyFileSync(path.join(A.team, 'groups/marketing/brand-guidelines.docx'), file('skills/ref.docx'))
     expect((await make({ content: MD, format: 'hwpx', output: 'users/alice/out/b.hwpx', template: 'skills/ref.docx' })).text).toContain('must be a .hwpx')
 

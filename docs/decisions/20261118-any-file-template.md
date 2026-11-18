@@ -1,0 +1,25 @@
+# make_file takes any file the person can read as its template
+
+- Date: 2026-11-18
+- Status: accepted
+- Supersedes: the `skills/` rule for templates in [Hangul writing](../DECISIONS.md) ("A team's template is a .hwpx under `skills/`") and in make_file's first version
+- Branch: feat/any-file-template (limits audit 2026-11-18 item #2, QA TC-4906)
+
+- **Ask:** "Make it like my last report": the AI should use the person's own document (or the team's forms in
+  `shared/양식/`, which the instructions already point to) as the design of a new Word, PowerPoint or Hangul file, as
+  Claude Code would. A template had to be a file under `skills/`, so it could not.
+- **Rule:** make_file's `template` is any file of the output's format (.docx, .pptx, .hwpx) the person may read. It is
+  checked with the person's folder rules like any read (a file they cannot see reads as "not found or no access"), a
+  folder is refused, and the size limits stay (50 MB for .docx / .pptx, the .hwpx template limit). Nothing else about
+  templates changes: pandoc uses only the styles of a .docx / .pptx reference document, and a .hwpx template goes to
+  the office worker as untrusted input (scripts, OLE and the other refusals of `files/hwpx-write.ts`).
+- **Why it is safe:** the template was already a source of the output (`sources.push(tpl.rel)`), so the
+  wider-audience check of make_file applies: a template from a narrower folder saved where more people can read asks
+  the person first in a chat, and is refused without a chat turn. `skills/` was never what kept another person's
+  data out; folder rules and that check are.
+- **Guests:** they may use a file they can read (their project, their own folder); their tool text drops the
+  `skills/` mention.
+- **Tests:** `c-tools` (a readable team document outside `skills/`, an unreadable one, a folder),
+  `c-make-file-hwpx` (the person's own .hwpx, someone else's own folder), `sec-make-file-images` (a template from a
+  narrower team folder is a source), `b-guests-prompt` (the guest rewrite).
+- **Version impact:** patch.

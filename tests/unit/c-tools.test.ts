@@ -304,10 +304,17 @@ describe('make_file', () => {
       }
     } finally { srv.stop(true) }
   })
-  test('policy: output needs write access, template must live under skills/', async () => {
+  test('policy: output needs write access, template is any file the person can read', async () => {
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'skills/x.docx' })).text).toContain('read-only')
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'groups/finance/x.docx' })).text).toContain('not found or no access')
-    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'groups/marketing/brand-guidelines.docx' })).text).toContain('skills/')
+    // a readable team document outside skills/ is a template (docs/decisions/20261118-any-file-template.md)
+    const own = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t0.docx', template: 'groups/marketing/brand-guidelines.docx' })
+    expect(own.isError, own.text).toBe(false)
+    // one the person cannot read is not, and says nothing about the file
+    const hidden = await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t1.docx', template: 'groups/finance/board-memo.docx' })
+    expect(hidden.isError).toBe(true)
+    expect(hidden.text).toContain('not found or no access')
+    expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t2.docx', template: 'groups/marketing' })).text).toContain('folder')
     fs.copyFileSync(path.join(A.team, 'groups/marketing/brand-guidelines.docx'), path.join(A.team, 'skills/ref.docx'))
     expect((await call('alice', null, 'make_file', { content: '# x', format: 'docx', output: 'users/alice/t.docx', template: 'skills/ref.docx' })).isError).toBe(false)
     expect((await call('alice', null, 'make_file', { source: 'groups/finance/budget.md', format: 'docx', output: 'users/alice/b.docx' })).text).toContain('not found or no access')

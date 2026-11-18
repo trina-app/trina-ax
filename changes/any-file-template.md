@@ -1,0 +1,1 @@
+- The AI can now use any Word, PowerPoint or Hangul file you can open as the design for a new document ("make it like my last report"), not only templates kept in the skills folder. A file from a folder fewer people can see still asks before the new file is saved where more people can see it.
