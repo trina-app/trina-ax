@@ -7,7 +7,10 @@
 // and says so instead of doing nothing. In the accent colour, underlined (a mention is the accent colour without one), a
 // long address breaks after its slashes and anywhere when one piece is still too long for the line. The text itself is
 // never changed: copy and edit take the message as it was written.
+import clsx from 'clsx'
 import { useGuestFolderHref } from '../GuestView'
+import { PersonButton } from '../PersonCard'
+import { mentionClass, mentionParts } from '../../lib/rooms'
 import { guestAppHref } from '../../lib/guests'
 import { Fragment, useMemo, useRef, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -28,6 +31,21 @@ const LONG_PRESS_MS = 500
 const origin = () => (typeof location === 'undefined' ? 'http://localhost' : location.origin)
 /** a click the browser should handle itself: a new tab or window, a download */
 const ownClick = (e: MouseEvent) => e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+
+/** A person's plain words (never Markdown: a thread reply under an AI answer) with the people it mentions as names in the
+ * rooms. mention look (lib/rooms.ts mentionClass; mine on the soft background) that open their card, and its
+ * addresses as links. `mentioned`: the ids and the names to look for (the name now and as the list had it, so "@Ben"
+ * still stands out after Ben renamed himself). */
+export function MentionedText({ text, mentioned, meId }: { text: string; mentioned: { id: string; name: string }[]; meId: string | null }) {
+  const parts = useMemo(() => mentionParts(text, mentioned), [text, mentioned])
+  return (
+    <>
+      {parts.map((p, i) => (p.userId ? (
+        <PersonButton key={i} user={{ id: p.userId, name: '' }} look="mention" className={clsx(mentionClass(p.userId === meId))} testId="room-mention-person">{p.text}</PersonButton>
+      ) : <LinkedText key={i} text={p.text} />))}
+    </>
+  )
+}
 
 /** The words of `text`, its addresses as links. `cut`: the text ends in the "…" of an excerpt; an address cut by it
  * stays text. `oneLine`: the text is one line cut with "…" (a quote): no break inside an address. `menu`: a long press

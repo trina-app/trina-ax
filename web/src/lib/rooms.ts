@@ -177,6 +177,10 @@ export function mentionsIn(text: string, people: { id: string; name: string }[])
   return out
 }
 
+/** The class of a mention: the accent colour; mine on a soft background (as RoomMessages drew it before). One look for
+ * a message's Markdown (lib/messageMarkdown.ts) and plain words (components/rooms/MessageText.tsx MentionedText). */
+export const mentionClass = (strong?: boolean) => ['font-medium', 'text-accent-text', ...(strong ? ['rounded', 'bg-accent-soft', 'px-0.5'] : [])]
+
 /** A sent text cut into plain parts and the "@name"s of the people it mentions (the longest name wins where one name
  * starts another). Only shown as text: another member's words are never HTML. */
 export function mentionParts(body: string, mentioned: { id: string; name: string }[]): { text: string; userId?: string }[] {

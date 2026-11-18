@@ -6781,6 +6781,8 @@ export const en: Record<MessageKey, string> = {
   "notifications.event.chat.thread_reply": "Someone replied in a thread.",
   "notifications.event.chat.thread_replyNamed": "{name} replied in a thread in {title}.",
   "notifications.event.chat.thread_replyGone": "You can't see this anymore.",
+  "notifications.event.chat.thread_mention": "Someone mentioned you in a thread.",
+  "notifications.event.chat.thread_mentionNamed": "{name} mentioned you in a thread in {title}.",
   "audit.act.chat.thread_reply_deleted": "Reply deleted from a chat thread",
   "fileShare.holdsFiles": "{n, plural, one {# file} other {# files}}",
   "fileShare.holdsFolders": "{n, plural, one {# folder} other {# folders}}",

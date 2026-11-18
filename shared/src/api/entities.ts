@@ -564,6 +564,9 @@ export const ChatThreadReply = z.object({
   author: UserRef.nullable(),
   /** plain text; links are made clickable by the app, nothing else is formatted */
   content: z.string(),
+  /** the people it mentions by "@name" (ids; docs/decisions/20261118-chat-thread-mentions.md): only people who saw the
+   * thread when it was sent. Older servers omit it */
+  mentions: z.array(UserId).optional(),
   createdAt: IsoTime,
   /** I may delete it: my own, or I may moderate the chat (its creator; a project editor for a project chat) */
   canDelete: z.boolean(),

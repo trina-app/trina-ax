@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 06:57
 - Branch: `feat/chat-thread-mentions`
-- Status: in progress
+- Status: done
 - Where: core (server/src/chat/threads.ts, web/src/components/chat/ChatThreadPanel.tsx). Why: chat threads are core chat code (docs/REPOSITORY-RULES.md).
 - Version impact: minor, a new feature with an additive migration that older builds can read.
 
@@ -51,4 +51,10 @@ docs/decisions/20261118-chat-thread-mentions.md
 
 ## Result
 
-(filled in at the end)
+Built as planned. `ChatThreadPage.people` lists who the box may mention; `sendReply` keeps only mentions of people who
+see the thread at send time (outsiders, the sender, made-up ids, someone the answer is hidden from and someone taken
+out of the chat are dropped). A mentioned person follows the thread, and someone who already follows keeps their read
+mark. Their one notice records the mention, the Inbox row says "{name} mentioned you in a thread in {title}.", and the
+push is the existing thread push. The reply box is the rooms' TokenTextarea + useMentionMenu (no "@everyone"). Replies
+show mentions with the rooms' look (`mentionClass` moved to lib/rooms.ts, shared by the Markdown and the plain renderer).
+The shared chat's main box is not changed (see Out).

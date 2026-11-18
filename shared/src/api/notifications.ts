@@ -242,8 +242,9 @@ export const InboxNotification = z.object({
    * thread I follow under an AI answer of a shared chat. Read now, while I still see that chat and answer (link
    * 'chat_thread' then opens /c/<chatId>/t/<rootId>): `name`, the newest replier by display name while their account is
    * there; `title`, the chat's title. `gone`: I no longer see it (no name, no title, no link). Never a reply's text.
-   * Older servers omit it */
-  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional() }).optional(),
+   * `mention`: a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md); `name` is then who mentioned
+   * me. Older servers omit it */
+  chatThread: z.object({ chatId: z.string().nullable(), rootId: z.string().nullable(), name: z.string().nullable(), title: z.string().nullable(), gone: z.literal(true).optional(), mention: z.literal(true).optional() }).optional(),
   /** the 'file.*' notices (docs/DECISIONS.md "A member shares their own files", file_share_notices). file.shared:
    * `by` shared `name` with me (link 'file' opens /f/<linkId>). file.access_requested (to the file's owner, or the team
    * owner and admins for a file with no owner): `by` asked to open `name`, their `note` (plain text), `requestId` and
