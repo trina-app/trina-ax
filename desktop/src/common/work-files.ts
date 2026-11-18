@@ -104,6 +104,14 @@ const CALL_MIN_MS = 1000
  * long at most: one that does not answer is skipped (the folder goes last), and never holds the rest of the walk until
  * the folder's time is up (one hung entry among forty answering ones once gave no files at all). */
 const STAT_MS = 1500
+/** A folder's listing in the walk (not the root's first one, which may wait for macOS's question) waits this long at
+ * most: one that does not answer is skipped (cut) and the folders beside it are still walked, instead of the walk
+ * waiting out the folder's whole time (Windows QA of 0.5.16: a listing that hung while its date answered held 10 s). */
+const LIST_MS = 3000
+/** Calls of one walk that may not answer: each may hold one of the system's few file threads until the drive answers,
+ * so the HUNG_MAX-th one ends the walk (cut). Counted: listings, a Windows link's lstat on a picked share, and a folder
+ * date there (one call at a time). A share's identity check or a document's lstat that does not answer ends it at once. */
+const HUNG_MAX = 2
 
 /** One file of a look, as the session keeps it: where it was found and what it was then. */
 interface Found {
@@ -147,9 +155,10 @@ export interface ScanOptions {
   /** the roots looked at before this call (their sameKey real paths): a folder of the walk that is one is skipped */
   earlier?: readonly string[]
   /** a network share or another volume the person picked: one file system call at a time (a share that hangs then holds
-   * one of the system's few file threads, not sixteen), and the first listing, file lstat or Windows link lstat that does
-   * not answer ends the walk (cut); a folder's date that does not answer stops the ordering (the rest of the folders are
-   * walked as listed) and that folder is not asked again (cut) */
+   * one of the system's few file threads, not sixteen). A listing or a Windows link's lstat that does not answer skips
+   * that folder or entry (cut, a link is never entered or listed), and the walk ends at the HUNG_MAX-th call that did not
+   * answer; a document's lstat that does not answer ends it at once (cut); a folder's date that does not answer stops the
+   * ordering (the rest of the folders are walked as listed) and that folder is not asked again (cut) */
   serial?: boolean
   /** Windows: the identities a walk must not reach (common/folder-access.ts guardedIdentities: home and every folder
    * above it, the system's folders): a folder the listing marks as a reparse point that lstat calls a folder (lstat
@@ -209,6 +218,9 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     const left = () => Math.min(lim.rootMs, lim.totalMs - spent) - (now() - start)
     const inTime = <T,>(q: Promise<T>) => within(q, Math.max(CALL_MIN_MS, left()))
     const statInTime = <T,>(q: Promise<T>) => within(q, Math.min(STAT_MS, Math.max(CALL_MIN_MS, left())))
+    const listInTime = <T,>(q: Promise<T>) => within(q, Math.min(LIST_MS, Math.max(CALL_MIN_MS, left())))
+    /** the calls of this walk that did not answer (HUNG_MAX) */
+    let hung = 0
     // a picked share whose folder date did not answer: the rest of the walk is not ordered (no more such calls)
     let unordered = false
     // a network share (\\nas\company, a mapped drive: its real path is the network one): every folder below its top is
@@ -263,7 +275,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       let entries = dir.entries
       if (!entries) {
         // a folder whose date did not answer: a picked share (one call at a time) is not asked again (cut); elsewhere its
-        // listing gets STAT_MS too, and one that does not answer then is skipped (cut), the rest of the walk goes on
+        // listing gets STAT_MS too, and one that does not answer then is skipped (cut, HUNG_MAX), the rest of the walk goes on
         const stuck = slow.has(dir.parts.join('\0'))
         if (stuck && o.serial) { r.cut = true; continue }
         // a share's folder below its top: its identity, links followed, is none of guard's before it is read (a junction
@@ -280,10 +292,11 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         }
         try {
           const list = fs.readdir(at, Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
-          entries = await (stuck ? statInTime(list) : inTime(list))
+          entries = await (stuck ? statInTime(list) : listInTime(list))
         } catch (e) {
-          // a folder that does not answer in time ends this root's look (cut); any other error skips that folder
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (stuck) continue; end = true; break }
+          // a folder that does not answer in time is skipped (cut) and the folders beside it are walked, up to HUNG_MAX
+          // calls that never answered; any other error skips that folder
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (++hung >= HUNG_MAX) { end = true; break } }
           continue
         }
         // asked again after the listing: a folder swapped for a junction meanwhile gives another identity (or a guarded
@@ -317,9 +330,10 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         let reparse: WorkStat | null = null
         // Windows lists every reparse point as a link, OneDrive's online-only files too: lstat tells a real link
         if (kind === 'link' && p === 'win32') {
-          // one that does not answer is skipped; on a picked share (one call at a time) it ends the walk, as a file's does
+          // one that does not answer is skipped, never entered or listed (what it is was not told); on a picked share (one
+          // call at a time) the folder is cut and it counts towards HUNG_MAX
           try { reparse = await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name))); kind = reparse.kind } catch (x) {
-            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (++hung >= HUNG_MAX) { end = true; break } }
             continue
           }
         }
@@ -366,8 +380,8 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
       }
       const next = dirs.filter((d) => !cloud.has(join(p, real, ...d)))
       // each folder's date (its lstat, 16 at a time, each within STAT_MS) orders the walk; one that does not answer is
-      // skipped and goes last, and the folders beside it are still walked (a hung lstat never ends the walk: a folder
-      // whose listing does not answer does, keeping what was found)
+      // skipped and goes last, and the folders beside it are still walked (a hung lstat never ends the walk by itself; on
+      // a picked share it counts towards HUNG_MAX)
       const step = o.serial ? 1 : 16
       const undated: string[][] = []
       let i = 0
@@ -376,7 +390,7 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         const b = next.slice(i, i + step)
         let stuck = false
         const st = await Promise.all(b.map((d) => statInTime(fs.lstat(join(p, real, ...d))).catch((e: unknown) => {
-          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')) }
+          if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { stuck = true; slow.add(d.join('\0')); if (o.serial) hung++ }
           return null
         })))
         b.forEach((d, j) => { const m = st[j]?.mtimeMs; if (m === undefined) undated.push(d); else queue.push({ parts: d, mtimeMs: m }) })

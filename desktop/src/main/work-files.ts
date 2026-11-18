@@ -13,7 +13,7 @@ import { addView, consentView, covered, memoryKey, PERSON_INPUT_MS, placeKeys, t
 import type { ConsentAsk } from './work-consent-window'
 import { WORK_FILES_BRIDGE_VERSION, WORK_FILES_WIDE_VERSION, type FullDiskState, type WorkCloudProvider, type WorkFileAdd, type WorkFileRead, type WorkFileScan, type WorkFolderId, type WorkRootId } from '@mycel/shared'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
-import { guardedIdentities, opensHome } from '../common/folder-access'
+import { guardedIdentities, isDevicePath, opensHome } from '../common/folder-access'
 import { FALLBACK_LIMITS, inOneDrive, lookRoots, lookWide, pickRefused, pickTarget, WORK_ROOTS, WorkFileSessions, type WorkFs, type WorkRoot, type WorkStat } from '../common/work-files'
 import { execFile } from 'node:child_process'
 import { considered, neverListed } from '@mycel/shared/file-scan'
@@ -364,7 +364,8 @@ export class WorkFilesController {
       const L = this.o.locale()
       const r = await dialog.showOpenDialog(win, { defaultPath: root.path, properties: ['openDirectory'], message: t(L, 'workFiles.pickMessage', { folder: t(L, ROOT_KEY[root.id as WorkFolderId]) }), buttonLabel: t(L, 'workFiles.pickButton') })
       const picked = r.canceled ? null : r.filePaths[0]
-      if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
+      // a device path (\\?\…, \\.\…) as picked, before realpath drops its prefix (common/folder-access.ts isDevicePath)
+      if (!picked || isDevicePath(picked, process.platform) || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
       // the folder as it really is (a link in the pick would lead elsewhere): inside the root's real path, never home
       const lib = process.platform === 'win32' ? win32 : posix
       const reals = await Promise.all([realpath(picked), realpath(root.path)]).catch(() => null)
@@ -407,7 +408,8 @@ export class WorkFilesController {
       // a closed window waits a moment before the next (as the consent window)
       this.quietUntil = Date.now() + COOLDOWN_MS
       const picked = r.canceled ? null : r.filePaths[0]
-      if (!picked || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
+      // a device path (\\?\…, \\.\…) as picked, before realpath drops its prefix (common/folder-access.ts isDevicePath)
+      if (!picked || isDevicePath(picked, process.platform) || generation !== this.generation || !this.sessions.has(origin)) return { state: 'cancelled' }
       const realPicked = await realpath(picked).catch(() => null)
       const home = app.getPath('home')
       // never home or one that holds it, the apps' data or the system's folders (common/work-files.ts pickRefused). A
