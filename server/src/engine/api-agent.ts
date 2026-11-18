@@ -16,6 +16,7 @@ import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials
 import { LinkGuard } from './api-links'
 import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
 import { fitApiTools, toolsLeftOutNote, type ApiTool } from './api-tools-fit'
+import { noteContextUsage } from './api-context'
 
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
@@ -34,6 +35,7 @@ export const API_GROUNDING_RULES = [
   '- Give a link to a team file only by copying it exactly from a make_file or share_file result (or from this conversation). Never build a link yourself and never invent hosts, preview, Drive or download links. To link a file you saved with write or another tool, call share_file first.',
   '- State facts, numbers and quotes only when a tool result, a file or the user gave them. If you do not know, say so plainly; do not guess statistics or sources.',
   '- If a tool returns an error, read it, fix the call and try again, or tell the user what went wrong. Do not say a step worked when its tool failed.',
+  '- When the user declines a card (a tool result says they said no), do not try to do the same thing another way; say it was not done.',
 ].join('\n')
 
 export function apiEngineConfPath(dataDir: string) { return path.join(dataDir, 'engine-api.json') }
@@ -244,6 +246,8 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
   }
   // a round that asked for tools goes on after this usage (continues: the turn may stop it at the budget before its
   // tool calls run); the answer's last round never does
+  // a request this large went through: a smaller size a refusal named was wrong (engine/api-context.ts)
+  if (usage) noteContextUsage(conf, (usage as { prompt_tokens?: unknown }).prompt_tokens)
   if (usage) emit({ ...usageEvent(conf.model, usage, requestId), ...(calls.some(Boolean) && finish !== 'length' ? { continues: true } : {}) })
   // the model stopped at its output limit (max_tokens): the answer is cut off, and a tool call in it may be too (its
   // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut

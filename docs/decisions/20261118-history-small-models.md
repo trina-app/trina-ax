@@ -18,14 +18,22 @@
     Ollama `/api/ps` (the loaded size) then the `num_ctx` parameter of `/api/show`; LM Studio
     `/api/v0/models/<model>` (`loaded_context_length`); llama.cpp `/props` (`n_ctx`, local addresses only); any
     OpenAI-compatible `/models` list (`max_model_len` vLLM, `context_length` OpenRouter / Together, `context_window`
-    Groq …). A refusal that names a size ("maximum context length is 8192 tokens", "context length of only 4096
-    tokens", `n_ctx`) is kept for an hour and wins when smaller. Probes are cached 10 minutes (1 minute when nothing
-    was learned), take at most 3 s each and go through the same address check as the turns (`apiEngineFetch`). The
-    key goes only to the `/models` address it was saved for, never to `/api/*` or `/props` of that host.
-  - Exact and guessed sizes: a size the model runs with now is exact. A local address that says nothing, an Ollama
-    model not loaded yet (trained length, capped) and an LM Studio model not loaded are a guess of at most 32,000 (as
-    #1284's prompt budget assumes for a local address). A guess only shrinks the window; it never refuses a turn. A
-    cloud model that says nothing keeps the default window.
+    Groq …). A refusal that names a size is read only in the providers' own sentences ("maximum context length is
+    8192 tokens", "exceeds the available context size (8192 tokens)", "loaded with context length of only 4096
+    tokens", llama.cpp's `n_ctx` field), outside anything quoted and any JSON inside the message, because a provider
+    can echo the request's own text (tool arguments, the person's words). It is kept for an hour, wins when smaller,
+    and is forgotten as soon as an answer reports more prompt tokens than it named (security review of #1322: an
+    echoed "600 tokens" must not block the chat). Probes are cached 10 minutes (a local server that said nothing: 1
+    minute), take at most 3 s each and 5 s together, stop being waited for when the turn is stopped, read at most 1 MB
+    and go through the same address check as the turns (`apiEngineFetch`). The key goes only to the `/models` address
+    it was saved for, never to `/api/*` or `/props` of that host.
+  - Exact, refusal and guessed sizes: only a size the model's server states is exact, and only an exact size can end
+    a turn with `model_too_small`. A refusal's number shrinks the history and the tool list but never refuses. A
+    local address that says nothing, an Ollama model not loaded yet (trained length, capped) and an LM Studio model
+    not loaded are a guess of at most 32,000 (as #1284's prompt budget assumes for a local address): a guess shrinks
+    only the history, never the tool list (a proxy such as LiteLLM in front of a 200k model looks the same), and a
+    guess the instructions and the whole tool list alone overflow is ignored (the default window). A cloud model that
+    says nothing keeps the default window.
   - The window (`server/src/chat/history-fit.ts historyFit`): the context minus room for the answer and the turn's
     work (a fifth of the context, at least 2,048), minus the instructions without the history, the tool list as sent
     and the message (estimated, times 1.15 for JSON and code), at most HISTORY_MAX_TOKENS. `historyBlock`,
@@ -37,15 +45,17 @@
     needed: descriptions cut to their first sentences (300 characters), then the descriptions inside the schemas left
     out, then the largest tools that are not file tools left out one by one. The instructions name the tools left out
     and tell the AI to say plainly that the team's model is too small for them, never that it was done. A model with
-    room gets the list unchanged.
+    room gets the list unchanged. Shortened descriptions can lose a tool's own "if the user declines, do not try
+    another way", so the API engine's grounding rules now say it once for every tool.
   - Telling the person: an answer whose history was cut only because of the model (the default window would have held
     it) shows "The AI model your team uses can read only a short conversation at once, so it remembers only the most
     recent part" instead of "This conversation is long" (`messages.history_small_model`, migration 420). A model whose
     exact size the instructions, tools and message alone overflow ends the turn before any request with the new error
     `model_too_small`: "The AI model your team uses can't read this much at once … Ask your admin to choose a model
     that can read more, or to give it a larger context length in Ollama or LM Studio." A provider refusal that names
-    a size gets the same words instead of "continue in a new chat" (a new chat would not help), and the next turn
-    fits the size it named.
+    a size below the default window (40,000), or one the instructions alone nearly fill, gets the same words instead
+    of "continue in a new chat" (a new chat would not help), and the next turn fits the size it named. A large model
+    refused for an oversized request keeps the usual words.
 - **Why:** Claude Code fits its work to the model's context and compacts with a summary; it never sends more than the
   model can read. Ollama's silent cut is the worst case: the answer ignores the team's rules and nobody knows why.
 - **Left out:**

@@ -96,6 +96,7 @@ import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agen
 import { apiContextSize, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-fit'
 import { historyFit } from './history-fit'
+import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
@@ -290,6 +291,8 @@ export class TurnExec {
   historyTrimmed = false
   /** the trim is the model's doing: its small context (chat/history-fit.ts), not a long chat */
   historySmallModel = false
+  /** the API engine: a model of this many tokens has no room for any history next to this turn's instructions */
+  private apiFixedLeavesNoRoom: ((contextTokens: number) => boolean) | null = null
   /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
   private summaryAfter: (() => void) | null = null
   /** the attempt that answers started a fresh session (its prompt carried the history) */
@@ -1052,24 +1055,35 @@ export class TurnExec {
     // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
     // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
     // instructions, the tool list and the message leave, with room for the answer (chat/history-fit.ts). A model the
-    // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess only
-    // shrinks the window); Ollama would cut the start of the prompt without a word
+    // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
+    // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
     let apiToolBudget: number | undefined
+    /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
+    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
+      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    }
+    this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
     if (api && !replay && !this.restricted) {
-      const size = await apiContextSize(api).catch(() => null)
+      const size = await apiContextSize(api, { signal: this.abort.signal }).catch(() => null)
       if (this.stopReason) return
       if (size) {
-        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it
-        apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
-        const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), apiToolBudget)
-        const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
-        const fit = historyFit({ contextTokens: size.tokens, instructions, tools: JSON.stringify(tools.tools), message })
+        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it: on a size
+        // the model's server stated or a refusal named, never on a guess (a proxy in front of a large model). A wrong
+        // refusal number is forgotten with the next answer that used more tokens (engine/api-context.ts)
+        const guess = !size.exact && size.source !== 'refusal'
+        if (!guess) apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
+        const { tools, fit } = apiFit(size.tokens, apiToolBudget)
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
           this.error = engineError('model_too_small', spec.locale)
           return
         }
-        if (fit.limited) {
+        // a guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front of a
+        // large model, a local server that keeps its size to itself): the default window, as for an unknown model
+        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        else if (fit.limited) {
           historyBudget = fit.budget
           rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
         }
@@ -1321,7 +1335,11 @@ export class TurnExec {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
         // a refusal that names the model's context size: the model is small, not the chat too long (a new chat would
         // not help); the size is kept, so the next turn's window fits it (engine/api-context.ts)
-        const small = err.code === 'context' && noteContextRefusal(api, err.message) !== null
+        // only for a small model (below the default window) or one the instructions alone nearly fill; a large one
+        // refused for an oversized tool result keeps the usual "too long" words
+        const named = err.code === 'context' ? noteContextRefusal(api, err.message) : null
+        let small = false
+        if (named !== null) { try { small = named < HISTORY_MAX_TOKENS || !!this.apiFixedLeavesNoRoom?.(named) } catch { small = named < HISTORY_MAX_TOKENS } }
         this.error = engineError(small ? 'model_too_small' : err.code, spec.locale, undefined, err.status)
       }
     }

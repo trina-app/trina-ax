@@ -14,8 +14,8 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { estimateTokens, historyBlock, historyTrimmed, HISTORY_MAX_TOKENS, summaryWithin } from '../../server/src/chat/prompt'
 import { summaryTarget, uncovered, setSummaryAiForTests, resetSummaryStateForTests } from '../../server/src/chat/history-summary'
 import { ANSWER_ROOM_MIN, historyFit } from '../../server/src/chat/history-fit'
-import { apiContextSize, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, resetApiContextForTests } from '../../server/src/engine/api-context'
-import { writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
+import { apiContextSize, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
+import { API_GROUNDING_RULES, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
 
 setDefaultTimeout(60_000)
 
@@ -150,7 +150,53 @@ describe('the context size', () => {
     await apiContextSize(c, { fetchFn: a.fetchFn })
     expect(a.seen.length).toBe(n)
     expect(noteContextRefusal(c, 'HTTP 400: {"error":{"message":"This model\'s maximum context length is 8,192 tokens. However, you requested 9000 tokens"}}')).toBe(8192)
-    expect(await apiContextSize(c, { fetchFn: a.fetchFn })).toEqual({ tokens: 8192, exact: true, source: 'refusal' })
+    // never exact: it only shrinks the window
+    expect(await apiContextSize(c, { fetchFn: a.fetchFn })).toEqual({ tokens: 8192, exact: false, source: 'refusal' })
+    // a request with more tokens went through: the number was wrong and is forgotten
+    noteContextUsage(c, 9_000)
+    expect(await apiContextSize(c, { fetchFn: a.fetchFn })).toEqual({ tokens: 32768, exact: true, source: 'ollama' })
+  })
+
+  test('a refusal that echoes other text: only the provider\'s own sentence counts, never quotes or JSON in it', () => {
+    // a tool argument or the person's words repeated in the error
+    expect(contextFromRefusal('HTTP 400: {"error":{"message":"Invalid value \\"the context length is 600 tokens\\" for argument path"}}')).toBeNull()
+    expect(contextFromRefusal('HTTP 400: {"error":{"message":"bad request: {\\"note\\": \\"maximum context length is 600 tokens\\"}"}}')).toBeNull()
+    expect(contextFromRefusal('HTTP 400: bad tool call `maximum context length is 600 tokens`')).toBeNull()
+    expect(contextFromRefusal('HTTP 400: {"error":{"message":"context_length 600 is what the user wrote"}}')).toBeNull()
+    expect(contextFromRefusal('HTTP 400: {"error":{"message":"This model\'s maximum context length is 8192 tokens. However, you requested 9100 tokens (\\"maximum context length is 600 tokens\\")."}}')).toBe(8192)
+    // llama.cpp's own field, also from a body cut off at 300 characters
+    expect(contextFromRefusal('HTTP 400: {"error":{"code":400,"message":"the request exceeds the available context size, try increasing it","type":"exceed_context_size_error","n_prompt_tokens":5000,"n_ctx":4096}}')).toBe(4096)
+    expect(contextFromRefusal('HTTP 400: {"error":{"code":400,"message":"This model\'s maximum context length is 16384 tokens. However, your messages resulted in 20000 tok')).toBe(16384)
+  })
+
+  test('a cloud provider that says nothing is asked again only after 10 minutes', async () => {
+    const a = server({})
+    const c = conf('https://api.example.com/v1')
+    const t0 = 1_000_000
+    expect(await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 })).toBeNull()
+    const n = a.seen.length
+    expect(await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 + 5 * 60_000 })).toBeNull()
+    expect(a.seen.length).toBe(n)
+  })
+
+  test('the turn\'s Stop ends the wait for a probe', async () => {
+    const slow = (async () => { await Bun.sleep(2_000); return new Response('{}') }) as unknown as typeof fetch
+    const stop = new AbortController()
+    const t0 = Date.now()
+    const p = apiContextSize(conf('http://127.0.0.1:9998/v1'), { fetchFn: slow, signal: stop.signal })
+    stop.abort()
+    expect(await p).toBeNull()
+    expect(Date.now() - t0).toBeLessThan(500)
+  })
+
+  test('a probe answer larger than 1 MB is not read', async () => {
+    const big = { data: [{ id: 'm', context_length: 8192, pad: 'x'.repeat(PROBE_BODY_MAX) }] }
+    const a = server({ '/v1/models': big })
+    expect(await apiContextSize(conf('http://10.0.0.7:8000/v1'), { fetchFn: a.fetchFn })).toEqual({ tokens: LOCAL_GUESS_TOKENS, exact: false, source: 'local-guess' })
+  })
+
+  test('the API engine is told not to work around a declined card', () => {
+    expect(API_GROUNDING_RULES).toMatch(/declines a card[^\n]*another way/)
   })
 
   test('refusal wordings', () => {
@@ -169,11 +215,14 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
   let ctx = 32_768
   let refuse: string | null = null
   const requests: { system: string; tools: unknown[] }[] = []
-  const sse = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`
+  let promptTokens = 1
+  let silent = false
+  const sse = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: ${JSON.stringify({ choices: [], usage: { prompt_tokens: promptTokens, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`
 
   beforeAll(async () => {
     mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
       const p = new URL(req.url).pathname
+      if (p === '/api/ps' && silent) return new Response('not found', { status: 404 })
       if (p === '/api/ps') return Response.json({ models: [{ name: 'local-m', model: 'local-m', context_length: ctx }] })
       if (p !== '/v1/chat/completions') return new Response('not found', { status: 404 })
       const body = await req.json() as { messages: { role: string; content: string }[]; tools?: unknown[] }
@@ -191,12 +240,12 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     await alice.next('hello')
   })
   afterAll(async () => { setSummaryAiForTests(null); alice?.close(); await h.close(); mock.stop(true) })
-  beforeEach(() => { resetApiContextForTests(); resetSummaryStateForTests(); setSummaryAiForTests(() => null); refuse = null; requests.length = 0 })
+  beforeEach(() => { resetApiContextForTests(); resetSummaryStateForTests(); setSummaryAiForTests(() => null); refuse = null; requests.length = 0; promptTokens = 1; silent = false })
 
   const chatWithHistory = async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' } })
-    // three messages of about 5,000 tokens each, each with its own marker
-    for (const w of ['ALPHA', 'BRAVO', 'CHARLIE']) await ask(h, alice, 'alice', chat.id, `${w} ${'word '.repeat(4_000)}`)
+    // three messages of about 3,750 tokens each, each with its own marker
+    for (const w of ['ALPHA', 'BRAVO', 'CHARLIE']) await ask(h, alice, 'alice', chat.id, `${w} ${'word '.repeat(3_000)}`)
     return chat
   }
 
@@ -207,7 +256,7 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     const { done } = await ask(h, alice, 'alice', chat.id, 'what was the first word?')
     const r = requests.at(-1)!
     const sent = estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools)) + estimateTokens('what was the first word?')
-    // the old window (40,000 tokens) sent all 15,000 tokens of history: more than the model can take with the rest
+    // the old window (40,000 tokens) sent all 11,000 tokens of history: more than the model can take with the rest
     expect(sent).toBeLessThan(ctx - ANSWER_ROOM_MIN)
     expect(r.system).toContain('CHARLIE')
     expect(r.system).not.toContain('ALPHA')
@@ -248,7 +297,7 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     expect(done.error?.message).toBe(CHAT_ERROR_MESSAGES.model_too_small.en)
   })
 
-  test('a refusal that names the size: the model is small (not "continue in a new chat"), and the next turn fits it', async () => {
+  test('a refusal that names a small size: the model is small (not "continue in a new chat"), and the next turn shrinks the history', async () => {
     ctx = 1_000_000 // the server says a big size, the model refuses with a smaller one
     const chat = await chatWithHistory()
     refuse = JSON.stringify({ error: { message: "This model's maximum context length is 24576 tokens. However, your messages resulted in 30000 tokens." } })
@@ -258,7 +307,46 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     requests.length = 0
     const two = await ask(h, alice, 'alice', chat.id, 'again')
     const r = requests.at(-1)!
+    expect(r.system).not.toContain('ALPHA')
     expect(estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools))).toBeLessThan(24_576 - ANSWER_ROOM_MIN)
     expect(two.done.status).toBe('done')
+  })
+
+  test('a poisoned refusal ("600 tokens" in the provider\'s own words) never refuses a turn, and a larger request clears it', async () => {
+    ctx = 1_000_000
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' } })
+    refuse = JSON.stringify({ error: { message: "This model's maximum context length is 600 tokens." } })
+    await ask(h, alice, 'alice', chat.id, 'first')
+    refuse = null
+    promptTokens = 30_000
+    const two = await ask(h, alice, 'alice', chat.id, 'second')
+    // not model_too_small, although 600 tokens cannot hold the instructions: the number was only a refusal's
+    expect(two.done.status).toBe('done')
+    expect(requests.at(-1)).toBeDefined()
+    // the answer reported 30,000 prompt tokens: the 600 is forgotten, the server's 1M counts again
+    requests.length = 0
+    const three = await ask(h, alice, 'alice', chat.id, 'third')
+    expect(three.done.status).toBe('done')
+    expect(requests.at(-1)!.system).toContain('first')
+  })
+
+  test('a large model refused for an oversized request keeps the usual words', async () => {
+    ctx = 1_000_000
+    const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' } })
+    refuse = JSON.stringify({ error: { message: "This model's maximum context length is 200000 tokens. However, your messages resulted in 260000 tokens." } })
+    const one = await ask(h, alice, 'alice', chat.id, 'read the big file')
+    expect(one.done.error?.params?.reason).toBe('context')
+  })
+
+  test('a guessed size (a local address that says nothing) never cuts the tool list; a guess the tools alone fill is ignored', async () => {
+    silent = true
+    const chat = await chatWithHistory()
+    requests.length = 0
+    const { done } = await ask(h, alice, 'alice', chat.id, 'hello')
+    const r = requests.at(-1)!
+    expect(JSON.stringify(r.tools)).toContain('intro_deck')
+    // the whole list is more than the 32k guess: nothing is known, so the default window keeps the whole history
+    expect(r.system).toContain('ALPHA')
+    expect(done.historyTrimmed).toBeUndefined()
   })
 })

@@ -5,8 +5,11 @@
 //
 // Learned, never set by hand: what the model's own server says (Ollama /api/ps and /api/show, LM Studio
 // /api/v0/models, llama.cpp /props, the OpenAI-compatible model list: OpenRouter, vLLM, Groq, Together …), or the
-// number a refusal named ("maximum context length is 8192 tokens"). `exact`: the size the model really runs with now;
-// a guess (a local address that said nothing, a model loaded later) only shrinks the window, it never refuses a turn.
+// number a refusal named ("maximum context length is 8192 tokens"). `exact`: the size the model's server says it runs
+// with now; a guess (a local address that said nothing, a model loaded later) and a refusal's number only shrink the
+// window, they never refuse a turn and never cut the tool list (a refusal's text can echo words a person or a tool
+// wrote, so it is read only in the provider's own wording, outside quotes and JSON, and forgotten once a request with
+// more tokens than it named went through).
 //
 // The probes go to the address the admin set (and its own /api paths), through the same address check as the turns
 // (system/egress.ts apiEngineFetch). The key goes only to the address it was saved for (the /models list), never to the
@@ -21,8 +24,13 @@ export interface ContextSize { tokens: number; exact: boolean; source: 'ollama' 
 export const LOCAL_GUESS_TOKENS = 32_000
 /** a probe's answer is kept this long (a model loaded with another size is seen at most this late) */
 export const CONTEXT_CACHE_MS = 10 * 60_000
-/** a probe that learned nothing is not repeated for this long */
-const MISS_CACHE_MS = 60_000
+/** a probe that learned nothing is not repeated for this long: a local server (just started, model loading) soon, a
+ * cloud provider that does not say (most do not) only every CONTEXT_CACHE_MS */
+const LOCAL_MISS_CACHE_MS = 60_000
+/** all probes of one look-up together: a turn waits at most this long for them (each one PROBE_TIMEOUT_MS) */
+const PROBES_TIMEOUT_MS = 5_000
+/** a probe's answer larger than this is not read (a model list is a few kB, OpenRouter's about 500 kB) */
+export const PROBE_BODY_MAX = 1_000_000
 /** the number a refusal named: kept this long (it is the model's real limit) */
 const REFUSAL_CACHE_MS = 60 * 60_000
 const PROBE_TIMEOUT_MS = 3_000
@@ -49,17 +57,48 @@ export function isLocalApiAddress(baseUrl: string): boolean {
   return !host.includes('.')
 }
 
-/** The context size a provider's refusal names, or null ("maximum context length is 8192 tokens" OpenAI / vLLM,
- * "available context size (8192 tokens)" llama.cpp, "context length of only 4096 tokens" LM Studio, "n_ctx: 4096"). */
+/** The provider's own words in a refusal: the error object's message (OpenAI-style JSON, possibly cut off), else the
+ * text; anything quoted inside it ("…", `…`) and any JSON inside it ({…}, […]) is left out, as a provider repeats the
+ * request's own text there (tool arguments, the person's words). */
+function refusalWords(body: string): { text: string; nCtx: number | null } {
+  const raw = body.replace(/^HTTP \d{3}:\s*/, '')
+  let text = raw
+  let nCtx: number | null = null
+  try {
+    const j = JSON.parse(raw) as any
+    const e = j?.error ?? j
+    if (typeof e === 'string') text = e
+    else if (e && typeof e === 'object') { text = typeof e.message === 'string' ? e.message : ''; nCtx = num(e.n_ctx) }
+  } catch {
+    // a cut-off JSON body (the log keeps 300 characters): its "message" string as far as it goes
+    if (/^\s*[{[]/.test(raw)) {
+      const m = /"message"\s*:\s*"((?:\\.|[^"\\])*)/.exec(raw)
+      text = m ? m[1]!.replace(/\\(["\\/])/g, '$1').replace(/\\n/g, '\n') : ''
+      const n = /"n_ctx"\s*:\s*(\d+)\s*[,}]/.exec(raw)
+      nCtx = n ? num(n[1]) : null
+    }
+  }
+  let prev = ''
+  while (prev !== text) {
+    prev = text
+    text = text.replace(/"[^"]*"|`[^`]*`|“[^”]*”/g, ' ').replace(/\{[^{}]*\}|\[[^[\]]*\]/g, ' ')
+  }
+  return { text, nCtx }
+}
+
+/** The context size a provider's refusal names, or null. Only the providers' own sentences, anchored: "This model's
+ * maximum context length is 8192 tokens" (OpenAI, vLLM), "exceeds the available context size (8192 tokens)"
+ * (llama.cpp, with its n_ctx field), "the model is loaded with context length of only 4096 tokens" (LM Studio). */
 export function contextFromRefusal(body: string): number | null {
+  const { text, nCtx } = refusalWords(body)
+  if (nCtx) return nCtx
   const pats = [
-    /maximum context length (?:is|of) (\d[\d,]*)/i,
-    /context (?:size|length|window)[^\d\n]{0,40}?(?:of|is|\()\s*(?:only\s+)?(\d[\d,]*)\s*tokens/i,
-    /context[_ ]length[^\d\n]{0,10}(\d[\d,]*)/i,
-    /\bn_ctx(?:_slot)?["']?\s*[:=]\s*(\d+)/i,
+    /\bmaximum context length is (\d[\d,]*) tokens\b/i,
+    /\brequest exceeds the available context size \((\d+) tokens\)/i,
+    /\bthe model is loaded with context length of only (\d+) tokens\b/i,
   ]
   for (const p of pats) {
-    const m = p.exec(body)
+    const m = p.exec(text)
     const n = m ? num(m[1]!.replace(/,/g, '')) : null
     if (n) return n
   }
@@ -71,6 +110,13 @@ export function noteContextRefusal(conf: Pick<ApiEngineConf, 'baseUrl' | 'model'
   const n = contextFromRefusal(body)
   if (n) refused.set(keyOf(conf), { tokens: n, at: now })
   return n
+}
+
+/** A request that went through with `promptTokens`: a refusal's number below that was wrong, and is forgotten. */
+export function noteContextUsage(conf: Pick<ApiEngineConf, 'baseUrl' | 'model'>, promptTokens: unknown) {
+  const k = keyOf(conf)
+  const r = refused.get(k)
+  if (r && typeof promptTokens === 'number' && promptTokens > r.tokens) refused.delete(k)
 }
 
 type Get = (url: string, init?: RequestInit) => Promise<unknown | null>
@@ -127,33 +173,59 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
  * window stays as for the other engines). A refusal's number wins over a probe when smaller. Probes are cached per
  * address and model, and one runs at a time.
  */
-export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof fetch; now?: number } = {}): Promise<ContextSize | null> {
+export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof fetch; now?: number; signal?: AbortSignal } = {}): Promise<ContextSize | null> {
   const now = o.now ?? Date.now()
   const k = keyOf(conf)
   const ref = refused.get(k)
-  const fromRefusal: ContextSize | null = ref && now - ref.at < REFUSAL_CACHE_MS ? { tokens: ref.tokens, exact: true, source: 'refusal' } : null
+  if (ref && now - ref.at >= REFUSAL_CACHE_MS) refused.delete(k)
+  // never exact: the refusal's text is not the server's own statement of its size
+  const fromRefusal: ContextSize | null = ref && now - ref.at < REFUSAL_CACHE_MS ? { tokens: ref.tokens, exact: false, source: 'refusal' } : null
   let size: ContextSize | null
   const hit = probed.get(k)
-  if (hit && now - hit.at < (hit.size ? CONTEXT_CACHE_MS : MISS_CACHE_MS)) size = hit.size
+  const missFor = isLocalApiAddress(conf.baseUrl) ? LOCAL_MISS_CACHE_MS : CONTEXT_CACHE_MS
+  if (hit && now - hit.at < (hit.size ? CONTEXT_CACHE_MS : missFor)) size = hit.size
   else {
     let p = inflight.get(k)
     if (!p) {
       const f = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: conf.setBy === 'admin' })
+      const all = AbortSignal.timeout(PROBES_TIMEOUT_MS)
       const get: Get = async (url, init) => {
         try {
-          const r = await f(url, { ...init, signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })
-          if (!r.ok) return null
-          return await r.json()
+          const r = await f(url, { ...init, signal: AbortSignal.any([all, AbortSignal.timeout(PROBE_TIMEOUT_MS)]) })
+          if (!r.ok || !r.body) return null
+          return await boundedJson(r)
         } catch { return null }
       }
       p = probe(conf, get).catch(() => null).finally(() => inflight.delete(k))
+      // what this look-up learned, for every turn (one that stopped waiting included)
+      p.then((v) => probed.set(k, { size: v, at: Date.now() }))
       inflight.set(k, p)
     }
-    size = await p
-    probed.set(k, { size, at: now })
+    // the turn's Stop ends the wait at once (the probe goes on and its answer is kept)
+    const stopped = o.signal ? new Promise<'stopped'>((r) => { if (o.signal!.aborted) r('stopped'); else o.signal!.addEventListener('abort', () => r('stopped'), { once: true }) }) : null
+    const got = await (stopped ? Promise.race([p, stopped]) : p)
+    if (got === 'stopped') return null
+    size = got
   }
-  if (fromRefusal && (!size || fromRefusal.tokens < size.tokens || !size.exact)) return fromRefusal
+  if (fromRefusal && (!size || fromRefusal.tokens < size.tokens)) return fromRefusal
   return size
+}
+
+/** A probe's JSON, read only up to PROBE_BODY_MAX bytes (null when larger or not JSON). */
+async function boundedJson(r: Response): Promise<unknown | null> {
+  const len = Number(r.headers.get('content-length') ?? '')
+  if (Number.isFinite(len) && len > PROBE_BODY_MAX) { await r.body?.cancel().catch(() => {}); return null }
+  const reader = r.body!.getReader()
+  const parts: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > PROBE_BODY_MAX) { await reader.cancel().catch(() => {}); return null }
+    parts.push(value)
+  }
+  try { return JSON.parse(new TextDecoder().decode(Buffer.concat(parts))) } catch { return null }
 }
 
 /** tests: forget what was learned */
