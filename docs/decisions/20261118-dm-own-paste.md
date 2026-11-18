@@ -28,7 +28,7 @@
   A word changed or added, two messages stitched, a quote line or an AI answer is not their own and gets the full check.
   Found in the leak review and part of the rule: lines split on "\n" only (a "\r" inside a quoted room message keeps
   the rest of it in the quote); the stretch starts and ends at a word's edge ("approve" out of "do not approve" is
-  not theirs); a stretch that shares a run of 60 characters with an earlier AI answer on the branch (or a shorter one
+  not theirs); a stretch that shares 8 words in a row with an earlier AI answer on the branch, compared by words so Markdown cannot hide it (or a shorter one
   wholly inside one) is not their own, since the person may have copied what the AI showed them and cannot see what
   is hidden from the recipient; a message the server wrote for the person (onboarding, skill drafts, by its client
   id) is not theirs.

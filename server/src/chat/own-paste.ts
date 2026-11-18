@@ -12,8 +12,8 @@
 // (spaces, tabs, line breaks) collapsed and both sides in Unicode NFC. What then goes is that stretch of the person's
 // message itself, never the AI's copy of it: a different spacing, line break or invisible character the AI put in
 // cannot carry anything along. Anything else (a word changed, added or left out in the middle, two messages stitched
-// together, an AI answer) is not the person's own and gets the full check. So is a stretch that shares a run of
-// OVERLAP_RUN characters with an earlier AI answer on the branch: the person may have copied what the AI showed them
+// together, an AI answer) is not the person's own and gets the full check. So is a stretch that shares OVERLAP_WORDS
+// words in a row with an earlier AI answer on the branch: the person may have copied what the AI showed them
 // (a summary of a room whose answers are hidden from the recipient), and they cannot see what is at stake (review).
 // Lines are split on "\n" only, as every other quote check (chat/read-rooms.ts): a "\r" inside a quoted room message
 // never makes the rest of it a line of the person's own.
@@ -28,12 +28,15 @@ const MESSAGES_MAX = 200
 const MESSAGE_CHARS = 100_000
 /** at most this many characters of messages read in all, the person's and the AI's each */
 const TOTAL_CHARS = 400_000
-/** a run of this many characters (whitespace collapsed) shared with an earlier AI answer makes a stretch not own */
-export const OVERLAP_RUN = 60
+/** this many words in a row shared with an earlier AI answer make a stretch not own (a shorter stretch: all of its
+ * words in a row in one answer) */
+export const OVERLAP_WORDS = 8
+/** rows of the branch read (the person's and the AI's) */
+const ROWS_MAX = MESSAGES_MAX * 2
 /** client ids of user messages the server writes for the person (onboarding, skill drafts, skill sharing, file
  * ranking, schedules, Slack): never their own paste */
 const SERVER_SENT = /^(onb|skd|skf|ssj|ssm|tfr|slack|n|s)-/
-const WORDISH = /[\p{L}\p{N}]/u
+const WORDISH = /[\p{L}\p{M}\p{N}]/u
 
 /** A message as the person wrote it, quote lines and "#" room picks left out, in NFC. */
 export function ownText(content: string): string {
@@ -67,7 +70,7 @@ export function ownPaste(db: Database, userId: string, answerId: string, text: s
     const rows = db.query(`WITH RECURSIVE up(id, parent_id, role, depth) AS (SELECT id, parent_id, role, 0 FROM messages WHERE id = ?
         UNION ALL SELECT m.id, m.parent_id, m.role, up.depth + 1 FROM messages m JOIN up ON m.id = up.parent_id WHERE up.depth < ${BRANCH_MAX})
       SELECT up.role role, m.author_id author, m.auto_sent auto, m.client_message_id cid, substr(m.content, 1, ${MESSAGE_CHARS}) content
-      FROM up JOIN messages m ON m.id = up.id WHERE up.id <> ?1 ORDER BY up.depth LIMIT ${MESSAGES_MAX * 2}`).all(answerId) as { role: string; author: string | null; auto: number; cid: string | null; content: string | null }[]
+      FROM up JOIN messages m ON m.id = up.id WHERE up.id <> ?1 ORDER BY up.depth LIMIT ${ROWS_MAX}`).all(answerId) as { role: string; author: string | null; auto: number; cid: string | null; content: string | null }[]
     let found: string | null = null
     let total = 0
     for (const r of rows) {
@@ -85,27 +88,26 @@ export function ownPaste(db: Database, userId: string, answerId: string, text: s
       if (found !== null) break
     }
     if (found === null) return null
-    // what an earlier AI answer on the branch showed, copied into the person's message, is not their own
-    // (a stretch shorter than the run: when the answer holds all of it)
-    const answers = rows.filter((r) => r.role === 'assistant').map((r) => collapse((r.content ?? '').normalize('NFC')).text)
+    // what an earlier AI answer on the branch showed, copied into the person's message, is not their own. Compared by
+    // words, so Markdown the answer was written in (bold, links, tables) and the copy left out never hides it. A branch
+    // longer than the rows read: not known, not own
+    if (rows.length >= ROWS_MAX) return null
+    const mine = words(want)
+    const grams = new Set<string>()
     let read = 0
-    for (const a of answers) if ((read += a.length) > TOTAL_CHARS || (want.length < OVERLAP_RUN ? a.includes(want) : sharesRun(want, a))) return null
+    for (const r of rows) {
+      if (r.role !== 'assistant') continue
+      if ((read += (r.content ?? '').length) > TOTAL_CHARS) return null
+      const a = words(r.content ?? '')
+      if (mine.length < OVERLAP_WORDS) { if (` ${a.join(' ')} `.includes(` ${mine.join(' ')} `)) return null; continue }
+      for (let i = 0; i + OVERLAP_WORDS <= a.length; i++) grams.add(a.slice(i, i + OVERLAP_WORDS).join(' '))
+    }
+    for (let i = 0; i + OVERLAP_WORDS <= mine.length; i++) if (grams.has(mine.slice(i, i + OVERLAP_WORDS).join(' '))) return null
     return found
   } catch { return null }
 }
 
-/** Do `a` and `b` share a run of OVERLAP_RUN characters? (Every such run holds one of `a`'s windows of half its
- * length that start at a multiple of half its length.) */
-function sharesRun(a: string, b: string): boolean {
-  const half = OVERLAP_RUN / 2
-  for (let i = 0; i + half <= a.length; i += half) if (b.includes(a.slice(i, i + half))) {
-    // a candidate: look for the whole run around it
-    for (let at = b.indexOf(a.slice(i, i + half)); at >= 0; at = b.indexOf(a.slice(i, i + half), at + 1)) {
-      let lo = 0, hi = 0
-      while (i - lo - 1 >= 0 && at - lo - 1 >= 0 && a[i - lo - 1] === b[at - lo - 1]) lo++
-      while (i + half + hi < a.length && at + half + hi < b.length && a[i + half + hi] === b[at + half + hi]) hi++
-      if (lo + half + hi >= OVERLAP_RUN) return true
-    }
-  }
-  return false
+/** The words of a text (letters, marks and digits), NFC and lowercase: what a copy of its rendered form keeps. */
+function words(t: string): string[] {
+  return t.normalize('NFC').toLowerCase().match(/[\p{L}\p{M}\p{N}]+/gu) ?? []
 }

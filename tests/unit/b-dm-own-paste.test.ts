@@ -190,6 +190,12 @@ describe('ownPaste and the names-only mark', () => {
     // the AI's earlier summary, copied into the person's message, is not their own
     expect(ownPaste(db, 'alice', now, summary)).toBeNull()
     expect(ownPaste(db, 'alice', now, summary.slice(10, 80))).toBeNull()
+    // ...also when the answer was written in Markdown and the person copied what it rendered (review)
+    const md = add(now, 'assistant', 'Launch notes: the **new pricing** starts [in May](/files/view?path=x) for `team` plans and the trial | ends | after thirty days.', null)
+    const q4 = add(md, 'user', 'the new pricing starts in May for team plans and the trial ends after thirty days', 'alice')
+    const later = add(q4, 'assistant', '', null)
+    expect(ownPaste(db, 'alice', later, 'the new pricing starts in May for team plans and the trial ends after thirty days')).toBeNull()
+    expect(ownPaste(db, 'alice', later, 'for team plans')).toBeNull()
     // a whole stretch of words is; a part of a word is not
     expect(ownPaste(db, 'alice', now, 'do not approve the order')).toBe('do not approve the order')
     expect(ownPaste(db, 'alice', now, 'ot approve the order')).toBeNull()
