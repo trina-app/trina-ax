@@ -403,7 +403,7 @@ describe('limits of one result and one turn', () => {
     ctx.files.imageCount = VISION_TURN_IMAGES - 2
     const { out, images } = await read({ file_path: put('budget.mp4') }, { ctx })
     expect(images).toBe(2)
-    expect(out.text).toContain('already reached its image limit')
+    expect(out.text).toContain('as many as one answer can hold')
     expect(ctx.files.imageCount).toBe(VISION_TURN_IMAGES)
   })
   test('no pixels: image viewing off, the API engine, a connection without a chat turn; the transcript still comes', async () => {

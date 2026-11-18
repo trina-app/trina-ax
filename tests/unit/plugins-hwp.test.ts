@@ -140,7 +140,7 @@ describe('HWP availability follows the plugin state', () => {
       t.files.imageCount = VISION_TURN_IMAGES
       const full = await call(t)
       expect(imgs(full)).toEqual([])
-      expect(text(full)).toContain('image limit')
+      expect(text(full)).toContain('as many as one answer can hold')
       expect(text(full)).toContain('read')
       // the switch off: nothing drawn, a note that says how to turn it on and that read gives the text
       app.ctx.db.query("INSERT INTO settings (key, value) VALUES ('aiVision', 'false') ON CONFLICT(key) DO UPDATE SET value = 'false'").run()

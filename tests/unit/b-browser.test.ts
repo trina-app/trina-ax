@@ -8,7 +8,7 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
-import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { VISION_FITTED_IMAGES, VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
@@ -201,16 +201,18 @@ describe('browser tools', () => {
         expect(m.steps.find((s) => s.tool === 'computer')!.images?.length).toBe(1)
       } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
     } finally { stop() }
-    // the per-turn budget (40 images): screenshots past it get the note in their place, once per call. A batch result
-    // holds at most 20 images: the first two batches use the budget up, the third gets the note
+    // the per-turn budget: this turn's requests pass the model proxy, which fits each request's pictures
+    // (proxy/fit-images.ts), so screenshots go on past what one request may hold (VISION_TURN_IMAGES, the cap of a turn
+    // the proxy does not fit) up to the safety cap. A batch result holds at most 20 images: six batches give 120
     const stopMany = serve(desk, (c) => ({ callId: c.callId, ok: true, content: Array.from({ length: 20 }, () => ({ type: 'image', mime: 'image/png', data: PNG })) }))
     try {
       const batch = (say: boolean) => ({ tool: 'browser_batch', args: { actions: [{ name: 'computer', input: { action: 'screenshot' } }] }, inspectImages: true, sayResult: say })
-      const [first, third] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
+      const [first, sixth] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(false), batch(false), batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
       expect(first.images).toHaveLength(20)
-      expect(VISION_TURN_IMAGES).toBe(40)
-      expect(third.images).toEqual([])
-      expect(third.text.match(/image limit/g)).toHaveLength(1)
+      expect(VISION_TURN_IMAGES).toBe(90)
+      expect(VISION_FITTED_IMAGES).toBeGreaterThan(120)
+      expect(sixth.images).toHaveLength(20)
+      expect(sixth.text).not.toContain('as many as one answer can hold')
     } finally { stopMany() }
   })
 

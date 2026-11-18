@@ -379,8 +379,9 @@ export const Attachment = z.object({
   receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
-/** At most this many attachments (uploads and team files together) per message. */
-export const MESSAGE_ATTACHMENTS_MAX = 20
+/** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
+ * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
+export const MESSAGE_ATTACHMENTS_MAX = 100
 
 /** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
  * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
