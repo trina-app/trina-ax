@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -127,6 +127,10 @@ fs.mkdirSync(chatWork(BASE, SW), { recursive: true }); fs.mkdirSync(chatWork(BAS
 fs.writeFileSync(path.join(chatHome(BASE, SO), 'x'), `${CANARY}-other-shared-home`); fs.writeFileSync(path.join(chatLogs(BASE, SO), 'cmd.out'), `${CANARY}-other-shared-logs`)
 fs.writeFileSync(path.join(chatWork(BASE, SO), 'x'), `${CANARY}-other-shared-work`)
 fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat`)
+// SW was alice's private chat before it was shared: its private work folder holds a copy of her own file (review 1)
+fs.writeFileSync(path.join(chatWork(BASE, SW), 'x'), `${ASKER}-private-work`)
+// a work folder of SW for an earlier, smaller audience (alice alone): a new audience never gets it (review 2)
+fs.mkdirSync(sharedWork(BASE, SW, sharedWorkKey([ME])), { recursive: true }); fs.writeFileSync(path.join(sharedWork(BASE, SW, sharedWorkKey([ME])), 'x'), `${ASKER}-alone-work`)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -147,7 +151,11 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
   // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
-  const work = sh_ ? (sh_.within === null ? chatWork(BASE, sh_.chat) : null) : o.work ? WORK : null
+  // (its own work folder for the people who see it now, never the private one: config.ts sharedWork)
+  const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
+  // a shared chat's command: a home and logs of its own (runner.ts prepare)
+  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId }
+  if (sh_) { for (const d of [path.join(runHome(BASE, owner), 'tmp'), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
   const start = sh_ ? sh_.within : work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
@@ -155,7 +163,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // A shared chat: what the person AND everyone who sees the chat may read (access.ts sharedFolderView)
   const view = sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
   const sharedChat = sh_ ? sh_.chat : null
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, sharedChat, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, sharedChat, runId, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -164,12 +172,12 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
-  const exitFile = path.join(sharedChat ? chatLogs(BASE, sharedChat) : personLogs(BASE, who.id), `${runId}.exit`)
+  const exitFile = path.join(runLogs(BASE, owner), `${runId}.exit`)
   const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command, full: isFull(settings) })]
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -190,6 +198,7 @@ const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" 
 const noAsker: Check = (r) => (r.out.includes(ASKER) || r.out.includes('alice todo') ? `something only alice may open came back: ${r.out.slice(Math.max(0, r.out.indexOf(ASKER) - 60), r.out.indexOf(ASKER) + 40)}` : null)
 const SPC = { shared: { chat: SP, within: 'projects/web', audience: [ALICE, DAVE] } }
 const SWC = { shared: { chat: SW, within: null, audience: [ALICE, ERIN] } }
+const SW_WORK = sharedWork(BASE, SW, sharedWorkKey([ALICE.id, ERIN.id]))
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
@@ -266,9 +275,9 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
-  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the chat\'s', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
-    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}\n`), has(`LOGS=${chatLogs(BASE, SP)}\n`), has(`TMP=${chatHome(BASE, SP)}/tmp\n`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
-    after: () => (!fs.existsSync(`${WEB}/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.existsSync(path.join(chatHome(BASE, SP), '.cache-ok')) ? 'the chat home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
+  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
+    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${chatHome(BASE, SP)}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
+    after: () => (!fs.existsSync(`${WEB}/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
   { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
     check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
   { id: 'S3', what: 'shared project chat: no team folder outside the project folder (shared/, skills/, her group, another project she may open)', cmd: `cat ${TEAM}/shared/s.md; cat ${TEAM}/skills/rules.md; cat ${TEAM}/groups/marketing/brief.md; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/connected/nas/open.md; echo TEAM: $(ls -A ${TEAM} 2>/dev/null); echo PROJECTS: $(ls -A ${TEAM}/projects 2>/dev/null); true`,
@@ -305,9 +314,9 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'S9b', what: 'shared project chat: a cwd in the sub-folder only alice may open shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(ok, noAsker), o: { ...SPC, cwd: 'mine' } },
   { id: 'S9c', what: 'shared project chat: a cwd through a link to that sub-folder shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(ok, noAsker), o: { ...SPC, cwd: 'to-mine' } },
   { id: 'S10', what: 'chat shared with people: the work folder writes; folders everyone in the chat may open read; HOME is the chat\'s', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${TEAM}/skills/rules.md && cat ${TEAM}/groups/marketing/brief.md && echo HOME=$HOME && echo WORK=$TRINA_WORK`,
-    check: both(ok, has(chatWork(BASE, SW)), has('shared text'), has('skills text'), has('marketing brief'), has(`HOME=${chatHome(BASE, SW)}\n`), has(`WORK=${chatWork(BASE, SW)}\n`), noAsker), o: SWC,
-    after: () => (!fs.existsSync(path.join(chatWork(BASE, SW), 'w.txt')) ? 'w.txt is not in the work folder' : null) },
-  { id: 'S11', what: 'chat shared with people: alice\'s own folder, a project erin may not open, a folder limited inside the group, another group, .system, other chats, alice\'s home', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -A ${TEAM}/users; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/projects/web/index.html; cat ${TEAM}/projects/web/mine/secret.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/.system/history/old.bin; cat ${chatWork(BASE, 'chat-2')}/x; cat ${chatWork(BASE, SO)}/x; cat ${personHome(BASE, ME)}/.netrc; cat ${personLogs(BASE, ME)}/job.log; ln -s ${TEAM}/users/alice/key.txt l1; cat l1; ln ${TEAM}/users/alice/key.txt l2; cat l2; true`,
+    check: both(ok, has(SW_WORK), has('shared text'), has('skills text'), has('marketing brief'), has(`HOME=${chatHome(BASE, SW)}/attack`), has(`WORK=${SW_WORK}\n`), noAsker), o: SWC,
+    after: () => (!fs.existsSync(path.join(SW_WORK, 'w.txt')) ? 'w.txt is not in the work folder' : fs.existsSync(path.join(chatWork(BASE, SW), 'w.txt')) ? 'w.txt went into the private work folder' : null) },
+  { id: 'S11', what: 'chat shared with people: alice\'s own folder, the chat\'s private work folder and one of an earlier audience, a project erin may not open, a folder limited inside the group, another group, .system, other chats, alice\'s home', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -A ${TEAM}/users; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/projects/web/index.html; cat ${TEAM}/projects/web/mine/secret.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/.system/history/old.bin; cat ${chatWork(BASE, 'chat-2')}/x; cat ${chatWork(BASE, SO)}/x; cat ${chatWork(BASE, SW)}/x; cat ${sharedWork(BASE, SW, sharedWorkKey([ME]))}/x; cat x; ls -A ${devenvPaths(BASE).workShared}/${SW}; cat ${personHome(BASE, ME)}/.netrc; cat ${personLogs(BASE, ME)}/job.log; ln -s ${TEAM}/users/alice/key.txt l1; cat l1; ln ${TEAM}/users/alice/key.txt l2; cat l2; true`,
     check: both(ok, noAsker, (r) => (r.out.includes('hello from p1') || r.out.includes('web index') ? 'a project erin may not open came back' : null)), o: SWC },
   { id: 'S12', what: 'chat shared with people: the shared folders, her group folder and her own folder are read-only', cmd: `echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/shared/new2.md || echo x >> ${TEAM}/groups/marketing/brief.md || echo evil > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{}' > ${TEAM}/shared/repo/package.json || mkdir ${TEAM}/shared/dir2 || echo x > ${TEAM}/users/alice/z2.md`, check: failsQuietly, o: SWC,
     after: () => (fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/shared/new2.md`) || fs.readFileSync(`${TEAM}/groups/marketing/brief.md`, 'utf8') !== 'marketing brief\n' || fs.existsSync(`${TEAM}/shared/dir2`) || fs.existsSync(`${TEAM}/users/alice/z2.md`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8') === '{}\n' ? 'a team folder changed' : gitChanged('shared/repo')) },
