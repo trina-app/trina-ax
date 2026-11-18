@@ -44,7 +44,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { hideDeniedNames } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -324,6 +324,30 @@ export function sharedVisible(ctx: AppContext, space: Space): (rel: string) => b
   }
 }
 
+/** May a shared chat's command start in `cwd` (a real path the runner resolved)? Outside the team folder (its work
+ * folder): yes; in it: only where the run may name the folder (sharedVisible). */
+function sharedCwdShown(ctx: AppContext, space: Space, cwd: string): boolean {
+  let team: string
+  try { team = fs.realpathSync(ctx.files.fx.root) } catch { return false }
+  const rel = path.relative(team, cwd)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return rel !== ''
+  return sharedVisible(ctx, space)(rel.split(path.sep).join('/'))
+}
+
+/** A shared chat's run: the writable folders whose top a command cannot change because they hold a folder not
+ * everyone in the chat may open (srt/mounts.ts hideDeniedNames gives them entry by entry), shallowest first. For the
+ * tool's note; they are folders everyone in the chat may open. None when the run cannot be worked out (it then does not
+ * start either). */
+export function sharedLockedTops(ctx: AppContext, space: Space): string[] {
+  if (!space.shared) return []
+  try {
+    const run = runWrites(ctx, srtConfig(), space)
+    const scope = sharedScopeNow(ctx, space.shared)
+    const view = scope ? personView(ctx, space.userId, run, space.shared, scope) : null
+    return view ? lockedTops(view, hideDeniedNames(view, ctx.files.fx.root)) : []
+  } catch { return [] }
+}
+
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
  * read. */
 export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: FolderView): boolean {
@@ -469,11 +493,14 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
+  // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
+  // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
+  // command checks them first inside the sandbox (entryGuard)
+  const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
+  const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
-    // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
-    // below stays the view's
-    view: space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
+    view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -490,7 +517,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
     throw new Error(`refused settings: ${problems.join('; ')}`)
   }
-  return { settings, work, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
+  return { settings, work, pins, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
@@ -502,10 +529,15 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   try {
-    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    const { settings, work, pins, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    // the pinned entries, in the run's own TMPDIR (a shared chat's run always has one), checked by the command's first line
+    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId)), pins))
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
+    // a shared chat: a cwd in a folder the run does not show (a sub-folder some of its people may not open) is refused
+    // with the same words as one that is not there (QA TC-4945)
+    if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
@@ -513,7 +545,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder }),
-    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
+    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${s.command}` : s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }

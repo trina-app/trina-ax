@@ -4,7 +4,7 @@ import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
-import { loadPrincipal } from '../policy/access'
+import { loadPrincipal, withHiddenFolders } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
@@ -187,8 +187,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         try { ended = extra?.callStarted?.() } catch {}
         try {
           // the batch of edits a chat turn offers: each file goes through callTool below as its own edit call
-          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await editFiles(msg.params))
-          const r = await callTool(msg.params)
+          // a shared project chat: its sub-folders some of its people may not open are not there for the person in this
+          // call, the read card and every tool alike (policy/access.ts withHiddenFolders; fails closed in the turn)
+          let hiddenScope: ReturnType<NonNullable<TurnToolSet['hiddenFolders']>> = null
+          try { hiddenScope = extra?.hiddenFolders?.() ?? null } catch { return reply(failed('The call could not be checked, so nothing was read or changed. Try again.').result) }
+          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await withHiddenFolders(hiddenScope, () => editFiles(msg.params)))
+          const r = await withHiddenFolders(hiddenScope, () => callTool(msg.params))
           const response = reply(r.result)
           if (r.beforeDelivery) Object.defineProperty(response, 'beforeDelivery', { value: r.beforeDelivery })
           return response

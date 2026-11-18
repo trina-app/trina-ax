@@ -465,6 +465,8 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       const no = await exec.confirmRoomChange(name, args)
       return no ? { refusal: no, summary: `${name} -> ${roomShort(no)} (after a room read)` } : null
     },
+    // a shared project chat: its sub-folders some of its people may not open are not there in any call (QA TC-4945)
+    hiddenFolders: () => exec.sharedHiddenScope(),
     beforeFileTool: async (name, args, caller) => {
       if (exec.profileDraft) return { refusal: DRAFT_FILE_REFUSAL, summary: `${name} -> refused: company profile draft (no team files)` }
       if (exec.skillDraft) return { refusal: SKILL_DRAFT_FILE_REFUSAL, summary: `${name} -> refused: team skill draft (no team files)` }
