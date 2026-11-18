@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:22
 - Branch: `fix/read-long-lines`
-- Status: in progress
+- Status: done
 - Where: Team AX core, `server/src/files/` and `shared/src/tools.ts`. Why: the file tools the AI uses live there (see
   docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix of the file tools with one new optional `read` input
@@ -57,4 +57,8 @@ end, a 50 KB JSONL line, grep for a word at character 120,000, caps hold), a rea
 
 ## Result
 
-(at the end)
+Built as planned (decision: docs/decisions/20261118-read-long-lines.md). New module `server/src/files/read-lines.ts`
+(pieces, budget, pretty JSON); `runRg` keeps an over-long record's head and metadata and grep shows a window; the API
+engine's cut says so. Real AI (local-login, a copy of the QA team, fake HN-shaped files of 181 KB and 164 KB on one
+line and a 64 KB JSONL line): it quoted the last comment of both threads and the end of the long post (8 steps: the
+pretty view, then the next offset), and found "heron" by grep at character 181,250 of line 1 without reading the file.
