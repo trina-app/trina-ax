@@ -139,12 +139,15 @@ describe('a shared project chat', () => {
     // bob only reads the project folder while this runs
     const rule = h.ctx.db.query("SELECT r.id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ? AND r.subject_type = 'user' AND r.subject_id = 'bob'").get(P.folderPath) as { id: string; access: string }
     h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = ?").run(rule.id)
+    // a file of the project bob reads (the project's skills folder, read before, is hidden in every run: QA TC-4932)
+    fs.writeFileSync(abs(`${P.folderPath}/brief.md`), 'brief')
     try { await shell('bob', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo ok' }) } finally { h.ctx.db.query('UPDATE folder_rules SET access = ? WHERE id = ?').run(rule.access, rule.id) }
     const r = last()
     expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
     // read-only with a folder bob may not open inside: given entry by entry, that folder not even by its name (TC-4929)
     expect(fsOf(r).allowRead.some((p) => p.startsWith(abs(P.folderPath) + '/'))).toBe(true)
     expect([...readable(r), ...fsOf(r).denyRead].some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
+    expect(readable(r).some((p) => p.startsWith(abs(`${P.folderPath}/skills`)))).toBe(false)
   })
 
   test('each call reads the audience again: alone in the chat, alice\'s next command sees her restricted folder', async () => {

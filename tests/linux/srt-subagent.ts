@@ -8,6 +8,7 @@
 //     group or project skill's script is not offered to run (chat/prompt.ts skillScriptsRun), and its folder is
 //     read-only too;
 //   - a run cannot plant code in a skill folder (team, group or project skills) for another person's run;
+//   - a group or project skill's folder is not in any run: its script is never read, copied or run (QA TC-4932);
 //   - two sub-agents' commands at once: each its own devenv/rt/<run>, neither sees the other's.
 // The engine is not started: each call is the call a sub-agent's MCP request makes (chat/tools.ts gives box_shell the
 // call's turn file state; a sub-agent's has an agent id).
@@ -152,12 +153,12 @@ const own = tool({ chatId: crypto.randomUUID() })
   report('SK1', 'alice\'s own project chat, a sub-agent: a team skill\'s script runs from $TRINA_TEAM/skills/<name>/scripts, writes its output where the command runs, and the skill folder is read-only', why)
 }
 {
-  // a project skill (inside the start folder, which the run writes): its folder is still read-only (access.ts
-  // runSkillFolders). Its script is not offered to run (SK4); nothing in the run stops a command that names the file.
-  const o = textOf(await own.call({ command: 'cat skills/plan-lint/SKILL.md >/dev/null && echo READ-OK; (echo evil >> skills/plan-lint/scripts/run.py && echo WROTE-SKILL; echo x > skills/plan-lint/scripts/new.py && echo WROTE-SKILL; mkdir -p skills/new-skill/scripts && echo WROTE-SKILL; true)' }, MAIN))
-  const why = noLeak(o) ?? all(has('READ-OK'), hasNot('WROTE-SKILL', 'the project\'s skill folder was writable'))(o)
+  // a project skill (inside the start folder, which the run writes): its folder is not in the run at all (QA TC-4932:
+  // every group and project skills folder is hidden), so it is neither read nor written
+  const o = textOf(await own.call({ command: 'cat skills/plan-lint/SKILL.md >/dev/null && echo READ-OK; (echo evil >> skills/plan-lint/scripts/run.py && echo WROTE-SKILL; echo x > skills/plan-lint/scripts/new.py && echo WROTE-SKILL; mkdir -p skills/new-skill/scripts && echo WROTE-SKILL; true); echo RAN-OK' }, MAIN))
+  const why = noLeak(o) ?? all(has('RAN-OK'), hasNot('READ-OK', 'the project\'s skills folder was readable'), hasNot('WROTE-SKILL', 'the project\'s skill folder was writable'))(o)
     ?? (fs.readFileSync(path.join(FALCON, 'skills/plan-lint/scripts/run.py'), 'utf8').includes('evil') || fs.existsSync(path.join(FALCON, 'skills/new-skill')) ? 'the project\'s skills changed on the disk' : null)
-  report('SK2', 'alice\'s own project chat: projects/falcon/skills is read-only though the project folder is writable', why)
+  report('SK2', 'alice\'s own project chat: projects/falcon/skills is not in the run (not read, not written) though the project folder is writable', why)
 }
 {
   // a shared project chat: only the project folder is there, so a team skill's script is not; the project's skills are
@@ -176,8 +177,16 @@ const own = tool({ chatId: crypto.randomUUID() })
   const project = skillBlock({ path: 'projects/falcon/skills/plan-lint/SKILL.md', name: 'plan-lint', project: { id: 'p-falcon', name: 'Falcon' }, ...body } as never, '', 'invoked', { scripts: true })
   const why = (!team.includes('Its bundled scripts run with box_shell from "$TRINA_TEAM/skills/csv-report/"') ? 'the team skill does not say its script runs from its folder' : null)
     ?? ([group, project].some((b) => b.includes('run with box_shell from') || !b.includes('are never run')) ? 'a group or project skill\'s script is offered to run' : null)
-    ?? (!skillScriptsLine(true).includes('Never run the scripts of a [group: …] or [project: …] skill') ? 'the skills list does not say group and project scripts never run' : null)
+    ?? (!skillScriptsLine(true).includes('Never run or copy the scripts of a [group: …] or [project: …] skill') ? 'the skills list does not say group and project scripts never run' : null)
   report('SK4', 'what the AI is told: a team skill\'s script runs from $TRINA_TEAM/skills/<name>/; a group or project skill\'s script is not offered to run', why)
+}
+{
+  // QA TC-4932: a group or project skill's script cannot be run or copied however a command names it (the path built
+  // from variables gets past the tool's text check; the run itself has no such folder)
+  const o = textOf(await tool({ project: null, chatId: crypto.randomUUID() }).call({ command: 'd=groups; s=skills; cp "$TRINA_TEAM/$d/marketing/$s/brief-check/scripts/run.py" ./copied.py && echo COPIED; python3 "$TRINA_TEAM/$d/marketing/$s/brief-check/scripts/run.py"; ls -A "$TRINA_TEAM/$d/marketing/$s" 2>/dev/null | sed "s/^/LISTED: /"; p=projects; cat "$TRINA_TEAM/$p/falcon/$s/plan-lint/scripts/run.py" && echo READ-PROJ; echo RAN-OK' }, CHILD1))
+  const why = noLeak(o) ?? all(has('RAN-OK'), hasNot('COPIED', 'a group skill\'s script was copied'), hasNot('SCRIPT-RAN', 'a group skill\'s script ran'), hasNot('LISTED: ', 'a group skills folder was listed'), hasNot('READ-PROJ', 'a project skill\'s script was read'))(o)
+  const direct = textOf(await tool({ project: null, chatId: crypto.randomUUID() }).call({ command: 'python3 "$TRINA_TEAM/groups/marketing/skills/brief-check/scripts/run.py"' }, MAIN))
+  report('SK5', 'a group or project skill\'s script is not in any run: not copied, run or listed by a built path; a command naming it is refused', why ?? (direct.includes('names a group\'s or project\'s skills folder') ? null : `the named path was not refused: ${direct.slice(0, 200)}`))
 }
 
 // ---- 3. code planted in a skill folder for another person's run ----
@@ -197,9 +206,12 @@ const own = tool({ chatId: crypto.randomUUID() })
   report('PL2', 'erin\'s run that starts in groups/marketing (writable): groups/marketing/skills stays read-only', why2)
   console.log(`     note: the same run wrote the group folder itself: ${o2.includes('GROUP-WRITE-OK') ? 'yes (by the rules)' : 'no'}`)
   // alice's view of the group skill (her chat with no project: her whole read access; a project run that bob sees too
-  // hides groups/marketing, QA TC-095): the script is the one on disk, unchanged
-  const o3 = textOf(await tool({ project: null, chatId: crypto.randomUUID() }).call({ command: 'cat "$TRINA_TEAM/groups/marketing/skills/brief-check/scripts/run.py"; ls -A "$TRINA_TEAM/groups/marketing/skills"' }, CHILD1))
-  report('PL3', 'alice\'s run sees the group skill\'s script unchanged and no skill erin tried to add', noLeak(o3) ?? all(has('SCRIPT-RAN groups/marketing/skills/brief-check'), hasNot('PLANTED', 'planted code is in the script'), hasNot(/evil/, 'a skill erin tried to add is there'))(o3))
+  // hides groups/marketing, QA TC-095): the group's skills folder is not in her run at all (QA TC-4932), and on the
+  // disk the script is unchanged with no skill erin tried to add
+  const o3 = textOf(await tool({ project: null, chatId: crypto.randomUUID() }).call({ command: 'g=groups; cat "$TRINA_TEAM/$g/marketing/skills/brief-check/scripts/run.py"; ls -A "$TRINA_TEAM/$g/marketing/skills" | sed "s/^/LISTED: /"; echo RAN-OK' }, CHILD1))
+  const disk = fs.readFileSync(path.join(TEAM, 'groups/marketing/skills/brief-check/scripts/run.py'), 'utf8')
+  report('PL3', 'alice\'s run does not see the group skill\'s folder; on the disk its script is unchanged and no skill erin tried to add is there', noLeak(o3) ?? all(has('RAN-OK'), hasNot('SCRIPT-RAN', 'the group skill\'s script was readable'), hasNot('LISTED: ', 'the group skills folder was listed'))(o3)
+    ?? (disk.includes('PLANTED') || !disk.includes('SCRIPT-RAN groups/marketing/skills/brief-check') || fs.existsSync(path.join(TEAM, 'groups/marketing/skills/evil')) ? 'the group skill changed on the disk' : null))
 }
 
 // ---- 4. two sub-agents' commands at once ----

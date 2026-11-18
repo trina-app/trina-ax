@@ -1015,8 +1015,10 @@ describe('a command follows the person, not the project', () => {
     expect(s.filesystem.allowRead).toEqual(expect.arrayContaining([t('skills'), t('shared')]))
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/marketing', 'users/alice']) expect(p.startsWith(t(no))).toBe(false)
     expect(s.filesystem.denyRead).toEqual(expect.arrayContaining([devBase, h.team, t('users'), t('.system')]))
-    // the project's skills folder is made as a mount point for the run (read-only there) and goes again after it
-    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public'), t('projects/falcon/skills')])
+    // the project's skills folder is made as a mount point for the run and goes again after it; it is hidden in the
+    // run, as every group and project skills folder is (QA TC-4932), not read-only
+    expect(s.filesystem.denyWrite).toEqual([t('projects/falcon/public')])
+    expect(s.filesystem.denyRead).toContain(t('projects/falcon/skills'))
     expect(fs.existsSync(t('projects/falcon/skills'))).toBe(false)
     expect(fs.existsSync(t('users/alice/skills'))).toBe(false)
     for (const p of [...s.filesystem.allowRead, ...s.filesystem.allowWrite]) for (const no of ['groups/finance', 'projects/atlas', 'users/bob']) expect(p.startsWith(t(no))).toBe(false)
