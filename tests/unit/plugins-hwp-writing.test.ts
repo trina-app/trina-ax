@@ -96,7 +96,7 @@ async function writingOff() {
   expect(pluginsOf(A.ctx).hwpWriting()).toBe(false)
   const s = await shown()
   expect(s.editHwp).toBe(false)
-  expect(s.formats).toEqual(['docx', 'pptx', 'xlsx', 'pdf'])
+  expect(s.formats).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'png'])
   // no Hangul writing is offered, only one sentence that tells the person how to get it
   expect(s.description).not.toMatch(/edit_hwp|\bformat "hwpx"|hwpx \(Hangul\)/i)
   expect(s.description).toContain('an admin can turn on the Hangul plugin (Admin > Plugins')
@@ -126,7 +126,7 @@ async function writingOn() {
   expect(pluginsOf(A.ctx).hwpWriting()).toBe(true)
   const s = await shown()
   expect(s.editHwp).toBe(true)
-  expect(s.formats).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx'])
+  expect(s.formats).toEqual(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png'])
   expect(s.description).toContain('Hangul (.hwpx)')
   expect(s.description).toContain('use edit_hwp')
   expect(s.template).toContain('.hwpx')

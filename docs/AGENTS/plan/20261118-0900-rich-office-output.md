@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 09:00
 - Branch: `feat/rich-office-output`
-- Status: in progress
+- Status: done
 - Where: server/src/tools (make_file) and shared/src/tools.ts (its input). Why: the AI makes Office files there; the
   formatting and the pictures are part of the files it writes.
 - Version impact: minor (new make_file options and one new output format)
