@@ -792,6 +792,7 @@ export const ko = {
   'allowances.card.save_wider': "더 많은 사람이 보는 곳에 저장",
   "allowances.card.post_to_room": "대화에 올리기",
   'allowances.card.shared_read': "공유 대화에서 읽고 공유하기",
+  'allowances.card.shared_save': "공유 대화에서 일부 사람이 열 수 없는 곳에 저장하기",
   'allowances.card.move_files': "볼 수 있는 사람이 바뀌는 파일 이동·복사",
   'allowances.card.skill_files': "스킬 옮기기·복사·이름 바꾸기",
   'allowances.card.skill_save': "팀 스킬·규칙 저장",

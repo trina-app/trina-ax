@@ -773,6 +773,7 @@ export const zh: Record<MessageKey, string> = {
   "allowances.card.save_wider": "保存到更多人能看到的位置",
   "allowances.card.post_to_room": "在聊天中发布",
   "allowances.card.shared_read": "在共享对话中读取和分享",
+  "allowances.card.shared_save": "保存到共享对话中并非所有人都能打开的位置",
   "allowances.card.move_files": "移动或复制文件并改变可查看的人",
   "allowances.card.skill_files": "移动、复制或重命名技能",
   "allowances.card.skill_save": "保存团队技能和规则",

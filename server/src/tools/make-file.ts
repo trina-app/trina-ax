@@ -525,7 +525,7 @@ export class MakeFile {
       if(!['md','markdown','txt'].includes(ext(s.path))) throw new ToolError(safeText(this.ctx.db,c.user.id,'source'))
       snapshots.push(s); text=s.bytes.toString('utf8'); base=s.path.split('/').slice(0,-1)
     }
-    const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
+    const output=makeFileOutputPath(a.output,'pptx')
     c.user=this.ctx.files.principal(c.user.id)
     const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,download:true})
     const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)

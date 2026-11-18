@@ -2,6 +2,8 @@
 // A leaf module: the chat turn (chat/turn.ts, chat/tools.ts) and the tool socket (mcp/socket.ts) read it. (It began as
 // the room AI's list, docs/DECISIONS.md "대화방의 트리나"; that AI was removed, "Room @트리나 code removed".)
 import { FILE_TOOLS } from '@mycel/shared'
+import { hwpOutputPath } from '../files/hwpx-check'
+import { commentDocxOutput, makeFileOutputPath, pdfOutputPath, stampOutputOf } from '../tools/make-file-path'
 
 /**
  * Tools whose use keeps a chat to the team's own words (OWN_CHAT_TEAM_TOOLS below): the file tools and the ones that
@@ -71,7 +73,41 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
 export const WRITE_TARGET_ARGS: Readonly<Record<string, readonly string[]>> = {
   write: ['file_path'], edit: ['file_path'], make_file: ['output'], edit_hwp: ['output'], stamp_pdf: ['output'], edit_pdf: ['output'], merge_pdfs: ['output'], split_pdf: ['output_folder'], resize_images: ['output', 'output_folder'], unzip_file: ['to_folder'], make_zip: ['output'], query_data: ['save_as'], save_url: ['save_as'], save_chat_file: ['save_as'], comment_docx: ['output'],
   move_files: ['to_folder'], copy_files: ['to_folder'], rename_file: ['new_name'],
+
+  // (QA TC-4968: its save_as counted as a read, so a save into the asker's own folder raised the read card)
+  save_connector_file: ['save_as'], save_room_file: ['save_as'], comment_docx: ['output'], skill_files: ['to_folder'], save_promo_video: ['save_as'],
 }
+
+/** The tools that add an extension to the `output` they are given, each by its own rule (make_file's format, ".pdf",
+ * ".docx", Hangul's own; resize_images: every path it may write, the card asks when any of them is there): a shared
+ * chat's card weighs the path the tool will really write (security re-review of #1314:
+ * "users/alice/hb" saved over an existing hb.pdf with no card, and the answer said it was there). */
+export const OUTPUT_PATH_OF: Readonly<Record<string, (output: string, args: Record<string, unknown>) => string | readonly string[]>> = {
+  make_file: (o, a) => (typeof a.format === 'string' ? makeFileOutputPath(o, a.format) : o),
+  edit_pdf: (o) => pdfOutputPath(o),
+  merge_pdfs: (o) => pdfOutputPath(o),
+  stamp_pdf: (o) => stampOutputOf(o) ?? o,
+  edit_hwp: (o, a) => hwpOutputPath(o, typeof a.file_path === 'string' ? a.file_path : ''),
+  comment_docx: (o) => commentDocxOutput(o),
+  // the copy's own format picks its extension (tools/resize-images.ts): the typed path, or its stem with any of them
+  resize_images: (o) => { const stem = o.replace(/\/+$/, '').replace(/\.(jpe?g|png|webp|heic|heif)$/i, ''); return [o, ...['jpg', 'jpeg', 'png', 'webp'].map((e) => `${stem}.${e}`)] },
+}
+
+/** The tools of WRITE_TARGET_ARGS that save what they made or fetched: in a shared chat, a place there already that
+ * some of its people cannot open asks on the save card (docs/decisions/20261118-shared-save-card-wording.md); 'many':
+ * the card says "files" (one call can save several). Every entry of WRITE_TARGET_ARGS is here or in
+ * WRITE_TARGET_NOT_SAVES (tests/unit/b-shared-save-card.test.ts). save_chat_file and make_zip: their own pull requests
+ * add their WRITE_TARGET_ARGS entries. */
+export const SAVE_CARD_TOOLS: Readonly<Record<string, 'one' | 'many'>> = {
+  write: 'one', make_file: 'one', edit_hwp: 'one', stamp_pdf: 'one', edit_pdf: 'one', merge_pdfs: 'one', comment_docx: 'one',
+  save_url: 'one', save_connector_file: 'one', save_room_file: 'one', save_promo_video: 'one', save_chat_file: 'one', make_zip: 'one',
+  split_pdf: 'many', resize_images: 'many', unzip_file: 'many',
+}
+
+/** The tools of WRITE_TARGET_ARGS whose card for a place that is there already does not say "save": an edit gives back
+ * lines of the file it changed, and a move, copy or rename takes files the person has into that place. They keep the
+ * read card. */
+export const WRITE_TARGET_NOT_SAVES: ReadonlySet<string> = new Set(['edit', 'move_files', 'copy_files', 'rename_file', 'skill_files'])
 
 /** Every team path a call names, nested ones too: the top-level PATH_ARGS, and the files inside edit_pdf's operations
  * (insert_pdf.file, stamp_image.image) and merge_pdfs' list ({ path } entries). A shared chat's read card and its

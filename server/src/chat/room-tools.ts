@@ -19,6 +19,7 @@
 //   - writes an audit line (tool_events) that names no room, person, word searched or file: admins read that log and
 //     must not learn who talks to whom
 import { noteRoomLinks } from '../tools/url-gate'
+import { savePathArg } from '../tools/save-target'
 import { isGuestUser } from '../credentials/guest-ai'
 import { shownTimeZone } from '../system/time-zone'
 import { guestPlace } from '../auth/guests'
@@ -416,7 +417,7 @@ function saveTarget(exec: TurnExec, a: SaveArgs): SaveRefusal | SaveFound {
   if ('text' in found) return { text: found.text, summary: 'save_room_file -> not found' }
   const { file, message, room } = found
   if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_room_file -> held' }
-  const wanted = (a.save_as ?? '').trim().replace(/^\/+/, '').normalize('NFC')
+  const wanted = savePathArg(a.save_as ?? '')
   // a folder that is there, named without its "/" ("shared"), is a folder too
   let isFolder = false
   try { isFolder = !wanted.endsWith('/') && !!wanted && !!authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), wanted, 'list').st?.isDirectory() } catch { /* not one this person sees */ }

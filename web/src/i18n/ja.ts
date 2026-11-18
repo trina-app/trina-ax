@@ -774,6 +774,7 @@ export const ja: Record<MessageKey, string> = {
   'allowances.card.save_wider': "より多くの人が見る場所への保存",
   'allowances.card.post_to_room': "トークへの投稿",
   'allowances.card.shared_read': "共有チャットで読んで共有",
+  'allowances.card.shared_save': "共有チャットで全員は開けない場所への保存",
   'allowances.card.move_files': "見られる人が変わるファイルの移動・コピー",
   'allowances.card.skill_files': "スキルの移動・コピー・名前変更",
   'allowances.card.skill_save': "チームのスキル・ルールの保存",
