@@ -728,16 +728,18 @@ gh variable delete RELEASE_MAC_RUNNER --repo trina-app/trina-ax   # unset = host
 web e2e(Playwright, 2,400개쯤, 한 worker로 ~1.7시간)는 dev push마다 feature-map.yml이 돌리지만 필수 검사가 아니어서, 2026-11-17에
 30개가 아무도 모르게 깨져 있었다. 그래서 병합 큐의 항목(`merge_group`)마다 그중 작은 묶음(**guard set**)을 돌린다.
 
-- **어디서**: ci.yml의 `other` job("fast fuzz, web"), web 빌드 바로 뒤. 새 job은 없다. `merge_group`에서만 돌고 PR·push에서는 건너뛴다.
+- **어디서**: ci.yml의 따로 된 job `e2e-guard`("web e2e guard (advisory)"). 자기 checkout, bun install, web 빌드를 하고 guard를 돌린다
+  (native·HWP·pandoc은 필요 없다). `merge_group`에서만 돌고 PR·push에서는 건너뛴다.
 - **무엇을**: `bun run --cwd web e2e:guard` (web/package.json): Chromium, worker 하나(모의 팀 서버가 상태를 함께 쓴다). 휴대폰 글꼴은
   feature-map.yml과 같다(Roboto를 sans-serif·system-ui로, `web/test/e2e/fonts/phone-font.conf`).
-- **참고용(advisory)**: step에 `continue-on-error: true`와 자체 10분 한도가 있어, guard가 빨개도 시간이 넘쳐도 job은 실패하지 않는다. 필수 검사
-  "typecheck, native, unit, fast fuzz, web, relay"의 판정은 전과 같다. 결과는 run summary에 통과/실패와 실패한 `spec:line` 표로 남고, 실패하면
-  `::warning::`과 artifact `web-e2e-guard-results`(trace, 스크린샷, 7일)가 생긴다.
-- **지금 묶음**: `chat-project-ask-access`, `mentions-only-count` (Linux에서 20초쯤, 설치 포함 2분 안쪽). `phone-targets`, `rail.spec`,
-  `session-markers`, `chat-list-folds`는 dev에서 아직 실패해서(fix/web-e2e-drift가 고친다) 빠져 있다. 그 수정이 dev에 들어가면 다시 넣는다
-  (그 넷까지 6개 파일, Linux에서 ~4분).
-- **필수로 올리기**: 큐에서 guard가 연속으로 ~20번 초록이면 `continue-on-error`를 빼서 필수로 만든다(job 이름은 그대로라 ruleset은 안 바꾼다).
+- **참고용(advisory)**: 이 job은 `check`의 needs에 없어서 아무것도 이것을 요구하지 않는다. 빨개도 큐 항목은 기다리지 않고, 필수 검사
+  "typecheck, native, unit, fast fuzz, web, relay"의 판정은 전과 같다. guard step에는 자체 10분 한도가 있다(job 20분). 결과는 run summary에
+  통과/실패와 실패한 `spec:line` 표로 남고, 실패하면 artifact `web-e2e-guard-results`(trace, 스크린샷, 7일)가 생긴다.
+- **지금 묶음**: 6개 파일 `phone-targets`, `rail.spec`, `session-markers`, `chat-list-folds`, `chat-project-ask-access`,
+  `mentions-only-count` (67개 시험, Linux에서 ~3.5분; 설치와 web 빌드까지 job 전체 ~7분). 앞의 넷은 dev에서 실패하는 동안 빠져 있다가 drift 수정(#1224)
+  뒤에 다시 들어왔다(2026-11-17, dev bad5009a3에서 67 통과).
+- **필수로 올리기**: 큐에서 guard가 연속으로 ~20번 초록이면 `e2e-guard`를 `check`의 needs와 그 step의 판정에 넣는다(필수 이름은 `check`
+  그대로라 ruleset은 안 바꾼다).
   그 전에 빨간 guard는 읽기만 하고 기다리지 않는다. 깨진 spec은 고치거나(제품 버그) 시험을 고친다(의도한 변경). 묶음에서 빼는 것은 마지막 수단이다.
 - **손으로**: 전체는 `bun run e2e:web`. Linux와 같은 글꼴로 돌리려면 Docker(`mcr.microsoft.com/playwright:v1.64.1-noble` + Bun 1.3.12 +
   fonts-roboto-unhinted + phone-font.conf)에서 `bun run build:web` 뒤 `cd web && bun run e2e:guard`.
