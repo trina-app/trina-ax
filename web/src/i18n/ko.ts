@@ -2620,6 +2620,7 @@ export const ko = {
   "audit.act.project.adopted": "프로젝트가 없던 폴더를 프로젝트로 만듦",
   'audit.act.project.share_chats': "프로젝트 채팅 공유 설정 변경",
   'audit.act.chat.shared_read': "공유 채팅 읽기 확인",
+  'audit.act.chat.shared_connection': "공유 채팅 연결 서비스 확인",
   'audit.act.chat.delete': "공유 채팅 삭제",
   'audit.act.chat.share': "채팅을 공유함",
   "audit.act.chat.side_chat_unshared": "대화 옆 채팅을 프로젝트에서 뺌",

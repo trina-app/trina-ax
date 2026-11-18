@@ -2622,6 +2622,7 @@ export const en: Record<MessageKey, string> = {
   "audit.act.project.adopted": "A folder without a project became a project",
   'audit.act.project.share_chats': "Project chat sharing changed",
   'audit.act.chat.shared_read': "Shared chat read check",
+  'audit.act.chat.shared_connection': "Shared chat connection check",
   'audit.act.chat.delete': "Shared chat deleted",
   'audit.act.chat.share': "Shared a chat",
   "audit.act.chat.side_chat_unshared": "A chat beside a conversation taken out of a project",
