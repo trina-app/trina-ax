@@ -9,7 +9,7 @@
 // - Every file goes through make_file's save path (make-file.ts placeProduced: the person's write access checked again
 //   for each file, never under skills/, the per-turn file count, a file event, the text index, the published change);
 //   before anything is placed, the wider-audience check for the zip's bytes (confirmSources) at the target folder and
-//   at every folder that already existed there (it may have its own people). New folders are made under the same
+//   at every folder a file goes into (a rule or share above it may let more people read it). New folders are made under the same
 //   checks as the move tools' (TeamFiles.ensureFolder) and recorded once something went in.
 // - One entry at a time: inflated on the zlib thread pool with a hard output cap, its size and CRC checked, written to a
 //   work file, placed. A file that fails (damaged, refused) is named in the answer with the files that were saved.
@@ -46,6 +46,8 @@ export const UNZIP_FILE_DESCRIPTION = 'Unzip a .zip file in the team folder: its
   '(where they want the files). Password-protected, damaged or very large zips, and zips with unsafe paths, are refused and nothing is saved; links ' +
   'and system junk (__MACOSX, .DS_Store) are left out. Other archive types (7z, rar, alz, egg, tar) cannot be opened here.'
 
+/** unzipped bytes per turn (keyed by the turn's file state) */
+const unzippedThisTurn = new WeakMap<object, number>()
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 const clean = (p: string) => p.normalize('NFC').replace(/\\/g, '/').split('/').filter((s) => s !== '' && s !== '.').join('/')
 /** files listed in the answer before "and N more" */
@@ -103,6 +105,11 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const room = ctx.engineConfig.maxFilesWrittenPerTurn - c.files.filesWritten.size
   if (plan.files.length > room) throw new ToolError(`'${src.rel}' has ${plan.files.length} files, more than the ${room} files that can still be saved in this answer, so nothing was saved. Tell the user in plain words; an admin can unzip it on a computer and upload the folder`)
   assertStorageRoomForAI(plan.total)
+  // the unzipped bytes of one answer together (they do not count against the per-turn write bytes, as save_url's do not,
+  // but unzipping the same zip again and again must not write without bound)
+  const before = unzippedThisTurn.get(c.files) ?? 0
+  if (before + plan.total > UNZIP_TOTAL_MAX) throw new ToolError(`unzipping '${src.rel}' would save more than ${UNZIP_TOTAL_MAX / 1048576} MB of unzipped files in this answer, so nothing was saved. Tell the user; they can ask again in a new message`)
+  unzippedThisTurn.set(c.files, before + plan.total)
 
   // where: a new folder next to the zip (named after it, or after the one folder everything sits in), or to_folder
   let folder: string
@@ -134,15 +141,13 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   // write access at the target now (a read-only place stops the call before any work); placeProduced checks each file again
   authorize(fx, rules, c.user, join([plan.files[0]?.segs.at(-1) ?? 'x']), 'write', { mustExist: false, createDirs: true })
 
-  // the wider-audience check for the zip's bytes: at the target, and at every folder of the zip that is already there
-  // (it may have its own people), before anything is placed so a "no" leaves nothing behind
+  // the wider-audience check for the zip's bytes: at the target and at every folder a file goes into, before anything
+  // is placed so a "no" leaves nothing behind
   const dirs = new Map<string, string[]>()
   for (const f of plan.files) dirs.set(f.segs.slice(0, -1).join('/'), f.segs.slice(0, -1))
-  const checks = new Set<string>([''])
-  for (const [k, segs] of dirs) {
-    if (!k) continue
-    try { if (fs.statSync(path.join(fx.root, ...folder.split('/').filter(Boolean), ...segs)).isDirectory()) checks.add(k) } catch { /* new: the target's people */ }
-  }
+  // every folder a file goes into, existing or not: who may read a place follows its path (a rule or a share on a
+  // folder above it), not only folders already on disk (independent review)
+  const checks = new Set<string>(['', ...dirs.keys()])
   for (const k of checks) {
     const rel = join([...(k ? k.split('/') : []), plan.files.find((f) => f.segs.slice(0, -1).join('/') === k)?.segs.at(-1) ?? 'x'])
     await confirmSources(ctx, files, c, rel, rel.split('/'), [src.rel])
@@ -158,7 +163,9 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
   const ensure = (segs: string[]): string => {
     const rel = join(segs)
     try {
+      if (inSkills(rel)) return '!it would be a skills folder'
       const r = svc.ensureFolder(c.user.id, rel)
+      if (inSkills(r.path)) return '!it would be a skills folder'
       for (const m of r.created) if (!madeKeys.has(m)) { madeKeys.add(m); made.push(m) }
       return r.path
     } catch (e) { return `!${why(e)}` }

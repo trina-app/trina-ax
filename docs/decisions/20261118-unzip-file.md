@@ -23,14 +23,15 @@ Plan: docs/AGENTS/plan/20261118-0700-unzip-file.md.
   encryption, a damaged directory, more than 5,000 entries, more than 200 MB unzipped (the zip-guard limit), a zip file
   over 200 MB, an entry that expands more than 100 times above 10 MB, more files than the turn may still write
   (`maxFilesWrittenPerTurn`, default 200; checked before anything is written). The unzipped bytes do not count against
-  the per-turn byte limit (`maxWriteBytesPerTurn`, 50 MB): the person asked for this zip, as for save_url downloads.
+  the per-turn byte limit (`maxWriteBytesPerTurn`, 50 MB): the person asked for this zip, as for save_url downloads;
+  instead all unzip calls of one answer together may save at most 200 MB.
 - **Skipped and named:** links and device files, names the team folder does not take, a name that appears twice or is
   both a file and a folder, more than 30 folders deep. Left out silently: `__MACOSX/`, `._*`, `.DS_Store`, `Thumbs.db`,
   `desktop.ini`.
 - **Each entry:** inflated on the zlib thread pool with a hard output cap, its real size and CRC compared with the
   directory; a file that fails is named with the files that were saved ("NOT saved: … damaged").
-- **Who sees it:** the wider-audience check for the zip's bytes (confirmSources) at the target and at every folder of
-  the zip that already exists there, before anything is placed; outside a chat a wider target is refused. Never into a
+- **Who sees it:** the wider-audience check for the zip's bytes (confirmSources) at the target and at every folder a file
+  goes into (existing or not: a rule or share above it decides who reads it), before anything is placed; outside a chat a wider target is refused. Never into a
   skills folder. New folders are recorded once something went in, else removed again.
 - **The answer:** the folder linked by its name, how many files with a short list (a summary for many), and plainly
   what was not saved and why. `list_only` lists without saving.

@@ -161,7 +161,7 @@ export async function inflateEntry(bytes: Uint8Array, e: ZipEntry): Promise<Buff
   let out: Buffer
   if (e.method === 0) {
     if (e.csize !== e.usize) throw new ZipProblem('damaged', 'stored entry with two sizes')
-    out = Buffer.from(data)
+    out = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
   } else {
     if (e.usize > ZIP_RATIO_FROM && e.usize > e.csize * ZIP_RATIO_MAX) throw new ZipProblem('complex', `a part expands more than ${ZIP_RATIO_MAX} times`)
     try { out = await inflateRaw(data, { maxOutputLength: Math.max(e.usize, 1) }) } catch (err) {

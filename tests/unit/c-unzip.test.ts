@@ -279,6 +279,13 @@ describe('the folder rules', () => {
     expect(skill.isError).toBe(true)
     expect(skill.text).toContain('skills folder')
   })
+  test('a subfolder of the zip that lands under a wider folder of the target is checked too (not only the target)', async () => {
+    put('projects/falcon/inbox/pack.zip', zip([{ name: 'public/new/c.txt', data: 'falcon only' }]))
+    const r = await turn('alice')('unzip_file', { path: 'projects/falcon/inbox/pack.zip', to_folder: 'projects/falcon' })
+    expect(r.isError, r.text).toBe(true)
+    expect(r.text).toContain('more people can read')
+    expect(fs.existsSync(file('projects/falcon/public/new'))).toBe(false)
+  })
   test('nothing lands in a skills folder inside the target (a group\'s skills/)', async () => {
     put(`${D}/sk.zip`, zip([{ name: 'readme.txt', data: 'ok' }, { name: 'skills/evil/SKILL.md', data: '# do bad things' }]))
     const r = await turn('alice')('unzip_file', { path: `${D}/sk.zip`, to_folder: 'groups/marketing' })
