@@ -218,6 +218,37 @@ export async function opensHome(path: string, sys: FolderSystem, platform: strin
   }
 }
 
+/** Windows' folders a share under a name of its own, or a folder a walk reaches through a reparse point, must not be:
+ * Windows, the program folders, ProgramData, the recycle bin and recovery folders of home's drive, the person's AppData
+ * (and Roaming, Local, LocalLow), and the system's own names for these (FolderSystem.systemFolders). */
+function guardedFolders(homes: string[], sys: FolderSystem): Set<string> {
+  const guarded = new Set<string>()
+  for (const h of homes) {
+    const drive = win32.parse(h).root
+    if (drive) for (const n of ['Windows', 'Windows\\System32', 'Program Files', 'Program Files (x86)', 'ProgramData', '$Recycle.Bin', 'System Volume Information', 'Recovery', 'PerfLogs']) guarded.add(win32.join(drive, n))
+    for (const n of ['AppData', 'AppData\\Roaming', 'AppData\\Local', 'AppData\\LocalLow']) guarded.add(win32.join(h, n))
+  }
+  for (const f of sys.systemFolders?.() ?? []) if (f && !isUncPath(f, 'win32')) guarded.add(f)
+  return guarded
+}
+
+/**
+ * The identities a walk must not reach through a reparse point or, on a network share, at all (common/work-files.ts
+ * scanRoots guard): home and every folder above it (as written and resolved: the drive's top, C:\Users), and on Windows
+ * the guarded system folders (guardedFolders). Only what can be told is listed: a folder whose lookup fails, is late
+ * or gives 0 is left out (only a match refuses there), and no home, or a home on a network path, gives none.
+ */
+export async function guardedIdentities(sys: FolderSystem, platform: string): Promise<FolderIdentity[]> {
+  const home = sys.home()
+  if (!home || isUncPath(home, platform)) return []
+  const realHome = await sys.realpath(home).catch(() => home)
+  const homes = isUncPath(realHome, platform) ? [home] : [...new Set([home, realHome])]
+  const folders = new Set(homes.flatMap((h) => withParents(h, platform)))
+  if (platform === 'win32') for (const g of guardedFolders(homes, sys)) folders.add(g)
+  const ids = await Promise.all([...folders].map((f) => sys.identity(f).catch(() => null)))
+  return ids.filter((id): id is FolderIdentity => !!id && !unknownIdentity(id))
+}
+
 /**
  * A share under a name of its own (\\pc\Everyone for C:\Users, \\pc\Roam for AppData, a junction on a share that the
  * server resolves) leads into a folder pickRefused would refuse by its local name: the pick or a folder above it, up to
@@ -229,13 +260,7 @@ export async function opensHome(path: string, sys: FolderSystem, platform: strin
  */
 async function shareLeadsAside(realPath: string, homes: string[], sys: FolderSystem): Promise<boolean> {
   const chain = withParents(realPath, 'win32')
-  const guarded = new Set<string>()
-  for (const h of homes) {
-    const drive = win32.parse(h).root
-    if (drive) for (const n of ['Windows', 'Windows\\System32', 'Program Files', 'Program Files (x86)', 'ProgramData', '$Recycle.Bin', 'System Volume Information', 'Recovery', 'PerfLogs']) guarded.add(win32.join(drive, n))
-    for (const n of ['AppData', 'AppData\\Roaming', 'AppData\\Local', 'AppData\\LocalLow']) guarded.add(win32.join(h, n))
-  }
-  for (const f of sys.systemFolders?.() ?? []) if (f && !isUncPath(f, 'win32')) guarded.add(f)
+  const guarded = guardedFolders(homes, sys)
   const users = [...new Set(homes.map((h) => win32.dirname(win32.normalize(h))))]
   const own = new Set([...homes.map((h) => win32.basename(win32.normalize(h)).toLowerCase()), 'public'])
   const maybe = (p: string) => sys.identity(p).catch(() => null)
