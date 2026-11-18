@@ -21,9 +21,9 @@ import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
-import { ext, extractText, isOffice } from './extract'
+import { ext, extractText, isOffice, utf16Kind, utf16Text } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
-import { numberedLines, prettyAllowed, prettyJsonView } from './read-lines'
+import { memoLines, numberedLines, prettyAllowed, prettyJsonView, ReadViews } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -70,6 +70,8 @@ void ENGINE_BUILTIN_ALLOWED
  * The AI can write a new UTF-8 copy under another name. Office and binary files have their own checks.
  */
 function refuseLegacyText(rel: string, cur: Uint8Array) {
+  // UTF-16 text reads as text (files/extract.ts utf16Text) but is written back as UTF-8: refused like a legacy encoding
+  if (utf16Text(cur) !== null) throw new ToolError(`'${rel}' is UTF-16 text. The AI cannot change it, because the change would be saved in another encoding (UTF-8) that the programs using this file may not read. Write a new UTF-8 copy under another name instead.`, 'legacy_encoding')
   if (cur.subarray(0, 8000).includes(0) || isUtf8(cur)) return
   throw new ToolError(`'${rel}' is in a legacy encoding (${isLegacyKorean(cur) ? 'Korean CP949 / EUC-KR' : 'not UTF-8'}). ` +
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
@@ -293,6 +295,8 @@ export class FileService {
   shared: SharedReads | null = null
   /** a file's kept versions (team-files/service.ts, set by component C); null: none */
   versions: VersionReads | null = null
+  /** text of files the AI reads in pieces, by content hash (files/read-lines.ts) */
+  readonly readViews = new ReadViews()
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -480,7 +484,17 @@ export class FileService {
       // the very file the check saw (its lstat), as every read of the team folder (store.ts openToRead)
       try { const c = authorize(this.fx, rules, ctx.user, f, 'read'); return firstLine(readHead(c.abs, CSV_HEADER_BYTES, c.st)) } catch { return null }
     }) : res.text
-    return { text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}` }
+    const summary = `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}`
+    // one file that ripgrep skipped as binary because it is UTF-16 without a byte-order mark: say so, read shows it
+    // (QA TC-4950; before, "No matches" and the AI took the text for missing)
+    if (text === 'No matches' && isFile && !vp) {
+      let kind: ReturnType<typeof utf16Kind> = null
+      try { const c = authorize(this.fx, rules, ctx.user, r.rel, 'read'); kind = utf16Kind(readHead(c.abs, 8000, c.st)) } catch {}
+      if (kind === 'le' || kind === 'be') {
+        return { text: `No matches: '${r.rel}' is UTF-16 text without a byte-order mark, which grep cannot search. Read it with read (it shows the text; offset and limit go through it).`, summary: summary + ' (utf-16, not searched)' }
+      }
+    }
+    return { text, summary }
   }
 
   // ---------------- read ----------------
@@ -625,15 +639,18 @@ export class FileService {
     const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
     // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
     if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal)
     const hash = sha256(bytes)
+    // the text and its views of these very bytes, kept from an earlier piece of the same file (QA TC-4950)
+    const { text, memo, done } = await this.readViews.get(r.rel, hash, () => extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine }, ctx.signal))
     ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
     // a .json file that is one long line reads as pretty-printed JSON (pretty: false for the raw text)
-    const pretty = prettyJsonView(r.rel, text, a)
+    const pretty = prettyJsonView(r.rel, text, a, memo)
     if (pretty?.view.pretty) ctx.files.prettyReads.add(r.rel); else ctx.files.prettyReads.delete(r.rel)
-    return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, text, a, {}, isOffice(r.rel))
+    try {
+      return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, memoLines(text, memo), a, {}, isOffice(r.rel))
+    } finally { done() }
   }
 
   /**
@@ -1588,8 +1605,8 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
     const cur = readRegular(r.abs, undefined, r.st).bytes
-    if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     refuseLegacyText(r.rel, cur)
+    if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
     const before = ctx.files.readHashes.get(r.rel)
     if (!before) throw new ToolError(`read '${r.rel}' first (with read) before editing it`, 'not_read')
     const text = cur.toString('utf8')

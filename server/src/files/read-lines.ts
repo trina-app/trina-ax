@@ -53,11 +53,18 @@ function cost(s: string, from: number, to: number) { let t = 0; for (let i = fro
 
 const num = (n: number) => n.toLocaleString('en-US')
 
+/** The lines of `text` (\n or \r\n), without the empty one after a last line break. Never changed by the readers
+ * (ReadViews keeps them for the next read). */
+export function splitLines(text: string): string[] {
+  const lines = text.includes('\r') ? text.split(/\r?\n/) : text.split('\n')
+  if (lines.length && lines[lines.length - 1] === '') lines.pop()
+  return lines
+}
+
 /** Text as numbered lines (cat -n), from `offset` (1-based line), `limit` lines (default 2000), from `char_offset` in
  * the first line. A line that does not fit what is left of one call comes back in pieces: "[characters a–b of n]". */
-export function numberedLines(rel: string, text: string, a: ReadLinesArgs, view: ReadLinesView = {}, converted = false): ReadLinesOut {
-  const lines = text.split(/\r?\n/)
-  if (lines.length && lines[lines.length - 1] === '') lines.pop()
+export function numberedLines(rel: string, text: string | readonly string[], a: ReadLinesArgs, view: ReadLinesView = {}, converted = false): ReadLinesOut {
+  const lines = typeof text === 'string' ? splitLines(text) : text
   const off = a.offset ?? 1, lim = a.limit ?? 2000
   const again = view.again ?? ''
   if (!lines.length) return { text: '(empty file)', summary: `read ${rel} -> empty`, shown: 0 }
@@ -107,18 +114,20 @@ const isJson = (rel: string) => /\.json$/i.test(rel)
 const isJsonl = (rel: string) => /\.(jsonl|ndjson)$/i.test(rel)
 export const prettyAllowed = (rel: string) => isJson(rel) || isJsonl(rel)
 
-/** `text` without the white space between JSON tokens (the text inside strings kept exactly) */
-function minified(text: string): string {
-  let out = ''
-  let from = 0
+/** Is `text` the same as `s` but for white space between JSON tokens (the text inside strings compared exactly)? One
+ * pass, no copy of the text (QA TC-4950: building the copy took a fifth of a pretty view of 18 MB). */
+function sameButSpace(text: string, s: string): boolean {
+  let j = 0
   let inStr = false
   for (let i = 0; i < text.length; i++) {
     const c = text.charCodeAt(i)
-    if (inStr) { if (c === 92) i++; else if (c === 34) inStr = false; continue }
-    if (c === 34) inStr = true
-    else if (c === 32 || c === 9 || c === 10 || c === 13) { out += text.slice(from, i); from = i + 1 }
+    if (!inStr && (c === 32 || c === 9 || c === 10 || c === 13)) continue
+    if (c !== s.charCodeAt(j++)) return false
+    if (inStr) {
+      if (c === 92) { i++; if (text.charCodeAt(i) !== s.charCodeAt(j++)) return false } else if (c === 34) inStr = false
+    } else if (c === 34) inStr = true
   }
-  return out + text.slice(from)
+  return j === s.length
 }
 /** The value of a JSON text, re-serialised exactly as written, or null: a text whose re-serialisation would differ in
  * anything but white space (a number over 15 digits or written as 1.0 or 1e3, an escape such as \u00e9 or \/, a
@@ -127,41 +136,150 @@ export function exactJson(text: string): unknown | undefined {
   const t = text.replace(/^\uFEFF/, '')
   let v: unknown
   try { v = JSON.parse(t) } catch { return undefined }
-  return minified(t) === JSON.stringify(v) ? v : undefined
+  return sameButSpace(t, JSON.stringify(v)) ? v : undefined
 }
 const REFORMATTED = 'This is a reformatted view: values are as written, only spaces and line breaks are added. To edit the file, read it with pretty=false and copy old_string from the raw text.'
+
+/** a view of a text that reads as other lines than the file's (pretty JSON) */
+export interface Pretty { lines: readonly string[]; view: ReadLinesView }
+/** What one text gives a read, worked out once: ReadViews keeps it for the next reads of the same bytes (QA TC-4950).
+ * Every field is filled when first needed and never changed after. */
+export interface TextMemo {
+  /** the text's lines */
+  raw?: readonly string[]
+  /** has the text a line over PRETTY_JSON_LINE? */
+  long?: boolean
+  /** the .json view: null when the JSON does not re-serialise exactly (shown raw) */
+  json?: Pretty | null
+  /** the .jsonl view */
+  jsonl?: Pretty
+}
+export const memoLines = (text: string, m: TextMemo) => (m.raw ??= splitLines(text))
 
 /**
  * The pretty-printed view of a .json file (or of each record of a .jsonl file), when it is asked for (`pretty: true`)
  * or, for .json, when no offset is given and the file is a long line (`pretty` not false). Only JSON that re-serialises
- * exactly as written is reformatted (exactJson). Null: the raw text.
+ * exactly as written is reformatted (exactJson). Null: the raw text. `memo` keeps what is worked out for the next reads
+ * of the same text.
  */
-export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { pretty?: boolean }): { text: string; view: ReadLinesView } | null {
+export function prettyJsonView(rel: string, text: string, a: ReadLinesArgs & { pretty?: boolean }, memo: TextMemo = {}): { text: string | readonly string[]; view: ReadLinesView } | null {
   if (a.pretty === false || !prettyAllowed(rel) || text.length > PRETTY_JSON_MAX) return null
-  const raw = text.split(/\r?\n/)
-  if (raw.length && raw[raw.length - 1] === '') raw.pop()
   if (isJson(rel)) {
-    const auto = a.pretty === undefined && a.offset === undefined && a.char_offset === undefined && raw.some((l) => l.length > PRETTY_JSON_LINE)
+    const auto = a.pretty === undefined && a.offset === undefined && a.char_offset === undefined && (memo.long ??= hasLongLine(text))
     if (!a.pretty && !auto) return null
-    const v = exactJson(text)
-    if (v === undefined) {
+    if (memo.json === undefined) memo.json = jsonPretty(rel, text)
+    if (memo.json === null) {
       if (!a.pretty) return null
-      return { text, view: { head: `(${rel} is shown as raw text: it is not valid JSON, or reformatting it would change how some values are written (long numbers, escapes, repeated keys). Long lines come back in pieces.)` } }
+      return { text: memoLines(text, memo), view: { head: `(${rel} is shown as raw text: it is not valid JSON, or reformatting it would change how some values are written (long numbers, escapes, repeated keys). Long lines come back in pieces.)` } }
     }
-    const pretty = JSON.stringify(v, null, 2)
-    const n = pretty.split('\n').length
-    const head = `(${rel}: ${num(text.length)} characters of JSON on ${raw.length === 1 ? 'one line' : `${raw.length} lines`}, shown pretty-printed as ${num(n)} lines. ${REFORMATTED} ` +
-      `Line numbers below are of this view: to go on, read with pretty=true and offset. In the raw text (pretty=false) grep's line numbers and character positions apply.)`
-    return { text: pretty, view: { head, again: ' pretty=true', pretty: true } }
+    return { text: memo.json.lines, view: memo.json.view }
   }
   if (!a.pretty) return null
-  const out: string[] = []
-  raw.forEach((l, i) => {
-    if (!l.trim()) { out.push(`// line ${i + 1} of the file`); return }
-    const v = exactJson(l)
-    if (v === undefined) { out.push(`// line ${i + 1} of the file (raw: reformatting it would change it)`, l); return }
-    out.push(`// line ${i + 1} of the file`, JSON.stringify(v, null, 2))
-  })
-  const head = `(${rel}: ${num(raw.length)} JSON lines, each shown pretty-printed under "// line N of the file". ${REFORMATTED} Line numbers below are of this view: to go on, read with pretty=true and offset.)`
-  return { text: out.join('\n'), view: { head, again: ' pretty=true', pretty: true } }
+  if (!memo.jsonl) {
+    const raw = memoLines(text, memo)
+    const out: string[] = []
+    raw.forEach((l, i) => {
+      if (!l.trim()) { out.push(`// line ${i + 1} of the file`); return }
+      const v = exactJson(l)
+      if (v === undefined) { out.push(`// line ${i + 1} of the file (raw: reformatting it would change it)`, l); return }
+      out.push(`// line ${i + 1} of the file`, ...JSON.stringify(v, null, 2).split('\n'))
+    })
+    const head = `(${rel}: ${num(raw.length)} JSON lines, each shown pretty-printed under "// line N of the file". ${REFORMATTED} Line numbers below are of this view: to go on, read with pretty=true and offset.)`
+    memo.jsonl = { lines: out, view: { head, again: ' pretty=true', pretty: true } }
+  }
+  return { text: memo.jsonl.lines, view: memo.jsonl.view }
+}
+
+/** has `text` a line over PRETTY_JSON_LINE? (no split) */
+function hasLongLine(text: string): boolean {
+  let from = 0
+  for (;;) {
+    const nl = text.indexOf('\n', from)
+    const end = nl < 0 ? text.length : nl
+    if (end - from - (text.charCodeAt(end - 1) === 13 ? 1 : 0) > PRETTY_JSON_LINE) return true
+    if (nl < 0) return false
+    from = nl + 1
+  }
+}
+
+/** lines of a text, counted as splitLines counts them */
+function lineCount(text: string): number {
+  let n = 0
+  for (let i = text.indexOf('\n'); i >= 0; i = text.indexOf('\n', i + 1)) n++
+  return text.length && !text.endsWith('\n') ? n + 1 : n
+}
+
+/** the pretty view of a .json text, or null when it does not re-serialise exactly */
+function jsonPretty(rel: string, text: string): Pretty | null {
+  const v = exactJson(text)
+  if (v === undefined) return null
+  // JSON.stringify writes a line break in a string as \n, so the view's lines are its \n
+  const lines = JSON.stringify(v, null, 2).split('\n')
+  const rawN = lineCount(text)
+  const head = `(${rel}: ${num(text.length)} characters of JSON on ${rawN === 1 ? 'one line' : `${num(rawN)} lines`}, shown pretty-printed as ${num(lines.length)} lines. ${REFORMATTED} ` +
+    `Line numbers below are of this view: to go on, read with pretty=true and offset. In the raw text (pretty=false) grep's line numbers and character positions apply.)`
+  return { lines, view: { head, again: ' pretty=true', pretty: true } }
+}
+
+/** the most UTF-16 units of text (and of its views) ReadViews keeps in all */
+export const READ_VIEWS_UNITS = 96 * 1024 * 1024
+/** a kept text not read again for this long is let go */
+export const READ_VIEWS_TTL_MS = 10 * 60_000
+
+interface ViewEntry { text: string; memo: TextMemo; at: number; units: number }
+/** units a memo holds (each view about its text's size) */
+function units(e: ViewEntry): number {
+  const sum = (l: readonly string[] | undefined) => { let n = 0; if (l) for (const x of l) n += x.length + 1; return n }
+  return e.text.length + sum(e.memo.raw) + sum(e.memo.json?.lines) + sum(e.memo.jsonl?.lines)
+}
+
+/**
+ * The text of files the AI reads in pieces and its views, kept by the file's path and content hash so the next piece
+ * does not decode, parse and reformat the whole file again (QA TC-4950: 0.77 s a piece on an 18 MB one-line JSON). Only
+ * a text over one read's size is kept (a smaller one is read in one call). A hit is the very text these bytes give:
+ * the caller has read the bytes (after every access check) and hashed them, so nothing reaches a person who could not
+ * read the file. Bounded: READ_VIEWS_UNITS in all, least recently read let go first, READ_VIEWS_TTL_MS idle.
+ */
+export class ReadViews {
+  private readonly m = new Map<string, ViewEntry>()
+  private sweep: ReturnType<typeof setTimeout> | null = null
+  constructor(private readonly budget = READ_VIEWS_UNITS, private readonly ttlMs = READ_VIEWS_TTL_MS, private readonly now = () => Date.now()) {}
+
+  /** the text of `rel` with content hash `hash` (made by `make` when not kept) and its memo; call `done` after the read,
+   * so the views it worked out count against the budget */
+  async get(rel: string, hash: string, make: () => Promise<string>): Promise<{ text: string; memo: TextMemo; done: () => void }> {
+    this.expire()
+    const key = `${hash}\0${rel}`
+    const hit = this.m.get(key)
+    if (hit) {
+      this.m.delete(key); this.m.set(key, hit)
+      hit.at = this.now()
+      return { text: hit.text, memo: hit.memo, done: () => this.settle(key, hit) }
+    }
+    const text = await make()
+    const e: ViewEntry = { text, memo: {}, at: this.now(), units: 0 }
+    if (text.length <= READ_TEXT_CHARS) return { text, memo: e.memo, done: () => {} }
+    return { text, memo: e.memo, done: () => this.settle(key, e) }
+  }
+
+  /** how many texts are kept (tests) */
+  get size() { return this.m.size }
+  clear() { this.m.clear(); if (this.sweep) clearTimeout(this.sweep); this.sweep = null }
+
+  private settle(key: string, e: ViewEntry) {
+    e.units = units(e)
+    if (e.units > this.budget) { this.m.delete(key); return }
+    this.m.delete(key); this.m.set(key, e)
+    let total = 0
+    for (const x of this.m.values()) total += x.units
+    for (const [k, x] of this.m) { if (total <= this.budget) break; if (k === key) continue; this.m.delete(k); total -= x.units }
+    this.later()
+  }
+  /** let idle texts go even when nothing is read any more */
+  private later() {
+    if (this.sweep || !this.m.size) return
+    this.sweep = setTimeout(() => { this.sweep = null; this.expire(); this.later() }, this.ttlMs)
+    this.sweep.unref?.()
+  }
+  private expire() { const t = this.now(); for (const [k, x] of this.m) if (t - x.at >= this.ttlMs) this.m.delete(k) }
 }

@@ -263,6 +263,9 @@ export async function extractText(name: string, bytes: Uint8Array, tools: Tools,
     }
     default: {
       if (tools.ocr && !tools.textLayerOnly && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
+      // UTF-16 text (Windows tools write it): its zero bytes are not binary (QA TC-4950)
+      const wide = utf16Text(bytes)
+      if (wide !== null) return wide
       const head = bytes.subarray(0, 8000)
       if (head.includes(0)) throw new ToolError('this is a binary file; it cannot be shown as text')
       return decodeText(bytes)
@@ -357,6 +360,45 @@ async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSi
     if (stoppedFails && err instanceof ConverterStopped) throw err
     return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
   }
+}
+
+/** C0 control characters that text never has (tab, line breaks and form feed are text) */
+const CONTROL = /[\u0000-\u0008\u000E-\u001F]/
+
+/**
+ * Is this the head of a UTF-16 text file? 'bom' with a byte-order mark (ripgrep reads such a file as text, and so does
+ * read). 'le' / 'be' without one, when it is plainly UTF-16: zero bytes on one side of the pairs only (the ASCII
+ * characters) and no control characters; ripgrep takes such a file for binary and skips it. Null otherwise.
+ */
+export function utf16Kind(head: Uint8Array): 'bom-le' | 'bom-be' | 'le' | 'be' | null {
+  if (head.length >= 2 && head[0] === 0xff && head[1] === 0xfe) return 'bom-le'
+  if (head.length >= 2 && head[0] === 0xfe && head[1] === 0xff) return 'bom-be'
+  const n = head.length & ~1
+  if (n < 4) return null
+  let even = 0, odd = 0
+  for (let i = 0; i < n; i += 2) { if (head[i] === 0) even++; if (head[i + 1] === 0) odd++ }
+  // a binary file has zero bytes on both sides; a UTF-16 one only on the high byte of its ASCII characters
+  const le = odd > 0 && even === 0, be = even > 0 && odd === 0
+  if (!le && !be) return null
+  const t = decodeUtf16(head.subarray(0, n), le ? 'utf-16le' : 'utf-16be', true)
+  return t !== null && !CONTROL.test(t) ? (le ? 'le' : 'be') : null
+}
+
+function decodeUtf16(bytes: Uint8Array, enc: 'utf-16le' | 'utf-16be', head = false): string | null {
+  // a head may end inside a surrogate pair
+  try { return new TextDecoder(enc, { fatal: !head }).decode(bytes) } catch { return null }
+}
+
+/**
+ * Text of a UTF-16 file (utf16Kind), the byte-order mark dropped as ripgrep drops it, so read and grep agree on lines
+ * and character positions; null when it is not UTF-16 text (or not valid UTF-16, or has control characters).
+ */
+export function utf16Text(bytes: Uint8Array): string | null {
+  const kind = utf16Kind(bytes.subarray(0, 8000))
+  if (!kind) return null
+  const le = kind === 'bom-le' || kind === 'le'
+  const t = decodeUtf16(kind.startsWith('bom') ? bytes.subarray(2) : bytes, le ? 'utf-16le' : 'utf-16be')
+  return t !== null && !CONTROL.test(t) ? t : null
 }
 
 /**
