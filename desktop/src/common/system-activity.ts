@@ -37,6 +37,10 @@ export function readSystemActivity(pm: PowerMonitorLike): SystemActivity | null 
 
 /** where the app reports the computer to the open team (shared/src/api/people.ts reportMyComputer) */
 export const COMPUTER_REPORT_PATH = '/api/me/computer'
+/** a server that had no call (404/405) or refused it (403) is asked again after this long: a team server updates itself
+ * (at night, by itself) under an app that stays open for days, and the page reload after that update opens no team, so
+ * "not until a team is opened" left the phone ringing until the app was restarted (QA TC-4834) */
+export const UNSUPPORTED_RETRY_MS = 5 * 60_000
 
 export interface ComputerReporterOptions {
   /** the open team's address and whether this app is signed in to it now; null: no team open */
@@ -46,6 +50,8 @@ export interface ComputerReporterOptions {
   post(origin: string, body: SystemActivity): Promise<number>
   /** the server said this app is not signed in (401): the app checks its session again */
   signedOut?(): void
+  /** the clock (ms; tests) */
+  now?(): number
 }
 
 /** what "not in use" is told as when the app leaves a team (another team opened, the window closed): idle at the threshold */
@@ -56,16 +62,29 @@ const LEAVING: SystemActivity = { locked: false, idleMs: SYSTEM_IDLE_THRESHOLD_S
  * The team page tells it too (web/src/lib/presence.ts), but a Trina window in the back is throttled by the browser
  * engine and may say nothing for minutes, so the server would take the person as away and ring their phone while they
  * work in another app. The main process is not throttled. Sent only to the open team, only while signed in to it.
- * An older server without the call (404/405) or one that refuses it (403) is not asked again until a team is opened;
- * a 401 makes the app check its session. One request at a time: a word that comes meanwhile (a lock during a tick) is
- * kept, the newest only, and sent right after. A failed request is not retried (the next tick comes in 30 s).
+ * An older server without the call (404/405) or one that refuses it (403) is not asked again until a team is opened or
+ * UNSUPPORTED_RETRY_MS has passed (the server may have updated itself meanwhile); a 401 makes the app check its
+ * session. One request at a time: a word that comes meanwhile (a lock during a tick) is kept, the newest only, and sent
+ * right after. A failed request is not retried (the next tick comes in 30 s).
  */
 export class ComputerReporter {
-  private unsupported = new Set<string>()
+  /** origin -> when (clock ms) to ask a server that had no call, or refused it, again */
+  private unsupported = new Map<string, number>()
   private busy = false
   private pending: SystemActivity | null = null
 
   constructor(private o: ComputerReporterOptions) {}
+
+  private now() { return this.o.now?.() ?? Date.now() }
+
+  /** no asking this origin now: it had no call, or refused it, less than UNSUPPORTED_RETRY_MS ago */
+  private skip(origin: string) {
+    const until = this.unsupported.get(origin)
+    if (until === undefined) return false
+    if (this.now() < until) return true
+    this.unsupported.delete(origin)
+    return false
+  }
 
   /** a team was opened (again): ask an origin that had no call again (the server may have been updated) */
   reset(): void { this.unsupported.clear() }
@@ -84,16 +103,16 @@ export class ComputerReporter {
   farewell(): void {
     this.pending = null
     const team = this.o.team()
-    if (!team || !team.signedIn || !team.origin || this.unsupported.has(team.origin)) return
+    if (!team || !team.signedIn || !team.origin || this.skip(team.origin)) return
     try { void this.o.post(team.origin, LEAVING).catch(() => {}) } catch { /* closing anyway */ }
   }
 
   private async send(a: SystemActivity) {
     const team = this.o.team()
-    if (!team || !team.signedIn || !team.origin || this.unsupported.has(team.origin)) return
+    if (!team || !team.signedIn || !team.origin || this.skip(team.origin)) return
     try {
       const status = await this.o.post(team.origin, { locked: a.locked, idleMs: Math.max(0, Math.round(a.idleMs)) })
-      if (status === 404 || status === 405 || status === 403) this.unsupported.add(team.origin)
+      if (status === 404 || status === 405 || status === 403) this.unsupported.set(team.origin, this.now() + UNSUPPORTED_RETRY_MS)
       else if (status === 401) this.o.signedOut?.()
     } catch { /* offline or the server restarting: the next tick */ }
   }
