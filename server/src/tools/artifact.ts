@@ -11,9 +11,12 @@ import { HttpError } from '../http/errors'
 import { isSharedChat, severalAuthors, visibleSharedChat } from '../chat/shared'
 import { withheldFrom } from '../chat/shared-answers'
 import { ToolError } from '../policy/errors'
+import { assertStorageRoomForAI } from '../system/storage'
 import { normIso } from '../team-files/service'
 
-export const MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+/** one version's content (second limits audit N31: 2 MB before). Kept as a row of `artifacts`; the Files screen's
+ * "save to the team folder" takes up to 10 MiB of text (SaveContentBody), so a saved artifact still fits. */
+export const MAX_ARTIFACT_BYTES = 10 * 1024 * 1024
 export const MAX_VERSIONS_PER_KEY = 200
 
 interface Row { id: string; chat_id: string; message_id: string | null; key: string; version: number; type: ArtifactType; title: string | null; language: string | null; content: string; created_at: string }
@@ -84,7 +87,10 @@ export class Artifacts {
       if (a.content === undefined) throw new ToolError(`${a.action} needs "content"`)
       content = a.content
     }
-    if (Buffer.byteLength(content, 'utf8') > MAX_ARTIFACT_BYTES) throw new ToolError(`artifact is too large (max ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB)`)
+    const bytes = Buffer.byteLength(content, 'utf8')
+    if (bytes > MAX_ARTIFACT_BYTES) throw new ToolError(`artifact is too large (max ${MAX_ARTIFACT_BYTES / 1024 / 1024} MB); split it into several artifacts (other keys) or save it as a file with write`)
+    // every version is kept whole: the team disk near full refuses it like a file (system/storage.ts)
+    assertStorageRoomForAI(bytes)
     if (latest && latest.version >= MAX_VERSIONS_PER_KEY) throw new ToolError(`too many versions of '${a.key}'; create a new key`)
     const row: Row = {
       id: newId(), chat_id: t.chatId, message_id: t.messageId, key: a.key, version: (latest?.version ?? 0) + 1,

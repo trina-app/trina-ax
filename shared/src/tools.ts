@@ -29,6 +29,8 @@ export const GrepInput = z.strictObject({
   head_limit: z.number().int().min(1).max(5000).optional().describe('Max output lines/entries (default 200)'),
   multiline: z.boolean().optional(),
 })
+/** make_file: native Excel charts in one workbook (tools/xlsx-chart.ts; second limits audit N30: 10 before) */
+export const MAKE_FILE_CHARTS_MAX = 50
 /** read with `versions`: how many earlier versions are listed (default, at most) */
 export const VERSIONS_SHOWN_DEFAULT = 5
 export const VERSIONS_SHOWN_MAX = 20
@@ -43,7 +45,7 @@ export const ReadInput = z.strictObject({
   time: z.string().max(40).optional().describe('Video and audio only: the part to read, e.g. "1:00-2:30", "90-150" (seconds) or "0:05" (one moment). Without it: the whole file, as far as one read goes (the result says what to read next).'),
   frames: z.number().int().min(0).max(20).optional().describe('Video only: how many pictures, evenly spaced (0-20; default up to 12). Fewer give bigger pictures: 1-4 for small text on a screen. 0: the transcript only (then a read covers up to 30 minutes of sound).'),
   transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
-  versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before".`),
+  versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before". Long changes come in parts: the result says the offset to read on from.`),
   version: z.number().int().min(1).optional().describe('With or without versions: compare this earlier version (its number from the list) with the file now, instead of the version before the current one.'),
 })
 export const WriteInput = z.strictObject({
@@ -124,7 +126,7 @@ export const MakeFileInput = z.strictObject({
     sheet: z.string().max(100).optional().describe('Sheet name (the table\'s heading); default the first sheet'),
     title: z.string().max(200).optional(),
     anchor: z.string().max(10).optional().describe('Top-left cell of the chart, e.g. "G2"; default right of the data'),
-  })).min(1).max(10).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
+  })).min(1).max(MAKE_FILE_CHARTS_MAX).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
   page: MakeFilePage.optional().describe('docx only: page size, orientation, margins, header, footer and page numbers'),
   sheets: z.array(MakeFileSheet).min(1).max(50).optional().describe('xlsx only: number formats, column widths, frozen rows/columns, filter and conditional formatting per sheet'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),

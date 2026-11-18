@@ -23,6 +23,7 @@ import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { ext, officeWorkerWrite } from '../files/extract'
+import { PDF_OUTPUT_MAX } from '../files/pdf-pages'
 import { decodeStampResult, encodeStampRequest, imageKind, PDF_STAMP_MODE, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_MAX, STAMP_PDF_MAX, type StampReport } from '../files/pdf-stamp'
 import type { ToolCtx } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
@@ -122,7 +123,7 @@ export async function stampPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx
   const answer = await officeWorkerWrite(PDF_STAMP_MODE, encodeStampRequest({
     page: a.page ?? 'last', position: a.position ?? 'bottom-right', width_mm: a.width_mm ?? STAMP_DEFAULT_WIDTH_MM,
     margin_mm: a.margin_mm ?? STAMP_DEFAULT_MARGIN_MM, image: kind,
-  }, pdf, picture), c.signal)
+  }, pdf, picture), c.signal, PDF_OUTPUT_MAX)
   let r: ReturnType<typeof decodeStampResult>
   try { r = decodeStampResult(answer) } catch { throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved') }
   if (r.file.length < 5 || Buffer.from(r.file.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF stamper gave a damaged answer; nothing was saved')

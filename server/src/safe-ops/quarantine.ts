@@ -4,6 +4,8 @@ import type { Database } from 'bun:sqlite'
 import { sha256, sha256Regular } from '../files/store'
 import { ToolError } from '../policy/errors'
 
+const QUARANTINED = 'Generated output is download-only; indexing, text extraction and in-app previews are disabled.'
+
 /** Content-addressed, durable and independent of the feature switch. Copies and
  * renames of exact bytes remain quarantined, including uploads and history. */
 export class Quarantine {
@@ -34,7 +36,11 @@ export class Quarantine {
     return this.hasHash(sha256Regular(abs))
   }
   assertBytes(bytes: Uint8Array) {
-    if (this.hasBytes(bytes)) throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
+    if (this.hasBytes(bytes)) throw new ToolError(QUARANTINED, 'safe_ops_quarantined')
+  }
+  /** assertBytes for bytes hashed on the way (a streamed copy, files/store.ts copyRegular) */
+  assertHash(hash: string) {
+    if (this.hasHash(hash)) throw new ToolError(QUARANTINED, 'safe_ops_quarantined')
   }
   assertDownload(abs: string, headers: Headers) {
     if (!this.hasFile(abs)) return

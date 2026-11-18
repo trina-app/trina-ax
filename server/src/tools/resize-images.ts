@@ -47,13 +47,17 @@ export const RESIZE_PRESETS: Record<'smaller' | 'email' | 'web', { side?: number
   web: { side: 1920, maxBytes: 500_000 },
 }
 
-/** the largest photo file worked on (the helper's own limit, safeops.ResizeInputMax: a 48 MP phone JPEG is ~20 MB) */
-export const RESIZE_INPUT_MAX = 32 * 1024 * 1024
-/** all photos of one call together, checked by size before anything is read */
-export const RESIZE_TOTAL_MAX = 200 * 1024 * 1024
+/** the largest photo file worked on (the helper's own limit, safeops.ResizeInputMax: a 48 MP phone JPEG is ~20 MB, a
+ * 50 MP PNG or TIFF-like export ~150 MB). Measured: a 147 MB 49 MP PNG peaks at about 750 MiB in the helper, a 16-bit
+ * one at 840 MiB, under RESIZE_RSS_MIB (docs/decisions/20261118-audit2-file-caps.md) */
+export const RESIZE_INPUT_MAX = 150 * 1024 * 1024
+/** all photos of one call together, checked by size before anything is read (one photo is in memory at a time; this
+ * bounds the call's time) */
+export const RESIZE_TOTAL_MAX = 1024 * 1024 * 1024
 /** the largest copy the helper writes (safeops.ResizeOutputMax) */
 const RESIZE_OUTPUT_MAX = 48 * 1024 * 1024
-const RESIZE_TIMEOUT_MS = 60_000
+/** one photo's time (measured: a 147 MB PNG to under 2 MB took 10-15 s) */
+export const RESIZE_TIMEOUT_MS = 120_000
 const RESIZE_RSS_MIB = 1536
 const PHOTO_EXT = new Set(['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
 /** the options number of the helper: details + 4 * format + 16 * upright (safeops.ResizeOptions) */

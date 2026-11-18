@@ -20,7 +20,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale } from '../admin/settings'
 import { ext, officeWorkerWrite } from '../files/extract'
 import { serverFontDirs } from '../files/html-pdf'
-import { decodePagesResult, encodePagesRequest, PDF_PAGES_FILES_MAX, PDF_PAGES_INPUT_MAX, PDF_PAGES_MODE, type PageOp, type PagesJob, type PagesReport } from '../files/pdf-pages'
+import { decodePagesResult, encodePagesRequest, PDF_OUTPUT_MAX, PDF_PAGES_FILES_MAX, PDF_PAGES_INPUT_MAX, PDF_PAGES_MODE, type PageOp, type PagesJob, type PagesReport } from '../files/pdf-pages'
 import { STAMP_IMAGE_MAX } from '../files/pdf-stamp'
 import type { ToolCtx } from '../files/service'
 import { readRegular } from '../files/store'
@@ -107,7 +107,7 @@ function target(files: TeamFiles, c: ToolCtx, output: string | undefined, dir: s
 }
 
 async function runJob(ctx: AppContext, c: ToolCtx, job: PagesJob, parts: Part[]): Promise<{ report: PagesReport; files: Uint8Array[] }> {
-  const answer = await officeWorkerWrite(PDF_PAGES_MODE, encodePagesRequest(job, parts), c.signal)
+  const answer = await officeWorkerWrite(PDF_PAGES_MODE, encodePagesRequest(job, parts), c.signal, PDF_OUTPUT_MAX)
   let r: ReturnType<typeof decodePagesResult>
   try { r = decodePagesResult(answer) } catch { throw new ToolError('the PDF tool gave a damaged answer; nothing was saved') }
   for (const f of r.files) if (f.length < 5 || Buffer.from(f.subarray(0, 5)).toString('latin1') !== '%PDF-') throw new ToolError('the PDF tool gave a damaged answer; nothing was saved')
