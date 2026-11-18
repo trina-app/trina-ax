@@ -2,8 +2,10 @@
 // Team settings `answerStepLimit` (default 500, 10-2,000; 150 and 10-500 before 2026-11-18), read when each answer starts. At the limit the answer pauses
 // with "continue" as before; sub-agents keep their own 50 rounds each. Fake engine through the real launcher and gate.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { ANSWER_STEP_LIMIT_MAX, API, ApiError, DEFAULT_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
+import { ANSWER_STEP_LIMIT_MAX, API, ApiError, DEFAULT_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { waitFor } from '../lib/wait'
+import { answerStepCap } from '../../server/src/chat/turn'
 import { MAX_SUBAGENT_TURNS } from '../../server/src/chat/subagents'
 import { DEFAULT_MAX_ENGINE_TURNS } from '../../server/src/chat/runtime'
 
@@ -80,6 +82,26 @@ describe('tool rounds per answer', () => {
       const under = await ask(h, alice, 'alice', (await newChat()).id, fake(...Array.from({ length: 10 }, () => read), { say: 'all ten' }))
       expect(under.done).toMatchObject({ status: 'done', content: 'all ten' })
       expect(under.done.stopReason).toBeUndefined()
+    } finally { clear() }
+  })
+
+  test('a run nobody watches (a scheduled run, one asked from Slack) takes at most 150 rounds; a watched chat the team limit', async () => {
+    expect(UNATTENDED_ANSWER_STEP_LIMIT).toBe(150)
+    expect(answerStepCap(500, { guest: false, unattended: false })).toBe(500)
+    expect(answerStepCap(500, { guest: false, unattended: true })).toBe(150)
+    expect(answerStepCap(40, { guest: false, unattended: true })).toBe(40)
+    expect(answerStepCap(2000, { guest: true, unattended: false })).toBe(150)
+    try {
+      await setLimit(2000)
+      // the same team limit: a chat someone watches gets it, the scheduled run of that person gets 150
+      expect(await maxTurnsOfNextAnswer()).toBe('2000')
+      const s = h.rt().schedules.create('carol', { title: 'Rounds check', prompt: fake({ echo: 'args' }), repeat: 'daily', time: '09:00' }, undefined,
+        { allowedUrls: [], writeConnections: [], save: null, sources: [], personalSends: [] })
+      const { chatId } = h.rt().schedules.runNow('carol', s.id)
+      await waitFor(() => { const t = h.ctx.db.query('SELECT status FROM turns WHERE chat_id = ?').get(chatId) as { status: string } | null; return !!t && ['done', 'error', 'stopped', 'interrupted'].includes(t.status) }, { timeoutMs: 60_000 })
+      const m = h.ctx.db.query("SELECT content FROM messages WHERE chat_id = ? AND role = 'assistant' ORDER BY rowid DESC LIMIT 1").get(chatId) as { content: string }
+      const argv = JSON.parse(m.content) as string[]
+      expect(argv[argv.indexOf('--max-turns') + 1]).toBe('150')
     } finally { clear() }
   })
 

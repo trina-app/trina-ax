@@ -888,6 +888,9 @@ export const DEFAULT_ANSWER_STEP_LIMIT = 500
 /** a guest's answers take at most this many rounds, whatever the team setting (the default before 2026-11-18;
  * docs/decisions/20261118-limits-caps.md) */
 export const GUEST_ANSWER_STEP_LIMIT = 150
+/** an answer nobody watches (a scheduled run, a run asked from Slack) takes at most this many rounds: nobody can stop a
+ * long run there (docs/decisions/20261118-limits-caps.md) */
+export const UNATTENDED_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
 export const ANSWER_STEP_LIMIT_MAX = 2000
 

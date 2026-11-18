@@ -10,11 +10,13 @@ import { makeEnv } from '../lib/env'
 import { newId } from '../../server/src/db'
 import { listSkills, MAX_FILES, scanSkills, SKILL_BODY_MAX, SKILL_FILE_MAX_BYTES, skillIssues, type Skill } from '../../server/src/chat/skills'
 import { SKILL_SHARE_LIMITS } from '@mycel/shared/api'
+import { textTokens } from '../../server/src/files/vision'
+import { TOOL_OUTPUT_MAX as API_TOOL_OUTPUT_MAX } from '../../server/src/engine/api-agent'
 import {
   buildSkillList, chatSkillOrder, descriptionOrder, frequentSkills, hintSkills, listedFor, matchSkills, recordListed, resolveSkill, shortDescription,
   skillChanges, skillChangesText, skillTokens, SKILL_LINE_DESCRIPTION_MAX, SKILL_LIST_BUDGET, usageScores,
 } from '../../server/src/chat/skill-list'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, cutToTokens, neutralizeTags, QUIET_CUT_NOTE, ruleFileText, RULES_TEXT_MAX, skillBlock, skillHintsBlock, skillsSection, SKILL_FILE_MAX, SKILL_FILES_MAX, SKILL_TOOL_TOKENS, teamRuleFiles, teamRules } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, contextTokensFor, cutToTokens, DEFAULT_CONTEXT_TOKENS, DEFAULT_MEMORY_TOKENS, DEFAULT_PROMPT_TOKENS, LOCAL_CONTEXT_TOKENS, memoryBlock, memoryLines, memoryTokensOf, neutralizeTags, promptBudget, QUIET_CUT_NOTE, SKILL_TOOL_LIMIT, ruleFileText, RULES_TEXT_MAX, skillBlock, skillHintsBlock, skillsSection, SKILL_FILE_MAX, SKILL_FILES_MAX, SKILL_TOOL_TOKENS, teamRuleFiles, teamRules } from '../../server/src/chat/prompt'
 import { skillsOverview } from '../../server/src/skills/suggestions'
 
 const sk = (p: string, name: string, description = '', body = 'steps'): Skill => ({ path: p, name, description, body })
@@ -327,6 +329,93 @@ describe('instructions, caps and counts (real folder rules)', () => {
       // within the count: no manager issue
       expect(skillIssues(e.files, who('carol'), { rules: r })).not.toContainEqual({ path: 'skills', problem: 'too_many_rules' })
     } finally { for (let i = 0; i < 7; i++) fs.rmSync(path.join(e.fx.team, n(i))) }
+  })
+
+  test('unread never names a rule file the person cannot read, and follows a shared project chat\'s filter', () => {
+    const n = (i: number) => `skills/big-${String(i).padStart(2, '0')}.md`
+    for (let i = 0; i < 7; i++) put(n(i), `# Big ${i}\nBIG-${i}-START ${'b'.repeat(18_000)}\n`)
+    // a rule file only the owner and admins may read (a limited path under skills/), past the budget like big-06
+    put('skills/big-07.md', `# Secret\nSECRET-RULE ${'s'.repeat(18_000)}\n`)
+    e.db.query("INSERT INTO folders (id, path, limited) VALUES ('f_secret_rule', 'skills/big-07.md', 1)").run()
+    e.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES ('r_secret_rule', 'f_secret_rule', 'everyone', NULL, 'none')").run()
+    try {
+      const mine = teamRuleFiles(e.files, who('alice'))
+      expect(mine.unread).toContain(n(6))
+      expect(mine.unread).not.toContain('skills/big-07.md')
+      expect(mine.paths).not.toContain('skills/big-07.md')
+      expect(teamRules(e.files, who('alice'))).not.toContain('big-07')
+      // the owner reads it: there it is named past the budget
+      expect(teamRuleFiles(e.files, who('dana')).unread).toContain('skills/big-07.md')
+      // a shared project chat: only what everyone in it may read; a file the filter drops is not named either
+      const shared = (rel: string) => rel !== n(6)
+      const r = teamRuleFiles(e.files, who('dana'), shared)
+      expect(r.unread).not.toContain(n(6))
+      expect(r.paths).not.toContain(n(6))
+      expect(r.unread).toContain('skills/big-07.md')
+      expect(teamRules(e.files, who('dana'), shared)).not.toContain(n(6))
+    } finally {
+      for (let i = 0; i < 8; i++) fs.rmSync(path.join(e.fx.team, n(i)))
+      e.db.query("DELETE FROM folder_rules WHERE id = 'r_secret_rule'").run(); e.db.query("DELETE FROM folders WHERE id = 'f_secret_rule'").run()
+    }
+  })
+
+  test('the prompt budget: rules and memories shrink to fit a small model, with the quiet notes; a big model keeps them', () => {
+    expect(contextTokensFor('claude-code', null)).toBe(200_000)
+    expect(contextTokensFor('claude-code', 'opus[1m]')).toBe(1_000_000)
+    expect(contextTokensFor('codex', 'gpt-6-sol')).toBe(272_000)
+    expect(contextTokensFor('api', 'llama', { apiBaseUrl: 'http://127.0.0.1:11434/v1' })).toBe(LOCAL_CONTEXT_TOKENS)
+    expect(contextTokensFor('api', 'qwen', { apiBaseUrl: 'http://192.168.1.20:8000/v1' })).toBe(LOCAL_CONTEXT_TOKENS)
+    expect(contextTokensFor('api', 'gpt', { apiBaseUrl: 'https://api.example.com/v1' })).toBe(DEFAULT_CONTEXT_TOKENS)
+    expect(promptBudget(200_000)).toEqual({ total: 50_000, skillTokens: 25_000 })
+    const local = promptBudget(LOCAL_CONTEXT_TOKENS) // 8,000 tokens for all three
+    const n = (i: number) => `skills/rb-${i}.md`
+    for (let i = 0; i < 4; i++) put(n(i), `# Rule ${i}\nRB-${i}-START ${'r'.repeat(15_000)} RB-${i}-END\n`)
+    try {
+      const big = teamRules(e.files, who('alice'), null, DEFAULT_PROMPT_TOKENS)
+      for (let i = 0; i < 4; i++) expect(big).toContain(`RB-${i}-END`)
+      const small = teamRules(e.files, who('alice'), null, local.total)
+      expect(textTokens(small)).toBeLessThan(local.total + 400)
+      expect(small).toContain('RB-0-START')
+      expect(small).not.toContain('RB-3-END')
+      expect(small).toContain(QUIET_CUT_NOTE)
+      // memories: the block keeps to its share, and says the older ones are kept (quietly)
+      const mems = Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, text: 'x'.repeat(900) }))
+      const block = memoryBlock(mems, memoryTokensOf(local.total))
+      expect(textTokens(block)).toBeLessThan(memoryTokensOf(local.total) + 300)
+      expect(block).toContain('(Older memories are kept but not shown here')
+      expect(block).toContain('Do not bring this note up otherwise.')
+      // Settings marks the same memories the default (Claude) budget gives
+      expect(memoryLines(mems).length).toBe(memoryLines(mems, DEFAULT_MEMORY_TOKENS).length)
+      // a whole prompt for a local model: rules and memories together within the budget
+      const prompt = buildTurnPrompt(e.files, { ...input('alice'), memories: mems, promptTokens: local.total })
+      expect(prompt).toContain('(Older memories are kept but not shown here')
+      expect(prompt).not.toContain('RB-3-END')
+    } finally { for (let i = 0; i < 4; i++) fs.rmSync(path.join(e.fx.team, n(i))) }
+  })
+
+  test('the skill tool\'s result stays under each engine\'s own cut, the read-on note always kept', () => {
+    for (const body of ['S'.repeat(SKILL_BODY_MAX), '가'.repeat(SKILL_BODY_MAX)]) {
+      const s: Skill = { ...sk('skills/long/SKILL.md', 'Long one', 'd'), body }
+      const ro = '\nA read-only line of about this length that the skill tool adds for a team skill the person may not change.'
+      // the API engine keeps TOOL_OUTPUT_MAX characters of a tool result
+      const api = skillBlock(s, '', 'loaded', SKILL_TOOL_LIMIT.api) + ro
+      expect(api.length).toBeLessThanOrEqual(API_TOOL_OUTPUT_MAX)
+      expect(api.slice(0, API_TOOL_OUTPUT_MAX)).toContain(QUIET_CUT_NOTE)
+      expect(api).toContain('Read skills/long/SKILL.md with the read tool')
+      // Codex: 10,000 tokens (the model catalog's truncation_policy)
+      const codex = skillBlock(s, '', 'loaded', SKILL_TOOL_LIMIT.codex) + ro
+      expect(textTokens(codex)).toBeLessThanOrEqual(10_000)
+      expect(codex).toContain(QUIET_CUT_NOTE)
+      // Claude Code: 25,000 tokens (MAX_MCP_OUTPUT_TOKENS)
+      const claude = skillBlock(s, '', 'loaded', SKILL_TOOL_LIMIT['claude-code']) + ro
+      expect(textTokens(claude)).toBeLessThanOrEqual(25_000)
+      expect(claude).toContain(QUIET_CUT_NOTE)
+    }
+    // the Codex catalog the server ships still cuts at 10,000 tokens
+    const lock = fs.readFileSync(path.join(import.meta.dir, '../../scripts/linux/engines.lock.json'), 'utf8')
+    const file = /"modelCatalog":\s*"([^"]+)"/.exec(lock)![1]!
+    const catalog = JSON.parse(fs.readFileSync(path.join(import.meta.dir, '../../scripts/linux', file), 'utf8')) as { models: { truncation_policy: { mode: string; limit: number } }[] }
+    for (const m of catalog.models) expect(m.truncation_policy).toEqual({ mode: 'tokens', limit: 10_000 })
   })
 
   test('a skill is given up to 100,000 characters (was 16,000); a longer one and one cut for the skill tool say where to read on', () => {

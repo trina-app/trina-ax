@@ -27,8 +27,9 @@ export interface ServerConfig {
   authMode: AuthMode
   /** grep limits */
   grepTimeoutMs: number
-  /** per-turn write limits: a guard against an AI writing in a loop (the disk floor, system/storage.ts
-   * assertStorageRoomForAI, protects the disk). A guest has the guest pair (files/turn-write-limits.ts) */
+  /** per-turn write limits: a guard against an AI writing in a loop. The disk is kept by system/storage.ts
+   * assertStorageRoomForAI: the plan's guard on Linux or with a plan, elsewhere (a Mac without a plan) the simple floor
+   * of max(2 GB, 5%) free. A guest has the guest pair (files/turn-write-limits.ts) */
   maxWriteBytesPerTurn: number
   maxFilesWrittenPerTurn: number
   guestMaxWriteBytesPerTurn: number

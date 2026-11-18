@@ -241,14 +241,14 @@ describe('memories paging and engine session reset', () => {
     expect(p1.items[fit]!.text).toBe(T(110 - fit))
     const p2 = await h.api('dana').call(API.listMemories, { query: { limit: 100, cursor: p1.nextCursor! } })
     expect(p2.items.map((m) => [m.text, m.unused])).toEqual(Array.from({ length: 10 }, (_, i) => [T(10 - i), true]))
-    // long ones: the block's 32 KB end first; the list and the block agree to the memory
+    // long Korean ones: the block's token budget (DEFAULT_MEMORY_TOKENS) ends first; the list and the block agree to the memory
     add('erin', 60, (i) => `${i} ` + '가'.repeat(990))
     const page = await h.api('erin').call(API.listMemories, { query: { limit: 100 } })
     const rows = getChatRuntime(h.ctx).memoriesForPrompt('erin')
     const lines = memoryLines(rows)
     expect(page.inUse).toBe(lines.length)
     expect(page.inUse).toBeLessThan(60)
-    expect(page.inUse).toBeGreaterThan(25)
+    expect(page.inUse).toBeGreaterThan(10)
     expect(page.items.map((m) => !m.unused)).toEqual(page.items.map((_, i) => i < lines.length))
     const block = memoryBlock(rows)
     for (const m of page.items) expect(block.includes(m.id)).toBe(!m.unused)

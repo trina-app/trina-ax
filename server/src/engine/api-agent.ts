@@ -21,7 +21,8 @@ import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-hon
 export interface ApiEngineConf { baseUrl: string; model: string; label: string; key: string | null; setBy?: 'admin' }
 
 const MAX_STEPS = 30
-const TOOL_OUTPUT_MAX = 30_000
+/** characters of one tool result the model gets (toolContent); a longer result is cut (chat/prompt.ts SKILL_TOOL_LIMIT) */
+export const TOOL_OUTPUT_MAX = 30_000
 
 /**
  * Added to the team instructions for this engine only. Models behind an OpenAI-compatible API made up preview and

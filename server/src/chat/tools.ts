@@ -16,7 +16,7 @@ import type { ToolCard, TurnTool, TurnToolContext } from '../services'
 import { newId } from '../db'
 import { PANE_TOOLS, scriptsOf, urlsOf } from '../realtime/browser-tools'
 import { browserUrl, isPrivateHost, staticPrivateHost } from '../realtime/private-net'
-import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock } from './prompt'
+import { cleanMemoryText, MEMORY_ITEM_MAX, neutralizeTags, skillBlock, SKILL_TOOL_LIMIT } from './prompt'
 import { isGroupSkill, isPersonalSkill, isProjectSkill, listSkills, ownPersonalSkill, readSkill, sameSkillName, skillAlias, skillFolder, skillIssues, type Skill, otherGroupSkills } from './skills'
 import { changeLine, editorsLine, levelFor, levelLabel, levelRef, levelsOf, MOVE_MAX_BYTES, MOVE_MAX_FILES, MOVE_TEXT_MAX, peopleNames, peopleText, planMove, raisesTrust, runCopy, runMove, seesWho, skillAt, type Level, type MovePlan } from '../skills/move'
 import { st as skillText } from '../skills/text'
@@ -756,7 +756,7 @@ function skillTools(exec: TurnExec): Tool[] {
         // a team skill the person may not change: what to offer if they ask to change it (scenario SKL-02.member: the AI
         // loaded it, never tried the edit, and pasted the whole changed skill for the person to copy)
         const ro = readOnlySkillLine(skill.path, !atLeast(rt.files.rules().access(user, skill.path.split('/')), 'write'), spec.locale)
-        return { ...text(skillBlock(skill, '', 'loaded') + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
+        return { ...text(skillBlock(skill, '', 'loaded', SKILL_TOOL_LIMIT[exec.engineRunning ?? 'claude-code']) + (ro ? `\n${ro}` : '')), summary: `skill -> ${isPersonalSkill(skill.path) ? 'a personal skill' : skill.path}` }
       },
     },
     {
