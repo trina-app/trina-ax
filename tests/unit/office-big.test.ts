@@ -456,3 +456,25 @@ describe('sheet-stream: hostile workbooks are refused or cut, within bounded mem
   }, 90_000)
 })
 
+
+describe('a converter that exits before reading all its input (tools/isolate.ts)', () => {
+  test('no unhandled rejection (EPIPE) reaches the process: it would restart the server', async () => {
+    const { runIsolated } = await import('../../server/src/tools/isolate')
+    const seen: unknown[] = []
+    const on = (e: unknown) => { seen.push(e) }
+    process.on('unhandledRejection', on)
+    try {
+      // large enough that the pipe cannot take it before the converter is gone (an EPIPE was seen at 16 and 64 MB)
+      const input = new Uint8Array(64 * MIB)
+      for (let i = 0; i < 3; i++) {
+        const t = await runIsolated({ cmd: '/usr/bin/true', args: [], stdin: input, timeoutMs: 10_000 })
+        expect(t.code).toBe(0)
+        const h = await runIsolated({ cmd: '/usr/bin/head', args: ['-c', '100'], stdin: input, timeoutMs: 10_000 })
+        expect(h.code).toBe(0)
+        expect(h.stdout.length).toBe(100)
+      }
+      await Bun.sleep(300)
+    } finally { process.off('unhandledRejection', on) }
+    expect(seen).toEqual([])
+  })
+})

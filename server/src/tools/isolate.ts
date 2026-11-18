@@ -321,11 +321,16 @@ export async function runIsolated(o: IsolatedRun): Promise<IsolatedResult> {
   // stdin is written while stdout and stderr are already being read: a converter that writes more than a pipe holds
   // before the last of its input is taken would otherwise wait for the server, and the server for it (a 5 MB workbook
   // with a 2 MB answer timed out, security re-review of #1290)
+  // made before stdin is written, so an error of the output streams while the input is still going is handled too
+  const all = Promise.all([outP, errP, p.exited])
+  all.catch(() => {})
   if (o.stdin) {
     const w = p.stdin as import('bun').FileSink
-    try { w.write(o.stdin); await w.end() } catch { /* converter closed stdin early */ }
+    // both awaited: a converter that exits before reading all its input (`head -c`, a refused file) makes the write
+    // reject with EPIPE, and an unawaited rejection is fatal to the server (sentry-report.ts)
+    try { await w.write(o.stdin); await w.end() } catch { /* converter closed stdin early */ }
   }
-  const [stdout, stderr, code] = await Promise.all([outP, errP, p.exited])
+  const [stdout, stderr, code] = await all
   clearTimeout(timer)
   if (watch) clearInterval(watch)
   o.signal?.removeEventListener('abort', onAbort)
