@@ -22,9 +22,11 @@
   (`files/office-template.ts`) and refused, naming the reason, when it has a Word field that runs or fetches something
   (DDE, DDEAUTO, INCLUDETEXT, INCLUDEPICTURE, INCLUDE, IMPORT, LINK, DATABASE, MACROBUTTON, ...; complex fields joined
   across runs and simple ones, in every XML part of the package wherever it is: `_rels/.rels` and `[Content_Types].xml` can put the main document anywhere), a relationship to something outside the file other than a
-  plain hyperlink (an attached template, a linked picture, an OLE object, a frame, a subdocument), an embedded object or
+  plain hyperlink (a linked picture, an OLE object, a frame, a subdocument), an embedded object or
   control, or macros. Refused rather than stripped: the person learns which file is unsafe, and a cleaned copy would
-  silently differ from the template they named. Every `.rels` part and every part under `word/` is read with saxes, namespaces resolved
+  silently differ from the template they named. The one exception (changed by `fix/docx-link-schemes`, TC-4949) is an
+  attached template (`settings.xml` `w:attachedTemplate`, usually a path to `Normal.dotm` on the machine that made the
+  file): real Word documents carry one, so it is taken out and the stripped bytes are used, not refused. Every `.rels` part and every part under `word/` is read with saxes, namespaces resolved
   (security review): single quotes, spaces around `=`, another prefix for WordprocessingML or the strict namespace hide
   nothing, and a part with a DTD or that is not well-formed is refused. A part in UTF-16 (Word writes only UTF-8) is refused rather than skipped; the one DTD accepted is an SVG picture's own (`<!DOCTYPE svg PUBLIC …>` on an SVG root, no internal subset, so no entity), as Inkscape and Illustrator write it. An included document (`aFChunk`, altChunk) is
   refused like an object. pandoc runs with a memory cap (1 GB, `PANDOC_RSS_MIB`): a small template can expand to

