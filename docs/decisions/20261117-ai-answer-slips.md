@@ -65,12 +65,15 @@
     a short bracketed label in another script ("(인)") is a name too, and "Now post …" after a sentence is a note's
     shape. Everything else stays: only before a real call, never the last piece, never content
     copied into the call; "Please add …", a quote that is not the person's words, and Korean text keep the line.
-  - **CHT-02 (product): "decide yourself" follows what the person said they would do.** The ask rule (`ASK_USER_RULE`
-    in `chat/prompt.ts`, no app-map line) now says: when the person leaves the choice to the AI, pick what fits the
-    latest thing they said they would do (in this chat or their own room messages) and say which; if nothing that exists
-    fits (a promised revised or signed version that is not there yet), do not send or post an older one in its place,
-    and do not make the new one with prices or terms the person has not given: say so and ask once more (a rerun had
-    made a "revised" quote at a price it picked). The room post's card is unchanged.
+  - **CHT-02 (product): "decide yourself" picks among named options.** The ask rule (`ASK_USER_RULE` in
+    `chat/prompt.ts`, no app-map line). A first version (fit the person's latest stated intent; nothing fits: say so and
+    ask) stopped every old-quote post, but the AI then asked for the price a third time. Owner decision (2026-11-18):
+    after "decide yourself" the AI picks among the options the person or the room already named, preferring one that
+    needs no further approval (the 27,000원 floor, not 26,500원 that needs the CEO's OK), says plainly which and why,
+    and posts only through the usual card; it never posts an older version in place of a promised one and never uses
+    a price or term nobody named. With no named option, or more than one file still fitting an unclear request (which
+    file to "정리", and how: CHT-02.project), it asks one more short question, once, never a third time. The room
+    post's card is unchanged; the case expectations say the same.
   - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
     `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
     own usage; "MCP" as a word of its own is still jargon; buttons inside a screen are not listed and not invented for

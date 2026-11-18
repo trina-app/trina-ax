@@ -85,8 +85,11 @@ describe('the plain-words rule', () => {
 describe('the ask rule', () => {
   test('CHT-02: "decide yourself" picks what fits the person\'s latest stated intent, never an older version in place of a promised one', () => {
     expect(ASK_USER_RULE).toContain('ask with ask_user (short question, options when possible)')
-    expect(ASK_USER_RULE).toContain('pick what fits the latest thing they said they would do (in this chat or in their own room messages) and say which you picked')
-    expect(ASK_USER_RULE).toContain('do not send or post an older one in its place, and do not make the new one with prices or terms they have not given: say so in one line and ask once more')
+    expect(ASK_USER_RULE).toContain('pick among the options they or the room already named what fits the latest thing they said they would do (in this chat or in their own room messages), prefer one that needs no further approval, and say plainly which you picked and why')
+    expect(ASK_USER_RULE).toContain('anything that reaches other people still goes through its usual card')
+    expect(ASK_USER_RULE).toContain('Never send or post an older version in place of one they promised, and never use a price or term nobody named')
+    // CHT-02.project: an unclear "tidy up" with several files is one more question, not a guess; never a third time
+    expect(ASK_USER_RULE).toContain('more than one file still fits an unclear request (which file to tidy up, and how), ask one more short question instead of guessing, and only once: never ask the same thing a third time')
     // English source text only
     expect(ASK_USER_RULE).not.toMatch(/[가-힣]/)
   })
