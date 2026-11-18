@@ -614,9 +614,12 @@ export function reachTargets(ctx: AppContext, space: Space): ReachTarget[] {
   if (!rows.length) return []
   let mine: (r: RunRow) => boolean
   if (space.shared) {
-    const key = sharedLogKey(ctx, space)
-    if (!key) return []
-    mine = (r) => r.shared_key === key
+    // the same people and view (the key, which counts reads and writes alike) and the same access hash as a run of this
+    // person here now: a person who may only read the project never drives the dev server of one who may write it
+    // (security review of #1336)
+    const key = sharedLogKey(ctx, space), h = accessHash(ctx, space)
+    if (!key || h === 'off') return []
+    mine = (r) => r.shared_key === key && r.access === h
   } else {
     const h = accessHash(ctx, space)
     if (h === 'off') return []
@@ -1238,16 +1241,29 @@ export const previewSupported = () => !!srtConfig().system.forward
 
 /** The open dev server row of a preview link, or null: the row must be open, running, a dev server, and still the same
  * run (its unit). A person's own chat: only the person who started it (the run has that person's folder access). A
- * shared chat's (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): everyone who sees that chat now (its run
- * sees only what all of them may open, and the tracker stops it when they change), and the person who started it may
- * still use the dev environment. */
+ * shared chat's (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): everyone who sees that chat now and
+ * whose own run there would have the row's key and access hash now (sharedPreviewer: the same view and the same writes),
+ * and the person who started it may still use the dev environment. */
 export function previewRow(ctx: AppContext, o: { rowId: string; runId?: string; userId: string }): RunRow | null {
   const r = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ? AND ended_at IS NULL`).get(o.rowId) as RunRow | null
   if (!r || r.kind !== 'server' || r.state !== 'running') return null
-  if (r.shared_key ? !sharedOfChat(ctx, r.chat_id).audience().includes(o.userId) : r.user_id !== o.userId) return null
+  if (r.shared_key ? !sharedPreviewer(ctx, r, o.userId) : r.user_id !== o.userId) return null
   const runId = runIdOf(r.unit)
   if (!runId || (o.runId !== undefined && runId !== o.runId)) return null
   return r
+}
+
+/** A shared chat's dev server and a viewer: in the chat now, and a run of the viewer there would have the row's key and
+ * access hash (the same people and view, and the same writes: a reader never drives a writer's dev server; a guest
+ * only when they pass the same check). Fails closed. */
+function sharedPreviewer(ctx: AppContext, r: RunRow, userId: string): boolean {
+  try {
+    const shared = sharedOfChat(ctx, r.chat_id)
+    if (!shared.audience().includes(userId)) return false
+    const space: Space = { userId, chatId: r.chat_id, projectId: r.project_id, root: r.root, shared }
+    const h = accessHash(ctx, space)
+    return h !== 'off' && h === r.access && sharedLogKey(ctx, space) === r.shared_key
+  } catch { return false }
 }
 
 /** May `userId` open (or keep using) a preview of this dev server now? previewRow, and the dev environment allowed for

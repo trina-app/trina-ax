@@ -258,6 +258,37 @@ describe('dev servers in shared chats (QA TC-4989)', () => {
     expect(previewAllowed(h.ctx, { rowId: mine.id, userId: 'alice' })).not.toBeNull()
   })
 
+  // security review of #1336: the logs key counts reads and writes alike, so a person who may only read the project
+  // must not reach or preview (and so drive) the dev server of one who may write it
+  test('a person who may only read the project neither reaches nor previews a writer\'s dev server; the logs key is the same', async () => {
+    await shell('alice', live(chat)).call({ command: 'sleep', background: true, port: 3000, log_name: 'wr' })
+    const row = rows().find((x) => x.name === 'wr')!
+    const rule = h.ctx.db.query("SELECT r.id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ? AND r.subject_type = 'user' AND r.subject_id = 'bob'").get(P.folderPath) as { id: string; access: string }
+    h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = ?").run(rule.id)
+    try {
+      const bob = spaceOf(h.ctx, { userId: 'bob', chatId: chat, project: { id: P.id, folderPath: P.folderPath }, shared: live(chat) })!
+      // the same people and view for the logs and results
+      expect(sharedLogKey(h.ctx, bob)).toBe(row.shared_key)
+      expect(reachTargets(h.ctx, bob)).toEqual([])
+      expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'bob' })).toBeNull()
+      // the writer who started it still may
+      const alice = spaceOf(h.ctx, { userId: 'alice', chatId: chat, project: { id: P.id, folderPath: P.folderPath }, shared: live(chat) })!
+      expect(reachTargets(h.ctx, alice).map((t) => t.name)).toEqual(['wr'])
+      expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'alice' })).not.toBeNull()
+    } finally { h.ctx.db.query('UPDATE folder_rules SET access = ? WHERE id = ?').run(rule.access, rule.id) }
+  })
+
+  test('preview fails closed once the row\'s key or access hash is no longer the one of now', async () => {
+    await shell('alice', live(chat)).call({ command: 'sleep', background: true, port: 3000, log_name: 'stale' })
+    const row = rows().find((x) => x.name === 'stale')!
+    expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'bob' })).not.toBeNull()
+    h.ctx.db.query("UPDATE dev_env_runs SET shared_key = ? WHERE id = ?").run('0'.repeat(32), row.id)
+    expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'bob' })).toBeNull()
+    expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'alice' })).toBeNull()
+    h.ctx.db.query("UPDATE dev_env_runs SET shared_key = ?, access = 'other' WHERE id = ?").run(row.shared_key, row.id)
+    expect(previewAllowed(h.ctx, { rowId: row.id, userId: 'alice' })).toBeNull()
+  })
+
   test('a chat shared with people and groups: a dev server in its shared work folder; someone added stops it', async () => {
     const c = (await h.api('alice').call(API.createChat, { body: {} })).id
     const put = async (ids: string[]) => {

@@ -31,17 +31,22 @@
   `tail $TRINA_LOGS/<name>.log`; another audience gets another, empty folder. A command's own output files are removed
   when it ends, as are each run's home and temp folder (a job's when its row ends, `dropRowRun`). The disk clean-up
   removes an unused logs folder after a few days.
-- **Rule, preview:** everyone who sees the chat now may open a shared chat's dev server (`previewAllowed`: in its
-  audience, and its starter may still use the dev environment); a private chat's dev server stays its starter's.
+- **Rule, preview:** a person who sees the chat now may open a shared chat's dev server when a run of theirs there
+  would have the row's key and access hash now (`sharedPreviewer`: the same view and the same writes; a guest only when
+  they pass the same check), and its starter may still use the dev environment (`previewAllowed`). Anything else fails
+  closed. A person who may only read the project never drives the dev server of one who may write it (the key counts
+  reads and writes alike, so it is not enough: security review of #1336). A private chat's dev server stays its
+  starter's.
 - **Rule, reach** (`reachTargets`): a command reaches on localhost the ports of the running jobs and dev servers of the
   same chat and folder whose view is its own, and nothing else. A person's own chat: the person's own rows that are
   not a shared chat's, with the access hash of a run there now (a run from before the person's access narrowed is
-  never reached; the tracker stops it). A shared chat: the rows of the same key, whoever started them. A private run
+  never reached; the tracker stops it). A shared chat: the rows of the same key and the same access hash as a run of this person there now (the same writes), whoever started them. A private run
   never reaches a shared row and the other way round. At most 8 ports.
   - macOS: the port is the row's slot port (`$PORT` of that run). `srt-mac.mjs` adds an outbound rule per port in
     `TRINA_REACH_PORTS` (connect only, never bind or accept; a bad list fails closed). A slot whose port a living run
     may reach is not given to another run while that run lives (`system-mac.ts` pick), so a later run on that port is
-    never reached. The real Seatbelt check is in `tests/unit/dev-env-srt-mac.test.ts`.
+    never reached. pick() reserves the slot it gives until that run's state is written, so two runs started at once
+    never get the same slot (it could before this change, across the awaited ACL grant). The real Seatbelt check is in `tests/unit/dev-env-srt-mac.test.ts`.
   - Linux: the port the AI named (`port`, kept in the row). `mycel-sandbox port-bridge` (portbridge_linux.go) waits
     for the new run's sandbox network namespace (where srt's relay listens), listens on 127.0.0.1 and ::1 there with no
     capabilities and copies to the dev server's forwarder (port-forward, the preview's), which reaches only that port

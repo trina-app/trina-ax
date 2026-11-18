@@ -458,6 +458,17 @@ describe('the macOS SrtSystem (fake Mac)', () => {
     await sys.spawn({ ...spec(base, 'eeeeeeeeeeeeeeee'), reach: [{ runId: 'aaaaaaaaaaaaaaaa', port: 47901 }] })
     expect(f.spawned[4]!.some((a) => a.startsWith('TRINA_REACH_PORTS='))).toBe(false)
   })
+  // security review of #1336: pick() then the awaited ACL grant gave the same slot to two runs started at once
+  test('two runs started at once get different slots', async () => {
+    const base = macBase()
+    const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452 } })
+    const sys = macSystem({ base, slots: ['_axdev1', '_axdev2'], portBase: 47900, poolMiB: 4096, pidsMax: 384, acl: ACL }, f.host)
+    await Promise.all([sys.spawn(spec(base, 'aaaaaaaaaaaaaaaa')), sys.spawn(spec(base, 'bbbbbbbbbbbbbbbb'))])
+    expect(f.spawned.map((a) => a[3]).sort()).toEqual(['_axdev1', '_axdev2'])
+    expect(sys.slotOf('aaaaaaaaaaaaaaaa')!.port).not.toBe(sys.slotOf('bbbbbbbbbbbbbbbb')!.port)
+    // a third at once with both taken: refused, and nothing stays reserved after a refusal or a start
+    await expect(Promise.resolve(sys.spawn(spec(base, 'cccccccccccccccc')))).rejects.toThrow('every dev slot account is in use')
+  })
   test('a slot with processes and no run (a crash) is stopped and skipped; a stop goes to the run\'s slot', async () => {
     const base = macBase()
     const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452 }, procs: [{ uid: 451, pid: 9, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'sleep' }] })
