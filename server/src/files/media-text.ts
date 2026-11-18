@@ -181,12 +181,12 @@ export const MEDIA_TEXT = {
     zh: '这里没有转写工具，所以声音没有转写。管理员可以在“团队设置 › 语音输入”中查看缺少什么。',
   },
   noModel: {
-    ko: '음성 인식 모델을 아직 내려받지 않아 소리를 받아쓰지 않았어요. 채팅에서 음성 입력을 처음 쓰면 모델을 내려받아요.',
-    en: 'The speech model is not downloaded yet, so the sound was not transcribed. It is downloaded the first time someone uses voice input in chat.',
-    id: 'Model suara belum diunduh, jadi suara tidak ditranskripsi. Model diunduh saat input suara pertama kali dipakai di percakapan.',
-    ja: '音声認識モデルをまだダウンロードしていないため、文字起こししませんでした。チャットで初めて音声入力を使うとダウンロードされます。',
-    es: 'El modelo de voz todavía no se ha descargado, por lo que el sonido no se transcribió. Se descarga la primera vez que alguien usa la entrada de voz en el chat.',
-    zh: '语音模型还没有下载，所以声音没有转写。第一次有人在对话中使用语音输入时会下载它。',
+    ko: '음성 인식 모델을 아직 내려받지 못해서 소리를 받아쓰지 않았어요. 자동으로 다시 내려받으니 몇 분 뒤에 다시 읽으면 돼요.',
+    en: 'The speech model could not be downloaded yet, so the sound was not transcribed. It is tried again automatically; reading it again in a few minutes will work.',
+    id: 'Model suara belum berhasil diunduh, jadi suara tidak ditranskripsi. Unduhan dicoba lagi secara otomatis; membaca lagi beberapa menit lagi akan berhasil.',
+    ja: '音声認識モデルをまだダウンロードできていないため、文字起こししませんでした。自動でもう一度ダウンロードするので、数分後にもう一度読み取ればできます。',
+    es: 'El modelo de voz aún no se pudo descargar, por lo que el sonido no se transcribió. Se vuelve a intentar automáticamente; leerlo de nuevo en unos minutos funcionará.',
+    zh: '语音模型还没能下载下来，所以声音没有转写。会自动重新下载，过几分钟再读取就可以了。',
   },
   slow: {
     ko: '여기서는 한 번 읽을 때 새 소리를 {min}분까지만 글로 바꿔요.',
@@ -263,14 +263,15 @@ export const MEDIA_TEXT = {
     es: 'No se encontró en este video un sonido que se pueda abrir aquí. Puede que no tenga sonido.',
     zh: '这个视频里没有找到这里能打开的声音。它可能没有声音。',
   },
-  /** {mb}: the model's size. The first use on an Apple silicon Mac started the download and it was not done in time */
+  /** {mb}: the model's size, {done}: MB downloaded so far. The download (ahead of first use, or started by a read) was not
+   * done in this read's time */
   modelDownloading: {
-    ko: '처음 한 번만 필요한 음성 인식 모델(약 {mb}MB)을 지금 내려받고 있어서 아직 소리를 글로 바꾸지 못했어요. 몇 분 뒤에 다시 해 주세요.',
-    en: 'The speech model (about {mb} MB, needed only the first time) is downloading now, so the sound was not turned into text yet. Try again in a few minutes.',
-    id: 'Model suara (sekitar {mb} MB, hanya diperlukan pertama kali) sedang diunduh, jadi suara belum diubah menjadi teks. Coba lagi beberapa menit lagi.',
-    ja: '初回だけ必要な音声認識モデル（約 {mb} MB）を今ダウンロードしているため、まだ音声をテキストにできませんでした。数分後にもう一度お試しください。',
-    es: 'El modelo de voz (unos {mb} MB, solo hace falta la primera vez) se está descargando, por lo que el sonido aún no se convirtió en texto. Vuelva a intentarlo en unos minutos.',
-    zh: '正在下载语音识别模型（约 {mb} MB，只在第一次需要），所以声音还没有转成文字。请过几分钟再试。',
+    ko: '처음 한 번만 필요한 음성 인식 모델(약 {mb}MB)을 내려받는 중이라 아직 소리를 글로 바꾸지 못했어요({done}MB 받음). 다 받으면 바로 글로 바꿀 수 있어요.',
+    en: 'The speech model (about {mb} MB, needed only the first time) is still downloading ({done} MB so far), so the sound was not turned into text yet. It can be as soon as the download is done.',
+    id: 'Model suara (sekitar {mb} MB, hanya diperlukan pertama kali) masih diunduh ({done} MB sejauh ini), jadi suara belum diubah menjadi teks. Suara bisa diubah begitu unduhan selesai.',
+    ja: '初回だけ必要な音声認識モデル（約 {mb} MB）をダウンロード中のため、まだ音声をテキストにできませんでした（{done} MB 完了）。ダウンロードが終わればすぐにテキストにできます。',
+    es: 'El modelo de voz (unos {mb} MB, solo hace falta la primera vez) todavía se está descargando ({done} MB hasta ahora), por lo que el sonido aún no se convirtió en texto. Se podrá en cuanto termine la descarga.',
+    zh: '只在第一次需要的语音识别模型（约 {mb} MB）还在下载（已下载 {done} MB），所以声音还没有转成文字。下载完成后就可以马上转写。',
   },
   framesSlow: {
     ko: '장면을 만드는 데 시간이 너무 오래 걸려 일부만 보여 줘요.',

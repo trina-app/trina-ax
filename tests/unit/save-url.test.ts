@@ -152,10 +152,10 @@ describe('saving', () => {
     expect(read('shared/media/clip.mov').equals(MOV)).toBe(true)
     expect(read('users/alice/downloads/voice.opus').equals(OPUS)).toBe(true)
   })
-  test('SVG, HTML and archives are refused by their bytes, whatever the site says; nothing is left behind', async () => {
+  test('SVG, HTML and damaged archives are refused by their bytes, whatever the site says; nothing is left behind', async () => {
     const s = setup()
     s.allow(at('/logo.svg'), at('/page'), at('/a.zip'))
-    for (const [p, what] of [['/logo.svg', 'an SVG image'], ['/page', 'an HTML page'], ['/a.zip', 'a ZIP archive']] as const) {
+    for (const [p, what] of [['/logo.svg', 'an SVG image'], ['/page', 'an HTML page'], ['/a.zip', 'a damaged ZIP file']] as const) {
       const e = await s.run(at(p), `shared/refused${p}.png`).catch((x) => x)
       expect(e).toBeInstanceOf(ToolError)
       expect(e.message).toContain(`This file is ${what}`)

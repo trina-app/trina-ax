@@ -3258,6 +3258,16 @@ export class TurnExec {
       if (writes.has(k) && !exists(v)) continue
       for (const p of this.roomNames(v)) note(p)
     }
+    // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
+    // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
+    if (tool === 'make_zip' && Array.isArray(a.paths)) {
+      const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string').flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
+      for (const f of rules.boundaryFolders()) {
+        const k = fold(f)
+        if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
+      }
+    }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
       const start = typeof a.path === 'string' ? a.path : ''
