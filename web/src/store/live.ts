@@ -4,6 +4,7 @@ import type { CredentialLogin, FileChange, Memory, ServerEvent, ServerEventData 
 import { api, API, renewWindowId, windowId } from '../lib/api'
 import { guestRemoval } from '../lib/signedOut'
 import { BrowserRelay } from '../lib/browserRelay'
+import { LocalRelay } from '../lib/localRelay'
 import { browserSettingsBridge, desktop } from '../lib/desktop'
 import { openTeamFile } from '../lib/sidePanel'
 import { conflictText, toldHere } from '../lib/conflictNotice'
@@ -71,6 +72,8 @@ export const chatActivity = new Emitter<string>()
 
 let client: RealtimeClient | null = null
 let relay: BrowserRelay | null = null
+/** apps on this computer (lib/localRelay.ts) */
+let localRelay: LocalRelay | null = null
 /** this window's own activity for the team's online status (lib/presence.ts) */
 let activity: ReturnType<typeof startActivity> | null = null
 let firstServerVersion: string | null = null
@@ -289,6 +292,12 @@ export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: 
     case 'browser.cancel':
       relay?.cancel(ev.data.callId)
       return
+    case 'local.call':
+      localRelay?.handleCall(ev.data.call)
+      return
+    case 'local.cancel':
+      localRelay?.cancel(ev.data.callId)
+      return
     case 'navFolders.changed':
       navFoldersChanged.emit(ev.data.kind)
       return
@@ -355,6 +364,7 @@ export function startLive() {
     },
   })
   relay = new BrowserRelay((f) => client?.send(f))
+  localRelay = new LocalRelay((f) => client?.send(f))
   activity = startActivity((state) => client?.send({ type: 'presence', state }), desktop()?.systemActivity?.onChange, !!desktop())
   // this window's "typing" in a room's box (lib/roomTyping.ts decides when; dropped while disconnected)
   setTypingOut((roomId, threadRootId, typing) => client?.send({ type: 'room.typing', roomId, threadRootId, typing }))
@@ -379,6 +389,7 @@ export function stopLive() {
   client?.stop()
   client = null
   relay = null
+  localRelay = null
   usePresence.getState().clear()
   useTyping.getState().clear()
   setTypingOut(() => {})

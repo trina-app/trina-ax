@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
-import { BrowserCall } from '@mycel/shared/api'
+import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
@@ -45,6 +45,7 @@ import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
 import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
+import { LocalAppsHost } from './local-apps'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -154,6 +155,8 @@ if (primary) app.on('open-url', (e, url) => {
 let win: AppWindow | undefined
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
 const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
+/** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
+let localApps: LocalAppsHost | undefined
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -293,7 +296,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -308,6 +311,24 @@ function registerIpc() {
     return pane.run(call.data)
   })
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
+  // apps on this computer (main/local-apps.ts): only the open team's page, for that team; the app's own dialog asks
+  // before a command runs, and the page never answers it
+  ipcMain.handle('bridge:local-run', async (e, raw: unknown): Promise<LocalResult> => {
+    const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (!team || !localApps) return { callId, ok: false, failure: 'not_desktop', error: 'no team is open in the desktop app' }
+    const call = LocalCall.safeParse(raw)
+    if (!call.success) return { callId, ok: false, failure: 'failed', error: 'malformed call' }
+    return localApps.apps.call(team, call.data)
+  })
+  ipcMain.on('bridge:local-cancel', (e, callId: unknown) => fromApp(e) && typeof callId === 'string' && localApps?.apps.cancel(callId.slice(0, 100)))
+  ipcMain.on('bridge:local-stop', (e, id: unknown) => {
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (team && typeof id === 'string') localApps?.apps.stop(team, id.slice(0, 100))
+  })
+  ipcMain.handle('bridge:local-running', (e) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.apps.runningIds(team) : [] })
+  ipcMain.handle('bridge:local-settings', (e, id: unknown, values: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.setSettings(team, id, values) : 'unavailable' })
+  ipcMain.handle('bridge:local-setting-names', (e, id: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.settingNames(team, id) : [] })
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
     // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)
@@ -485,6 +506,14 @@ function buildMenu() {
 
 async function createWindow() {
   store = new TeamsStore(app.getPath('userData'))
+  localApps ??= new LocalAppsHost({
+    userData: app.getPath('userData'),
+    parent: () => (win && !win.win.isDestroyed() ? win.win : null),
+    locale,
+    teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
+    // Settings shows whether the program runs now: told to the open team's page
+    onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+  })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
@@ -558,9 +587,11 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => debug('before-quit'))
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
+    // every program an app on this computer started ends with the app
+    localApps?.apps.stopAll()
     if (flushed) return
     e.preventDefault()
     const id = win?.team?.id ?? lastTeam

@@ -1,7 +1,7 @@
 // Preload of the team page (sandboxed, contextIsolation). Exposes window.mycelDesktop (shared/src/desktop-bridge.ts)
 // and nothing else: browser relay functions, pane open/close/state, connection state, notifications (a click opens the
 // address the page named; Settings › Notifications' test notification), downloads (a notice when one ends, Show in folder by its number), the dock badge, the window's focus, a picture put on the clipboard (이미지 복사), team list and the teams menu, and
-// a connector sign-in's one-time return address (its port only), Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
+// a connector sign-in's one-time return address (its port only), apps on this computer (calls, Stop, setting values in; never the confirm), Settings > Browser (read the site setting, back to asking, remove / clear always-allowed sites; "all" only asks the
 // main process, which shows its own confirmation dialog).
 // The main process re-checks every call: top frame only, team origin only (main/main.ts, common/trust.ts).
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; meeting?: number; downloads?: boolean } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; meeting?: number; downloads?: boolean; localApps?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -116,6 +116,21 @@ const bridge: DesktopBridge = {
           openSoundSettings: () => ipcRenderer.send('bridge:meeting-sound-settings'),
           unsaved: () => ipcRenderer.invoke('bridge:meeting-unsaved'),
           saved: (startedAt: number) => ipcRenderer.send('bridge:meeting-saved', Number(startedAt)),
+        },
+      }
+    : {}),
+  // apps on this computer (main/local-apps.ts): calls in, answers out; the confirm is the app's own dialog
+  ...(info?.localApps
+    ? {
+        localApps: {
+          version: info.localApps,
+          run: (call) => ipcRenderer.invoke('bridge:local-run', call),
+          cancel: (callId) => ipcRenderer.send('bridge:local-cancel', String(callId)),
+          stop: (id) => ipcRenderer.send('bridge:local-stop', String(id)),
+          running: () => ipcRenderer.invoke('bridge:local-running'),
+          onRunning: on('bridge:local-running'),
+          setSettings: (id, values) => ipcRenderer.invoke('bridge:local-settings', String(id), values && typeof values === 'object' ? { ...values } : {}),
+          settingNames: (id) => ipcRenderer.invoke('bridge:local-setting-names', String(id)),
         },
       }
     : {}),
