@@ -45,14 +45,18 @@ export type QueueStep = 'wait' | 'send' | { pause: 'stopped' | 'error' }
  * - the person stopped the answer: pause, keep them, offer "Send now";
  * - the answer failed, or a send failed ("not sent"): pause the same way (the cause may still be there).
  */
-export function nextStep(messages: readonly ViewMessage[], o: { me?: string } = {}): QueueStep {
+export function nextStep(messages: readonly ViewMessage[], o: { me?: string; creator?: string } = {}): QueueStep {
   if (messages.some((m) => m.local?.state === 'sending')) return 'wait'
   const last = messages.at(-1)
   if (!last) return 'send'
   if (last.local) return { pause: 'error' }
   if (last.role !== 'assistant' || last.status === 'streaming') return 'wait'
-  // a shared chat (`me`): someone else's answer stopped or failed is theirs; mine still go
-  if (o.me && (last.status === 'stopped' || last.status === 'error') && messages.find((m) => m.id === last.parentId)?.author?.id !== o.me) return 'send'
+  // a shared chat (`me`): someone else's answer stopped or failed is theirs; mine still go. A question with no author
+  // (from before authors were kept) is the chat's creator's
+  if (o.me && (last.status === 'stopped' || last.status === 'error')) {
+    const q = messages.find((m) => m.id === last.parentId)
+    if ((q?.author?.id ?? o.creator) !== o.me) return 'send'
+  }
   if (last.status === 'stopped') return { pause: 'stopped' }
   if (last.status === 'error') return { pause: 'error' }
   return 'send'
@@ -101,7 +105,7 @@ export const combinedClientId = (take: readonly QueuedMessage[]) => `${take[0]!.
  * the answer it waited for is the newest message (it ended meanwhile, nothing else happened). Otherwise it waits
  * for "Send now", so a message typed long ago never drops into a conversation that has moved on.
  */
-export function restoredQueue(stored: ChatQueue, messages: readonly ViewMessage[], o: { me?: string } = {}): ChatQueue {
+export function restoredQueue(stored: ChatQueue, messages: readonly ViewMessage[], o: { me?: string; creator?: string } = {}): ChatQueue {
   if (!stored.items.length || stored.paused) return stored
   if (nextStep(messages, o) === 'wait') return stored
   if (stored.after && messages.at(-1)?.id === stored.after) return stored

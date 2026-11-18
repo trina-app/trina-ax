@@ -625,7 +625,7 @@ export const ko = {
   "outbox.remove": "보내지 않기",
   "outbox.removed": "메시지를 보내지 않기로 했어요.",
   "outbox.full": "기다리는 메시지가 너무 많아요. 답이 끝난 뒤 보내 주세요.",
-  "outbox.othersWaiting": "다른 사람의 메시지 {n}개가 보내기를 기다리고 있어요.",
+  "outbox.othersWaiting": "다른 사람 {n}명의 메시지가 보내기를 기다리고 있어요.",
 
   'composer.label': '메시지',
   'composer.placeholder': '무엇이든 물어보세요',

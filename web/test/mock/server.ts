@@ -6416,10 +6416,9 @@ export class MockServer {
     for (const [id, p] of places) if (Date.now() - p.seen > 45_000) places.delete(id)
     return places
   }
-  /** Chat.shared.waiting for `viewer`: how many of the others' messages wait */
+  /** Chat.shared.waiting for `viewer`: how many other people have messages waiting */
   othersWaiting(chatId: string, viewer: string): { waiting?: number } {
-    let n = 0
-    for (const [id, p] of this.freshWaiting(chatId)) if (id !== viewer) n += p.count
+    const n = [...this.freshWaiting(chatId).keys()].filter((id) => id !== viewer).length
     return n ? { waiting: n } : {}
   }
   /** (the layer is in place; set while the mock is made, after the handlers above) */
@@ -8130,7 +8129,7 @@ export class MockServer {
       if (n) places.set(c.user.id, { since: old?.since ?? Date.now(), seen: Date.now(), count: n })
       else places.delete(c.user.id)
       this.sharedWaitingPlaces.set(chatId, places)
-      if ((old?.count ?? 0) !== n) this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: chatOf(chatId) } })
+      if (!!old !== !!n) this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: chatOf(chatId) } })
       return { status: 204, body: null }
     }
     over('sendMessage', (c, base) => {
@@ -8144,11 +8143,14 @@ export class MockServer {
       const places = this.freshWaiting(c.params.id!)
       const mine = places.get(c.user.id)?.since ?? Infinity
       const first = [...places].filter(([id, p]) => id !== c.user.id && p.since < mine).sort((a, b) => a[1].since - b[1].since)[0]
-      if (first) fail('conflict', 409, `${nameOf(first[0])}님의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.`, undefined, { reason: 'shared_chat_next' })
+      if (first) fail('conflict', 409, '다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', undefined, { reason: 'shared_chat_next' })
       places.delete(c.user.id)
       const chat = chatOf(c.params.id!)
       const attachments = teamOnly(c.body.attachmentIds as string[])
-      const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
+      // `after` (a waiting message): the newest end of the branch through it
+      const newestUnder = (id: string): string => { let cur = id; for (;;) { const kids = this.messages.filter((m) => m.chatId === chat.id && m.parentId === cur); if (!kids.length) return cur; cur = kids.at(-1)!.id } }
+      const after = c.body.parentId === undefined && typeof c.body.after === 'string' ? (c.body.after as string) : null
+      const parentId = after ? newestUnder(after) : c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
       ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
       return started(user, this.sharedTurn(chat, c.user, c.body.content, user.id))

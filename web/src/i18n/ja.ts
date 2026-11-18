@@ -611,7 +611,7 @@ export const ja: Record<MessageKey, string> = {
   "outbox.remove": "送信しない",
   "outbox.removed": "メッセージを取り消しました。送信されません。",
   "outbox.full": "送信待ちのメッセージが多すぎます。回答が終わってから送信してください。",
-  "outbox.othersWaiting": "ほかの人のメッセージ{n, plural, one {#件} other {#件}}が送信を待っています。",
+  "outbox.othersWaiting": "ほかの{n, plural, one {#人} other {#人}}のメッセージが送信を待っています。",
   'composer.label': "メッセージ",
   'composer.placeholder': "何でも質問してください",
   "composer.answerPlaceholder": "AIの質問への回答を入力",

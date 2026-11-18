@@ -669,7 +669,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       await expect(outbox.getByTestId('outbox-status')).toHaveText('답이 끝나면 보낼게요.')
       await expect(b.getByTestId('composer-input')).toHaveValue('')
       // Olga sees only that one message waits, never its text or file
-      await expect(page.getByTestId('outbox-others')).toHaveText('다른 사람의 메시지 1개가 보내기를 기다리고 있어요.')
+      await expect(page.getByTestId('outbox-others')).toHaveText('다른 사람 1명의 메시지가 보내기를 기다리고 있어요.')
       await expect(page.getByText('이것도')).toHaveCount(0)
       await expect(page.getByText('plan-v2.zip')).toHaveCount(0)
       await audit(b, 'queued in a shared chat')
@@ -679,7 +679,7 @@ for (const vp of [{ name: '1440', phone: false, use: { viewport: { width: 1440, 
       if (vp.phone) await page.getByTestId('send-later').click()
       else await page.getByTestId('composer-input').press('Enter')
       await expect(page.getByTestId('outbox').getByTestId('outbox-text')).toHaveText('그리고 요약도')
-      await expect(b.getByTestId('outbox-others')).toHaveText('다른 사람의 메시지 1개가 보내기를 기다리고 있어요.')
+      await expect(b.getByTestId('outbox-others')).toHaveText('다른 사람 1명의 메시지가 보내기를 기다리고 있어요.')
       // a reload keeps Bob's waiting message, still waiting for the answer
       await b.reload()
       await expect(b.getByTestId('outbox').getByTestId('outbox-text')).toHaveText('이것도')

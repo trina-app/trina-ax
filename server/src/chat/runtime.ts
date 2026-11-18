@@ -569,6 +569,8 @@ export class ChatRuntime {
 
   /** Stop this person's running and queued turns in these chats (they lost the chats: stopTurnsIn). */
   stopUserTurnsIn(userId: string, chatIds: readonly string[]): number {
+    // their messages waiting there no longer hold a place in line (shared-waiting.ts)
+    this.sharedWaiting.dropUser(userId, chatIds)
     const lost = new Set(chatIds)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
@@ -925,6 +927,8 @@ export class ChatRuntime {
       if (this.activeTurn(chat.id) || this.db.query("SELECT 1 FROM turns WHERE chat_id=? AND status IN ('queued','running')").get(chat.id))
         throw new HttpError('conflict')
       queueSeq = this.queueStore.admit(o.userId)
+      // the next quiet moment gives the first in line a fresh grace period (shared-waiting.ts)
+      this.sharedWaiting.turnStarted(chat.id)
       if (o.user) {
         userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
@@ -1092,6 +1096,8 @@ export class ChatRuntime {
     // an old room AI session (chats.room_id, docs/DECISIONS.md "Room @트리나 code removed") is not one of the person's
     // chats (not in the Trina list)
     if (r?.room_id) return
+    // gone, in the trash or no longer shared: nobody's messages wait there any more (shared-waiting.ts)
+    if (!r || r.deleted_at || change === 'deleted' || !isSharedRow(r)) this.sharedWaiting.drop(chatId)
     // a shared project chat: everyone who sees it now gets it as they see it (chat/shared.ts); what is worth telling
     // (a card, a long answer) and a window's own change are only for the person whose turn it is (`userId`)
     if (r && isSharedRow(r)) {

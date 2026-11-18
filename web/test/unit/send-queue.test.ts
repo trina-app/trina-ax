@@ -63,6 +63,10 @@ describe('rules', () => {
     }
     // someone else's question with no answer shown yet (their turn started): wait
     expect(nextStep([theirs], { me: me.id })).toBe('wait')
+    // a question with no author (kept before authors were) is the chat's creator's
+    const old = msg({ role: 'user', content: 'q' })
+    expect(nextStep([old, msg({ role: 'assistant', parentId: old.id, status: 'stopped' })], { me: me.id, creator: me.id })).toEqual({ pause: 'stopped' })
+    expect(nextStep([old, msg({ role: 'assistant', parentId: old.id, status: 'stopped' })], { me: me.id, creator: 'bob' })).toBe('send')
     const q = { items: [item('a'), item('b')], paused: null, after: null }
     expect(declaredCount(q, false)).toBe(2)
     expect(declaredCount(q, true)).toBe(0)
@@ -297,6 +301,8 @@ describe('the runner', () => {
       await tick(20)
       expect(sends()).toHaveLength(1)
       expect(sends()[0]!.body.parentId).toBeUndefined()
+      // under the newest end of the branch this page last saw (SendMessageBody.after)
+      expect(sends()[0]!.body.after).toBe(before.id)
       expect(sends()[0]!.body.content).toBe('this too')
       // still counted while on its way, then 0 when nothing waits any more
       await tick(10)
@@ -319,6 +325,36 @@ describe('the runner', () => {
       expect(useChats.getState().threads[CHAT]!.messages.some((m) => m.local)).toBe(false)
       // the place in line was never given up (1 while waiting, 1 while on its way, 1 again)
       expect(waits().every((n) => n === 1)).toBe(true)
+    })
+
+    test('with another chat on screen: Bob\'s turn ending reads the chat again here, so mine still go; a chat not loaded says 0', async () => {
+      const before = msg({ role: 'assistant', status: 'done' })
+      const theirs = { ...msg({ role: 'user', content: 'Bob asks', author: bob }), parentId: before.id }
+      const answer = msg({ role: 'assistant', parentId: theirs.id, status: 'done' })
+      useChats.setState({ chats: [sharedChat({ answering: { name: 'Bob' } })], threads: { [CHAT]: { messages: [before, theirs], nextCursor: null, stale: false } } })
+      route = (m, p, body) => (m === 'PUT' ? new Response(null, { status: 204 })
+        : m === 'GET' && p.endsWith('/messages') ? json({ items: [before, theirs, answer], nextCursor: null })
+        : m === 'GET' && p.endsWith('/queue') ? json({ state: 'idle', turnId: null, messageId: null, position: null, epoch: 'e', revision: 1 })
+        : json(started(answer.id, body?.content ?? ''), 202))
+      useSendQueue.getState().enqueue(me.id, CHAT, { content: 'this too', attachments: [], author: me })
+      await tick(10)
+      expect(sends()).toHaveLength(0)
+      // his turn ends (chat.updated): no page reads the chat, the queue's runner does
+      useChats.setState({ chats: [sharedChat()] })
+      await tick(30)
+      expect(calls.some((c) => c.method === 'GET' && c.path === `/api/chats/${CHAT}/messages`)).toBe(true)
+      expect(sends()).toHaveLength(1)
+      expect(sends()[0]!.body.after).toBe(answer.id)
+
+      // a shared chat whose messages this window does not have: its waiting messages hold no place
+      useSendQueue.getState().reset()
+      useChats.getState().reset()
+      calls = []
+      useChats.setState({ chats: [sharedChat({ answering: { name: 'Bob' } })] })
+      stored.set(queueKey(me.id, CHAT), serializeQueue({ items: [item('later')], paused: null, after: null }))
+      useSendQueue.setState({ userId: me.id, queues: { [CHAT]: { items: [item('later')], paused: null, after: null } } })
+      await tick(10)
+      expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
     })
 
     test('Bob stopped his answer: mine still go; my own stopped answer pauses them', async () => {

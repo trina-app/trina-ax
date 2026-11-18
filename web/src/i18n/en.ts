@@ -626,7 +626,7 @@ export const en: Record<MessageKey, string> = {
   "outbox.remove": "Don't send",
   "outbox.removed": "Message removed. It will not be sent.",
   "outbox.full": "Too many messages are waiting. Send this one after the answer is done.",
-  "outbox.othersWaiting": "{n, plural, one {# message from someone else is} other {# messages from others are}} waiting to be sent.",
+  "outbox.othersWaiting": "{n, plural, one {Someone else has a message} other {# other people have messages}} waiting to be sent.",
 
   'composer.label': 'Message',
   'composer.placeholder': 'Ask anything',

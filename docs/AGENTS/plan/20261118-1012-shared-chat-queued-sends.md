@@ -57,3 +57,9 @@ docs/decisions/20261118-shared-chat-queued-sends.md
 Built as planned. Two people's waiting messages go one turn each in the order they were queued (unit, server and
 two-person e2e tests; checked on a copy of the QA team with three people). Known limit: one person queueing from two
 devices at once has one place in line for both, so those two devices' messages are not ordered between themselves.
+
+Review of #1280 (changes needed), fixed on the branch: a first place nobody uses holds the chat for 12 s at most, the
+queue's runner reads a shared chat again when someone else's turn starts or ends and says a count only for chats it
+follows; a rate limit and fewer events on the route (people, not messages); no new place from a refresh just after a
+send; the refusal names nobody; places dropped with the chat and with a removed person; `after` instead of the active
+end; a question with no author is the creator's.

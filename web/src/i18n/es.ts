@@ -611,7 +611,7 @@ export const es: Record<MessageKey, string> = {
   "outbox.remove": "No enviar",
   "outbox.removed": "Mensaje quitado. No se enviará.",
   "outbox.full": "Hay demasiados mensajes en espera. Envíe este cuando termine la respuesta.",
-  "outbox.othersWaiting": "{n, plural, one {# mensaje de otra persona espera} other {# mensajes de otras personas esperan}} para enviarse.",
+  "outbox.othersWaiting": "{n, plural, one {Otra persona tiene un mensaje} other {Otras # personas tienen mensajes}} esperando para enviarse.",
   'composer.label': "Mensaje",
   'composer.placeholder': "Pregunte lo que necesite",
   "composer.answerPlaceholder": "Escriba su respuesta a la pregunta de la IA",

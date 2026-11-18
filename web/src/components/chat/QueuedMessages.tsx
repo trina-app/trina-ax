@@ -2,7 +2,7 @@
 // edited or taken back; a stopped or failed answer pauses them with "Send now". The status line is a polite live
 // region, so a screen reader hears "waiting" and "paused" without the focus moving. A shared chat: a file from the
 // computer in a waiting message keeps the line saying where it was saved and who can see it, and one quiet line says how
-// many messages of the others wait (never whose or what: docs/decisions/20261118-shared-chat-queued-sends.md).
+// many other people have messages waiting (never whose or what: docs/decisions/20261118-shared-chat-queued-sends.md).
 import clsx from 'clsx'
 import { Clock, FileText, FolderOpen, Pencil, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -15,7 +15,7 @@ import { WithRoomRefs } from './RoomRefMenu'
 import { fromWire, toWire } from '../../lib/roomRefs'
 import { SharedQueuedLine } from './ComposerFiles'
 
-/** a shared chat: who sees the files (as the line under the box counts them), and how many of the others' messages wait */
+/** a shared chat: who sees the files (as the line under the box counts them), and how many other people have messages waiting */
 export interface QueueShared { audience: number; kind?: 'project' | 'people'; othersWaiting: number }
 
 export default function QueuedMessages({ chatId, onFocusComposer, shared }: { chatId: string; onFocusComposer: () => void; shared?: QueueShared }) {

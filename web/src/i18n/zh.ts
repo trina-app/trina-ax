@@ -610,7 +610,7 @@ export const zh: Record<MessageKey, string> = {
   "outbox.remove": "不发送",
   "outbox.removed": "消息已移除，不会发送。",
   "outbox.full": "等待发送的消息太多。请在回答结束后再发送这条。",
-  "outbox.othersWaiting": "其他人有{n, plural, one {#条消息} other {#条消息}}正在等待发送。",
+  "outbox.othersWaiting": "其他{n, plural, one {#人} other {#人}}的消息正在等待发送。",
   "composer.label": "消息",
   "composer.placeholder": "问点什么",
   "composer.answerPlaceholder": "输入你对 AI 问题的回答",

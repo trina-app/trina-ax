@@ -626,7 +626,7 @@ export const id: Record<MessageKey, string> = {
   "outbox.remove": "Jangan kirim",
   "outbox.removed": "Pesan dihapus dan tidak akan dikirim.",
   "outbox.full": "Terlalu banyak pesan yang menunggu. Kirim pesan ini setelah jawaban selesai.",
-  "outbox.othersWaiting": "{n} pesan dari orang lain menunggu untuk dikirim.",
+  "outbox.othersWaiting": "Pesan dari {n} orang lain menunggu untuk dikirim.",
 
   'composer.label': 'Pesan',
   'composer.placeholder': 'Tanya apa saja',
