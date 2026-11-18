@@ -2583,6 +2583,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.project.adopted": "プロジェクトのないフォルダーをプロジェクトにした",
   'audit.act.project.share_chats': "プロジェクトのチャット共有を変更",
   'audit.act.chat.shared_read': "共有チャットの読み取り確認",
+  'audit.act.chat.shared_connection': "共有チャットの接続サービス確認",
   'audit.act.chat.delete': "共有チャットを削除",
   'audit.act.chat.share': "チャットを共有",
   "audit.act.chat.side_chat_unshared": "トークの横のチャットをプロジェクトから外しました",

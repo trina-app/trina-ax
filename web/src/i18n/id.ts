@@ -2621,6 +2621,7 @@ export const id: Record<MessageKey, string> = {
   "audit.act.project.adopted": "Folder tanpa proyek dijadikan proyek",
   'audit.act.project.share_chats': "Berbagi chat proyek diubah",
   'audit.act.chat.shared_read': "Konfirmasi baca di chat bersama",
+  'audit.act.chat.shared_connection': "Konfirmasi layanan terhubung di chat bersama",
   'audit.act.chat.delete': "Chat bersama dihapus",
   'audit.act.chat.share': "Membagikan obrolan",
   "audit.act.chat.side_chat_unshared": "Obrolan di samping percakapan dikeluarkan dari proyek",
