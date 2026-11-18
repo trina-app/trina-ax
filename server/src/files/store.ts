@@ -38,7 +38,7 @@ function refuseNotRegular(st: fs.Stats) {
  * opening". Without `seen` (server-owned folders: uploads, caches, work folders) the file is only checked to be
  * regular.
  */
-function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
+export function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
   if (seen) { refuseNotRegular(seen); return openChecked(abs, seen) }
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
