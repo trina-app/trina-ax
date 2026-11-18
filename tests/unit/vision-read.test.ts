@@ -14,7 +14,7 @@ import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_IMAGES, parsePages, smallForModel, visionTools } from '../../server/src/files/vision'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_IMAGES, parsePages, setApiVisionTurn, smallForModel, visionTools } from '../../server/src/files/vision'
 import { issueProxyToken } from '../../server/src/proxy/model-proxy'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
@@ -497,8 +497,17 @@ describe('no pixels: team switch off, the API engine, a connection without a tur
       expect(texts(api)).toContain('reads text only')
       A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
       const ko = await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` })
-      expect(texts(ko)).toContain('API 엔진')
+      expect(texts(ko)).toContain('글자만 읽어서')
       A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run()
+      // a model that takes images (engine/api-vision.ts; chat/turn.ts marks its turn): the pixels go, as for Claude Code
+      setApiVisionTurn(turn, true)
+      try {
+        const seen = await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` })
+        expect(images(seen)).toHaveLength(1)
+        expect(texts(seen)).not.toContain('reads text only')
+      } finally { setApiVisionTurn(turn, false) }
+      expect(images(await handler('alice', turn).call('read', { file_path: `${ALICE}/photo.png` }))).toEqual([])
+      codec.mockClear()
       const remote = await A.ctx.files.call('read', { file_path: `${ALICE}/photo.png` }, A.toolCtx('alice', null))
       expect(remote.content).toBeUndefined()
       expect(remote.text).toContain('carries text only')

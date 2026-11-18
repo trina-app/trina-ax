@@ -889,6 +889,15 @@ export const chatsRoutes: RouteModule = {
       if (done === 'not_an_option') fail('validation', tr('answerNotOption', c.get('locale')))
     })
 
+    // a card's long text (chat/card-fold.ts): the turn's own person, while the card is open
+    kit.handle(API.turnRequestDetail, ({ c, params, auth }) => {
+      const exec = ownTurn(params.id, auth)
+      const i = /^\d{1,2}$/.test(params.index) ? Number(params.index) : -1
+      const text = exec && i >= 0 ? exec.cardDetailText(params.requestId, i) : null
+      if (text === null) fail('conflict', tr('requestClosed', c.get('locale')))
+      return { text: text! }
+    })
+
     // a connect_service card (chat/connect-service.ts): the key arrives sealed for 'integration.secret' and goes into the
     // connection's store only; the AI learns the outcome
     kit.handle(API.connectTurn, ({ c, params, body, auth }) => finishCard(ctx, ownTurn(params.id, auth), auth, body, c.get('locale')))

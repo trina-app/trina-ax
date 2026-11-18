@@ -470,12 +470,17 @@ export type FolderEditPreview = z.infer<typeof FolderEditPreview>
 
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
-export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean() })
+export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean(),
+  /** whether the model takes pictures (server engine/api-vision.ts): `detected` what its server says (null: it does not
+   * say), `choice` the admin's "Reads pictures" (used only while `detected` is null). Absent: an older server */
+  vision: z.object({ detected: z.boolean().nullable(), choice: z.enum(['on', 'off']).nullable() }).optional() })
 export const ApiEngineBody = z.object({
   baseUrl: z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'http(s) only'),
   model: z.string().min(1).max(200),
   label: z.string().max(40).optional(),
   key: z.string().max(500).nullable().optional(),
+  /** "Reads pictures" while the model's server does not say: on, off, null to clear, absent to keep */
+  vision: z.enum(['on', 'off']).nullable().optional(),
   /** the caller's own password again (admin-reauth) */
   password: z.string().min(1).max(256),
 })

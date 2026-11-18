@@ -203,8 +203,13 @@ function argLines(args: unknown, L: Locale): { fields: { name: string; value: st
   return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L)).join(' › '), value: f.value })), exact: false }
 }
 
-/** more than this cannot be checked on a card: such a write is refused, never shown cut */
-export const MAX_CARD_PAYLOAD = 100_000
+/** more than this is refused (Claude Code has no cap; this keeps one call's card within memory). A card carries the
+ * start of a longer text and the rest on request (chat/card-fold.ts), so every character can still be checked; it is
+ * never cut (docs/decisions/20261118-api-images-connector-cap-delete-cards.md) */
+export const MAX_CARD_PAYLOAD = 10_000_000
+/** above this a call's card names only the recipients as lines and shows the call's text (folded): every value as a
+ * labelled line would repeat the whole text */
+export const CARD_LINES_MAX = 100_000
 /** argument names that say where something goes or who sees it */
 export const RECIPIENT = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)|chat_?id|conversation(_?id)?|thread(_?id)?|repo(sitory)?|owner|org(anization)?|project(_?(id|key))?|space(_?key)?|team(_?id)?|workspace|url|link|webhook(_?url)?|endpoint|address|domain|host|users?(_?(id|name)s?)?|assignees?|share_?with|visibility|public|parent(_?id)?|folder(_?id)?|page_?id|database_?id|list_?id|board_?id)$/i
 
@@ -503,7 +508,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // watch from their own app; a new recipient, an address or another tool asks
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
-  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
+  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} one call may send, so nothing was sent. Send it in parts.`, 'refused (too large to confirm)')
   if (!sharedMode && live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
@@ -511,7 +516,7 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
-  const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
+  const shown = size > CARD_LINES_MAX ? { fields: sent.fields, exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]

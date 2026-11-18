@@ -42,7 +42,7 @@ import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
-import { textTokens } from '../files/vision'
+import { setApiVisionTurn, textTokens } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
@@ -97,6 +97,8 @@ import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { runApiAgent } from '../engine/api-agent'
+import { foldCardDetails } from './card-fold'
+import { apiSeesImages } from '../engine/api-vision'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
@@ -205,7 +207,8 @@ export interface TurnSpec extends QueueTiming {
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
 /** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number }
+/** `full`: the whole texts of the card's details it carries only the start of (chat/card-fold.ts), by detail index */
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number; full?: Map<number, string> }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -1337,10 +1340,15 @@ export class TurnExec {
       this.attemptHadOutput = false
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
+      // a model that takes images gets the pictures its reads give (engine/api-vision.ts: what its server says, else
+      // the admin's choice); else the text path and the plain note (files/vision.ts visionBlock)
+      const images = (await apiSeesImages(api, { signal: this.abort.signal })).images
+      setApiVisionTurn(spec.turnId, images)
       try {
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
-      } finally { this.continueMode = null; this.connectedSince = [] }
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(),
+          images, onImagesRefused: () => setApiVisionTurn(spec.turnId, false) })
+      } finally { this.continueMode = null; this.connectedSince = []; setApiVisionTurn(spec.turnId, false) }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (err && !this.stopReason) {
@@ -4244,10 +4252,12 @@ export class TurnExec {
     }
     return shown
   }
-  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
+  private showCard(asked: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
+    // a detail longer than the card carries (a write of millions of characters): its start, the rest on request
+    const { request, full } = foldCardDetails(asked)
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now(), ...(full ? { full } : {}) })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
       if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
@@ -4305,6 +4315,8 @@ export class TurnExec {
   }
   /** one open card of this turn, or null (answered, expired, the turn ended) */
   openRequest(requestId: string): TurnRequest | null { return this.requests.get(requestId)?.request ?? null }
+  /** the whole text of a detail an open card carries only the start of (chat/card-fold.ts), or null */
+  cardDetailText(requestId: string, index: number): string | null { return this.requests.get(requestId)?.full?.get(index) ?? null }
 
   private closeRequest(requestId: string, value: unknown, reason: 'answered' | 'timeout' | 'turn_ended') {
     const r = this.requests.get(requestId)

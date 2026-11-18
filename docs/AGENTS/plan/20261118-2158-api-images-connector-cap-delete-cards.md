@@ -1,6 +1,6 @@
 # API engine reads images; connector writes up to 10M characters; delete and access cards without a count cap
 
-- Date (UTC): 2026-11-19
+- Date (UTC): 2026-11-18 21:58
 - Branch: `fix/api-images-connector-cap-delete-cards`
 - Status: in progress
 - Where: Team AX core (server engine, connections, chat tools; web card). Why: chat, AI connection and permission code lives in the core (docs/REPOSITORY-RULES.md)
@@ -43,7 +43,7 @@ without a wait); members of several projects on one card.
 
 ## Decisions
 
-docs/decisions/20261119-api-images-connector-cap-delete-cards.md
+docs/decisions/20261118-api-images-connector-cap-delete-cards.md
 
 ## Result
 

@@ -557,7 +557,9 @@ export const ChangeProjectMembersInput = z.strictObject({
  * 20261116-team-folder-ai-and-ask.md): ONE person or group on ONE team folder per call, after the owner's or an admin's
  * yes on the server's card every time. A member gets an "Ask an admin" button instead. Never a personal folder, a
  * project's folder, General access or Limit access. */
-export const ChangeFolderAccessInput = z.strictObject({
+/** changes one change_folder_access call may hold: all of them on one card */
+export const FOLDER_CHANGES_MAX = 20
+const FolderChangeFields = {
   folder: z.string().trim().min(1).max(4096).describe('The team folder (its team path, e.g. "Sales/Reports"); not under users/, not a project\'s folder.'),
   action: z.enum(['add', 'change', 'remove']).describe('add a person or group, change their level, or take them off.'),
   who: z.strictObject({
@@ -565,6 +567,20 @@ export const ChangeFolderAccessInput = z.strictObject({
     id: z.string().trim().min(1).max(64).optional().describe('Only the id the tool gave back among this name\'s candidates.'),
   }),
   access: z.enum(['view', 'edit']).optional().describe('For add and change. Default for add: view.'),
+}
+export const FolderChange = z.strictObject(FolderChangeFields)
+export type FolderChange = z.infer<typeof FolderChange>
+/** One change (folder, action, who, access), or several in `changes` (one card lists them all). */
+export const ChangeFolderAccessInput = z.strictObject({
+  folder: FolderChangeFields.folder.optional(),
+  action: FolderChangeFields.action.optional(),
+  who: FolderChangeFields.who.optional(),
+  access: FolderChangeFields.access,
+  changes: z.array(FolderChange).min(1).max(FOLDER_CHANGES_MAX).optional().describe('Several changes at once (more people, more folders): each with folder, action, who and access; the user sees one card that lists them all. Use it instead of folder, action, who and access.'),
+}).superRefine((v, c) => {
+  const one = v.folder !== undefined || v.action !== undefined || v.who !== undefined || v.access !== undefined
+  if (v.changes && one) c.addIssue({ code: 'custom', message: 'give either changes or folder, action and who, not both' })
+  else if (!v.changes && (v.folder === undefined || v.action === undefined || v.who === undefined)) c.addIssue({ code: 'custom', message: 'folder, action and who are required (or give changes)' })
 })
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
