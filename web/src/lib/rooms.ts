@@ -7,6 +7,10 @@ import { roomCounts, roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, 
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
 export interface TitleWords { all: string; gone: string; names?: (names: string, more: number) => string; sep?: string; alone?: string }
 
+/** From this many members (me included) a message with "@전체" asks before it goes (components/rooms/RoomComposer.tsx),
+ * unless the person said "Don't ask again" (prefs.mentionAllAsk). */
+export const MENTION_ALL_CONFIRM = 10
+
 /** How many of a group chat's other members its title names before "외 N명". */
 export const TITLE_NAMES = 3
 
