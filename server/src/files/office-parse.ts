@@ -8,7 +8,8 @@
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
-import { checkZip, isZip, tooComplex } from './zip-guard'
+import { checkZip, isZip, readCentral, tooComplex, ZipProblem } from './zip-guard'
+import { bigSheetPart, bigSheetText, parseRange, pickSheet, PART_ROWS_MAX, type SheetAsk } from './sheet-stream'
 import { docxExtraText, pptxExtraText } from './ooxml'
 import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
 import { hwpxWriteRequest } from './hwpx-write'
@@ -139,15 +140,68 @@ function sheetPart(name: string, ws: XLSX.WorkSheet): string {
   return out.join('\n')
 }
 
-export function sheetText(bytes: Uint8Array): string {
+/**
+ * An .xlsx larger than this, or one whose parts expand past the zip check's total, is read a sheet piece at a time
+ * (sheet-stream.ts). SheetJS holds every cell in memory: about 120 times the file (1.3 GB for an 11 MB export, 2.3 GB
+ * for 18 MB, measured 2026-11-18), where the streaming reader takes about 200 MB and a quarter of the time.
+ */
+export const SHEETJS_MAX = 2 * 1024 * 1024
+
+/** Is this a workbook for the streaming reader (an .xlsx zip that SheetJS would hold whole)? */
+export function streamsSheets(ext: string, bytes: Uint8Array): boolean {
+  if (ext !== 'xlsx' || !isZip(bytes)) return false
+  if (bytes.byteLength > SHEETJS_MAX) return true
+  try { readCentral(bytes) } catch (e) { return e instanceof ZipProblem && e.kind === 'complex' && /expands to more than/.test(e.why) }
+  return false
+}
+
+/** A spreadsheet's text: the whole workbook (or, when it is too large, its overview), or one sheet's range. */
+export async function workbookText(ext: string, bytes: Uint8Array, ask?: SheetAsk): Promise<string> {
+  const wanted = ask && (ask.sheet !== undefined || ask.range !== undefined)
+  if (streamsSheets(ext, bytes)) return wanted ? bigSheetPart(bytes, ask!) : bigSheetText(bytes)
+  if (wanted) return sheetRangeText(bytes, ask!)
+  try { return sheetText(bytes) } catch (e) {
+    // more text than one read gives: an .xlsx gets its overview from the streaming reader instead
+    if (ext === 'xlsx' && isZip(bytes) && e instanceof ToolError && e.message.includes('MB of text')) return bigSheetText(bytes)
+    throw e
+  }
+}
+
+function readBook(bytes: Uint8Array): XLSX.WorkBook {
   if (isZip(bytes)) checkZip(bytes)
-  let wb: XLSX.WorkBook
   try {
-    wb = XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, sheetStubs: true, cellFormula: true, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
+    return XLSX.read(bytes, { type: 'array', dense: true, sheetRows: SHEET_ROWS_MAX, sheetStubs: true, cellFormula: true, cellHTML: false, cellStyles: false, bookVBA: false, bookFiles: false })
   } catch (e) {
     if (e instanceof ToolError) throw e
     throw new ToolError(`could not read this spreadsheet (${String((e as Error)?.message ?? e).slice(0, 200)})`)
   }
+}
+
+/** One sheet's range (read's `sheet` and `range`) of a workbook SheetJS reads, at most PART_ROWS_MAX rows. */
+function sheetRangeText(bytes: Uint8Array, ask: SheetAsk): string {
+  const wb = readBook(bytes)
+  const name = pickSheet(wb.SheetNames.map((n) => ({ name: n })), ask.sheet).name
+  const ws = wb.Sheets[name]!
+  formulaStubsAsText(ws)
+  boundRange(ws)
+  const q = parseRange(ask.range)
+  if (!ws['!ref']) return `# sheet: ${labelName(name)} (tab-separated)\n# no rows with data`
+  const r = XLSX.utils.decode_range(ws['!ref'])
+  const s = { r: Math.max(r.s.r, q.r0 - 1), c: Math.max(r.s.c, q.c0) }
+  const e = { r: Math.min(r.e.r, q.r1 === Infinity ? r.e.r : q.r1 - 1), c: Math.min(r.e.c, q.c1) }
+  if (s.r > e.r || s.c > e.c) return `# sheet: ${labelName(name)} (tab-separated)\n# no rows with data in ${ask.range ?? 'this sheet'}; the sheet's range is ${ws['!ref']}`
+  let more: number | null = null
+  if (e.r - s.r + 1 > PART_ROWS_MAX) { more = s.r + PART_ROWS_MAX + 1; e.r = s.r + PART_ROWS_MAX - 1 }
+  ws['!ref'] = XLSX.utils.encode_range({ s, e })
+  const text = sheetPart(name, ws)
+  if (more === null) return text
+  const c0 = XLSX.utils.encode_col(s.c), c1 = XLSX.utils.encode_col(Math.min(r.e.c, q.c1))
+  return `${text}\n# more rows follow (from row ${more}): read on with sheet "${labelName(name)}", range "${c0}${more}:${c1}${q.r1 === Infinity ? r.e.r + 1 : q.r1}"`
+}
+
+export function sheetText(bytes: Uint8Array): string {
+  let wb: XLSX.WorkBook
+  wb = readBook(bytes)
   const out: string[] = []
   let size = 0
   for (const s of wb.SheetNames) {
@@ -165,12 +219,13 @@ export function sheetText(bytes: Uint8Array): string {
 // comment_docx's mode: Word comments added to a .docx (docx-comment.ts), a write mode like the others above
 WRITE_MODES.add(DOCX_COMMENT_MODE)
 
-/** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read. */
-export function officeText(ext: string, bytes: Uint8Array): string {
+/** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read.
+ * `ask`: one sheet and range of a spreadsheet (read's `sheet` / `range`). */
+export function officeText(ext: string, bytes: Uint8Array, ask?: SheetAsk): string | Promise<string> {
   switch (ext) {
     case 'docx-extra': return docxExtraText(bytes)
     case 'pptx-extra': return pptxExtraText(bytes)
-    case 'xlsx': case 'xls': case 'ods': return sheetText(bytes)
+    case 'xlsx': case 'xls': case 'ods': return workbookText(ext, bytes, ask)
     case 'hwp': return hwpText(bytes)
     case 'hwpx': return hwpxText(bytes)
     default: throw new ToolError(`not a format of the office worker: ${ext}`)

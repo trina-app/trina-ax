@@ -86,7 +86,7 @@ describe('resource caps (L10)', () => {
     // one core less than the budget, at most 4 (one whisper.cpp at a time: jobs/whisper-turns.ts)
     expect(whisperThreads()).toBe(Math.max(2, Math.min(4, cpuBudget() - 1)))
     expect(typstJobs()).toBe(2)
-    expect(inProcessParseMax()).toBe(32 * 1024 * 1024)
+    expect(inProcessParseMax()).toBe(200 * 1024 * 1024)
     expect(readMaxBytes()).toBe(64 * 1024 * 1024)
     expect(backupRetentionDays()).toBe(3)
     // a 2-core box gives whisper.cpp both (QA 2026-11-01: 179 s instead of 226 s for 2 minutes of speech)
@@ -96,9 +96,11 @@ describe('resource caps (L10)', () => {
     expect(whisperThreads()).toBe(1)
     expect(rgThreads()).toBe(1)
   })
-  test('spreadsheets and Hangul files above 32 MB are not parsed in the server process (where limits apply)', async () => {
+  test('spreadsheets and Hangul files above 200 MB are not given to the office worker (where limits apply)', async () => {
     setLimitsPlatformForTests('linux')
-    const big = new Uint8Array(33 * 1024 * 1024)
+    // 33 MB was refused before 2026-11-18 (docs/decisions/20261118-limits-office-read.md): now the worker reads it
+    await expect(extractText('a.hwp', new Uint8Array(33 * 1024 * 1024), { pandoc: null, pdftotext: null })).rejects.not.toThrow(TOO_BIG_IN_PROCESS)
+    const big = new Uint8Array(200 * 1024 * 1024 + 1)
     for (const name of ['a.xlsx', 'a.xls', 'a.ods', 'a.hwp', 'a.hwpx']) await expect(extractText(name, big, { pandoc: null, pdftotext: null })).rejects.toThrow(TOO_BIG_IN_PROCESS)
     setLimitsPlatformForTests('darwin')
     setPlanForTests(null)
