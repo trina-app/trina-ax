@@ -9,14 +9,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
-import { _active, setSrtSystem } from '../../server/src/devenv/srt/runner'
+import { _active, accessHash, setSrtSystem, spaceOf } from '../../server/src/devenv/srt/runner'
+import { holdSkillFolders, isSkillPlaceholder } from '../../server/src/devenv/srt/placeholders'
+import { copyCodeLine } from '../../server/src/chat/tools'
 import { unitName } from '../../server/src/devenv/srt/config'
 import type { SrtSystem, SpawnSpec, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
 import { boxShellTool, namesOthersSkills, OTHERS_SKILLS_REFUSAL } from '../../server/src/devenv/tool'
 import { folderView, sharedFolderView, viewAccess } from '../../server/src/devenv/srt/access'
-import { copyKey, othersSkillRoots, refuseSkillScriptCopy } from '../../server/src/skills/script-copies'
+import { copyKey, othersSkillRoots, refuseSkillScriptCopy, scriptCopyRefusal } from '../../server/src/skills/script-copies'
 
 setDefaultTimeout(60_000)
 const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
@@ -128,7 +130,7 @@ describe('box_shell never sees a group or project skills folder (QA TC-4932)', (
     expect(out(await shell({ project: P }).call({ command: 'echo ok2' }))).toContain('ok2')
     expect(last().settings.filesystem.denyRead).toContain(abs(`${P.folderPath}/skills`))
     const n = runs.size
-    for (const command of [`cp "$TRINA_TEAM/${GROUP_SCRIPT}" . && python3 x.py`, 'python3 $TRINA_TEAM/groups/marketing/skills/grp-tool/scripts/x.py', `cat "../../${P.folderPath}/skills/proj-tool/scripts/y.py"`]) {
+    for (const command of [`cp "$TRINA_TEAM/${GROUP_SCRIPT}" . && python3 x.py`, 'python3 $TRINA_TEAM/groups/marketing/skills/grp-tool/scripts/x.py', `cat "$TRINA_TEAM/${P.folderPath}/skills/proj-tool/scripts/y.py"`]) {
       const r = await shell().call({ command })
       expect(r.isError).toBe(true)
       expect(out(r)).toBe(OTHERS_SKILLS_REFUSAL)
@@ -138,42 +140,107 @@ describe('box_shell never sees a group or project skills folder (QA TC-4932)', (
     expect(runs.size).toBe(n)
   })
 
-  test('which command texts name such a folder', () => {
-    for (const c of ['python3 $TRINA_TEAM/groups/m/skills/t/x.py', 'cp ${TRINA_TEAM}/projects/p/skills/a/x.py .', "cat 'groups/m/SKILLS/x'", 'cd ../../groups/m/skills', 'ls projects/p/skills', 'cat "projects/Proj X/skills/a/y.py"']) expect(namesOthersSkills(c)).toBe(true)
-    for (const c of ['cat shared/groups/x/skills/a', 'python3 $TRINA_TEAM/skills/team/scripts/x.py', 'echo groups/x/skillset', 'ls groups/m/notes']) expect(namesOthersSkills(c)).toBe(false)
+  test('which command texts name such a folder: only paths under $TRINA_TEAM (the run hides the rest anyway)', () => {
+    for (const c of ['python3 $TRINA_TEAM/groups/m/skills/t/x.py', 'cp ${TRINA_TEAM}/projects/p/skills/a/x.py .', 'cat "$TRINA_TEAM/groups/m/SKILLS/x"', 'ls $TRINA_TEAM//projects/p/skills', 'cat "$TRINA_TEAM/projects/Proj X/skills/a/y.py"']) expect(namesOthersSkills(c)).toBe(true)
+    for (const c of ['cat shared/groups/x/skills/a', 'python3 $TRINA_TEAM/skills/team/scripts/x.py', 'echo $TRINA_TEAM/groups/x/skillset', 'ls $TRINA_TEAM/groups/m/notes', 'cd ../../groups/m/skills', 'ls projects/p/skills']) expect(namesOthersSkills(c)).toBe(false)
+  })
+
+  test('a run\'s empty skills placeholder is not a group or project skills folder; who makes or removes one never changes another person\'s run hash', async () => {
+    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const space = spaceOf(h.ctx, { userId: 'alice', chatId: chat, project: null })!
+    const before = accessHash(h.ctx, space)
+    // bob's group gets a skills folder, then loses it again: alice's runs keep their hash
+    fs.mkdirSync(abs('groups/finance/skills/new-one'), { recursive: true })
+    expect(othersSkillRoots(team)).toContain('groups/finance/skills')
+    expect(accessHash(h.ctx, space)).toBe(before)
+    fs.rmSync(abs('groups/finance/skills'), { recursive: true })
+    expect(accessHash(h.ctx, space)).toBe(before)
+    // a placeholder a run holds (a project's absent skills folder) is left out of the hidden folders
+    const ph = 'projects/placeholder-test'
+    fs.mkdirSync(abs(ph), { recursive: true })
+    const release = holdSkillFolders(team, [`${ph}/skills`])
+    try {
+      expect(fs.existsSync(abs(`${ph}/skills`))).toBe(true)
+      expect(isSkillPlaceholder(path.join(team, ph, 'skills'))).toBe(true)
+      expect(othersSkillRoots(team, isSkillPlaceholder)).not.toContain(`${ph}/skills`)
+      expect(othersSkillRoots(team)).toContain(`${ph}/skills`)
+    } finally { release(); fs.rmSync(abs(ph), { recursive: true, force: true }) }
   })
 })
+describe('the file tools never save a copy of one that the chat read (QA TC-4932)', () => {
+  const read = (file_path: string) => ({ tool: 'read', args: { file_path } })
+  const write = (file_path: string, content: string) => ({ tool: 'write', args: { file_path, content }, sayResult: true })
+  const say = async (chat: string, ...steps: unknown[]) => (await ask(h, alice, 'alice', chat, fakeLine(...steps))).done.content
+  const newChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id
 
-describe('the file tools never save a copy of one (QA TC-4932)', () => {
-  const turnWrite = async (file_path: string, content: string) => {
-    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
-    return (await ask(h, alice, 'alice', chat, fakeLine({ tool: 'write', args: { file_path, content }, sayResult: true }))).done.content
-  }
-  test('write: the same text (other line endings, extra spaces too) is refused, nothing saved; other text saves', async () => {
+  test('read, then written elsewhere (other line endings and spaces too): refused, nothing saved, the path named', async () => {
     for (const [i, content] of [SCRIPT, SCRIPT.replace(/\n/g, '  \r\n') + '\n\n'].entries()) {
-      const said = await turnWrite(`users/alice/copy${i}.py`, content)
-      expect(said).toContain(`it is a copy of ${GROUP_SCRIPT}, a file of a group's or project's skill`)
+      const said = await say(await newChat(), read(GROUP_SCRIPT), write(`users/alice/copy${i}.py`, content))
+      expect(said).toContain(`it is a copy of ${GROUP_SCRIPT}, a file of a group's or project's skill that this chat read`)
       expect(fs.existsSync(abs(`users/alice/copy${i}.py`))).toBe(false)
     }
-    expect(await turnWrite('shared/proj-copy.py', SCRIPT.replace('print', 'print("p",'))).toContain(`it is a copy of ${PROJ_SCRIPT()}`)
-    expect(await turnWrite('users/alice/mine.py', 'print("a script of my own that is long enough")\n')).toContain('Created users/alice/mine.py')
+    expect(await say(await newChat(), read(PROJ_SCRIPT()), write('users/alice/proj-copy.py', SCRIPT.replace('print', 'print("p",')))).toContain(`it is a copy of ${PROJ_SCRIPT()}`)
+    expect(await say(await newChat(), read(GROUP_SCRIPT), write('users/alice/mine.py', 'print("a script of my own that is long enough")\n'))).toContain('Created users/alice/mine.py')
   })
 
-  test('edit into a copy is refused; the SKILL.md text and people\'s own saves are not checked', async () => {
+  test('read in an earlier answer of the chat, written in a later one: refused too', async () => {
+    const chat = await newChat()
+    await say(chat, read(GROUP_SCRIPT), { say: 'read it' })
+    const said = await say(chat, write('users/alice/later.py', SCRIPT))
+    expect(said).toContain('it is a copy of')
+    expect(fs.existsSync(abs('users/alice/later.py'))).toBe(false)
+  })
+
+  test('edit into a copy is refused; the SKILL.md text, people\'s own saves and saves in a skill folder are not checked', async () => {
     put('users/alice/half.py', SCRIPT.replace('print(root, files)', 'pass'))
-    const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
-    const said = (await ask(h, alice, 'alice', chat, fakeLine({ tool: 'read', args: { file_path: 'users/alice/half.py' } }, { tool: 'edit', args: { file_path: 'users/alice/half.py', old_string: 'pass', new_string: 'print(root, files)' }, sayResult: true }))).done.content
+    const said = await say(await newChat(), read(GROUP_SCRIPT), read('users/alice/half.py'), { tool: 'edit', args: { file_path: 'users/alice/half.py', old_string: 'pass', new_string: 'print(root, files)' }, sayResult: true })
     expect(said).toContain('it is a copy of')
     expect(fs.readFileSync(abs('users/alice/half.py'), 'utf8')).toContain('pass')
     // the instructions themselves (Markdown) may be quoted into a note
     const md = fs.readFileSync(abs('groups/marketing/skills/grp-tool/SKILL.md'), 'utf8')
-    expect(await turnWrite('users/alice/notes.md', md)).toContain('Created users/alice/notes.md')
-    // outside a chat turn (the Files screen) nothing is refused
-    expect(() => refuseSkillScriptCopy({ turnId: null }, team, 'users/alice/x.py', Buffer.from(SCRIPT))).not.toThrow()
-    expect(() => refuseSkillScriptCopy({ turnId: 't' }, team, 'users/alice/x.py', Buffer.from(SCRIPT))).toThrow(/a copy of/)
-    // a save inside a group's skills folder has its own card (skills/guard.ts), not this refusal
-    expect(() => refuseSkillScriptCopy({ turnId: 't' }, team, 'groups/marketing/skills/grp-tool/scripts/x2.py', Buffer.from(SCRIPT))).not.toThrow()
-    // too short to tell from a coincidence
+    expect(await say(await newChat(), read('groups/marketing/skills/grp-tool/SKILL.md'), write('users/alice/notes.md', md))).toContain('Created users/alice/notes.md')
+    const files = { allReads: new Map([[GROUP_SCRIPT, 'h']]) }
+    const yes = () => true
+    expect(() => refuseSkillScriptCopy({ turnId: null, files }, team, 'users/alice/x.py', Buffer.from(SCRIPT), yes)).not.toThrow()
+    expect(() => refuseSkillScriptCopy({ turnId: 't', files }, team, 'users/alice/x.py', Buffer.from(SCRIPT), yes)).toThrow(/a copy of groups\/marketing/)
+    expect(() => refuseSkillScriptCopy({ turnId: 't', files }, team, 'groups/marketing/skills/grp-tool/scripts/x2.py', Buffer.from(SCRIPT), yes)).not.toThrow()
     expect(copyKey(Buffer.from('print(1)\n'))).toBeNull()
+  })
+
+  test('a copy of a file this chat never read is not compared; the refusal names a path only when the person may read it now', () => {
+    expect(() => refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map() } }, team, 'users/alice/x.py', Buffer.from(SCRIPT), () => true)).not.toThrow()
+    // read in an earlier answer, no longer readable (carried): refused without naming it
+    let msg = ''
+    try { refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map(), carried: { hashes: new Map([[GROUP_SCRIPT, 'x']]) } } }, team, 'users/alice/x.py', Buffer.from(SCRIPT), () => false) } catch (e) { msg = (e as Error).message }
+    expect(msg).toContain('it is a copy of a file, a file of a group\'s or project\'s skill')
+    expect(msg).not.toContain('groups/')
+    expect(scriptCopyRefusal('a.py', null)).not.toContain('marketing')
+  })
+
+  test('a save costs no walk of the skills folders: 2,000 group skill files and a save stays fast', () => {
+    for (let i = 0; i < 2000; i++) put(`groups/marketing/skills/bulk/scripts/f${i}.py`, `print("file number ${i} of the bulk skill")\n`)
+    try {
+      const t0 = performance.now()
+      for (let i = 0; i < 50; i++) refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map([['shared/a.md', 'h'], [GROUP_SCRIPT, 'h']]) } }, team, `users/alice/n${i}.py`, Buffer.from(`print("an unrelated script number ${i}")\n`), () => true)
+      expect(performance.now() - t0).toBeLessThan(500)
+    } finally { fs.rmSync(abs('groups/marketing/skills/bulk'), { recursive: true, force: true }) }
+  })
+})
+
+describe('copying a group or project skill that holds code (move_skill keep)', () => {
+  const files = [{ path: 'groups/marketing/skills/grp-tool/SKILL.md' }, { path: 'groups/marketing/skills/grp-tool/scripts/x.py' }]
+  const group = { level: 'group', group: { id: 'marketing', name: 'Marketing' } }
+  test('the card says who wrote the code and that it runs with the copy\'s users\' access', () => {
+    const l = copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files } as never, 'en')
+    expect(l).toContain('1 script or code file written by members of the group "Marketing"')
+    expect(l).toContain('can run with the access of whoever uses the copy, you included')
+    expect(copyCodeLine({ copy: true, from: { level: 'project', project: { id: 'p', name: 'Atlas' } }, to: { level: 'team' }, files } as never, 'en')).toContain('people who can change the project "Atlas"')
+    expect(copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files } as never, 'ko')).toContain('Marketing')
+  })
+  test('nothing for a move, a Markdown-only skill, a team skill, or a copy to another group or project', () => {
+    expect(copyCodeLine({ copy: false, from: group, to: { level: 'personal' }, files } as never, 'en')).toBe('')
+    expect(copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files: files.slice(0, 1) } as never, 'en')).toBe('')
+    expect(copyCodeLine({ copy: true, from: { level: 'team' }, to: { level: 'personal' }, files } as never, 'en')).toBe('')
+    expect(copyCodeLine({ copy: true, from: group, to: { level: 'group', group: { id: 'f', name: 'F' } }, files } as never, 'en')).toBe('')
   })
 })

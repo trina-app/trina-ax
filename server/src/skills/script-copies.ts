@@ -5,27 +5,29 @@
 //   - box_shell: every run hides the group and project skills folders (devenv/srt/access.ts RunWrites.othersSkills,
 //     the folders from othersSkillRoots below), so a command cannot read, copy or run a file there; a command that
 //     names such a folder is refused before it runs (devenv/tool.ts).
-//   - the file tools: an AI-side save outside those folders whose content is a copy of a file in one of them (the AI
-//     read it, then wrote or edited it elsewhere to run it from there) is refused (refuseSkillScriptCopy, called by
-//     files/service.ts next to requireSkillApproval). Copy and move of a skill folder's files are refused already
-//     (skills/guard.ts SKILL_FILES_REFUSAL).
+//   - the file tools: an AI-side save outside those folders whose content is an exact copy of such a file that this turn
+//     or an earlier answer of this chat read (the turn's read records: TurnFiles.allReads and carried; the AI read it, then wrote or edited it elsewhere to run it from there) is
+//     refused (refuseSkillScriptCopy, called by files/service.ts next to requireSkillApproval). Only what was read is
+//     compared: nothing is walked, so a save costs at most a few small reads. Copy and move of a skill folder's files
+//     are refused already (skills/guard.ts SKILL_FILES_REFUSAL).
 // Text is compared after line endings and trailing spaces are evened out, so a copy with other line endings or a
-// final newline is the same copy. A rewritten script is not caught here; the AI's rule says never to copy one.
+// final newline is the same copy. A rewritten script, or a copy made in a run, is not caught here.
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { Denied } from '../policy/errors'
 import { skillRootOf } from '@mycel/shared/skill-roots'
 
-/** files looked at per skills folder walk, and the largest one compared (a script, not a data file) */
-const MAX_FILES = 2000
+/** read files compared per save (the newest reads first), and the largest one compared (a script, not a data file) */
+const MAX_COMPARED = 200
 const MAX_BYTES = 1 << 20
 /** shorter normalised text is never taken as a copy (an empty __init__.py, "print(1)") */
 const MIN_TEXT = 24
 
 /** The group and project skills folders on disk, team-relative (groups/<folder>/skills and projects/<name>/skills, in
- * any letter case: skillRootOf). Only groups/ and projects/ are walked, two levels down. */
-export function othersSkillRoots(root: string): string[] {
+ * any letter case: skillRootOf). Only groups/ and projects/ are read, two levels down. `skip`: a folder to leave out by
+ * its absolute path (a run's empty placeholder, devenv/srt/placeholders.ts isSkillPlaceholder). */
+export function othersSkillRoots(root: string, skip?: (abs: string) => boolean): string[] {
   const out: string[] = []
   const dirs = (abs: string) => { try { return fs.readdirSync(abs, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name) } catch { return [] } }
   const holder = (t: string) => { const k = skillRootOf(`${t}/x/skills`)?.kind; return k === 'group' || k === 'project' }
@@ -34,7 +36,7 @@ export function othersSkillRoots(root: string): string[] {
       for (const sub of dirs(path.join(root, top, name))) {
         const rel = `${top}/${name}/${sub}`
         const r = skillRootOf(rel)
-        if (r && r.kind !== 'team' && rel.split('/').length === 3) out.push(rel)
+        if (r && r.kind !== 'team' && rel.split('/').length === 3 && !skip?.(path.join(root, top, name, sub))) out.push(rel)
       }
     }
   }
@@ -56,56 +58,46 @@ export function copyKey(data: Uint8Array): string | null {
   return b.length < MIN_TEXT ? null : 'b:' + crypto.createHash('sha256').update(b).digest('hex')
 }
 
-/** per absolute path: what was read last time (size and mtime decide whether it is read again) */
-const cache = new Map<string, { size: number; mtimeMs: number; key: string | null }>()
+/** What a turn read, as files/service.ts TurnFiles keeps it: every file any agent of this answer read (allReads: path
+ * -> sha256; readPaths is drained after each call) and the files of the chat's earlier answers (carried). */
+export interface ReadRecords { allReads: ReadonlyMap<string, string>; carried?: { hashes: ReadonlyMap<string, string> } | null }
 
-/** The copy keys of every file in the group and project skills folders but their SKILL.md and other Markdown (the
- * instructions themselves, which the AI may quote), each with where it is. */
-export function othersScriptKeys(root: string): Map<string, string> {
-  const out = new Map<string, string>()
-  for (const top of othersSkillRoots(root)) {
-    let n = 0
-    const walk = (rel: string, d: number) => {
-      if (d > 6 || n >= MAX_FILES) return
-      let ents: fs.Dirent[] = []
-      try { ents = fs.readdirSync(path.join(root, rel), { withFileTypes: true }) } catch { return }
-      for (const e of ents) {
-        if (n >= MAX_FILES) return
-        const r = `${rel}/${e.name}`
-        if (e.isDirectory()) { walk(r, d + 1); continue }
-        if (!e.isFile() || /\.md$/i.test(e.name)) continue
-        n++
-        const abs = path.join(root, r)
-        let st: fs.Stats
-        try { st = fs.statSync(abs) } catch { continue }
-        if (st.size > MAX_BYTES) continue
-        const c = cache.get(abs)
-        let key = c && c.size === st.size && c.mtimeMs === st.mtimeMs ? c.key : undefined
-        if (key === undefined) {
-          try { key = copyKey(fs.readFileSync(abs)) } catch { continue }
-          cache.set(abs, { size: st.size, mtimeMs: st.mtimeMs, key })
-        }
-        if (key) out.set(key, r)
-      }
-    }
-    walk(top, 0)
-  }
+/** The files of a group's or project's skill (not Markdown: the instructions, which may be quoted) that this turn or
+ * an earlier answer of this chat read, newest first, at most MAX_COMPARED. */
+export function readSkillFiles(files: ReadRecords): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  const add = (rel: string) => { if (!seen.has(rel) && inOthersSkills(rel) && !/\.md$/i.test(rel) && out.length < MAX_COMPARED) { seen.add(rel); out.push(rel) } }
+  for (const r of [...files.allReads.keys()].reverse()) add(r)
+  for (const r of files.carried?.hashes.keys() ?? []) add(r)
   return out
 }
 
-/** The refusal of a copy (exported for tests). */
-export const scriptCopyRefusal = (rel: string, from: string) =>
-  `nothing was saved to '${rel}': it is a copy of ${from}, a file of a group's or project's skill. Other members wrote it, and the scripts of group and project skills never run or get copied (they would run with this user's access). Follow the skill's other steps, and tell the user that a skill manager can make it a team skill if they need its script.`
+/** The refusal of a copy. `from`: the file it copies when the person may read it now, else null (no path named). */
+export const scriptCopyRefusal = (rel: string, from: string | null) =>
+  `nothing was saved to '${rel}': it is a copy of ${from ?? 'a file'}, a file of a group's or project's skill that this chat read. Other members wrote it, and the scripts and other code of group and project skills never run or get copied (they would run with this user's access). Follow the skill's other steps, and tell the user that a skill manager can make it a team skill if they need its code.`
 
 /**
  * Called right before an AI-side tool (a chat turn: turnId set) puts `data` at `rel` outside a group's or project's
- * skills folder: refused when it is a copy of a file in one of them (othersScriptKeys). Writes in a skill folder have
- * their own card (skills/guard.ts); people's saves on the file screen pass.
+ * skills folder: refused when it is an exact copy (copyKey) of a group or project skill file that this turn or this
+ * chat read (readSkillFiles). Each such file is read again now (it may have changed since). `mayRead`: whether the
+ * person may read a path now (the refusal names only such a path). Writes in a skill folder have their own card
+ * (skills/guard.ts); people's saves on the file screen pass.
  */
-export function refuseSkillScriptCopy(ctx: { turnId: string | null }, root: string, rel: string, data: Uint8Array): void {
+export function refuseSkillScriptCopy(ctx: { turnId: string | null; files: ReadRecords }, root: string, rel: string, data: Uint8Array, mayRead: (rel: string) => boolean): void {
   if (ctx.turnId === null || inOthersSkills(rel)) return
+  const candidates = readSkillFiles(ctx.files)
+  if (!candidates.length) return
   const key = copyKey(data)
   if (!key) return
-  const from = othersScriptKeys(root).get(key)
-  if (from) throw new Denied(scriptCopyRefusal(rel, from))
+  for (const c of candidates) {
+    const abs = path.join(root, ...c.split('/'))
+    let bytes: Buffer
+    try {
+      const st = fs.lstatSync(abs)
+      if (!st.isFile() || st.size > MAX_BYTES) continue
+      bytes = fs.readFileSync(abs)
+    } catch { continue }
+    if (copyKey(bytes) === key) throw new Denied(scriptCopyRefusal(rel, mayRead(c) ? c : null))
+  }
 }

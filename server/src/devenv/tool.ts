@@ -451,10 +451,11 @@ export const blockedHint = (o: { full: boolean }) => o.full
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
 
-/** a path of a group's or project's skills folder in a command (groups/<folder>/skills, projects/<name>/skills, any
- * letter case, with or without $TRINA_TEAM in front; a folder name may hold spaces). A hint for a clear refusal only:
- * the run itself never has these folders (srt/access.ts RunWrites.othersSkills), however the command names them */
-const OTHERS_SKILLS_PATH = /(?:^|[\s'"`=:(<>;|&])(?:\$\{?TRINA_TEAM\}?\/|\$\{?HOME\}?\/)?(?:\.\.?\/)*(?:groups|projects)\/[^/\n'"`]+?\/skills(?=$|[\/\s'"`;|&)<>*?])/i
+/** a path of a group's or project's skills folder under $TRINA_TEAM in a command ($TRINA_TEAM/groups/<folder>/skills,
+ * $TRINA_TEAM/projects/<name>/skills, any letter case; a folder name may hold spaces). A hint for a clear refusal only,
+ * so a relative path or a look-alike elsewhere is not refused by its text: the run itself never has these folders
+ * (srt/access.ts RunWrites.othersSkills), however the command names them */
+const OTHERS_SKILLS_PATH = /\$\{?TRINA_TEAM\}?\/+(?:\.\/+)*(?:groups|projects)\/+[^/\n'"`]+?\/+skills(?=$|[\/\s'"`;|&)<>*?])/i
 export const namesOthersSkills = (s: string) => OTHERS_SKILLS_PATH.test(s.normalize('NFC'))
 export const OTHERS_SKILLS_REFUSAL = 'Not run: this command names a group\'s or project\'s skills folder. Those folders are not in the dev environment: other members wrote what is there, and their scripts never run or get copied (they would run with this user\'s access). Follow the skill\'s other steps, and tell the user that a skill manager can make it a team skill if they need its script.'
 

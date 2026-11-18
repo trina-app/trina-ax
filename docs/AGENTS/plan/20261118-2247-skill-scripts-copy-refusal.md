@@ -15,13 +15,16 @@ A group skill whose text says "copy scripts/x.py to your work folder and run it"
 ## Scope
 
 In:
-- Every box_shell run hides groups/<folder>/skills and projects/<name>/skills (srt denyRead), normal and shared runs.
-- A command that names one of them, or a cwd in the project's own skills folder, is refused before it runs.
-- An AI-side save (write, edit, a conflict copy) outside those folders whose content is a copy of one of their files
-  (not Markdown) is refused. Copy and move of skill folder files were refused already.
-- The prompt lines say "never run or copy", and that the server refuses it.
+- Every box_shell run hides groups/<folder>/skills and projects/<name>/skills (srt denyRead), normal and shared runs; a
+  run's own empty placeholder is left out, and the run hash is made without them (nobody stops others' jobs).
+- A command that names one under $TRINA_TEAM, or a cwd in the project's own skills folder, is refused before it runs.
+- An AI-side save (write, edit, a conflict copy) outside those folders that is an exact copy of a group or project skill
+  file this chat read is refused (read records only, no walk); the path is named only when the person may read it.
+- The prompt: never run or copy any code a group or project skill contains or points to.
+- move_skill keep: the card says who wrote a group or project skill's code and that it can run with the copy's access.
 
-Out: a script the AI rewrites in its own words (not a copy); skill_files' person-approved take-out.
+Out: a rewritten script, code a skill points to elsewhere, copies made inside a run, skill_files' person-approved
+take-out, and refusing runs of files in folders others can write (later).
 
 ## Steps
 
@@ -44,4 +47,5 @@ tests/unit/skill-script-copies.test.ts (fails on dev without the fix), the dev-e
 
 ## Result
 
-Built as planned. PR link in the PR.
+Built as planned, then reworked after the security review of #1344 (read records instead of a walk, placeholders and
+the hash, wording, the move_skill card). PR #1344.
