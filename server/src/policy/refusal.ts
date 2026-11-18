@@ -163,9 +163,11 @@ const LABEL = {
   history: t('버전 기록', 'Version history', 'Riwayat versi', 'バージョン履歴', 'Historial de versiones', '版本历史'),
   // Admin › System › Connected folders (web connected.title)
   connectedFolders: t('연결 폴더', 'Connected folders', 'Folder tersambung', '接続済みフォルダー', 'Carpetas conectadas', '已连接的文件夹'),
+  // Files › Shared with me: the files panel's section of files and folders shared with the person (web filesPanel.shared)
+  sharedWithMe: t('나에게 공유된 파일', 'Shared with me', 'Dibagikan ke saya', '自分に共有されたファイル', 'Compartidos conmigo', '与我共享的文件'),
   // a shared project chat's title menu (web chat.continuePrivately)
   continuePrivately: t('나만 보는 채팅에서 이어 하기', 'Continue in a chat only you see', 'Lanjutkan di obrolan yang hanya Anda lihat', '自分だけのチャットで続ける', 'Continuar en un chat que solo ve usted', '在只有你能看到的对话中继续'),
-  // the button under an answer in a person's own chat that sends it to the team's skill managers (web suggest.button)
+  // the button under an answer in a person's own chat that suggests it as a new skill (web suggest.button)
   suggest: t('스킬로 제안', 'Suggest as skill', 'Usulkan sebagai skill', 'スキルとして提案', 'Sugerir como habilidad', '建议为技能'),
 } satisfies Record<string, L5>
 // the AI's name in the side panel's button (web sideChat.open {name}; chat/i18n.ts aiCalled)
@@ -202,6 +204,8 @@ export const SCREEN = {
   /** a shared project chat's title menu item that opens a new private chat in the same project with the last question
    * (web chat.continuePrivately) */
   continuePrivately: (L: Locale) => LABEL.continuePrivately[L],
+  /** Files › Shared with me: what teammates shared with the person one by one */
+  sharedWithMe: (L: Locale) => `Files › Shared with me ("${LABEL.files[L]} › ${LABEL.sharedWithMe[L]}")`,
 } as const satisfies Record<string, (L: Locale) => string>
 
 // ---------------- who can give access ----------------
@@ -250,29 +254,32 @@ export function readOnlyNote(db: Database, text: string, L: Locale, o: { userId:
   const m = /read-only(?: folder)?: you cannot (?:change|create files in) '([^']*)'/.exec(text)
   if (!m || text.includes(`Write access to '${m[1]}'`)) return null
   const g = writeGranters(db, m[1]!, L, o.sees, o.nameable)
-  if (m[1]!.split('/')[0]!.normalize('NFC').toLowerCase() === 'skills') return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). ${teamSkillNext(L, o.button)}`
+  if (m[1]!.split('/')[0]!.normalize('NFC').toLowerCase() === 'skills') return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). ${teamSkillNext(L)}`
   const own = o.button ? `they also get a button under your answer to save it in their own folder (users/${o.userId}), and you may save it there if they ask` : `you may save it in their own folder (users/${o.userId}) if they ask`
   return `Write access to '${m[1]}': ${g.who} can give it (${g.how}). Next step: tell the user so; ${own}.`
 }
 
+/** "Suggest as skill" (web suggest.button) turns an answer or a file into a NEW skill: registering it never changes an
+ * existing one (approveSuggestion refuses a file of that name). The AI offered it for a change to the quote skill (AI
+ * scenarios SKL-01.member, SKL-02.approval, 2026-11-17), so the next step names it only to rule it out. */
+const notSuggest = (L: Locale, what: string) => `"${LABEL.suggest[L]}" under an answer suggests a new skill, never a change to ${what}: do not offer it for this.`
+
 /**
  * The next step after a read-only team skill (skills/…): the people who manage team skills change it; the person can
- * send the change for review with the "Suggest as skill" button under the answer (`button`: a person's own chat, where
- * the answer has it; web Messages.tsx canSuggest), or keep a personal copy. Scenario SKL-02.member: the note offered
+ * tell them what to change (the AI writes the message) or keep a personal copy. Scenario SKL-02.member: the note offered
  * "save it in their own folder (users/<id>)" and the AI pasted the whole changed skill for the person to copy by hand.
  */
-function teamSkillNext(L: Locale, button: boolean): string {
-  const suggest = button ? `the "${LABEL.suggest[L]}" button under your answer sends this change to them for review (say the change in a sentence or two for it), or, ` : ''
-  return 'Next step: tell the user in a sentence that only the people who manage team skills change a team skill; then offer, a line each: ' +
-    `${suggest}if they ask, you save a personal copy with the change, which replaces the team skill for them only. Do not paste the whole changed text for them to copy by hand.`
+function teamSkillNext(L: Locale): string {
+  return 'Next step: tell the user in a sentence that only the people who manage team skills (the owner, admins, or whoever they chose) change a team skill; then offer, a line each: ' +
+    'you write a short message for them saying what to change, which the user sends them themselves (you cannot send it); or, if they ask, you save a personal copy with the change, which replaces the team skill for them only (not for a change that drops an approval or check the team requires: then only the message). ' +
+    `${notSuggest(L, 'an existing one')} Do not paste the whole changed text for them to copy by hand.`
 }
 
 /** After a team skill (skills/…) the person may not change was loaded with the skill tool (`readOnly`): what to do if
  * they ask to change it, so the AI need not try the edit first to learn it; null otherwise. */
-export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale, button: boolean): string | null {
+export function readOnlySkillLine(rel: string, readOnly: boolean, L: Locale): string | null {
   if (!readOnly || rel.split('/')[0]!.normalize('NFC').toLowerCase() !== 'skills') return null
-  const suggest = button ? `the "${LABEL.suggest[L]}" button under your answer (sends the change for review) or ` : ''
-  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer ${suggest}a personal copy that replaces it for them only; never paste the whole changed text.`
+  return `This user cannot change this team skill; only the people who manage team skills can. If asked to change it, offer to write a short message for them saying what to change (the user sends it; you cannot), or a personal copy that replaces it for them only (not when the change drops an approval or check the team requires). ${notSuggest(L, 'this one')} Never paste the whole changed text.`
 }
 
 /**

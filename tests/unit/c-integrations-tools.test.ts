@@ -106,7 +106,7 @@ describe('tools made per person', () => {
     expect(api.description).toContain('POST /tasks makes one.')
     expect((api.inputSchema.properties as any).connection.enum).toEqual(['my_aipm'])
     expect(a.prompt).toContain('## Connected services')
-    expect(a.prompt).toContain('Tasks (personal connection, MCP server)')
+    expect(a.prompt).toContain('Tasks (personal connection)')
     expect(a.prompt).toContain('external data')
     expect(a.prompt).toContain('shows as [hidden key]; you cannot see or send it.')
     for (const t of a.tools.values()) {
@@ -639,7 +639,7 @@ describe('single tools turned off (docs/DECISIONS.md "Turn single tools of a con
     const a = turn('alice')
     expect(a.tools.has('my_tasks__create_task')).toBe(false)
     expect(a.tools.has('my_tasks__search_tasks')).toBe(true)
-    expect(a.prompt).toContain('Tasks (personal connection, MCP server): 3 tools named my_tasks__… (1 more turned off by whoever manages this connection')
+    expect(a.prompt).toContain('Tasks (personal connection): 3 tools named my_tasks__… (1 more turned off by whoever manages this connection')
     // the same answer again changes nothing; the list keeps its order
     expect((await toggle('alice', tasks.id, 'create_task', false)).status).toBe(200)
     expect(JSON.parse((A.ctx.db.query('SELECT disabled_tools FROM integrations WHERE id = ?').get(tasks.id) as { disabled_tools: string }).disabled_tools)).toEqual(['create_task'])
@@ -647,7 +647,7 @@ describe('single tools turned off (docs/DECISIONS.md "Turn single tools of a con
     for (const n of ['search_tasks', 'inject', 'rpc_fail']) await toggle('alice', tasks.id, n, false)
     const none = turn('alice')
     expect([...none.tools.keys()].filter((k) => k.startsWith('my_tasks__'))).toEqual([])
-    expect(none.prompt).toContain('Tasks (personal connection, MCP server): every tool is turned off by whoever manages this connection')
+    expect(none.prompt).toContain('Tasks (personal connection): every tool is turned off by whoever manages this connection')
     for (const n of ['search_tasks', 'inject', 'rpc_fail', 'create_task']) await toggle('alice', tasks.id, n, true)
     expect(turn('alice').tools.has('my_tasks__create_task')).toBe(true)
     // audit: a member's own connection without the tool's name; changes counted

@@ -339,6 +339,12 @@ export interface DesktopBridge {
      * (opened at it), which counts as their permission, and the app looks at it now. The latest look's ids stay
      * readable and the new ones are added to it. 'cancelled' when the window was closed. Optional (older apps). */
     pickRoot?(root: WorkFolderId): Promise<WorkFileScan>
+    /** "Choose a folder…" (MAN-057): after a look, the person points the app at any one folder in the system's folder
+     * window (opened at Documents; the pick is their permission; never the home folder or the apps' data). The app walks
+     * it now and adds its files to the latest look, named under its own name ('folder' with its name as `place`) or,
+     * inside one of the three folders, under that folder. 'cancelled' when the window was closed or the pick refused.
+     * Optional (older apps). */
+    pickFolder?(): Promise<WorkFileScan>
     /** version 2: the files the person ticked, named as they press Add, before any of them is read. The app takes it only
      * within 2 s of the person's own key or mouse press on the page (no window); read() then gives these files' bytes and
      * never a file not added. Absent in version 1. */

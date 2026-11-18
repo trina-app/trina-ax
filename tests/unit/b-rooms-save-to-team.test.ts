@@ -249,3 +249,115 @@ describe('"In team folder"', () => {
     expect(await saved('alice', rooms.dm)).toEqual([])
   })
 })
+
+// Hands-on QA on qa.trina.app (11-17): TC-4803 identical files, TC-4804 a named person's HR document, TC-4805 the
+// suggestion's quality, and one personal file taking the suggestion away from every file of a message.
+describe('QA 11-17', () => {
+  const planOf = async (user: string, roomId: string, ids: string[]) => {
+    const r = await plan(user, roomId, ids)
+    expect(r.status).toBe(200)
+    return (await r.json()) as RoomSavePlan
+  }
+  async function sendMany(user: string, roomId: string, files: [string, string][], body = ''): Promise<string[]> {
+    const ids: string[] = []
+    for (const [n, b] of files) ids.push(await upload(user, roomId, n, b))
+    await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: ids } })
+    return ids
+  }
+
+  test('A: two identical files with one name in one message are one file: saved once, both point at it, and the plan says so', async () => {
+    const [a, b] = await sendMany('alice', rooms.all, [['same-twice.txt', 'identical bytes'], ['same-twice.txt', 'identical bytes']])
+    const p = await planOf('alice', rooms.all, [a!, b!])
+    expect(p.files[0]!.sameAs).toBeUndefined()
+    expect(p.files[1]!.sameAs).toBe(a!)
+    const r = await saveOk('alice', rooms.all, [a!, b!], 'shared')
+    expect(r.saved).toEqual([{ fileId: a!, path: 'shared/same-twice.txt', existed: false }, { fileId: b!, path: 'shared/same-twice.txt', existed: true }])
+    expect(fs.readdirSync(team('shared')).filter((n) => n.startsWith('same-twice'))).toEqual(['same-twice.txt'])
+  })
+
+  test('A: two identical files beside two different ones of that name: one copy "(3)", none "(4)", the numbering does not skip', async () => {
+    const [x] = await sendMany('alice', rooms.all, [['thread-x.txt', 'first version']])
+    await saveOk('alice', rooms.all, [x!], 'shared')
+    const [y] = await sendMany('alice', rooms.all, [['thread-x.txt', 'second version']])
+    expect((await saveOk('alice', rooms.all, [y!], 'shared')).saved[0]!.path).toBe('shared/thread-x (2).txt')
+    const [c, d] = await sendMany('alice', rooms.all, [['thread-x.txt', 'third, twice'], ['thread-x.txt', 'third, twice']])
+    const r = await saveOk('alice', rooms.all, [c!, d!], 'shared')
+    expect(r.saved.map((s) => s.path)).toEqual(['shared/thread-x (3).txt', 'shared/thread-x (3).txt'])
+    expect(r.saved[1]!.existed).toBe(true)
+    expect(fs.readdirSync(team('shared')).filter((n) => n.startsWith('thread-x')).sort()).toEqual(['thread-x (2).txt', 'thread-x (3).txt', 'thread-x.txt'])
+    // the same bytes sent again in a later message: found where the first one went, no "(4)"
+    const [e] = await sendMany('alice', rooms.all, [['thread-x.txt', 'third, twice']])
+    expect((await saveOk('alice', rooms.all, [e!], 'shared')).saved[0]).toMatchObject({ path: 'shared/thread-x (3).txt', existed: true })
+    expect(fs.existsSync(team('shared/thread-x (4).txt'))).toBe(false)
+  })
+
+  test('A: the same bytes saved by someone else in a folder I cannot open are not "there" for my folder', async () => {
+    const [x] = await sendMany('bob', rooms.all, [['cross-folder.txt', 'cross bytes']])
+    await saveOk('bob', rooms.all, [x!], 'groups/finance')
+    const [y] = await sendMany('alice', rooms.all, [['cross-folder.txt', 'cross bytes']])
+    expect((await saveOk('alice', rooms.all, [y!], 'shared')).saved[0]).toEqual({ fileId: y!, path: 'shared/cross-folder.txt', existed: false })
+  })
+
+  test('B: a named person\'s employment contract gets no suggestion (TC-4804)', async () => {
+    fs.mkdirSync(team('groups/marketing/contracts-b'), { recursive: true })
+    const [id] = await sendMany('alice', rooms.marketing, [['근로계약서_홍길동.txt', '근로계약서']])
+    const p = await planOf('alice', rooms.marketing, [id!])
+    expect(p.sensitive).toBe(true)
+    expect(p.files[0]!.sensitive).toBe(true)
+    expect(p.suggestion).toBeNull()
+  })
+
+  test('B: HR and medical documents in the app\'s languages, and "<HR document>_<Korean name>"', () => {
+    for (const n of ['근로계약서.pdf', '연봉계약서_2026.pdf', '인사기록카드.xlsx', '급여대장_11월.xlsx', '이력서.docx', '건강검진결과.pdf', '진단서.jpg', '성적증명서.pdf', '성적표.pdf',
+      'resume.pdf', 'Résumé 2026.pdf', 'CV_Budi.pdf', 'employment contract.pdf', 'Employment_Agreement_signed.pdf', 'medical certificate.jpg', 'health check-up results.pdf', 'payroll-nov.xlsx', 'salary 2026.xlsx',
+      '雇用契約書.pdf', '履歴書.pdf', '健康診断.pdf', '診断書.pdf', '給与.xlsx', '劳动合同.pdf', '简历.pdf', '体检报告.pdf', '工资表.xlsx', '成绩单.pdf',
+      'kontrak kerja.pdf', 'daftar riwayat hidup.pdf', 'surat keterangan sakit.pdf', 'gaji-okt.xlsx', 'contrato de trabajo.pdf', 'currículum.pdf', 'certificado médico.pdf', 'salario.xlsx',
+      '인사평가_김민수.xlsx', '면접평가표 이영희.docx', '홍길동_사직서.hwp', '계약서_박지성_2026.pdf', '재직_최지우(최종).pdf',
+      // review 11-17: brackets, middle, titles, 님, other separators, full width, NFD (a Mac upload), more documents
+      '계약서(홍길동).pdf', '계약서 (홍길동, 2026).pdf', '시말서.hwp', '인사평가(김민수).xlsx', '[홍길동] 계약서.pdf', '2026_인사평가_김민수_최종.xlsx', '인사평가_김민수 대리.xlsx', '인사평가_김민수_과장.xlsx',
+      '인사평가_김민수님.xlsx', '인사평가.김민수.xlsx', '인사평가·김민수.xlsx', '계약서＿홍길동.pdf', 'ＰＡＳＳＰＯＲＴ.jpg', '근로계약서_홍길동.txt'.normalize('NFD'),
+      '원천징수영수증.pdf', '연말정산_홍길동.pdf', '경력증명서.pdf', '졸업증명서.pdf', '건강보험자격득실확인서.pdf', '처방전.jpg', '소견서.pdf', '진료비영수증.pdf', '사원증.png',
+      '源泉徴収票.pdf', '戸籍謄本.pdf', '户籍.pdf', 'Lebenslauf.pdf', 'offer letter.pdf', 'performance review - Q3.docx', 'W-2 2025.pdf', 'tax return 2025.pdf', 'birth certificate.jpg'])
+      expect({ n, s: looksSensitive(n, '') }).toEqual({ n, s: true })
+    expect(looksSensitive('scan.pdf', '홍길동 근로계약서 보내드려요')).toBe(true)
+    // ordinary work files, and HR words without a person's name, keep their suggestion
+    for (const n of ['채용공고.pdf', '인사말.docx', '휴가신청서_양식.txt', '주간회의록_1117.md', 'Q4_마케팅_계획서.md', '월별매출_2026-10.csv', '면접 일정.xlsx', '회계_정산 기준.docx',
+      '계약서_삼성전자.pdf', '계약서_마케팅팀.pdf', 'meeting transcript.txt', 'curve-design-system.fig', 'ad-performance.xlsx',
+      '계약서_최종본.hwp', '계약서_서명본.pdf', '채용_공고문.pdf', '평가_기준표.xlsx', '배송_계약.pdf', '연차계획_전직원.xlsx', '인사_공지.pdf', '계약서_조달청.pdf',
+      '계약서_현대.pdf', '계약서_한화.pdf', 'Curriculum_Training_2026.pdf', '채용_박람회_안내.pdf', '인사_이동_현황.xlsx', '보험_가입_안내.pdf', '교육_평가_설문.xlsx', '채용_공고_마케터.pdf', 'steel_grades.xlsx', '공통장비목록.xlsx'])
+      expect({ n, s: looksSensitive(n, '') }).toEqual({ n, s: false })
+    // a broad word in a chat message (not a file name) takes nothing away: "광고 성적" is an ad's performance
+    expect(looksSensitive('report.xlsx', '이번 달 광고 성적 공유해요, salary는 별도')).toBe(false)
+  })
+
+  test('C: a weekly minutes file goes to the meetings folder by meaning, across languages, ahead of Recent (TC-4805)', async () => {
+    // erin has saved before (a Recent folder exists), and the team has shared/meetings (English names, Korean file)
+    const [r0] = await sendMany('erin', rooms.marketing, [['erin-note.txt', 'n']])
+    await saveOk('erin', rooms.marketing, [r0!], 'groups/marketing')
+    const [id] = await sendMany('erin', rooms.marketing, [['주간회의록_1117.md', 'notes']])
+    expect((await planOf('erin', rooms.marketing, [id!])).suggestion).toMatchObject({ path: 'shared/meetings', why: 'suggested' })
+    fs.mkdirSync(team('groups/marketing/견적'), { recursive: true })
+    const [q] = await sendMany('erin', rooms.marketing, [['acme_quote_v2.pdf', 'q']])
+    expect((await planOf('erin', rooms.marketing, [q!])).suggestion).toMatchObject({ path: 'groups/marketing/견적', why: 'suggested' })
+    // nothing fits by name: the Recent folder, labelled so
+    const [z] = await sendMany('erin', rooms.marketing, [['zzqx-unrelated.txt', 'z']])
+    expect((await planOf('erin', rooms.marketing, [z!])).suggestion).toMatchObject({ path: 'groups/marketing', why: 'recent' })
+  })
+
+  test('C: one folder for a message only when it fits every file; otherwise Recent', async () => {
+    const ids = await sendMany('erin', rooms.marketing, [['주간회의록_1118.md', 'n'], ['월별매출_2026-10.csv', 'a,b']])
+    const p = await planOf('erin', rooms.marketing, ids)
+    expect(p.suggestion?.why).not.toBe('suggested')
+  })
+
+  test('D: one personal file in a message takes the suggestion from itself only', async () => {
+    const ids = await sendMany('erin', rooms.marketing, [['통장사본.pdf', 'bank'], ['instagram-plan-december.md', 'posts']], 'instagram plan')
+    const p = await planOf('erin', rooms.marketing, ids)
+    expect(p.files.map((f) => !!f.sensitive)).toEqual([true, false])
+    expect(p.sensitive).toBe(true)
+    expect(p.suggestion).toMatchObject({ path: 'groups/marketing/campaigns', why: 'suggested' })
+    // every file personal: no suggestion, as before
+    const both = await sendMany('erin', rooms.marketing, [['통장사본2.pdf', 'b'], ['여권.jpg', 'p']])
+    expect((await planOf('erin', rooms.marketing, both)).suggestion).toBeNull()
+  })
+})

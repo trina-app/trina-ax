@@ -81,9 +81,11 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     // a shared chat's own section (prompt.ts sharedSection, after this one) says how the AI reads the thread
     // (share-words.ts answerCommentsLine): there only the labels and who is told
     o.view === 'shared'
-      ? `- Under a finished answer: ${q('rooms.replyInThread')}, then ${q('chat.thread.sendToAi')} (more in the shared chat section); the asker and repliers are told.`
+      // "then Send to" read as the only way a thread reaches the AI (CHT-14, CHT-15, 2026-11-17): the AI reads it when
+      // asked (the shared chat section says how); Send to only fills the person's message box (ChatThreadPanel)
+      ? `- Under a finished answer: ${q('rooms.replyInThread')}: people's talk, which you read when asked (shared chat section); its ${q('chat.thread.sendToAi')} fills the person's message box, unsent. Asker and repliers are told.`
       // the AI there reads a thread when someone asks (docs/decisions/20261117-ai-reads-answer-comments.md)
-      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks, or ${q('chat.thread.sendToAi')} puts it in the message box. Asker and repliers are told; not in a private chat.`,
+      : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks; its ${q('chat.thread.sendToAi')} fills the message box, unsent. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
     `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
@@ -101,9 +103,12 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `Pages of ${q('admin.title')}${o.view === 'shared' ? ' (owners and admins only)' : ''} (say ${q('admin.title')} › page):`,
     `- ${q('admin.members')}: ${q('members.inviteToTeam')} (or ${q('members.inviteMore')} › ${q('teamLink.title')}), roles (admins: owner only); a person's ⋯: ${q('members.resetLinkButton')} or ${q('members.reset')} (a forgotten password); owner: ${q('handover.menu')}; ${q('guest.admin.title')}. ${q('admin.groups')}.`,
     `- ${q('admin.integrations')}: the team's shared ones (Slack…); ${q('integrations.requests.add')}: one person links their own.`,
-    o.managed
-      ? `- Guest AI (${q('guest.invite.ai')}, at invite or on their row): ${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
-      : `- Guest AI: not on ${here}.`,
+    // the choice is on screen on every install (web GuestInvite.tsx GuestAiChoices); where the AI runs on this computer's
+    // own sign-in only No AI can be picked (noGuestAi, guest.ai.hostSignIn). "Not on this team's app" read as "no such
+    // setting in Admin" (ADM-03, 2026-11-17)
+    `- Guest AI (${q('guest.invite.ai')}, at invite or on their row in ${q('guest.admin.title')}): ` + (o.managed
+      ? `${q('guest.ai.none')} / ${q('guest.ai.own')} / ${q('guest.ai.team')} with a monthly limit.`
+      : `only ${q('guest.ai.none')} can be picked on ${here}.`),
     `- ${q('admin.usage')}: who used how much. ${q('admin.audit')}: who did what.`,
     `- ${q('admin.settings')}: ${q('teamSettings.section.general')} (${q('teamSettings.timeZone')}), ${q('budgets.title')}, ${q('speech.title')}, ${q('teamSettings.group.engine')} (team AI and model, who may pick)${o.devEnv ? `, ${q('devEnv.title')} (${DEV_ENV_WORDS})` : `; ${q('devEnv.title')} (${DEV_ENV_WORDS}): not on ${here}, it comes with how the app was installed`}.`,
     `- ${q('admin.plugins')}: Hangul (HWP) writing. ${q('admin.providers')}: team AI accounts.`,

@@ -93,6 +93,21 @@ export function privateToMe(db: Database, me: string, segs: readonly string[]): 
   return segs[0] === 'users' && segs[1] === me && shareReaders(db, segs).size === 0
 }
 
+/** A live share row (a file's or a folder's, paused or not) at `segs` or at any folder above it that gives anyone
+ * access: one with a grant (a person, a group, the whole team), whether or not that account is active now. A row with
+ * no grant is only a link id (files/shares.ts linkFor makes one on first use, e.g. when a room post links the file or
+ * a "let them view" button is offered): opening it still needs read access, so it lets nobody in. Stricter than
+ * shareReaders (active members only, folder rows only): the test for "nobody else can open this" before a change goes
+ * without a card (chat/turn.ts onlyMine). Fails closed: an error says yes. */
+export function sharedWithAnyoneAt(db: Database, segs: readonly string[]): boolean {
+  try {
+    if (!segs.length) return false
+    const paths = segs.map((_, i) => segs.slice(0, i + 1).join('/'))
+    return !!db.query(`SELECT 1 FROM file_shares s WHERE s.state = 'live' AND s.path IN (${paths.map(() => '?').join(',')})
+      AND EXISTS(SELECT 1 FROM file_share_grants g WHERE g.share_id = s.id) LIMIT 1`).get(...paths)
+  } catch { return true }
+}
+
 /** The nearest live, unpaused folder share row at or above `segs` that a receiver would open this path through, or
  * null (also for a path a receiver cannot see: a hidden, temp, project or skill place inside the folder). */
 export function shareAbove(db: Database, segs: readonly string[]): string | null {

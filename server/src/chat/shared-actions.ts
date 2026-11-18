@@ -118,6 +118,11 @@ const AFTER_PERSON = `${HONORIFIC}(?:\\uC774\\uC5D0\\uAC8C|\\uC774\\uD55C\\uD14C
 /** "(가) 볼 수 / 보게" names a person only with 이/가 or 님/씨 on the name ("바로 볼 수 있게" is an adverb) */
 const SEES_AFTER_HONORIFIC = '\\s?(?:\\uB2D8|\\uC528)(?:\\uC774|\\uAC00)?\\s?(?:\\uBCFC\\s?\\uC218(?!\\s?\\uC5C6)|\\uBCF4\\uAC8C|\\uBCF4\\uB3C4\\uB85D)'
 const JOIN_KO = '(?:\\uC774\\uD558\\uACE0|\\uC774\\uB791|\\uD558\\uACE0|\\uB791|\\uC640|\\uACFC)'
+/** "(님)이랑/랑/와/과/하고 공유해줘" right after a name: share WITH that person ("민호 님이랑 공유해줘", AI scenario
+ * FSH-01, 2026-11-17). Only with the request itself next to it (공유해 + 줘, 주세요, 주시겠어요, 주십시오, 달라): "민호 님과
+ * 회의한 내용", "민호랑 공유했던 견적서", "민호랑 공유하면 안 되니까", and a request word that goes on as something else
+ * ("공유해줘서 고마워요", "공유해줘야 하나요", "공유해줘도 되나", "공유해 달라고 했던") name nobody to share with */
+const JOIN_SHARE_KO = `${HONORIFIC}${JOIN_KO}\\s?\\uACF5\\uC720\\s?\\uD574\\s?(?:\\uC918|\\uC8FC\\uC138\\uC694|\\uC8FC\\uC2DC\\uACA0|\\uC8FC\\uC2ED\\uC2DC\\uC624|\\uB2EC\\uB77C)(?!\\s?(?:\\uC11C|\\uC57C|\\uB3C4|\\uACE0|\\uB77C|\\uC694\\s?\\?))`
 const AFTER_PLACE = '(?:\\uC5D0\\uB2E4\\uAC00|\\uBC29\\uC73C\\uB85C|\\uCC44\\uB110\\uC5D0|\\uC5D0\\uB2E4|\\uD55C\\uD14C|\\uBC29\\uC5D0|\\uC5D0\\uAC8C|\\uC5D0|\\uAED8)'
 function holdsAsRecipient(text: string, n: string, place: boolean, peers: readonly string[] = []): boolean {
   if (!holdsName(text, n)) return false
@@ -125,7 +130,7 @@ function holdsAsRecipient(text: string, n: string, place: boolean, peers: readon
   const L = '(?<![\\p{L}\\p{N}])'
   const R = '(?:(?![\\p{L}\\p{N}])|(?=\\p{Script=Hangul}))'
   if (new RegExp(`${place ? BEFORE_PLACE : AFTER_ONE_NAMED + BEFORE_PERSON}${e}${R}`, 'u').test(text)) return true
-  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}`})`, 'u').test(text)) return true
+  if (new RegExp(`${L}${e}(?:${place ? AFTER_PLACE : `${AFTER_PERSON}|${SEES_AFTER_HONORIFIC}|${JOIN_SHARE_KO}`})`, 'u').test(text)) return true
   const ps = [...new Set(peers.map(fold))].filter((p) => p.length >= 2 && p !== n).slice(0, 10).map(escapeRe)
   if (place || !ps.length) return false
   const P = `(?:${ps.join('|')})`
@@ -205,6 +210,31 @@ export function namesFile(said: string, rel: string): boolean {
   const stem = name.replace(/\.[^.]+$/, '')
   return [fold(rel), name, stem].some((n) => n.length >= 3 && holds(text, n))
 }
+
+/** The asker's words name this file only without the date or number at its end ("단가표" for 단가표-2026.xlsx;
+ * coreName), with no other date or number right after it. Weaker than namesFile: several files can share one such
+ * name, so it never skips a card (share_with_person shows its card whatever "Always allow" says) and the explicit-ask
+ * skip and who_can_open do not use it. */
+export function namesFileCore(said: string, rel: string): boolean {
+  const text = fold(said)
+  const raw = (rel.split('/').pop() ?? '').replace(/\.[^.]+$/, '')
+  const stem = fold(raw), core = coreName(stem)
+  if (text && core !== stem && core.length >= 3 && holdsCore(text, core)) return true
+  // (a Hangul name also without its separators: "견적서 라마바카페" for 견적서-라마바카페-2026-11.pdf)
+  const squash = (x: string) => fold(x).replace(/[\s_.\-]+/g, '')
+  const sq = squash(coreName(raw))
+  return sq !== squash(raw) && HANGUL.test(sq) && sq.length >= 3 && new RegExp(`${escapeRe(sq)}(?!v?\\d)`, 'u').test(squash(said))
+}
+
+/** The name without its date or number (coreName) in the person's words, with no other date or number right after it
+ * ("ledger-3" never names ledger-4.txt) and, outside Hangul, as a whole word. */
+const holdsCore = (said: string, core: string): boolean =>
+  new RegExp(`${HANGUL.test(core) ? '' : `(?<!${WORD_EDGE})`}${escapeRe(core)}(?![\\s_\\-.]*v?\\d)${HANGUL.test(core) ? '' : `(?!${WORD_EDGE})`}`, 'iu').test(said)
+
+/** A file's name without the date, number or version at its end: "단가표" for 단가표-2026, "report" for report_v2,
+ * "견적서-라마바카페" for 견적서-라마바카페-2026-11 (people call a file by what it is: AI scenario SHR-01, 2026-11-17).
+ * The name itself when nothing is cut. */
+export const coreName = (stem: string): string => stem.replace(/(?:[\s_\-.]+v?\d[\d\s_\-.]*)+$/i, '').trim()
 
 /** Quotation marks a person puts around a name: straight, curly, corner brackets, guillemets, backticks. */
 const QUOTES: readonly [string, string][] = [['"', '"'], ['“', '”'], ["'", "'"], ['‘', '’'], ['「', '」'], ['『', '』'], ['«', '»'], ['`', '`']]
@@ -286,11 +316,50 @@ export function madeInTurn(db: Database, turnId: string, rel: string): boolean {
     if (prev && prev.action !== 'delete') return false
     if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ?1 AND p.id > ?2 AND p.action <> 'rejected'
       AND NOT (p.turn_id IS NOT NULL AND p.turn_id = ?3 AND p.action IN ('create', 'update') AND ${ownWritingSql('p')}) LIMIT 1`).get(rel, made.id, turnId)) return false
-    // a folder above it moved, renamed, removed or made since: what is at the path now may be another file (a folder
-    // rename logs events at the folder's path only, never at the paths of the files inside)
-    const segs = rel.split('/')
-    const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
-    return !above.length || !db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(made.id, ...above)
+    return !folderAboveChanged(db, rel, made.id)
+  } catch { return false }
+}
+
+/** A folder above `rel` moved, renamed, removed or made after the file_events row `sinceId`: what is at the path now may
+ * be another file (a folder rename logs events at the folder's path only, never at the paths of the files inside). */
+function folderAboveChanged(db: Database, rel: string, sinceId: number): boolean {
+  const segs = rel.split('/')
+  const above = segs.slice(0, -1).map((_, i) => segs.slice(0, i + 1).join('/'))
+  return !!above.length && !!db.query(`SELECT 1 FROM file_events WHERE id > ? AND action <> 'rejected' AND path IN (${above.map(() => '?').join(',')}) LIMIT 1`).get(sinceId, ...above)
+}
+
+/** The tools whose file_events count as this chat making or changing a file itself (madeInChat): the AI's own text
+ * (write, edit, make_file) or a file it produced as asked from files it may read (make_file from a source, edit_hwp,
+ * stamp_pdf): new bytes written at that path. Never a copy, move or rename (copy_files, move_files, rename_file, the
+ * Files screen), a save from the web or a room (save_url, save_room_file), an upload, a restore or a conflict copy. */
+const CHAT_MADE_TOOLS = ['write', 'edit', 'make_file', 'edit_hwp', 'stamp_pdf'] as const
+/** detail keys that say a row put an older file, or another place's bytes as they were, at the path */
+const RELOCATED = ['copiedFrom', 'movedFrom', 'movedTo', 'conflictCopyOf', 'conflictOf', 'originalPath', 'copy', 'via', 'url', 'trashId', 'folder'] as const
+const chatWritingSql = (alias: string) => `${alias}.detail IS NOT NULL AND json_valid(${alias}.detail)
+  AND COALESCE(json_extract(${alias}.detail, '$.tool'), '') IN (${CHAT_MADE_TOOLS.map((t) => `'${t}'`).join(', ')})
+  AND ${RELOCATED.map((k) => `json_extract(${alias}.detail, '$.${k}') IS NULL`).join(' AND ')}`
+
+/**
+ * This chat made the file at `rel` (as the file layer names it), in any of the person's own answers of it, and nothing
+ * else has touched it since (docs/decisions/20261117-own-folder-chat-made-no-card.md): the newest 'create' at that path
+ * is a row of a turn of this chat by this person, written by one of CHAT_MADE_TOOLS with none of the RELOCATED keys; no
+ * live file was at the path before it (no row, or the last one removed it); every row at the path since is an 'update'
+ * by this chat's turns of this person through those tools (a person's save, an upload, a restore, a conflict, another
+ * chat, a delete: not the chat's file any more); and no folder above it changed since. Like madeInTurn, from the
+ * server's own file_events, never from what the AI says; fails closed.
+ */
+export function madeInChat(db: Database, chatId: string, userId: string, rel: string): boolean {
+  try {
+    const last = db.query("SELECT id FROM file_events WHERE path = ? AND action = 'create' ORDER BY id DESC LIMIT 1").get(rel) as { id: number } | null
+    if (!last) return false
+    const mine = `SELECT id FROM turns WHERE chat_id = ? AND user_id = ?`
+    const made = db.query(`SELECT e.id FROM file_events e WHERE e.id = ? AND e.user_id = ? AND e.turn_id IN (${mine}) AND ${chatWritingSql('e')}`).get(last.id, userId, chatId, userId) as { id: number } | null
+    if (!made) return false
+    const prev = db.query("SELECT action FROM file_events WHERE path = ? AND id < ? AND action <> 'rejected' ORDER BY id DESC LIMIT 1").get(rel, made.id) as { action: string } | null
+    if (prev && prev.action !== 'delete') return false
+    if (db.query(`SELECT 1 FROM file_events p WHERE p.path = ? AND p.id > ? AND p.action <> 'rejected'
+      AND NOT (p.action = 'update' AND p.user_id = ? AND p.turn_id IN (${mine}) AND ${chatWritingSql('p')}) LIMIT 1`).get(rel, made.id, userId, chatId, userId)) return false
+    return !folderAboveChanged(db, rel, made.id)
   } catch { return false }
 }
 

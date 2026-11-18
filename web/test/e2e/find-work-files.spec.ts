@@ -463,3 +463,37 @@ test('macOS kept the app out of Downloads: "Choose it yourself" opens the system
   // nothing was read: the picked folder's files are listed only
   expect((await app(page)).reads).toEqual([])
 })
+
+test('MAN-057: "Choose a folder…" after a look that missed a folder: one quiet link, the system\'s window, the folder\'s files show at once and nothing is read', async ({ page }) => {
+  await fakeApp(page, { pickFolder: 'Quotes', platform: 'win32' })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  // the look missed the quotes: two files, Documents cut
+  await look(page, [{ name: 'Lunch menu.pdf', root: 'desktop' }, { name: 'Holiday.docx', root: 'downloads' }], roots({ id: 'documents', state: 'ok', cut: true }, { id: 'desktop', state: 'ok' }, { id: 'downloads', state: 'ok' }))
+  await pickHolds(page, [
+    { name: 'Quote-Hanbit-Q1001.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+    { name: 'Quote-Sora-Q1002.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+    { name: 'Quote-Mirae-Q1003.xlsx', root: 'documents', folder: 'QA desktop test/Quotes' },
+  ])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.getByTestId('find-work-search').fill('quote')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(0)
+  // the one quiet link (no panel); its files show at once with their folder's name
+  const link = page.getByTestId('find-work-choose-folder')
+  await expect(link).toHaveCount(1)
+  await link.click()
+  await expect(page.getByTestId('find-work-chosen')).toContainText('Quotes')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(3)
+  // nothing ticked, nothing read
+  await expect(page.getByTestId('find-work-add')).toBeDisabled()
+  expect((await app(page)).reads).toEqual([])
+  expect((await app(page)).picks).toBe(1)
+  // Show all: back to the list; the quotes are found by name from now on
+  await page.getByTestId('find-work-show-all').click()
+  await expect(page.getByTestId('find-work-chosen')).toHaveCount(0)
+  await page.getByTestId('find-work-search').fill('quote')
+  await expect(page.getByTestId('find-work-found').getByTestId('find-work-row')).toHaveCount(3)
+})

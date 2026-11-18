@@ -186,7 +186,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const [q, setQ] = useState('')
   const [openPersonal, setOpenPersonal] = useState(false)
   const [words, setWords] = useState<CompanyWordsLike>(NO_WORDS)
-  const [picking, setPicking] = useState<WorkRootId | null>(null)
+  const [picking, setPicking] = useState<WorkRootId | 'any' | null>(null)
+  /** the folder the person picked with "Choose a folder…": its files show until they search or press Show all */
+  const [chosen, setChosen] = useState<{ label: string; keys: Set<string> } | null>(null)
   /** the AI's pick under way while the list already shows: how many names it got, since when */
   const [aiWait, setAiWait] = useState<{ n: number; at: number } | null>(null)
   // the AI's step has no progress of its own: the bar moves with the time it usually takes
@@ -273,7 +275,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const personal = useMemo(() => personalList(docs), [docs])
   /** looked at but in neither group: found by name */
   const rest = docs.length - work.length - personal.length
-  const found = q ? findDocs(docs, q) : null
+  const found = q ? findDocs(docs, q) : chosen ? docs.filter((d) => chosen.keys.has(d.key)) : null
   const pad = phone ? 'px-0' : 'px-4'
   const frame = phone ? 'border-y border-line' : 'rounded-xl border border-line bg-surface'
   const tooMuch = overBytes(docs, ticks)
@@ -356,6 +358,37 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       if (live.current) setPicking(null)
     }
   }
+  /** "Choose a folder…" (MAN-057): the person points the app at one folder the look missed; the system's folder window
+   * is their permission (an app without it: no link). The folder's files join the list and show at once. */
+  const chooseFolder = async () => {
+    if (!bridge.pickFolder || picking) return
+    setPicking('any')
+    try {
+      const r = await bridge.pickFolder()
+      if (!live.current || r.state !== 'done') return
+      const all = docsFromScan(r.files, bridge.read)
+      const there = await alreadyIn(all).catch(() => new Set<string>())
+      if (!live.current) return
+      const added = all.filter((d) => !there.has(d.key))
+      setDocs((prev) => { const keys = new Set(prev.map((d) => d.key)); return [...prev, ...added.filter((d) => !keys.has(d.key))] })
+      setRoots((prev) => [...prev.filter((x) => !r.roots.some((y) => y.id === x.id && (y.place ?? '') === (x.place ?? '') && !isFolder(y.id))), ...r.roots.filter((y) => !isFolder(y.id))])
+      // the picked folder's own name (the app says it as the root's place, inside one of the three folders too)
+      const top = r.roots[0]
+      const label = top?.place || (top ? rootName(top) : '')
+      setQ('')
+      // every file of the pick (one listed before under the same name is shown too; one already in the target is not)
+      setChosen({ label, keys: new Set(all.map((d) => d.key)) })
+      setPhase((x) => (x.s === 'none' ? { s: 'list' } : x))
+    } catch { /* the window closed or the app could not look: nothing changes */ } finally {
+      if (live.current) setPicking(null)
+    }
+  }
+  // while the window is up and the folder is looked through, the link says so (no panel of its own)
+  const chooseLink = !bridge.pickFolder ? null : picking === 'any' ? (
+    <span className="inline-flex items-center gap-1.5 text-label text-muted" role="status" data-testid="find-work-choosing"><Loader2 size={12} className="animate-spin" aria-hidden /> {t('files.findWork.choosing')}</span>
+  ) : (
+    <button type="button" className={clsx(quietLink, 'text-label')} disabled={!!picking} onClick={() => void chooseFolder()} data-testid="find-work-choose-folder">{t('files.findWork.chooseFolder')}</button>
+  )
   const allow = (id: WorkRootId | null) => (
     <>
       {bridge.pickRoot && id && isFolder(id) ? (
@@ -390,6 +423,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       <div className="space-y-4" data-testid="find-work" data-screen={phase.s === 'none' ? 'none' : 'empty'}>
         <h2 className="text-display font-semibold text-ink" data-testid="find-work-title">{phase.s === 'none' ? t('files.findWork.noneTitle', { app: PRODUCT.displayName }) : t('files.findWork.emptyTitle')}</h2>
         {lines}
+        {chooseLink && <p>{chooseLink}</p>}
         <div className="flex flex-wrap justify-end gap-3">
           <Button onClick={onClose} data-testid="find-work-close">{t('common.close')}</Button>
           {allBlocked && <Button variant="primary" onClick={onAgain} data-testid="find-work-again">{t('files.findWork.again')}</Button>}
@@ -405,10 +439,21 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         <h2 className="text-display font-semibold text-ink" data-testid="find-work-title">{title}</h2>
         <p className="text-sm text-balance text-muted">{audience === 'me' ? t('files.findWork.descMe', { place: placeName }) : t('files.findWork.descTeam', { place: placeName })}</p>
         {!work.length && <p className="text-sm text-muted" data-testid="find-work-search-hint">{t('files.findWork.searchHint', { n: docs.length })}</p>}
-        {onMorePlaces && <button type="button" className={clsx(quietLink, 'text-label')} onClick={onMorePlaces} data-testid="find-work-more-places">{t('files.findWork.morePlaces')}</button>}
+        {(onMorePlaces || chooseLink) && (
+          <p className="flex flex-wrap gap-x-4 gap-y-1">
+            {onMorePlaces && <button type="button" className={clsx(quietLink, 'text-label')} onClick={onMorePlaces} data-testid="find-work-more-places">{t('files.findWork.morePlaces')}</button>}
+            {chooseLink}
+          </p>
+        )}
       </div>
       {lines}
-      <TickSearch value={q} onChange={setQ} placeholder={t('welcome.teamFiles.search')} pad="px-0" testId="find-work-search" />
+      <TickSearch value={q} onChange={(v) => { setQ(v); setChosen(null) }} placeholder={t('welcome.teamFiles.search')} pad="px-0" testId="find-work-search" />
+      {chosen && !q && (
+        <p className="text-label text-muted" role="status" data-testid="find-work-chosen">
+          {t('files.findWork.chosen', { n: found?.length ?? 0, folder: chosen.label })}{' · '}
+          <button type="button" className={quietLink} onClick={() => setChosen(null)} data-testid="find-work-show-all">{t('files.findWork.showAll')}</button>
+        </p>
+      )}
       <div className={frame}>
         {found ? (
           <>
