@@ -153,6 +153,9 @@ export interface ProxyOpts {
    * plain HTTP with the engine's own credential, get the same checks as managed mode and go to `upstream` (default
    * OWN_LOGIN_UPSTREAM) with that credential (TC-359) */
   ownLogin?: { upstream?: string }
+  /** fits the pictures of a Claude request before it goes on (./fit-images.ts: older ones smaller, the oldest out past
+   * one request's limits); a failure forwards the request as it came */
+  fitImages?: (body: unknown, signal: AbortSignal) => Promise<unknown>
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
@@ -391,6 +394,12 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // the body that goes out is the one checked above, written again: a raw body could say more than JSON.parse
       // saw (a duplicate key: JSON.parse keeps the last, another parser the first, e.g. a refused tool list)
       headers.set('content-type', 'application/json')
+      if (o.fitImages && url.pathname.startsWith('/v1/messages')) {
+        try { await o.fitImages(parsed, req.signal) } catch (e) {
+          if (req.signal.aborted) return unreachable(req)
+          o.log?.warn('model request images not fitted', { turn: row.turn_id, err: (e as Error).message?.slice(0, 120) })
+        }
+      }
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
       let sent = ''

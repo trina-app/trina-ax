@@ -14,7 +14,8 @@ import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, parsePages, visionTools } from '../../server/src/files/vision'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_IMAGES, parsePages, smallForModel, visionTools } from '../../server/src/files/vision'
+import { issueProxyToken } from '../../server/src/proxy/model-proxy'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
 
@@ -295,14 +296,56 @@ describe('per-turn image budget', () => {
       expect(images(await h.call('read', { file_path: `${ALICE}/photo.png` }))).toHaveLength(1)
       const full = await h.call('read', { file_path: `${ALICE}/photo.png` })
       expect(images(full)).toEqual([])
-      expect(texts(full)).toContain('image limit')
+      expect(texts(full)).toContain('as many as one answer can hold')
       expect(codec.mock.calls.length).toBe(1) // nothing converted once the budget is used up
       const h2 = handler('alice', A.turn('alice', A.chat('alice')))
       h2.ctx.files.imageBytes = VISION_TURN_BYTES - 2
       const over = await h2.call('read', { file_path: `${ALICE}/photo.png` })
       expect(images(over)).toEqual([])
-      expect(texts(over)).toContain('image limit')
+      expect(texts(over)).toContain('as many as one answer can hold')
     } finally { codec.mockRestore() }
+  })
+
+  test('the cap note does not send the person to a new message (limits audit #4, QA TC-4907)', async () => {
+    const h = handler('alice', A.turn('alice', A.chat('alice')))
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(fakeJpeg)
+    try {
+      h.ctx.files.imageCount = VISION_TURN_IMAGES
+      const t = texts(await h.call('read', { file_path: `${ALICE}/photo.png` }))
+      expect(t).toContain(`already looked at ${VISION_TURN_IMAGES} images`)
+      expect(t).toContain('name the files you did not look at')
+      expect(t).not.toContain('new message')
+    } finally { codec.mockRestore() }
+  })
+
+  test('a turn whose requests the model proxy fits: far more than one request\'s images, only a safety cap', async () => {
+    const turn = A.turn('alice', A.chat('alice'))
+    issueProxyToken(A.ctx.db, turn, 'alice', { family: 'anthropic' })
+    const h = handler('alice', turn)
+    const codec = spyOn(A.ctx.files, 'modelImage').mockResolvedValue(fakeJpeg)
+    try {
+      h.ctx.files.imageCount = VISION_TURN_IMAGES + 10
+      const shown = await h.call('read', { file_path: `${ALICE}/photo.png` })
+      expect(images(shown)).toHaveLength(1)
+      expect(images(shown)[0].data).toBe(fakeJpeg.toString('base64')) // sent as it is: the proxy makes older ones smaller
+      h.ctx.files.imageCount = VISION_FITTED_IMAGES
+      expect(images(await h.call('read', { file_path: `${ALICE}/photo.png` }))).toEqual([])
+    } finally { codec.mockRestore() }
+  })
+
+  test.skipIf(!realConverter)('without the proxy: after the first full-size images, the next ones go smaller', async () => {
+    put(`${ALICE}/big.png`, makePng(2400, 1800))
+    const h = handler('alice', A.turn('alice', A.chat('alice')))
+    const first = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
+    expect(jpegSize(first.data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })
+    h.ctx.files.imageCount = VISION_TURN_FULL
+    const later = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
+    expect(jpegSize(later.data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
+    expect(Buffer.from(later.data, 'base64').length).toBeLessThanOrEqual(VISION_SMALL_BYTES)
+    expect(h.ctx.files.imageCount).toBe(VISION_TURN_FULL + 1)
+    // a picture that is small already, or no picture at all: null (the caller keeps what it has)
+    expect(await smallForModel(Buffer.from(later.data, 'base64'), TOOLS)).toBeNull()
+    expect(await smallForModel(fakeJpeg, TOOLS)).toBeNull()
   })
 
   test.skipIf(!pageRenderer)('a PDF read stops adding page images at the budget and says so for the rest', async () => {
@@ -313,7 +356,7 @@ describe('per-turn image budget', () => {
       h.ctx.files.imageCount = VISION_TURN_IMAGES - 2
       const r = await h.call('read', { file_path: `${ALICE}/scans.pdf` })
       expect(images(r)).toHaveLength(2)
-      expect(texts(r).match(/image limit/g)).toHaveLength(2)
+      expect(texts(r).match(/as many as one answer can hold/g)).toHaveLength(2)
       expect(page.mock.calls.length).toBe(2)
     } finally { page.mockRestore() }
   })

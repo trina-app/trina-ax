@@ -32,10 +32,21 @@ export const VISION_SIDE_MAX = 1568
 export const VISION_OUTPUT_MAX = 1024 ** 2
 /** the largest image file read for the model (a 48 MP phone JPEG is about 20 MB) */
 export const VISION_INPUT_MAX = 32 * 1024 ** 2
-/** images and bytes of image blocks one turn may send: every image stays in the conversation the engine sends again
- * with each request (the model proxy and the providers take at most 32 MB per request) */
-export const VISION_TURN_IMAGES = 40
-export const VISION_TURN_BYTES = 10 * 1024 ** 2
+/** Images and bytes of image blocks one turn may send when its model requests do not pass the team server's model proxy
+ * (Codex, a direct sign-in): every image stays in the conversation the engine sends again with each request, and one
+ * request may hold at most 100 images and 32 MB. Past VISION_TURN_FULL images or VISION_TURN_FULL_BYTES the images go
+ * smaller (smallForModel), so many fit (docs/decisions/20261118-limits-images.md). */
+export const VISION_TURN_IMAGES = 90
+export const VISION_TURN_BYTES = 24 * 1024 ** 2
+export const VISION_TURN_FULL = 16
+export const VISION_TURN_FULL_BYTES = 8 * 1024 ** 2
+/** The same when the turn's requests pass the model proxy, which fits each request's images itself
+ * (proxy/fit-images.ts): only a safety cap on the conversions of one answer (time, memory). */
+export const VISION_FITTED_IMAGES = 400
+export const VISION_FITTED_BYTES = 400 * 1024 ** 2
+/** a smaller image: longest side and most bytes (about 600 tokens instead of about 2,500) */
+export const VISION_SMALL_SIDE = 768
+export const VISION_SMALL_BYTES = 150_000
 /** PDF pages per read call, and the most pages a read may give without `pages` (Claude Code's Read contract) */
 export const PDF_PAGES_PER_READ = 20
 export const PDF_PAGES_WITHOUT_RANGE = 10
@@ -188,6 +199,35 @@ export async function modelImage(name: string, bytes: Uint8Array, tools: VisionT
   }
   if (!decoded) throw new ToolError('no HEIC decoder on this server', 'vision_no_heic')
   return normalizeForModel(decoded, tools, signal, true)
+}
+
+/** Whether this turn's model requests pass the model proxy, which fits the images of each request (proxy/fit-images.ts):
+ * the Claude engine with a proxy token (managed AI connections, an office Mac's own sign-in). */
+export function requestsFitted(db: Database, turnId: string | null): boolean {
+  if (!turnId) return false
+  return !!db.query("SELECT 1 FROM proxy_tokens WHERE turn_id = ? AND family = 'anthropic' LIMIT 1").get(turnId)
+}
+
+/** The image caps of one turn: `fitted` (the proxy fits each request) gives only the safety cap; otherwise the caps of
+ * one request, and the full-size images before the next ones go smaller. */
+export function turnImageCaps(db: Database, turnId: string | null): { fitted: boolean; images: number; bytes: number; full: number; fullBytes: number } {
+  return requestsFitted(db, turnId)
+    ? { fitted: true, images: VISION_FITTED_IMAGES, bytes: VISION_FITTED_BYTES, full: VISION_FITTED_IMAGES, fullBytes: VISION_FITTED_BYTES }
+    : { fitted: false, images: VISION_TURN_IMAGES, bytes: VISION_TURN_BYTES, full: VISION_TURN_FULL, fullBytes: VISION_TURN_FULL_BYTES }
+}
+
+/** A model JPEG (or any PNG/JPEG/WebP picture) -> a smaller JPEG (VISION_SMALL_SIDE, VISION_SMALL_BYTES), through the
+ * resize helper in the converter isolation; null when it is small already or cannot be made smaller. */
+export async function smallForModel(bytes: Uint8Array, tools: Pick<VisionTools, 'normalizer'>, signal?: AbortSignal): Promise<Buffer | null> {
+  if (!tools.normalizer || bytes.byteLength > VISION_INPUT_MAX) return null
+  // resize <side> <width> <permille> <max bytes> <options>: options 22 = no details (2) + JPEG (4) + upright (16)
+  const r = await slot(() => runIsolated({
+    cmd: tools.normalizer!, args: ['resize', String(VISION_SMALL_SIDE), '0', '0', String(VISION_SMALL_BYTES), '22'], stdin: bytes,
+    timeoutMs: CONVERT_TIMEOUT_MS, maxRssMiB: CONVERT_RSS_MIB, maxStdout: VISION_OUTPUT_MAX + 1, signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
+  }), signal)
+  if (r.killed === 'aborted') signal?.throwIfAborted()
+  if (r.killed || r.code !== 0 || !isJpeg(r.stdout) || r.stdout.length >= bytes.byteLength) return null
+  return r.stdout
 }
 
 // ---------------- PDFs ----------------

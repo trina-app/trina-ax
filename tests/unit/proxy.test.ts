@@ -6,6 +6,7 @@ import { waitFor } from '../lib/wait'
 import path from 'node:path'
 import { checkProxyRequest, issueProxyToken, revokeProxyTokens, startModelProxy } from '../../server/src/proxy/model-proxy'
 import { createBroker } from '../../server/src/credentials/broker'
+import { fitCacheClear, fitRequestImages } from '../../server/src/proxy/fit-images'
 import { addCred, testCredCtx } from '../lib/credentials'
 
 const env = makeEnv('unit-proxy')
@@ -171,5 +172,27 @@ describe('model proxy: the lockdown of tool names', () => {
       expect((await call(p.url, { 'x-api-key': exact }, body('mcp__team__read', 'Agent'))).status).toBe(200)
       expect((await call(p.url, { 'x-api-key': exact }, body('mcp__team__read', 'mcp__team__x__read'))).status).toBe(403)
     } finally { await p.stop() }
+  })
+})
+
+describe('model proxy: the pictures of a request are fitted (limits audit #4, QA TC-4907)', () => {
+  test('older pictures go on smaller, the newest as sent; a failing fitter forwards the request as it came', async () => {
+    const shrink = async (b: Buffer) => Buffer.from('small:' + b.toString().slice(0, 8))
+    const p = await startModelProxy({ db: env.db, broker, fitImages: (body, signal) => fitRequestImages(body, shrink, signal) })
+    const broken = await startModelProxy({ db: env.db, broker, fitImages: async () => { throw new Error('converter down') } })
+    try {
+      fitCacheClear()
+      const pic = (i: number) => ({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: Buffer.from(`photo-${String(i).padStart(2, '0')}`.padEnd(400, '.')).toString('base64') } })
+      const body = { model: 'claude-opus-x', max_tokens: 5, messages: [{ role: 'user', content: [{ type: 'text', text: 'all of them' }, ...Array.from({ length: 30 }, (_, i) => pic(i))] }] }
+      const tok = bound(KEY_ID)
+      expect((await call(p.url, { 'x-api-key': tok }, body)).status).toBe(200)
+      const sent = JSON.parse(seen[seen.length - 1].body).messages[0].content.slice(1) as { source: { media_type: string; data: string } }[]
+      const tags = sent.map((b) => Buffer.from(b.source.data, 'base64').toString().replace(/\.+$/, ''))
+      expect(tags.slice(0, 12)).toEqual(Array.from({ length: 12 }, (_, i) => `small:photo-${String(i).padStart(2, '0')}`))
+      expect(sent[0].source.media_type).toBe('image/jpeg')
+      expect(tags.slice(12)).toEqual(Array.from({ length: 18 }, (_, i) => `photo-${String(12 + i).padStart(2, '0')}`))
+      expect((await call(broken.url, { 'x-api-key': tok }, body)).status).toBe(200)
+      expect(JSON.parse(seen[seen.length - 1].body)).toEqual(body)
+    } finally { await p.stop(); await broken.stop() }
   })
 })

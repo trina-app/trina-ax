@@ -122,6 +122,8 @@ export interface ProxyServiceOptions {
   log?: { warn(msg: string, f?: Record<string, unknown>): void; info(msg: string, f?: Record<string, unknown>): void; debug?(msg: string, f?: Record<string, unknown>): void }
   /** why a turn was stopped (ProxyOpts.stopReason) */
   stopReason?: ProxyOpts['stopReason']
+  /** fits the pictures of each Claude request (ProxyOpts.fitImages) */
+  fitImages?: ProxyOpts['fitImages']
   /** bind retry (design tab 1 "리슨": every 10 s, no restart loop) */
   retryMs?: number
 }
@@ -162,6 +164,7 @@ export class ModelProxyService {
       ...(this.o.stopReason ? { stopReason: this.o.stopReason } : {}),
       ...(this.o.connect ? { connect: this.o.connect } : {}),
       ...(this.o.ownLogin ? { ownLogin: this.o.ownLogin } : {}),
+      ...(this.o.fitImages ? { fitImages: this.o.fitImages } : {}),
       onTurnEvent: (turnId, ev) => this.listeners.get(turnId)?.(ev),
     }).then((p) => {
       if (this.state === 'stopped') { void p.stop(); return }

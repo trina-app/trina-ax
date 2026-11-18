@@ -41,7 +41,7 @@ import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, VISION_INPUT_MAX, VISION_TURN_BYTES, VISION_TURN_IMAGES, visionBlock,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, smallForModel, VISION_INPUT_MAX, turnImageCaps, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
@@ -108,7 +108,7 @@ export class TurnFiles {
   readonly sources = new SourceLog()
   /** the sub-agent whose state this is (the id of its Agent call), null for the main AI (forAgent) */
   readonly agent: string | null = null
-  /** image blocks sent to the model in this turn (files/vision.ts VISION_TURN_IMAGES / VISION_TURN_BYTES) */
+  /** image blocks sent to the model in this turn (files/vision.ts turnImageCaps) */
   imageBytes = 0
   imageCount = 0
   /** safe operations 1A: image versions a presentation used (safe-ops/publication.ts) */
@@ -655,6 +655,7 @@ export class FileService {
     // normalizer took the picture (it refuses huge ones first)
     const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
+    jpeg = await this.turnSized(ctx, jpeg, ctx.signal)
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
     const beforeDelivery = () => this.recheckSource(ctx, src)
@@ -844,6 +845,7 @@ export class FileService {
       return { text: this.visionFailure(ctx, e) }
     }
     signal?.throwIfAborted()
+    jpeg = await this.turnSized(ctx, jpeg, signal)
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over }
     ctx.files.imageBytes += jpeg.length
@@ -896,11 +898,21 @@ export class FileService {
     return null
   }
 
-  /** The note when this turn's images reached VISION_TURN_IMAGES / VISION_TURN_BYTES (with `next` more bytes). */
-  /** `held`: images made for this result and not counted yet (a video read's frames before their delivery) */
-  private imageBudget(ctx: Pick<ToolCtx, 'files'> & { user: { id: string } }, next: number, held = { count: 0, bytes: 0 }): string | null {
-    if (ctx.files.imageCount + held.count < VISION_TURN_IMAGES && ctx.files.imageBytes + held.bytes + next <= VISION_TURN_BYTES) return null
-    return visionText(this.db, ctx.user.id, 'budget', { images: VISION_TURN_IMAGES, mb: VISION_TURN_BYTES / 1024 / 1024 })
+  /** The note when this turn's images reached its caps (files/vision.ts turnImageCaps; with `next` more bytes).
+   * `held`: images made for this result and not counted yet (a video read's frames before their delivery). The note
+   * tells the AI to answer from what it saw, never to send the person to a new message (limits audit #4). */
+  private imageBudget(ctx: Pick<ToolCtx, 'files' | 'turnId'> & { user: { id: string } }, next: number, held = { count: 0, bytes: 0 }): string | null {
+    const caps = turnImageCaps(this.db, ctx.turnId)
+    if (ctx.files.imageCount + held.count < caps.images && ctx.files.imageBytes + held.bytes + next <= caps.bytes) return null
+    return visionText(this.db, ctx.user.id, 'budget', { images: ctx.files.imageCount + held.count })
+  }
+
+  /** A turn whose requests the model proxy does not fit (files/vision.ts turnImageCaps): after its first full-size
+   * images, the next ones go smaller, so many fit in what one request may carry. */
+  private async turnSized(ctx: Pick<ToolCtx, 'files' | 'turnId'>, jpeg: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    const caps = turnImageCaps(this.db, ctx.turnId)
+    if (caps.fitted || (ctx.files.imageCount < caps.full && ctx.files.imageBytes + jpeg.length <= caps.fullBytes)) return jpeg
+    return (await smallForModel(jpeg, this.visionTools(), signal).catch(() => { signal?.throwIfAborted(); return null })) ?? jpeg
   }
 
   /** A converter's refusal as the note the AI gets (other errors go on to the caller). */
