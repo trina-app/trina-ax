@@ -178,7 +178,7 @@ describe('Gmail attachments', () => {
     const a = await readAttachment('alice', 'quote.xlsx', xlsx())
     // the read record emptied (as if it were another chat's state): the save puts the connection back before asking
     A.ctx.db.query('UPDATE chats SET session_read_scope=NULL WHERE id=?').run(a.chat)
-    let seen: unknown[] = []
+    let seen: unknown = null
     const r = await save('alice', a.turnId, { file: a.handle, save_as: 'shared/quote-card.xlsx' }, () => { seen = readScope(A.ctx.db, a.chat); return null })
     expect(r.isError).not.toBe(true)
     expect(seen).toEqual(expect.arrayContaining([{ type: 'user', id: 'alice', via: 'connection' }]))
