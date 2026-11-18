@@ -28,7 +28,7 @@ In:
 3. The window is token-based (an estimate: 4 Latin characters or 1 other character per token), 40,000 tokens: 160,000
    characters of English, the same 40,000 of Korean.
 4. The session stash: pictures in older turns of the saved Claude session are replaced by a short note when it is over
-   8 MB (the newest turn keeps its pictures), and the stash cap goes from 20 MB to 48 MB (the launcher's own cap).
+   8 MB (the newest turn keeps its pictures), and the stash cap goes from 20 MB to 40 MB (under the launcher's 48 MiB cap).
 
 Out: no summary without a team-wide AI account (then the old window with the count, as now); guests, confidential
 chats, drafts and template runs keep the old window.

@@ -3,7 +3,9 @@
 // started over from its text. Now, over SESSION_SLIM_AT, pictures of the older turns are replaced by a short note,
 // oldest first, until it is at most SESSION_SLIM_TO; the newest turn (from the person's last message on) keeps its
 // pictures, so a follow-up about the picture just sent still sees it. The AI reads a file again to look at it.
-// The session stays valid: an image block becomes a text block in the same place.
+// The session stays valid: an image block becomes a text block in the same place. Checked with the shipped Claude Code
+// (2.1.305, scripts/linux/engines.lock.json) on 2026-11-18: a session whose image Read (message.content and its
+// toolUseResult copy) was slimmed resumed with --resume, and the AI saw the note in place of the picture.
 
 /** a saved session over this is slimmed */
 export const SESSION_SLIM_AT = 8 * 1024 * 1024
@@ -29,14 +31,22 @@ function strip(v: unknown, n: { removed: number }): unknown {
   return out
 }
 
-/** the person's own message (not a tool result, not a note the engine wrote for itself) */
+/** text the engine writes as a user line itself (an interruption, a slash command's echo), not the person's message */
+const ENGINE_USER_TEXT = /^\s*(\[Request interrupted|<command-|<local-command-|<bash-|<user-memory-input>|Caveat: )/
+/** the person's own message: a user line with text and no tool result, not one the engine wrote for itself (meta,
+ * compact summary, transcript-only, a tool's follow-up, an interruption) */
 function isPrompt(o: unknown): boolean {
   if (!o || typeof o !== 'object') return false
-  const l = o as { type?: unknown; isMeta?: unknown; message?: { role?: unknown; content?: unknown } }
-  if (l.type !== 'user' || l.isMeta === true || l.message?.role !== 'user') return false
+  const l = o as Record<string, unknown> & { message?: { role?: unknown; content?: unknown } }
+  if (l.type !== 'user' || l.message?.role !== 'user') return false
+  if (l.isMeta === true || l.isCompactSummary === true || l.isVisibleInTranscriptOnly === true || l.toolUseResult !== undefined || l.sourceToolUseID !== undefined) return false
   const c = l.message.content
-  if (typeof c === 'string') return true
-  return Array.isArray(c) && !c.some((b) => b && typeof b === 'object' && (b as { type?: unknown }).type === 'tool_result')
+  const texts = typeof c === 'string' ? [c] : Array.isArray(c)
+    ? (c.some((b) => b && typeof b === 'object' && (b as { type?: unknown }).type === 'tool_result') ? null
+      : c.filter((b) => b && typeof b === 'object' && (b as { type?: unknown }).type === 'text').map((b) => String((b as { text?: unknown }).text ?? '')))
+    : null
+  if (!texts || !texts.some((t) => t.trim())) return false
+  return !texts.every((t) => ENGINE_USER_TEXT.test(t))
 }
 
 /**
@@ -44,7 +54,7 @@ function isPrompt(o: unknown): boolean {
  * when it is not over `at`, or has no such pictures. `removed`: how many pictures were taken out.
  */
 export function slimSession(bytes: Buffer, at = SESSION_SLIM_AT, to = SESSION_SLIM_TO): { bytes: Buffer; removed: number } {
-  if (bytes.length <= at) return { bytes, removed: 0 }
+  if (bytes.length <= at || !bytes.includes('"image"')) return { bytes, removed: 0 }
   const lines = bytes.toString('utf8').split('\n')
   const parsed: unknown[] = lines.map((l) => { if (!l.trim()) return null; try { return JSON.parse(l) } catch { return null } })
   let last = -1

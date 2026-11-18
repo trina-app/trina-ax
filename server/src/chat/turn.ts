@@ -134,7 +134,8 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
-import { ensureSummary, HISTORY_SUMMARY_TOOL, lookupSummary, summaryAi, summaryLines, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
+import { ensureSummary, hashChain, HISTORY_SUMMARY_TOOL, lookupSummary, markSummaryFailed, summaryAi, summaryLines, summaryMode, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
+import { ownerId } from '../file-list/engine-reader'
 import { slimSession } from './session-slim'
 
 export { noSearchPath } from './search-path'
@@ -157,9 +158,10 @@ export const OWN_CALL_PAUSE_MAX_MS = 2 * 60 * 60_000
 export const QUARANTINE_HOLD_MAX_MS = 45 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
-/** the most a saved engine session may be (the launcher collects at most 48 MiB); pictures of older turns are taken
- * out of it first (chat/session-slim.ts), so pictures alone no longer make a chat start over */
-export const SESSION_STASH_MAX = 48 * 1024 * 1024
+/** the most a saved engine session may be: below the launcher's 48 MiB collect cap, with a margin under the 64 MiB
+ * request line its base64 travels in; pictures of older turns are taken out of it first (chat/session-slim.ts), so
+ * pictures alone no longer make a chat start over */
+export const SESSION_STASH_MAX = 40 * 1024 * 1024
 
 
 /** Where a call saves and what it copies, for the wider-audience check asked with a room change (chat/tools.ts widenOf,
@@ -284,6 +286,8 @@ export class TurnExec {
   historyTrimmed = false
   /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
   private summaryAfter: (() => void) | null = null
+  /** the attempt that answers started a fresh session (its prompt carried the history) */
+  private ranFresh = false
   /** the engine wrote text or called a tool in this turn (any attempt) */
   private producedOutput = false
   /** steps still running when the turn was stopped (Stop, the stall guard): if the answer pauses at a limit they were
@@ -887,17 +891,36 @@ export class TurnExec {
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
     const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
-    const summaryOf = (h: HistoryItem[]) => {
-      if (!summaryOn || !h.length) return null
-      try { return lookupSummary(rt.db, spec.chatId, spec.userId, summaryLines(rt.store, h, viewer)) } catch (e) { rt.log.warn('reading the chat summary failed', { err: e, turn: this.id }); return null }
+    // the branch up to a message with its summary lines and their hash chain, made once per turn and message
+    const prepared = new Map<string, { h: HistoryItem[]; lines: string[]; chain: string[] }>()
+    const prep = (leaf: string | null) => {
+      let p = prepared.get(leaf ?? '')
+      if (!p) {
+        const h = historyOf(leaf)
+        const lines = summaryOn ? summaryLines(rt.store, h, viewer) : []
+        p = { h, lines, chain: summaryOn ? hashChain(lines) : [] }
+        prepared.set(leaf ?? '', p)
+      }
+      return p
     }
-    /** the summary made (or extended) for this history, when the window leaves out messages no summary covers; null:
-     * nothing to do or no AI for it */
-    const summaryJob = (h: HistoryItem[]): Promise<unknown> | null => {
-      if (!summaryOn || !h.length || uncovered(h, summaryOf(h)) === 0) return null
+    const summaryOf = (leaf: string | null) => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length) return null
+      try { return lookupSummary(rt.db, spec.chatId, spec.userId, p.lines, p.chain) } catch (e) { rt.log.warn('reading the chat summary failed', { err: e, turn: this.id }); return null }
+    }
+    /** the summary made (or extended) for the branch up to `leaf`, when the window leaves out messages no summary
+     * covers; null: nothing to do, a "block" budget reached (the person's, or the owner's whose turns the calls are:
+     * file-list/service.ts), or no AI for it */
+    const summaryJob = (leaf: string | null): Promise<unknown> | null => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length || uncovered(p.h, summaryOf(leaf)) === 0) return null
+      try {
+        const owner = ownerId(rt.ctx)
+        if (budgetBlock(rt.db, spec.userId, 'en') || (owner && budgetBlock(rt.db, owner, 'en'))) return null
+      } catch { return null }
       const ai = summaryAi(rt.ctx)
       if (!ai) return null
-      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: h, lines: summaryLines(rt.store, h, viewer) })
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain })
     }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
@@ -906,9 +929,9 @@ export class TurnExec {
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
-      history: fresh ? historyOf(userMsg.parent_id) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
-      historySummary: fresh ? summaryOf(historyOf(userMsg.parent_id)) : null,
+      historySummary: fresh ? summaryOf(userMsg.parent_id) : null,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -935,6 +958,7 @@ export class TurnExec {
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
       this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.ranFresh = fresh
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
@@ -1011,22 +1035,29 @@ export class TurnExec {
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
     // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
-    // on and a later turn has it); a resumed Claude session has the whole conversation already
-    if (!replay && (!claude || !resume)) {
-      const job = summaryJob(historyOf(userMsg.parent_id))
-      if (job) {
+    // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
+    // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
+    const mode = summaryMode(spec.chatId)
+    if (!replay && (!claude || !resume) && mode !== 'skip') {
+      const job = summaryJob(userMsg.parent_id)
+      if (job && mode === 'background') job.catch(() => {})
+      else if (job) {
         const step = this.addStep({ kind: 'tool', tool: HISTORY_SUMMARY_TOOL, label: tr('historySummary', spec.locale), status: 'running' })
         let timer: ReturnType<typeof setTimeout> | undefined
-        const stopped = new Promise<void>((r) => { if (this.abort.signal.aborted) r(); else this.abort.signal.addEventListener('abort', () => r(), { once: true }) })
-        await Promise.race([job.catch(() => null), new Promise<void>((r) => { timer = setTimeout(r, SUMMARY_WAIT_MS) }), stopped])
+        const stopped = new Promise<'stopped'>((r) => { if (this.abort.signal.aborted) r('stopped'); else this.abort.signal.addEventListener('abort', () => r('stopped'), { once: true }) })
+        const end = await Promise.race([job.then(() => 'done' as const, () => 'done' as const), new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), SUMMARY_WAIT_MS) }), stopped])
         clearTimeout(timer)
-        this.updateStep(step.id, { status: 'ok', endedAt: new Date().toISOString() })
+        if (end === 'late') markSummaryFailed(spec.chatId)
+        // the step says whether this answer has the summary (an error mark: it started with the recent part only)
+        const got = summaryOf(userMsg.parent_id)
+        const used = !!got && uncovered(prep(userMsg.parent_id).h, got) === 0
+        this.updateStep(step.id, { status: used ? 'ok' : 'error', endedAt: new Date().toISOString() })
         if (this.stopReason) return
       }
     }
-    // after the answer, when this turn started fresh: the summary for the history with it, so the next fresh session
-    // (the next Codex message, a regenerate) does not wait
-    this.summaryAfter = () => { if (this.historyTrimmed || !claude || !resume) summaryJob(historyOf(spec.assistantId))?.catch(() => {}) }
+    // after an answer that started fresh (Codex, an edit, another writer in a shared chat): the summary for the history
+    // with it, so the next fresh session does not wait. Not after a resumed session (rarely needed there)
+    this.summaryAfter = () => { if (this.ranFresh && summaryMode(spec.chatId) !== 'skip') summaryJob(spec.assistantId)?.catch(() => {}) }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
