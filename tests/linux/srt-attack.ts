@@ -133,6 +133,9 @@ fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat
 fs.writeFileSync(path.join(chatWork(BASE, SW), 'x'), `${ASKER}-private-work`)
 // a work folder of SW for an earlier, smaller audience (alice alone): a new audience never gets it (review 2)
 fs.mkdirSync(sharedWork(BASE, SW, sharedWorkKey([ME])), { recursive: true }); fs.writeFileSync(path.join(sharedWork(BASE, SW, sharedWorkKey([ME])), 'x'), `${ASKER}-alone-work`)
+// another run's short temp folder (devenv/rt/<run>, config.ts runTmp), with a marker: a shared run never sees or writes it
+const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
+fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -322,6 +325,26 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     check: both(ok, noAsker, (r) => (r.out.includes('hello from p1') || r.out.includes('web index') ? 'a project erin may not open came back' : null)), o: SWC },
   { id: 'S12', what: 'chat shared with people: the shared folders, her group folder and her own folder are read-only', cmd: `echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/shared/new2.md || echo x >> ${TEAM}/groups/marketing/brief.md || echo evil > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{}' > ${TEAM}/shared/repo/package.json || mkdir ${TEAM}/shared/dir2 || echo x > ${TEAM}/users/alice/z2.md`, check: failsQuietly, o: SWC,
     after: () => (fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/shared/new2.md`) || fs.readFileSync(`${TEAM}/groups/marketing/brief.md`, 'utf8') !== 'marketing brief\n' || fs.existsSync(`${TEAM}/shared/dir2`) || fs.existsSync(`${TEAM}/users/alice/z2.md`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8') === '{}\n' ? 'a team folder changed' : gitChanged('shared/repo')) },
+  { id: 'S14', what: 'shared project chat: the parent of TMPDIR (devenv/rt) and another run\'s temp folder there: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SPC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14b', what: 'chat shared with people: the parent of TMPDIR and another run\'s temp folder: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SWC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
 ]
 
