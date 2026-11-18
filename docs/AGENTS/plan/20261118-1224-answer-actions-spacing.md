@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 12:24
 - Branch: `fix/answer-actions-spacing`
-- Status: in progress
+- Status: done
 - Where: web/src/components/chat/Messages.tsx (the answer's action row). Why: the row is the core chat's, shared by
   the full chat, the side chat and shared chats.
 - Version impact: patch, a spacing fix
@@ -41,4 +41,4 @@ answer-actions-spacing spec.
 
 ## Result
 
-Filled in at the end.
+Built as planned. At 390 the icons now stand 48 px apart (44 px tap box + 4 px), was 56 px (44 + 12); 1440 unchanged at 29 px. The new e2e spec answer-actions-spacing checks it in light and dark.

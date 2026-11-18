@@ -865,8 +865,9 @@ export function AssistantMessage({
           // phones: an older answer's actions and model name wait for a tap, its branch switch stays in sight; without
           // one the row takes no room until then
           // (a side chat panel: the send button stays in sight under every finished answer, the icons wait for a long press)
-          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none max-md:gap-3', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
-            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
+          // (every width the same 4 px between icons: on a phone each is a 44 px tap box, which is the space between them)
+          <div className={clsx('mt-1.5 -ml-1.5 flex flex-wrap items-center gap-1 select-none', !isLast && ON_HOVER, untilTap && !branched && !(pressMenu && sendHereOn) && UNTIL_TAP)} data-testid="answer-actions">
+            <span className={clsx('flex items-center gap-1 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap">
               {m.content && <CopyButton text={m.content} html={() => answerHtml(m.content)} label={t('chat.copyAnswer')} className="touch-hit" />}
             </span>
             {/* send to a room: a finished answer to a room I am in, as my message (ShareToRoom); a room's side chat sends it
@@ -876,7 +877,7 @@ export function AssistantMessage({
                 <SendHere chatId={chatId} answerId={m.id} roomId={sendHere!.roomId} target={sendHere!.target} onView={sendHere!.onView} />
               </span>
             )}
-            <span className={clsx('flex items-center gap-1 max-md:gap-3 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
+            <span className={clsx('flex items-center gap-1 md:contents', untilTap && UNTIL_TAP)} data-testid="answer-actions-tap-more">
               {threadable && (
                 <IconButton label={t('rooms.replyInThread')} onClick={() => onThread!(true)} className="touch-hit" data-testid="reply-in-thread">
                   <MessageSquareReply size={13} />
