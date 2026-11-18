@@ -522,6 +522,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.error.model_not_found": CHAT_ERROR_MESSAGES.model_not_found.zh,
   "chat.error.endpoint_unreachable": CHAT_ERROR_MESSAGES.endpoint_unreachable.zh,
   "chat.error.provider_error": CHAT_ERROR_MESSAGES.provider_error.zh,
+  "chat.error.provider_busy": CHAT_ERROR_MESSAGES.provider_busy.zh,
   "chat.error.lockdown": CHAT_ERROR_MESSAGES.lockdown.zh,
   "chat.error.admin.auth": "AI 账号有问题，AI 无法回答。请在{path}中检查。",
   "chat.error.admin.no_credential": "没有为此连接 AI 账号。请在{path}中连接。",

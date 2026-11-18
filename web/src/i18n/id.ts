@@ -537,6 +537,7 @@ export const id: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.id,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.id,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.id,
+  'chat.error.provider_busy': CHAT_ERROR_MESSAGES.provider_busy.id,
   'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.id,
   "chat.error.admin.auth": "Akun AI sedang bermasalah, jadi AI tidak bisa menjawab. Periksa di {path}.",
   "chat.error.admin.no_credential": "Tidak ada akun AI yang terhubung untuk ini. Hubungkan satu di {path}.",

@@ -536,6 +536,7 @@ export const ko = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.ko,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.ko,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.ko,
+  'chat.error.provider_busy': CHAT_ERROR_MESSAGES.provider_busy.ko,
   'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.ko,
   "chat.error.admin.auth": "AI 계정에 문제가 있어서 답할 수 없어요. {path}에서 확인해 주세요.",
   "chat.error.admin.no_credential": "쓸 수 있는 AI 계정이 없어요. {path}에서 연결해 주세요.",

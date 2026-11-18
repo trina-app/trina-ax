@@ -523,6 +523,7 @@ export const ja: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.ja,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.ja,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.ja,
+  'chat.error.provider_busy': CHAT_ERROR_MESSAGES.provider_busy.ja,
   'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.ja,
   "chat.error.admin.auth": "AIアカウントに問題があるため回答できません。「{path}」で確認してください。",
   "chat.error.admin.no_credential": "使えるAIアカウントが接続されていません。「{path}」で接続してください。",

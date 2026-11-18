@@ -537,6 +537,7 @@ export const en: Record<MessageKey, string> = {
   'chat.error.model_not_found': CHAT_ERROR_MESSAGES.model_not_found.en,
   'chat.error.endpoint_unreachable': CHAT_ERROR_MESSAGES.endpoint_unreachable.en,
   'chat.error.provider_error': CHAT_ERROR_MESSAGES.provider_error.en,
+  'chat.error.provider_busy': CHAT_ERROR_MESSAGES.provider_busy.en,
   'chat.error.lockdown': CHAT_ERROR_MESSAGES.lockdown.en,
   "chat.error.admin.auth": "There's a problem with the AI account, so the AI can't answer. Check it in {path}.",
   "chat.error.admin.no_credential": "No AI account is connected for this. Connect one in {path}.",
