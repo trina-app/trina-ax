@@ -21,8 +21,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 
-/** the most one answer may be (the server's MCP_CALL_MAX_BYTES: a screenshot comes inline as base64) */
-export const LOCAL_MAX_ANSWER = 25 * 1024 * 1024
+/** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
+ * (Bun's maxPayloadLength); a larger one would close the window's socket and leave the call waiting */
+export const LOCAL_MAX_ANSWER = 15 * 1024 * 1024
 /** what is kept of the program's error output for the reason a start failed */
 const STDERR_KEEP = 4000
 /** a program that does not stop on SIGTERM is killed after this long */
@@ -118,6 +119,9 @@ export class LocalApps {
   /** a Cancel in a turn: the same command is not asked again in a turn (a check from Settings asks again) */
   private declined = new Set<string>()
   private calls = new Map<string, AbortController>()
+  /** a connection's last initialize params: a program started again (Stop, new settings) under a client that already
+   * initialized it is initialized with them before that client's next request */
+  private initParams = new Map<string, unknown>()
   private spawn: typeof nodeSpawn
   constructor(private d: LocalAppsDeps) { this.spawn = d.spawn ?? nodeSpawn }
 
@@ -144,7 +148,7 @@ export class LocalApps {
       if ('failure' in answer) return fail(answer.failure, answer.error)
       if (answer.message === null) return { callId: call.callId, ok: true, message: null }
       const text = this.hide(team, call.connectionId, JSON.stringify(answer.message))
-      if (text.length > LOCAL_MAX_ANSWER) return fail('failed', 'the answer is too large')
+      if (Buffer.byteLength(text) > LOCAL_MAX_ANSWER) return fail('failed', 'the answer is too large')
       return { callId: call.callId, ok: true, message: JSON.parse(text) }
     } catch (e) {
       return fail('failed', e instanceof Error ? e.message : String(e))
@@ -258,36 +262,49 @@ export class LocalApps {
     const r = started
     const method = typeof m.method === 'string' ? m.method : ''
     const isRequest = m.id !== undefined && m.id !== null
+    const ck = this.k(team, call.connectionId)
+    // one initialize per process: a later client gets the first answer under its own id
+    const init = async (params: unknown): Promise<Answer | null> => {
+      if (r.init) return null
+      r.initializing ??= this.request(r, { jsonrpc: '2.0', id: `init-${crypto.randomUUID()}`, method: 'initialize', params }, call.deadline, signal).then((a) => {
+        if ('failure' in a) throw new Error(a.error)
+        const result = a.message?.result
+        if (result && typeof result === 'object') r.init = result as Record<string, unknown>
+        else throw new Error(JSON.stringify(a.message?.error ?? 'no answer'))
+        return r.init
+      }).finally(() => { r.initializing = null })
+      try { await r.initializing; return null } catch (e) { return { failure: 'failed', error: e instanceof Error ? e.message : String(e) } }
+    }
     if (method === 'initialize' && isRequest) {
-      // one initialize per process: a later client gets the first answer under its own id
-      if (!r.init) {
-        r.initializing ??= this.request(r, m, call.deadline, signal).then((a) => {
-          if ('failure' in a) throw new Error(a.error)
-          const result = a.message?.result
-          if (result && typeof result === 'object') r.init = result as Record<string, unknown>
-          else throw new Error(JSON.stringify(a.message?.error ?? 'no answer'))
-          return r.init
-        }).finally(() => { r.initializing = null })
-        try { await r.initializing } catch (e) { return { failure: 'failed', error: e instanceof Error ? e.message : String(e) } }
-      }
-      return { message: { jsonrpc: '2.0', id: m.id, result: r.init } }
+      this.initParams.set(ck, m.params ?? {})
+      const failed = await init(m.params ?? {})
+      return failed ?? { message: { jsonrpc: '2.0', id: m.id, result: r.init } }
     }
     if (method === 'notifications/initialized') {
       if (!r.initialized) { r.initialized = true; this.write(r, m) }
       return { message: null }
     }
     if (!isRequest) { this.write(r, m); return { message: null } }
+    // a program started again under a client that initialized the one before (Stop, new settings): initialized here
+    // first, as a stdio server takes no other request before it
+    if (!r.init) {
+      const failed = await init(this.initParams.get(ck) ?? { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'team-integrations', version: '1.0' } })
+      if (failed) return failed
+    }
+    if (!r.initialized) { r.initialized = true; this.write(r, { jsonrpc: '2.0', method: 'notifications/initialized' }) }
     return this.request(r, m, call.deadline, signal)
   }
 
   // ---------------- Stop ----------------
-  private kill(r: Running) {
+  /** `hard`: at once with SIGKILL (the app is quitting: no timer of its own runs after that) */
+  private kill(r: Running, hard = false) {
     if (r.exited) return
     const pid = r.child.pid
     const sig = (s: NodeJS.Signals) => {
       // the program's own children too (it was started in a group of its own)
       try { if (pid && process.platform !== 'win32') process.kill(-pid, s); else r.child.kill(s) } catch { try { r.child.kill(s) } catch {} }
     }
+    if (hard) return sig('SIGKILL')
     sig('SIGTERM')
     setTimeout(() => { if (!r.exited) sig('SIGKILL') }, KILL_AFTER_MS).unref?.()
   }
@@ -299,8 +316,8 @@ export class LocalApps {
   }
 
   /** Quitting, or another team opened in the window: every program of `team` (all teams when left out) stops. */
-  stopAll(team?: string) {
-    for (const [k, r] of [...this.running]) if (!team || k.startsWith(team + '\u0000')) this.kill(r)
+  stopAll(team?: string, hard = false) {
+    for (const [k, r] of [...this.running]) if (!team || k.startsWith(team + '\u0000')) this.kill(r, hard)
   }
 
   /** The connections of `team` with a program running now. */

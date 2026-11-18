@@ -59,16 +59,18 @@ export class LocalAppsHost {
     } catch { return {} }
   }
 
-  /** The values typed on this computer for a connection's settings (empty: removed). Sealed, or refused when the
-   * system has no keychain for this app. */
+  /** The values typed on this computer for a connection's settings, added to the ones kept (the page never sees a
+   * value, so it sends only what was typed; an empty one removes that setting). Sealed, or refused when the system has
+   * no keychain for this app. */
   setSettings(team: string, id: unknown, values: unknown): 'saved' | 'unavailable' | 'invalid' {
     if (typeof id !== 'string' || !ID.test(id) || !values || typeof values !== 'object') return 'invalid'
-    const clean: Record<string, string> = {}
-    for (const [k, v] of Object.entries(values as Record<string, unknown>).slice(0, 20)) {
-      if (!NAME.test(k) || typeof v !== 'string' || v.length > 8000 || v.includes('\0')) return 'invalid'
-      if (v) clean[k] = v
-    }
+    const typed = Object.entries(values as Record<string, unknown>)
+    if (typed.length > 20) return 'invalid'
+    for (const [k, v] of typed) if (!NAME.test(k) || typeof v !== 'string' || v.length > 8000 || v.includes('\0')) return 'invalid'
     if (!safeStorage.isEncryptionAvailable()) return 'unavailable'
+    const clean: Record<string, string> = { ...this.settings(team, id) }
+    for (const [k, v] of typed as [string, string][]) { if (v) clean[k] = v; else delete clean[k] }
+    if (Object.keys(clean).length > 20) return 'invalid'
     this.put(team, id, { settings: Object.keys(clean).length ? safeStorage.encryptString(JSON.stringify(clean)).toString('base64') : undefined })
     // a running program got the old values: it starts again with the new ones on its next call
     this.apps.stop(team, id)

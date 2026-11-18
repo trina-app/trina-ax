@@ -117,6 +117,19 @@ describe('apps on this computer: the desktop manager', () => {
     expect(await slow).toMatchObject({ ok: false, failure: 'failed', error: 'stopped' })
   })
 
+  test('a program started again under a client that initialized the one before (Stop, new settings) is initialized first', async () => {
+    const h = harness()
+    all.push(h.apps)
+    await h.init('i1')
+    await h.call({ jsonrpc: '2.0', method: 'notifications/initialized' })
+    h.apps.stop(TEAM, 'conn-1')
+    for (let i = 0; i < 50 && h.apps.runningIds(TEAM).length; i++) await Bun.sleep(50)
+    // the same client (a Settings check after new values) goes on without its own initialize
+    expect(h.text(await h.tool('inits'))).toBe('1')
+    expect(h.text(await h.tool('echo', { text: 'hi' }))).toBe('echo: hi')
+    expect(h.spawned).toHaveLength(2)
+  })
+
   test('hideValues: each value, longest first, also as JSON writes it; short ones are left', () => {
     expect(hideValues('a abcd-ef "x\\"y12"', ['abcd-ef', 'x"y12', 'ab'])).toBe(`a ${HIDDEN_VALUE} "${HIDDEN_VALUE}"`)
   })

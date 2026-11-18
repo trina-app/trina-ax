@@ -590,8 +590,9 @@ if (primary) {
   app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
-    // every program an app on this computer started ends with the app
-    localApps?.apps.stopAll()
+    // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),
+    // killed on the last pass, after which no timer of the app runs to finish one that ignored it
+    localApps?.apps.stopAll(undefined, flushed)
     if (flushed) return
     e.preventDefault()
     const id = win?.team?.id ?? lastTeam
