@@ -32,6 +32,9 @@
   wholly inside one) is not their own, since the person may have copied what the AI showed them and cannot see what
   is hidden from the recipient; a message the server wrote for the person (onboarding, skill drafts, by its client
   id) is not theirs.
+- **With mentions (docs/decisions/20261118-ai-post-real-mentions.md):** the server's "@Name"s of the people mentioned
+  go before the paste and it still counts as the person's own; an "@name" inside the paste that the server rewrites
+  to its exact form changes their words, so that post gets the full check.
 - **Rule 3 (next step):** the `answer_share_hidden` refusal tells the AI the step that works: send the part of the
   person's own message with own_words exactly as written; otherwise say why it was not sent and where it can go.
 - **Not changed:** content the AI brought in from a room (room_read, a search, a side chat, a quote) is never sent past
