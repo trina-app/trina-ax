@@ -1815,6 +1815,11 @@ export class TurnExec {
       case 'agent_progress':
         this.subtaskProgress(e.id, e.stats)
         return
+      case 'compacted':
+        // Claude Code compacted the session in the middle of this answer: what it read before is no longer all in it
+        // (a later write or make_file asks for a new read; edits go on; chat/carried-reads.ts)
+        this.files.sessionLostText()
+        return
       case 'usage':
         // a running usage is one model call of the run under way; the run's total replaces those estimates
         if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }

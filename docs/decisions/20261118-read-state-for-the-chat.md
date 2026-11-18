@@ -30,11 +30,18 @@ Plan: docs/AGENTS/plan/20261118-1000-read-state-for-the-chat.md.
   The session is recorded per path when the text is seen: a sub-agent's read (the main session never saw it) and a read
   made before the turn moved to another session (an account switch, a "No conversation found" retry) are saved without
   one. A sub-agent never replaces a whole file from an earlier answer's read (it never saw that text); it may edit.
-  A compaction in the stash (Claude Code's `compact_boundary` or `microcompact_boundary` system line, both checked in
+  A compaction in the middle of an answer (the stream's system line, parsed into a `compacted` event,
+  engine/claude-parse.ts) turns whole-file replaces from what was read before it off at once, for the rest of that
+  answer. A compaction in the stash (Claude Code's `compact_boundary` or `microcompact_boundary` system line, both checked in
   the shipped binary) clears the chat's sessions on its reads: edits
   only from then on. A stash slimmed by #1283 (pictures of older turns taken out) does the same
   (`sessionDroppedText` in chat/turn.ts stashSession). A fresh session that starts from #1283's summary has a new
   session id, so earlier answers' reads never allow a whole-file replace there.
+- **Only recent answers for a whole-file replace:** Claude Code 2.1.327 also has a time-based "keep recent"
+  micro-compaction (`tengu_time_based_microcompact`, "[KEEP-RECENT MC]") that clears old tool results; the binary
+  shows no boundary line written for it, and it was not reproduced in a real session. So an earlier answer's read
+  allows `write` / `make_file` only when it is from the last 2 answers on the branch (`WHOLE_FILE_RECENT_ANSWERS`);
+  older reads allow edits and the in-place tools only. A replace always keeps the old version in its history.
 - **Per person:** rows carry the turn's person and only that person's rows load. In a shared chat person B's turn never
   uses person A's reads, because their access differs. An edited or regenerated message starts a branch without the
   other branch's reads.

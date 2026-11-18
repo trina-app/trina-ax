@@ -17,6 +17,7 @@ import { TurnFiles, type CarriedReads, type ToolCtx } from '../../server/src/fil
 import { placeProduced } from '../../server/src/tools/make-file'
 import { componentC } from '../../server/src/team-files/component'
 import { slimSession } from '../../server/src/chat/session-slim'
+import { ClaudeStreamParser } from '../../server/src/engine/claude-parse'
 
 setDefaultTimeout(120_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -388,5 +389,49 @@ describe('a slimmed stash (pictures of older turns taken out, chat/session-slim.
     tf.carried = after
     tf.engineSession('s1', true)
     expect(tf.readHashes.get(f)).toBe(sha('v1\n'))
+  })
+})
+
+describe('a compaction in the middle of an answer', () => {
+  test('Claude Code compacts before the write: the whole-file replace asks for a new read; an edit goes on', async () => {
+    const f = `${dirOf()}/mid.md`
+    put(f, 'mid v1\n')
+    const chat = await newChat('alice')
+    await ask('alice', chat, `read\n${fake({ tool: 'read', args: { file_path: f } }, { say: 'read' })}`)
+    const w = await ask('alice', chat, `rewrite\n${fake({ systemLine: { subtype: 'compact_boundary' } }, { sleep: 300 }, { tool: 'write', args: { file_path: f, content: 'guessed\n' }, sayResult: true })}`)
+    expect(w.text).toContain('first (with read)')
+    expect(read(f)).toBe('mid v1\n')
+    const e = await ask('alice', chat, `fix\n${fake({ systemLine: { subtype: 'microcompact_boundary' } }, { sleep: 300 }, { tool: 'edit', args: { file_path: f, old_string: 'v1', new_string: 'v2' }, sayResult: true })}`)
+    expect(e.text).toContain(`Edited ${f}`)
+  })
+
+  test('the stream parser reports the main AI\'s compaction lines, never a sub-agent\'s or another system line', () => {
+    const p = new ClaudeStreamParser()
+    expect(p.push(JSON.stringify({ type: 'system', subtype: 'compact_boundary' }))).toEqual([{ type: 'compacted' }])
+    expect(p.push(JSON.stringify({ type: 'system', subtype: 'microcompact_boundary' }))).toEqual([{ type: 'compacted' }])
+    expect(p.push(JSON.stringify({ type: 'system', subtype: 'compact_boundary', parent_tool_use_id: 'toolu_1' }))).toEqual([])
+    expect(p.push(JSON.stringify({ type: 'system', subtype: 'turn_duration' }))).toEqual([])
+  })
+
+  test('compactionsIn counts system lines only, not the name quoted in a message', () => {
+    const line = (o: unknown) => JSON.stringify(o)
+    const text = [line({ type: 'user', message: { role: 'user', content: 'what is "compact_boundary"?' } }), line({ type: 'system', subtype: 'compact_boundary' }), 'not json compact_boundary'].join('\n')
+    expect(compactionsIn(Buffer.from(text))).toBe(1)
+  })
+})
+
+describe('older reads and whole-file replaces', () => {
+  test('a read more than two answers back allows edits only (Claude Code may have cleared old tool results)', async () => {
+    const f = `${dirOf()}/old.md`
+    put(f, 'old v1\n')
+    const chat = await newChat('alice')
+    await ask('alice', chat, `read\n${fake({ tool: 'read', args: { file_path: f } }, { say: 'read' })}`)
+    await ask('alice', chat, 'two')
+    await ask('alice', chat, 'three')
+    const w = await ask('alice', chat, `rewrite\n${fake({ tool: 'write', args: { file_path: f, content: 'guessed\n' }, sayResult: true })}`)
+    expect(w.text).toContain('first (with read)')
+    expect(read(f)).toBe('old v1\n')
+    const e = await ask('alice', chat, `fix\n${fake({ tool: 'edit', args: { file_path: f, old_string: 'v1', new_string: 'v2' }, sayResult: true })}`)
+    expect(e.text).toContain(`Edited ${f}`)
   })
 })

@@ -21,13 +21,33 @@ export const mayCarryReads = (db: Database, userId: string, restricted: boolean)
 
 /** the most paths one answer keeps (its newest); past it the next answer reads the others again, as before */
 export const CARRIED_READS_PER_ANSWER = 2000
+/** a whole-file replace (write, make_file) counts an earlier read only from the last this many answers on the branch:
+ * Claude Code may clear old tool results in the session without writing a boundary line (its time-based "keep recent"
+ * micro-compaction, checked in the 2.1.327 binary), so an older read may no longer be text the AI still has. Edits and
+ * the in-place tools use any unchanged read (they need the exact old text) */
+export const WHOLE_FILE_RECENT_ANSWERS = 2
+
 /** the most rows one chat keeps (its newest; older answers' reads are dropped first) */
 export const CARRIED_READS_PER_CHAT = 20_000
 
-/** Claude Code's session file marks a compaction with a system line {"subtype":"compact_boundary"} (the text before it
- * is summarized away) and a micro-compaction, which clears old tool results such as file text, with
- * {"subtype":"microcompact_boundary"} (both strings checked in the shipped 2.1.327 binary, 2026-11-18) */
-export const compactionsIn = (stash: Uint8Array): number => Buffer.from(stash).toString('latin1').match(/"(?:micro)?compact_boundary"/g)?.length ?? 0
+/** the system lines with which Claude Code marks a compaction in its session file and its stream: compact_boundary (the
+ * text before it is summarized away) and microcompact_boundary (old tool results, such as file text, cleared). Both
+ * names checked in the shipped 2.1.327 binary, 2026-11-18 */
+export const COMPACTION_SUBTYPES: ReadonlySet<string> = new Set(['compact_boundary', 'microcompact_boundary'])
+
+/** How many compaction lines a session file has: each line parsed, a system line with one of those subtypes (the
+ * substring alone only picks which lines are parsed, so a quoted name in a message never counts) */
+export function compactionsIn(stash: Uint8Array): number {
+  let n = 0
+  for (const line of Buffer.from(stash).toString('utf8').split('\n')) {
+    if (!line.includes('compact_boundary')) continue
+    try {
+      const o = JSON.parse(line) as { type?: unknown; subtype?: unknown }
+      if (o?.type === 'system' && typeof o.subtype === 'string' && COMPACTION_SUBTYPES.has(o.subtype)) n++
+    } catch {}
+  }
+  return n
+}
 
 /** The session this turn saves no longer holds all it saw: Claude Code compacted it in this turn (more boundary lines
  * than the stash it resumed), or the stash was slimmed (chat/session-slim.ts took pictures out of older turns) */
@@ -75,7 +95,7 @@ export function carriedReads(db: Database, files: FileService, o: { chatId: stri
   return {
     hashes,
     inSession(sid) { session = sid },
-    wholeFile(rel) { const b = best.get(rel); return !!b && !!session && b.session === session },
+    wholeFile(rel) { const b = best.get(rel); return !!b && !!session && b.session === session && b.at >= o.answers.length - WHOLE_FILE_RECENT_ANSWERS },
     // now, with the person's current permissions and folder rules: one who lost the file gets nothing from the read
     current(rel) {
       try {
