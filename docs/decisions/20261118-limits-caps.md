@@ -26,6 +26,10 @@ a simple floor: the save is refused when it would leave less than max(2 GiB, min
 statfs of the team folder). The 10 GiB cap came in the 11-18 batch: without it a 1.8 TB disk with 91 GB free (5% is
 92 GB) refused every AI write. It is the one reserve rule (system/disk-stat.ts diskReserve), also used by save_url and
 the speech model's download, which kept 10% (5 to 20 GiB) before. So these numbers only stop an AI writing in a loop.
+The ops checks' read-only line on the Mac rule (system/storage.ts absoluteFloor, also the storage card's `full`, QA
+TC-209) had the same missing cap, max(10 GiB, 5%): a big disk 95% full showed as read-only while writes still worked.
+It is now max(10 GiB, min(5%, 10 GiB)) (11-19 batch; tests/unit/g-linux-diag.test.ts "the Mac rule",
+tests/unit/full-disk-words.test.ts).
 Members: 1 GB and 2,000 files (`maxWriteBytesPerTurn`, `maxFilesWrittenPerTurn`). Guests keep 50 MB and 200
 (`guestMaxWriteBytesPerTurn`, `guestMaxFilesWrittenPerTurn`); one helper, files/turn-write-limits.ts, picks the pair by
 person (users.guest), for every check (files service, make_file's placeProduced, unzip_file for a guest, safe-ops
