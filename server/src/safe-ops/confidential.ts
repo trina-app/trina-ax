@@ -16,6 +16,7 @@ const LOCAL_TOOLS = new Set([
   'split_pdf',
   'resize_images',
   'unzip_file',
+  'query_data',
   'share_file',
   'remember',
   'forget',

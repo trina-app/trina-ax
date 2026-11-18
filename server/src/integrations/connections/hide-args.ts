@@ -42,6 +42,8 @@ const KEEP: Record<string, readonly string[]> = {
   split_pdf: ['file_path', 'parts', 'every'],
   resize_images: ['paths', 'longest_side', 'width', 'max_mb', 'preset'],
   unzip_file: ['path', 'list_only'],
+  // the saved result is the files' own data; a key the AI wrote into the SQL is hidden like any argument
+  query_data: ['paths', 'sheet', 'header_row', 'show_rows', 'split_by'],
   comment_docx: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
