@@ -43,3 +43,21 @@ test('earlier text dropped (a refused attempt): built again from the start', () 
   expect(o.of('First try. ')).toBe('First try. ')
   expect(o.of('Second. ')).toBe('Second. ')
 })
+
+test('a 64 KB run of form characters in 7-character pieces stays cheap: each piece scans only what is new (QA TC-4970)', () => {
+  const r = redactorOf([KEY])
+  const o = new OthersText(() => r)
+  let text = 'Start. '
+  o.of(text)
+  const piece = 'aB3%&#;'
+  const t0 = performance.now()
+  while (text.length < 7 + OTHERS_HOLD_MAX - piece.length) {
+    text += piece
+    expect(o.of(text)).toBe('Start. ')
+  }
+  const ms = performance.now() - t0
+  // before: the whole held run scanned again for every piece, about 770 ms for these ~9,400 pieces
+  expect(ms).toBeLessThan(200)
+  // the run still ends where a character no form is made of comes, and is then hidden as a whole
+  expect(o.of(text + ' end.')).toBe(`Start. ${text.slice(7)} end.`)
+})
