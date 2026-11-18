@@ -12,6 +12,7 @@
 // Slack's answer goes back from that same turn, and nobody watches a scheduled run.
 import type { Database } from 'bun:sqlite'
 import type { OpenTurnRequest, TurnRequest } from '@mycel/shared/api'
+import { answerRecord } from './shared-answers'
 
 type AskRequest = Extract<TurnRequest, { kind: 'ask_user' }>
 interface Row { request_id: string; chat_id: string; message_id: string; turn_id: string; user_id: string; request: string; answer: string | null; created_at: string }
@@ -100,15 +101,28 @@ export function closeChatQuestions(db: Database, chatId: string): { requestId: s
 /** What the answer's user message says on screen: the picked options by their labels, typed text as typed, `skipped`
  * for a question the person skipped (Skip on the card: the AI goes on without that answer); with several questions,
  * one line each after its question. */
-export function answerText(answers: AnsweredQuestion[], requests: readonly AskRequest[], skipped: string): string {
+export function answerText(answers: AnsweredQuestion[], requests: readonly AskRequest[], skipped: string, picked?: string): string {
   const label = (i: number, v: unknown): string => {
     if (v === null || v === undefined) return skipped
     const opts = requests[i]?.options ?? []
-    const one = (x: unknown) => { const s = typeof x === 'string' ? x : JSON.stringify(x); return opts.find((o) => o.value === s)?.label ?? s }
+    // `picked`: a picked option shows as these words, not its label (labelsHidden)
+    const one = (x: unknown) => { const s = typeof x === 'string' ? x : JSON.stringify(x); const o = opts.find((y) => y.value === s); return o ? picked ?? o.label : s }
     return Array.isArray(v) ? v.map(one).join(', ') : one(v)
   }
   if (answers.length === 1) return label(0, answers[0]!.answer)
   return answers.map((a, i) => `${a.question}\n${label(i, a.answer)}`).join('\n\n')
+}
+
+/**
+ * In a shared chat, the card's option labels are the AI's words from the asking answer, which may hold what a connected
+ * service returned (shared_answer_reads k) or what is not all known (x): that answer is hidden from people who join
+ * later and may not read it (chat/shared-answers.ts), and the person's message under it must not repeat it. Then a
+ * picked option shows as plain words ("Answered the AI's question"); typed text is the person's own, as any message.
+ */
+export function labelsHidden(db: Database, shared: boolean, askingId: string): boolean {
+  if (!shared) return false
+  const rec = answerRecord(db, askingId)
+  return !rec || rec.reads.some((g) => !!g.k || !!g.x)
 }
 
 export function saveAnswered(db: Database, messageId: string, answers: AnsweredQuestion[]): void {
@@ -125,5 +139,7 @@ export function answeredNote(db: Database, messageId: string): string {
   if (!Array.isArray(list) || !list.length) return ''
   // a skipped question reads as it did when the card closed without an answer ({"skipped": true})
   list = list.map((a) => (a.answer === null || a.answer === undefined ? { question: a.question, skipped: true } as unknown as AnsweredQuestion : a))
-  return `<answered_questions>\nThis message is the user's answer to the question${list.length > 1 ? 's' : ''} you asked with ask_user in your previous answer (the card waited until they answered). Each answer as the card gave it: ${JSON.stringify(list)}\nContinue the work from there.\n</answered_questions>`
+  // (the questions and answers inside the block, never a tag of their own: < and > as JSON escapes, the same text)
+  const json = JSON.stringify(list).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+  return `<answered_questions>\nThis message is the user's answer to the question${list.length > 1 ? 's' : ''} you asked with ask_user in your previous answer (the card waited until they answered). Each answer as the card gave it: ${json}\nContinue the work from there.\n</answered_questions>`
 }

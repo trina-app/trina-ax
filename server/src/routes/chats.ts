@@ -35,7 +35,7 @@ import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { answerText, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
+import { answerText, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
@@ -885,18 +885,21 @@ export const chatsRoutes: RouteModule = {
       const a = chatOf(rt, c, auth, q.chatId, 'continue')
       messageInChat(rt, a.row.id, q.messageId)
       // the answer that asked is still ending (its last words): the runtime starts the next turn once it has ended
-      // (ChatRuntime.startAnswered); any other answer running in the chat holds the card open
+      // (ChatRuntime.startAnsweredTurns); any other answer running in the chat holds the card open
       const asking = rt.activeTurn(a.row.id) === turnId
-      if (!asking) busy(a, locale, auth.user.id)
+      if (!asking) { busy(a, locale, auth.user.id); nextCheck(rt, a, locale, auth.user.id) }
       checkBudget(ctx, auth.user.id, locale)
       const r = recordAnswer(ctx.db, requestId, value)
       if (r.state === 'closed') fail('conflict', tr('requestClosed', locale))
-      if (r.state === 'waiting' || asking) { rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } }); return }
+      if (r.state === 'waiting') { rt.hub.publish(auth.user.id, { type: 'turn.request.closed', data: { turnId, requestId, reason: 'answered' } }); return }
+      // the answer that asked is still ending: kept in the database, the card closes when the next turn starts
+      // (ChatRuntime.startAnsweredTurns: at that answer's end, a quarantined slot's release, or after a restart)
+      if (asking) return
       const ready = r as Extract<typeof r, { state: 'ready' }>
       try {
         const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
         rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
-          user: { parentId: q.messageId, content: answerText(ready.answers, ready.requests, tr('questionSkipped', rt.userLocale(auth.user.id))), attachments: [], clientMessageId: `answer-${requestId}` },
+          user: { parentId: q.messageId, content: answerText(ready.answers, ready.requests, tr('questionSkipped', rt.userLocale(auth.user.id)), labelsHidden(ctx.db, a.shared, q.messageId) ? tr('questionAnswered', rt.userLocale(auth.user.id)) : undefined), attachments: [], clientMessageId: `answer-${requestId}` },
           answered: ready.answers })
       } catch (e) { ready.undo(); throw e }
     }

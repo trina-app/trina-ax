@@ -27,7 +27,14 @@ Plan: docs/AGENTS/plan/20261118-2200-questions-wait-and-todo-card.md.
   `"skipped": true`), what ask_user returned before. Claude resumes its session there (the session ends on the asking
   answer); Codex and the API engine get the history. Several questions of one answer: each answer is kept and the turn
   starts with the last one. The chat must take a message from the person at that moment (access, no other answer
-  running, the budget); else the card stays open and the error says why.
+  running, the budget, a shared chat's order of who waits); else the card stays open and the error says why. An answer
+  given while the asking answer is still ending is kept in the database and the card closes only when the next turn has
+  started: at that answer's end, when a quarantined slot is let go, or after start-up recovery (a restart in between),
+  so no answer is lost.
+- **Shared chats, a connected service's words:** a card's option labels are the AI's words from the asking answer. When
+  that answer holds what a connected service returned (or what is not all known), it is hidden from people who join
+  later and may not read it, so a picked option shows as "(Answered the AI's question)" in the message, not its label
+  (typed text stays the person's own words). The engine note escapes `<` and `>`.
 - **Closing:** any turn started in the chat closes its open questions (a message sent meanwhile, another person's turn in
   a shared chat, a regenerate or an edit): the conversation went on without them. The card is the asker's only, as
   before.

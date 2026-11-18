@@ -4541,7 +4541,8 @@ export class TurnExec {
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
     // its questions were answered while it was still ending: the next turn starts now (chat/open-questions.ts)
-    if (this.questionsLeft && !this.terminationUnconfirmed) { try { this.rt.startAnswered(this) } catch (e) { this.rt.log.error('starting the answered turn failed', { err: e, turn: this.id }) } }
+    // (a quarantined one: when its slot is let go, ChatRuntime.probeQuarantined)
+    if (this.questionsLeft && !this.terminationUnconfirmed) { try { this.rt.startAnsweredTurns(this.spec.chatId) } catch (e) { this.rt.log.error('starting the answered turn failed', { err: e, turn: this.id }) } }
   }
 
   /** The end of a turn that never ran, at the server's stop (interruptForRequeue): queued again with its place

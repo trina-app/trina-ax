@@ -43,7 +43,7 @@ import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peop
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
-import { answerText, closeChatQuestions, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answerText, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -820,24 +820,35 @@ export class ChatRuntime {
     this.positions.delete(exec.id)
     this.schedule()
   }
-  /** The person answered the AI's questions while the answer that asked was still ending (routes/chats.ts answerLater):
-   * now that it ended, the chat's next turn starts with the answers, as that answer's own person and app
-   * (chat/open-questions.ts). It could not start (the queue is full, the chat is gone): the cards open again. */
-  startAnswered(exec: TurnExec) {
-    const { spec } = exec
-    const ready = readyAnswers(this.db, spec.assistantId, spec.userId)
-    if (!ready) return
-    const chat = this.store.chatRow(spec.chatId)
-    try {
-      if (!chat || chat.deleted_at) throw new Error('the chat is gone')
-      const locale = this.userLocale(spec.userId)
-      this.createTurn({ chat, userId: spec.userId, locale, windowId: spec.windowId, clientKind: spec.clientKind, engine: spec.engine, model: spec.model, ...(spec.timeZone ? { timeZone: spec.timeZone } : {}),
-        user: { parentId: spec.assistantId, content: answerText(ready.answers, ready.requests, tr('questionSkipped', locale)), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
-        answered: ready.answers })
-    } catch (e) {
-      this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: exec.id })
-      for (const r of reopenAnswers(this.db, spec.assistantId, spec.userId)) this.hub.publish(spec.userId, { type: 'turn.request', data: r })
-      this.publishChat(spec.userId, spec.chatId, 'updated')
+  /**
+   * The person answered every AI question of an answer while that answer was still ending (routes/chats.ts answerLater
+   * keeps the answers and leaves the next turn to this): once the chat is free, the next turn starts with them, as that
+   * answer's own person and app (its turn row). Called when an answer ends (TurnExec.finish), when a quarantined slot is
+   * let go (probeQuarantined) and after start-up recovery (a restart between the answer and the end): the answers are
+   * in the database, so none is lost. `chatId`: that chat only. A turn that cannot start (the queue is full, the chat is
+   * gone) opens its cards again (chat/open-questions.ts).
+   */
+  startAnsweredTurns(chatId?: string) {
+    const rows = (chatId
+      ? this.db.query('SELECT DISTINCT message_id, user_id, chat_id, turn_id FROM open_questions WHERE chat_id = ? AND answer IS NOT NULL').all(chatId)
+      : this.db.query('SELECT DISTINCT message_id, user_id, chat_id, turn_id FROM open_questions WHERE answer IS NOT NULL').all()) as { message_id: string; user_id: string; chat_id: string; turn_id: string }[]
+    for (const q of rows) {
+      if (this.activeTurn(q.chat_id) || this.endingUnconfirmed(q.chat_id)) continue
+      const ready = readyAnswers(this.db, q.message_id, q.user_id)
+      if (!ready) continue
+      const t = this.db.query('SELECT window_id, client_kind, engine, model FROM turns WHERE id = ?').get(q.turn_id) as { window_id: string | null; client_kind: string | null; engine: EngineId; model: string | null } | null
+      const chat = this.store.chatRow(q.chat_id)
+      try {
+        if (!chat || chat.deleted_at || !t) throw new Error('the chat is gone')
+        const locale = this.userLocale(q.user_id)
+        this.createTurn({ chat, userId: q.user_id, locale, windowId: t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
+          user: { parentId: q.message_id, content: answerText(ready.answers, ready.requests, tr('questionSkipped', locale), labelsHidden(this.db, isSharedRow(chat), q.message_id) ? tr('questionAnswered', locale) : undefined), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+          answered: ready.answers })
+      } catch (e) {
+        this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })
+        for (const r of reopenAnswers(this.db, q.message_id, q.user_id)) this.hub.publish(q.user_id, { type: 'turn.request', data: r })
+        try { this.publishChat(q.user_id, q.chat_id, 'updated') } catch {}
+      }
     }
   }
   /** An engine whose termination is unproven still owns its slot (and its chat) until turnFinished confirms it, or
@@ -887,6 +898,8 @@ export class ChatRuntime {
         else this.log.warn('quarantined turn slot released: engine gone', { turn: id, reason })
         this.turnFinished(exec)
         try { this.publishChat(exec.spec.userId, exec.spec.chatId, 'updated') } catch (err) { this.log.warn('chat update after a released slot failed', { err, turn: id }) }
+        // its questions answered while it was ending: the next turn starts now (chat/open-questions.ts)
+        try { this.startAnsweredTurns(exec.spec.chatId) } catch (err) { this.log.warn('starting an answered turn failed', { err, turn: id }) }
       }
     } catch (err) {
       this.log.error('quarantine probe failed', { err })
@@ -1275,6 +1288,12 @@ export class ChatRuntime {
     }
     this.recovering = false
     this.schedule()
+    this.answeredAfterRecovery()
+  }
+
+  /** after start-up recovery: answers given while their answer was ending, cut off by the restart (startAnsweredTurns) */
+  private answeredAfterRecovery() {
+    try { this.startAnsweredTurns() } catch (err) { this.log.warn('starting answered turns after recovery failed', { err }) }
   }
 
   private async checkRecoveryLauncher(): Promise<void> {
@@ -1287,6 +1306,7 @@ export class ChatRuntime {
       this.recovering = false
       this.log.info('queue recovery launcher confirmed idle')
       this.schedule()
+      this.answeredAfterRecovery()
       return
     }
     const state = !status ? 'launcher_unreachable' : status.liveTurns === undefined ? 'launcher_unknown' : 'launcher_busy'

@@ -37,6 +37,9 @@ export const TEXT = {
   questionSkipped: t('(질문 건너뜀)', '(Skipped the question)', '(Pertanyaan dilewati)', "（質問をスキップ）", "(Omitió la pregunta)", "（已跳过问题）"),
   /** the label of an answer's to-do step (todo_write): apps that know Step.todos show the checklist instead */
   todoList: t('할 일 목록', 'To-do list', 'Daftar tugas', "ToDoリスト", "Lista de tareas", "待办清单"),
+  /** a picked option on the AI's question card in a shared chat whose labels may hold what others may not see
+   * (chat/open-questions.ts labelsHidden) */
+  questionAnswered: t('(AI의 질문에 답함)', "(Answered the AI's question)", '(Menjawab pertanyaan AI)', "（AIの質問に回答）", "(Respondió la pregunta de la IA)", "（已回答AI的问题）"),
   requestClosed: t('이미 답했거나 시간이 지난 질문이에요.', 'This question was already answered or has expired.', 'Pertanyaan ini sudah dijawab atau kedaluwarsa.', "この質問は回答済みか、期限切れです。", "Esta pregunta ya se respondió o venció.", "这个问题已经回答过或已过期。"),
   answerNotOption: t('이 확인은 카드의 버튼으로만 답할 수 있어요.', 'This check takes only the buttons on its card.', 'Pemeriksaan ini hanya bisa dijawab dengan tombol di kartunya.', "この確認にはカードのボタンでのみ答えられます。", "Esta comprobación solo se responde con los botones de su tarjeta.", "这项确认只能用卡片上的按钮回答。"),
   notUserMessage: t('사용자 메시지만 수정할 수 있어요.', 'Only your own messages can be edited.', 'Hanya pesan Anda yang bisa diubah.', "編集できるのは自分のメッセージのみです。", "Solo puede editar sus propios mensajes.", "只能编辑你自己的消息。"),
