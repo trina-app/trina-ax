@@ -805,6 +805,24 @@ describe('the whole recording: what a read has no time for goes on in the backgr
       expect(JSON.parse(bg.detail)).toMatchObject({ background: true, pieces: 1 })
     } finally { setKey(null); updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiMediaTranscripts: null }) }
   })
+  test('marked a guest while the background runs: no more pieces are sent (security review of #1335)', async () => {
+    probe = audioOnly(600)
+    slow()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    await read({ file_path: put('bg-guest.m4a') })
+    holdAt = audios.length * 30
+    for (let i = 0; i < 100 && !audios.some((a) => a.start === holdAt); i++) await Bun.sleep(10)
+    const before = local.calls
+    A.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'alice'").run()
+    try {
+      open()
+      await F().fillsSettled()
+      // the held piece (counted already when it reached whisper.cpp) had passed its checks; nothing after it
+      expect(local.calls).toBe(before)
+      expect(audios.filter((a) => a.start > holdAt)).toEqual([])
+    } finally { A.ctx.db.query("UPDATE users SET guest = 0 WHERE id = 'alice'").run() }
+  })
   test('at most 2 background transcriptions per person; another person never sees or moves someone else\'s (security review of #1335)', async () => {
     probe = audioOnly(600)
     slow()
@@ -1076,9 +1094,15 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
       w('self-cgroup', '0::/system.slice/docker-abc.scope\n')
       w('fs/system.slice/docker-abc.scope/memory.max', String(6 * 1024 ** 3)); w('fs/system.slice/docker-abc.scope/cpu.max', '400000 100000\n')
       expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 4, memory: 6 * 1024 ** 3 })
+      // the server unit: the kit's MemoryMax=75% (here 12 of 16 GB) is skipped, its CPU quota counts
       w('self-cgroup', '0::/system.slice/mycel.service\n')
+      w('fs/system.slice/mycel.service/memory.max', String(12 * 1024 ** 3)); w('fs/system.slice/mycel.service/cpu.max', '300000 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: null })
+      // an explicit smaller MemoryMax on the unit (an admin's, or Podman with --cgroupns=host) counts
       w('fs/system.slice/mycel.service/memory.max', String(6 * 1024 ** 3))
-      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: 6 * 1024 ** 3 })
+      // the same on cgroup v1 below
+      fs.rmSync(path.join(cg, 'fs/system.slice'), { recursive: true })
       // v1 (an older Docker): memory.limit_in_bytes and the CFS quota; no limit is a huge number and -1
       fs.rmSync(path.join(cg, 'fs'), { recursive: true })
       w('self-cgroup', '5:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n0::/\n')
@@ -1086,6 +1110,13 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
       expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
       w('fs/memory/docker/abc/memory.limit_in_bytes', String(4 * 1024 ** 3)); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_quota_us', '300000\n'); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us', '100000\n')
       expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: 4 * 1024 ** 3 })
+      // v1 under a systemd unit: 75% skipped, a smaller explicit limit counts
+      w('self-cgroup', '5:memory:/system.slice/mycel.service\n4:cpu,cpuacct:/docker/abc\n0::/\n')
+      w('fs/memory/system.slice/mycel.service/memory.limit_in_bytes', String(12 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).memory).toBeNull()
+      w('fs/memory/system.slice/mycel.service/memory.limit_in_bytes', String(5 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).memory).toBe(5 * 1024 ** 3)
+      w('self-cgroup', '5:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n0::/\n')
       // a period file missing: no CPU limit read from that level
       fs.rmSync(path.join(cg, 'fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us'))
       expect(containerLimits({ root: path.join(cg, 'fs'), self }).cpus).toBeNull()

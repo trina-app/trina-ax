@@ -181,12 +181,15 @@ export function memoryBudget(): number {
 }
 /** a limit of cgroup v1 at or above this is "no limit" (the kernel writes 2^63 rounded to the page size) */
 const V1_NO_LIMIT = 2 ** 60
+/** a systemd unit's memory limit at this share of the machine or more is the kit's MemoryMax=75% (containerLimits) */
+const UNIT_SHARE_SKIP = 0.7
 /**
  * A container's limits (Docker's --cpus and --memory) from the cgroup this process is in (/proc/self/cgroup), cgroup v2
  * (memory.max, cpu.max) or v1 (memory.limit_in_bytes, cpu.cfs_quota_us / cpu.cfs_period_us): the smallest from its
  * own cgroup up to the root of the hierarchy it sees, or null where there is none ("max", -1, a missing file). A
- * systemd unit's own limit is not the machine's size and is skipped: a cgroup named *.service (the server unit's
- * MemoryMax=75%); Docker's own cgroups are /docker/<id>, docker-<id>.scope or the namespace root. Read again at most
+ * systemd unit (a cgroup named *.service) counts with its CPU limit always and its memory limit only below 70% of the
+ * machine: the server unit's MemoryMax=75% is a safety net, not the machine's size; Docker's own cgroups are
+ * /docker/<id>, docker-<id>.scope or the namespace root. Read again at most
  * every 60 s (cpuBudget runs often). `o`: tests (another root and /proc/self/cgroup).
  */
 export function containerLimits(o: { root?: string; self?: string } = {}): { cpus: number | null; memory: number | null } {
@@ -205,31 +208,32 @@ export function containerLimits(o: { root?: string; self?: string } = {}): { cpu
     if (m[1] === '') v2 = m[2] || '/'
     else for (const c of m[1]!.split(',')) v1.set(c, m[2] || '/')
   }
-  /** `base` + each level of `p` from the deepest up to `base` itself, without systemd units */
-  const levels = (base: string, p: string): string[] => {
+  /** `base` + each level of `p` from the deepest up to `base` itself; `unit`: a systemd *.service cgroup */
+  const levels = (base: string, p: string): { dir: string; unit: boolean }[] => {
     const parts = p.split('/').filter(Boolean)
-    const out: string[] = []
-    for (let i = parts.length; i >= 0; i--) {
-      if (i > 0 && parts[i - 1]!.endsWith('.service')) continue
-      out.push([base, ...parts.slice(0, i)].join('/'))
-    }
+    const out: { dir: string; unit: boolean }[] = []
+    for (let i = parts.length; i >= 0; i--) out.push({ dir: [base, ...parts.slice(0, i)].join('/'), unit: i > 0 && parts[i - 1]!.endsWith('.service') })
     return out
   }
+  /** a unit's memory limit at UNIT_SHARE_SKIP of the machine or more is the kit's safety net (MemoryMax=75%), not the
+   * machine's size, and is skipped; a smaller one (an admin's unit, Podman with --cgroupns=host) counts. CPU limits
+   * count at every level. */
+  const memoryAt = (unit: boolean, bytes: number) => { if (!unit || bytes < UNIT_SHARE_SKIP * os.totalmem()) memory = lower(memory, bytes) }
   const v1Memory = fs.existsSync(`${root}/memory`) ? `${root}/memory` : null
   const v1Cpu = ['cpu,cpuacct', 'cpu', 'cpuacct,cpu'].map((d) => `${root}/${d}`).find((d) => fs.existsSync(d)) ?? null
   if (v1Memory || v1Cpu) {
-    if (v1Memory) for (const d of levels(v1Memory, v1.get('memory') ?? '/')) {
+    if (v1Memory) for (const { dir: d, unit } of levels(v1Memory, v1.get('memory') ?? '/')) {
       const m = read(`${d}/memory.limit_in_bytes`)
-      if (m && /^\d+$/.test(m) && Number(m) < V1_NO_LIMIT) memory = lower(memory, Number(m))
+      if (m && /^\d+$/.test(m) && Number(m) < V1_NO_LIMIT) memoryAt(unit, Number(m))
     }
-    if (v1Cpu) for (const d of levels(v1Cpu, v1.get('cpu') ?? '/')) {
+    if (v1Cpu) for (const { dir: d } of levels(v1Cpu, v1.get('cpu') ?? '/')) {
       const q = read(`${d}/cpu.cfs_quota_us`), per = read(`${d}/cpu.cfs_period_us`)
       if (q && /^\d+$/.test(q) && per && Number(per) > 0) cpus = lower(cpus, Math.max(1, Math.floor(Number(q) / Number(per))))
     }
   } else {
-    for (const d of levels(root, v2)) {
+    for (const { dir: d, unit } of levels(root, v2)) {
       const m = read(`${d}/memory.max`)
-      if (m && /^\d+$/.test(m)) memory = lower(memory, Number(m))
+      if (m && /^\d+$/.test(m)) memoryAt(unit, Number(m))
       const [q, per] = (read(`${d}/cpu.max`) ?? '').split(/\s+/)
       if (q && /^\d+$/.test(q) && per && Number(per) > 0) cpus = lower(cpus, Math.max(1, Math.floor(Number(q) / Number(per))))
     }
