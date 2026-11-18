@@ -56,11 +56,12 @@ person's data from another.
 - **Before:** delete_files was refused outright in any chat that had read room messages, a ✦ side chat, a quoted
   message or a shared file ("ask in a new chat"). Delete and members cards stopped after 2 per answer, folder-access
   cards after 3.
-- **Rule:** delete there goes behind its card every time: the card leads with the room line (the members and folder
-  access cards' "Messages from your conversations … came in here, so changes are asked first"), has no "Always allow"
-  button, and the person's "Always allow" for deletes does not skip it there (other people's words in the chat could ask
-  for the delete). delete_files is the call's only card there (`ROOMS_SEEN_READ_ONLY_TOOLS`). A scheduled run that read
-  rooms still refuses (no card can be shown). No per-answer count for the delete, members and folder-access cards; a
+- **Rule:** delete there goes behind its card: the card leads with the room line (the members and folder access cards'
+  "Messages from your conversations … came in here, so changes are asked first") and offers "Always allow" like
+  anywhere else. The person's own "Always allow" for deletes is final there too, as for members and folder access (the
+  owner, 2026-11-11, "always allow means done … rooms too"; [Rule A](20261116-always-allow-final-rule-a.md)): no card.
+  delete_files is the call's only card there (`ROOMS_SEEN_READ_ONLY_TOOLS`). A scheduled run that read rooms still
+  refuses, Always allow or not (it shows no card, and its prompt may hold other people's words). No per-answer count for the delete, members and folder-access cards; a
   "no" still ends that kind for the answer (Claude Code stops after a rejected tool too), one card open at a time.
 - **One card for several:** delete_files and change_project_members already take lists. change_folder_access takes
   `changes` (up to 20: folder, action, who, access each): planned together per folder in the order given, one card lists

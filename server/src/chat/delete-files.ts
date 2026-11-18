@@ -3,8 +3,9 @@
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
 // scheduled run, an approved template run, a shared project chat, a chat other people wrote in or a Slack thread, a
 // confidential chat, a draft or judge chat, and for a sub-agent. A chat that has read rooms (chat/read-rooms.ts: a room
-// read, a side chat, a quoted message) or a file someone shared asks on the card every time, the room line first, and
-// "Always allow" does not skip it there (docs/decisions/20261118-api-images-connector-cap-delete-cards.md). The card shows
+// read, a side chat, a quoted message) or a file someone shared asks on the card, the room line first; the person's own
+// "Always allow" for deletes is final there too, as for members and folder access (the owner, 2026-11-11; docs/decisions/
+// 20261118-api-images-connector-cap-delete-cards.md). The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
 // history names them), how many people lose them and how many of those cannot restore them (that number only for the
 // owner and admins: it says how many people can write them; others read the rule), and the purge date of the team's
@@ -222,8 +223,9 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (mode) return refused(mode, paths)
     const s = state()
     if (s.declined) return refused('declined', paths)
-    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card. Not in a chat that read rooms or
-    // a shared file: other people's words there could ask for the delete, so the person sees each one on its card
+    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card, also after a room read or a
+    // shared file (the person's choice is final, docs/decisions/20261116-always-allow-final-rule-a.md); a card that does
+    // show there leads with the room line
     const roomsRead = readRooms(exec)
     if (s.open || exec.openRequests().length) return refused('busy', paths)
     let user
@@ -259,8 +261,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
       expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
     try {
-      // after a room read: the plain yes / no card, no "Always allow" on it (it would not skip the next one)
-      answer = roomsRead ? await ask(options) : await withAlways(exec.alwaysPlace?.(), 'delete_files', options, 'trash', ask)
+      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', options, 'trash', ask)
     } finally { s.open = false }
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }

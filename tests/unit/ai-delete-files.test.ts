@@ -701,9 +701,9 @@ describe('refused up front, before any card', () => {
   })
 
   // limits audit N20 (docs/decisions/20261118-api-images-connector-cap-delete-cards.md): no longer refused; the delete
-  // card every time, its room line first, no "Always allow" on it and none that skips it there
+  // card with its room line first; the person's own "Always allow" for deletes is final there too (the owner, 11-11)
   const ROOM_LINE = "Messages from your conversations (other people's words) came in here, so changes are asked first."
-  test('a chat holding room messages: the delete card (no rooms card before it), the room line first, every time', async () => {
+  test('a chat holding room messages: the delete card (no rooms card before it), the room line first; "Always allow" is final there', async () => {
     put('users/alice/seen.md')
     put('users/alice/seen2.md')
     const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
@@ -712,20 +712,20 @@ describe('refused up front, before any card', () => {
     expect(no.cards).toHaveLength(1)
     expect(no.cards[0]!.question.startsWith(ROOM_LINE)).toBe(true)
     expect(no.cards[0]!.question).toContain('The AI wants to move 1 item to the trash.')
-    expect(no.cards[0]!.options?.map((o) => o.value)).toEqual(['trash', 'skip'])
+    expect(no.cards[0]!.options?.map((o) => o.value)).toEqual(['trash', '__always', 'skip'])
     expect(has('users/alice/seen.md')).toBe(true)
     expect(audits(no.turnId).map((a) => a.detail.outcome)).toEqual(['declined'])
     const yes = await turn('alice', fake(del('users/alice/seen.md')), () => 'trash', { chatId: chat })
     expect(yes.cards).toHaveLength(1)
     expect(has('users/alice/seen.md')).toBe(false)
     expect(audits(yes.turnId).map((a) => a.detail.outcome)).toEqual(['trashed'])
-    // the person's "Always allow" for deletes does not skip it here: other people's words could ask for the delete
+    // the person's own "Always allow" for deletes is final, also after a room read: no card, it goes to the trash
     h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'delete_files', ?)").run(new Date().toISOString())
     try {
       const again = await turn('alice', fake(del('users/alice/seen2.md')), () => 'skip', { chatId: chat })
-      expect(again.cards).toHaveLength(1)
-      expect(again.cards[0]!.question.startsWith(ROOM_LINE)).toBe(true)
-      expect(has('users/alice/seen2.md')).toBe(true)
+      expect(again.cards).toHaveLength(0)
+      expect(has('users/alice/seen2.md')).toBe(false)
+      expect(audits(again.turnId).map((a) => a.detail.outcome)).toEqual(['trashed'])
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 

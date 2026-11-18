@@ -26,7 +26,7 @@ In:
   the text path as today.
 - K: MAX_CARD_PAYLOAD 100,000 -> 10,000,000. A card detail longer than CARD_TEXT_INLINE carries its start; the full text
   stays on the server with the open card and opens on request (GET /api/turns/:id/requests/:requestId/details/:index).
-- H: delete_files in a chat that read rooms or a shared file: the card every time (no Always allow skip there), with
+- H: delete_files in a chat that read rooms or a shared file: its card (the person's Always allow stays final, owner 11-11), with
   the room line first. No per-answer card count for delete, members and folder access. change_folder_access takes a
   list of changes (`changes`) shown on one card.
 
