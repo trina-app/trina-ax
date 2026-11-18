@@ -50,8 +50,9 @@ export interface AppMapInput {
 }
 
 /** What the dev environment does, in everyday words: "server" and "programs" came back in answers to members (AI
- * scenario ADM-07.member, 2026-11-17). */
-export const DEV_ENV_WORDS = 'the AI does heavier work itself, e.g. big data files'
+ * scenario ADM-07.member, 2026-11-17). Not data work: totals, pivots and splits of big data files work everywhere
+ * (query_data, QA TC-4913: "big data files" here made the AI refuse them where the dev environment is off). */
+export const DEV_ENV_WORDS = 'the AI builds and runs its own tools for unusual jobs, e.g. a small app or a website; everyday work with big data files does not need it'
 
 /** Which form a person's turn gets: a shared chat's role-neutral one, an owner's or admin's, a member's. */
 export const appMapView = (role: string, shared: boolean): AppMapInput['view'] => shared ? 'shared' : role === 'owner' || role === 'admin' ? 'staff' : 'member'

@@ -286,6 +286,19 @@ export const MakeZipInput = z.strictObject({
   output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it)'),
 })
 export const MakeZipOutput = z.object({ path: z.string(), files: z.number(), size: z.number() })
+// Totals, pivots, top-N and splits over data files, without the dev environment (server/src/tools/query-data.ts,
+// docs/decisions/20261118-data-tool.md)
+export const QueryDataInput = z.strictObject({
+  paths: z.array(relPath).min(1).max(20).describe('The data files (CSV, TSV, Excel .xlsx/.xls, .ods, JSON, JSONL), 1-20. One file is the table "data"; several are t1, t2, ... in this order. Each further sheet of a workbook is its own table (data_2, t1_2, ...)'),
+  sql: z.string().trim().min(1).max(20_000).optional().describe('One SQLite SELECT (or WITH) over the tables, e.g. SELECT store, SUM(amount) AS total FROM data GROUP BY store ORDER BY total DESC LIMIT 5. Leave it out to see the tables, columns, types and first rows'),
+  sheet: z.string().trim().min(1).max(200).optional().describe('Only this sheet of each workbook'),
+  header_row: z.number().int().min(0).max(1000).optional().describe('The row that holds the column names (default 1; 0 = no names: c1, c2, ...); for a sheet with title rows above the table'),
+  show_rows: z.number().int().min(0).max(500).optional().describe('Result rows shown to you (default 50); all rows are counted and saved'),
+  save_as: optRelPath.describe('Save the whole result as a .csv, .tsv or .xlsx file in the team folder, e.g. "users/<you>/monthly-totals.xlsx"'),
+  split_by: z.string().trim().min(1).max(200).optional().describe('With save_as: one file per value of this result column (e.g. "region"), named "<save_as name> - <value>"; put {value} in save_as to place it yourself'),
+}).refine((v) => v.save_as === undefined || v.sql !== undefined, { message: 'save_as needs sql (the query whose result is saved)' })
+  .refine((v) => v.split_by === undefined || v.save_as !== undefined, { message: 'split_by needs save_as' })
+export const QueryDataOutput = z.object({ columns: z.array(z.string()), rows: z.number(), paths: z.array(z.string()) })
 export const PdfFilesOutput = z.object({ paths: z.array(z.string()), pages: z.array(z.number()) })
 
 export const StampPdfOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), page: z.number(), pages: z.number(), conflictCopyOf: z.string().optional() })
@@ -577,6 +590,7 @@ export const OTHER_TOOLS = {
   resize_images: { input: ResizeImagesInput, output: ResizeImagesOutput },
   unzip_file: { input: UnzipFileInput, output: UnzipFileOutput },
   make_zip: { input: MakeZipInput, output: MakeZipOutput },
+  query_data: { input: QueryDataInput, output: QueryDataOutput },
   share_file: { input: ShareFileInput, output: ShareFileOutput },
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },

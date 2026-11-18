@@ -1,16 +1,17 @@
 // The non-file engine tools of component C, registered into the MCP tool registry of this server instance:
 // make_file, edit_hwp (tools/edit-hwp.ts; Hangul writing only while the HWP plugin is on, tools/hwp-writing.ts), stamp_pdf
 // (tools/stamp-pdf.ts: an image on a page of an existing PDF), share_file, artifact, web_fetch (design tab 3 "도구 목록"), save_url (tools/save-url.ts), and move_files / copy_files / rename_file
-// (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos), unzip_file (tools/unzip.ts: the files of a zip). Inputs are the shared contracts
+// (tools/file-moves.ts), resize_images (tools/resize-images.ts: smaller copies of photos), unzip_file (tools/unzip.ts: the files of a zip), query_data (tools/query-data.ts: SQL over data files). Inputs are the shared contracts
 // (shared/src/tools.ts); the engine sees mcp__team__<name>.
 import { registerHwpRender } from './hwp-render'
-import { ArtifactInput, EditHwpInput, MakeFileInput, MakeZipInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, SaveConnectorFileInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
+import { ArtifactInput, EditHwpInput, MakeFileInput, MakeZipInput, QueryDataInput, ResizeImagesInput, UnzipFileInput, SaveUrlInput, SaveConnectorFileInput, ShareFileInput, StampPdfInput, EditPdfInput, MergePdfsInput, SplitPdfInput, WebFetchInput } from '@mycel/shared'
 import { editHwpFile, editHwpFileText } from './edit-hwp'
 import { STAMP_PDF_DESCRIPTION, stampPdfFile, stampPdfText } from './stamp-pdf'
 import { EDIT_PDF_DESCRIPTION, editPdfFile, MERGE_PDFS_DESCRIPTION, mergePdfFiles, pdfResultText, SPLIT_PDF_DESCRIPTION, splitPdfFile, type PdfResult } from './pdf-tools'
 import { RESIZE_IMAGES_DESCRIPTION, resizeImages, resizeResultText } from './resize-images'
 import { UNZIP_FILE_DESCRIPTION, unzipFile, unzipResultText, unzipSummary } from './unzip'
 import { MAKE_ZIP_DESCRIPTION, makeZip, makeZipResultText, makeZipSummary } from './make-zip'
+import { QUERY_DATA_DESCRIPTION, queryData, queryDataSummary, queryDataText } from './query-data'
 import { hwpWritingOffTextFor, hwpWritingOn, MakeFileInputWithoutHwpx, writesHangul } from './hwp-writing'
 import { fileShareUrl } from '@mycel/shared/api'
 import { fileSharesOf } from '../files/shares'
@@ -40,7 +41,7 @@ import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
 
-export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
+export const C_TOOL_NAMES = ['hwp_render', 'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'artifact', 'web_fetch', 'save_url'] as const
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`)
 
@@ -249,6 +250,18 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     async run(a, t) {
       const r = await makeZip(ctx, c.files, t, a)
       return { text: makeZipResultText(r), summary: makeZipSummary(r), structured: { path: r.path, files: r.files.length, size: r.size } }
+    },
+  })
+
+  // SQL over data files: totals, pivots, top-N, splits, without the dev environment (tools/query-data.ts, QA TC-4913)
+  reg.register({
+    name: 'query_data',
+    description: QUERY_DATA_DESCRIPTION,
+    input: QueryDataInput,
+    describe: (a) => `query_data ${a.paths.join(', ')}${a.sql ? ' (sql)' : ''}${a.save_as ? ` -> ${a.save_as}${a.split_by ? ` by ${a.split_by}` : ''}` : ''}`.slice(0, 500),
+    async run(a, t) {
+      const r = await queryData(ctx, c.files, t, a)
+      return { text: queryDataText(r), summary: queryDataSummary(r), structured: { columns: r.response.result?.columns ?? [], rows: r.response.result?.total ?? 0, paths: r.saved.map((s) => s.path) } }
     },
   })
 

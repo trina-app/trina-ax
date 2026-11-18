@@ -41,7 +41,7 @@ export const OFFICE_TEXT_MAX = 32 * 1024 * 1024
 /** a declared sheet range larger than this is cut to the cells the sheet really has */
 const RANGE_CELLS_MAX = 2_000_000
 /** Excel's last row: SheetJS stops expanding rows there (an .ods row repeated a billion times) */
-const SHEET_ROWS_MAX = 1_048_576
+export const SHEET_ROWS_MAX = 1_048_576
 
 /** The cells of a dense sheet (`dense: true`): the real last row and column. */
 function usedEnd(ws: XLSX.WorkSheet): { r: number; c: number } {
@@ -60,7 +60,7 @@ function usedEnd(ws: XLSX.WorkSheet): { r: number; c: number } {
  * range always ends there. Columns past the last real cell only add empty fields; they are cut only when the
  * declared range is absurd (a crafted A1:XFD1048576 would otherwise mean billions of empty fields).
  */
-function boundRange(ws: XLSX.WorkSheet): void {
+export function boundRange(ws: XLSX.WorkSheet): void {
   if (!ws['!ref']) return
   const range = XLSX.utils.decode_range(ws['!ref'])
   const end = usedEnd(ws)

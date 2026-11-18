@@ -17,6 +17,7 @@ const LOCAL_TOOLS = new Set([
   'resize_images',
   'unzip_file',
   'make_zip',
+  'query_data',
   'share_file',
   'remember',
   'forget',

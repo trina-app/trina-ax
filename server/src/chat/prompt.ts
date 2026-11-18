@@ -1047,6 +1047,7 @@ export function subagentPromptSections(files: FileService, i: PromptInput, tools
     has.has('edit_pdf') || has.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     has.has('resize_images') ? RESIZE_IMAGES_RULE : '',
     has.has('unzip_file') ? UNZIP_FILE_RULE : '',
+    has.has('query_data') ? QUERY_DATA_RULE : '',
     has.has('move_files') ? 'To move, copy or rename files of any type, use move_files, copy_files and rename_file; write only saves text.' : '',
     has.has('move_files') ? SUBAGENT_PLACEMENT_RULE : '',
     has.has('artifact') ? 'For things the user will look at or reuse (a web page, a diagram, a document draft, code), use the artifact tool.' : '',
@@ -1101,6 +1102,9 @@ export const PDF_TOOLS_RULE = 'To change an existing PDF, use the PDF tools; eac
 /** smaller copies of photos (tools/resize-images.ts, QA TC-4539) */
 export const RESIZE_IMAGES_RULE = 'To make photos smaller (fewer pixels or a smaller file: "for email", "for the web", "1200 px wide", "under 2MB"), use resize_images, also for iPhone (HEIC) photos; it saves new copies next to the originals and never overwrites them. The copies keep the photo details (time taken, camera, location); remove the location or all details (remove_details) only when the user asks for that. In the answer, give each copy\'s new pixel size and file size, link it by its name, say the original is untouched, and say what the result says about the details and the format, nothing more.'
 /** the files of a zip (tools/unzip.ts, QA TC-4847: the AI said it could not unzip and asked the person to do it) */
+/** query_data (tools/query-data.ts, QA TC-4913): before it, a team without the dev environment heard that "the heavier
+ * data-processing option isn't available" for a pivot, totals, a top 5 or a split of a 50,000-row CSV. */
+export const QUERY_DATA_RULE = 'For any calculation over a data file (CSV, Excel, JSON): totals, counts, averages, pivots, top-N, monthly figures, de-duplication, joining files or splitting one into several, use query_data (SQL over every row; it handles millions of rows). Never say such work cannot be done here or needs another option, never estimate, and do not count with grep or read a big file page by page for it. Call it with only the files first to see the columns, then with sql; save_as (and split_by) saves the result as a .csv or .xlsx file. For a chart, save the figures as a .csv and make an Excel chart from it with make_file.'
 export const UNZIP_FILE_RULE = 'To unzip a .zip file ("unzip it", "extract it", "what is in this zip"), use unzip_file; never tell the user to unzip it themselves and upload the files again. It saves the files into a new folder next to the zip unless the user names another folder, and never saves over existing files. In the answer, link the folder, say how many files were saved with a short list (a summary for many), and plainly name any file that was not saved and why. The same tool saves the attachments of an email file (.eml, .msg) next to it; never send the user to their mail app for that. To make a zip, use make_zip (never tell the user to zip files themselves).'
 export const EDIT_HWP_RULE = 'To fill in or change an existing Hangul document (.hwp or .hwpx: a form, a template with blanks), read it, then use edit_hwp; it keeps everything you do not change exactly as it was and saves the same format.'
 
@@ -1227,6 +1231,8 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     tools.has('edit_pdf') || tools.has('stamp_pdf') ? PDF_TOOLS_RULE : '',
     tools.has('resize_images') ? RESIZE_IMAGES_RULE : '',
     tools.has('unzip_file') ? UNZIP_FILE_RULE : '',
+    // QA TC-4913: without the dev environment the AI refused a pivot of a 50k-row CSV (tools/query-data.ts)
+    tools.has('query_data') ? QUERY_DATA_RULE : '',
     // write only saves text: without these the AI told people it could not move a PDF or an image they attached (2026-10-28)
     tools.has('move_files') ? 'To move, copy or rename files of any type (PDF, images, Office files, chat attachments), use move_files, copy_files and rename_file; write only saves text. Files the user attached in a chat are in their .attachments folder: move them to keep them for the team.' : '',
     tools.has('delete_files') ? (i.guest ? GUEST_DELETE_RULE : DELETE_RULE) : '',
