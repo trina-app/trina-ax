@@ -31,6 +31,7 @@ export const ko = {
   'devEnv.title': "개발 환경",
   'devEnv.experiment': "실험 기능",
   'devEnv.unavailable': "이 서버는 개발 환경을 실행할 수 없어요.",
+  'devEnv.unavailableAi': "고칠 때까지 AI는 그런 작업(예: 큰 데이터 파일 합계)을 지금 할 수 없다고 알려 주고, 다시 해 보라고 하지 않아요.",
   'devEnv.who': "누가 쓸 수 있나요",
   'devEnv.network': "네트워크",
   'devEnv.netOffline': "네트워크 없음",

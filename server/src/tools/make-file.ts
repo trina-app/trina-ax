@@ -272,8 +272,18 @@ export class MakeFile {
     let text: string
     let kind: 'markdown' | 'csv' | 'tsv'
     let baseDir: string[] = []
+    /** xlsx from a CSV source with `content` too: the CSV's sheet (named after the file) comes first, then the Markdown
+     * tables of `content` as more sheets (a summary with formulas over the data; QA TC-4914: the AI retyped 999 of
+     * 50,000 rows because a CSV source could not get a second sheet) */
+    let first: { name: string } | undefined
     /** team-folder files whose bytes go into the output */
     const sources: string[] = []
+    if (a.source !== undefined && a.content !== undefined) {
+      const x = ext(a.source)
+      if (a.format !== 'xlsx' || (x !== 'csv' && x !== 'tsv')) throw new ToolError('give exactly one of source or content (only an xlsx from a .csv/.tsv source may add sheets in content)')
+      if (Buffer.byteLength(a.content) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
+      if (!hasPipeRow(a.content)) throw new ToolError('with a CSV source, content must be Markdown | pipe | tables (the sheets after the CSV\'s); nothing was saved')
+    }
     if (a.source !== undefined) {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
@@ -284,6 +294,7 @@ export class MakeFile {
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
       baseDir = r.segs.slice(0, -1)
       sources.push(r.rel)
+      if (a.content !== undefined) first = { name: path.basename(r.rel).replace(/\.[^.]+$/, '') }
     } else {
       text = a.content!
       if (Buffer.byteLength(text) > MAX_SOURCE) throw new ToolError('content is too large (max 10 MB)')
@@ -302,7 +313,7 @@ export class MakeFile {
       let formulas: number | undefined
       let stored = 0
       let charts = 0
-      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts }
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -589,13 +600,15 @@ export class MakeFile {
 
   /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have
    * their result stored, and the number of charts. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[]): Promise<{ formulas: number; stored: number; charts: number }> {
+  /** `csvFirst`: the CSV `text` is a sheet named `name`, followed by the Markdown tables of `more` */
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], csvFirst?: { name: string; more: string }): Promise<{ formulas: number; stored: number; charts: number }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
       if (!tables.length) throw new ToolError('no table found: give CSV, or Markdown with | pipe | tables |')
       tables.forEach((t, i) => sheets.push({ name: t.title ?? `Sheet${i + 1}`, rows: t.rows }))
-    } else sheets.push({ name: 'Sheet1', rows: parseCsv(text, kind === 'tsv' ? '\t' : ',') })
+    } else sheets.push({ name: csvFirst?.name ?? 'Sheet1', rows: parseCsv(text, kind === 'tsv' ? '\t' : ',') })
+    if (csvFirst) markdownTables(csvFirst.more).forEach((t, i) => sheets.push({ name: t.title ?? `Sheet${i + 2}`, rows: t.rows }))
     const wb = new ExcelJS.Workbook()
     wb.creator = PRODUCT.displayName
     wb.created = new Date()

@@ -13,6 +13,7 @@ import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, of
 import { inBackground } from '../tools/isolate'
 import { readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
+import { textTokens } from './vision'
 import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
@@ -155,12 +156,12 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented; 6: slide
- * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts), so the
- * old text is made again. */
-export const TEXT_CACHE_VERSION = '6'
+ * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts; 7: a Word
+ * title, subtitle, author and date, and spreadsheet formulas next to their values), so the old text is made again. */
+export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
-const UPGRADABLE_VERSIONS = new Set(['5'])
+const UPGRADABLE_VERSIONS = new Set(['5', '6'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -591,6 +592,32 @@ function rootsFor(d: SearchDeps, baseSegs: string[], baseIsFile: boolean) {
   return { roots: r.roots.filter((x) => !skipped(x)), excludes: [...r.excludes, ...d.skip] }
 }
 
+/**
+ * The files under `roots` that this person can see and that ripgrep skipped for size (over RG_MAX_FILE): a listing
+ * without --max-filesize, with the search's own name glob, path glob, type and exclusions. At most BIG_NAMED_MAX names;
+ * `count` is all of them (the listing stops at 20,000 files).
+ */
+async function bigFiles(d: SearchDeps, roots: string[], excludes: string[], f: { nameGlob: string | null; pathGlob: InstanceType<typeof Bun.Glob> | null; type?: string }, timeoutMs: number): Promise<{ names: string[]; count: number }> {
+  const names: string[] = []
+  let count = 0, seen = 0
+  const real = roots.filter((r) => fs.existsSync(path.join(d.fx.root, r)))
+  if (!real.length) return { names, count }
+  const base = RG_BASE.filter((_, i) => RG_BASE[i] !== '--max-filesize' && RG_BASE[i - 1] !== '--max-filesize')
+  const args = ['--files', '--null', ...base, ...(f.type ? ['--type', f.type] : []), '--glob-case-insensitive', ...(f.nameGlob ? ['--glob', f.nameGlob] : []), ...excludeArgs(excludes), '--', ...real]
+  await runRg(d.rg, args, d.fx.root, '\0', (rec) => {
+    if (++seen > 20_000) return false
+    const rel = strip(rec)
+    let st: fs.Stats
+    try { st = fs.lstatSync(path.join(d.fx.root, rel)) } catch { return }
+    if (!st.isFile() || st.size <= RG_MAX_FILE) return
+    if (f.pathGlob && !f.pathGlob.match(rel)) return
+    if (!visiblePath(d.fx, d.rules, d.user, rel)) return
+    count++
+    if (names.length < BIG_NAMED_MAX) names.push(rel)
+  }, timeoutMs)
+  return { names: names.sort(), count }
+}
+
 // ---------------- glob ----------------
 export async function globFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, pattern: string, limit = 100) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
@@ -635,7 +662,22 @@ export interface GrepOpts {
   /** place labels for the lines of documents ("p.12", "sheet '매출' A12:F12"; files/locations.ts) in this language;
    * without it, no labels (the file screen's content search) */
   lang?: Lang
+  /** the AI's grep: skip this many output lines first (to read on after a result stopped at its budget) */
+  offset?: number
+  /** the AI's grep: stop the output at this budget (Claude Code cuts a tool result over 25,000 tokens), with the
+   * offset that reads on */
+  budget?: OutputBudget
+  /** the AI's grep: name the files that were not searched because they are over RG_MAX_FILE (stats.big) */
+  reportBig?: boolean
 }
+
+/** A tool result's text budget: characters and tokens (vision.ts textTokens). */
+export interface OutputBudget { chars: number; tokens: number }
+/** the text budget of one result of the AI's grep and list: about 20,000 tokens, under Claude Code's 25,000 for an MCP
+ * result (MAX_MCP_OUTPUT_TOKENS), with room for the notes; the same numbers as read's (files/read-lines.ts, PR #1282) */
+export const TOOL_TEXT_BUDGET: OutputBudget = { chars: 28_000, tokens: 20_000 }
+/** files over the size limit named in a grep result (the count says how many there are) */
+const BIG_NAMED_MAX = 5
 
 /** the longest ripgrep --json record that grep reads (UTF-16 units); the line of a longer record is skipped
  * (stats.longSkipped), because --json gives the whole line and ignores --max-columns. The limit is on the record, not
@@ -649,9 +691,9 @@ export interface GrepHit { path: string; line: number; text: string; loc?: Sourc
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
-  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0 }
+  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0, big: 0 }
   const hits: GrepHit[] = []
-  if (!roots.length && !d.virtual?.size) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
+  if (!roots.length && !d.virtual?.size) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits, big: [] as string[] }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
   if (o.glob?.startsWith('!')) throw new ToolError('negated globs are not supported')
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
@@ -683,7 +725,29 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     return seen.get(real)!
   }
   let truncated = false
-  const push = (s: string) => { if (out.length >= o.limit) { truncated = true; return false } out.push(s); return true }
+  /** output lines left out for `offset`; the result stopped at its budget (`budget`) */
+  let offsetSkipped = 0
+  let budgetCut = false
+  let usedChars = 0, usedTokens = 0
+  /** true: shown; false: the result is full (stop); null: left out for `offset` (go on) */
+  const push = (s: string): boolean | null => {
+    if (o.offset && offsetSkipped < o.offset) { offsetSkipped++; return null }
+    if (out.length >= o.limit) { truncated = true; return false }
+    if (o.budget) {
+      const t = textTokens(s) + 1
+      if (usedChars + s.length + 1 > o.budget.chars || usedTokens + t > o.budget.tokens) {
+        // one line longer than the whole budget: its start, so the result is never empty
+        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); usedChars = o.budget.chars }
+        truncated = true; budgetCut = true; return false
+      }
+      usedChars += s.length + 1; usedTokens += t
+    }
+    out.push(s); return true
+  }
+  /** what the end of a cut result says: the next call (budget), or narrow the search (head_limit) */
+  const cutNote = () => budgetCut
+    ? `\n... (this result stopped at its size limit after ${out.length} lines; for the next lines call grep again with the same arguments and offset=${(o.offset ?? 0) + out.length}, or narrow the path, glob or pattern)`
+    : `\n... (results cut at ${o.limit}; narrow the search${o.offset !== undefined || o.budget ? `, or call grep again with offset=${(o.offset ?? 0) + out.length}` : ''})`
   let last: { file: string; line: number } | null = null
   /** document lines of the result whose place label is added once ripgrep is done: index in `out` (and in `hits`) */
   const placed: { out: number; hit: number; real: string; line: number; sep: string; text: string }[] = []
@@ -705,7 +769,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       const m = map(raw); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
       const ln: number = j.data.line_number
       const text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
-      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (!push('--')) return false
+      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (push('--') === false) return false
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
       const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
@@ -714,13 +778,13 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
         if (j.type === 'match') hits.push({ path: m.shown, line: ln, text })
         if (placing && structureOf(m.real)) placed.push({ out: out.length - 1, hit: j.type === 'match' ? hits.length - 1 : -1, real: m.real, line: ln, sep, text })
       }
-      return pushed
+      return pushed !== false
     }
     const parts = rec.split('\0')
     const m = map(parts[0].replace(/^\n/, '')); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
     const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
     if (pushed) files.add(m.real)
-    return pushed
+    return pushed !== false
   }
   const recSep: '\n' | '\0' = o.mode === 'files_with_matches' ? '\0' : '\n'
   // literal text is searched in NFC and NFD, so Korean text written in either form matches (macOS can write NFD)
@@ -804,7 +868,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const started = Date.now()
   // strictTime: one deadline for the whole search; a pass that has no time left is not run (timedOut)
   const deadline = started + d.timeoutMs
-  const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
+  const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits, big: [] as string[] })
   let virtualDir: string | null = null
   try {
   // pass 0: the virtual files (file lists) first, so their lines lead the result: written for this one search into a
@@ -825,7 +889,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     if (r0.killed === 'timeout') return stopped()
   }
   // nothing on disk to search (the path named a file list, or no folder of it is readable): never a ripgrep without roots
-  if (d.virtualOnly || !roots.length) return { text: (out.join('\n') || 'No matches') + (truncated ? `\n... (results cut at ${o.limit}; narrow the search)` : ''), truncated, timedOut: false, stats, files, hits }
+  if (d.virtualOnly || !roots.length) return { text: (out.join('\n') || 'No matches') + (truncated ? cutNote() : ''), truncated, timedOut: false, stats, files, hits, big: [] as string[] }
   live = admission.emptyLedger()
   // The lease rules out quarantine on every DB connection until finally below.
   // Avoid per-result quarantine probes on the default, never-used product path.
@@ -901,12 +965,16 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   truncated ||= admissionLimited
   let text = out.join('\n') || 'No matches'
   if (admissionLimited) text += '\n' + (d.fx.quarantine ? safeText(d.fx.quarantine.db, d.user.id, 'searchLimit') : SAFE_OPS_TEXT.searchLimit.en)
-  else if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
+  else if (truncated) text += cutNote()
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
   if (stats.officeNotQueued) text += `\n(${stats.officeNotQueued} office documents were not searched; they are not in the index queue yet; search again later)`
   if (stats.officeRetryLater) text += `\n(${stats.officeRetryLater} office documents were not searched: reading their text took too long (a busy server or a very complex file); search again in a few minutes)`
   if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
-  return { text, truncated, timedOut, stats, files, hits }
+  // files over the size limit were not searched: said with their names, and that read opens them (QA TC-4921)
+  const big = o.reportBig && !o.signal?.aborted ? await bigFiles(d, roots, excludes, { nameGlob, pathGlob, type: o.type }, Math.min(5_000, Math.max(1_000, deadline - Date.now()))) : { names: [], count: 0 }
+  stats.big = big.count
+  if (big.count) text += `\n(${big.count} file${big.count === 1 ? ' was' : 's were'} not searched because ${big.count === 1 ? 'it is' : 'they are'} over ${RG_MAX_FILE / 1024 / 1024} MB: ${big.names.join(', ')}${big.count > big.names.length ? ` and ${big.count - big.names.length} more` : ''}. Read ${big.count === 1 ? 'it' : 'them'} directly with read (offset and limit) to look inside.)`
+  return { text, truncated, timedOut, stats, files, hits, big: big.names }
   } finally {
     // runRg has reaped the consumer before release, including timeout/abort.
     // Failed cleanup retains the durable lease (fail closed).

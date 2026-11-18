@@ -75,6 +75,7 @@ import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './se
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
+import { devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
@@ -288,6 +289,8 @@ export class TurnExec {
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
+  /** the dev environment is on for this person but does not work now: no box_shell, the AI is told (prompt.ts devEnvDownRule) */
+  devEnvDown: 'staff' | 'member' | null = null
   principal: Principal | null = null
   private templateScope = false
   /** an approved scheduled template's run (its scope is fixed: chat/schedule-templates.ts) */
@@ -746,7 +749,11 @@ export class TurnExec {
         audience: () => this.sharedAudience(),
         noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
       } : undefined
-      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project, ...(shared ? { shared } : {}) }
+      // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {
+        if (await devEnvDownReason(rt.log)) this.devEnvDown = this.shared || !(this.principal.role === 'owner' || this.principal.role === 'admin') ? 'member' : 'staff'
+        else this.devEnv = { project, ...(shared ? { shared } : {}) }
+      }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
@@ -890,6 +897,7 @@ export class TurnExec {
       situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
+      devEnvDown: this.devEnvDown,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]

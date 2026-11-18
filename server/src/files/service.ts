@@ -22,7 +22,7 @@ import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice } from './extract'
-import { globFiles, grepFiles, OfficeCache } from './search'
+import { globFiles, grepFiles, OfficeCache, TOOL_TEXT_BUDGET } from './search'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -353,7 +353,7 @@ export class FileService {
   }
 
   // ---------------- list ----------------
-  list(ctx: ToolCtx, a: { path?: string }): ToolOutput {
+  list(ctx: ToolCtx, a: { path?: string; offset?: number }): ToolOutput {
     // a folder shared with the person, by its link: one level of its names (files/shared-folder-reads.ts)
     const shared = this.folderReads(ctx) ? this.shared?.folderList?.(ctx.user, ctx.files, a.path, personLocale(this.db, ctx.user.id)) ?? null : null
     if (shared) return shared
@@ -389,7 +389,8 @@ export class FileService {
     // file names are the folder's own (only its readers see them); a folder the person may only list (the team root for
     // a member, a folder on the way to theirs) shows sub-folders and nothing of its own
     if (shownFiles) ctx.files.namePaths.add(r.rel)
-    return { text: lines.join('\n') || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries` }
+    const page = listPage(lines, a.offset ?? 0)
+    return { text: page || '(empty folder)', summary: `list ${r.rel || '.'} -> ${lines.length} entries${a.offset ? ` from ${a.offset}` : ''}` }
   }
 
   private base(ctx: ToolCtx, p: string | undefined) {
@@ -459,8 +460,10 @@ export class FileService {
     const res = await grepFiles({ fx: this.fx, rules, user: ctx.user, rg: this.cfg.rg, timeoutMs: this.cfg.grepTimeoutMs, office: this.office, virtual, virtualOnly: !!vp, skip }, r.segs, isFile, {
       officeOwner: ctx.user.id, pattern: a.pattern, glob: a.glob, type: a.type, mode: a.output_mode ?? 'files_with_matches', ignoreCase: a['-i'],
       lineNumbers: a['-n'] ?? true, before: a['-B'] ?? ctxN, after: a['-A'] ?? ctxN, limit: a.head_limit ?? 200, multiline: a.multiline,
-      lang: personLocale(this.db, ctx.user.id),
+      lang: personLocale(this.db, ctx.user.id), offset: a.offset, budget: TOOL_TEXT_BUDGET, reportBig: true,
     })
+    // the files too big to search are named: their folders' names are seen, as glob's are
+    for (const f of res.big) ctx.files.namePaths.add(f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : '')
     // a file list's lines are read like its folder's files (same access): its folder joins the read scope (the list is
     // not on disk, so it cannot be looked up as a file), never as an answer's source: the answer cites the real file
     // the AI opens next
@@ -1673,6 +1676,22 @@ export class FileService {
     fileEvent(this.db, { turnId: null, userId, path: r.rel, action: 'restore', size: bytes.length, sha256: sha256(bytes) })
     return r.rel
   }
+}
+
+/** A folder's entries from `offset`, as many as fit the tool text budget (Claude Code cuts a result over 25,000 tokens:
+ * a folder of thousands of files lost its end without a word, QA TC-4921); a cut list ends with the next call. */
+export function listPage(lines: string[], offset: number, budget = TOOL_TEXT_BUDGET): string {
+  if (offset >= lines.length && offset > 0) return `(no entries from ${offset}: the folder has ${lines.length})`
+  const out: string[] = []
+  let chars = 0, tokens = 0, i = offset
+  for (; i < lines.length; i++) {
+    const l = lines[i]!
+    const t = textTokens(l) + 1
+    if (out.length && (chars + l.length + 1 > budget.chars || tokens + t > budget.tokens)) break
+    out.push(l); chars += l.length + 1; tokens += t
+  }
+  if (i < lines.length) out.push(`... (${lines.length - i} more of ${lines.length} entries; for the next ones call list again with offset=${i}, or use glob to find names)`)
+  return out.join('\n')
 }
 
 type ReadArgs = { file_path: string; offset?: number; limit?: number; pages?: string; as_images?: boolean; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }

@@ -32,6 +32,7 @@ export const en: Record<MessageKey, string> = {
   'devEnv.title': "Dev environment",
   'devEnv.experiment': "Experiment",
   'devEnv.unavailable': "This server cannot run dev environments.",
+  'devEnv.unavailableAi': "Until it is fixed, the AI tells people it cannot do that kind of work (for example totals over a big data file) and does not ask them to try again.",
   'devEnv.who': "Who may use it",
   'devEnv.network': "Network",
   'devEnv.netOffline': "No network",

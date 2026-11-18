@@ -178,6 +178,23 @@ export async function srtProblem(c = srtConfig()): Promise<string> {
   return selfTest.problem
 }
 
+/** the last reason devEnvDownReason logged (one warning per new reason, not one per answer) */
+let loggedDown = ''
+/**
+ * Why the dev environment cannot run a command now ('' = it can), for a turn deciding whether to offer box_shell (QA
+ * TC-4924). srtProblem is cached (a failed self-test is tried again after a minute, a good one after ten); a check that
+ * takes longer than `waitMs` (the first self-test after a start) counts as working, as before this check: the tool then
+ * says what is wrong. A new reason is logged once, for whoever runs the server.
+ */
+export async function devEnvDownReason(log?: { warn(m: string, d?: object): void }, waitMs = 3_000): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<string>((r) => { timer = setTimeout(() => r(''), waitMs) })
+  const why = await Promise.race([srtProblem().catch((e) => String(e)), late]).finally(() => clearTimeout(timer))
+  if (why && why !== loggedDown) log?.warn('dev environment is on but not working; box_shell is not offered', { reason: why.slice(0, 500) })
+  loggedDown = why
+  return why
+}
+
 // ---------------- the folder access of a person ----------------
 
 /** The person's view, with only the folders that exist now (srt skips what is not there; a folder that appears later

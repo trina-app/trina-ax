@@ -78,7 +78,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV${html ? ', or a PDF from an HTML page' : ''}. ` +
       (html ? HTML_PDF_HINT : HTML_PDF_OFF_HINT) +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
-      'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
+      'pipe table becomes a sheet. A big workbook (thousands of rows, e.g. from a CSV export) is made from the CSV itself: give the .csv/.tsv ' +
+      'file as `source` (up to 10 MB; no row or character limit below that) and never retype or sample its rows. With such a source, `content` ' +
+      'may add Markdown tables as more sheets after it, e.g. a summary with "=SUMIFS(sales!E:E,sales!B:B,A2)"; the CSV\'s sheet is named after ' +
+      'the file without its extension (sales.csv: "sales"). xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
       'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). Simple formulas (numbers, cells of the same ' +

@@ -80,6 +80,29 @@ export function formulaStubsAsText(ws: XLSX.WorkSheet): void {
   }
 }
 
+/** a formula longer than this is shown cut, with "…" (the value after it stays whole) */
+export const FORMULA_SHOWN_MAX = 300
+
+/**
+ * A formula cell with a stored result shows both, `=SUM(B2:B9) → 1770`, so the AI sees how a person's sheet is built,
+ * not only its numbers (QA TC-4918; Claude Code reads formulas with openpyxl). The value is the one the file stores,
+ * as the spreadsheet app formats it. Run after formulaStubsAsText (a stub has no value: it shows as its formula).
+ */
+export function formulasWithValues(ws: XLSX.WorkSheet): void {
+  const rows = (ws as { '!data'?: (XLSX.CellObject | undefined)[][] })['!data'] ?? []
+  for (const row of rows) {
+    if (!row) continue
+    for (let j = 0; j < row.length; j++) {
+      const c = row[j]
+      if (!c?.f || c.t === 'z' || c.v == null) continue
+      const f = c.f.length > FORMULA_SHOWN_MAX ? c.f.slice(0, FORMULA_SHOWN_MAX).replace(/[\uD800-\uDBFF]$/, '') + '…' : c.f
+      const v = c.w ?? String(c.v)
+      const text = `=${f} → ${v}`
+      row[j] = { t: 's', v: text, w: text }
+    }
+  }
+}
+
 /** A sheet name on one line (the `# sheet:` label is parsed back by files/locations.ts). */
 const labelName = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, ' ').trim()
 
@@ -153,6 +176,7 @@ export function sheetText(bytes: Uint8Array): string {
   for (const s of wb.SheetNames) {
     const ws = wb.Sheets[s]!
     formulaStubsAsText(ws)
+    formulasWithValues(ws)
     boundRange(ws)
     const part = sheetPart(s, ws)
     size += Buffer.byteLength(part, 'utf8') + 2
