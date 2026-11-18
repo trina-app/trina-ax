@@ -37,6 +37,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
+import { finishDocx, markTextColors, type TextMark } from './docx-format'
+import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
+import { svgToPng, SVG_MAX, SVG_RSS_MIB } from './svg-png'
 import type { z } from 'zod'
 import type { MakeFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
@@ -76,7 +79,7 @@ import { safeText } from '../safe-ops/strings'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -95,6 +98,22 @@ export const OFFICE_PICTURE_HINT =
   'line of its own gets that text as a caption. To add a picture to an existing Word file, read it and make a new .docx with its text and the picture ' +
   '(a new name; the original stays); only the text, headings, lists and simple tables carry over, not its layout, fonts, headers or footers: say so in one ' +
   'sentence. Never say a picture cannot go into a Word file. (PowerPoint fits a picture to the slide and takes no width; Hangul .hwpx takes no pictures.) '
+
+/** make_file's words for formatting in Word and Excel and for chart pictures (tools/index.ts; second limits audit
+ * N3/N4: the AI said it could not colour text, add a header, footer or conditional formatting, or make a PNG). */
+export const RICH_OFFICE_HINT =
+  'Word formatting: colour or highlight text with a span [overdue]{color=red} or [risk]{highlight=yellow} (both: [x]{color=darkred highlight=yellow}), ' +
+  'a whole paragraph with ::: {color="#C00000"} ... ::: (names: red, darkred, orange, yellow, green, blue, purple, gray, ... or "#RRGGBB"); ' +
+  'docx `page`: { header: "Acme Ltd." or { left, center, right }, footer, page_numbers: true, orientation: "landscape", size: "a4", margins_cm: 2 }, ' +
+  'where {page} and {pages} in a header or footer are the page number and count. ' +
+  'Excel formatting: xlsx `sheets`: [{ sheet, number_formats: [{ range: "C2:C50", format: "#,##0" }], column_widths: { "A": 30 }, ' +
+  'freeze: { rows: 1, columns: 1 }, filter: false, conditional: [{ range: "D2:D50", when: "less_than", value: 0, fill: "red", font_color: "white" }] }]; ' +
+  'conditional `when`: greater_than, less_than, greater_or_equal, less_or_equal, equal, not_equal, between (value, value2), contains (text), duplicates, ' +
+  'top / bottom (value = how many), above_average, below_average, formula (e.g. "=$E2<0", true for a cell to format), color_scale, data_bar. ' +
+  'Pictures: format "png" saves an SVG (in `content`, or an .svg `source`) as a PNG picture: draw a chart, Gantt chart or diagram as SVG with ' +
+  'its numbers and labels and save it as PNG, never just as SVG when the user wants a picture. An .svg picture in a Word or PowerPoint document ' +
+  '(![](charts/sales.svg){width=15cm}) goes in as a PNG, so a report can hold a chart: write the SVG file first, then refer to it. ' +
+  'Never say text colours, headers, footers, page numbers, conditional formatting or chart pictures cannot be made. '
 
 /** make_file's description where this server prints HTML (tools/index.ts). Before it, an AI asked to turn a quote's
  * .html into a PDF rewrote it as Markdown tables (losing its navy headers, highlights, merged cells and A4 layout) and
@@ -154,6 +173,13 @@ const MAX_IMAGES = 200
 const MAX_IMAGES_BYTES = 100 * 1024 * 1024
 /** pandoc's JSON tree of a 10 MB Markdown file stays well below this */
 const MAX_AST = 200 * 1024 * 1024
+/** typst making a PDF: its memory, as an SVG picture's (a picture in the document is drawn by the same typst) plus room
+ * for long documents */
+const TYPST_PDF_RSS_MIB = 2 * SVG_RSS_MIB
+/** SVG pictures drawn for one Word or PowerPoint file (each has its own time and memory limit, svg-png.ts) */
+const SVG_MAX_PER_DOCUMENT = 20
+/** a .docx pandoc wrote (its pictures are at most MAX_IMAGES_BYTES) */
+const MAX_DOCX = 256 * 1024 * 1024
 /** pandoc's Typst text of a document (the source is at most MAX_SOURCE) */
 const MAX_TYPST = 64 * 1024 * 1024
 
@@ -266,6 +292,8 @@ export class MakeFile {
     if (a.source !== undefined && ext(a.source) === 'pptx') return this.fromDeck(c, a)
     if(a.format==='pptx' && safeOpsEnabled()) return withWorkflow(this.ctx.files,c,() => this.safePresentation(c,a))
     if(a.expected_layouts) throw new ToolError(safeText(this.ctx.db,c.user.id,'unavailable'))
+    // a picture drawn as SVG saved as a PNG (svg-png.ts)
+    if (a.format === 'png') return this.png(c, a)
     const fx = this.files.fx
     const rules = this.files.rules()
     // ---- input
@@ -278,7 +306,7 @@ export class MakeFile {
       const r = authorize(fx, rules, c.user, a.source, 'read')
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
       const x = ext(r.rel)
-      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf")')
+      if (!['md', 'markdown', 'txt', 'csv', 'tsv'].includes(x)) throw new ToolError('source must be a .md, .txt, .csv or .tsv file (or an .html or .pptx file for format "pdf", an .svg file for format "png")')
       const { bytes } = readRegular(r.abs, MAX_SOURCE, r.st)
       text = bytes.toString('utf8')
       kind = x === 'csv' ? 'csv' : x === 'tsv' ? 'tsv' : 'markdown'
@@ -296,13 +324,17 @@ export class MakeFile {
 
     const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
     try {
-      const produced = path.join(work, 'out.' + a.format)
+      let produced = path.join(work, 'out.' + a.format)
       /** pptx from Markdown: what decides the slides (pptx-check.ts) */
       let shape: DeckShape | null = null
       let formulas: number | undefined
       let stored = 0
       let charts = 0
-      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts }
+      let conditional = 0
+      /** docx: the text colours the document uses (docx-format.ts) */
+      let marks = new Map<string, TextMark>()
+      let svgPictures = 0
+      if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? []); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
         if (!this.conv.pandoc) throw new ToolError(missingConverter('pandoc'))
@@ -327,6 +359,9 @@ export class MakeFile {
           checkRawMarkup(ast)
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
+          // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
+          if (a.format === 'docx' || a.format === 'pptx') svgPictures = await this.svgPictures(c, ast, work, text)
+          if (a.format === 'docx') marks = markTextColors(ast)
           if (a.format === 'pptx') {
             shape = deckShape(ast)
             // a picture next to text keeps the slide's title and bullets, with no second caption (TC-4445)
@@ -355,6 +390,14 @@ export class MakeFile {
           }
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
           if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
+          // docx: text colours, page, header and footer (docx-format.ts), written under a name pandoc could not plant
+          if (a.format === 'docx' && (marks.size || a.page)) {
+            const got = readOutput(work, path.basename(produced), MAX_DOCX)
+            if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
+            const finished = path.join(work, freshName(work, 'finished', 'docx'))
+            fs.writeFileSync(finished, finishDocx(new Uint8Array(got.bytes), marks, a.page), { flag: 'wx', mode: 0o600 })
+            produced = finished
+          }
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
@@ -368,7 +411,8 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      return deck ? { ...made, deck } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}) } : made
+      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}) }
+      return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
 
@@ -521,6 +565,80 @@ export class MakeFile {
   }
 
   /**
+   * Word and PowerPoint: every SVG picture of the document (already a checked copy in the work folder, copyImages) is
+   * drawn as a PNG there (svg-png.ts) and its Image nodes point at the PNG. Returns how many SVG files were drawn.
+   */
+  private async svgPictures(c: ToolCtx, ast: unknown, work: string, text: string): Promise<number> {
+    const nodes: { c: [unknown, unknown, [string, string]] }[] = []
+    const stack: unknown[] = [ast]
+    while (stack.length) {
+      const v = stack.pop()
+      if (Array.isArray(v)) { for (const x of v) if (x && typeof x === 'object') stack.push(x); continue }
+      if (!v || typeof v !== 'object') continue
+      const node = v as { t?: unknown; c?: unknown }
+      if (node.t === 'Image' && Array.isArray(node.c) && Array.isArray(node.c[2]) && typeof node.c[2][0] === 'string' && /\.svg$/i.test(node.c[2][0])) nodes.push(node as never)
+      for (const x of Object.values(node)) if (x && typeof x === 'object') stack.push(x)
+    }
+    if (!nodes.length) return 0
+    if (new Set(nodes.map((n) => n.c[2][0])).size > SVG_MAX_PER_DOCUMENT) throw new ToolError(`the document has more than ${SVG_MAX_PER_DOCUMENT} SVG pictures; save some as PNG first (format "png") or use fewer; nothing was saved`)
+    const fonts = pdfFonts(pdfLanguage(text, teamDefaultLocale(this.ctx.db)))
+    const drawn = new Map<string, string>()
+    for (const n of nodes) {
+      const local = n.c[2][0]
+      let png = drawn.get(local)
+      if (!png) {
+        const svg = readOutput(work, local, SVG_MAX)
+        if (!svg.ok) throw new ToolError(svg.why === 'too_large' ? `the SVG picture '${local}' is larger than ${SVG_MAX / 1024 / 1024} MB` : 'an SVG picture could not be read')
+        let i = 0
+        let base = ''
+        for (;; i++) { base = `svgpng-${i}`; if (['svg', 'typ', 'png'].every((x) => !fs.existsSync(path.join(work, `${base}.${x}`)))) break }
+        const bytes = await svgToPng(this.conv, new Uint8Array(svg.bytes), work, base, fonts, c.signal)
+        png = freshName(work, `${base}-out`, 'png')
+        fs.writeFileSync(path.join(work, png), bytes, { flag: 'wx', mode: 0o600 })
+        drawn.set(local, png)
+      }
+      n.c[2][0] = png
+    }
+    return drawn.size
+  }
+
+  /**
+   * A PNG of an SVG picture (a chart, a Gantt chart, a diagram the AI drew): `content` is the SVG, or `source` an .svg
+   * file in the team folder (then that file is the PNG's source). Drawn by typst (svg-png.ts), then placed like every
+   * make_file output.
+   */
+  private async png(c: ToolCtx, a: Input): Promise<MadeFile> {
+    if (a.template) throw new ToolError('a PNG takes no template')
+    const fx = this.files.fx
+    const rules = this.files.rules()
+    let svg: Uint8Array
+    const sources: string[] = []
+    if (a.source !== undefined) {
+      const r = authorize(fx, rules, c.user, a.source, 'read')
+      if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`)
+      if (ext(r.rel) !== 'svg') throw new ToolError('for format "png" the source must be an .svg file (or give the SVG as `content`)')
+      svg = new Uint8Array(readRegular(r.abs, SVG_MAX, r.st).bytes)
+      sources.push(r.rel)
+    } else {
+      if (Buffer.byteLength(a.content!) > SVG_MAX) throw new ToolError(`content is too large (max ${SVG_MAX / 1024 / 1024} MB)`)
+      svg = new TextEncoder().encode(a.content!)
+    }
+    if (!/<svg\b/i.test(new TextDecoder().decode(svg.subarray(0, 64 * 1024)))) throw new ToolError('for format "png" give an SVG picture (an <svg> element) as `content` or an .svg `source`; nothing was saved')
+    const outRel = makeFileOutputPath(a.output, 'png')
+    const out = authorize(fx, rules, c.user, outRel, 'write', { mustExist: false, createDirs: true })
+    if (out.exists && out.st!.isDirectory()) throw new ToolError(`'${out.rel}' is a folder`)
+    const work = makeWorkDir(path.join(this.ctx.config.dataDir, 'work'))
+    try {
+      const text = new TextDecoder().decode(svg)
+      const png = await svgToPng(this.conv, svg, work, 'picture', pdfFonts(pdfLanguage(text, teamDefaultLocale(this.ctx.db))), c.signal)
+      const produced = path.join(work, freshName(work, 'out', 'png'))
+      fs.writeFileSync(produced, png, { flag: 'wx', mode: 0o600 })
+      await this.checkWidening(c, out.rel, out.segs, sources)
+      return await this.place(c, out.segs, produced, sources)
+    } finally { fs.rmSync(work, { recursive: true, force: true }) }
+  }
+
+  /**
    * The output carries the bytes of `sources`: they join the chat's read scope (later saves in the chat take them
    * into account), and when more people can read the output than those files (or what the chat read), the chat turn
    * asks the person first. No chat turn (nobody to ask): refused. Runs before anything is placed.
@@ -585,13 +703,13 @@ export class MakeFile {
     fs.writeFileSync(path.join(work, doc), pre + body.bytes.toString('utf8'), { flag: 'wx', mode: 0o600 })
     const fonts = this.conv.fonts ?? null
     // Linux bundle's typst: at most 2 threads (system/limits.ts); the bundled fonts readable inside the isolation
-    const r = await runIsolated({ cmd: this.conv.typst, args: typstArgs({ work, doc, fonts, jobs: typstJobs() }), workDir: work, readPaths: fonts ? [fonts] : [], timeoutMs: 120_000 })
-    if (r.code !== 0) throw new ToolError(convertError('typst', r.stderr, r.killed, work))
+    const r = await runIsolated({ cmd: this.conv.typst, args: typstArgs({ work, doc, fonts, jobs: typstJobs() }), workDir: work, readPaths: fonts ? [fonts] : [], timeoutMs: 120_000, maxRssMiB: TYPST_PDF_RSS_MIB })
+    if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? 'making the PDF needs too much memory (a picture or the document is too heavy); nothing was saved' : convertError('typst', r.stderr, r.killed, work))
   }
 
   /** Writes the workbook and its charts (xlsx-chart.ts); returns the number of formula cells, how many of them have
    * their result stored, and the number of charts. */
-  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[]): Promise<{ formulas: number; stored: number; charts: number }> {
+  private async xlsx(text: string, kind: 'markdown' | 'csv' | 'tsv', out: string, charts: ChartSpec[], options: SheetOptions[] = []): Promise<{ formulas: number; stored: number; charts: number; conditional: number }> {
     const sheets: { name: string; rows: string[][] }[] = []
     if (kind === 'markdown') {
       const tables = markdownTables(text)
@@ -606,6 +724,7 @@ export class MakeFile {
     const used = new Set<string>()
     let formulas = 0, stored = 0
     const written: ChartSheet[] = []
+    const styled: WrittenSheet[] = []
     for (const s of sheets) {
       // at most 31 UTF-16 units, never half of a surrogate pair (an emoji)
       let name = s.name.replace(/[\\/?*[\]:'"|]/g, ' ').trim().slice(0, 31).replace(/[\uD800-\uDBFF]$/, '') || 'Sheet'
@@ -624,6 +743,7 @@ export class MakeFile {
       written.push({ name, title: s.name, rows: grid })
       for (const row of grid) for (const c of row) if (typeof c === 'object' && c !== null && 'formula' in c && (c as { result?: unknown }).result !== undefined) stored++
       for (const row of grid) ws.addRow(row)
+      styled.push({ name, title: s.name, rows: s.rows.length, cols: s.rows.length ? Math.max(...s.rows.map((r) => r.length)) : 0, ws })
       if (s.rows.length) {
         ws.getRow(1).font = { bold: true }
         const cols = Math.max(...s.rows.map((r) => r.length))
@@ -636,9 +756,11 @@ export class MakeFile {
     }
     // a chart that does not fit the sheets is refused before anything is written
     if (charts.length) placeCharts(charts, written)
+    // number formats, widths, frozen panes, filter, conditional formatting (xlsx-format.ts), refused before writing
+    const { conditional } = applySheetOptions(options, styled, (f) => { const r = formulaOf(f); return 'formula' in r ? r.formula : { error: r.error } })
     await wb.xlsx.writeFile(out)
     if (charts.length) fs.writeFileSync(out, addCharts(new Uint8Array(fs.readFileSync(out)), charts, written))
-    return { formulas, stored, charts: charts.length }
+    return { formulas, stored, charts: charts.length, conditional }
   }
 
   /** `sources`: the team files whose bytes are in the output (the source, embedded images, a template). The event says

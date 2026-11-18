@@ -960,7 +960,9 @@ export function makeFileRule(hangul: boolean, html: boolean = htmlPdfUnavailable
   const fromHtml = html ? ' An HTML page becomes a PDF with make_file `source` = the .html file and format "pdf": it is printed as a browser prints it; never rewrite HTML as Markdown for that. A PowerPoint deck becomes a PDF with `source` = the .pptx and format "pdf" (a page per slide); never rewrite the slides as a document for that.' : ''
   return (hangul
     ? 'To produce Word / PowerPoint / Excel / PDF / Hangul (.hwpx) files, write Markdown or CSV and convert it with make_file (write and edit cannot save .hwp or .hwpx files).'
-    : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml
+    : 'To produce Word / PowerPoint / Excel / PDF files, write Markdown or CSV and convert it with make_file.') + fromHtml +
+    // second limits audit N4: a chart picture is an SVG saved as PNG by make_file (tools/svg-png.ts)
+    ' A chart, Gantt chart or diagram the user wants as a picture: draw it as SVG and save it as PNG with make_file (format "png"); in a Word or PowerPoint file refer to the SVG or the PNG as a Markdown image.'
 }
 /** the PDF tools (tools/stamp-pdf.ts, tools/pdf-tools.ts; owner 2026-11-16: PDFs freely editable) */
 export const PDF_TOOLS_RULE = 'To change an existing PDF, use the PDF tools; each saves a new PDF next to the original and never overwrites it, except a PDF you made yourself in this turn, which edit_pdf and stamp_pdf change in place (make a quote where it belongs, then stamp it there): edit_pdf to remove, keep (extract), reorder, rotate or insert pages, stamp a seal or logo, add a line of text, a watermark or page numbers; merge_pdfs to join PDFs in order; split_pdf to cut one into parts; stamp_pdf for a seal, signature or logo alone. They work on scanned PDFs too. Replace the original only when the user explicitly asks for that. To place a seal or text next to something on the page, look at that page first (read with pages and as_images), and look at the changed page before you answer. Ask for a seal or logo image only when none can be found in the team folder.'

@@ -19,7 +19,7 @@ import { authorize } from '../policy/authorize'
 import { Denied, ToolError } from '../policy/errors'
 import { componentC } from '../team-files/component'
 import { deckSummary, PPTX_FORMAT_HINT } from './pptx-check'
-import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText, OFFICE_PICTURE_HINT } from './make-file'
+import { HTML_PDF_HINT, HTML_PDF_OFF_HINT, htmlPdfResultText, OFFICE_PICTURE_HINT, RICH_OFFICE_HINT } from './make-file'
 import { htmlPdfUnavailable } from '../files/html-pdf'
 import { toolRegistry } from './registry'
 import { egressOf, egressSettled } from './egress'
@@ -76,7 +76,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   // make_file's description; the Hangul parts only while Hangul writing is on (tools/hwp-writing.ts), the HTML print
   // as this server offers it (files/html-pdf.ts: only where a headless browser is installed)
   const makeFileDescription = (hangul: boolean, html: boolean = htmlPdfUnavailable() === null) =>
-    `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV${html ? ', or a PDF from an HTML page' : ''}. ` +
+    `Create a Word (.docx), PowerPoint (.pptx), Excel (.xlsx)${hangul ? ', PDF or Hangul (.hwpx)' : ' or PDF'} file in the team folder from Markdown or CSV${html ? ', or a PDF from an HTML page' : ''}, or a PNG picture from SVG. ` +
       (html ? HTML_PDF_HINT : HTML_PDF_OFF_HINT) +
       'Give exactly one of `source` (a .md/.csv file in the team folder) or `content` (Markdown; for xlsx also CSV). For xlsx every Markdown ' +
       'pipe table becomes a sheet. xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
@@ -87,7 +87,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
-      OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
+      RICH_OFFICE_HINT + OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
@@ -110,11 +110,14 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       const saved = r.conflictCopyOf
         ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
+      const extraLines = (r.conditional ? `\nThe file has ${r.conditional} conditional formatting rule${r.conditional === 1 ? '' : 's'}.` : '') +
+        (r.svgPictures ? `\n${r.svgPictures} SVG picture${r.svgPictures === 1 ? ' was' : 's were'} put in as PNG.` : '') +
+        (a.format === 'png' ? `\nTo put the picture into a Word or PowerPoint file, refer to it in the Markdown: ![](${r.path}){width=15cm}.` : '')
       const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
       const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
         : r.formulas ? `${saved}\nThe file has ${r.formulas} formula cells; ${r.stored === r.formulas ? 'all of them are saved with their computed result, so the file and its preview show the numbers' : r.stored ? `${r.stored} of them are saved with their computed result (the file and its preview show those numbers) and the other ${r.formulas! - r.stored!} are calculated by the spreadsheet app when the file opens` : 'none could be saved with a computed result, so the spreadsheet app calculates them when the file opens'}. The formulas stay editable.`
         : r.html ? `${saved}\n${htmlPdfResultText(r.html)}`
-        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine
+        : a.format === 'hwpx' ? `${saved}\nThe file was read back: its paragraphs and headings are the document's. Layout in Hangul is not checked.` : saved) + chartLine + extraLines
       const deck = r.deck ? ` ${r.deck.slides.length} slides ${r.deck.notes} notes` : ''
       const html = r.html ? ` from ${a.source} ${r.html.pages} pages${r.html.blockedCount ? ` ${r.html.blockedCount} blocked` : ''}` : ''
       return { text, summary: `make_file ${a.format} -> ${r.path} ${r.size}B${deck}${html}${r.charts ? ` ${r.charts} charts` : ''}${r.conflictCopyOf ? ' (conflict copy)' : ''}`, structured: { path: r.path, size: r.size, sha256: r.sha256, ...(r.deck ? { slides: r.deck.slides.length, notes: r.deck.notes } : {}), ...(r.html ? { pages: r.html.pages } : {}), ...(r.charts ? { charts: r.charts } : {}) } }

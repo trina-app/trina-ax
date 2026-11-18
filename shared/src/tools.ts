@@ -73,10 +73,47 @@ export const EDIT_FILES_DESCRIPTION = 'Make the same exact-string replacement in
 
 // ---------------- other tools (stage 1: contracts only) ----------------
 export const HwpRenderInput = z.strictObject({ source: relPath, page: z.number().int().min(1).max(200), format: z.literal('png') })
+/** make_file `page` (docx): header and footer text, where {page} and {pages} become the page number and the page count */
+const HeaderFooterText = z.string().max(500)
+export const MakeFileHeaderFooter = z.union([
+  HeaderFooterText.describe('Centred text'),
+  z.strictObject({ left: HeaderFooterText.optional(), center: HeaderFooterText.optional(), right: HeaderFooterText.optional() }),
+])
+const cm = z.number().min(0).max(10)
+export const MakeFilePage = z.strictObject({
+  size: z.enum(['a4', 'letter', 'a3', 'legal']).optional().describe('Default a4'),
+  orientation: z.enum(['portrait', 'landscape']).optional(),
+  margins_cm: z.union([cm, z.strictObject({ top: cm.optional(), bottom: cm.optional(), left: cm.optional(), right: cm.optional() })]).optional().describe('Default 2.54 on every side'),
+  header: MakeFileHeaderFooter.optional().describe('e.g. "Acme Ltd." or { left: "Acme Ltd.", right: "Confidential" }; {page} and {pages} are the page number and count'),
+  footer: MakeFileHeaderFooter.optional(),
+  page_numbers: z.boolean().optional().describe('A page number in the middle of the footer (unless the footer already has {page})'),
+})
+const cellRange = z.string().min(1).max(40)
+const colour = z.string().min(1).max(20)
+export const MakeFileConditional = z.strictObject({
+  range: cellRange.describe('e.g. "D2:D50"'),
+  when: z.enum(['greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'equal', 'not_equal', 'between', 'contains', 'duplicates', 'top', 'bottom', 'above_average', 'below_average', 'formula', 'color_scale', 'data_bar']),
+  value: z.union([z.number(), z.string().max(255)]).optional().describe('The number or text to compare with; top/bottom: how many cells'),
+  value2: z.number().optional().describe('between: the upper bound'),
+  formula: z.string().max(1000).optional().describe('when "formula": true for a cell to colour, written for the range\'s first cell, e.g. "=$E2<0"'),
+  fill: colour.optional().describe('Cell colour, a name (red, green, yellow ...) or "#RRGGBB"; default light red (color_scale: the high colour; data_bar: the bar colour)'),
+  font_color: colour.optional().describe('Default dark red with the default fill'),
+  bold: z.boolean().optional(),
+  low_fill: colour.optional().describe('color_scale: the low colour (default white)'),
+})
+export const MakeFileSheet = z.strictObject({
+  sheet: z.string().max(100).optional().describe('Sheet name (the table\'s heading); default the first sheet'),
+  number_formats: z.array(z.strictObject({ range: cellRange.describe('e.g. "C2:C50" or "C:C"'), format: z.string().min(1).max(100).describe('Excel number format, e.g. "#,##0", "0.0%", "\\"$\\"#,##0.00", "yyyy-mm-dd"') })).max(100).optional(),
+  column_widths: z.record(z.string().regex(/^[A-Za-z]{1,3}$/), z.number().min(1).max(255)).optional().describe('e.g. { "A": 30, "C": 12 } in characters'),
+  freeze: z.strictObject({ rows: z.number().int().min(0).max(100).optional(), columns: z.number().int().min(0).max(50).optional() }).optional().describe('Default: the header row; { rows: 0 } for none'),
+  filter: z.boolean().optional().describe('Filter buttons on the header row (default true)'),
+  conditional: z.array(MakeFileConditional).max(50).optional().describe('Conditional formatting rules'),
+})
+
 export const MakeFileInput = z.strictObject({
-  source: optRelPath.describe('.md/.csv file to convert, an .html page to print to PDF, or a .pptx deck to save as PDF (format "pdf"); source or content'),
+  source: optRelPath.describe('.md/.csv file to convert, an .html page to print to PDF, a .pptx deck to save as PDF (format "pdf"), or an .svg picture to save as PNG (format "png"); source or content'),
   content: z.string().optional(),
-  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx']),
+  format: z.enum(['docx', 'pptx', 'xlsx', 'pdf', 'hwpx', 'png']),
   output: relPath.describe('Where to save (write access needed; a conflict copy is made if it exists)'),
   template: optRelPath.describe('Template file under skills/ (.docx, .pptx or .hwpx, the same format as the output)'),
   expected_slides: z.number().int().min(1).max(500).optional().describe('pptx only: the number of slides the user asked for, title slide included. Give it whenever the user names a number; a different result is an error and nothing is saved.'),
@@ -88,9 +125,13 @@ export const MakeFileInput = z.strictObject({
     title: z.string().max(200).optional(),
     anchor: z.string().max(10).optional().describe('Top-left cell of the chart, e.g. "G2"; default right of the data'),
   })).min(1).max(10).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
+  page: MakeFilePage.optional().describe('docx only: page size, orientation, margins, header, footer and page numbers'),
+  sheets: z.array(MakeFileSheet).min(1).max(50).optional().describe('xlsx only: number formats, column widths, frozen rows/columns, filter and conditional formatting per sheet'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
 }).refine((v) => (v.source === undefined) !== (v.content === undefined), { message: 'give exactly one of source or content' })
   .refine((v) => v.format === 'xlsx' || v.charts === undefined, { message: 'charts are only for format "xlsx"' })
+  .refine((v) => v.format === 'xlsx' || v.sheets === undefined, { message: 'sheets is only for format "xlsx"' })
+  .refine((v) => v.format === 'docx' || v.page === undefined, { message: 'page is only for format "docx"' })
   .refine((v) => v.format === 'pptx' || (v.expected_slides === undefined && v.expected_notes === undefined && v.expected_layouts === undefined), { message: 'expected_slides and expected_notes are only for format "pptx"' })
 export const MakeFileOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), slides: z.number().optional(), notes: z.number().optional(), pages: z.number().optional(), charts: z.number().optional() })
 
