@@ -163,9 +163,12 @@ export function phoneCases() {
     await noSideways(page)
     await page.screenshot({ path: test.info().outputPath(`team-logo-${browserName}-390.png`) })
 
-    // a tap opens the file picker, as the button did; a PNG is uploaded and shows on the row
-    const chooser = page.waitForEvent('filechooser')
+    // a tap opens our sheet first (Photo library, Files; never iOS's raw menu), a row then the phone's picker; a PNG is
+    // uploaded and shows on the row
     await upload.click()
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['composer.photos'], t['composer.files']])
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('menu').getByTestId('team-icon-files').click()
     await (await chooser).setFiles({ name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(makePng(256, 256)) })
     await expect(page.getByText(t['teamIcon.saved'])).toBeVisible()
     await expect(card).toHaveAttribute('data-version', /^[0-9a-f]{16}$/)

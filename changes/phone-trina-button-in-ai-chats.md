@@ -1,0 +1,1 @@
+- On phones, an AI chat's top bar no longer shows the ✦ button. It started a new chat, which looked like "ask Trina" inside a chat that already is one, and computers never had it. For a new chat, tap ‹ to get back to Trina's message box. Rooms, DMs and threads keep their ✦ for asking Trina on the side.
