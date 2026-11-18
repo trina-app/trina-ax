@@ -69,5 +69,9 @@ Plan: docs/AGENTS/plan/20261117-0549-ai-wording-narration.md.
   below / beneath / after / before / above / into / at the end, top, bottom or start of; at most 100 characters) is a
   work note. An apostrophe after a letter ("I'll", "Sora's") opens no quote. Taking the person's quoted words out also
   takes out the quote marks that would mark content: 'Add "Done" under section 1.' before a call is now dropped (only
-  before a call, never the last piece, never when copied into the call). "Please add …", a name as an address and a quote that is not the
+  before a call, never the last piece, never when copied into the call). The same day's runs leaked "Seal lands on (인)
+  correctly. Now post to the room." (CHT-02.room): a bracket of at most 12 characters holding another script and no
+  Latin letter or sentence mark (a form's own label such as "(인)") now counts as a name, and "Now post / send / save /
+  stamp / write / …" after a sentence is a note's shape next to a work word (so "Good layout. Now overwrite the original
+  PDF." is no longer a known gap). Korean outside the bracket, and a bracketed label next to an amount, keep the piece. "Please add …", a name as an address and a quote that is not the
   person's words keep the line.

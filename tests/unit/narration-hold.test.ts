@@ -99,6 +99,12 @@ describe('NarrationHold', () => {
       expect(run(ask(), [{ text: '확인했어요.' }, 'tool', { text: '\n\nAdd under section 1.' }, 'tool', { text: '\n\n넣었습니다.' }, 'end'], n)).toBe('확인했어요.\n\n넣었습니다.')
     }
     expect(dropped('Append it at the end of the notes.')).toBe(true)
+    // CHT-02.room: a form's own label in brackets is a name, and "Now post …" after a sentence is a next step
+    for (const n of [1, 2, 7]) expect(run(ko(), [{ text: 'Seal lands on (인) correctly. Now post to the room.' }, 'tool', { text: '\n\n올렸어요.' }, 'end'], n)).toBe('올렸어요.')
+    expect(dropped('Good layout. Now overwrite the original PDF.')).toBe(true)
+    // Korean around or after a bracket is still Korean; a bracketed amount is content
+    for (const piece of ['견적서(인) 확인했어요.', '(합계) 1,097,470원', 'The total (합계) is due Friday.'])
+      expect(run(ko(), [{ text: piece }, 'tool', { text: '\n\n끝.' }, 'end']), piece).toBe(piece + '\n\n끝.')
     // an apostrophe after a letter opens no quote: the person's quoted words are still found
     expect(run(ask(), [{ text: 'I’ll check "공용 회의록" first.' }, 'tool', { text: '\n\n끝.' }, 'end'])).toBe('끝.')
     // a quote that is not the person's words still keeps the line, and Korean after the quote streams as before
@@ -196,7 +202,7 @@ describe('NarrationHold', () => {
       'The seal box: top 191mm + 15mm margin = 206mm from page top, left 110+15=125mm, box 50×26. Seal ~22mm wide centered: x≈139, y≈208.',
       'Ich lese die 9 Dateien, um sie zu beschreiben.', 'I used the **meeting-tasks** team skill.', 'Only difference: next meeting time.',
       // three sentences (a held piece goes out at its third sentence mark, as in #1066), or only a description
-      'The file exists. Trying the edit; server decides access.', 'Only one file. Save to users/sora - perhaps a subfolder; check the folder.', 'Files sit loose at top of project; no subfolders. Save to project root keeping name.', 'Try team-root path.', 'Good layout. Now overwrite the original PDF.', 'Row 4 (header row 1), column 3.', 'The Saturday delivery discussion is in this thread.', 'The Saturday delivery question is in the thread under the copy paper price message.',
+      'The file exists. Trying the edit; server decides access.', 'Only one file. Save to users/sora - perhaps a subfolder; check the folder.', 'Files sit loose at top of project; no subfolders. Save to project root keeping name.', 'Try team-root path.', 'Row 4 (header row 1), column 3.', 'The Saturday delivery discussion is in this thread.', 'The Saturday delivery question is in the thread under the copy paper price message.',
     ]) expect(dropped(line), line).toBe(false)
   })
 

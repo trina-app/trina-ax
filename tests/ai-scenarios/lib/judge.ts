@@ -4,6 +4,7 @@
 import type { Case, CaseResult, Verdict as VerdictT } from './types'
 import { Verdict } from './types'
 import { TEAM_ZONE } from '../fixture/seed'
+import { SCREEN } from '../../../server/src/policy/refusal'
 
 const RUBRIC = `You grade one answer of "Trina", a team AI assistant used by ordinary office workers (not developers) in a
 small company. You get the request, the place it was asked in, who asked, what a good answer does, what the AI said in
@@ -47,7 +48,7 @@ false claim: the team time zone, ${TEAM_ZONE}, read from the team settings; the 
 zone the person's device sent with each turn (each turn below says when it was sent: that is the AI's "now" and "today"
 for that turn, not the judge's own clock), so "it's morning/night already" is a fact it has; its own model (Claude
 Code, the engine here, tells it; each turn below names the model that answered); ${c.install === 'linux-devenv' ? 'this install has the dev environment' : 'this install has no dev environment (the setting exists, but it is not available on this team\'s app: "not on/not offered/not available here" is true)'}; what
-is connected (app connections and Slack, checked by the server for each answer; here none is connected); the person's
+is connected (app connections and Slack, checked by the server for each answer; here none is connected); ${c.install === 'managed' ? 'the AI answers on the team\'s AI connections' : 'the AI answers on the AI sign-in of the computer the team\'s app runs on (server/src/chat/situation.ts "host"): it serves everyone, nobody can switch to their own AI account here, Admin › AI providers shows it but cannot change it, and another account means signing in again on that computer itself (for a member: the owner does that)'}; where a file's earlier versions are (${SCREEN.fileHistory('en')}) and that bringing one back is the person's ${SCREEN.restoreButton('ko')} button there (the label in Korean); the person's
 name, role and groups (calling the asker by their own name, in full or by the given name with 님, is not invented). (Where things are in the app it is told too, but judge a named place on its own.) A set_title action is the app naming a new chat
 at its start, as it does for every new chat: not a rename and not an action the person had to ask for.
 ${SCREENS}
@@ -67,9 +68,11 @@ AI's question to the person; the answer shown is the person's reply.`
  * 2026-11-18). The jargon rule itself is unchanged: "MCP" as a word of its own, not as the screen's name, is still
  * jargon. A place not listed here is still judged on its own. */
 export const SCREENS = `The app's screens (its own names, or the same label in the person's language; naming one as the place is
-neither jargon nor invented, but saying a screen does something it does not is still a false claim). Personal Settings
+neither jargon nor invented, but saying a screen does something it does not is still a false claim; buttons and menus
+inside a screen, such as a file's ⋯ menu, are not listed, and not being listed does not make them invented). Personal Settings
 (everyone): Profile, Security & devices, Browser (in a desktop app that offers it), Usage (the person's own AI usage and
-limits), Memory, Allowed for Trina, Connectors, AI providers (when the team lets members add their own AI account),
+limits), Memory, Allowed for Trina, Connectors, AI providers (only when the team lets members add their own AI account;
+never on an install whose AI is the computer's own sign-in),
 "Trina AX MCP" (the section's name: connects Claude or another AI app to the team files), Dev environment sites (only
 with the dev environment), Notifications, Apps, About. Admin (owners and admins only): Home, Members & invites (guests
 are a section there), Groups, Folder permissions, AI providers, Connected apps, "Trina AX MCP", Plugins, Usage (the whole

@@ -91,10 +91,11 @@ const isTitle = (t: string) => {
  * can't open that chat.", "I used the quote skill."), what a source says, a piece that adds to the answer ("Also, …",
  * "According to …", "One note: …") or leads into what follows ("…:"). */
 const REPORT = /\bi (?:can|could|can't|cannot|couldn't|didn't|did not|haven't|have not|have no|don't|do not|wasn't|won't|found|changed|left|made|saved|moved|updated|sent|stamped|put|wrote|used|added|removed|kept)\b|\bi've\b|\b(?:says|said|shows|showed)\b|^(?:also|one note|note|according to|however|but|so|btw|by the way|for example|error|warning|notice|reminder|update)\b|\b(?:do not|don't|never|must|should|not found|expired|protected|skipped|kept|match|matches the|mismatch|ready|due|deadline|confidential|attached)\b|:$/i
-/** A note's shape around a named work thing: a ";" joining fragments ("No subfolders; save at project top."), or a
+/** A note's shape around a named work thing: a ";" joining fragments ("No subfolders; save at project top."), a
  * telegraphic opening ("Only one file.", "No dedicated room", "Matches quote-writer skill.", "Now the PDF, …",
- * "Leaving page out", "Following the existing naming pattern"). */
-const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b/i
+ * "Leaving page out", "Following the existing naming pattern"), or a next step after a sentence ("Seal lands on (인)
+ * correctly. Now post to the room.", 2026-11-18 CHT-02.room). */
+const NOTE_MARK = /;|^(?:now|following|existing|leaving|checking|trying|only|no|matches|nine|two|three)\b|[.]\s+now\s+(?:post|send|save|stamp|write|make|put|add|upload|share|attach|print|export|overwrite)\b/i
 /** … or where it will put something, as an order to itself ("Add under section 1.", "Append it at the end of the
  * notes."; 2026-11-18, EDIT-17.project). */
 const PLACE_ORDER = /^(?:add|append|insert|put|place)\s+(?:(?:it|this|that|them|the (?:line|row|note|entry|item)|a (?:line|row|note|bullet)|one line)\s+)?(?:under|below|beneath|after|before|above|into|at the (?:end|top|bottom|start) of)\b/i
@@ -132,6 +133,9 @@ export function narrationScript(locale: Locale, message: string, previous?: stri
 /** The piece without `code` and file names, quoted or not ("Existing pattern: "매장-전경.jpg" (hyphenated Korean)."):
  * a Korean file name does not make a line Korean, and quote marks around a file name do not make it a quote. */
 const withoutNames = (s: string) => s.replace(/(?<!`)`[^`\n]+`(?!`)/g, '')
+  // a short piece of another script in brackets is a name too: a form's own label ("Seal lands on (인) correctly.",
+  // 2026-11-18 CHT-02.room); no Latin letter and no sentence mark in it
+  .replace(/\(([^()\n]{1,12})\)/g, (m, inner: string) => /[^\x00-\x7F]/.test(inner) && !/[A-Za-z.!?。！？]/.test(inner) ? '' : m)
   .replace(/["“'‘「『][^"”'’」』\n]*\.[A-Za-z0-9]{1,5}["”'’」』]/g, '')
   .replace(/[^\s()"“”'‘’「」『』]+\.[A-Za-z0-9]{1,5}(?=[\s).,;:!?"”'’」』]|$)/g, '')
 
@@ -162,7 +166,10 @@ function mustKeep(piece: string, script: AnswerScript, partial = false, notes = 
   const t = piece.trim()
   if (t.length > NARRATION_MAX_CHARS) return true
   const theirs = withoutTheirWords(partial ? piece : t, said, partial)
-  const words = withoutNames(partial && !theirs.open ? theirs.text.replace(/\S+$/, '') : theirs.text)
+  // still coming: a bracket still open at the end may be such a name ("(인")
+  const openName = partial && !theirs.open ? /\(([^()\n]{1,12})$/.exec(theirs.text) : null
+  const named = openName && /[^\x00-\x7F]/.test(openName[1]!) && !/[A-Za-z.!?。！？]/.test(openName[1]!) ? theirs.text.slice(0, openName.index) : null
+  const words = withoutNames(named ?? (partial && !theirs.open ? theirs.text.replace(/\S+$/, '') : theirs.text))
   if (SCRIPT_LETTER[script].test(words)) return true
   // only ASCII text is ever a status line ("Hola equipo, ya está listo." is not one)
   if (/[^\x00-\x7F]/.test(words)) return true

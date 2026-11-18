@@ -61,7 +61,9 @@
     second because "add … under" was no note shape it knew. Now a quoted phrase of at most 40 characters that is in the
     person's message counts as a name, like a quoted file name (while streaming, so does an open quote whose words so
     far are theirs), and an order to itself where to put something ("Add under section 1.", "Append it at the end of the
-    notes.") is a work note. Everything else stays: only before a real call, never the last piece, never content
+    notes.") is a work note. A rerun also leaked "Seal lands on (인) correctly. Now post to the room." (CHT-02.room):
+    a short bracketed label in another script ("(인)") is a name too, and "Now post …" after a sentence is a note's
+    shape. Everything else stays: only before a real call, never the last piece, never content
     copied into the call; "Please add …", a quote that is not the person's words, and Korean text keep the line.
   - **CHT-02 (product): "decide yourself" follows what the person said they would do.** The ask rule (`ASK_USER_RULE`
     in `chat/prompt.ts`, no app-map line) now says: when the person leaves the choice to the AI, pick what fits the
@@ -70,7 +72,9 @@
     say so and ask once more, or offer to make it first. The room post's card is unchanged.
   - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
     `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
-    own usage; "MCP" as a word of its own is still jargon), the model that answered each turn (the engine tells the AI
+    own usage; "MCP" as a word of its own is still jargon; buttons inside a screen are not listed and not invented for
+    that), the install's AI sign-in as the person block gives it (the computer's own: nobody switches to their own
+    account here) and where earlier versions and the Restore button are, the model that answered each turn (the engine tells the AI
     its model), the asker's name with the given name ("하나 님" for 최하나), and each turn's own send time in the zone it
     was sent with (`TurnRecord.sentAt`; older results fall back on the case start and say so) instead of the case start.
 - **Tests:** `tests/unit/narration-hold.test.ts`, `tests/unit/ai-app-map.test.ts`, `tests/unit/ai-answer-facts.test.ts` (also a real turn's map for a member
