@@ -176,7 +176,7 @@ function ConnectorsHome() {
   // and admins (a member's Search comes here without it); ?drive=1 (old Drive links, a notice) opens Google Drive's page
   useEffect(() => {
     if (params.get('add') !== '1' || personalAllowed === undefined) return
-    if (personalAllowed && admin) setDialog({})
+    if (customConnectorAction(personalAllowed, admin) === 'add') setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
   }, [params, personalAllowed, admin, setParams, setDialog])
 
