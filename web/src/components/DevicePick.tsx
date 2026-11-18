@@ -17,6 +17,7 @@
 //   picture or video type opens the Files browser at once, without iOS's menu. The place checks what came (a picture
 //   place: squarePhoto says when it is no picture). Elsewhere: no type (any), or the picture types.
 // Computers keep their buttons and menus: a computer's file window is what a labelled button opens there.
+import clsx from 'clsx'
 import { Camera, FileText, Images } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocale, useT, type MessageKey } from '../i18n'
@@ -170,7 +171,9 @@ export function useDevicePick({ onFiles, room, fileMax, accept, camera: withCame
 
 /** A phone's add button whose sheet is the device rows (and the place's own rows around them): a button with words
  * (an empty folder's 올리기, the welcome's file link), its look the caller's (components/ui.tsx buttonClass). */
-export function PhonePickButton({ pick, label, heading, before = [], after = [], className, wrapClassName, children, testId, describedBy, inputs = true }: {
+export function PhonePickButton({ pick, label, heading, before = [], after = [], className, wrapClassName, children, testId, describedBy, inputs = true, disabled = false }: {
+  /** off while the place is busy (an upload on its way): no sheet, greyed */
+  disabled?: boolean
   /** the box around the button (w-full for a full-width button) */
   wrapClassName?: string
   pick: DevicePick
@@ -189,7 +192,7 @@ export function PhonePickButton({ pick, label, heading, before = [], after = [],
 }) {
   return (
     <>
-      <MenuButton bare label={label} heading={heading ?? label} items={[...before, ...pick.items, ...after]} icon={children} className={wrapClassName} buttonClassName={className} testId={testId} describedBy={describedBy} startAligned />
+      <MenuButton bare label={label} heading={heading ?? label} items={[...before, ...pick.items, ...after]} icon={children} className={clsx(wrapClassName, disabled && 'pointer-events-none opacity-60')} buttonClassName={className} testId={testId} describedBy={describedBy} startAligned />
       {inputs && pick.inputs}
     </>
   )

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 12:36
 - Branch: `fix/our-file-picker-everywhere`
-- Status: in progress
+- Status: done
 - Where: trina-ax web/src (Team AX core). Why: the attach sheet and every upload button are core web UI.
 - Version impact: patch, phones showed iOS's raw English menu where the app has its own sheet
 
@@ -44,4 +44,6 @@ migration, no server change. Five languages: existing keys only.
 
 ## Result
 
-(filled in at the end)
+Built as planned. DevicePick.tsx has useDevicePick, PhonePickButton (a worded button) and PhonePickSheet (opened from a
+list row, the team logo); a logo and an app's icon have no 사진 찍기 row. A guard unit test lists every file input of the
+web app. Not verified here: a real iPhone (the e2e runs Chromium and WebKit at 390).

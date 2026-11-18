@@ -124,6 +124,41 @@ test.describe('a phone (390)', () => {
   })
 })
 
+test.describe('a phone (390): the welcome steps', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test('회사 소개\'s "소개 자료" link and 팀 파일\'s "파일 직접 올리기": our sheet first, then the picker', async ({ page }) => {
+    await reset(page)
+    await signIn(page)
+    await page.goto('/welcome')
+    // the link shows once the website is read (the mock's draft)
+    await page.getByLabel('홈페이지 주소').fill('acme.example')
+    await page.getByRole('button', { name: '읽어 오기' }).click()
+    await expect(page.getByTestId('welcome-files-pick')).toBeVisible({ timeout: 15_000 })
+    const seen = choosers(page)
+    await page.getByTestId('welcome-files-pick').click()
+    await expect(sheetRows(page)).toHaveText(DEVICE)
+    await page.waitForTimeout(300)
+    expect(seen.n).toBe(0)
+    await shot(page, 'welcome-files-390')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+
+    await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+    await page.getByTestId('skills-later').click()
+    await expect(page.getByTestId('welcome-team-files')).toBeVisible()
+    await page.getByTestId('welcome-team-files-pick-files').click()
+    await expect(sheetRows(page)).toHaveText(DEVICE)
+    await page.waitForTimeout(300)
+    expect(seen.n).toBe(0)
+    await shot(page, 'welcome-team-files-390')
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('menu').getByTestId('welcome-team-files-files').click()
+    await (await chooser).setFiles([{ name: '견적 메모.md', mimeType: 'text/markdown', buffer: Buffer.from('# 견적\n') }])
+    await expect(page.getByTestId('welcome-team-files-run-title')).toHaveText('전사 공유 폴더에 1개를 올렸어요')
+  })
+})
+
 test.describe('a computer (1440)', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 

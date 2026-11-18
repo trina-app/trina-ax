@@ -1080,7 +1080,7 @@ function Files() {
       )}
       {findWork.dialog}
       {/* a phone's ⊕ sheet and its empty folder's 올리기: the device rows' pickers (one set for both) */}
-      {device.inputs}
+      {phone && device.inputs}
       {/* the pickers New folder / Upload open on a computer (its toolbar, an empty folder's button) */}
       <input
         ref={fileInput}

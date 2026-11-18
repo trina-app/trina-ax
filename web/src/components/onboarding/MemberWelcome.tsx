@@ -21,7 +21,7 @@
 // Phones (below 768px): the same card without a frame, under the box like Home's other "one thing"; every control is a
 // 44 px target and a row's button wraps under its words when they need the width.
 import clsx from 'clsx'
-import { Check } from 'lucide-react'
+import { Check, Loader2 } from 'lucide-react'
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
@@ -214,8 +214,8 @@ function PhotoRow({ done }: { done: boolean }) {
   return (
     <Row id="photo" done={done} optional title={t('memberWelcome.photo')} hint={t('memberWelcome.photoHint')}>
       {!done && (phone ? (
-        <PhonePickButton pick={device} label={t('memberWelcome.photoButton')} heading={t('profile.photo')} className={buttonClass({ size: 'sm', busy, className: tap })} testId="member-welcome-photo-button">
-          {t('memberWelcome.photoButton')}
+        <PhonePickButton pick={device} label={t('memberWelcome.photoButton')} heading={t('profile.photo')} className={buttonClass({ size: 'sm', busy, className: tap })} disabled={busy} testId="member-welcome-photo-button">
+          {busy && <Loader2 size={14} className="animate-spin" aria-hidden />}{t('memberWelcome.photoButton')}
         </PhonePickButton>
       ) : (
         <>

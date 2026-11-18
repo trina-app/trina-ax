@@ -467,8 +467,8 @@ function IconField({ roomId, app }: { roomId: string; app: RoomApp }) {
   const device = useDevicePick({ onFiles: (f) => void upload(f[0]), accept: PHOTO_ACCEPT, camera: false, testIds: 'apps-icon' })
   const items: MenuItem[] = [
     ...(phone ? device.items : [{ label: t('roomApps.iconUpload'), icon: <ImageUp size={14} aria-hidden />, onSelect: () => file.current?.click(), testId: 'apps-icon-upload' }]),
-    { label: t('roomApps.iconEmoji'), icon: <Smile size={14} aria-hidden />, onSelect: () => setPicking(true), testId: 'apps-icon-emoji' },
-    ...(app.icon ? [{ label: t('roomApps.iconRemove'), icon: <X size={14} aria-hidden />, onSelect: () => void run(() => api.call(API.deleteRoomAppIcon, { params })), testId: 'apps-icon-remove' }] : []),
+    { label: t('roomApps.iconEmoji'), icon: <Smile size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => setPicking(true), testId: 'apps-icon-emoji' },
+    ...(app.icon ? [{ label: t('roomApps.iconRemove'), icon: <X size={phone ? 18 : 14} className={phone ? 'text-muted' : undefined} aria-hidden />, onSelect: () => void run(() => api.call(API.deleteRoomAppIcon, { params })), testId: 'apps-icon-remove' }] : []),
   ]
   return (
     <div ref={row} className="flex items-center gap-3" data-testid="apps-icon">

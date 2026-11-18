@@ -61,7 +61,7 @@ test('every file input of the web app is one of the known places', () => {
     for (const name of readdirSync(dir)) {
       const p = join(dir, name)
       if (statSync(p).isDirectory()) walk(p)
-      else if (/\.tsx?$/.test(name) && /type=["']file["']/.test(readFileSync(p, 'utf8'))) found.push(relative(root, p).split('\\').join('/'))
+      else if (/\.tsx?$/.test(name) && /type=\{?["'`]file["'`]|\.type = ["']file["']/.test(readFileSync(p, 'utf8'))) found.push(relative(root, p).split('\\').join('/'))
     }
   }
   walk(root)

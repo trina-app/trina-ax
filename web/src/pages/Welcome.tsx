@@ -713,7 +713,7 @@ function IntroFiles({ files, disabled }: { files: ReturnType<typeof useIntroFile
       <input ref={input} type="file" multiple className="hidden" onChange={(e) => { const list = [...(e.target.files ?? [])]; e.target.value = ''; files.pick(list) }} data-testid="welcome-files-input" />
       <div className="text-sm">
         {phone ? (
-          <PhonePickButton pick={device} label={t('welcome.profile.files')} className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} testId="welcome-files-pick">
+          <PhonePickButton pick={device} label={t('welcome.profile.files')} className={clsx(quietLink, 'inline-flex items-center gap-1.5 max-md:min-h-11')} disabled={disabled} testId="welcome-files-pick">
             <Paperclip size={14} className="shrink-0 text-faint" aria-hidden /> {t('welcome.profile.files')}
           </PhonePickButton>
         ) : (

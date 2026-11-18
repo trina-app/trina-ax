@@ -498,7 +498,7 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
         <OpenAppLine />
         <div className="space-y-2">
           {narrow ? (
-            <PhonePickButton pick={device} label={t('welcome.teamFiles.pickFiles')} className={buttonClass({ variant: 'primary', className: 'w-full' })} inputs={false} wrapClassName="w-full" testId="welcome-team-files-pick-files">
+            <PhonePickButton pick={device} label={t('welcome.teamFiles.pickFiles')} className={buttonClass({ variant: 'primary', className: 'w-full' })} inputs={false} wrapClassName="w-full" disabled={stepBusy} testId="welcome-team-files-pick-files">
               <Upload size={14} aria-hidden /> {t('welcome.teamFiles.pickFiles')}
             </PhonePickButton>
           ) : (

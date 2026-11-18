@@ -27,6 +27,10 @@ Plan: docs/AGENTS/plan/20261118-1236-our-file-picker-everywhere.md.
   input that names only types that are no picture (the Drive key's .json, a .trinaplugin) opens the Files browser at
   once on iOS. Folder pickers are a computer's. An iPad at 768px or wider has the computer's layout and keeps its
   buttons (WebKit's menu can still show there).
+- **Known limits:** in Safari or an app older than 1.0.5 (no photo-pick-v1), 사진 보관함 opens the input, and iOS still
+  shows its own short menu (the photo library first) after our sheet, as the message boxes' sheet does. The app's photo
+  picker takes no type, so a video can be picked for a face, a logo or an icon; the place then says the file is no
+  picture it can use.
 - **Guard:** `web/test/unit/device-pick.test.ts` lists every file input of the web app with why it may be there; a new
   one fails the test until it is added there (on a phone: through `useDevicePick`).
 - Tests: the unit test above; `web/test/e2e/our-file-picker.spec.ts` (390: our sheet and no file chooser on the tap,

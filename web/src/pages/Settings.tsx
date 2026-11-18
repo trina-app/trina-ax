@@ -403,7 +403,7 @@ function PhonePhoto({ user, previewUrl, hasPhoto, note, hintId, pick, onRemove }
         icon={face}
         items={[
           ...pick.items,
-          ...(hasPhoto ? [{ label: t('profile.photoRemove'), onSelect: onRemove, danger: true, testId: 'profile-photo-remove' }] : []),
+          ...(hasPhoto ? [{ label: t('profile.photoRemove'), icon: <Trash2 size={18} aria-hidden />, onSelect: onRemove, danger: true, testId: 'profile-photo-remove' }] : []),
         ]}
         describedBy={hasPhoto ? undefined : hintId}
         buttonClassName="rounded-2xl! px-3! py-2! text-ink! hover:bg-hover"
