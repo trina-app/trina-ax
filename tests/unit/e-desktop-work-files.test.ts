@@ -833,6 +833,16 @@ describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out
     expect(pickRefused('C:\\Users\\Public\\Documents', 'win32', 'C:\\Users\\alex')).toBe(false)
     for (const x of ['/System/Library', '/private/etc', '/usr/local', '/Applications/Numbers.app', '/Users/bo/Documents', '/Library/Preferences']) expect(pickRefused(x, 'darwin', '/Users/alex')).toBe(true)
     expect(pickRefused('/Users/Shared/Team', 'darwin', '/Users/alex')).toBe(false)
+    // network shares (QA TC-4813): a share counts from below its name, as a drive from below its letter
+    for (const x of ['\\\\nas\\company\\Sales', '\\\\localhost\\TrinaQAShare\\Team', '\\\\localhost\\TrinaQAShare', '\\\\nas\\Finance$\\2026', '\\\\localhost\\CDrive\\Users\\alex\\Documents', '\\\\localhost\\CDrive\\Users\\Public\\Documents']) expect(pickRefused(x, 'win32', 'C:\\Users\\alex')).toBe(false)
+    for (const x of [
+      // admin shares, device paths, WSL's, a path with no share
+      '\\\\host\\C$\\Users\\alex\\Documents', '\\\\host\\c$', '\\\\host\\ADMIN$', '\\\\?\\C:\\Work', '\\\\.\\C:\\Work', '\\\\?\\UNC\\nas\\company\\Sales', '\\\\wsl$\\Ubuntu\\home\\alex', '\\\\nas',
+      // the system's folders and another person's on a share of a drive's top
+      '\\\\localhost\\CDrive\\Windows\\System32', '\\\\localhost\\CDrive\\Program Files\\Acme', '\\\\localhost\\CDrive\\ProgramData', '\\\\localhost\\CDrive\\Users\\bo\\Documents',
+      // the apps' data and never-listed folders on a share
+      '\\\\localhost\\CDrive\\Users\\alex\\AppData\\Roaming', '\\\\nas\\company\\.git', '\\\\nas\\company\\app\\node_modules',
+    ]) expect(pickRefused(x, 'win32', 'C:\\Users\\alex')).toBe(true)
   })
 
   test('"Choose a folder…": inside one of the three folders (case, separators), or a folder of its own; never a whole path', () => {
@@ -884,7 +894,13 @@ describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out
     // only after a look (the consent window's yes), never home or above, never the apps' data
     const pick = ctl.slice(ctl.indexOf('async pickFolder('), ctl.indexOf('private async consent('))
     expect(pick).toContain('if (!this.sessions.has(origin)) return { state: \'cancelled\' }')
-    expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform)')
+    expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform, { shares: true })')
+    // the picked folder's walk lets the same share through, and a share is looked at one call at a time
+    expect(ctl).toContain('allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform, { shares: true })),')
+    expect(pick).toContain("realPicked.startsWith('\\\\\\\\')")
+    // the other looks keep refusing every network path (the three folders' look and the wide look)
+    expect(ctl).toContain('allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),')
+    expect(ctl).toContain('allowed: async (root: WorkRoot) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform)),')
     expect(pick).toContain('pickRefused(realPicked, process.platform, ')
     // a page script cannot open the window again and again: the person's own press, and a pause after each answer
     expect(pick).toContain('Date.now() - this.o.lastInput() > PERSON_INPUT_MS && !this.o.assistive()')
