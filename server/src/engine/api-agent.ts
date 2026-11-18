@@ -131,7 +131,7 @@ export function errorOf(status: number, body: string, key: string | null = null)
   if (status === 401 || status === 403) return { type: 'error', code: 'auth', message, ...st }
   // the provider is busy or limits the model there: not this team's usage limit (QA TC-4832)
   if (status === 429) return { type: 'error', code: 'provider_busy', message, ...st }
-  if ((status === 400 || status === 413 || status === 0) && /context|too long|maximum.*tokens|token limit/i.test(body)) return { type: 'error', code: 'context', message, ...st }
+  if ((status === 400 || status === 413 || status === 0) && /context[ _](window|length|limit)|context_length|too long|maximum.*tokens|token limit/i.test(body)) return { type: 'error', code: 'context', message, ...st }
   if (MODEL_MISSING.test(body)) return { type: 'error', code: 'model_not_found', message, ...st }
   if (status === 404) return { type: 'error', code: 'endpoint_unreachable', message, ...st }
   return { type: 'error', code: 'provider_error', message, ...st }
@@ -257,6 +257,38 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
 }
 
 /** What the model gets back for one tool call: the output, and the team links in it named once more at the end. */
+/** a tool result taken out of an answer that no longer fit (shrinkToolResults) */
+export const RESULT_TAKEN_OUT = '[This tool result was taken out to make room: the conversation got too long for the model. Call the tool again if you need it.]'
+/** at most this many times per answer the API engine makes room and tries the round again (limits audit 2 #13) */
+export const CONTEXT_SHRINK_MAX = 3
+
+/**
+ * Make room in an answer that no longer fits the model, as Claude Code compacts instead of ending: the results of
+ * earlier tool rounds are replaced by a short note (oldest first, every result of a round at once), the newest round's
+ * kept; with no earlier round left, the newest round's long results are cut to their start. The system prompt, the
+ * person's message and what the model wrote stay. false: nothing left to take out.
+ */
+export function shrinkToolResults(messages: ChatMessage[]): boolean {
+  const rounds: number[][] = []
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!
+    if (m.role === 'assistant' && m.tool_calls?.length) rounds.push([])
+    else if (m.role === 'tool' && rounds.length) rounds.at(-1)!.push(i)
+  }
+  const long = (i: number) => (messages[i] as { content: string }).content.length > RESULT_TAKEN_OUT.length + 200
+  // earlier rounds: the oldest one with a result still in it, all of its results
+  for (const r of rounds.slice(0, -1)) {
+    const left = r.filter(long)
+    if (!left.length) continue
+    for (const i of left) (messages[i] as { content: string }).content = RESULT_TAKEN_OUT
+    return true
+  }
+  // only the newest round left: its long results down to their first 2,000 characters
+  const last = rounds.at(-1)?.filter((i) => (messages[i] as { content: string }).content.length > 2_000 + RESULT_TAKEN_OUT.length + 10) ?? []
+  for (const i of last) { const m = messages[i] as { content: string }; m.content = `${m.content.slice(0, 2_000)}\n${RESULT_TAKEN_OUT}` }
+  return last.length > 0
+}
+
 function toolContent(out: string, links: string[]): string {
   const text = out.slice(0, TOOL_OUTPUT_MAX) || '(no output)'
   if (!links.length) return text
@@ -320,18 +352,28 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   /** a round that ended early (a provider error, a cut stream, Stop): what it wrote stays, unless it asked for a tool */
   const showCut = () => { if (!round.calls && round.text.trim()) show(round.text) }
   const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt }, { role: 'user', content: o.message }]
+  // a "too long" answer from the provider is held here: the round is tried again with room made (shrinkToolResults)
+  const held: { tooLong: Extract<EngineEvent, { type: 'error' }> | null } = { tooLong: null }
+  let shrunk = 0
+  const roundEmit = (e: EngineEvent) => { if (e.type === 'error' && e.code === 'context') held.tooLong = e; else o.emit(e) }
   for (let step = 0; step < (o.maxSteps ?? MAX_STEPS); step++) {
-    if (step > 0) o.beforeRound?.()
+    if (step > 0 && !held.tooLong) o.beforeRound?.()
+    held.tooLong = null
     if (o.signal.aborted) return
     if (step > 0 && o.toolsChanged?.()) tools = await listTools()
     let r: Awaited<ReturnType<typeof complete>>
-    try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round }) } catch (e) {
+    try { r = await complete(o.conf, messages, tools, roundEmit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round }) } catch (e) {
       showCut()
       if (o.signal.aborted) return
       // refused connection, unknown host, no answer in time, a cut stream, an address the cloud does not allow
       const why = (e as Error)?.cause instanceof Error ? `${(e as Error).message}: ${((e as Error).cause as Error).message}` : String((e as Error)?.message ?? e)
       o.emit({ type: 'error', code: 'endpoint_unreachable', message: `the model API could not be reached: ${redact(why, o.conf.key).slice(0, 200)}` })
       return
+    }
+    if (!r && held.tooLong) {
+      // the same round again with room made, as Claude Code compacts (it does not count as a round of the limit)
+      if (shrunk < CONTEXT_SHRINK_MAX && !o.signal.aborted && shrinkToolResults(messages)) { shrunk++; step--; continue }
+      o.emit(held.tooLong)
     }
     if (!r) { showCut(); return }
     if (!r.calls.length) { finish(r.text); o.emit({ type: 'done' }); return }

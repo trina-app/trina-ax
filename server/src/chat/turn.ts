@@ -39,6 +39,7 @@ import { TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
+import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
@@ -1052,6 +1053,10 @@ export class TurnExec {
       // note is the resumed session's message, at most CONTINUE_MAX times per answer
       let continueNote: string | null = null
       let continuations = 0
+      // the conversation got too long for the engine: the answer goes on in a fresh session with the history window
+      // and what it already wrote and did (chat/context-recover.ts), at most CONTEXT_RECOVER_MAX times
+      let recoverNote: string | null = null
+      let recoveries = 0
       this.continueMode = 'step'
       /** a continuation keeps what the answer's first attempt recorded about its history (prompt() sets it per attempt) */
       const continuePrompt = (fresh: boolean, sessionId: string) => {
@@ -1104,7 +1109,7 @@ export class TurnExec {
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
+          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoverNote && !resume ? `${recoverNote}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
           stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick
           ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
@@ -1144,6 +1149,22 @@ export class TurnExec {
         // the engine says the account was refused but the proxy saw no refusal it knows (QA TC-4835): this account is
         // skipped for the rest of the turn and the next one answers; its state stays (only the proxy's reading marks it)
         if (this.proxyRefused && (err || crashed)) { this.error = engineError('lockdown', spec.locale); break }
+        // the conversation no longer fits (Claude Code could not compact it, or one result was too big): this answer
+        // goes on in a fresh session, the text so far stays on screen (limits audit 2 #13)
+        if (err?.code === 'context' && recoveries < CONTEXT_RECOVER_MAX && !this.budgetHit) {
+          recoveries++
+          const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
+          turnsLeft = Math.max(2, turnsLeft - used)
+          this.flushText()
+          recoverNote = contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId))
+          this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
+          rt.log.info('conversation too long: the answer goes on in a fresh session', { turn: this.id, recoveries, resumed: resume })
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          continueNote = null
+          resume = false; sid = crypto.randomUUID()
+          attempt--
+          continue
+        }
         if (managed && err?.code === 'auth' && !this.proxyRefused && !this.attemptCalledTool && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
           this.credentialFailure = { id: this.lastCredential, reason: 'invalid', retryAt: null }
           if (this.switchCredential('claude-code', exclude)) { resume = false; sid = crypto.randomUUID(); attempt--; continue }
@@ -1154,6 +1175,9 @@ export class TurnExec {
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
+        // still too long after the fresh starts: that session is not kept, so the person's next message ("continue")
+        // starts fresh from the chat's history instead of resuming a session that cannot fit
+        if (err?.code === 'context') this.dropSession()
         // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
         if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
@@ -1268,6 +1292,8 @@ export class TurnExec {
       if (!this.proxyUnsubscribe) this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
     }
     const exclude = new Set<string>()
+    // the conversation got too long for Codex: once more with what this answer already wrote and did (context-recover.ts)
+    let message = o.message
     try {
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
@@ -1292,7 +1318,7 @@ export class TurnExec {
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -1310,6 +1336,16 @@ export class TurnExec {
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
+        if (err?.code === 'context' && !retried.has('context') && !this.budgetHit) {
+          retried.add('context')
+          this.flushText()
+          message = `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId))}\n\n${o.message}`
+          this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
+          rt.log.info('conversation too long: the answer goes on in a fresh Codex run', { turn: this.id })
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          attempt--
+          continue
+        }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
@@ -4258,6 +4294,11 @@ export class TurnExec {
   }
 
   // ---------------- session stash ----------------
+  /** no saved session for this chat: the next turn starts a fresh one from the DB history */
+  private dropSession() {
+    fs.rmSync(path.dirname(this.rt.sessionStash(this.spec.chatId, 'x')), { recursive: true, force: true })
+    this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
+  }
   private stashSession(sid: string, b64: string) {
     const bytes = Buffer.from(b64, 'base64')
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))

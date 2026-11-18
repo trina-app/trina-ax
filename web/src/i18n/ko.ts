@@ -589,7 +589,7 @@ export const ko = {
   "chat.limit.continue": "이어서 하기",
   "chat.limit.message": "이어서 해 주세요.",
   "chat.memory.note": "대화가 길어서 AI가 최근 내용만 기억하고 있어요.",
-  "chat.memory.tip": "중요한 내용은 다시 알려 주거나, 요약해서 새 채팅에서 이어 가세요.",
+  "chat.memory.tip": "앞에서 말한 중요한 내용이 빠졌다면 다시 알려 주세요.",
   'chat.send': '보내기',
   'chat.sending': '보내는 중…',
   'chat.notSent': '보내지 못했어요.',
