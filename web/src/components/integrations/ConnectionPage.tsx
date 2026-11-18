@@ -22,7 +22,7 @@ import { AppDetail, Detail, ExtLink } from './AppDetail'
 import { CardMenu, type CardMenuItem } from './AppConnectorCard'
 import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
-import { LocalAppDetails, LocalAppWhere } from './LocalApp'
+import { LocalAppDetails, LocalAppWhere, localAppsBridge } from './LocalApp'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -184,6 +184,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const signInLine = i.auth === 'oauth'
     ? (i.hasSecret ? (i.account ? t('integrations.account', { account: i.account }) : t('integrations.signedIn')) : t('connectors.page.notSignedIn'))
     : i.auth === 'none' ? t('connectors.page.signInNone') : t(i.hasSecret ? 'integrations.keySaved' : 'integrations.keyMissing')
+  // an app on a computer, read away from the desktop app: its "works only from the desktop app there" note already says
+  // why its check failed there, so the same words do not come twice in a second box
+  const elsewhereOnly = i.kind === 'local' && i.lastErrorReason === 'local_offline' && !localAppsBridge()
   const lastUsed = i.lastUsedAt ? formatDateTime(i.lastUsedAt, locale) : t('integrations.neverUsed')
   const name = c?.name ?? i.name
   const { links, help } = docsRows(t, name, c)
@@ -226,7 +229,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
             {i.kind === 'local' && <LocalAppWhere />}
             {teamOff && <Note tone="warn" testId="integration-personal-off">{t('connectors.page.personalOff')}</Note>}
             {flow && <SignInPanel flow={flow} name={i.name} url={i.url} onRetry={() => void actions.signIn.start(i.id)} onCancel={actions.signIn.cancel} />}
-            {trouble && !flow && <Note tone="warn" testId="integration-error">{trouble}</Note>}
+            {trouble && !flow && !elsewhereOnly && <Note tone="warn" testId="integration-error">{trouble}</Note>}
             {note && <Note tone="warn" testId="integration-check-failed">{t(note.key, { reason: note.reason, date: note.date ? formatDateTime(note.date, locale) : '' })}</Note>}
             {alert}
           </>
@@ -234,7 +237,7 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
         about={about}
         canChange={canChange} asks={allowed ? 'allow' : 'ask'}
         abilities={canChange && i.scope === 'team' && i.writePolicy === 'allow' ? t(alwaysOff ? 'connectors.page.teamAllowLineOff' : 'connectors.page.teamAllowLine') : undefined}
-        developer={c?.name} signIn={signInLine} links={links}
+        developer={c?.name} signIn={i.kind === 'local' ? undefined : signInLine} links={links}
         more={<>
           {help}
           {/* a call that failed counts as tried: while it is failing, "Last tried" (QA retest 2026-11-12) */}

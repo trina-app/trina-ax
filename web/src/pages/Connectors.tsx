@@ -457,7 +457,8 @@ function CustomConnectorPage() {
   const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to={CONNECTORS_HOME} replace />
   return (
-    <McpShell>
+    // an app on the computer keeps no key or sign-in on the server (its settings stay on that computer): no privacy note
+    <McpShell privacy={i.kind !== 'local'}>
       <MinePage i={i} about={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} />
     </McpShell>
   )
@@ -472,12 +473,12 @@ function MinePage({ i, about }: { i: Integration; about: string }) {
 }
 
 /** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */
-function McpShell({ children }: { children: ReactNode }) {
+function McpShell({ children, privacy = true }: { children: ReactNode; privacy?: boolean }) {
   const t = useT()
   return (
     <div className="pb-6">
       {children}
-      <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
+      {privacy && <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>}
     </div>
   )
 }
