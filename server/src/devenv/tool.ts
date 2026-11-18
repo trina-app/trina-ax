@@ -76,7 +76,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials: git push, npm publish and other commands that need a login do not work; tell the person to do them on their own computer. '
-  + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
@@ -93,7 +93,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
   + 'No jobs and no dev servers here (job and background are refused): each command must finish within its time limit (default 120 s, at most 1800 s). For longer work the person can ask in a chat of their own. '
-  + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
   + 'One command at a time per folder; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 

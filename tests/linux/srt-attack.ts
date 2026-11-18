@@ -11,6 +11,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
+import { gitConfigProblems } from '../../server/src/devenv/srt/git-guard'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -69,7 +70,9 @@ const RULES = ruleWorld(([
   ['projects/two', 'group', 'finance', 'write'], ['connected/nas', 'everyone', null, 'read'],
   // a shared project chat (S1-S9): projects/web has alice and dave; projects/web/mine is limited to alice alone
   ['projects/web', 'user', ME, 'write'], ['projects/web', 'user', 'dave', 'write'], ['projects/web/mine', 'user', ME, 'write'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine'])
+  // git between two members (QA TC-4939, G1-G4): projects/gitp has alice and erin and no repository yet
+  ['projects/gitp', 'user', ME, 'write'], ['projects/gitp', 'user', 'erin', 'write'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
@@ -108,7 +111,8 @@ const ETC_CANARIES: [string, string][] = [['/etc/environment', 'API_KEY'], ['/et
   ['/etc/pki/tls/key.pem', 'key'], ['/etc/cloud/cloud.cfg.d/99-link.cfg', 'token'], ['/etc/crontab', 'curl -u user'], ['/etc/postfix/sasl_passwd', 'password']]
 for (const [f, what] of ETC_CANARIES) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n${what} ${CANARY}-etc\n`); fs.chmodSync(f, 0o644) }
 sh(`chmod -R a+rX ${NAS} ${NAS2} /srv/other-app /opt/other /etc/systemd/system /etc/cloudflared /var/lib/other-app /home/someone && chmod a+r /etc/systemd/system/cloudflared.service`)
-for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
+w('projects/gitp/plan.md', 'plan\n')
+for (const u of [ME, 'bob', 'carol', 'erin']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
 fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true })
@@ -152,7 +156,7 @@ process.env.GH_TOKEN = `${CANARY}-gh-token`; process.env.ANTHROPIC_API_KEY = `${
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
   // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
@@ -175,6 +179,8 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const root = work ?? `${TEAM}/${start}`
   const cwd = resolveRunCwd(root, o.cwd ?? '')
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
+  // as the runner (settingsFor): a repository whose config names a program stops the run (git-guard.ts)
+  if (gitConfigProblems(root, TEAM).length) return { code: null, out: '', refused: 'git' }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
   const exitFile = path.join(runLogs(BASE, owner), `${runId}.exit`)
@@ -206,6 +212,8 @@ const SWC = { shared: { chat: SW, within: null, audience: [ALICE, ERIN] } }
 const SW_WORK = sharedWork(BASE, SW, sharedWorkKey([ALICE.id, ERIN.id]))
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
+const GITP = `${TEAM}/projects/gitp`
+const HOOK_MARK = path.join(personHome(BASE, ME), '.hook-was-here')
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
   { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
@@ -278,6 +286,20 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A14f', what: 'Full internet: the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 http://localhost:8099/ || curl -fsS -m 5 https://team.trina.test/ || curl -fsS -m 5 https://team.trina.test./ || curl -fsS -m 5 https://Team.Trina.Test../ || curl -fsS -m 5 --noproxy "*" https://1.1.1.1/', check: failsQuietly, o: { full: true } },
   { id: 'A27f', what: 'offline wins over Full internet and allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://example.com/ || curl -fsS -m 10 -o /dev/null https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline', full: true, user: ['example.com'] } },
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
+  // ---- git between members (QA TC-4939): a run that makes a repository can write its hooks and config (srt protects
+  // them only when .git is there as the run starts); another member's git must not run them ----
+  { id: 'G1', what: 'erin makes a repository in the project folder and plants a pre-commit hook', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `git init -q && printf '#!/bin/sh\\necho HOOK-RAN; touch "$HOME/.hook-was-here"; touch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo PLANTED`,
+    check: both(ok, has('PLANTED')) },
+  { id: 'G2', what: 'alice commits there: the hook does not run, nothing lands in her home', o: { start: 'projects/gitp' },
+    cmd: 'git -c user.name=a -c user.email=a@example.com commit -q --allow-empty -m x && echo COMMITTED; git config core.hooksPath',
+    check: both(ok, has('COMMITTED'), has('/dev/null'), (r) => (r.out.includes('HOOK-RAN') ? 'the hook ran' : null)),
+    after: () => (fs.existsSync(HOOK_MARK) ? 'the hook wrote alice\'s home' : null) },
+  { id: 'G3', what: 'erin plants a filter driver in the repository\'s config: alice\'s next run does not start', o: { start: 'projects/gitp' },
+    cmd: 'echo should-not-run', check: (r) => (r.refused === 'git' ? null : `the run started: ${r.out.slice(0, 200)}`) },
+  { id: 'G4', what: 'a repository made in a sub-folder in the same run, with a planted hook: git there runs no hook', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `mkdir -p sub && cd sub && git init -q && printf '#!/bin/sh\\ntouch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && git -c user.name=e -c user.email=e@example.com commit -q --allow-empty -m x && echo SUBCOMMIT`,
+    check: both(ok, has('SUBCOMMIT')), after: () => (fs.existsSync(HOOK_MARK) ? 'the sub-folder\'s hook ran' : null) },
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
   { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > made.txt && cat made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
@@ -360,6 +382,10 @@ if (pre.code !== 0) {
 console.log('pass preflight: a plain command runs through srt')
 let failed = 0
 for (const a of attacks) {
+  // G3: what erin's run could write while the repository did not exist yet, written here as her run could have
+  if (a.id === 'G3') fs.appendFileSync(`${GITP}/.git/config`, '[filter "x"]\n\tclean = touch /tmp/filter-ran\n')
+  // G4 runs with the filter gone (as someone removed it in Files)
+  if (a.id === 'G4') fs.writeFileSync(`${GITP}/.git/config`, fs.readFileSync(`${GITP}/.git/config`, 'utf8').replace(/\[filter "x"\][^[]*/, ''))
   const r = await run(a.cmd, a.o)
   const why = (r.out.includes(CANARY) ? `canary: ${r.out.slice(r.out.indexOf(CANARY) - 40, r.out.indexOf(CANARY) + 40)}` : null) ?? a.check(r) ?? a.after?.() ?? null
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)

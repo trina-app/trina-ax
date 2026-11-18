@@ -43,6 +43,7 @@ import { RUN_ID_RE, SRT_PATHS, chatHome, chatLogs, chatWork, sharedWork, sharedW
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
+import { gitConfigProblems } from './git-guard'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -415,6 +416,15 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const view = personView(ctx, space.userId, run, space.shared, scope)
   if (!view) throw new Error('the person cannot use the dev environment now')
   if (!rootAllowed(ctx, c, space, view)) throw new Error('the person cannot open the folder of this chat now')
+  // a repository in or above the folder whose config names a program (a filter or diff driver, an include ...) that a
+  // git command here would run: no run until it is removed (QA TC-4939, git-guard.ts)
+  const git = gitConfigProblems(space.root, ctx.files.fx.root)
+  if (git.length) {
+    ctx.log?.warn?.('devenv: refused a run: git config names a program', { repos: git })
+    throw new Error(space.shared
+      ? 'a git repository in this folder has settings that would run a program by themselves (a filter, diff or merge driver, an include). Ask the person to remove them in a chat of their own'
+      : `a git repository has settings that would run a program by themselves: ${git.slice(0, 5).map((g) => `${g.repo} (${g.found.join(', ')})`).join('; ')}. Commands cannot change .git/config: tell the person that someone who can open that folder must remove those lines from its .git/config (or the .git folder) in Files, then try again`)
+  }
   const work = run.start === null ? space.root : null
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run

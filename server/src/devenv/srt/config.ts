@@ -6,6 +6,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DEV_ENV_DEFAULT_DOMAINS, PRODUCT, mergeSites } from '@mycel/shared'
 import type { FolderView } from './access'
+import { gitEnv } from './git-guard'
 
 /** The pinned srt version. A new version goes into a new folder (scripts/dev-env/srt/install-srt.sh). */
 export const SRT_VERSION = '0.0.81'
@@ -417,6 +418,8 @@ export function runEnv(i: EnvInput): Record<string, string> {
     npm_config_cache: path.join(home, '.npm'),
     PIP_CACHE_DIR: path.join(home, '.cache', 'pip'),
     PLAYWRIGHT_BROWSERS_PATH: '0',
+    // git runs no repository hook or program by itself, nothing is read from the home (QA TC-4939, git-guard.ts)
+    ...gitEnv(),
     TRINA_LOGS: runLogs(i.base, i),
     /** the team folder: team paths of the file tools are under it */
     TRINA_TEAM: i.teamRoot,

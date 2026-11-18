@@ -27,6 +27,7 @@ import { fullInternet, grantUserSite, setFullInternet, userSites } from '../../s
 import { configureStorageGuard } from '../../server/src/system/storage'
 import { fileEvent } from '../../server/src/files/store'
 import { componentC } from '../../server/src/team-files/component'
+import { gitEnv } from '../../server/src/devenv/srt/git-guard'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 setDefaultTimeout(40_000)
@@ -511,7 +512,9 @@ describe('the srt settings file', () => {
   })
   test('the environment: only the listed keys; HOME and the logs per person; the work folder only for a chat with no project', () => {
     const e = runEnv({ base: BASE, userId: 'alice', teamRoot: TEAM, work: null })
-    expect(Object.keys(e).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    // (and git's, npm's and Python's settings that run nothing by themselves: git-guard.ts gitEnv, QA TC-4939)
+    expect(Object.keys(e).filter((k) => !(k in gitEnv())).sort()).toEqual(['CI', 'CLAUDE_CODE_TMPDIR', 'HOME', 'LANG', 'NODE_USE_ENV_PROXY', 'PATH', 'PIP_CACHE_DIR', 'PLAYWRIGHT_BROWSERS_PATH', 'SHELL', 'TERM', 'TMPDIR', 'TRINA_LOGS', 'TRINA_TEAM', 'npm_config_cache'])
+    for (const [k, v] of Object.entries(gitEnv())) expect(e[k]).toBe(v)
     expect(e.HOME).toBe(personHome(BASE, 'alice'))
     expect(e.TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)
     expect(e.CLAUDE_CODE_TMPDIR).toBe(`${BASE}/devenv/home/alice/tmp`)

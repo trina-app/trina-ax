@@ -88,3 +88,24 @@ describe('a running foreground command', () => {
     expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
   })
 })
+
+// QA TC-4939: a repository config that names a program stops the run; every run's git runs no repository hook
+describe('git in the project folder', () => {
+  test('a planted filter driver in the project\'s .git/config: no run, the reason named; without it the run has the git settings', async () => {
+    const dir = path.join(h.ctx.files.fx.root, P.folderPath, '.git')
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(dir, 'config'), '[filter "x"]\n\tclean = touch /tmp/evil\n')
+    try {
+      const r = out(await shell('alice', chatA).call({ command: 'echo hi' }))
+      expect(r).toContain('a git repository has settings that would run a program by themselves')
+      expect(r).toContain('filter')
+      expect(runs.size).toBe(0)
+    } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+    expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi')
+    const env = [...runs.values()].at(-1)!.spec.env
+    expect(env.GIT_CONFIG_KEY_0).toBe('core.hooksPath')
+    expect(env.GIT_CONFIG_VALUE_0).toBe('/dev/null')
+    expect(env.GIT_CONFIG_GLOBAL).toBe('/dev/null')
+  })
+})
+
