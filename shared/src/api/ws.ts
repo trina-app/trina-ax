@@ -16,9 +16,10 @@ import { z } from 'zod'
 import { UserId, Uuid7 } from '../ids'
 import { ApiErrorBody, ErrorCode, RelPath } from './common'
 import { BrowserCall, BrowserResult } from './browser'
+import { LocalCall, LocalResult } from './local-apps'
 import { ArtifactSummary, ArtifactType, Chat, ChatThreadReply, ChatThreadSummary, Job, JobKind, Memory, Message, MessageStatus, Step, UserRef } from './entities'
 import { CredentialLogin } from './credentials'
-import { IntegrationAuth, IntegrationKind, IntegrationScope } from './integrations'
+import { IntegrationAuth, IntegrationScope, RemoteIntegrationKind } from './integrations'
 import { SkillProblem } from './skills'
 import { Room, RoomMessage, RoomReaction, RoomThreadSummary } from './rooms'
 import { DeckBuild } from './intro-deck'
@@ -201,7 +202,7 @@ export const ConnectServiceRequest = z.object({
   /** personal: only this person uses it; team: an admin adds it for the team and picks who may use it */
   scope: IntegrationScope,
   /** target 'service': the connection the AI filled in. host = the address's host, the card's main line */
-  service: z.object({ kind: IntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
+  service: z.object({ kind: RemoteIntegrationKind, url: z.string(), host: z.string(), auth: IntegrationAuth, authHeader: z.string().nullable() }).optional(),
   /** a connection template an admin shared with this person (scope personal): connecting it makes their own
    * connection from the template (its address, sign-in method and header fixed), only while the template is the
    * version shown here; older servers omit it */
@@ -296,6 +297,12 @@ export const ServerEvent = z.discriminatedUnion('type', [
   ev('browser.call', z.object({ windowId: z.string(), call: BrowserCall })),
   /** the turn stopped; abandon this call */
   ev('browser.cancel', z.object({ windowId: z.string(), callId: z.string() })),
+  /** an app on the person's computer (local-apps.ts): one JSON-RPC message for the desktop app to pass to the program,
+   * only to the window that sent the turn (or the Settings check); the window must dedupe by callId. An older page
+   * ignores it (the call fails when the window stays silent). */
+  ev('local.call', z.object({ windowId: z.string(), call: LocalCall })),
+  /** the turn stopped; abandon this call */
+  ev('local.cancel', z.object({ windowId: z.string(), callId: z.string() })),
   ev('memory.changed', z.object({ change: z.enum(['created', 'updated', 'deleted', 'cleared']), memory: Memory.nullable() })),
   /** an intro deck being built in a chat turn (docs/DECISIONS.md "D2", round 2): the outline, each finished slide, the
    * review and the end (only to the chat's owner) */
@@ -353,6 +360,9 @@ export const ClientFrame = z.discriminatedUnion('type', [
   /** the window received browser.call and started it (stops the server from re-sending after a reconnect) */
   z.object({ type: z.literal('browser.ack'), callId: z.string().min(1).max(100) }),
   z.object({ type: z.literal('browser.result'), result: BrowserResult }),
+  /** the window received local.call and handed it to the desktop app (no re-send after a reconnect) */
+  z.object({ type: z.literal('local.ack'), callId: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('local.result'), result: LocalResult }),
   /** this window is in use or idle (docs/DECISIONS.md "접속 상태"): sent when it changes and after each `hello` (the
    * server takes a newly connected window as active until it says otherwise); never queued while disconnected */
   z.object({ type: z.literal('presence'), state: WindowActivity }),

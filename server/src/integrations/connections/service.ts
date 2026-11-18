@@ -6,7 +6,7 @@
 import crypto from 'node:crypto'
 import path from 'node:path'
 import net from 'node:net'
-import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationKind, IntegrationList, IntegrationPatch, Locale, OAuthClientInput } from '@mycel/shared/api'
+import type { Integration, IntegrationAccess, IntegrationFlow, IntegrationInput, IntegrationKind, IntegrationList, IntegrationPatch, LocalAppSpec, LocalIntegrationInput, Locale, OAuthClientInput } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { newId } from '../../db'
 import { audit } from '../../admin/audit'
@@ -29,6 +29,9 @@ import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { workspaceLibraryOf } from '../google-apps/library'
+import { getChatRuntime } from '../../chat/runtime'
+import { isGuestUser } from '../../credentials/guest-ai'
+import { kindOf as localKind, LocalError, localOn, localSpecOf, localTransport, localUrl, offlineWords, type LocalVia } from './local'
 
 export const MAX_PERSONAL = 20
 /** to a member whose connection made from a template was dropped: their Connectors page reads its lists again (no text:
@@ -164,8 +167,8 @@ export function hiddenText(s: string): boolean {
   return false
 }
 /** what the admin audit says about a change: team connections in full; a member's own ones without name or address */
-const auditDetail = (row: Pick<Row, 'scope' | 'kind' | 'auth' | 'name' | 'url'>, more: Record<string, unknown> = {}) =>
-  row.scope === 'team' ? { scope: row.scope, kind: row.kind, name: row.name, host: new URL(row.url).host, auth: row.auth, ...more } : { scope: row.scope, kind: row.kind, auth: row.auth }
+const auditDetail = (row: Pick<Row, 'scope' | 'kind' | 'auth' | 'name' | 'url' | 'local_app'>, more: Record<string, unknown> = {}) =>
+  row.scope === 'team' ? { scope: row.scope, kind: localKind(row), name: row.name, host: new URL(row.url).host, auth: row.auth, ...more } : { scope: row.scope, kind: localKind(row), auth: row.auth }
 
 /** A refusal of one field: `validation`, the words (in the person's language) under that field too. */
 export function fieldError(L: Locale, field: string, key: TextKey, vars: Record<string, string | number> = {}): never {
@@ -190,6 +193,8 @@ export class Integrations {
   readonly net: NetOptions
   readonly now: () => number
   private clients = new Map<string, McpClient>()
+  /** an app on the computer: one client per connection, for the window and turn it was made for (local.ts) */
+  private localClients = new Map<string, { key: string; client: McpClient }>()
   private refreshes = new Map<string, Promise<string>>()
   private recent = new Map<string, string[]>()
   /** per sign-in server (issuer and registration address): 'desktop' when it refused every client for the https
@@ -209,7 +214,8 @@ export class Integrations {
     // Gmail, Calendar, Docs and Sheets have their own page (google-apps/): not in the generic list
     const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app IS NULL ORDER BY name, id`).all(viewer.id) as Row[]
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
-    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed: getTeamSettings(this.db).personalIntegrations }
+    const personalAllowed = getTeamSettings(this.db).personalIntegrations
+    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db) }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
     // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)
@@ -316,6 +322,10 @@ export class Integrations {
     // must only ever go where the admin registered); the member changes only their key and the write rule
     if (row.template_id) {
       for (const k of ['name', 'url', 'auth', 'authHeader', 'notes', 'access', 'oauthClient'] as const) if (patch[k] !== undefined) fieldError(L, k, 'fromTemplate')
+    }
+    // an app on the computer has no address, key or sign-in: its command changes through updateLocal only
+    if (row.local_app) {
+      for (const k of ['url', 'auth', 'authHeader', 'secret', 'clearSecret', 'oauthClient', 'access'] as const) if (patch[k] !== undefined) fieldError(L, k, 'localFixed')
     }
     const next: Row = { ...row }
     const changed: string[] = []
@@ -564,10 +574,73 @@ export class Integrations {
     return view(this.db, row, viewer, locale)
   }
 
-  async refresh(viewer: Viewer, id: string, locale: Locale): Promise<Integration> {
+  /** `via`: the desktop window that asked (an app on the computer is checked only there; from anywhere else its state
+   * stays as it is) */
+  async refresh(viewer: Viewer, id: string, locale: Locale, via: LocalVia | null = null): Promise<Integration> {
     const row = this.manageable(viewer, id)
     this.stillCovered(row, viewer, locale)
-    return view(this.db, await this.check(row), viewer, locale)
+    if (row.local_app && offByTeam(this.db, row)) fail('forbidden', say(localOn(this.db) ? 'personalOff' : 'localOff', locale))
+    return view(this.db, await this.check(row, undefined, via), viewer, locale)
+  }
+
+  // ---------------- apps on the person's computer (local.ts) ----------------
+  /** A new app on my computer: only the person, as their own connection (never a team one, a template or a request:
+   * their inputs take no local kind), while the team allows members' own connections and apps on the computer.
+   * `via`: the desktop window it is added from, where it is checked at once (the desktop app asks on the computer
+   * before it runs anything); null: saved, checked when the person opens it in the desktop app. */
+  async createLocal(viewer: Viewer, input: LocalIntegrationInput, locale: Locale, via: LocalVia | null): Promise<Integration> {
+    const L = locale
+    // a guest has no connections at all (store.ts mayUse)
+    if (isGuestUser(this.db, viewer.id)) fail('forbidden')
+    if (!getTeamSettings(this.db).personalIntegrations) fail('forbidden', say('personalOff', L))
+    if (!localOn(this.db)) fail('forbidden', say('localOff', L))
+    // sending without asking comes only from a write card (Always allow), as for every connection of a person's own
+    if (input.writePolicy === 'allow') fieldError(L, 'writePolicy', 'allowTeamOnly')
+    this.checkLocalSpec(input.spec, L)
+    if (hiddenText(input.name)) fieldError(L, 'name', 'localHidden')
+    this.roomOrFail(viewer.id, 'none', L)
+    const id = newId()
+    const slug = this.freeSlug('personal', viewer.id, input.slug ?? null, input.name, 'mcp', L)
+    const now = iso(this.now())
+    const row: Row = {
+      id, scope: 'personal', owner_user_id: viewer.id, created_by: viewer.id, kind: 'mcp', name: oneLine(input.name), slug, url: localUrl(id), auth: 'none', auth_header: null,
+      secret_enc: null, key_version: 1, account: null, notes: null, write_policy: input.writePolicy ?? 'ask', status: 'error', last_error: 'local_offline', tools_rev: 0,
+      tools_updated_at: null, last_used_at: null, version: 1, created_at: now, updated_at: now, disabled_tools: '[]', template_id: null, local_app: JSON.stringify(input.spec),
+    }
+    this.db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
+      write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at, template_id, local_app)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?,?)`)
+      .run(row.id, row.scope, row.owner_user_id, row.created_by, row.kind, row.name, row.slug, row.url, row.auth, row.auth_header, row.secret_enc, row.key_version,
+        row.account, row.notes, row.write_policy, row.status, row.last_error, row.tools_updated_at, row.last_used_at, row.version, row.created_at, row.updated_at, null, row.local_app!)
+    // the command is the person's own, like a personal connection's address: not in the admin audit (only that it is one)
+    audit(this.db, { actor: viewer.id, action: 'integration.create', target: id, detail: auditDetail(row, { slug, writePolicy: row.write_policy, adapter: input.spec.adapter }) })
+    return view(this.db, await this.check(getRow(this.db, id)!, undefined, via), viewer, L)
+  }
+
+  /** What an app on my computer runs, changed by its owner. Its saved tools go (the program may offer others) and the
+   * desktop app asks again on the computer before the new command runs (local-apps.ts localCommandKey). */
+  async updateLocal(viewer: Viewer, id: string, spec: LocalAppSpec, locale: Locale, via: LocalVia | null): Promise<Integration> {
+    const L = locale
+    const row = this.manageable(viewer, id)
+    if (!row.local_app) fail('not_found')
+    if (offByTeam(this.db, row)) fail('forbidden', say(localOn(this.db) ? 'personalOff' : 'localOff', L))
+    this.checkLocalSpec(spec, L)
+    const json = JSON.stringify(spec)
+    if (json === row.local_app) return view(this.db, row, viewer, L)
+    const now = iso(this.now())
+    const r = this.db.query(`UPDATE integrations SET local_app=?, tools_json='[]', tools_total=NULL, tools_total_more=0, tools_updated_at=NULL, status='error', last_error='local_offline',
+      version=version+1, updated_at=? WHERE id=? AND version=?`).run(json, now, id, row.version)
+    if (!r.changes) fail('conflict')
+    this.dropClient(id)
+    audit(this.db, { actor: viewer.id, action: 'integration.update', target: id, detail: { ...auditDetail(row), changed: ['command'], adapter: spec.adapter } })
+    return view(this.db, await this.check(getRow(this.db, id)!, undefined, via), viewer, L)
+  }
+
+  /** What a person types for an app on the computer: nothing a person cannot see in the confirm (hiddenText), which
+   * would let the line on the computer read differently from what runs. */
+  private checkLocalSpec(spec: LocalAppSpec, L: Locale) {
+    const parts = [spec.command, ...(spec.adapter === 'mcp' ? spec.args : spec.tools.flatMap((t) => [t.name, t.title ?? '', t.description, ...t.args.map((a) => (typeof a === 'string' ? a : a.slot)), ...t.slots.map((x) => x.description)]))]
+    if (parts.some((p) => hiddenText(p) || /[\u0000-\u0008\u000b-\u001f\u007f]/.test(p))) fieldError(L, 'spec', 'localHidden')
   }
 
   /** The own app after a change (a connection's, or a template's: templates.ts). `input` undefined keeps it, null
@@ -866,14 +939,18 @@ export class Integrations {
    * such a reason keeps that list and is connected, with the reason (lastError): its tools keep working, and Settings
    * says the last check failed and which list the AI uses (not "Error"). The next check that reads the list, or a call
    * that goes through (used), clears it. */
-  async check(row: Row, signal?: AbortSignal): Promise<Row> {
+  async check(row: Row, signal?: AbortSignal, via: LocalVia | null = null): Promise<Row> {
+    // an app on the computer is checked only through a desktop window of its owner; from anywhere else nothing about it
+    // is known, and nothing changes
+    if (row.local_app && !via) return getRow(this.db, row.id) ?? row
+    if (row.local_app && !localSpecOf(row)) { this.setStatus(row, 'error', 'local_failed'); return getRow(this.db, row.id) ?? row }
     try {
       if (row.kind === 'mcp') {
         // one deadline for the whole check: every request of it ends by then, and no new session or token refresh
         // starts that would end later (withMcp, mcp.ts listTools)
         const deadline = Date.now() + (this.net.listTimeoutMs ?? MCP_LIST_TIMEOUT_MS)
         // the list has the connection's secrets hidden (mcp.ts toolOf): the AI and the people who use it read it
-        const listed = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline)
+        const listed = await this.withMcp(row, (c) => c.listTools(signal, deadline), deadline, via)
         // a Google app: only its own app's tools of the library's four (google-apps/catalog.ts)
         const { tools, more, total, unread } = row.google_app ? { ...listed, tools: appTools(row.google_app, listed.tools), more: false, unread: false } : listed
         // more than the server keeps (its hard ceiling): the total is saved so Settings and the AI's instructions can
@@ -904,7 +981,8 @@ export class Integrations {
   }
 
   // ---------------- calls ----------------
-  private client(row: Row): McpClient {
+  private client(row: Row, via: LocalVia | null = null): McpClient {
+    if (row.local_app) return this.localClient(row, via)
     // a Google app: the library on this machine, at the address it listens on now (google-apps/transport.ts); its
     // connection's own address is a placeholder that is never used
     const library = row.google_app ? workspaceLibraryOf(this.ctx).endpoint() : null
@@ -921,16 +999,29 @@ export class Integrations {
     this.clients.set(key, fresh)
     return fresh
   }
-  private dropClient(id: string) { for (const k of [...this.clients.keys()]) if (k.startsWith(id + ':')) this.clients.delete(k) }
+  /** An app on the computer: a client whose requests go through the local relay to `via`'s window (local.ts), made
+   * again for another window, turn or version of the connection. */
+  private localClient(row: Row, via: LocalVia | null): McpClient {
+    const spec = localSpecOf(row)
+    if (!spec) throw new LocalError('failed', `${row.name}: what it runs could not be read; the user can set it again in Settings › Connectors › ${row.name}`)
+    if (!via || !row.owner_user_id) throw new LocalError('offline', offlineWords(row.name))
+    const key = `${row.version}:${via.windowId}:${via.turnId ?? ''}`
+    const c = this.localClients.get(row.id)
+    if (c && c.key === key) return c.client
+    const client = new McpClient(row.url, async () => [], this.net, () => this.hider([row]), localTransport({ relay: getChatRuntime(this.ctx).localRelay, userId: row.owner_user_id, via, row, spec }))
+    this.localClients.set(row.id, { key, client })
+    return client
+  }
+  private dropClient(id: string) { for (const k of [...this.clients.keys()]) if (k.startsWith(id + ':')) this.clients.delete(k); this.localClients.delete(id) }
   /** A connection deleted elsewhere (google-apps/service.ts disconnect): its client, remembered secrets and tool list go. */
   forget(id: string) { this.dropClient(id); this.recent.delete(id); toolListsOf(this.db).drop(id) }
 
   /** Run against the MCP server: a new session when the server forgot ours, one token refresh after a 401. `deadline`
    * (a check's): neither once it has passed, nor a token refresh (its own 30 s) that would end after it. */
-  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>, deadline = Infinity): Promise<T> {
+  private async withMcp<T>(row: Row, fn: (c: McpClient) => Promise<T>, deadline = Infinity, via: LocalVia | null = null): Promise<T> {
     let renewed = false, refreshed = false
     for (;;) {
-      const c = this.client(row)
+      const c = this.client(row, via)
       try { return await fn(c) } catch (e) {
         const renew = e instanceof McpError && e.code === 'session_gone' && !renewed
         const refresh = e instanceof McpError && e.code === 'unauthorized' && row.auth === 'oauth' && !refreshed && !!row.secret_enc
@@ -960,14 +1051,17 @@ export class Integrations {
     return row
   }
 
-  async callTool(row: Row, tool: string, args: unknown, signal?: AbortSignal): Promise<Record<string, any>> {
+  /** `via`: an app on the computer's window and turn (local.ts turnWindow); its calls go nowhere else */
+  async callTool(row: Row, tool: string, args: unknown, signal?: AbortSignal, via: LocalVia | null = null): Promise<Record<string, any>> {
     try {
-      const r = await this.withMcp(row, (c) => c.callTool(tool, args, signal))
+      const r = await this.withMcp(row, (c) => c.callTool(tool, args, signal), Infinity, via)
       this.used(row)
       return r
     } catch (e) {
-      // a Google app's answer too large (a big Gmail attachment) says nothing about the connection
-      if (!signal?.aborted && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
+      // a Google app's answer too large (a big Gmail attachment) says nothing about the connection; an app on the
+      // computer reached from elsewhere, or not let run there, neither
+      const notHere = e instanceof LocalError && (e.failure === 'offline' || e.failure === 'not_desktop' || e.failure === 'declined' || e.failure === 'too_old')
+      if (!signal?.aborted && !notHere && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
       // stopped here (Stop, the turn's end): not the service's timeout
       if (signal?.aborted && !(e instanceof CallError)) throw new CallError(`the call to ${row.name} was stopped because the answer was stopped`, 'stopped')
       throw e instanceof CallError ? e : new CallError(callMessage(e, row), kindOf(e), e instanceof McpError && e.code === 'rpc')
@@ -1293,6 +1387,7 @@ function statusOf(e: unknown): { status: Row['status']; reason: string } | null 
   if (e instanceof NetError && e.reason === 'call_timeout') return null
   if (e instanceof NetError) return { status: 'error', reason: e.status ? `${e.reason}:${e.status}` : e.reason }
   if (e instanceof StoreError) return { status: 'error', reason: 'key_unsafe' }
+  if (e instanceof LocalError) return { status: 'error', reason: e.reason }
   return null
 }
 
@@ -1310,12 +1405,13 @@ function kindOf(e: unknown): string {
   if (e instanceof NeedsAuth || e instanceof GrantError) return 'needs sign-in or key'
   if (e instanceof McpError) return e.code === 'rpc' ? 'error answer' : e.status ? `HTTP ${e.status}` : e.code
   if (e instanceof NetError) return e.reason
+  if (e instanceof LocalError) return `on the computer: ${e.failure}`
   return 'error'
 }
 
 /** A failed call in words for the AI: our own words and status codes, plus a JSON-RPC error's message (the tool's answer). */
 function callMessage(e: unknown, row: Row): string {
-  if (e instanceof CallError) return e.message
+  if (e instanceof CallError || e instanceof LocalError) return e.message
   if (e instanceof NeedsAuth) return `${row.name} needs ${e.reason === 'sign_in' ? 'a new sign-in' : 'its key'}; the user can fix it in ${fixWhere(row)}`
   if (e instanceof McpError) {
     if (e.code === 'rpc') return `${row.name} answered with an error: ${e.detail}`

@@ -12,6 +12,7 @@
 //   const relay = bridge && createBrowserRelay({ bridge, windowId, send: (f) => ws.send(JSON.stringify(f)) })
 //   ws.onmessage = (m) => { const ev = ServerFrame.parse(JSON.parse(m.data)); relay?.handle(ev); ... }
 import { BrowserCall, BrowserResult } from './api/browser'
+import type { LocalCall, LocalResult } from './api/local-apps'
 import type { ClientFrame, ServerFrame } from './api/ws'
 
 /** window[DESKTOP_BRIDGE_GLOBAL] inside the desktop app. */
@@ -392,6 +393,26 @@ export interface DesktopBridge {
    * own confirmation dialog and changes the setting only when the person confirms there; it is refused while the
    * team does not allow it. Optional: desktop apps before this addition do not have it (the section stays hidden).
    */
+  /**
+   * Apps on this computer as connectors (docs/decisions/20261118-local-app-connectors.md; LOCAL_APPS_BRIDGE_VERSION).
+   * run() takes one local.call from the team server and answers it: the app asks the person once in its own window
+   * before it runs a command (and again when the command changes), starts the program from an argument list (never a
+   * shell, never as root), and hides the setting values in what goes back. The page never sees the confirm, a program's
+   * output beyond the answer, or a setting's value. stop(): the program of that connection ends now. setSettings():
+   * values typed on this computer, kept sealed here (the server knows only their names); settingNames(): which have
+   * one. Optional: browsers, the phone app and desktop apps before this addition do not have it (the page says the
+   * apps work only in the desktop app, and answers calls with not_desktop or too_old).
+   */
+  localApps?: {
+    version: number
+    run(call: LocalCall): Promise<LocalResult>
+    cancel(callId: string): void
+    stop(connectionId: string): void
+    running(): Promise<string[]>
+    onRunning(cb: (s: { id: string; running: boolean }) => void): () => void
+    setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
+    settingNames(connectionId: string): Promise<string[]>
+  }
   browserSettings?: {
     get(): Promise<DesktopBrowserSettings | null>
     /** the setting changed (here, in the pane's ⚙ panel, by an answer "always allow", or by the team's policy) */

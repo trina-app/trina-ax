@@ -939,6 +939,11 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
+  /** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a
+   * program on their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added
+   * and the ones there are left out of chats. Needs personalIntegrations too (they are personal connections). Older
+   * servers omit it. */
+  localApps: z.boolean().optional(),
   /** "Send images, PDF pages and video frames to the AI" (default on): an AI read of a photo, screenshot, scanned PDF
    * page or video gives the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads
    * the text with Apple Vision instead, a Linux server says the image is not shown. */

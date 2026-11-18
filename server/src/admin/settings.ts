@@ -26,6 +26,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
    * owner's call, 2026-11-11); each person still turns their own switch on */
   webAllowAll: true,
   personalIntegrations: true,
+  /** apps on a member's own computer as connectors (integrations/connections/local.ts): on unless an admin turns it off */
+  localApps: true,
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */

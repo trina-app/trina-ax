@@ -573,6 +573,10 @@ export const SPECS: Record<string, Spec> = {
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
   postResult: { build: (c) => c.post('/api/browser/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
     check: (r) => { /* unknown call -> 404; never another window's */ } },
+  // ---- local relay: apps on the person's computer (own session/window) ----
+  pollLocalCalls: { build: (c) => c.get('/api/local-apps/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
+  postLocalResult: { build: (c) => c.post('/api/local-apps/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
+    check: (r) => { /* unknown call -> 404; never another window's */ } },
 
   // ---- admin (by level) ----
   listUsers: { build: (c) => c.get('/api/admin/users'), scope: 'byLevel' },
