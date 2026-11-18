@@ -214,7 +214,7 @@ describe('review of #1289', () => {
     const own = { path: 'users/alice/skills/p/SKILL.md', name: 'p', ...body }
     const group = { path: 'groups/sales/skills/g/SKILL.md', name: 'g', group: { id: 'g1', name: 'Sales' }, ...body }
     const project = { path: `${P.folderPath}/skills/pr/SKILL.md`, name: 'pr', project: { id: P.id, name: P.name }, ...body }
-    expect([team, own, group, project].map(skillScriptsRun)).toEqual([true, true, false, false])
+    expect([team, own, group, project].map((x) => skillScriptsRun(x as Parameters<typeof skillScriptsRun>[0]))).toEqual([true, true, false, false])
     expect(skillBlock(team, '', 'loaded', { scripts: true })).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/skills/t/"')
     expect(skillBlock(own, '', 'loaded', { scripts: true })).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/users/alice/skills/p/"')
     for (const s of [group, project]) {
