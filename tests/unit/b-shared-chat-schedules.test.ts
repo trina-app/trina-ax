@@ -92,7 +92,7 @@ describe('a task made in a shared chat', () => {
     const r = await askWithCard('alice', chatId, fake({ tool: 'schedule_create', args: { title: 'Brief check', prompt, repeat: 'weekly', weekdays: [1, 4], time: '09:00' }, sayResult: true }), 'create')
     expect(r.card.question).toContain('Each run posts its result in this shared chat, which 2 people can see now.')
     expect(r.card.question).toContain('every Monday and Thursday at 09:00')
-    expect(r.done.content).toContain('Its runs post their results in this shared chat')
+    expect(r.done.content).toContain('Its runs are turns in this shared chat, as this user: they read this chat')
     const s = schedulesOf('alice').find((x) => x.title === 'Brief check')!
     expect(s).toMatchObject({ chat_id: chatId, project_id: projectId })
     taskId = s.id

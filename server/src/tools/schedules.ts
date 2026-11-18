@@ -499,7 +499,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
 
   reg.register({
     name: 'schedule_create',
-    description: 'Create a scheduled task for the user: the server sends `prompt` for them on the schedule, each run in a new chat with their access (they see it in their chat list). ' +
+    description: 'Create a scheduled task for the user: the server sends `prompt` for them on the schedule, each run in a new chat with their access (they see it in their chat list); a task made in a shared chat runs in that chat instead, as the user, and reads its messages like any turn there. ' +
       'Use it when the user asks for something recurring or later ("every Monday at 9…", "tomorrow at 8…"). The user confirms it first on a card that shows the title, the schedule and the whole prompt; then confirm the schedule back in plain words. ' +
       'Runs are unattended (no questions, nothing that needs a confirmation), so write the prompt to work on its own. Only web addresses written in the prompt (shown on the card) open in a run without asking. ' +
       'A run sends or changes something at a connected service only when the task names that connection (in `connections`, or its name in the title or prompt) and the user allows it on the card; name one only when runs need to send there.',
@@ -574,7 +574,7 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
       const longQuery = card.longQuery.length ? ` Its runs never open ${card.longQuery.length === 1 ? 'the address' : `the ${card.longQuery.length} addresses`} with a query over ${MAX_UNCONFIRMED_QUERY} characters: such an address always needs a person to confirm it (the card said so); tell the user.` : ''
       const sendNote = sends.length ? ` Its runs may send to ${sends.map((r) => r.name).join(', ')} without asking.` : offered.length || scope.sends.length ? ' The user chose that its runs never send to connected services; tell the user if the task needs that.' : ''
       const scopeText = scopeNote(ctx.db, t.user.id, save, scope.sources, own, !!scope.save?.create)
-      const here = shared ? ' Its runs post their results in this shared chat, as this user, and skip places some people here cannot open.' : ''
+      const here = shared ? ' Its runs are turns in this shared chat, as this user: they read this chat\'s messages, post their results here, and skip places some people here cannot open.' : ''
       return { text: `Scheduled "${s.title}": ${describeSchedule(s)}. First run: ${local(s.next_run_at)}. Id ${s.id}. The user can turn it off on the Scheduled page.${here}${blocked}${longQuery}${sendNote}${scopeText}`, summary: `schedule_create ${s.id} ${timingOf(s).repeat} ${s.time}${shared ? ' in a shared chat' : ''} (confirmed by the user${sends.length ? `, may send to ${sends.length} connections` : ''}${scope.save ? ', save folder' : ''}${own.length ? `, ${own.length} pinned own connections` : ''})`, structured: { id: s.id, nextRunAt: s.next_run_at } }
     },
   })
