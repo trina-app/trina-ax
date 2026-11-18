@@ -110,6 +110,8 @@ export function answerText(answers: AnsweredQuestion[], requests: readonly AskRe
     return Array.isArray(v) ? v.map(one).join(', ') : one(v)
   }
   if (answers.length === 1) return label(0, answers[0]!.answer)
+  // the questions are the AI's words too: with the labels hidden (`picked`), so are they (one line per answer)
+  if (picked !== undefined) return answers.map((a, i) => label(i, a.answer)).join('\n')
   return answers.map((a, i) => `${a.question}\n${label(i, a.answer)}`).join('\n\n')
 }
 
