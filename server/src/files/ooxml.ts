@@ -7,9 +7,10 @@
 // The XML is untrusted, so every scan is linear in the size of the part: tags are found with indexOf from the current
 // position, and a scan stops at the first tag or element that is not closed. No regex here can backtrack over a part
 // (a lazy `[\s\S]*?` regex took 22 s for a 1.2 MB chart part with unclosed <c:pt> tags, QA review).
+import zlib from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
-import { checkZip, isZip } from './zip-guard'
+import { checkZip, entryData, isZip, readCentral, ZIP_ENTRIES_MAX, type ZipEntry } from './zip-guard'
 
 /** characters of extra text out of one file */
 const EXTRA_TEXT_MAX = 4 * 1024 * 1024
@@ -241,7 +242,57 @@ function commentAnchors(doc: string): Map<string, string> {
   return out
 }
 
-/** Headers, footers, comments and chart data of a .docx ('' when it has none). */
+/** How each kind of tracked change shows in a changed paragraph. */
+const CHANGE_MARK: Record<string, string> = { 'w:ins': 'inserted', 'w:del': 'deleted', 'w:moveFrom': 'moved away', 'w:moveTo': 'moved here' }
+
+/**
+ * The paragraphs of the body that hold tracked changes (Word's Track Changes, not yet accepted or rejected), each with
+ * its changes marked in place: `[deleted: …]`, `[inserted: …]`, `[moved away: …]`, `[moved here: …]`, and who made them.
+ * pandoc's body text accepts every change (insertions kept, deletions left out), so the deleted text is only here. One
+ * pass over the tags, like `paragraphs`: <w:delText> is the text of a deleted run. A change mark without text (a
+ * paragraph mark, a run property change) is left out.
+ */
+export function trackedChanges(doc: string): { text: string; who: string }[] {
+  const lines: { text: string; who: Set<string>; changed: boolean }[] = []
+  const open: number[] = [] // line index of each open paragraph
+  const marks: { line: number; at: number }[] = [] // open change marks: the line and where its text starts
+  let inText = false
+  let last = 0
+  for (const t of tags(doc)) {
+    const cur = open.length ? lines[open.at(-1)!] : undefined
+    if (inText && cur && t.start > last) cur.text += unescapeXml(doc.slice(last, t.start))
+    last = t.end
+    const kind = CHANGE_MARK[t.name]
+    if (t.name === 'w:p') {
+      if (t.close) {
+        // the text of an unchanged paragraph is not kept
+        const i = open.pop()
+        if (i !== undefined && !lines[i]!.changed && !marks.some((m) => m.line === i)) lines[i]!.text = ''
+      } else if (!t.selfClose) { open.push(lines.length); lines.push({ text: '', who: new Set(), changed: false }) }
+    } else if (t.name === 'w:t' || t.name === 'w:delText') inText = !t.close && !t.selfClose
+    else if ((t.name === 'w:tab' || t.name === 'w:br' || t.name === 'w:cr') && cur && !t.close) cur.text += t.name === 'w:tab' ? '\t' : ' '
+    else if (kind && !t.selfClose) {
+      if (!t.close) {
+        // a mark outside a paragraph keeps its place on the stack, so its end tag closes it and not another one
+        if (!cur) { marks.push({ line: -1, at: 0 }); continue }
+        cur.text += `[${kind}: `
+        marks.push({ line: open.at(-1)!, at: cur.text.length })
+        const who = [attr(t.head, 'w:author'), attr(t.head, 'w:date')?.slice(0, 10)].filter(Boolean).map((v) => oneLine(v!)).join(', ')
+        if (who) cur.who.add(who)
+      } else {
+        const m = marks.pop()
+        if (!m || m.line < 0) continue
+        const line = lines[m.line]!
+        // a mark without text is taken out again; one with text closes and marks its paragraph as changed
+        if (line.text.length === m.at) line.text = line.text.slice(0, m.at - CHANGE_MARK[t.name]!.length - 3)
+        else { line.text += ']'; line.changed = true }
+      }
+    }
+  }
+  return lines.filter((l) => l.changed).map((l) => ({ text: oneLine(l.text).trim(), who: [...l.who].join('; ') }))
+}
+
+/** Headers, footers, comments, tracked changes and chart data of a .docx ('' when it has none). */
 export function docxExtraText(bytes: Uint8Array): string {
   const p = parts(bytes, 'Word document')
   const sections: string[] = []
@@ -270,8 +321,13 @@ export function docxExtraText(bytes: Uint8Array): string {
     }
     if (lines.length) sections.push(`${SECTION_MARK}Word comments (review notes in the margin) ===\n${lines.join('\n')}`)
   }
-  // charts of the body in the order they are placed (pandoc gives no chart data, like a deck's)
   const doc = xmlOf(p, 'word/document.xml')
+  const changes = doc ? trackedChanges(doc) : []
+  if (changes.length) {
+    sections.push(`${SECTION_MARK}Word tracked changes (edits not yet accepted; the body above shows insertions and leaves deletions out) ===\n` +
+      changes.map((c) => quoteLine(`- Changed${c.who ? ` by ${c.who}` : ''}:`) + `\n${indent(c.text, '    ')}`).join('\n'))
+  }
+  // charts of the body in the order they are placed (pandoc gives no chart data, like a deck's)
   if (doc) {
     const pos = idPositions(doc)
     const charts = [...rels(p, 'word/document.xml').entries()].filter(([, v]) => v.type.endsWith('/chart'))
@@ -313,8 +369,35 @@ function points(xml: string | undefined): string[] {
   return out
 }
 
-/** A chart part as text: title, kind and every series with its categories and cached values. */
-function chartText(xml: string): string {
+/**
+ * The chart XML with its chart elements under the prefix `c:`, as Office writes them. Other writers (openpyxl, some
+ * converters) put the chart namespace as the default one (`<chartSpace>`, `<ser>`) or under another prefix. One pass
+ * of a regex that cannot backtrack (each match is `<`, an optional `/` and a name start).
+ */
+function chartPrefix(xml: string): string {
+  let root: Tag | undefined
+  for (const t of tags(xml)) if (!t.close && t.name.slice(t.name.indexOf(':') + 1) === 'chartSpace') { root = t; break }
+  if (!root) return xml
+  const at = root.name.indexOf(':')
+  const prefix = at < 0 ? '' : root.name.slice(0, at)
+  if (prefix === 'c') return xml
+  if (!prefix) return xml.replace(/<(\/?)([A-Za-z_][\w.-]*)(?=[\s/>])/g, '<$1c:$2')
+  return xml.split(`<${prefix}:`).join('<c:').split(`</${prefix}:`).join('</c:')
+}
+
+/** The formula of a chart reference (`<c:f>Sales!$B$2:$B$5</c:f>`), on one line, or undefined. */
+const refOf = (xml: string | undefined) => {
+  const f = xml ? inner(xml, 'c:f') : undefined
+  return f && !f.includes('<') ? oneLine(unescapeXml(f)).trim() || undefined : undefined
+}
+
+/**
+ * A chart part as text: title, kind and every series with its categories and cached values. `ranges`: each series
+ * also names the cells its name, categories and values come from (an Excel chart, whose cells are in the workbook);
+ * `where`: words after the chart's head ("on sheet …").
+ */
+export function chartText(xml: string, o: { ranges?: boolean; where?: string } = {}): string {
+  xml = chartPrefix(xml)
   // the chart's own title comes before the plot area (an axis title is inside it)
   const plotAt = startTag(xml, 'c:plotArea', 0)
   const titleXml = inner(plotAt ? xml.slice(0, plotAt.start) : xml, 'c:title')
@@ -330,9 +413,15 @@ function chartText(xml: string): string {
     const n = Math.max(cats.length, vals.length)
     const pairs: string[] = []
     for (let i = 0; i < n; i++) if (vals[i] !== undefined) pairs.push(cats[i] !== undefined ? `${cats[i]} = ${vals[i]}` : vals[i]!)
-    lines.push(`  - series "${oneLine(name)}": ${pairs.length ? pairs.join('; ') : '(no stored values)'}`)
+    let from = ''
+    if (o.ranges) {
+      const refs = [['values', refOf(inner(ser, 'c:val') ?? inner(ser, 'c:yVal'))], ['categories', refOf(inner(ser, 'c:cat') ?? inner(ser, 'c:xVal'))], ['name', refOf(tx)]]
+        .filter(([, r]) => r).map(([k, r]) => `${k} ${r}`)
+      if (refs.length) from = ` (${refs.join(', ')})`
+    }
+    lines.push(`  - series${name ? ` "${oneLine(name)}"` : ''}${from}: ${pairs.length ? pairs.join('; ') : o.ranges ? '(no stored values; the cells above hold them)' : '(no stored values)'}`)
   }
-  const head = `- Chart${title ? ` "${title}"` : ''}${kinds.length ? ` (${kinds.join(', ')} chart)` : ''}:`
+  const head = `- Chart${title ? ` "${title}"` : ''}${kinds.length ? ` (${kinds.join(', ')} chart)` : ''}${o.where ? ` ${o.where}` : ''}:`
   return quoteLine([head, ...(lines.length ? lines : ['  (no series)'])].join('\n'))
 }
 
@@ -398,4 +487,77 @@ export function pptxExtraText(bytes: Uint8Array): string {
   }
   if (!slides.length) return ''
   return capped([`${SECTION_MARK}PowerPoint speaker notes and chart data, by slide (not part of the slide text above) ===`, ...slides])
+}
+
+// ---------------- .xlsx ----------------
+
+/** a chart, drawing or relationship part of a workbook that is larger than this is not read */
+const XLSX_CHART_PART_MAX = 16 * 1024 * 1024
+/** inflated bytes of those parts out of one workbook */
+const XLSX_CHART_TOTAL_MAX = 64 * 1024 * 1024
+/** the declared size of a workbook that may still be read here (sheet-stream.ts STREAM_TOTAL_MAX): only the few parts
+ * below are inflated */
+const XLSX_DECLARED_MAX = 4096 * 1024 * 1024
+
+/** The label of the chart section of a workbook's text (files/locations.ts: the lines after it belong to no sheet). */
+export const XLSX_CHARTS_LABEL = `${SECTION_MARK}Excel charts (charts drawn on the sheets above, with the cells they show) ===`
+
+/** The chart section of a workbook's text, or the line that says it was not read (office-parse.ts withCharts). */
+export const XLSX_CHARTS_SECTION = /^=== (?:Excel charts \(|The charts of this workbook were not read \().* ===$/
+
+/** The parts a workbook's charts need (workbook, sheet relationships, drawings, charts), inflated one by one. A large
+ * workbook is not read whole for them: its sheets stay compressed. */
+function chartParts(bytes: Uint8Array): Parts {
+  const need = /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|(worksheets|chartsheets|drawings)\/_rels\/[^/]+\.rels|drawings\/[^/]+\.xml|charts\/chart\d*\.xml)$/
+  const out: Parts = new Map()
+  let entries: ZipEntry[]
+  try { entries = readCentral(bytes, { total: XLSX_DECLARED_MAX, entries: ZIP_ENTRIES_MAX }) } catch { throw new ToolError('the file could not be opened') }
+  let total = 0
+  for (const e of entries) {
+    const name = new TextDecoder('utf-8').decode(e.nameBytes).replace(/^\/+/, '')
+    if (!need.test(name) || e.usize > XLSX_CHART_PART_MAX) continue
+    total += e.usize
+    if (total > XLSX_CHART_TOTAL_MAX) throw new ToolError(`its chart parts are over ${XLSX_CHART_TOTAL_MAX / 1024 / 1024} MB`)
+    try {
+      const data = entryData(bytes, e)
+      out.set(name, e.method === 0 ? data : new Uint8Array(zlib.inflateRawSync(data, { maxOutputLength: Math.max(e.usize, 1) })))
+    } catch { throw new ToolError('a chart part is damaged') }
+  }
+  return out
+}
+
+/**
+ * The charts of an .xlsx, sheet by sheet in the workbook's order and in the order each sheet's drawing places them:
+ * type, title, and every series with the cells of its name, categories and values and their cached values (Excel stores
+ * the values it last drew). '' when the workbook has no charts. SheetJS and the streaming reader give only cells.
+ */
+export function xlsxChartsText(bytes: Uint8Array): string {
+  if (!isZip(bytes)) return ''
+  const p = chartParts(bytes)
+  const wb = xmlOf(p, 'xl/workbook.xml')
+  if (!wb || ![...p.keys()].some((k) => k.startsWith('xl/charts/'))) return ''
+  const wbRels = rels(p, 'xl/workbook.xml')
+  const seen = new Set<string>()
+  const lines: string[] = []
+  for (const t of tags(wb)) {
+    if (t.close || t.name.slice(t.name.indexOf(':') + 1) !== 'sheet') continue
+    const rid = /\sr:id="([^"]*)"/.exec(t.head)?.[1] ?? /\s\w+:id="([^"]*)"/.exec(t.head)?.[1]
+    const sheet = rid ? wbRels.get(unescapeXml(rid)) : undefined
+    if (!sheet) continue
+    const name = oneLine(attr(t.head, 'name') ?? '').trim()
+    const where = `${sheet.type.endsWith('/chartsheet') ? 'on chart sheet' : 'on sheet'} "${name}"`
+    for (const drawing of [...rels(p, sheet.target).values()].filter((v) => v.type.endsWith('/drawing')).map((v) => v.target)) {
+      const dxml = xmlOf(p, drawing)
+      if (!dxml) continue
+      const pos = idPositions(dxml)
+      const charts = [...rels(p, drawing).entries()].filter(([, v]) => v.type.endsWith('/chart'))
+        .sort(([a], [b]) => (pos.get(a) ?? Infinity) - (pos.get(b) ?? Infinity))
+      for (const target of new Set(charts.map(([, v]) => v.target))) {
+        if (seen.has(target) || !p.has(target)) continue
+        seen.add(target)
+        lines.push(chartText(xmlOf(p, target) ?? '', { ranges: true, where }))
+      }
+    }
+  }
+  return lines.length ? capped([`${XLSX_CHARTS_LABEL}\n${lines.join('\n')}`]) : ''
 }

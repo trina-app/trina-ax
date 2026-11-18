@@ -10,7 +10,7 @@ import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, readCentral, tooComplex, ZipProblem } from './zip-guard'
 import { bigSheetPart, bigSheetText, parseRange, pickSheet, PART_ROWS_MAX, type SheetAsk } from './sheet-stream'
-import { docxExtraText, pptxExtraText } from './ooxml'
+import { docxExtraText, pptxExtraText, SECTION_MARK, xlsxChartsText } from './ooxml'
 import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
@@ -155,16 +155,35 @@ export function streamsSheets(ext: string, bytes: Uint8Array): boolean {
   return false
 }
 
-/** A spreadsheet's text: the whole workbook (or, when it is too large, its overview), or one sheet's range. */
+/** A spreadsheet's text: the whole workbook (or, when it is too large, its overview), or one sheet's range. The whole
+ * workbook and its overview end with the charts of an .xlsx (withCharts). */
 export async function workbookText(ext: string, bytes: Uint8Array, ask?: SheetAsk): Promise<string> {
   const wanted = ask && (ask.sheet !== undefined || ask.range !== undefined)
-  if (streamsSheets(ext, bytes)) return wanted ? bigSheetPart(bytes, ask!) : bigSheetText(bytes)
+  if (streamsSheets(ext, bytes)) return wanted ? bigSheetPart(bytes, ask!) : withCharts(ext, bytes, await bigSheetText(bytes))
   if (wanted) return sheetRangeText(bytes, ask!)
-  try { return sheetText(bytes) } catch (e) {
+  let text: string
+  try { text = sheetText(bytes) } catch (e) {
     // more text than one read gives: an .xlsx gets its overview from the streaming reader instead
-    if (ext === 'xlsx' && isZip(bytes) && e instanceof ToolError && e.message.includes('MB of text')) return bigSheetText(bytes)
-    throw e
+    if (ext === 'xlsx' && isZip(bytes) && e instanceof ToolError && e.message.includes('MB of text')) text = await bigSheetText(bytes)
+    else throw e
   }
+  return withCharts(ext, bytes, text)
+}
+
+/**
+ * The text of the sheets, then the workbook's charts (ooxml.ts xlsxChartsText) under their own label. Charts that
+ * cannot be read do not lose the sheets: a labelled line says so instead.
+ */
+function withCharts(ext: string, bytes: Uint8Array, text: string): string {
+  if (ext !== 'xlsx') return text
+  let charts: string
+  try { charts = xlsxChartsText(bytes) } catch (e) {
+    charts = `${SECTION_MARK}The charts of this workbook were not read (${e instanceof ToolError ? e.message.slice(0, 200) : 'the reader failed'}) ===`
+  }
+  if (!charts) return text
+  // the sheets' text with the charts stays under the worker's output cap (extract.ts officeWorkerText)
+  if (Buffer.byteLength(text, 'utf8') + Buffer.byteLength(charts, 'utf8') > OFFICE_TEXT_MAX) charts = `${SECTION_MARK}The charts of this workbook were not read (the sheets' text is already at the size limit) ===`
+  return `${text.trimEnd()}\n\n${charts}`
 }
 
 function readBook(bytes: Uint8Array): XLSX.WorkBook {

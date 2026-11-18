@@ -1,5 +1,5 @@
 // Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
-// comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// comments, tracked deletions and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
 // (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
@@ -368,7 +368,7 @@ async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uin
   return quoteLines(await pipeThrough(plain, bytes, 20_000, signal))
 }
 
-const EXTRA_WHAT = { docx: 'headers, footers, comments and chart data', pptx: 'speaker notes and chart data' } as const
+const EXTRA_WHAT = { docx: 'headers, footers, comments, tracked changes and chart data', pptx: 'speaker notes and chart data' } as const
 
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line

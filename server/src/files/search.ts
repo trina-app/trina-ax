@@ -155,12 +155,12 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented; 6: slide
- * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts), so the
- * old text is made again. */
-export const TEXT_CACHE_VERSION = '6'
+ * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts; 7: Word
+ * tracked changes and Excel charts, ooxml.ts), so the old text is made again. */
+export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
-const UPGRADABLE_VERSIONS = new Set(['5'])
+const UPGRADABLE_VERSIONS = new Set(['5', '6'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
