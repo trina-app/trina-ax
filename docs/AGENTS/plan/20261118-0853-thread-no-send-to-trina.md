@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 08:53
 - Branch: `chore/thread-no-send-to-trina`
-- Status: in progress
+- Status: done
 - Where: web/ (chat thread panel), shared/, server/ prompt words. Why: the owner wants the row gone (QA TC-4866) (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a button is removed
 
@@ -34,4 +34,4 @@ typecheck, check:i18n, check:docs, check:prepush, web unit chat-threads, server 
 
 ## Result
 
-(filled in at the end)
+Removed the row, its draft builder, the chat page wiring, four i18n keys in six languages, the AI map and prompt mentions of the button and their tests; the specs and docs follow. The phone app has no such row. Checks: check:prepush, web unit and server unit tests, e2e chat-threads (9 pass).
