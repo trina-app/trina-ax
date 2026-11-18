@@ -21,7 +21,7 @@ In:
 - An AI-side save (write, edit, a conflict copy) outside those folders that is an exact copy of a group or project skill
   file this chat read is refused (read records only, no walk); the path is named only when the person may read it.
 - The prompt: never run or copy any code a group or project skill contains or points to.
-- move_skill keep: the card says who wrote a group or project skill's code and that it can run with the copy's access.
+- move_skill (copy or move): the card says who wrote a group or project skill's code and that it can run with the access of whoever uses it there.
 
 Out: a rewritten script, code a skill points to elsewhere, copies made inside a run, skill_files' person-approved
 take-out, and refusing runs of files in folders others can write (later).

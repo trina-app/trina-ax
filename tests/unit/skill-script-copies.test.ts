@@ -209,11 +209,21 @@ describe('the file tools never save a copy of one that the chat read (QA TC-4932
 
   test('a copy of a file this chat never read is not compared; the refusal names a path only when the person may read it now', () => {
     expect(() => refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map() } }, team, 'users/alice/x.py', Buffer.from(SCRIPT), () => true)).not.toThrow()
-    // read in an earlier answer, no longer readable (carried): refused without naming it
-    let msg = ''
-    try { refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map(), carried: { hashes: new Map([[GROUP_SCRIPT, 'x']]) } } }, team, 'users/alice/x.py', Buffer.from(SCRIPT), () => false) } catch (e) { msg = (e as Error).message }
+    // read in an earlier answer, no longer readable (carried): only the hash recorded then is compared (never the disk),
+    // and the refusal names nothing
+    const sha = (x: string) => crypto.createHash('sha256').update(x).digest('hex')
+    const gone = (recorded: string, data: string) => {
+      try { refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map(), carried: { hashes: new Map([[GROUP_SCRIPT, recorded]]) } } }, team, 'users/alice/x.py', Buffer.from(data), () => false); return '' } catch (e) { return (e as Error).message }
+    }
+    const msg = gone(sha(SCRIPT), SCRIPT)
     expect(msg).toContain('it is a copy of a file, a file of a group\'s or project\'s skill')
     expect(msg).not.toContain('groups/')
+    // the file on the disk is the same as the save, but the recorded read was another version: not refused (the disk is
+    // not read, so nothing is learned about it as it is now); line endings are not evened out for such a file
+    expect(gone(sha('an older version of the script, long enough'), SCRIPT)).toBe('')
+    expect(gone(sha(SCRIPT), SCRIPT.replace(/\n/g, '\r\n'))).toBe('')
+    // the same through allReads (read in this answer, access lost since)
+    expect(() => refuseSkillScriptCopy({ turnId: 't', files: { allReads: new Map([[GROUP_SCRIPT, sha(SCRIPT)]]) } }, team, 'users/alice/y.py', Buffer.from(SCRIPT), () => false)).toThrow(/a copy of a file,/)
     expect(scriptCopyRefusal('a.py', null)).not.toContain('marketing')
   })
 
@@ -227,18 +237,19 @@ describe('the file tools never save a copy of one that the chat read (QA TC-4932
   })
 })
 
-describe('copying a group or project skill that holds code (move_skill keep)', () => {
+describe('copying or moving a group or project skill that holds code (move_skill)', () => {
   const files = [{ path: 'groups/marketing/skills/grp-tool/SKILL.md' }, { path: 'groups/marketing/skills/grp-tool/scripts/x.py' }]
   const group = { level: 'group', group: { id: 'marketing', name: 'Marketing' } }
-  test('the card says who wrote the code and that it runs with the copy\'s users\' access', () => {
+  test('the card says who wrote the code and that it runs with the access of its new users', () => {
     const l = copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files } as never, 'en')
     expect(l).toContain('1 script or code file written by members of the group "Marketing"')
-    expect(l).toContain('can run with the access of whoever uses the copy, you included')
+    expect(l).toContain('can run with the access of whoever uses the skill there, you included')
     expect(copyCodeLine({ copy: true, from: { level: 'project', project: { id: 'p', name: 'Atlas' } }, to: { level: 'team' }, files } as never, 'en')).toContain('people who can change the project "Atlas"')
     expect(copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files } as never, 'ko')).toContain('Marketing')
   })
-  test('nothing for a move, a Markdown-only skill, a team skill, or a copy to another group or project', () => {
-    expect(copyCodeLine({ copy: false, from: group, to: { level: 'personal' }, files } as never, 'en')).toBe('')
+  test('a move says it too; nothing for a Markdown-only skill, a team skill, or into another group or project', () => {
+    expect(copyCodeLine({ copy: false, from: group, to: { level: 'personal' }, files } as never, 'en')).toContain('written by members of the group "Marketing"')
+    expect(copyCodeLine({ copy: false, from: group, to: { level: 'group', group: { id: 'f', name: 'F' } }, files } as never, 'en')).toBe('')
     expect(copyCodeLine({ copy: true, from: group, to: { level: 'personal' }, files: files.slice(0, 1) } as never, 'en')).toBe('')
     expect(copyCodeLine({ copy: true, from: { level: 'team' }, to: { level: 'personal' }, files } as never, 'en')).toBe('')
     expect(copyCodeLine({ copy: true, from: group, to: { level: 'group', group: { id: 'f', name: 'F' } }, files } as never, 'en')).toBe('')

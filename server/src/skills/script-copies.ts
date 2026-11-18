@@ -79,10 +79,12 @@ export const scriptCopyRefusal = (rel: string, from: string | null) =>
 
 /**
  * Called right before an AI-side tool (a chat turn: turnId set) puts `data` at `rel` outside a group's or project's
- * skills folder: refused when it is an exact copy (copyKey) of a group or project skill file that this turn or this
- * chat read (readSkillFiles). Each such file is read again now (it may have changed since). `mayRead`: whether the
- * person may read a path now (the refusal names only such a path). Writes in a skill folder have their own card
- * (skills/guard.ts); people's saves on the file screen pass.
+ * skills folder: refused when it is a copy of a group or project skill file that this turn or this chat read
+ * (readSkillFiles). A file the person may read now (`mayRead`) is read again (it may have changed since) and compared
+ * by copyKey; the refusal names it. A file the person may no longer read is never read from the disk: the save is
+ * compared with the sha256 recorded when it was read (an exact byte copy only), so the refusal says nothing about the
+ * file as it is now, and it names no path. Writes in a skill folder have their own card (skills/guard.ts); people's saves
+ * on the file screen pass.
  */
 export function refuseSkillScriptCopy(ctx: { turnId: string | null; files: ReadRecords }, root: string, rel: string, data: Uint8Array, mayRead: (rel: string) => boolean): void {
   if (ctx.turnId === null || inOthersSkills(rel)) return
@@ -90,7 +92,14 @@ export function refuseSkillScriptCopy(ctx: { turnId: string | null; files: ReadR
   if (!candidates.length) return
   const key = copyKey(data)
   if (!key) return
+  let raw: string | null = null
   for (const c of candidates) {
+    if (!mayRead(c)) {
+      const recorded = ctx.files.allReads.get(c) ?? ctx.files.carried?.hashes.get(c)
+      raw ??= crypto.createHash('sha256').update(data).digest('hex')
+      if (recorded && recorded === raw) throw new Denied(scriptCopyRefusal(rel, null))
+      continue
+    }
     const abs = path.join(root, ...c.split('/'))
     let bytes: Buffer
     try {
@@ -98,6 +107,6 @@ export function refuseSkillScriptCopy(ctx: { turnId: string | null; files: ReadR
       if (!st.isFile() || st.size > MAX_BYTES) continue
       bytes = fs.readFileSync(abs)
     } catch { continue }
-    if (copyKey(bytes) === key) throw new Denied(scriptCopyRefusal(rel, mayRead(c) ? c : null))
+    if (copyKey(bytes) === key) throw new Denied(scriptCopyRefusal(rel, c))
   }
 }

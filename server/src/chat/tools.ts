@@ -820,11 +820,11 @@ function skillTools(exec: TurnExec, scripts: () => boolean): Tool[] {
 }
 
 // ---------------- move_skill ----------------
-/** A copy of a group's or project's skill that holds code (files that are not Markdown), into the team's or the
- * person's own skills: the card says who wrote that code and that it can run with the copy's users' access (QA TC-4932:
- * a group or project skill's scripts never run where they are; a team or own copy's do). '' otherwise. */
-export function copyCodeLine(plan: Pick<MovePlan, 'copy' | 'from' | 'to' | 'files'>, L: Locale): string {
-  if (!plan.copy || (plan.to.level !== 'team' && plan.to.level !== 'personal')) return ''
+/** A group's or project's skill that holds code (files that are not Markdown), copied or moved into the team's or the
+ * person's own skills: the card says who wrote that code and that it can run with the access of whoever uses it there
+ * (QA TC-4932: a group or project skill's scripts never run where they are; a team or own skill's do). '' otherwise. */
+export function copyCodeLine(plan: Pick<MovePlan, 'from' | 'to' | 'files'>, L: Locale): string {
+  if (plan.to.level !== 'team' && plan.to.level !== 'personal') return ''
   const n = plan.files.filter((f) => !/\.md$/i.test(f.path)).length
   if (!n) return ''
   if (plan.from.level === 'group') return skillText('copyCodeGroup', L, { group: plan.from.group.name, n: String(n) })

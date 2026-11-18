@@ -15,12 +15,15 @@
   project's absent skills folder) is not one of them: it stays read-only as before.
 - **Not in the hash.** The hash a running command or job is checked against is made without those folders, so someone
   who makes or removes a group skills folder cannot stop other people's jobs. The price: a skills folder made while a
-  run lasts is not hidden from that run until its next command.
+  run lasts stays visible to that running command, job or dev server until that run ends; the person's next run hides
+  it.
 - **What the server catches: exact copies saved with the file tools.** An AI-side save (write, edit, a conflict copy)
   outside those folders whose content is an exact copy of a group or project skill file that this answer or an earlier
   answer of this chat read (TurnFiles.allReads and carried reads, never a walk of the folders) is refused: compared after
   line endings and trailing spaces are evened out, Markdown left out (the instructions may be quoted), text under 24
-  characters left out. The refusal names the file only when the person may read it now. Saves in a skill folder keep
+  characters left out. A file the person may no longer read is never read from the disk: the save is compared with the
+  sha256 recorded at the read (exact bytes only), and the refusal names no path. Only a file the person may read now is
+  named. Saves in a skill folder keep
   their own card; people's saves on the Files screen are not checked; copy and move of a skill folder's files were
   refused already.
 - **What is not caught.** A script the AI rewrites in other words, code the skill points to elsewhere (a file or a link
@@ -29,7 +32,7 @@
 - **Command text.** A command that names such a folder under `$TRINA_TEAM`, or a cwd in the project's own skills
   folder, is refused before it runs with the reason, so the AI does not try again in other words. It is a hint only:
   the run hides the folders whatever the command says.
-- **Copying a skill with code to the team or one's own skills** (move_skill keep): the card says who wrote the code
-  (the group's members, or the people who can change the project) and that it can run with the access of whoever uses
-  the copy.
+- **Copying or moving a skill with code to the team or one's own skills** (move_skill): the card says who wrote the
+  code (the group's members, or the people who can change the project) and that it can run there with the access of
+  whoever uses the skill.
 - **Left for later.** Refusing a command that runs a file from a folder other members can write (outside skills).
