@@ -96,7 +96,12 @@ import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../prox
 import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
-import { runApiAgent } from '../engine/api-agent'
+import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
+import { apiContextSize, noteContextRefusal } from '../engine/api-context'
+import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-fit'
+import { historyFit } from './history-fit'
+import { HISTORY_MAX_TOKENS } from './prompt'
+import { listedTools } from '../mcp/protocol'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
@@ -301,6 +306,10 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** the trim is the model's doing: its small context (chat/history-fit.ts), not a long chat */
+  historySmallModel = false
+  /** the API engine: a model of this many tokens has no room for any history next to this turn's instructions */
+  private apiFixedLeavesNoRoom: ((contextTokens: number) => boolean) | null = null
   /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
   private summaryAfter: (() => void) | null = null
   /** the attempt that answers started a fresh session (its prompt carried the history) */
@@ -941,6 +950,8 @@ export class TurnExec {
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
+    // the history window: HISTORY_MAX_TOKENS, or what a small model's context leaves (set below, chat/history-fit.ts)
+    let historyBudget: number | undefined
     const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
     // the branch up to a message with its summary lines and their hash chain, made once per turn and message. The
     // attempts of this turn (a refusal retry, a failed resume, another connection, the Codex fallback) all reuse what
@@ -967,14 +978,14 @@ export class TurnExec {
      * file-list/service.ts), or no AI for it */
     const summaryJob = (leaf: string | null): Promise<unknown> | null => {
       const p = prep(leaf)
-      if (!summaryOn || !p.h.length || uncovered(p.h, summaryOf(leaf)) === 0) return null
+      if (!summaryOn || !p.h.length || (historyBudget !== undefined && historyBudget < 1) || uncovered(p.h, summaryOf(leaf), historyBudget) === 0) return null
       try {
         const owner = ownerId(rt.ctx)
         if (budgetBlock(rt.db, spec.userId, 'en') || (owner && budgetBlock(rt.db, owner, 'en'))) return null
       } catch { return null }
       const ai = summaryAi(rt.ctx)
       if (!ai) return null
-      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain })
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain, budget: historyBudget })
     }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
@@ -986,6 +997,7 @@ export class TurnExec {
       history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
       historySummary: fresh ? summaryOf(userMsg.parent_id) : null,
+      historyBudget,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -1013,7 +1025,9 @@ export class TurnExec {
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
-      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
+      // cut only because the model's context is small: the default window would have held it (the chat says so)
+      this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
       this.ranFresh = fresh
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
@@ -1094,6 +1108,43 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
+    // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
+    // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
+    // instructions, the tool list and the message leave, with room for the answer (chat/history-fit.ts). A model the
+    // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
+    // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
+    let apiToolBudget: number | undefined
+    /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
+    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
+      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    }
+    this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
+    if (api && !replay && !this.restricted) {
+      const size = await apiContextSize(api, { signal: this.abort.signal }).catch(() => null)
+      if (this.stopReason) return
+      if (size) {
+        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it: on a size
+        // the model's server stated or a refusal named, never on a guess (a proxy in front of a large model). A wrong
+        // refusal number is forgotten with the next answer that used more tokens (engine/api-context.ts)
+        const guess = !size.exact && size.source !== 'refusal'
+        if (!guess) apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
+        const { tools, fit } = apiFit(size.tokens, apiToolBudget)
+        if (fit.overflows && size.exact) {
+          rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
+          this.error = engineError('model_too_small', spec.locale)
+          return
+        }
+        // a guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front of a
+        // large model, a local server that keeps its size to itself): the default window, as for an unknown model
+        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        else if (fit.limited) {
+          historyBudget = fit.budget
+          rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
+        }
+      }
+    }
     // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
     // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
     // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
@@ -1110,7 +1161,7 @@ export class TurnExec {
         if (end === 'late') markSummaryFailed(spec.chatId, spec.userId)
         // the step says whether this answer has the summary (an error mark: it started with the recent part only)
         const got = summaryOf(userMsg.parent_id)
-        const used = !!got && uncovered(prep(userMsg.parent_id).h, got) === 0
+        const used = !!got && uncovered(prep(userMsg.parent_id).h, got, historyBudget) === 0
         this.updateStep(step.id, { status: used ? 'ok' : 'error', endedAt: new Date().toISOString() })
         if (this.stopReason) return
       }
@@ -1339,13 +1390,20 @@ export class TurnExec {
       this.continueMode = 'round'
       try {
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget })
       } finally { this.continueMode = null; this.connectedSince = [] }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (err && !this.stopReason) {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
-        this.error = engineError(err.code, spec.locale, undefined, err.status)
+        // a refusal that names the model's context size: the model is small, not the chat too long (a new chat would
+        // not help); the size is kept, so the next turn's window fits it (engine/api-context.ts)
+        // only for a small model (below the default window) or one the instructions alone nearly fill; a large one
+        // refused for an oversized tool result keeps the usual "too long" words
+        const named = err.code === 'context' ? noteContextRefusal(api, err.message) : null
+        let small = false
+        if (named !== null) { try { small = named < HISTORY_MAX_TOKENS || !!this.apiFixedLeavesNoRoom?.(named) } catch { small = named < HISTORY_MAX_TOKENS } }
+        this.error = engineError(small ? 'model_too_small' : err.code, spec.locale, undefined, err.status)
       }
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
@@ -4603,9 +4661,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure

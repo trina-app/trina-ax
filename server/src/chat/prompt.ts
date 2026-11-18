@@ -101,6 +101,9 @@ export interface PromptInput {
   history: { role: 'user' | 'assistant'; content: string }[] | null
   /** the summary of the history's first messages (chat/history-summary.ts); absent: the recent part only */
   historySummary?: HistorySummary | null
+  /** how many estimated tokens the history may take (chat/history-fit.ts: a model with a small context); absent:
+   * HISTORY_MAX_TOKENS */
+  historyBudget?: number
   /** the services connected for this person (per-person tools, integrations/connections/tools.ts); null: none */
   connected?: string | null
   /** the AI has Claude Code's Agent tool this turn (docs/DECISIONS.md "Sub-agents") */
@@ -451,6 +454,8 @@ export function companyProfileBlock(files: FileService, user: Principal, readabl
  * its end was kept.
  */
 export function historyWindow(history: { role: 'user' | 'assistant'; content: string }[], budget = HISTORY_MAX_TOKENS): { parts: string[]; omitted: number; cut: boolean } {
+  // no room at all (a model whose context the instructions fill): every message is left out, none half-cut
+  if (budget < 1) return { parts: [], omitted: history.length, cut: false }
   const parts: string[] = []
   let used = 0
   let cut = false
@@ -486,28 +491,46 @@ export function summaryForPrompt(text: string): string {
 const usableSummary = (history: readonly unknown[], summary: HistorySummary | null | undefined): HistorySummary | null =>
   summary && summary.text.trim() && summary.count > 0 && summary.count <= history.length ? summary : null
 
+/** A summary as a window of `budget` gives it: whole when it takes at most half the budget, else its beginning (the
+ * goal and the facts come first) with a note. Only a small model's window cuts it (a summary is at most 8,000
+ * characters, the default window 40,000 tokens). */
+export function summaryWithin(summary: HistorySummary, budget = HISTORY_MAX_TOKENS): HistorySummary {
+  const room = Math.floor(budget / 2)
+  if (estimateTokens(summary.text) <= room) return summary
+  const note = '\n[… the rest of the summary did not fit this AI model]'
+  let used = estimateTokens(note)
+  let i = 0
+  for (; i < summary.text.length; i++) {
+    const t = summary.text.charCodeAt(i) < 128 ? 0.25 : 1
+    if (used + t > room) break
+    used += t
+  }
+  return { ...summary, text: summary.text.slice(0, i) + note }
+}
+
 /** The window after a summary: the messages it does not cover, in what the summary leaves of the budget. */
-export function historyWindowAfter(history: { role: 'user' | 'assistant'; content: string }[], summary: HistorySummary | null) {
-  if (!summary) return historyWindow(history)
-  return historyWindow(history.slice(summary.count), Math.max(HISTORY_MAX_TOKENS / 4, HISTORY_MAX_TOKENS - estimateTokens(summary.text)))
+export function historyWindowAfter(history: { role: 'user' | 'assistant'; content: string }[], summary: HistorySummary | null, budget = HISTORY_MAX_TOKENS) {
+  if (!summary) return historyWindow(history, budget)
+  return historyWindow(history.slice(summary.count), Math.max(budget / 4, budget - estimateTokens(summaryWithin(summary, budget).text)))
 }
 
 /** The AI gets only part of this history (the chat shows "remembers only the recent part", docs/DECISIONS.md
  * "Long conversations: say when the AI got only the recent part"): messages left out that no summary covers, or the
  * newest one cut. */
-export function historyTrimmed(history: { role: 'user' | 'assistant'; content: string }[] | null, summary?: HistorySummary | null): boolean {
+export function historyTrimmed(history: { role: 'user' | 'assistant'; content: string }[] | null, summary?: HistorySummary | null, budget = HISTORY_MAX_TOKENS): boolean {
   if (!history?.length) return false
-  const w = historyWindowAfter(history, usableSummary(history, summary))
+  const w = historyWindowAfter(history, usableSummary(history, summary), budget)
   return w.omitted > 0 || w.cut
 }
 
 /** Recent messages of the branch word for word (newest kept, HISTORY_MAX_TOKENS), and before them the summary of the
  * older ones when there is one (chat/history-summary.ts); older messages no summary covers are counted. */
-export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[], summary?: HistorySummary | null): string {
+export function historyBlock(history: { role: 'user' | 'assistant'; content: string }[], summary?: HistorySummary | null, budget = HISTORY_MAX_TOKENS): string {
   if (!history.length) return ''
-  const sum = usableSummary(history, summary)
+  const usable = usableSummary(history, summary)
+  const sum = usable && budget >= 1 ? summaryWithin(usable, budget) : null
   // a "#" room in an earlier message: its id only (a room's name is not the person's words: chat/turn.ts roomRefsBlock)
-  const { parts, omitted } = historyWindowAfter(history.map((h) => (h.role === 'user' ? { ...h, content: roomRefsByIdOnly(h.content) } : h)), sum)
+  const { parts, omitted } = historyWindowAfter(history.map((h) => (h.role === 'user' ? { ...h, content: roomRefsByIdOnly(h.content) } : h)), sum ? usable : null, budget)
   return [
     '<previous_conversation>',
     'The conversation so far in this chat (your earlier session is not available; continue from here).',
@@ -1325,7 +1348,7 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
     { id: 'browser', text: browserSection(i) },
     { id: 'sideRoom', text: i.sideRoom ? (i.guest && !guestReadsRoom(i, tools.has('room_read')) ? guestSideRoomSection(i.sideRoom, i.locale) : sideRoomSection(i.sideRoom, i.locale, tools.has('post_to_room'))) : '' },
     { id: 'shared', text: i.shared ? sharedSection(i.shared, i.locale, tools.has('post_to_room'), !!i.guest, tools.has('answer_comments'), tools.has('box_shell')) : '' },
-    { id: 'history', text: i.history?.length ? historyBlock(i.history, i.historySummary) : '' },
+    { id: 'history', text: i.history?.length ? historyBlock(i.history, i.historySummary, i.historyBudget) : '' },
   ]
 }
 
