@@ -105,10 +105,16 @@ export const SUPPORT_DETAIL_MAX = 600
 // The rules of supportDetail, in order. A secret field is a name that ENDS in a secret word, with any prefix
 // (refreshToken, x-api-key, OPENAI_API_KEY), so usage counts such as input_tokens stay; a quoted value goes whole.
 const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:)?\/\/[^\s/@:"'`]+(?::[^\s/@"'`]*)?@/gi
-const COOKIE_LINE = /\b((?:set-)?cookie)\b(["']?\s*[:=])[^\n]*/gi
-const SECRET_PAIR = /\b([A-Za-z0-9_-]*(?:pass|password|passphrase|passwd|pwd|token|secret|key|apikey|auth|authorization|credential|credentials|cookie))(["']?\s*[:=]\s*)(?:"[^"\n]*"|'[^'\n]*'|(?:(?:Bearer|Basic)\s+)?(?![{\s])[^\s"',}]+)/gi
+// a PEM private key, whole (it spans lines), before any other rule
+const PEM_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g
+// cookies and (proxy-)authorization of any scheme (Basic, Bearer, Digest…): to the end of the line
+const COOKIE_LINE = /\b((?:set-)?cookie|(?:proxy-)?authorization)\b(["']?\s*[:=])[^\n]*/gi
+// well-known token shapes even without a field name (Slack, GitHub, GitLab, Google, AWS); the separator or length is
+// required, so words such as "ghost" stay
+const TOKEN_PREFIX = /\b(?:xox[abprs]-|gh[pousr]_|github_pat_|glpat-)[-_A-Za-z0-9]+|\bAIza[-_A-Za-z0-9]{20,}|\bAKIA[0-9A-Z]{12,}/g
+const SECRET_PAIR = /\b([A-Za-z0-9_-]*(?:pass|password|passphrase|passwd|pwd|token|secret|key|apikey|auth|authorization|credential|credentials|cookie))(["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|(?:(?:Bearer|Basic)\s+)?(?![{\s])[^\s"',}&;]+)/gi
 const AUTH_SCHEME: readonly [RegExp, string][] = [
-  [/\bBearer\s+[^\s"',}]+/gi, 'Bearer [hidden]'],
+  [/\bBearer\s+[^\s"',}&;]+/gi, 'Bearer [hidden]'],
   [/\bBasic\s+[A-Za-z0-9+/=._~-]{6,}/gi, 'Basic [hidden]'],
 ]
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g
@@ -133,7 +139,8 @@ const maskRuns = (s: string) => s
 export function supportDetail(raw: string | null | undefined, key: string | null = null): string | undefined {
   let s = (raw ?? '').trim()
   if (!s) return undefined
-  s = redact(s, key)
+  s = redact(s.replace(PEM_KEY, '[private key hidden]'), key)
+    .replace(TOKEN_PREFIX, '[hidden]')
     .replace(URL_CREDENTIALS, '$1//[hidden]@')
     .replace(COOKIE_LINE, '$1$2 [hidden]')
     .replace(SECRET_PAIR, '$1$2[hidden]')

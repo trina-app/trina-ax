@@ -118,6 +118,36 @@ describe('a failed engine check shows a plain line', () => {
     })
   })
 
+  describe('supportDetail, second review of #1255', () => {
+    const d = (x: string) => supportDetail(x)!
+    test('1. a quoted value with escaped quotes goes whole', () => {
+      const out = d(String.raw`{"password":"ab\"cd\"tail-secret","next":"ok"} token='x\'y\'z-tail' after`)
+      expect(out).not.toMatch(/tail-secret|cd|z-tail/)
+      expect(out).toContain('"next":"ok"')
+      expect(out).toContain('after')
+    })
+    test('2. a PEM private key block, whole, and one cut off before its end', () => {
+      const pem = '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAabc\nline2xyz\n-----END RSA PRIVATE KEY-----'
+      const out = d(`before\n${pem}\nafter`)
+      expect(out).toBe('before\n[private key hidden]\nafter')
+      expect(d('x -----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\npartial')).toBe('x [private key hidden]')
+    })
+    test('3. (proxy-)authorization of any scheme to the end of the line', () => {
+      const out = d('Authorization: Digest username="u", realm="r", response="6629fae49393a05397450978507c4ef1"\nProxy-Authorization: Negotiate YIIabc\nnext')
+      expect(out).not.toMatch(/Digest|6629fae4|realm|Negotiate|YIIabc/)
+      expect(out).toBe('Authorization: [hidden]\nProxy-Authorization: [hidden]\nnext')
+    })
+    test('4. known short token prefixes without a field name; plain words stay', () => {
+      const toks = ['xoxb-1234-abcd', 'ghp_abcDEF123', 'gho_x1', 'github_pat_11ABC_def', 'glpat-abc123', 'AIzaSyA1b2C3d4E5f6G7h8I9j0', 'AKIAIOSFODNN7EXAMPLE']
+      const out = d(`saw ${toks.join(' ')} in the ghost log`)
+      for (const t of toks) expect(out).not.toContain(t)
+      expect(out).toContain('ghost log')
+    })
+    test('5. a query string: only the secret value goes, the other parameters stay', () => {
+      expect(d('GET /v1/models?api_key=abc123&model=m-1&token=t0;lang=en')).toBe('GET /v1/models?api_key=[hidden]&model=m-1&token=[hidden];lang=en')
+    })
+  })
+
   describe('the API engine: a timeout and an address that does not answer have different lines', () => {
     const real = globalThis.fetch
     afterAll(() => { globalThis.fetch = real })
