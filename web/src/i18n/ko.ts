@@ -590,6 +590,8 @@ export const ko = {
   "chat.limit.message": "이어서 해 주세요.",
   "chat.memory.note": "대화가 길어서 AI가 최근 내용만 기억하고 있어요.",
   "chat.memory.tip": "중요한 내용은 다시 알려 주거나, 요약해서 새 채팅에서 이어 가세요.",
+  "chat.memory.smallModel": "팀이 쓰는 AI 모델은 한 번에 짧은 대화만 읽을 수 있어서 최근 내용만 기억하고 있어요.",
+  "chat.memory.smallModelTip": "중요한 내용은 다시 알려 주세요. 긴 대화가 필요하면 관리자에게 더 많이 읽을 수 있는 모델을 요청해 주세요.",
   'chat.send': '보내기',
   'chat.sending': '보내는 중…',
   'chat.notSent': '보내지 못했어요.',
@@ -2662,6 +2664,7 @@ export const ko = {
   "audit.act.hosting.offsite_backup": "트리나 호스팅이 외부 백업 저장",
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ko,
+  'chat.error.model_too_small': CHAT_ERROR_MESSAGES.model_too_small.ko,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ko,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.ko,
   'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.ko,

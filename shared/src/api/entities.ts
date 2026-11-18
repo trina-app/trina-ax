@@ -603,6 +603,9 @@ export const Message = z.object({
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),
+  /** answers only, with historyTrimmed: the cut came from the team's AI model, whose context holds only a short
+   * conversation (server/src/chat/history-fit.ts), not from a long chat */
+  historySmallModel: z.literal(true).optional(),
   /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
    * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
   sourceCount: z.number().int().positive().optional(),

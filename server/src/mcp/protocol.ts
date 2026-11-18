@@ -26,6 +26,10 @@ export function toolUseIdOf(params: unknown): string | null {
   return typeof id === 'string' && id.length > 0 && id.length <= 200 ? id : null
 }
 
+/** The tools a turn's tools/list gives: the file tools and the turn's own (or every registered one). */
+export const listedTools = (files: FileService, extra?: TurnToolSet): { name: string; description: string; inputSchema: unknown }[] =>
+  [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())]
+
 export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
   const insert = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,?)')
   type CallResult = { result: { content: unknown[]; isError?: true }; beforeDelivery?: () => void }
@@ -174,7 +178,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       // file tools first, then the extra tools. A chat turn brings its own set (`extra`: B's tools plus every
       // ctx.services.turnTools entry, which includes C's registry tools). Without one (stage-1 turns, direct
       // tests) the tools other components registered in tools/registry.ts are served as they are.
-      case 'tools/list': return reply({ tools: [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())] })
+      case 'tools/list': return reply({ tools: listedTools(files, extra) })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})

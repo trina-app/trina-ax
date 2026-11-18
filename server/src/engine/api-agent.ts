@@ -15,6 +15,7 @@ import { apiEngineFetch } from '../system/egress'
 import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials/prices'
 import { LinkGuard } from './api-links'
 import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
+import { fitApiTools, toolsLeftOutNote, type ApiTool } from './api-tools-fit'
 
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
@@ -263,6 +264,10 @@ function toolContent(out: string, links: string[]): string {
   return `${text}\n\nLinks for the user from this result (copy them exactly; there are no other links to these files):\n${links.slice(0, 20).map((l) => `- ${l}`).join('\n')}`
 }
 
+/** The MCP tool list as Chat Completions functions (what each request sends; chat/history-fit.ts counts it). */
+export const apiToolsOf = (list: readonly { name: string; description: string; inputSchema: unknown }[]): ApiTool[] =>
+  list.map((t) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+
 /**
  * Run one turn: system prompt + the message, the turn's tools offered as functions, tool calls answered through `rpc`
  * (the MCP handler), until the model answers without tools (or 30 rounds: then a 'limit' event). Events go to `emit`
@@ -286,15 +291,22 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   activity?: () => void
   /** after beforeRound: true when the turn's tool set was built again (a service connected on a card), so the tools
    * are listed again for this round and the ones after it */
-  toolsChanged?: () => boolean }): Promise<void> {
+  toolsChanged?: () => boolean
+  /** a model with a small context: the most estimated tokens the tool list may take (engine/api-tools-fit.ts) */
+  toolBudget?: number }): Promise<void> {
   // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
   const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
+  // the tools left out for a small model, named in the instructions (engine/api-tools-fit.ts)
+  let left: string[] = []
   const listTools = async () => {
     const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
-    return (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+    const fit = fitApiTools(apiToolsOf(listed?.result?.tools ?? []), o.toolBudget)
+    left = fit.left
+    return fit.tools
   }
   let tools = await listTools()
-  const systemPrompt = `${o.systemPrompt}\n\n${API_GROUNDING_RULES}`
+  const instructions = () => [o.systemPrompt, API_GROUNDING_RULES, toolsLeftOutNote(left)].filter(Boolean).join('\n\n')
+  const systemPrompt = instructions()
   const guard = new LinkGuard(o.publicOrigins)
   // links that earlier answers of this chat showed (history in the instructions or the message) stay allowed
   guard.allow(o.systemPrompt)
@@ -323,7 +335,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   for (let step = 0; step < (o.maxSteps ?? MAX_STEPS); step++) {
     if (step > 0) o.beforeRound?.()
     if (o.signal.aborted) return
-    if (step > 0 && o.toolsChanged?.()) tools = await listTools()
+    if (step > 0 && o.toolsChanged?.()) { tools = await listTools(); messages[0] = { role: 'system', content: instructions() } }
     let r: Awaited<ReturnType<typeof complete>>
     try { r = await complete(o.conf, messages, tools, o.emit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round }) } catch (e) {
       showCut()

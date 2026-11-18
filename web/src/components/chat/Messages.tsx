@@ -857,7 +857,7 @@ export function AssistantMessage({
           <p role="note" className="mt-3 flex items-start gap-1.5 text-xs leading-5 text-muted" data-testid="memory-note">
             <History size={13} className="mt-0.5 shrink-0" aria-hidden />
             <span>
-              {t('chat.memory.note')} <span className="text-faint">{t('chat.memory.tip')}</span>
+              {t(m.historySmallModel ? 'chat.memory.smallModel' : 'chat.memory.note')} <span className="text-faint">{t(m.historySmallModel ? 'chat.memory.smallModelTip' : 'chat.memory.tip')}</span>
             </span>
           </p>
         )}

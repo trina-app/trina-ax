@@ -576,6 +576,8 @@ export const ja: Record<MessageKey, string> = {
   "chat.limit.message": "続けてください。",
   "chat.memory.note": "会話が長いため、AIは最近の部分だけを覚えています。",
   "chat.memory.tip": "大事な内容はもう一度伝えるか、要約して新しいチャットで続けてください。",
+  "chat.memory.smallModel": "チームが使っているAIモデルは一度に短い会話しか読めないため、最近の部分だけを覚えています。",
+  "chat.memory.smallModelTip": "大事な内容はもう一度伝えてください。長い会話には、より多く読めるモデルを管理者に頼んでください。",
   'chat.send': "送信",
   'chat.sending': "送信中…",
   'chat.notSent': "送信できませんでした。",
@@ -2625,6 +2627,7 @@ export const ja: Record<MessageKey, string> = {
   "audit.act.hosting.offsite_backup": "Trina ホスティングが外部バックアップを保存",
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.ja,
+  'chat.error.model_too_small': CHAT_ERROR_MESSAGES.model_too_small.ja,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.ja,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.ja,
   'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.ja,

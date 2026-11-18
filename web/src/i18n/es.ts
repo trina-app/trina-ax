@@ -576,6 +576,8 @@ export const es: Record<MessageKey, string> = {
   "chat.limit.message": "Continúe, por favor.",
   "chat.memory.note": "La conversación es larga, así que la IA solo recuerda la parte más reciente.",
   "chat.memory.tip": "Repita lo importante o continúe en un chat nuevo con un breve resumen.",
+  "chat.memory.smallModel": "El modelo de IA que usa su equipo solo puede leer una conversación corta de una vez, así que solo recuerda la parte más reciente.",
+  "chat.memory.smallModelTip": "Repita lo importante. Para chats largos, pida a su administrador un modelo que lea más.",
   'chat.send': "Enviar",
   'chat.sending': "Enviando…",
   'chat.notSent': "No se envió.",
@@ -2625,6 +2627,7 @@ export const es: Record<MessageKey, string> = {
   "audit.act.hosting.offsite_backup": "Trina hosting guardó una copia de seguridad externa",
   // Z — the API engine stopped at its output limit (server/src/engine/api-agent.ts)
   'chat.error.output_limit': CHAT_ERROR_MESSAGES.output_limit.es,
+  'chat.error.model_too_small': CHAT_ERROR_MESSAGES.model_too_small.es,
   'chat.error.storage_full': CHAT_ERROR_MESSAGES.storage_full.es,
   'chat.error.network_protection_off': CHAT_ERROR_MESSAGES.network_protection_off.es,
   'chat.error.engine_start_failed': CHAT_ERROR_MESSAGES.engine_start_failed.es,
