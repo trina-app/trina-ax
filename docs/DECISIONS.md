@@ -5372,8 +5372,7 @@ stop; a scheduled run skips files over 1 GB.
   skipped with a note for the summary. The card says the size and the server's free disk ("이 파일은 3.2 GB예요. 서버
   디스크 여유는 40 GB예요. 받을까요?", five languages; `largeUnknown` when the size was not announced).
 - **The disk is the only hard stop.** A download is refused when it would leave less than `diskReserve()` free on the
-  data disk or on the team folder's disk: 10% of the disk, at least 5 GiB, at most 20 GiB (since 2026-11-18 the one
-  reserve rule of the AI's writes too: 5% of the disk, at least 2 GiB, at most 10 GiB, docs/decisions/20261118-limits-caps.md). 5 GiB keeps room for what
+  data disk or on the team folder's disk: 10% of the disk, at least 5 GiB, at most 20 GiB. 5 GiB keeps room for what
   the server itself needs to keep working (the database and its WAL, the copy made before a migration, version history
   and trash, logs); 10% scales with bigger disks, where the team folder grows faster; the 20 GiB cap keeps a large Mac
   disk that is 90% full usable (10% of 2 TB would block everything below 200 GB free). Checked before the body (with
