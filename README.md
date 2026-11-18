@@ -2,37 +2,78 @@
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="editions/trina/branding/logo/mark-dark.svg"><img src="editions/trina/branding/logo/mark-light.svg" width="64" alt="Trina AX logo"></picture>
 
-<h1>The AI your whole team shares.</h1>
+<h1>Trina AX</h1>
 
+<b>The AI your whole team shares.</b><br>
 Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them,<br>and every file it opens is checked as the person who asked.
 
-<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a>
 
-[Website](https://ax.trina.app) · [Download for Mac and Windows](https://ax.trina.app/download) · [Docs](docs/README.md) · [Discord](https://discord.gg/zUVfSR8MVk)
+[Website](https://ax.trina.app) · [Docs](docs/README.md) · [Pricing](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
 English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
 
-<br>
-
-<a href="https://ax.trina.app/#watch"><img src="docs/images/readme/v3/film.png" width="100%" alt="Watch the 97-second story. Same Claude, same request, different result: Alex, a team lead, gets a 7-page deck; Mina, on her first day with an empty folder, gets 'Trina Logistics? Who are they?'. With Trina, Mina's AI starts from the team's files and skills."></a>
-
 </div>
 
-## What your team gets
+https://github.com/user-attachments/assets/1bd7de3e-5818-452d-a644-eb1591297050
+
+<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit</p>
+
+## Set up once. Your whole team gets it.
+
+One person sets things up on the team server. Everyone's AI has it from their first question, in the browser or the apps. Nobody else installs Claude Code, pastes keys or copies skills.
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-en-dark.webp"><img src="docs/images/readme/v4/set-up-once-en-light.webp" width="100%" alt="One person sets up the AI account, Google, apps, the company API, Slack, skills and team files once on the Trina server, and Alex on Mac, Mina on iPhone, Sam on Windows, Leo in a browser and Jordan on Android all get them in their AI."></picture>
+
+| Set up once | Everyone gets |
+| --- | --- |
+| **AI account.** An owner connects a Claude or OpenAI API key, or a plan whose terms allow it. | Answers for the whole team, with token limits per person, group or team. |
+| **Google.** Share Drive folders with the team, or connect one team account (a shared mailbox or calendar) for Gmail, Calendar, Docs and Sheets. | The people you choose use them in their chats. Anyone can still connect their own Google account. |
+| **Apps.** Higgsfield, Notion, Linear, Figma and more from the app list, or any MCP server by its address, such as Bright Data. | The app's tools in everyone's chats: one team sign-in, or each person signs in as themselves. |
+| **Your company API.** An address, a key and a few notes. | The AI calls your own system, only under that address. |
+| **Slack.** An admin adds it once. | Ask Trina in any channel or DM, with your own access. |
+| **Skills.** Write a `SKILL.md`, or bring the skills in your `.claude` or `.codex` folder. | Everyone's AI follows the same steps. Type `/` to use one. |
+| **Team files.** One drive: company-wide, groups, projects, team skills and personal folders. | Everyone's AI starts from the team's files, and opens only what that person may open. |
+
+<table>
+<tr>
+<td width="33%"><img src="docs/site/images/connect/template.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key and who uses it"><br><sub>Add an app for the whole team</sub></td>
+<td width="33%"><img src="docs/site/images/files/files.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+</tr>
+</table>
+
+## What everyone does with it
 
 **Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
 
-<img src="docs/images/readme/v3/room.gif" width="100%" alt="In the Expo booth crew room, Mina asks Trina in a side chat only she sees when move-in is on Nov 17, clicks Send to room, and the answer lands in the room.">
+<img src="docs/images/readme/v4/room-share.gif" width="100%" alt="In the Expo booth crew room, Mina asks Trina in a side chat only she sees to turn the exhibitor rules into a checklist, then sends it to the room.">
 
-**Each person sees only what they may open.** Mina can't open Finance, so neither can her AI. [How permissions work](docs/PERMISSIONS.md)
+**Each person's AI sees only what they may open.** Mina can't open Finance, so neither can her AI. [How permissions work](docs/PERMISSIONS.md)
 
-<img src="docs/images/readme/v3/access-band.png" width="100%" alt="Folders with the faces of who can open them; Mina can't open shared/Finance.">
+<img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="An admin changes who can open the Sales folder, then checks what Mina can open: Finance is not on her list.">
 
-- 🤝 **Pick up a teammate's AI chat.** Continue their project chat; your turns run with your access.
-- 📋 **Team skills.** Write down how your team works once; everyone's AI follows it.
-- 🔌 **Your tools.** Any MCP server, Google Drive, Slack and your company API, checked per person.
-- 🕘 **Every change is kept.** By a person or their AI; bring back any version.
-- 📱 **Every device.** Mac, iPhone, Android, Windows and any browser.
+**Pick up a teammate's session.** Open a teammate's project session and keep going; your turns run with your access.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina opens Sam's project session and keeps editing the card news; her turns run with her access.">
+
+<table>
+<tr>
+<td width="50%"><b>Scheduled tasks.</b> Ask once; Trina repeats it on your schedule, in your team's time zone.<br><br><img src="docs/site/images/scheduled/task.webp" alt="A weekly summary task that runs every Monday at 9:00"></td>
+<td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="A group chat with one guest"></td>
+</tr>
+<tr>
+<td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/site/images/usage/team.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
+<td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
+</tr>
+</table>
+
+- **Every change is kept.** By a person or their AI; bring back any version.
+- **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
+- **Meeting notes.** The Mac app takes notes from Zoom, Meet and Teams calls.
+- **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
+- **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
+- **Every device.** Mac, Windows, iPhone, Android and any browser, in six languages.
 
 ## Get started
 
@@ -40,10 +81,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 - **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
-<details>
-<summary><b>Try it on your computer in 10 minutes</b> (fictional team, AI off)</summary>
-
-<br>
+<b>Try it on your computer in 10 minutes</b> (fictional team, AI off)
 
 ```sh
 git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
@@ -52,7 +90,9 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Needs Bun 1.3.12 and Go 1.27+. Not a production install. [Walkthrough](docs/QUICKSTART.md)
 
-</details>
+## How it works
+
+One server runs Claude Code and Codex as the engine. Every request from an app goes through one permission check. On a Linux server the engine runs as its own account inside a bubblewrap, Landlock and seccomp sandbox, with its shell and built-in file tools turned off: it reaches files only through Trina's tools. [Security and permissions](docs/security-and-permissions.md)
 
 Trina provides the workspace, not the AI: connect Claude or OpenAI accounts and plans authorized for your use. AI usage is billed by the account you connect.
 
