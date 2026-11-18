@@ -68,8 +68,9 @@
   - **CHT-02 (product): "decide yourself" follows what the person said they would do.** The ask rule (`ASK_USER_RULE`
     in `chat/prompt.ts`, no app-map line) now says: when the person leaves the choice to the AI, pick what fits the
     latest thing they said they would do (in this chat or their own room messages) and say which; if nothing that exists
-    fits (a promised revised or signed version that is not there yet), do not send or post an older one in its place:
-    say so and ask once more, or offer to make it first. The room post's card is unchanged.
+    fits (a promised revised or signed version that is not there yet), do not send or post an older one in its place,
+    and do not make the new one with prices or terms the person has not given: say so and ask once more (a rerun had
+    made a "revised" quote at a price it picked). The room post's card is unchanged.
   - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
     `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
     own usage; "MCP" as a word of its own is still jargon; buttons inside a screen are not listed and not invented for

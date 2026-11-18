@@ -86,7 +86,7 @@ describe('the ask rule', () => {
   test('CHT-02: "decide yourself" picks what fits the person\'s latest stated intent, never an older version in place of a promised one', () => {
     expect(ASK_USER_RULE).toContain('ask with ask_user (short question, options when possible)')
     expect(ASK_USER_RULE).toContain('pick what fits the latest thing they said they would do (in this chat or in their own room messages) and say which you picked')
-    expect(ASK_USER_RULE).toContain('do not send or post an older one in its place: say so in one line and ask once more, or offer to make it first')
+    expect(ASK_USER_RULE).toContain('do not send or post an older one in its place, and do not make the new one with prices or terms they have not given: say so in one line and ask once more')
     // English source text only
     expect(ASK_USER_RULE).not.toMatch(/[가-힣]/)
   })
