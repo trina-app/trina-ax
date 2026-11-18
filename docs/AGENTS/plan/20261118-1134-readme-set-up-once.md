@@ -73,3 +73,7 @@ Out:
   Launch email chat (more fictional messages added to the demo before the shots); the session line separates team
   projects (shared with members) from Share (people or groups); new: files found by what they are (the nightly file
   list, with the 172 → 181 of 184 result from docs/AGENTS/plan/20261111-0630-file-list.md) and the in-app browser.
+- Follow-up (founder, 11/19): a star request. Launch-time READMEs in the HN sample asked in 3% (top, mid and low
+  alike); the 40 repos with the most stars now ask in 15%, near the top or at the end, "if it's useful, a star helps
+  others find it", no rewards (GitHub's rules). An orange "Star Trina AX on GitHub" button with that line goes under
+  the film, and one line opens Community.
