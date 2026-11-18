@@ -67,6 +67,10 @@ export const LOCAL_PIECE_SEC = 30
 export const FILL_PIECE_MS = 10 * 60_000
 export const FILL_RETRY_MS = 5_000
 export const FILL_TRIES = 12
+/** the sound one turn of a background transcription makes in the media slot before it lets others in */
+export const FILL_CHUNK_SEC = 300
+/** background transcriptions one person may have running at once (security review of #1335) */
+export const FILLS_PER_PERSON = 2
 /** the clock of a read's time and of whisper.cpp's speed (tests move it on to stand for slow converters) */
 let readClock = () => Date.now()
 export const now = () => readClock()

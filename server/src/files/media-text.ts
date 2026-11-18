@@ -182,6 +182,15 @@ export const MEDIA_TEXT = {
     es: 'El sonido de {from} a {to} se sigue convirtiendo en texto en segundo plano. Al seguir leyendo, las partes ya hechas salen enseguida y se espera a la que se está haciendo.',
     zh: '{from}到{to}的声音还在后台继续转成文字。接着读取时，已完成的部分会马上给出，正在转写的部分会等它完成。',
   },
+  /** the OpenRouter key was removed or replaced while the sound was being turned into text (security review of #1335) */
+  keyChanged: {
+    ko: '받아쓰기에 쓰는 키가 도중에 바뀌어서 소리를 더 글로 바꾸지 않았어요. 바꾼 부분은 남아 있고, 다시 읽으면 바뀐 설정으로 이어서 바꿔요.',
+    en: 'The key used for transcription changed meanwhile, so no more of the sound was turned into text. What was done is kept; reading again goes on with the new setting.',
+    id: 'Kunci untuk transkripsi berubah di tengah jalan, jadi suara tidak diubah lagi menjadi teks. Yang sudah selesai tetap disimpan; membaca lagi akan melanjutkan dengan pengaturan baru.',
+    ja: '文字起こしに使うキーが途中で変わったため、これ以上は音声をテキストにしませんでした。済んだ部分は残っています。もう一度読み取ると新しい設定で続けます。',
+    es: 'La clave usada para la transcripción cambió mientras tanto, así que no se convirtió más sonido en texto. Lo hecho se guarda; al leer de nuevo se sigue con la nueva configuración.',
+    zh: '用于转写的密钥中途变了，所以没有继续把声音转成文字。已完成的部分会保留，再次读取会按新的设置继续。',
+  },
   confidential: {
     ko: '기밀 대화에서는 소리를 바깥 서비스로 보내지 않아 받아쓰지 않았어요.',
     en: 'In a confidential chat the sound is not sent to an outside service, so it was not transcribed.',

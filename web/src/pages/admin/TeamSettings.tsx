@@ -634,7 +634,7 @@ export const transcriptsAfterProvider = (next: SpeechProvider, saved: Pick<TeamS
 export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = false, onChange }: { provider: SpeechProvider; value: boolean | null; host: SpeechHost; hostedKey?: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
   // an older server sends no hosted / bigEnough: its hosting key, and more than 2 cores, as it read before
-  const where = { hosted: host.hosted ?? hostedKey, mac: !!host.localMac, bigEnough: host.bigEnough ?? host.cpuCores > 2 }
+  const where = { hosted: host.hosted ?? hostedKey, hostedKey, mac: !!host.localMac, bigEnough: host.bigEnough ?? host.cpuCores > 2 }
   const on = value ?? mediaTranscriptsDefault(provider, where)
   const local = provider === 'local'
   const perMinute = host.localSecPerSec === null ? null : host.localSecPerSec * 60

@@ -43,9 +43,10 @@ describe('"Turn video sound into text"', () => {
     expect(or).not.toContain('team-media-transcripts-small')
     expect(or).toContain('OpenRouter')
   })
-  test('a hosted server has no cap to say; OpenRouter is on there by default with the team\'s key too; a measured speed is shown per minute of sound', () => {
+  test('a hosted server has no cap to say; OpenRouter with the team\'s own key stays off there too (its cost); a measured speed is shown per minute of sound', () => {
     expect(view({ host: host({ hosted: true }) })).not.toContain('at most 2 minutes')
-    expect(view({ provider: 'openrouter', host: host({ hosted: true }) })).toContain('data-on="true"')
+    expect(view({ provider: 'openrouter', host: host({ hosted: true }) })).toContain('data-on="false"')
+    expect(view({ provider: 'openrouter', hostedKey: true, host: host({ hosted: true }) })).toContain('data-on="true"')
     expect(view({ host: host({ localSecPerSec: 1.2 }) })).toContain('about 72 seconds for each minute of sound')
     expect(view({ host: host({ localSecPerSec: 3.5 }) })).toContain('about 3.5 minutes for each minute of sound')
     expect(view({ provider: 'openrouter', host: host({ localSecPerSec: 3.5, hosted: true }) })).not.toContain('minute of sound')

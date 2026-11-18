@@ -14,7 +14,6 @@ import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { imageFactsLine, seeThrough } from '../uploads/image'
 import type { ServerConfig } from '../config'
 import { getTeamSettings, HOSTED_SPEECH_KEY_SETTING, teamDefaultLocale, teamTimeZone } from '../admin/settings'
-import { isHosted } from '../system/deployment'
 import { audit } from '../admin/audit'
 import { atLeast, isStaff, loadPrincipal, RuleSet, setProjectsCaseInsensitive, type Principal } from '../policy/access'
 import { authorize, type Authorized, type FsCtx } from '../policy/authorize'
@@ -1086,11 +1085,12 @@ export class FileService {
     return media.audioWav(tools, work, name, stream, start, seconds, out, o)
   }
   /** Where this server runs, for the default of "Turn video sound into text" (shared mediaTranscriptsDefault): hosted
-   * (a plan, the hosted deployment, or the hosting service's speech key, which only its servers keep: main.ts), an Apple
-   * silicon Mac with whisper-cli, or big enough for local speech (4 cores, 8 GB). */
+   * (a plan, or the hosting service's speech key, which only its servers keep: main.ts), OpenRouter going with that key
+   * (speechFree), an Apple silicon Mac with whisper-cli, or big enough for local speech (4 cores, 8 GB, a container's
+   * limits). */
   transcriptsHost(): MediaTranscriptsHost {
-    const hosted = currentPlan() !== null || isHosted(this.cfg as unknown as Record<string, unknown>) || !!this.db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_SPEECH_KEY_SETTING)
-    return { hosted, mac: !!(this.speech.mac && this.speech.whisperBin), bigEnough: speechBigEnough() }
+    const hosted = currentPlan() !== null || !!this.db.query('SELECT 1 FROM settings WHERE key = ?').get(HOSTED_SPEECH_KEY_SETTING)
+    return { hosted, hostedKey: this.speechFree() !== null, mac: !!(this.speech.mac && this.speech.whisperBin), bigEnough: speechBigEnough() }
   }
   /** How this server transcribes video and audio sound itself (GET /api/admin/speech-host: the settings switch, and the
    * tools Voice input lacks for "this server"). */
@@ -1289,7 +1289,8 @@ export class FileService {
         // the rest of the part asked for (the whole file without `time`) is turned into text in the background, so
         // reading on finds it done or waits for the piece being made (no cap on a read's new sound)
         if (FILL_GOES_ON.has(tr.stopped) && tr.covered < win.end - 0.5 && this.fillTranscript(ctx, src, info, tools, work, tr.covered, win.end, duration)) handed = true
-        const filling = this.fills.get(src.hash)
+        // only this person's own background transcription is named (security review of #1335)
+        const filling = this.fills.get(fillKey(src.hash, ctx.user.id))
         if (filling && filling.end > tr.covered + 0.5) notes.push(say('background', { from: media.clock(tr.covered), to: media.clock(filling.end) }))
       }
 
@@ -1399,9 +1400,13 @@ export class FileService {
   private fillTranscript(ctx: ToolCtx, src: { rel: string; hash: string; identity: string; name: string; size: number }, info: media.MediaInfo, tools: media.MediaTools, work: string,
     from: number, end: number, duration: number): boolean {
     if (!this.backgroundTranscripts) return false
-    const running = this.fills.get(src.hash)
+    // one per file and person: another person's read never moves someone else's (their own checks, confidential chat
+    // and guest, decide for their own job); a piece both need is made once (piecesMaking)
+    const id = fillKey(src.hash, ctx.user.id)
+    const running = this.fills.get(id)
     if (running) { running.end = Math.max(running.end, end); return false }
     if (this.fills.size >= media.mediaParallel()) return false
+    if ([...this.fills.values()].filter((f) => f.owner === ctx.user.id).length >= media.FILLS_PER_PERSON) return false
     const ac = new AbortController()
     // Stop of the chat turn ends it; a connection's call (no turn) ends when its request does, so it gets none
     const stop = () => ac.abort(ctx.signal?.reason)
@@ -1410,16 +1415,30 @@ export class FileService {
       ctx.signal.addEventListener('abort', stop, { once: true })
     }
     const fill = { end, owner: ctx.user.id }
-    this.fills.set(src.hash, fill)
+    this.fills.set(id, fill)
     const fctx: ToolCtx = { ...ctx, signal: ac.signal }
+    // the key source it started with (the team's key, the hosting key, none for this server): removed or replaced, the
+    // run ends and the next read starts with the new one and its rules (security review of #1335)
+    const keyAtStart = this.speechKey()
     const done = (async () => {
       let idle = 0
       try {
-        for (let at = from; at < fill.end - 0.5 && !ac.signal.aborted;) {
-          const tr = await this.mediaTranscript(fctx, src, info, tools, work, { from: at, to: fill.end, end: fill.end, duration }, () => media.FILL_PIECE_MS, { background: true })
+        for (let at = from; at < fill.end - 0.5 && !ac.signal.aborted && this.speechKey() === keyAtStart;) {
+          // a few minutes of sound at a time, each in the media slot like a read (the slot's count and the person's
+          // share include it, so reads are not crowded out); a slot not free in time is tried again later
+          const to = Math.min(fill.end, at + media.FILL_CHUNK_SEC)
+          let tr: MediaTranscript | null = null
+          try {
+            tr = await media.mediaSlot(ctx.user.id, () => this.mediaTranscript(fctx, src, info, tools, work, { from: at, to, end: fill.end, duration }, () => media.FILL_PIECE_MS, { background: true }), ac.signal)
+          } catch (e) { if (!(e instanceof ToolError && e.code === 'media_busy')) throw e }
+          if (!tr) {
+            if (++idle >= media.FILL_TRIES) break
+            await new Promise((r) => setTimeout(r, this.fillRetryMs))
+            continue
+          }
           const moved = tr.covered > at + 0.5
           at = tr.covered
-          if (tr.stopped === null) continue
+          if (tr.stopped === null) { idle = 0; continue }
           if (!FILL_GOES_ON.has(tr.stopped)) break
           idle = moved ? 0 : idle + 1
           if (idle >= media.FILL_TRIES) break
@@ -1428,7 +1447,7 @@ export class FileService {
       } catch { /* Stop, the access gone, a damaged work folder: it ends, and what was made stays cached */ }
       finally {
         ctx.signal?.removeEventListener('abort', stop)
-        this.fills.delete(src.hash)
+        this.fills.delete(id)
         media.dropWork(work)
       }
     })()
@@ -1436,7 +1455,7 @@ export class FileService {
     void done.finally(() => this.fillsRunning.delete(done))
     return true
   }
-  /** the background transcriptions of recordings (fillTranscript): one per file, by its sha256, with the end it goes to */
+  /** the background transcriptions of recordings (fillTranscript): one per file and person (fillKey), with the end it goes to */
   private fills = new Map<string, { end: number; owner: string }>()
   private fillsRunning = new Set<Promise<void>>()
   /** transcript pieces being made now, by their cache key (a read or a background transcription): settles when done */
@@ -1548,13 +1567,22 @@ export class FileService {
     const requests: { generation?: string; served?: string }[] = []
     let stopped: string | null = null
     let failure: string | null = null
-    /** why no sound may go to the provider now (the switch, the provider, the chat's confidentiality, the month's free
-     * hours of the hosting key), or null */
-    const sendBlocked = (): MediaTextKey | null => {
+    /** why no sound may go to the provider now, read again before every piece and every second try (a background
+     * transcription runs for long; security review of #1335): the switch and the provider as they are now, a guest, the
+     * chat's confidentiality, the OpenRouter key (removed or another one: the key source changed, so this run stops and
+     * the next read starts with the new one and its rules), and that `sec` of sound fits in the month's hours of the
+     * hosting key; or null */
+    const sendBlocked = (sec: number): MediaTextKey | null => {
       const now = getTeamSettings(this.db)
-      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, host)) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
-      if (provider === 'openrouter' && confidentialTurn(this.db, ctx.turnId)) return 'confidential'
-      return free && (this.speechFree()?.leftSec ?? 1) <= 0 ? 'freeUsed' : null
+      if (now.speechProvider !== provider || !mediaTranscriptsOn(now, this.transcriptsHost())) return now.speechProvider === 'off' ? 'voiceOff' : 'transcriptsOff'
+      if (isGuestUser(this.db, ctx.user.id)) return 'transcriptsOff'
+      if (provider !== 'openrouter') return null
+      if (confidentialTurn(this.db, ctx.turnId)) return 'confidential'
+      const key = this.speechKey()
+      if (!key) return 'noKey'
+      if (speech?.provider === 'openrouter' && key !== speech.key) return 'keyChanged'
+      const left = this.speechFree()?.leftSec
+      return left !== undefined && left < Math.max(1, sec) ? 'freeUsed' : null
     }
     // the audit row covers every piece handed to the provider, also when the read then fails, is stopped or loses access
     try {
@@ -1590,7 +1618,7 @@ export class FileService {
           if (budget() < need) { stopped = ctx.turnId ? 'time' : 'connection'; break }
           // right before new sound is cut and sent, as things are now (a read runs for minutes): the switch and the
           // provider, the chat's confidentiality (a safe workflow may lock it meanwhile), the person's access to the file
-          const block = sendBlocked()
+          const block = sendBlocked(len)
           if (block) { stopped = block; break }
           this.recheckSource(ctx, src)
           const wav = `audio-${k}.wav`
@@ -1611,7 +1639,7 @@ export class FileService {
                 if (speech!.provider === 'local') return this.localPiece(ctx, speech!, work, wav, bytes, len, lang, budget, need, measure)
                 // a provider failure's second try sends the sound again: only after the same checks as a new piece
                 const r = await this.mediaTranscribe(speech!, work, wav, bytes, { signal: ctx.signal, timeoutMs: budget(), language: lang, send, again: () => {
-                  if (sendBlocked()) return false
+                  if (sendBlocked(len)) return false
                   this.recheckSource(ctx, src)
                   return true
                 } })
@@ -1647,7 +1675,7 @@ export class FileService {
               // piece (the first answer can take a minute): switched off or locked meanwhile, the first answer stays.
               if (speech.provider === 'openrouter' && !language && len >= LONG_PIECE_SEC && typeof answer === 'object') {
                 const told = longRetryLanguage(answer, { team, file: media.heardLanguage(heard) })
-                if (told && budget() >= need && !sendBlocked()) {
+                if (told && budget() >= need && !sendBlocked(len)) {
                   this.recheckSource(ctx, src)
                   let again: Awaited<ReturnType<typeof ask>> | null = null
                   try { again = await ask(told) } catch {
@@ -1967,6 +1995,8 @@ const MEDIA_NOTE: Record<string, MediaTextKey | undefined> = {
 const PROBE_MEMO_MS = 10 * 60_000
 /** how a transcript stopped when the rest may go on in the background: the read's span or time, the connection's
  * minute, voice input or other pieces holding whisper.cpp (never a switch, a lock, the plan's hours, a failure) */
+/** a background transcription's id: the file's sha256 and the person it runs for */
+const fillKey = (hash: string, user: string) => `${hash}:${user}`
 const FILL_GOES_ON: ReadonlySet<string | null> = new Set([null, 'time', 'connection', 'voiceBusy'])
 /** a Mac read starts the model download again at most this often after one failed */
 const MODEL_RETRY_MS = 5 * 60_000

@@ -12,7 +12,7 @@ import { getTeamSettings, teamDefaultLocale, updateTeamSettings } from '../../se
 import { componentC } from '../../server/src/team-files/component'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { containerLimits, setPlanForTests, speechBigEnough } from '../../server/src/system/limits'
+import { containerLimits, setCgroupForTests, setPlanForTests, speechBigEnough } from '../../server/src/system/limits'
 import os from 'node:os'
 import { JobFailure } from '../../server/src/jobs/service'
 import { dictationTurn, pieceTurn, setPieceSlotsForTests, setPieceWaitForTests, whisperTurns } from '../../server/src/jobs/whisper-turns'
@@ -448,15 +448,17 @@ describe('limits of one result and one turn', () => {
 describe('who transcribes, and when sound may leave the server', () => {
   const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
   test('the default follows the provider and the server: on when hosted, on a Mac, on this server with 4 cores and 8 GB; off for the team\'s own OpenRouter key on its own server; voice input off means none', async () => {
-    const own = { hosted: false, mac: false, bigEnough: true }
+    const own = { hosted: false, hostedKey: false, mac: false, bigEnough: true }
     expect(mediaTranscriptsDefault('local', own)).toBe(true)
     expect(mediaTranscriptsDefault('local', { ...own, bigEnough: false })).toBe(false)
-    expect(mediaTranscriptsDefault('local', { hosted: false, mac: true, bigEnough: false })).toBe(true)
-    expect(mediaTranscriptsDefault('local', { hosted: true, mac: false, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('local', { ...own, mac: true, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('local', { ...own, hosted: true, bigEnough: false })).toBe(true)
     expect(mediaTranscriptsDefault('openrouter', own)).toBe(false)
-    expect(mediaTranscriptsDefault('openrouter', { hosted: false, mac: true, bigEnough: true })).toBe(false)
-    expect(mediaTranscriptsDefault('openrouter', { hosted: true, mac: false, bigEnough: false })).toBe(true)
-    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, { hosted: true, mac: true, bigEnough: true })).toBe(false)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, mac: true })).toBe(false)
+    // hosted: on only with the hosting key (its hours); the team's own key is off there too (coordinator, 2026-11-19)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, hosted: true, hostedKey: true })).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, hosted: true, hostedKey: false })).toBe(false)
+    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, { hosted: true, hostedKey: true, mac: true, bigEnough: true })).toBe(false)
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     let r = await read({ file_path: put('m1.mp4') })
     expect(r.out.text).toContain('Voice input is off for this team')
@@ -684,14 +686,16 @@ describe('the whole recording: what a read has no time for goes on in the backgr
   /** whisper.cpp taking 60 s of the read's clock for each 30 s piece, and held at `gate` for the piece at `holdAt` */
   let gate: Promise<void> | null = null
   let holdAt = -1
-  const slow = () => spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async () => {
+  /** every background piece waits at `gate` too */
+  let holdBg = false
+  const slow = () => spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
     local.calls++
     const a = audios[audios.length - 1]!
-    if (a.start === holdAt && gate) await gate
+    if ((a.start === holdAt || (holdBg && o.timeoutMs === media.FILL_PIECE_MS)) && gate) await gate
     clockMs += 60_000
     return { text: '', language: 'ko', durationSec: 30, segments: said(a.start, a.seconds) }
   }))
-  beforeEach(() => { F().backgroundTranscripts = true; F().fillRetryMs = 5; gate = null; holdAt = -1; A.ctx.db.query(SPEED).run(); measured(2) })
+  beforeEach(() => { F().backgroundTranscripts = true; F().fillRetryMs = 5; gate = null; holdAt = -1; holdBg = false; A.ctx.db.query(SPEED).run(); measured(2) })
   afterEach(async () => { gate = null; await F().fillsSettled(); F().backgroundTranscripts = false; F().fillRetryMs = media.FILL_RETRY_MS })
 
   test('a 10-minute recording: the read gives what its time held and says the rest is being made; reading again has all of it', async () => {
@@ -709,7 +713,11 @@ describe('the whole recording: what a read has no time for goes on in the backgr
     expect([...new Set(audios.map((x) => x.start))].sort((x, y) => x - y)).toEqual(Array.from({ length: 20 }, (_, i) => i * 30))
     expect(local.calls).toBe(20)
     const bg = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' AND target = ? ORDER BY id").all(rel) as { detail: string }[]
-    expect(bg.map((r) => JSON.parse(r.detail).background ?? false)).toEqual([false, true])
+    // the read's row, then one row per background turn in the media slot (FILL_CHUNK_SEC each)
+    const flags = bg.map((r) => JSON.parse(r.detail).background ?? false)
+    expect(flags[0]).toBe(false)
+    expect(flags.length).toBeGreaterThan(1)
+    expect(flags.slice(1).every(Boolean)).toBe(true)
     // reading again: the whole file from the cache, nothing new
     audios = []; clockMs = 0
     const b = await read({ file_path: rel })
@@ -766,6 +774,69 @@ describe('the whole recording: what a read has no time for goes on in the backgr
     await F().fillsSettled()
     expect(audios.length).toBe(made)
     updateTeamSettings(A.ctx.db, { aiMediaTranscripts: null })
+  })
+  test('a key replaced or removed while the background runs: nothing more goes with the old key, the run stops (security review of #1335)', async () => {
+    const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
+    setKey(KEY)
+    try {
+      probe = audioOnly(3600)
+      // each 10-minute OpenRouter piece takes 200 s of the read's clock: the read gets two, the background the rest
+      reply = () => { clockMs += 200_000; return Response.json({ text: 'x', segments: [{ start: 1, end: 2, text: 'or words' }], language: 'english' }) }
+      let open!: () => void
+      const gate = new Promise<void>((r) => { open = r })
+      let held = -1
+      spies.push(spyOn(F(), 'mediaSendable').mockImplementation(async (_t, _w, _n, wav: Buffer) => {
+        const a = audios[audios.length - 1]!
+        if (held < 0 && hits.length >= 2) { held = a.start; await gate }
+        return { bytes: wav, format: 'flac' }
+      }))
+      await read({ file_path: put('bg-key.m4a') })
+      for (let i = 0; i < 100 && held < 0; i++) await Bun.sleep(10)
+      expect(held).toBeGreaterThan(0)
+      // the background holds its first piece (checked already); the key is replaced meanwhile
+      const OTHER = 'sk-or-v1-FAKE-OTHER-KEY-0123456789abcdef0000'
+      setKey(OTHER)
+      open()
+      await F().fillsSettled()
+      // the held piece had passed its checks with the old key; nothing after it went, with either key
+      expect(hits.length).toBe(3)
+      const bg = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+      expect(JSON.parse(bg.detail)).toMatchObject({ background: true, pieces: 1 })
+    } finally { setKey(null); updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiMediaTranscripts: null }) }
+  })
+  test('at most 2 background transcriptions per person; another person never sees or moves someone else\'s (security review of #1335)', async () => {
+    probe = audioOnly(600)
+    slow()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    // every background piece holds at the gate (whisper.cpp slots for all of them)
+    holdBg = true
+    setPieceSlotsForTests(8)
+    const notes = []
+    for (const name of ['bg-cap1.m4a', 'bg-cap2.m4a', 'bg-cap3.m4a']) {
+      clockMs = 0
+      notes.push((await read({ file_path: put(name) })).out.text.includes('in the background'))
+      await Bun.sleep(10)
+    }
+    expect(notes).toEqual([true, true, false])
+    // bob reads a shared recording alice's background is working on: no note of hers, and his own short part is done
+    fs.mkdirSync(path.join(A.team, 'shared'), { recursive: true })
+    const rel = 'shared/bg-team-meeting.m4a'
+    fs.writeFileSync(path.join(A.team, rel), `fake media ${++n} team`)
+    open(); gate = null
+    await F().fillsSettled()
+    let open2!: () => void
+    gate = new Promise<void>((r) => { open2 = r })
+    clockMs = 0
+    expect((await read({ file_path: rel })).out.text).toContain('in the background')
+    await Bun.sleep(10)
+    const bob = await read({ file_path: rel, time: '0:00-0:30' }, { ctx: A.toolCtx('bob', A.turn('bob', A.chat('bob'))) })
+    expect(bob.out.text).toContain('words at 0')
+    expect(bob.out.text).not.toContain('in the background')
+    open2(); gate = null
+    await F().fillsSettled()
+    setPieceSlotsForTests(null)
   })
   test('media reads at once grow with the server: one per 2 cores and 2 GB, 1 to 8; whisper.cpp pieces by cores over threads', async () => {
     expect(media.mediaParallelFor(2, 4 * 1024 ** 3)).toBe(1)
@@ -986,21 +1057,46 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
     expect(localSpeechBigEnough(3, 64 * 1024 ** 3)).toBe(false)
     expect(localSpeechBigEnough(16, 4 * 1024 ** 3)).toBe(false)
     expect(F().speechHost()).toMatchObject({ hosted: false, bigEnough: true, memoryGb: 17 })
-    // a Docker container sees the host's cores and memory: its own limits (cgroup v2 at the root it sees) count
+    // a Docker container sees the host's cores and memory: its own cgroup's limits count, for the default, the
+    // settings page, the media reads at once and whisper.cpp's slots (security review of #1335)
     const cg = fs.mkdtempSync(path.join(os.tmpdir(), 'cgroup-'))
+    const w = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(cg, rel)), { recursive: true }); fs.writeFileSync(path.join(cg, rel), text) }
+    const self = path.join(cg, 'self-cgroup')
     try {
-      expect(speechBigEnough(cg)).toBe(true)
-      fs.writeFileSync(path.join(cg, 'memory.max'), 'max\n'); fs.writeFileSync(path.join(cg, 'cpu.max'), 'max 100000\n')
-      expect(containerLimits(cg)).toEqual({ cpus: null, memory: null })
-      expect(speechBigEnough(cg)).toBe(true)
-      fs.writeFileSync(path.join(cg, 'cpu.max'), '200000 100000\n')
-      expect(containerLimits(cg).cpus).toBe(2)
-      expect(speechBigEnough(cg)).toBe(false)
-      fs.writeFileSync(path.join(cg, 'cpu.max'), '400000 100000\n'); fs.writeFileSync(path.join(cg, 'memory.max'), String(4 * 1024 ** 3))
-      expect(speechBigEnough(cg)).toBe(false)
-      fs.writeFileSync(path.join(cg, 'memory.max'), String(8 * 1024 ** 3))
-      expect(speechBigEnough(cg)).toBe(true)
-    } finally { fs.rmSync(cg, { recursive: true, force: true }) }
+      // no files at all (a Mac, a host): no limits
+      expect(containerLimits({ root: path.join(cg, 'fs'), self: path.join(cg, 'none') })).toEqual({ cpus: null, memory: null })
+      // v2 in its own namespace: the root it sees; "max" is no limit
+      w('self-cgroup', '0::/\n')
+      w('fs/memory.max', 'max\n'); w('fs/cpu.max', 'max 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      w('fs/cpu.max', '200000 100000\n'); w('fs/memory.max', String(16 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 2, memory: 16 * 1024 ** 3 })
+      // v2 without its own namespace: the process's own path, the smallest from it up; a systemd unit (MemoryMax=75%) is skipped
+      fs.rmSync(path.join(cg, 'fs'), { recursive: true })
+      w('self-cgroup', '0::/system.slice/docker-abc.scope\n')
+      w('fs/system.slice/docker-abc.scope/memory.max', String(6 * 1024 ** 3)); w('fs/system.slice/docker-abc.scope/cpu.max', '400000 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 4, memory: 6 * 1024 ** 3 })
+      w('self-cgroup', '0::/system.slice/mycel.service\n')
+      w('fs/system.slice/mycel.service/memory.max', String(6 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      // v1 (an older Docker): memory.limit_in_bytes and the CFS quota; no limit is a huge number and -1
+      fs.rmSync(path.join(cg, 'fs'), { recursive: true })
+      w('self-cgroup', '5:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n0::/\n')
+      w('fs/memory/memory.limit_in_bytes', '9223372036854771712\n'); w('fs/cpu,cpuacct/cpu.cfs_quota_us', '-1\n'); w('fs/cpu,cpuacct/cpu.cfs_period_us', '100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      w('fs/memory/docker/abc/memory.limit_in_bytes', String(4 * 1024 ** 3)); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_quota_us', '300000\n'); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us', '100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: 4 * 1024 ** 3 })
+      // a period file missing: no CPU limit read from that level
+      fs.rmSync(path.join(cg, 'fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us'))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).cpus).toBeNull()
+      // fed into the budgets: the settings page, the default, the reads and whisper slots at once follow the container
+      w('fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us', '100000\n')
+      setCgroupForTests({ root: path.join(cg, 'fs'), self })
+      expect(F().speechHost()).toMatchObject({ cpuCores: 3, bigEnough: false, memoryGb: 4 })
+      expect(speechBigEnough()).toBe(false)
+      expect(media.mediaParallel()).toBe(1)
+      expect((await read({ file_path: put('in-docker.mp4') })).out.text).toContain('This computer is too small')
+    } finally { setCgroupForTests(null); fs.rmSync(cg, { recursive: true, force: true }) }
     // 3 cores were enough before (more than 2); now they are not
     cores.mockReturnValue(3)
     expect(F().speechHost()).toMatchObject({ cpuCores: 3, bigEnough: false })
