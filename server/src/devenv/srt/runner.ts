@@ -37,6 +37,7 @@ import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
+import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
 import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
@@ -220,6 +221,8 @@ export function personView(ctx: AppContext, userId: string, run?: RunWrites, sha
   try { p = ctx.files.principal(userId) } catch { return null }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
+  // every run hides the group and project skills folders (QA TC-4932)
+  if (run) run = { ...run, othersSkills: othersSkillRoots(root) }
   const zones = projectZoneFolders(root).map((z) => z.join('/'))
   let v: FolderView
   if (shared) {

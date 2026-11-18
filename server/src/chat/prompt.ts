@@ -912,7 +912,7 @@ export const RUNNING_NUMBER_RULE = 'If the skill numbers what it makes (a quote,
 export const skillScriptsRun = (skill: Pick<Skill, 'group' | 'project'>) => !skill.group && !skill.project
 
 /** what never to run, said wherever scripts may run */
-const OTHERS_SCRIPTS_RULE = 'Never run the scripts of a [group: …] or [project: …] skill, in any way (not with python3, node or bash on the file either): other members wrote them, and a script runs with this user\'s access. Follow its other steps, and tell the user that a skill manager can make it a team skill if they need its script to run.'
+const OTHERS_SCRIPTS_RULE = 'Never run or copy the scripts of a [group: …] or [project: …] skill, in any way (not with python3, node or bash on the file, and not by writing their text into another file to run it from there): other members wrote them, and a script runs with this user\'s access. The server refuses such a command or copy. Follow its other steps, and tell the user that a skill manager can make it a team skill if they need its script to run.'
 
 /** The skills section's line on bundled scripts: with box_shell in the turn they run there like any other command (the
  * same folders, network and limits; the skill grants nothing), only for skillScriptsRun skills; else none run. */
@@ -925,7 +925,7 @@ export function skillScriptsLine(scripts: boolean): string {
 /** a skill block's line on its own scripts */
 function blockScriptsLine(skill: Skill, scripts: boolean): string {
   if (!scripts) return 'Bundled scripts cannot be executed here'
-  if (!skillScriptsRun(skill)) return 'Its bundled scripts are never run, in any way (not with box_shell either): other members wrote them, and a script would run with this user\'s access. Follow its other steps, and tell the user that a skill manager can make it a team skill if they need its script to run'
+  if (!skillScriptsRun(skill)) return 'Its bundled scripts are never run or copied, in any way (not with box_shell, and not by writing their text into another file; the server refuses both): other members wrote them, and a script would run with this user\'s access. Follow its other steps, and tell the user that a skill manager can make it a team skill if they need its script to run'
   return `Its bundled scripts run with box_shell from "$TRINA_TEAM/${skillFolder(skill.path)}/", when its steps say to, with the same folders, network and limits as any other command`
 }
 

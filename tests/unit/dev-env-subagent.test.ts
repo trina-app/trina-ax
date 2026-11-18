@@ -219,13 +219,13 @@ describe('review of #1289', () => {
     expect(skillBlock(own, '', 'loaded', { scripts: true })).toContain('Its bundled scripts run with box_shell from "$TRINA_TEAM/users/alice/skills/p/"')
     for (const s of [group, project]) {
       const b = skillBlock(s, '', 'loaded', { scripts: true })
-      expect(b).toContain('Its bundled scripts are never run, in any way (not with box_shell either)')
+      expect(b).toContain('Its bundled scripts are never run or copied, in any way (not with box_shell, and not by writing their text into another file; the server refuses both)')
       expect(b).not.toContain('run with box_shell from')
       expect(skillBlock(s, '', 'invoked', { scripts: true })).toContain('are never run')
     }
     // the list's line says the same: which skills' scripts run, and that group and project scripts never do
     expect(skillScriptsLine(true)).toContain('of a team skill or of the user\'s own [personal] skill run with box_shell')
-    expect(skillScriptsLine(true)).toContain('Never run the scripts of a [group: …] or [project: …] skill')
+    expect(skillScriptsLine(true)).toContain('Never run or copy the scripts of a [group: …] or [project: …] skill')
   })
 
   test('M1 end to end: a loaded group skill and project skill say their scripts never run', async () => {
@@ -237,14 +237,14 @@ describe('review of #1289', () => {
     const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
     const g = (await ask(h, alice, 'alice', chat, fakeLine({ tool: 'skill', args: { name: 'grp-tool' }, sayResult: true }))).done.content
     expect(g).toContain('The group (of "Marketing"')
-    expect(g).toContain('are never run, in any way')
+    expect(g).toContain('are never run or copied, in any way')
     expect(g).not.toContain('run with box_shell from')
     fs.mkdirSync(abs(`${P.folderPath}/skills/proj-tool/scripts`), { recursive: true })
     fs.writeFileSync(abs(`${P.folderPath}/skills/proj-tool/SKILL.md`), '---\nname: proj-tool\ndescription: A project tool\n---\n\nRun scripts/x.py.\n')
     const pchat = (await h.api('alice').call(API.createChat, { body: { projectId: P.id } })).id
     const loaded = (await ask(h, alice, 'alice', pchat, fakeLine({ tool: 'skill', args: { name: 'proj-tool' }, sayResult: true }))).done.content
     expect(loaded).toContain('The project (of')
-    expect(loaded).toContain('are never run, in any way')
+    expect(loaded).toContain('are never run or copied, in any way')
     expect(loaded).not.toContain('run with box_shell from')
   })
 
