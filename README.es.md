@@ -49,10 +49,6 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 ## Lo que hace cada uno con ello
 
-**Chat de equipo, como Slack.** Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.
-
-<img src="docs/site/images/chats/room.webp" width="100%" alt="El canal Marketing: un mensaje que menciona a Jordan, un hilo con 2 respuestas y la respuesta de Trina enviada desde el chat lateral">
-
 **Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú; con un clic, la respuesta de Trina llega a la conversación.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pide a Trina en un chat lateral que solo ve ella una lista con las normas para expositores y la envía a la conversación.">
@@ -61,22 +57,28 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Un admin cambia quién puede abrir la carpeta Sales y luego mira qué puede abrir Mina: Finance no está en su lista.">
 
-**Retoma la sesión de trabajo de un compañero.** Abre la sesión de proyecto de un compañero y sigue; lo que tú pidas se hace con tus permisos.
+**Retoma la sesión de trabajo de un compañero en un proyecto del equipo.** Las sesiones de un proyecto del equipo se comparten con sus miembros: abre la de un compañero y sigue, con tus propios permisos. Cualquier otra sesión la puedes compartir con personas o grupos, como un archivo de Google Drive.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
 
+**Encuentra archivos por lo que son.** Cada noche, la IA del equipo lee los archivos nuevos y modificados de las carpetas compartidas, de grupo y de proyecto, y guarda una línea por archivo que dice qué es, así que un escaneo llamado `temp.pdf` o una foto llamada `IMG_2031.jpg` se encuentran por su contenido. Usa la cuenta de IA del equipo y nunca lee las carpetas personales. En una prueba con 2.238 archivos ficticios, Claude Code encontró el archivo correcto en 181 de 184 preguntas con estas líneas, y en 172 sin ellas.
+
 <table>
 <tr>
-<td width="50%"><b>Tareas programadas.</b> Pídelo una vez y Trina lo repite según tu calendario, en la zona horaria del equipo.<br><br><img src="docs/site/images/scheduled/task.webp" alt="Una tarea de resumen semanal que se ejecuta cada lunes a las 9:00"></td>
-<td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/site/images/guests/guest-room.webp" alt="Un chat de grupo con un invitado"></td>
+<td width="50%"><b>Tareas programadas.</b> Pídelo una vez y Trina lo repite según tu calendario, en la zona horaria del equipo.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="El resumen semanal que escribió una tarea programada: lo encontrado, decisiones y trabajo pendiente, guardado como archivo"></td>
+<td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="El chat de grupo Launch email con Morgan Reyes, invitado de una agencia: opciones de asunto, una mención y la respuesta de Trina"></td>
 </tr>
 <tr>
 <td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona; límites de tokens por persona, grupo o equipo.<br><br><img src="docs/site/images/usage/team.webp" alt="La página de uso del admin: tokens, respuestas y coste estimado por persona"></td>
 <td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
 </tr>
+<tr>
+<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, la respuesta de Trina en el canal y un hilo abierto a la derecha"></td>
+</tr>
 </table>
 
 - **Se guarda cada cambio.** Lo haga una persona o su IA, puedes recuperar cualquier versión.
+- **Navegador integrado.** En la app de escritorio, Trina abre sitios web en un panel junto a tu chat, los lee, hace clic y rellena formularios mientras miras; Stop lo detiene. Pregunta antes de abrir un sitio nuevo, salvo que permitas todos los sitios.
 - **Las apps publican en las conversaciones.** Las novedades de Sentry, GitHub, Stripe, Jira y HubSpot llegan como tarjetas.
 - **Notas de reuniones.** La app de Mac (macOS 14.4 o posterior) toma notas de las llamadas de Zoom, Meet y Teams.
 - **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
