@@ -628,6 +628,7 @@ export const en: Record<MessageKey, string> = {
   "outbox.remove": "Don't send",
   "outbox.removed": "Message removed. It will not be sent.",
   "outbox.full": "Too many messages are waiting. Send this one after the answer is done.",
+  "outbox.othersWaiting": "{n, plural, one {Someone else has a message} other {# other people have messages}} waiting to be sent.",
 
   'composer.label': 'Message',
   'composer.placeholder': 'Ask anything',
@@ -1430,7 +1431,7 @@ export const en: Record<MessageKey, string> = {
   'chat.whoOpens': "Manage members",
   "chat.linkCopiedShared": "Link copied · {n, plural, one {# person} other {# people}} can open it",
   'chat.linkCopiedPrivate': "Link copied · only you can open it",
-  'chat.sharedBusy': "{name}'s question is being answered. You can send yours when it is done.",
+  'chat.sharedBusy': "{name}'s question is being answered. What you send now goes after it.",
   'chat.endingEarlier': "Waiting for the earlier answer to finish. Other chats work as usual.",
   'chat.waitingForPlace': "Waiting for a free place. Your answer goes on as soon as one is free.",
   'chat.sharedWaiting': "Waiting for {name} to confirm.",
