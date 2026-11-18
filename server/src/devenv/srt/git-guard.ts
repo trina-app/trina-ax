@@ -83,7 +83,7 @@ export const GIT_WRAPPER_LIMITS = { submodules: 200, depth: 8 }
  * this call and then runs `realGit` with the same arguments, or refuses (exit 128, a line on stderr). The setting rules
  * are dangerousGitSetting's, copied in as source.
  */
-export function gitWrapperSource(o: { node: string; realGit: string }): string {
+export function gitWrapperSource(o: { node: string; realGit: string; maxListBytes?: number }): string {
   return `#!${o.node}
 // the dev environment's git guard (server/src/devenv/srt/git-guard.ts, generated): refuses a call when the repository's own config
 // names a program that git would run. Do not edit: the server writes this file again.
@@ -93,6 +93,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const REAL = ${JSON.stringify(o.realGit)}
 const LIMITS = ${JSON.stringify(GIT_WRAPPER_LIMITS)}
+const MAX_LIST = ${o.maxListBytes ?? 64 << 20}
 const dangerous = ${dangerousGitSetting.toString()}
 const args = process.argv.slice(2)
 // the global options before the command that say which repository this call is about
@@ -105,7 +106,9 @@ for (let i = 0; i < args.length; i++) {
   if (/^--(git-dir|work-tree|namespace)=/.test(a) || a === '--bare') { where.push(a); continue }
   if (a === '-c' || a === '--config-env') { i++; continue }
 }
-const run = (extra) => spawnSync(REAL, [...where, ...extra], { encoding: 'utf8', maxBuffer: 64 << 20 })
+const run = (extra) => spawnSync(REAL, [...where, ...extra], { encoding: 'utf8', maxBuffer: MAX_LIST })
+// a listing cut at maxBuffer comes back with status 0 and an error (ENOBUFS): not a whole listing
+const ok = (r) => r.status === 0 && !r.error
 const refuse = (why) => { process.stderr.write('git was refused: ' + why + '. The repository\\'s settings would run a program by themselves. Tell the person: someone who can open the folder must remove them from its .git/config in Files.\\n'); process.exit(128) }
 /** settings of one config listing (--null: [scope NUL] key LF value NUL) */
 const check = (out, scoped, at) => {
@@ -122,8 +125,10 @@ const check = (out, scoped, at) => {
   }
 }
 const listed = run(['config', '--list', '--show-scope', '--null', '--includes'])
-// not in a repository (or a config git cannot read: then git refuses the call itself)
-if (listed.status === 0) {
+// the settings could not be listed (too large, unreadable, a failed start) while there is a repository here: refused
+// (fail closed); no repository at all: git goes on (and says so itself)
+if (!ok(listed) && ok(run(['rev-parse', '--git-dir']))) refuse('the repository settings could not be read')
+if (ok(listed)) {
   check(listed.stdout, true, '')
   // submodules: their own config, absorbed ones in <common dir>/modules, the others in their folders
   const common = run(['rev-parse', '--path-format=absolute', '--git-common-dir'])
@@ -134,23 +139,25 @@ if (listed.status === 0) {
     try { names = fs.readdirSync(dir, { withFileTypes: true }) } catch { return }
     if (names.some((e) => e.name === 'config' && e.isFile()) && names.some((e) => e.name === 'HEAD')) {
       if (++seen > LIMITS.submodules) refuse('too many submodules to check')
-      const r = spawnSync(REAL, ['config', '--file', path.join(dir, 'config'), '--list', '--null'], { encoding: 'utf8' })
-      if (r.status === 0) check(r.stdout, false, 'a submodule')
+      const r = spawnSync(REAL, ['config', '--file', path.join(dir, 'config'), '--list', '--null'], { encoding: 'utf8', maxBuffer: MAX_LIST })
+      if (ok(r)) check(r.stdout, false, 'a submodule')
       else refuse('a submodule\\'s config could not be read')
     }
     for (const e of names) if (e.isDirectory() && !e.isSymbolicLink() && e.name !== 'objects' && e.name !== 'refs' && e.name !== 'logs') walk(path.join(dir, e.name), depth + 1)
   }
-  if (common.status === 0) walk(path.join(common.stdout.trim(), 'modules'), 0)
+  if (ok(common)) walk(path.join(common.stdout.trim(), 'modules'), 0)
   const top = run(['rev-parse', '--show-toplevel'])
-  if (top.status === 0 && fs.existsSync(path.join(top.stdout.trim(), '.gitmodules'))) {
+  if (ok(top) && fs.existsSync(path.join(top.stdout.trim(), '.gitmodules'))) {
     const ls = run(['ls-files', '--stage', '-z'])
+    if (!ok(ls)) refuse('the submodules could not be listed')
     for (const line of (ls.stdout || '').split('\\0')) {
       if (!line.startsWith('160000 ')) continue
       const p = path.join(top.stdout.trim(), line.slice(line.indexOf('\\t') + 1))
       if (!fs.existsSync(path.join(p, '.git'))) continue
       if (++seen > LIMITS.submodules) refuse('too many submodules to check')
-      const r = spawnSync(REAL, ['-C', p, 'config', '--list', '--show-scope', '--null', '--includes'], { encoding: 'utf8' })
-      if (r.status === 0) check(r.stdout, true, 'a submodule')
+      const r = spawnSync(REAL, ['-C', p, 'config', '--list', '--show-scope', '--null', '--includes'], { encoding: 'utf8', maxBuffer: MAX_LIST })
+      if (ok(r)) check(r.stdout, true, 'a submodule')
+      else refuse('a submodule\\'s settings could not be read')
     }
   }
 }

@@ -31,7 +31,8 @@
   `uploadpack` / `receivepack`, `gpg.*`, a credential helper, a `!` alias, `submodule.*.update = !…`, a non-boolean
   `pager.*`, `interactive.diffFilter`, a trailer command, `sendemail.smtpServer`, browser and man commands. A setting
   written by another member's job after the run started is seen at the next call. Limits refuse: more than 200
-  submodules or nesting past 8 levels stops the call.
+  submodules or nesting past 8 levels stops the call, and so do settings that cannot be listed whole (over 64 MiB, cut
+  short, unreadable) while there is a repository.
 - **Not covered by the wrapper, said plainly:** a command that calls git by its full path (`/usr/bin/git`) skips it;
   the real git must stay readable and runnable in the run for the wrapper to use it, so there is no sandbox-level way
   to force every call through it. Rule 1 still holds for such a call (no hooks, no global config, no implicit bare

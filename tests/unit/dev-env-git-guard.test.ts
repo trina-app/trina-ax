@@ -124,6 +124,19 @@ describe('the git wrapper refuses a repository whose settings name a program (re
     fs.appendFileSync(path.join(d, '.git/config'), '[filter "f"]\n\tclean = /bin/true\n')
     refused(runGit(d, ['status'], home), 'filter')
   })
+  test('the settings cannot be listed while there is a repository: refused (fail closed)', () => {
+    // a wrapper that can take at most 1 KiB of settings, and a repository with more (harmless ones)
+    const bin = tmp('gg-bin-small-')
+    fs.writeFileSync(path.join(bin, 'git'), gitWrapperSource({ node: NODE, realGit: REAL, maxListBytes: 1024 }), { mode: 0o755 })
+    const { d, home } = repo()
+    fs.appendFileSync(path.join(d, '.git/config'), '[branch "b"]\n' + Array.from({ length: 100 }, (_, i) => `\tdescription${i} = ${'x'.repeat(30)}\n`).join(''))
+    const r = Bun.spawnSync(['git', 'status'], { cwd: d, env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, ...gitEnv() } })
+    expect(r.exitCode).toBe(128)
+    expect(dec(r.stderr)).toContain('the repository settings could not be read')
+    // no repository at all: git goes on and says so itself
+    const none = Bun.spawnSync(['git', 'status'], { cwd: tmp('gg-none2-'), env: { PATH: `${bin}:${process.env.PATH}`, HOME: home, ...gitEnv() } })
+    expect(dec(none.stderr)).not.toContain('git was refused')
+  })
   test('an ordinary repository and no repository at all: git runs as usual, with its exit code', () => {
     const { d, home } = repo()
     plainGit(d, ['remote', 'add', 'origin', 'https://github.com/a/b'], home)
