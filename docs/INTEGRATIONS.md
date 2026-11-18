@@ -725,7 +725,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
   - Setting values are sealed with safeStorage. They are hidden in every answer before it leaves the computer, then `hide.ts` and `redact.ts` run as usual.
   - Stop and quitting the app end the program.
 - **Asking before changes.** Writes ask on the normal card with Always allow, like any connection.
-- **Turning it off.** The team switch `localApps` (Admin › Team settings › Apps on your computer) turns it off.
+- **Turning it off.** The team switch `localApps` (Admin › Team settings › Members can connect apps on their computer) turns it off.
 
 ## Audit
 

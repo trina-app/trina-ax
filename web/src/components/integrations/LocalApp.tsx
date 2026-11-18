@@ -160,7 +160,13 @@ export function LocalAppDetails({ i, onChanged }: { i: Integration; onChanged: (
       {bridge && spec && spec.env.length > 0 && (
         <Detail label={t('localApps.settings')} testId="local-app-settings-state">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs">{spec.env.map((n) => `${n} ${names.includes(n) ? '✓' : '—'}`).join('  ')}</span>
+            {/* each setting by its name and, in words, whether this computer keeps a value for it (no ✓ / — marks) */}
+            {spec.env.map((n) => (
+              <span key={n} className="inline-flex items-baseline gap-1.5">
+                <span className="font-mono text-xs">{n}</span>
+                <span className="text-muted">{t(names.includes(n) ? 'localApps.settingSaved' : 'localApps.settingEmpty')}</span>
+              </span>
+            ))}
             <Button size="sm" onClick={() => setEditing(true)} data-testid="local-app-settings-edit">{t('common.edit')}</Button>
           </span>
         </Detail>

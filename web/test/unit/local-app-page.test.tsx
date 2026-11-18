@@ -55,6 +55,28 @@ test('in the desktop app: running, and Stop reaches the app', async () => {
   } finally { await m.unmount() }
 })
 
+test('on the web, its check failed for being away from that computer: one note says so, not two; no sign-in row', async () => {
+  const offline: Integration = { ...aside, status: 'error', lastError: 'This works only from the desktop app on the computer where you added it.', lastErrorReason: 'local_offline' }
+  const m = await mount(<Page i={offline} />)
+  try {
+    expect(m.get('local-app-where').textContent).toContain('desktop app on the computer where it was added')
+    expect(m.find('integration-error')).toBeNull()
+    expect(m.html()).not.toContain(translate('en', 'gapps.signIn'))
+  } finally { await m.unmount() }
+})
+
+test('in the desktop app: each setting says in words whether this computer keeps its value', async () => {
+  ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = {
+    bridgeVersion: 1,
+    localApps: { version: 1, run: async () => ({}), cancel() {}, stop() {}, running: async () => [], onRunning: () => () => {}, setSettings: async () => 'saved', settingNames: async () => ['ASIDE_TOKEN'] },
+  }
+  const m = await mount(<Page i={aside} />)
+  try {
+    for (let i = 0; i < 20 && !m.get('local-app-settings-state').textContent?.includes(translate('en', 'localApps.settingSaved')); i++) await new Promise((r) => setTimeout(r, 10))
+    expect(m.get('local-app-settings-state').textContent).toContain(`ASIDE_TOKEN${translate('en', 'localApps.settingSaved')}`)
+  } finally { await m.unmount() }
+})
+
 test('settings lines: NAME=value only', () => {
   expect(settingLines('A_KEY=x=1\n\n  B=  ')).toEqual({ A_KEY: 'x=1', B: '' })
   expect(settingLines('not a line')).toBeNull()
