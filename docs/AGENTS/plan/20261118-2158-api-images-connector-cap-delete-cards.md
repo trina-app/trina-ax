@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 21:58
 - Branch: `fix/api-images-connector-cap-delete-cards`
-- Status: in progress
+- Status: done
 - Where: Team AX core (server engine, connections, chat tools; web card). Why: chat, AI connection and permission code lives in the core (docs/REPOSITORY-RULES.md)
 - Version impact: patch: limits raised and refusals turned into cards, no new feature surface beyond one admin choice
 
@@ -47,4 +47,6 @@ docs/decisions/20261118-api-images-connector-cap-delete-cards.md
 
 ## Result
 
-(at the end)
+Built as planned. Real-AI check on a copy of the QA team: in a side chat the AI deleted three notes with one
+call and one card (room line first); an admin's "give two people view access" became one `changes` call on one card;
+the API engine on Ollama qwen3-vl:2b (detected from /api/show) read a PNG and named its colour.

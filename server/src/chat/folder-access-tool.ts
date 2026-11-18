@@ -100,6 +100,7 @@ export const FOLDER_TEXT = {
   no: t('취소', 'Cancel', 'Batal', 'キャンセル', 'Cancelar', '取消'),
   /** a card with several changes (`changes`): the question, and one line per change under its folder */
   askMany: t('아래 폴더를 열 수 있는 사람을 바꿀까요?', 'Change who can open these folders?', 'Ubah siapa yang bisa membuka folder ini?', '以下のフォルダを開ける人を変更しますか？', '¿Cambiar quién puede abrir estas carpetas?', '要修改谁可以打开这些文件夹吗？'),
+  askManyOne: t('{folder} 폴더를 열 수 있는 사람을 바꿀까요?', 'Change who can open {folder}?', 'Ubah siapa yang bisa membuka {folder}?', '{folder}を開ける人を変更しますか？', '¿Cambiar quién puede abrir {folder}?', '要修改谁可以打开{folder}吗？'),
   lineAddView: t("'{who}'에게 보기 권한 주기", 'Give {who} view access', 'Beri {who} akses lihat', '{who}に閲覧権限を付与', 'Dar a {who} acceso de lectura', '给{who}授予查看权限'),
   lineAddEdit: t("'{who}'에게 편집 권한 주기", 'Give {who} edit access', 'Beri {who} akses edit', '{who}に編集権限を付与', 'Dar a {who} acceso de edición', '给{who}授予编辑权限'),
   lineChangeView: t("'{who}'의 권한을 보기로 바꾸기", 'Change {who} to view access', 'Ubah akses {who} menjadi lihat', '{who}の権限を閲覧に変更', 'Cambiar a {who} a acceso de lectura', '将{who}的权限改为查看'),
@@ -429,7 +430,7 @@ export function folderAccessToolFor(exec: FolderExec): Tool {
       raw = await withAlways(exec.alwaysPlace?.(), 'folder_access', options, linkPeople > 0 ? 'change_keep' : 'change', async (opts, more) => {
         const both = !!(linksNote && more.note)
         const a = await exec.askPerson({
-          kind: 'ask_user', origin: 'server', requestId, question: say('askMany', L), multiple: false, allowText: false,
+          kind: 'ask_user', origin: 'server', requestId, question: todo.length === 1 ? say('askManyOne', L, { folder: todo[0]!.plan.place }) : say('askMany', L), multiple: false, allowText: false,
           options: opts, details: [{ label: say('label', L), text: both ? `${text}\n\n${linksNote}` : text, noSize: true }], ...(opts.length >= 3 ? { buttons: true as const } : {}),
           ...(linksNote || more.note ? { note: both ? more.note : (linksNote ?? more.note) } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),

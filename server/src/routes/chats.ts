@@ -890,11 +890,12 @@ export const chatsRoutes: RouteModule = {
     })
 
     // a card's long text (chat/card-fold.ts): the turn's own person, while the card is open
-    kit.handle(API.turnRequestDetail, ({ c, params, auth }) => {
+    kit.handle(API.turnRequestDetail, ({ params, auth }) => {
       const exec = ownTurn(params.id, auth)
       const i = /^\d{1,2}$/.test(params.index) ? Number(params.index) : -1
       const text = exec && i >= 0 ? exec.cardDetailText(params.requestId, i) : null
-      if (text === null) fail('conflict', tr('requestClosed', c.get('locale')))
+      // no such open card or folded detail: the same answer as another person's turn
+      if (text === null) fail('not_found')
       return { text: text! }
     })
 

@@ -48,7 +48,7 @@ person's data from another.
   than `CARD_TEXT_INLINE` (100,000) carries its start, its full size (`ConfirmDetail.fullChars`) and a fold
   (`chat/card-fold.ts`, applied when any card opens); the whole text stays with the open card on the server and the
   card's "Show all" reads it: `GET /api/turns/:id/requests/:requestId/details/:index`, the turn's own person only,
-  only while the card is open (409 after). So the person can still check every character before it goes out, the
+  only while the card is open (404 otherwise, as for another person's turn). So the person can still check every character before it goes out, the
   event and a reload stay small, and nothing is cut silently.
 
 ## H. Delete in chats that read room messages; no card count

@@ -239,6 +239,11 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
       expect(no.cards).toHaveLength(1)
       expect(rulesAt('BatchD').some((x) => x.s === 'bob') || rulesAt('BatchE').some((x) => x.s === 'bob')).toBe(false)
       expect(audits('folder.ai_access', no.turnId)[0]).toMatchObject({ outcome: 'declined' })
+      // one folder, two people: the question names the folder
+      fresh('BatchF')
+      const one = await turn('carol', many([{ folder: 'BatchF', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchF', action: 'add', who: { name: 'finance' } }]), { answer: 'no' })
+      expect(one.cards[0]!.question).not.toBe(FOLDER_TEXT.askMany.ko)
+      expect(one.cards[0]!.question).toContain('BatchF')
       const r = await turn('carol', many([{ folder: 'BatchD', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchE', action: 'add', who: { name: 'Bob Lee' } }]), {
         answer: 'change',
         meanwhile: () => { setFolderAccess(h.ctx.db, 'BatchE', [{ subjectType: 'group', subjectId: marketing, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'write' }], null, { limited: true }) },
