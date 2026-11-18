@@ -11,12 +11,14 @@ import { walk } from '../policy/resolve'
 import { projectZoneFolders } from '../policy/zone'
 import { BackgroundTurn, ConverterStopped, extractText, isOffice, OFFICE_EXT, officeWorkersRecheck, type Tools } from './extract'
 import { inBackground } from '../tools/isolate'
-import { readRegular, sha256 } from './store'
+import { openToRead, readRegular, sha256 } from './store'
 import { readMaxBytes, rgThreads } from '../system/limits'
-import { isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
+import { cp949Text, isLegacyKorean, isUtf8 } from '@mycel/shared/text-encoding'
 import { isFileListName, type SourceLoc } from '@mycel/shared/api'
 import { locLabel, locsOfLines, structureOf } from './locations'
 import { makePlaceIndex, placesOfLines, readPlaceIndex, writePlaceIndex, type PlaceIndex } from './place-index'
+import { textTokens } from './vision'
+import type { OutputBudget } from './tool-budget'
 
 type Lang = 'ko' | 'en' | 'id' | 'ja' | 'es' | 'zh'
 
@@ -69,8 +71,35 @@ export interface RgRunOpts {
   /** a record longer than this (UTF-16 units) is dropped, also while it arrives, so one long line (a minified file)
    * never fills the memory. ripgrep's --json ignores --max-columns, so content mode needs this cap. */
   maxRecordChars?: number
+  /** a --json record over maxRecordChars: its type, path, line number, byte offset and match offsets (the line text
+   * itself is never held); without it, or when they cannot be read, the record is skipped (`skipped`) */
+  onLong?: (l: LongRecord) => boolean | void
   /** kill ripgrep when this signal aborts (the person started a newer search) */
   signal?: AbortSignal
+}
+
+/** What is kept of a --json record over the cap: from its head the type and path, from the part after the line text
+ * the line number, the byte offset of the line in the file and the first matches' byte offsets in the line. */
+export interface LongRecord { type: 'match' | 'context'; path: { text?: string; bytes?: string }; line: number; offset: number; subs: { start: number; end: number }[] }
+/** characters kept of an over-long record's head (type and path: paths are at most 4096 characters, escaped) */
+const LONG_HEAD = 16 * 1024
+/** characters kept after the line text (line number, byte offset, the first matches) */
+const LONG_META = 8 * 1024
+/** what follows the line text in a ripgrep --json record. Inside a JSON string a quote is always escaped, so `,"`
+ * never occurs in the line text and this marks the end of it */
+const LONG_MARK = '},"line_number":'
+const LONG_HEAD_RE = /^\{"type":"(match|context)","data":\{"path":(\{"(?:text|bytes)":"(?:[^"\\]|\\.)*"\})/
+/** The kept parts of an over-long record, or null when they do not read as one (it is then skipped). */
+export function longRecordOf(head: string, meta: string | null): LongRecord | null {
+  const h = LONG_HEAD_RE.exec(head)
+  if (!h || meta === null) return null
+  const m = /^\},"line_number":(\d+),"absolute_offset":(\d+),"submatches":\[/.exec(meta)
+  if (!m) return null
+  let path: LongRecord['path']
+  try { path = JSON.parse(h[2]!) } catch { return null }
+  const subs: LongRecord['subs'] = []
+  for (const s of meta.matchAll(/\},"start":(\d+),"end":(\d+)\}/g)) { subs.push({ start: Number(s[1]), end: Number(s[2]) }); if (subs.length >= 20) break }
+  return { type: h[1] as LongRecord['type'], path, line: Number(m[1]), offset: Number(m[2]), subs }
 }
 
 /** Run rg; `onRecord` gets each NUL- or newline-terminated record; return false to stop (result cap). */
@@ -85,28 +114,48 @@ export async function runRg(rg: string, args: string[], cwd: string, sep: '\n' |
   const dec = new TextDecoder()
   const cap = o.maxRecordChars ?? Infinity
   let buf = ''
-  /** true while the rest of an over-long record arrives; its text is dropped up to the next separator */
-  let skipping = false
+  /** while the rest of an over-long record arrives: its head, the part after its line text (once seen), and the last
+   * characters before (the mark can span two chunks); the line text itself is dropped up to the next separator */
+  let long: { head: string; meta: string | null; tail: string } | null = null
   let skipped = 0
+  /** an over-long record is done: to onLong (false: stop), or skipped */
+  const endLong = (l: { head: string; meta: string | null }) => {
+    const r = o.onLong ? longRecordOf(l.head, l.meta) : null
+    if (!r) { skipped++; return true }
+    return o.onLong!(r) !== false
+  }
+  /** more text of the over-long record (the separator not in it) */
+  const feedLong = (l: NonNullable<typeof long>, part: string) => {
+    if (l.meta !== null) { if (l.meta.length < LONG_META) l.meta += part.slice(0, LONG_META - l.meta.length); return }
+    const both = l.tail + part
+    const at = both.indexOf(LONG_MARK)
+    if (at >= 0) l.meta = both.slice(at, at + LONG_META)
+    else l.tail = both.slice(-LONG_MARK.length)
+  }
+  const startLong = (text: string) => { const l = { head: text.slice(0, LONG_HEAD), meta: null as string | null, tail: '' }; feedLong(l, text); return l }
   try {
     outer: for await (const chunk of p.stdout) {
       let s = dec.decode(chunk, { stream: true })
-      if (skipping) {
+      if (long) {
         const i = s.indexOf(sep)
+        feedLong(long, i < 0 ? s : s.slice(0, i))
         if (i < 0) continue
-        s = s.slice(i + 1); skipping = false
+        s = s.slice(i + 1)
+        const l = long; long = null
+        if (!endLong(l)) { killed = 'cap'; p.kill('SIGKILL'); break outer }
       }
       buf += s
       let i
       while ((i = buf.indexOf(sep)) >= 0) {
         const rec = buf.slice(0, i); buf = buf.slice(i + 1)
-        if (rec.length > cap) { skipped++; continue }
+        if (rec.length > cap) { if (!endLong(startLong(rec))) { killed = 'cap'; p.kill('SIGKILL'); break outer } continue }
         if (rec && onRecord(rec) === false) { killed = 'cap'; p.kill('SIGKILL'); break outer }
       }
-      if (buf.length > cap) { buf = ''; skipping = true; skipped++ }
+      if (buf.length > cap) { long = startLong(buf); buf = '' }
     }
   } catch {}
-  if (!killed && buf && !skipping) onRecord(buf)
+  if (!killed && long) endLong(long)
+  else if (!killed && buf) onRecord(buf)
   const code = await p.exited
   clearTimeout(t)
   o.signal?.removeEventListener('abort', onAbort)
@@ -155,12 +204,14 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 /** Extracted text of .docx/.pptx/.xlsx/.pdf files, mirrored under <dataDir>/textcache/<path>.txt (server-only). */
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented; 6: slide
- * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts), so the
- * old text is made again. */
-export const TEXT_CACHE_VERSION = '6'
+ * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts; 7: a Word
+ * title, subtitle, author and date, and spreadsheet formulas next to their values), so the old text is made again. */
+export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
-const UPGRADABLE_VERSIONS = new Set(['5'])
+const UPGRADABLE_VERSIONS = new Set(['5', '6'])
+/** the formats whose text format 7 changed (a Word or OpenDocument title; spreadsheet formulas) */
+const V7_CHANGED = new Set(['docx', 'odt', 'xlsx', 'xls', 'ods'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -249,7 +300,9 @@ export class OfficeCache {
   }
   /** the file's cached text is of the current format (text kept from an upgradable older format is fresh, not current) */
   current(rel: string): boolean {
-    return (this.provenance(rel) as { format?: string } | null)?.format === TEXT_CACHE_VERSION
+    const format = (this.provenance(rel) as { format?: string } | null)?.format
+    // format 7 changed only Word and spreadsheet text: a PDF's or a deck's format-6 text (OCR included) is not made again
+    return format === TEXT_CACHE_VERSION || (format === '6' && !V7_CHANGED.has(rel.slice(rel.lastIndexOf('.') + 1).toLowerCase()))
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   /** the place index of a large text (files/place-index.ts) */
@@ -591,6 +644,34 @@ function rootsFor(d: SearchDeps, baseSegs: string[], baseIsFile: boolean) {
   return { roots: r.roots.filter((x) => !skipped(x)), excludes: [...r.excludes, ...d.skip] }
 }
 
+/** files over the size limit named in a grep result (the count says how many there are) */
+const BIG_NAMED_MAX = 5
+/**
+ * The files under `roots` that this person can see and that ripgrep skipped for size (over RG_MAX_FILE): a listing
+ * without --max-filesize, with the search's own name glob, path glob, type and exclusions. At most BIG_NAMED_MAX names;
+ * `count` is all of them (the listing stops at 20,000 files).
+ */
+async function bigFiles(d: SearchDeps, roots: string[], excludes: string[], f: { nameGlob: string | null; pathGlob: InstanceType<typeof Bun.Glob> | null; type?: string }, timeoutMs: number): Promise<{ names: string[]; count: number }> {
+  const names: string[] = []
+  let count = 0, seen = 0
+  const real = roots.filter((r) => fs.existsSync(path.join(d.fx.root, r)))
+  if (!real.length) return { names, count }
+  const base = RG_BASE.filter((_, i) => RG_BASE[i] !== '--max-filesize' && RG_BASE[i - 1] !== '--max-filesize')
+  const args = ['--files', '--null', ...base, ...(f.type ? ['--type', f.type] : []), '--glob-case-insensitive', ...(f.nameGlob ? ['--glob', f.nameGlob] : []), ...excludeArgs(excludes), '--', ...real]
+  await runRg(d.rg, args, d.fx.root, '\0', (rec) => {
+    if (++seen > 20_000) return false
+    const rel = strip(rec)
+    let st: fs.Stats
+    try { st = fs.lstatSync(path.join(d.fx.root, rel)) } catch { return }
+    if (!st.isFile() || st.size <= RG_MAX_FILE) return
+    if (f.pathGlob && !f.pathGlob.match(rel)) return
+    if (!visiblePath(d.fx, d.rules, d.user, rel)) return
+    count++
+    if (names.length < BIG_NAMED_MAX) names.push(rel)
+  }, timeoutMs)
+  return { names: names.sort(), count }
+}
+
 // ---------------- glob ----------------
 export async function globFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, pattern: string, limit = 100) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
@@ -635,28 +716,149 @@ export interface GrepOpts {
   /** place labels for the lines of documents ("p.12", "sheet '매출' A12:F12"; files/locations.ts) in this language;
    * without it, no labels (the file screen's content search) */
   lang?: Lang
+  /** the AI's grep: skip this many output lines first (to read on after a result stopped at its budget) */
+  offset?: number
+  /** the AI's grep: stop the output at this budget (Claude Code cuts a tool result over 25,000 tokens), with the
+   * offset that reads on */
+  budget?: OutputBudget
+  /** the AI's grep: name the files that were not searched because they are over RG_MAX_FILE (stats.big) */
+  reportBig?: boolean
 }
 
-/** the longest ripgrep --json record that grep reads (UTF-16 units); the line of a longer record is skipped
- * (stats.longSkipped), because --json gives the whole line and ignores --max-columns. The limit is on the record, not
- * on the line: each match and each JSON escape make the record longer, so a shorter line with very many matches or
- * escaped characters can also be skipped. */
+/** the longest ripgrep --json record that grep holds (UTF-16 units): --json gives the whole line and ignores
+ * --max-columns. A longer record is never held: its line is shown as the text around its matches, read from the file
+ * (longLineText, QA TC-4901; before, the line was skipped). Only a record whose parts cannot be read, or a line that no
+ * longer fits the file, is skipped (stats.longSkipped). The limit is on the record, not on the line: each match and
+ * each JSON escape make the record longer. */
 export const RG_MAX_RECORD_CHARS = 64 * 1024
+
+/** characters shown on each side of a match in a line over the record cap, and the most matches shown of one line */
+const LONG_WINDOW = 200
+const LONG_WINDOWS = 3
+/** characters shown of a context line (-A/-B/-C) over the record cap */
+const LONG_CONTEXT_HEAD = 300
+/** at most this many bytes of one match are shown in a long line */
+const LONG_MATCH_BYTES = 400
+const numEn = (n: number) => n.toLocaleString('en-US')
+/** bytes read at a time while a long line is measured */
+const LONG_CHUNK = 1024 * 1024
+
+/** The bytes ripgrep searched, by position: the file itself (ripgrep's offsets start after a UTF-8 BOM, which it
+ * strips, as read does), or text decoded first (legacy Korean, UTF-16) as a buffer. */
+/** `read` may reuse its buffer: a piece is used before the next read */
+export interface LongSource { size: number; read(pos: number, len: number): Buffer }
+export const bufferSource = (b: Buffer): LongSource => ({ size: b.length, read: (pos, len) => b.subarray(pos, Math.min(b.length, pos + len)) })
+/** a file read in pieces through `fd` (never whole) into one reused buffer, so each piece is valid until the next
+ * read; `base` bytes of a BOM are skipped */
+export function fdSource(fd: number, size: number, base: number): LongSource {
+  let scratch: Buffer | null = null
+  return {
+    size: size - base,
+    read(pos, len) {
+      const n = Math.max(0, Math.min(len, size - base - pos))
+      if (!scratch || scratch.length < n) scratch = Buffer.allocUnsafe(Math.max(n, 64 * 1024))
+      const buf = scratch
+      let got = 0
+      while (got < n) { const k = fs.readSync(fd, buf, got, n - got, base + pos + got); if (k <= 0) break; got += k }
+      return buf.subarray(0, got)
+    },
+  }
+}
+/** back to the start of a UTF-8 character inside `b` (relative positions) */
+const charStart = (b: Buffer, i: number) => { while (i > 0 && i < b.length && (b[i]! & 0xc0) === 0x80) i--; return i }
+const isHigh = (c: number) => c >= 0xd800 && c <= 0xdbff
+const isLow = (c: number) => c >= 0xdc00 && c <= 0xdfff
+/** the last `n` UTF-16 units of `s`, never starting inside a surrogate pair */
+const lastUnits = (s: string, n: number) => { let t = s.slice(-n); if (t && isLow(t.charCodeAt(0)) && t.length < s.length) t = t.slice(1); return t }
+/** the first `n` UTF-16 units of `s`, never ending inside a surrogate pair */
+const firstUnits = (s: string, n: number) => { let t = s.slice(0, n); if (t.length < s.length && t && isHigh(t.charCodeAt(t.length - 1))) t = t.slice(0, -1); return t }
+
+/**
+ * A line over the record cap (LongRecord) as grep shows it, from the very bytes ripgrep searched: the text around the
+ * first matches with their character positions in the line (UTF-16 units, as read's char_offset counts them) and the
+ * read call that shows more, or the head of a context line. The line is measured in pieces from its UTF-8 bytes
+ * (never decoded whole), so memory stays at one piece. Null when the record does not fit the file (it changed).
+ */
+export function longLineText(src: LongSource, l: LongRecord): { note: string; text: string } | null {
+  const ls = l.offset
+  if (ls >= src.size) return null
+  // one pass over the line: its end and the UTF-16 position of each match start (a 4-byte character is 2 units)
+  const starts = l.type === 'match' ? [...new Set(l.subs.map((s) => ls + s.start))].sort((x, y) => x - y) : []
+  const unitsAt = new Map<number, number>()
+  let units = 0, le = -1, si = 0
+  for (let pos = ls; le < 0 && pos < src.size; pos += LONG_CHUNK) {
+    const b = src.read(pos, LONG_CHUNK)
+    if (!b.length) break
+    for (let i = 0; i < b.length; i++) {
+      while (si < starts.length && starts[si] === pos + i) unitsAt.set(starts[si++]!, units)
+      const c = b[i]!
+      if (c === 10) { le = pos + i; break }
+      if ((c & 0xc0) !== 0x80) units += c >= 0xf0 ? 2 : 1
+    }
+  }
+  if (le < 0) le = src.size
+  let chars = units
+  if (le > ls && src.read(le - 1, 1)[0] === 13) { le--; chars-- }
+  if (l.type === 'context' || !starts.length) {
+    const piece = src.read(ls, Math.min(le - ls, LONG_CONTEXT_HEAD * 4))
+    const text = piece.toString('utf8')
+    const head = firstUnits(piece.length === le - ls ? text : text.replace(/\uFFFD+$/, ''), LONG_CONTEXT_HEAD)
+    return { note: `[line of ${numEn(chars)} characters, its start shown; read offset=${l.line} char_offset=${head.length} for the rest] `, text: head + (head.length < chars ? '…' : '') }
+  }
+  const parts: string[] = []
+  const at: number[] = []
+  let first = -1
+  let shownTo = -1
+  for (const sub of l.subs) {
+    if (parts.length >= LONG_WINDOWS) break
+    const ms = ls + sub.start
+    const u = unitsAt.get(ms)
+    if (u === undefined || ms > le || ms < shownTo) continue
+    const from = Math.max(ls, ms - LONG_WINDOW * 4)
+    const to = Math.min(le, ls + sub.end + LONG_WINDOW * 4, ms + LONG_MATCH_BYTES + LONG_WINDOW * 4)
+    const w = src.read(from, to - from)
+    const mStart = ms - from
+    const mEnd = charStart(w, Math.min(ls + sub.end, ms + LONG_MATCH_BYTES, to) - from)
+    // the window may start inside a character: from its next character on
+    let b0 = 0
+    while (b0 < mStart && (w[b0]! & 0xc0) === 0x80) b0++
+    const before = lastUnits(w.subarray(b0, mStart).toString('utf8'), LONG_WINDOW)
+    const match = w.subarray(mStart, mEnd).toString('utf8')
+    // ... and end inside one: a cut character decodes as U+FFFD, left out
+    const tail = to === le ? w.subarray(mEnd).toString('utf8') : w.subarray(mEnd).toString('utf8').replace(/\uFFFD+$/, '')
+    const after = firstUnits(tail, LONG_WINDOW)
+    const startsAt = u - before.length
+    const endsAt = u + match.length + after.length
+    if (first < 0) first = startsAt
+    at.push(u)
+    parts.push(`${startsAt > 0 ? '…' : ''}${before}${match}${after}${endsAt < chars ? '…' : ''}`)
+    shownTo = to
+  }
+  if (!parts.length) return null
+  const where = at.length === 1 ? `match at character ${numEn(at[0]!)}` : `matches at characters ${at.map(numEn).join(', ')}`
+  return { note: `[line of ${numEn(chars)} characters; ${where}; read offset=${l.line} char_offset=${first} to see more of it] `, text: parts.join(' … ') }
+}
 
 /** One matching line (content mode): the shown path, its 1-based line number and the line text; for a document line,
  * its page, sheet row, slide or section when known (files/locations.ts). */
+/** an over-long line for grep's handler: what ripgrep kept of it, the folder it searched and whether it decoded CP949 */
+interface LongHit { long: LongRecord; cwd: string; legacy: boolean }
+
 export interface GrepHit { path: string; line: number; text: string; loc?: SourceLoc }
 
 export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: boolean, o: GrepOpts) {
   const { roots, excludes } = rootsFor(d, baseSegs, baseIsFile)
-  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0 }
+  const stats = { roots: roots.length, excludes: excludes.length, filtered: 0, officePending: 0, officeNotQueued: 0, officeRetryLater: 0, longSkipped: 0, big: 0 }
   const hits: GrepHit[] = []
-  if (!roots.length && !d.virtual?.size) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits }
+  if (!roots.length && !d.virtual?.size) return { text: 'No matches', truncated: false, timedOut: false, stats, files: new Set<string>(), hits, big: [] as string[] }
   // user glob: basename-only globs go to ripgrep; globs with "/" are matched here against the result path
   if (o.glob?.startsWith('!')) throw new ToolError('negated globs are not supported')
   const pathGlob = o.glob && o.glob.includes('/') ? new Bun.Glob(o.glob) : null
   const nameGlob = o.glob && !o.glob.includes('/') ? o.glob : null
   const common: string[] = [...RG_BASE]
+  // paged results (the AI's grep: offset and budget) must come in the same order every call: ripgrep's threads give
+  // files in any order, so offset=N would skip some and repeat others
+  if (o.offset !== undefined || o.budget) common.push('--sort', 'path')
   if (o.type) common.push('--type', o.type)
   common.push(o.ignoreCase ? '-i' : '-s')
   if (o.fixed) common.push('-F')
@@ -683,7 +885,49 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     return seen.get(real)!
   }
   let truncated = false
-  const push = (s: string) => { if (out.length >= o.limit) { truncated = true; return false } out.push(s); return true }
+  /** output lines left out for `offset`; the result stopped at its budget (`budget`) */
+  let offsetSkipped = 0
+  let budgetCut = false
+  let usedChars = 0, usedTokens = 0
+  /** for each line of `out`: its file and its index in `hits` (-1: none), so a cut after the place labels keeps both right */
+  const meta: { real: string | null; hit: number }[] = []
+  /** true: shown; 'cut': shown cut, and the result is full (record it, then stop); false: the result is full (stop);
+   * null: left out for `offset` (go on) */
+  const push = (s: string, real: string | null = null): boolean | 'cut' | null => {
+    if (o.offset && offsetSkipped < o.offset) { offsetSkipped++; return null }
+    if (out.length >= o.limit) { truncated = true; return false }
+    if (o.budget) {
+      const t = textTokens(s) + 1
+      if (usedChars + s.length + 1 > o.budget.chars || usedTokens + t > o.budget.tokens) {
+        // one line longer than the whole budget: its start, so the result is never empty
+        truncated = true; budgetCut = true
+        // the start of it is shown: its file is read (files, hits) like any shown line
+        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); meta.push({ real, hit: -1 }); usedChars = o.budget.chars; return 'cut' }
+        return false
+      }
+      usedChars += s.length + 1; usedTokens += t
+    }
+    out.push(s); meta.push({ real, hit: -1 }); return true
+  }
+  /** The place labels (added after ripgrep) make lines longer: the lines past the budget are dropped again, with their
+   * files and hits, and the result says the offset that reads on from there. */
+  const reCut = () => {
+    if (!o.budget) return
+    let chars = 0, tokens = 0, keep = 0
+    for (; keep < out.length; keep++) {
+      const l = out[keep]!, c = l.length + 1, t = textTokens(l) + 1
+      if (keep > 0 && (chars + c > o.budget.chars || tokens + t > o.budget.tokens)) break
+      chars += c; tokens += t
+    }
+    if (keep >= out.length) return
+    out.length = keep; meta.length = keep; truncated = true; budgetCut = true
+    files.clear(); for (const x of meta) if (x.real) files.add(x.real)
+    hits.length = meta.reduce((n, x) => Math.max(n, x.hit + 1), 0)
+  }
+  /** what the end of a cut result says: the next call (budget), or narrow the search (head_limit) */
+  const cutNote = () => budgetCut
+    ? `\n... (this result stopped at its size limit after ${out.length} lines; for the next lines call grep again with the same arguments and offset=${(o.offset ?? 0) + out.length}, or narrow the path, glob or pattern)`
+    : `\n... (results cut at ${o.limit}; narrow the search${o.offset !== undefined || o.budget ? `, or call grep again with offset=${(o.offset ?? 0) + out.length}` : ''})`
   let last: { file: string; line: number } | null = null
   /** document lines of the result whose place label is added once ripgrep is done: index in `out` (and in `hits`) */
   const placed: { out: number; hit: number; real: string; line: number; sep: string; text: string }[] = []
@@ -695,32 +939,67 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     return legacy.get(real) ?? false
   }
   // `keep` runs after the access check, so grep reads only files that this user can see
-  const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true, virtualPass = false) => (rec: string) => {
+  /** the bytes ripgrep searched in one file, for an over-long line: read in pieces through the file (closed once
+   * grep is done), or decoded text (legacy Korean as pass 2 searched it, UTF-16) */
+  let longFile: { abs: string; legacy: boolean; src: LongSource | null; fd: number | null } | null = null
+  const closeLong = () => { if (longFile?.fd != null) try { fs.closeSync(longFile.fd) } catch {} longFile = null }
+  const longSource = (abs: string, legacy: boolean): LongSource | null => {
+    if (longFile?.abs === abs && longFile.legacy === legacy) return longFile.src
+    closeLong()
+    let src: LongSource | null = null, fd: number | null = null
+    try {
+      const o = openToRead(abs)
+      fd = o.fd
+      const size = o.st.size
+      const head = Buffer.alloc(Math.min(4, size)); fs.readSync(fd, head, 0, head.length, 0)
+      const utf16 = (head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff)
+      if (legacy || utf16) {
+        // ripgrep searched these as transcoded UTF-8 text: its offsets are of that text (at most RG_MAX_FILE bytes)
+        const bytes = readRegular(abs, RG_MAX_FILE).bytes
+        const t = legacy ? cp949Text(bytes) : new TextDecoder(head[0] === 0xff ? 'utf-16le' : 'utf-16be').decode(bytes)
+        src = t === null ? null : bufferSource(Buffer.from(t, 'utf8'))
+      } else src = fdSource(fd, size, head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf ? 3 : 0)
+    } catch { src = null }
+    longFile = { abs, legacy, src, fd }
+    return src
+  }
+  const handler = (map: (p: string) => { shown: string; real: string } | null, keep: (real: string) => boolean = () => true, virtualPass = false) => (rec: string | LongHit) => {
     // a real file where this person has a virtual one (its name in any letter case): the virtual one stands in for it
     const real = (m: { real: string } | null) => m && (virtualPass || !shadowed(m.real))
     if (o.mode === 'content') {
-      let j: any; try { j = JSON.parse(rec) } catch { return }
+      let j: any
+      if (typeof rec === 'string') { try { j = JSON.parse(rec) } catch { return } } else j = { type: rec.long.type, data: { path: rec.long.path, line_number: rec.long.line } }
       if (j.type !== 'match' && j.type !== 'context') return
       const raw = j.data.path.text ?? Buffer.from(j.data.path.bytes, 'base64').toString('utf8')
       const m = map(raw); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
       const ln: number = j.data.line_number
-      const text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
-      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (!push('--')) return false
+      let text: string, note = ''
+      if (typeof rec === 'string') text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
+      else {
+        // a line over the record cap: the text around the match, read from the file ripgrep searched (after the checks)
+        const src = longSource(path.join(rec.cwd, raw), rec.legacy)
+        let w: ReturnType<typeof longLineText> = null
+        try { w = src ? longLineText(src, rec.long) : null } catch { w = null }
+        if (!w) { stats.longSkipped++; return }
+        text = w.text; note = w.note
+      }
+      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) { const sp = push('--'); if (sp === false || sp === 'cut') return false }
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
-      const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`)
+      const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${note}${text}` : `${m.shown}${sep}${note}${text}`, m.real)
       if (pushed) {
         files.add(m.real)
-        if (j.type === 'match') hits.push({ path: m.shown, line: ln, text })
+        if (j.type === 'match') { hits.push({ path: m.shown, line: ln, text }); meta[out.length - 1]!.hit = hits.length - 1 }
         if (placing && structureOf(m.real)) placed.push({ out: out.length - 1, hit: j.type === 'match' ? hits.length - 1 : -1, real: m.real, line: ln, sep, text })
       }
-      return pushed
+      return pushed === true || pushed === null
     }
+    if (typeof rec !== 'string') return
     const parts = rec.split('\0')
     const m = map(parts[0].replace(/^\n/, '')); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
-    const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown)
+    const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown, m.real)
     if (pushed) files.add(m.real)
-    return pushed
+    return pushed === true || pushed === null
   }
   const recSep: '\n' | '\0' = o.mode === 'files_with_matches' ? '\0' : '\n'
   // literal text is searched in NFC and NFD, so Korean text written in either form matches (macOS can write NFD)
@@ -734,9 +1013,12 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const admittedTexts = new Map<string, string>()
   let admissionLimited = false
   let live = false
-  const run = async (args: string[], cwd: string, h: (rec: string) => boolean | void, timeoutMs: number, countSkips = true) => {
+  /** ripgrep's options for one pass in `cwd`: an over-long line goes to the handler with the folder it was found in */
+  const passOpts = (cwd: string, args: string[], h: (rec: string | LongHit) => boolean | void): RgRunOpts =>
+    o.mode === 'content' ? { ...rgOpts, onLong: (long) => h({ long, cwd, legacy: args.includes('--encoding') }) } : rgOpts
+  const run = async (args: string[], cwd: string, h: (rec: string | LongHit) => boolean | void, timeoutMs: number, countSkips = true) => {
     if (live) {
-      const r = await runRg(d.rg, args, cwd, recSep, h, timeoutMs, rgOpts)
+      const r = await runRg(d.rg, args, cwd, recSep, h, timeoutMs, passOpts(cwd, args, h))
       if (countSkips) stats.longSkipped += r.skipped
       return r
     }
@@ -793,7 +1075,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
     }
     const left = until - Date.now()
     if (left <= 0) return { code: null, killed: 'timeout' as const, err: '', skipped: 0 }
-    const r = await runRg(d.rg, [...args.slice(0, args.indexOf('--')), '--', '.'], frozen, recSep, h, left, rgOpts)
+    const r = await runRg(d.rg, [...args.slice(0, args.indexOf('--')), '--', '.'], frozen, recSep, h, left, passOpts(frozen, args, h))
     if (countSkips) stats.longSkipped += r.skipped
     return r
   }
@@ -804,7 +1086,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   const started = Date.now()
   // strictTime: one deadline for the whole search; a pass that has no time left is not run (timedOut)
   const deadline = started + d.timeoutMs
-  const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits })
+  const stopped = () => ({ text: (out.join('\n') || 'No matches') + '\n... (search stopped after the time limit)', truncated: true, timedOut: true, stats, files, hits, big: [] as string[] })
   let virtualDir: string | null = null
   try {
   // pass 0: the virtual files (file lists) first, so their lines lead the result: written for this one search into a
@@ -819,13 +1101,14 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       fs.writeFileSync(dst, text, { mode: 0o400, flag: 'wx' })
     }
     const vmap = (p: string) => { const r = strip(p); return d.virtual!.has(r) ? { shown: r, real: r } : null }
+    const vh = handler(vmap, () => true, true)
     // a share of the time: the lists are small next to the team folder, and pass 1 gets its own
-    const r0 = await runRg(d.rg, [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), ...patArgs, '--', '.'], virtualDir, recSep, handler(vmap, () => true, true), Math.min(d.timeoutMs, 10_000), rgOpts)
+    const r0 = await runRg(d.rg, [...common, '--glob-case-insensitive', ...(nameGlob ? ['--glob', nameGlob] : []), ...patArgs, '--', '.'], virtualDir, recSep, vh, Math.min(d.timeoutMs, 10_000), passOpts(virtualDir, [], vh))
     if (r0.code === 2 && !r0.killed && !out.length && /regex|parse|error/i.test(r0.err)) throw new ToolError('invalid pattern: ' + r0.err.trim().split('\n').filter((l) => !/pcre2/i.test(l)).slice(-3).join(' ') + (/look-?around|backreference/i.test(r0.err) ? ' (look-around and backreferences are not supported)' : ''))
     if (r0.killed === 'timeout') return stopped()
   }
   // nothing on disk to search (the path named a file list, or no folder of it is readable): never a ripgrep without roots
-  if (d.virtualOnly || !roots.length) return { text: (out.join('\n') || 'No matches') + (truncated ? `\n... (results cut at ${o.limit}; narrow the search)` : ''), truncated, timedOut: false, stats, files, hits }
+  if (d.virtualOnly || !roots.length) return { text: (out.join('\n') || 'No matches') + (truncated ? cutNote() : ''), truncated, timedOut: false, stats, files, hits, big: [] as string[] }
   live = admission.emptyLedger()
   // The lease rules out quarantine on every DB connection until finally below.
   // Avoid per-result quarantine probes on the default, never-used product path.
@@ -848,8 +1131,10 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   if (!truncated && !o.type) {
     // strictTime: extraction that is not done at the deadline goes on in the background
     if (o.strictTime && deadline - Date.now() <= 0) return stopped()
+    // a later page (offset) extracts nothing before its answer: it reads the same office text as the page before it,
+    // so the order the offset counts in stays the same
     const ref = await d.office.refresh(d.rg, roots, excludes, (rel) => visiblePath(d.fx, d.rules, d.user, rel),
-      { budget: o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
+      { budget: o.offset ? 0 : o.officeBudget ?? 40, signal: o.signal, owner: o.officeOwner, ...(o.strictTime ? { deadline } : {}) })
     stats.officePending = ref.pending
     stats.officeNotQueued = ref.notQueued
     stats.officeRetryLater = ref.retryLater
@@ -898,20 +1183,27 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       }
     }
   }
+  reCut()
   truncated ||= admissionLimited
   let text = out.join('\n') || 'No matches'
   if (admissionLimited) text += '\n' + (d.fx.quarantine ? safeText(d.fx.quarantine.db, d.user.id, 'searchLimit') : SAFE_OPS_TEXT.searchLimit.en)
-  else if (truncated) text += `\n... (results cut at ${o.limit}; narrow the search)`
+  else if (truncated) text += cutNote()
   if (stats.officePending) text += `\n(${stats.officePending} office documents are still being indexed; search again in a minute for complete results)`
   if (stats.officeNotQueued) text += `\n(${stats.officeNotQueued} office documents were not searched; they are not in the index queue yet; search again later)`
   if (stats.officeRetryLater) text += `\n(${stats.officeRetryLater} office documents were not searched: reading their text took too long (a busy server or a very complex file); search again in a few minutes)`
-  if (stats.longSkipped) text += `\n(${stats.longSkipped} very long lines were skipped (ripgrep record over ${RG_MAX_RECORD_CHARS / 1024} K characters))`
-  return { text, truncated, timedOut, stats, files, hits }
+  if (stats.longSkipped) text += `\n(${stats.longSkipped} very long matching lines could not be shown here (the file changed while it was searched); read those files with offset and char_offset)`
+  // files over the size limit were not searched: said with their names, and that read opens them (QA TC-4921)
+  // once per search (its first page): a later page does not list the folders again
+  const big = o.reportBig && !o.offset && !o.signal?.aborted ? await bigFiles(d, roots, excludes, { nameGlob, pathGlob, type: o.type }, Math.min(5_000, Math.max(1_000, deadline - Date.now()))) : { names: [], count: 0 }
+  stats.big = big.count
+  if (big.count) text += `\n(${big.count} file${big.count === 1 ? ' was' : 's were'} not searched because ${big.count === 1 ? 'it is' : 'they are'} over ${RG_MAX_FILE / 1024 / 1024} MB: ${big.names.join(', ')}${big.count > big.names.length ? ` and ${big.count - big.names.length} more` : ''}. Read ${big.count === 1 ? 'it' : 'them'} directly with read (offset and limit) to look inside.)`
+  return { text, truncated, timedOut, stats, files, hits, big: big.names }
   } finally {
     // runRg has reaped the consumer before release, including timeout/abort.
     // Failed cleanup retains the durable lease (fail closed).
     for (const dir of snapshots.values()) fs.rmSync(dir, { recursive: true, force: true })
     if (virtualDir) fs.rmSync(virtualDir, { recursive: true, force: true })
     admission.close()
+    closeLong()
   }
 }

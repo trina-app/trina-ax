@@ -1,0 +1,6 @@
+- The AI makes a big Excel workbook straight from a CSV file in the team folder, every row, and can add a summary sheet with formulas next to it. It no longer builds a small sample because of a size limit that was meant for PowerPoint.
+- When the AI reads a Word file, it now sees the title, subtitle and author at the top. When it reads an Excel file, it sees each formula next to its result, such as `=SUM(B2:B9) → 1770`.
+- When the AI searches a folder, it says which files were too big to search (over 50 MB) and reads them directly instead. Long search results and folder lists come in parts, so nothing at the end is lost.
+- Big spreadsheets and documents get more time to open (up to 10 minutes, by file size), and more of them can open at the same time on larger servers.
+- When the dev environment is turned on but not working, the AI says plainly what it cannot do instead of asking you to try again later. Admins see the reason in **Admin › Settings › Dev environment**.
+- The AI no longer hands its helpers work they cannot do.

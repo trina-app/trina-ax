@@ -102,7 +102,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
     const tv = useRooms.getState().threadViews[key]
     if (el.scrollTop < 200 && tv?.nextCursor && !tv.loading) {
       // the reply in sight stays where it is (lib/stickToBottom.ts holdPlace)
-      const keep = holdPlace(el, ROOM_ROW)
+      const keep = holdPlace(el, ROOM_ROW, list.reanchor)
       void useRooms
         .getState()
         .loadOlderReplies(roomId, rootId)

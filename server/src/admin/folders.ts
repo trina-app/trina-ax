@@ -24,7 +24,7 @@ import { claimGuestProject, guestsAmong } from '../auth/guests'
 import { folderKeep, isParkedRow, type FolderKeep } from './folder-keep'
 import { shownSegs } from './access-rows'
 import { rulesHash, rulesHashV1 } from './access-edit'
-import { resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
+import { forgetLiveViewers, resetEngineSessions as resetChatSessions, stopTurnsIn } from '../chat/runtime'
 import { sharedChatsHidden } from '../chat/shared'
 import { peopleChatsLost, rememberAudience } from '../chat/chat-audience'
 import { groupFoldersChanged, syncRoomsNow, teamRoomSeats } from '../rooms/service'
@@ -532,6 +532,9 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
     const named = changed.filter((p) => noticeMayName(p, pb, pa, before, after, created, onDisk))
     if (named.length) ctx.services.realtime.publish(pb.id, { type: 'notice', data: { level: 'info', code: 'access_changed', message: named.map((p) => p || '/').join(', ') } })
   }
+  // a running answer of a shared chat works out who gets its live text again before its next piece (chat/live-answer.ts):
+  // any access change may change who sees the chat or which paths a step line may name to them
+  try { forgetLiveViewers(ctx) } catch (e) { ctx.log.warn('live viewers not reset', { err: e }) }
   // shared project chats follow their project's audience (chat/shared.ts): whoever no longer sees one has it dropped from
   // their lists and project pages, by its id alone (the chat's details never go to someone who cannot see it). After
   // the replay buffers above were emptied, so a window resuming gets these too. Never throws: the change is saved

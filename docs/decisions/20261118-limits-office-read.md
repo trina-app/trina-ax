@@ -21,7 +21,7 @@ Plan: docs/AGENTS/plan/20261118-1100-limits-office-read.md.
   expand anything.
 - **Rule 2, the cap:** `IN_PROCESS_PARSE_MAX` is 200 MB (it was 32 MB), the same as the read limit and unzip_file, and
   counts the file after rule 1. The office worker's own limits stay (sandbox, converter cgroup, 2 GB resident memory
-  watchdog, output cap); its wall clock grows with the input: 60 s, plus 1 s per 2 MB past 32 MB (144 s at 200 MB),
+  watchdog, output cap); its wall clock grows with the input: 60 s, plus 1 s per 2 MB past 32 MB (144 s at 200 MB; since the 11-18 batch #1300's 60 s + 4 s per MB, at most 10 min, docs/decisions/20261118-audit2-small.md),
   and the CPU-time rlimit with it.
 - **Rule 3, big workbooks are read a piece at a time:** SheetJS holds every cell in memory, about 120 times the file
   (1.3 GB for an 11 MB export, 2.3 GB for 18 MB, past the worker's 2 GB). An .xlsx over 2 MB, or one whose parts

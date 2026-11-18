@@ -36,6 +36,7 @@ import { ErrorNote, IconButton, Skeleton, confirmDialog, useCopy } from '../ui'
 import { ComposerToolbar } from './ComposerToolbar'
 import { composerRadius } from './composerBox'
 import { SharedReadOnly } from './SharedChat'
+import { capBlankLines } from '../../lib/blankLines'
 
 const NO_PEOPLE: UserRef[] = []
 
@@ -111,7 +112,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, fo
     list.onScroll()
     const v = useChatThreads.getState().views[key]
     if (el.scrollTop < 200 && v?.nextCursor && !v.loading) {
-      const keep = holdPlace(el, ROOM_ROW)
+      const keep = holdPlace(el, ROOM_ROW, list.reanchor)
       void useChatThreads.getState().loadOlder(chatId, rootId).finally(() => requestAnimationFrame(keep))
     }
     tryRead()
@@ -248,7 +249,7 @@ function ReplyRow({ chatId, rootId, r, meId, people, readOnly }: { chatId: strin
           <bdi className="min-w-0 truncate font-medium text-ink">{nameOf(r.author) ?? r.author?.name ?? t('rooms.goneUser')}</bdi>
           <time dateTime={r.createdAt} className="shrink-0 text-xs text-faint">{timeOf(r.createdAt, locale)}</time>
         </p>
-        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="chat-thread-reply-text"><MentionedText text={r.content} mentioned={mentioned} meId={meId} /></p>
+        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="chat-thread-reply-text"><MentionedText text={capBlankLines(r.content)} mentioned={mentioned} meId={meId} /></p>
       </div>
       <MenuButton label={t('rooms.messageActions')} items={items} compact className="shrink-0 self-start opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" testId="chat-thread-reply-menu" />
     </li>
@@ -263,7 +264,7 @@ function PendingRow({ chatId, rootId, p, people, meId }: { chatId: string; rootI
     <li className="flex gap-2.5 opacity-60" data-testid="chat-thread-pending" data-state={p.state}>
       <span className="size-7 shrink-0" aria-hidden />
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink"><MentionedText text={p.text} mentioned={mentioned} meId={meId} /></p>
+        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink"><MentionedText text={capBlankLines(p.text)} mentioned={mentioned} meId={meId} /></p>
         {p.state === 'failed' && (
           <p className="flex flex-wrap items-center gap-2 text-xs text-danger" role="status">
             {t('chat.notSent')}

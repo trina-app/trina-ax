@@ -142,8 +142,9 @@ describe('a shared project chat', () => {
     try { await shell('bob', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo ok' }) } finally { h.ctx.db.query('UPDATE folder_rules SET access = ? WHERE id = ?').run(rule.access, rule.id) }
     const r = last()
     expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
-    expect(fsOf(r).allowRead).toContain(abs(P.folderPath))
-    expect(readable(r)).not.toContain(abs(`${P.folderPath}/secret`))
+    // read-only with a folder bob may not open inside: given entry by entry, that folder not even by its name (TC-4929)
+    expect(fsOf(r).allowRead.some((p) => p.startsWith(abs(P.folderPath) + '/'))).toBe(true)
+    expect([...readable(r), ...fsOf(r).denyRead].some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
   })
 
   test('each call reads the audience again: alone in the chat, alice\'s next command sees her restricted folder', async () => {
@@ -286,6 +287,38 @@ describe('a shared project chat', () => {
 })
 
 describe('a chat shared with people and groups', () => {
+  // QA TC-4929: an empty placeholder of a folder only alice may open named it to everyone in the chat
+  test('a folder only one of them may open is not listed at all (no empty placeholder)', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    fs.mkdirSync(abs('shared/hr-ONLYALICE'), { recursive: true }); fs.writeFileSync(abs('shared/hr-ONLYALICE/pay.md'), 'x')
+    const fid = crypto.randomUUID()
+    h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(fid, 'shared/hr-ONLYALICE')
+    h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(crypto.randomUUID(), fid)
+    try {
+      await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo ls' })
+      const r = last()
+      const all = [...fsOf(r).allowRead, ...fsOf(r).allowWrite, ...fsOf(r).denyRead, ...fsOf(r).denyWrite]
+      expect(all.some((p) => p.includes('hr-ONLYALICE'))).toBe(false)
+      // shared/ is given entry by entry: what everyone may read is there
+      expect(fsOf(r).allowRead).not.toContain(abs('shared'))
+      expect(fsOf(r).allowRead).toContain(abs('shared/glossary.md'))
+      // alice's own chat: the folder is hers to read, given as before
+      await shell('alice', undefined, c).call({ command: 'echo ls' })
+      expect(readable(last()).some((p) => p === abs('shared') || p === abs('shared/hr-ONLYALICE'))).toBe(true)
+    } finally {
+      h.ctx.db.query('DELETE FROM folders WHERE id = ?').run(fid)
+      fs.rmSync(abs('shared/hr-ONLYALICE'), { recursive: true, force: true })
+    }
+  })
+
+  // QA TC-4928: srt's proxy login (per run) in what a command printed never reaches the AI or the chat
+  test('the proxy login a command prints is hidden in its answer', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const t = out(await shell('alice', sharedRun(['alice', 'bob'], null), c).call({ command: 'echo http_proxy=http://srt.ZW52:0f1e2d3c4b5a69788796a5b4c3d2e1f0@localhost:3128 CLOUDSDK_PROXY_PASSWORD=0f1e2d3c4b5a69788796a5b4c3d2e1f0' }))
+    expect(t).toContain('http_proxy=http://srt.ZW52:<hidden>@localhost:3128')
+    expect(t).not.toContain('0f1e2d3c4b5a69788796a5b4c3d2e1f0')
+  })
+
   test('only the folders everyone in it may open, read-only; the chat\'s work folder is writable', async () => {
     const people = (await h.api('alice').call(API.createChat, { body: {} })).id
     await shell('alice', sharedRun(['alice', 'bob'], null), people).call({ command: 'echo ok' })

@@ -41,6 +41,9 @@ export const UserPrefs = z.object({
   /** the office owner's one-time notice on Admin › Home that the server removed Claude Code connections from this Mac
    * (server/src/office/claude-mcp-notice.ts) was closed: it never shows again */
   officeMcpNotice: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time notice that the dev environment exists and is off for their team (a team from before
+   * 2026-11-06, docs/decisions/20261118-run-code-skills-subagents.md) was closed or followed: it never shows again */
+  devEnvOffer: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
   /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
@@ -379,8 +382,9 @@ export const Attachment = z.object({
   receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
-/** At most this many attachments (uploads and team files together) per message. */
-export const MESSAGE_ATTACHMENTS_MAX = 20
+/** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
+ * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
+export const MESSAGE_ATTACHMENTS_MAX = 100
 
 /** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
  * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
@@ -538,7 +542,7 @@ export type MessageSources = z.infer<typeof MessageSources>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds), or, for
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 500 / the API engine's 30 rounds), or, for
  * answers from before 2026-11-14, the old limit of working time (`time_limit`, 20 active minutes or 45 in total; one
  * answer has no time limit since then, docs/DECISIONS.md "No time limit on one answer"). Its status stays 'done': not
  * an error, not a stop by the person; the screen offers "continue". */
@@ -887,9 +891,15 @@ export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-
 /** Tool rounds one answer may take (Claude Code `--max-turns`; Admin > Team settings `answerStepLimit`). A round is one
  * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; with
  * the budgets it is what ends a long answer (one answer has no time limit). docs/DECISIONS.md "Tool rounds per answer". */
-export const DEFAULT_ANSWER_STEP_LIMIT = 150
+export const DEFAULT_ANSWER_STEP_LIMIT = 500
+/** a guest's answers take at most this many rounds, whatever the team setting (the default before 2026-11-18;
+ * docs/decisions/20261118-limits-caps.md) */
+export const GUEST_ANSWER_STEP_LIMIT = 150
+/** an answer nobody watches (a scheduled run, a run asked from Slack) takes at most this many rounds: nobody can stop a
+ * long run there (docs/decisions/20261118-limits-caps.md) */
+export const UNATTENDED_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
-export const ANSWER_STEP_LIMIT_MAX = 500
+export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({

@@ -40,6 +40,7 @@ import { memoryLines } from './prompt'
 import { isInternalChat } from './internal-chats'
 import { unsharePeopleChecked } from './people-guard'
 import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peopleFor, messageFor, recordOlderAnswers, severalAuthors, unshareUncheckedChats } from './shared'
+import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
 
@@ -188,6 +189,12 @@ export function stopTurnsOf(ctx: AppContext, userId: string): number {
  * access (a shared chat runs one turn at a time; another person's turn there goes on). */
 export function stopTurnsIn(ctx: AppContext, userId: string, chatIds: readonly string[]): number {
   return runtimes.get(ctx)?.stopUserTurnsIn(userId, chatIds) ?? 0
+}
+
+/** Any access changed (admin/folders.ts afterAccessChange): every running answer of a shared chat works out who gets its
+ * live text again before its next piece (chat/live-answer.ts). */
+export function forgetLiveViewers(ctx: AppContext): void {
+  runtimes.get(ctx)?.forgetLiveViewers()
 }
 
 /** settings table: key -> JSON value (tab 1). Unknown / bad values fall back to the default. */
@@ -386,8 +393,8 @@ export class ChatRuntime {
     return Math.min(MAX_ASK_USER_TIMEOUT_MS, readSetting(this.db, 'ask_user_timeout_sec', isInt(30, 900), DEFAULT_ASK_USER_TIMEOUT_MS / 1000) * 1000)
   }
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
-  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 150. Read when an
-   * answer starts, so a change applies to the next answer. Sub-agents keep MAX_SUBAGENT_TURNS each (chat/subagents.ts);
+  /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 500. Read when an
+   * answer starts, so a change applies to the next answer. Each sub-agent gets the answer's cap (chat/turn.ts subagentLaunch);
    * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
   get maxEngineTurns(): number {
     return this.engineTurnsOverride ?? readSetting(this.db, 'answerStepLimit', isInt(ANSWER_STEP_LIMIT_MIN, ANSWER_STEP_LIMIT_MAX), DEFAULT_MAX_ENGINE_TURNS)
@@ -559,8 +566,12 @@ export class ChatRuntime {
     return n
   }
   queuedCount() { return this.queued.length }
+  /** Every running answer works out who gets its live text again (chat/live-answer.ts). */
+  forgetLiveViewers() { for (const e of this.running.values()) e.forgetLiveViewers() }
   /** Stop every running and queued turn of one person (account disabled / deleted). */
   stopUserTurns(userId: string): number {
+    // (their account is off: nobody's live text reaches them any more)
+    this.forgetLiveViewers()
     this.db.query('UPDATE schedules SET pending_due_at=NULL, retry_at=NULL, enabled=0 WHERE user_id=?').run(userId)
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId).map((s) => s.chatId))
     let n = 0
@@ -573,6 +584,8 @@ export class ChatRuntime {
     // their messages waiting there no longer hold a place in line (shared-waiting.ts)
     this.sharedWaiting.dropUser(userId, chatIds)
     const lost = new Set(chatIds)
+    // an answer running there for someone else goes on, but its live text no longer reaches them (chat/live-answer.ts)
+    for (const e of this.running.values()) if (lost.has(e.spec.chatId)) e.forgetLiveViewers()
     const chats = new Set([...this.running.values()].map((e) => e.spec).concat(this.queued).filter((s) => s.userId === userId && lost.has(s.chatId)).map((s) => s.chatId))
     let n = 0
     // (stopChat stops the chat's running turn first: only while that one is theirs, never another person's)
@@ -768,6 +781,7 @@ export class ChatRuntime {
       {
         const row = this.store.messageRow(spec.assistantId), chatRow = this.store.chatRow(spec.chatId)
         if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId: spec.chatId, messageId: spec.assistantId, status: 'error', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+        if (row && chatRow) publishDoneToOthers(this, spec.chatId, spec.assistantId, spec.userId, 'error')
       }
       this.publishChat(spec.userId, spec.chatId, 'updated')
     } catch (e) {
@@ -879,6 +893,7 @@ export class ChatRuntime {
     const row = this.store.messageRow(spec.assistantId)
     const chatRow = this.store.chatRow(chatId)
     if (row && chatRow) this.hub.publish(spec.userId, { type: 'message.done', data: { chatId, messageId: spec.assistantId, status: 'stopped', message: messageFor(this, chatRow, row, spec.userId, spec.locale) } })
+    if (row && chatRow) publishDoneToOthers(this, chatId, spec.assistantId, spec.userId, 'stopped')
     this.publishChat(spec.userId, chatId, 'updated')
     this.schedule()
     this.publishPositions()
@@ -1031,9 +1046,9 @@ export class ChatRuntime {
   }
   /** The ids of the person's memories the AI gets now: the newest MEMORIES_FOR_PROMPT that fit in the memory block
    * (prompt.ts memoryLines). The others are kept and listed, not given to the AI (Settings › 메모리 says so). */
-  memoriesInUse(userId: string): Set<string> {
+  memoriesInUse(userId: string, memoryTokens?: number): Set<string> {
     const rows = this.memoriesForPrompt(userId)
-    return new Set(rows.slice(0, memoryLines(rows).length).map((r) => r.id))
+    return new Set(rows.slice(0, memoryLines(rows, memoryTokens).length).map((r) => r.id))
   }
   /** The chat's project as the turn sees it: only while the person can still read the project folder (tab 2
    * "권한 회수": a project stays attached to the chat, but its name, folder and instructions stop reaching the AI), and

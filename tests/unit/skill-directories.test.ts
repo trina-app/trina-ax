@@ -93,7 +93,7 @@ test('metadata/resources stay out of automatic rules and prompt gives the permis
 })
 
 test('oversize manifests and symlink/hardlink files and directory chains are not discovered', () => {
-  put('skills/oversize/SKILL.md', manifest('oversize') + 'x'.repeat(140 * 1024))
+  put('skills/oversize/SKILL.md', manifest('oversize') + 'x'.repeat(520 * 1024))
   put('outside/SKILL.md', manifest('linked'))
   fs.symlinkSync(path.join(root, 'outside'), path.join(root, 'skills/linked'))
   put('outside/hard.md', manifest('hard'))

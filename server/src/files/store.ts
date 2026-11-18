@@ -38,7 +38,7 @@ function refuseNotRegular(st: fs.Stats) {
  * opening". Without `seen` (server-owned folders: uploads, caches, work folders) the file is only checked to be
  * regular.
  */
-function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
+export function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
   if (seen) { refuseNotRegular(seen); return openChecked(abs, seen) }
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
@@ -73,6 +73,23 @@ export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
     const bytes = Buffer.alloc(Math.min(n, st.size))
     const got = bytes.length ? fs.readSync(fd, bytes, 0, bytes.length, 0) : 0
     return bytes.subarray(0, Math.max(0, got))
+  } finally { fs.closeSync(fd) }
+}
+
+/** A regular, singly linked file in pieces of at most 4 MiB (same refusals and `seen` as readRegular), up to the size
+ * its fstat gave, never the whole file in memory: `each` gets every piece in order and may wait (make_zip's deflate). */
+export async function readRegularPieces(abs: string, seen: fs.Stats | undefined, each: (piece: Buffer) => Promise<void> | void, signal?: AbortSignal): Promise<fs.Stats> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      signal?.throwIfAborted()
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      await each(Buffer.from(buf.subarray(0, n)))
+      pos += n
+    }
+    return st
   } finally { fs.closeSync(fd) }
 }
 

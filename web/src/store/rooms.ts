@@ -24,6 +24,7 @@ import { lastHeard, LIVE_QUIET_MS } from '../lib/realtime'
 import { currentLocale, t } from '../i18n'
 import { useSession } from './session'
 import { useSideChats } from './sideChats'
+import { keepSideChatOpen } from '../lib/sideChatOpenKeep'
 import { toast, useUi } from './ui'
 
 export type RoomEvent = Extract<ServerEvent, { type: 'room.message' | 'room.message.updated' | 'room.read' | 'room.thread' | 'room.reactions' | 'room.updated' }>
@@ -475,6 +476,12 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
+/** The side chat of a room opened or closed, kept for this tab (lib/sideChatOpenKeep.ts); nothing when signed out. */
+function keepSide(roomId: string, open: boolean) {
+  const st = useSession.getState().status
+  if (st.kind === 'signed-in') keepSideChatOpen(st.me.user.id, roomId, open)
+}
+
 const EMPTY: Pick<RoomsState, 'rooms' | 'openRoomId' | 'timeline' | 'threadViews' | 'kept' | 'loaded' | 'failed' | 'alerts' | 'members' | 'pending' | 'returned' | 'side'> = { rooms: [], openRoomId: null, timeline: null, threadViews: {}, kept: {}, loaded: false, failed: null, alerts: null, members: {}, pending: {}, returned: {}, side: {} }
 
 /** what was typed in a room (or one of its threads: placeKey) and not sent yet (components/rooms/RoomComposer.tsx); kept
@@ -878,6 +885,8 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     setSide(roomId, side) {
       set((s) => (side ? (s.side[roomId] === side ? {} : { side: { ...s.side, [roomId]: side } }) : { side: omit(s.side, roomId) }))
+      // kept for this tab, so a reload opens it again (lib/sideChatOpenKeep.ts, QA TC-4963)
+      keepSide(roomId, !!side)
     },
 
     open(roomId) {
@@ -901,8 +910,9 @@ export const useRooms = create<RoomsState>((set, get) => {
     },
 
     close(roomId, place = null) {
-      // the page's right side goes with it, as the page's own state did
+      // the page's right side goes with it, as the page's own state did (and is not opened again by a reload)
       set((s) => ({ side: omit(s.side, roomId) }))
+      keepSide(roomId, false)
       if (get().openRoomId !== roomId) return
       timelineGen++
       // kept for going back: a timeline read to the newest (not a window around an older message, not one still being

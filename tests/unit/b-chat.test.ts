@@ -386,13 +386,20 @@ describe('tools', () => {
   })
 
   test('large tool results reach the engine whole (the tool socket finishes partial writes)', async () => {
-    const lines = Array.from({ length: 1900 }, (_, i) => `line ${i + 1} ` + 'x'.repeat(200))
-    fs.writeFileSync(path.join(h.team, 'users/alice/big.md'), lines.join('\n') + '\n')
-    const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/big.md' }, sayLength: true }))
-    const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
-    expect(n).toBeGreaterThan(380_000)
-    expect(r.done.content).toContain('tail=  1900\tline')
+    // a read stays under one call's budget (files/read-lines.ts), so a test tool gives the large result
+    const lines = Array.from({ length: 1900 }, (_, i) => `${String(i + 1).padStart(6)}\tline ${i + 1} ` + 'x'.repeat(200))
+    const savedTools = h.ctx.services.turnTools
+    h.ctx.services.turnTools = [{
+      name: 'web_fetch', description: 'test tool', inputSchema: { type: 'object', properties: {} },
+      async call() { return { content: [{ type: 'text', text: lines.join('\n') }] } },
+    }]
+    try {
+      const chat = await newChat()
+      const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'web_fetch', args: {}, sayLength: true }))
+      const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
+      expect(n).toBeGreaterThan(380_000)
+      expect(r.done.content).toContain('tail=  1900\tline')
+    } finally { h.ctx.services.turnTools = savedTools }
   })
 
   test('tools offered to a web turn: file tools + remember / forget / ask_user / connect_service / set_title / edit_files (+ registered tools), no browser tools', async () => {
@@ -512,8 +519,8 @@ describe('memories', () => {
 
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(301) }, sayResult: true }))
-    expect(r.done.content).toContain('under 300 characters')
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
+    expect(r.done.content).toContain('under 1000 characters')
     h.ctx.db.query("INSERT INTO memories (id, user_id, text) VALUES (?, 'bob', 'bob secret')").run(uuidv7())
     const mine = await h.api('alice').call(API.listMemories, { query: { limit: 1 } })
     if (mine.items[0]) {

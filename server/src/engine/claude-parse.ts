@@ -88,6 +88,10 @@ export class ClaudeStreamParser {
       this.init = ev
       if (ev.session_id) { this.sessionId = ev.session_id; out.push({ type: 'session', sessionId: ev.session_id }) }
       out.push({ type: 'init', tools: strings(ev.tools), agents: strings(ev.agents), mcpServers: Array.isArray(ev.mcp_servers) ? strings(ev.mcp_servers.map((m: any) => m?.name)) : [] })
+    } else if (ev.type === 'system' && !parent && (ev.subtype === 'compact_boundary' || ev.subtype === 'microcompact_boundary')) {
+      // the main AI's session dropped text it saw (a compaction): reads made before it no longer allow a whole-file
+      // replace (chat/carried-reads.ts); a sub-agent never replaces a whole file from an earlier read anyway
+      out.push({ type: 'compacted' })
     } else if (ev.type === 'system' && (ev.subtype === 'task_progress' || ev.subtype === 'task_notification')) {
       const stats = agentStats(ev.usage)
       if (typeof ev.tool_use_id === 'string' && stats) out.push({ type: 'agent_progress', id: ev.tool_use_id, stats })

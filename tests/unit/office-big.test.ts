@@ -259,8 +259,9 @@ describe('big spreadsheets through the office worker', () => {
     expect(IN_PROCESS_PARSE_MAX).toBe(200 * MIB)
     const big = new Uint8Array(IN_PROCESS_PARSE_MAX + 1)
     await expect(extractText('a.hwp', big, tools)).rejects.toThrow(TOO_BIG_IN_PROCESS)
-    expect(officeWorkerTimeoutMs(MIB)).toBe(60_000)
-    expect(officeWorkerTimeoutMs(200 * MIB)).toBe(144_000)
+    // #1300's scale (60 s + 4 s per MB, at most 10 min) replaced #1290's 1 s per 2 MB past 32 MB (batch 11-18)
+    expect(officeWorkerTimeoutMs(MIB)).toBe(64_000)
+    expect(officeWorkerTimeoutMs(200 * MIB)).toBe(600_000)
   })
 })
 

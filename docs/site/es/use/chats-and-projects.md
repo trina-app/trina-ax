@@ -39,7 +39,7 @@ Abra **N pasos** bajo una respuesta para ver cada herramienta que usó la IA y c
 | **Archivos** | La IA usa las herramientas de archivos de Trina. Cada llamada se comprueba con sus propios permisos. |
 | **Preguntas** | Cuando la IA necesita que usted elija o confirme algo, muestra una tarjeta. No puede responder esa tarjeta por sí misma. |
 | **Ayudantes** | Para peticiones grandes, la IA puede dividir el trabajo en subtareas, hasta 4 a la vez. Cada ayudante trabaja como usted. |
-| **Extensión** | Una respuesta puede usar herramientas hasta 150 veces de forma predeterminada (los administradores eligen entre 10 y 500). Al llegar al límite, **Continuar** retoma el trabajo. |
+| **Extensión** | Una respuesta puede usar herramientas hasta 500 veces de forma predeterminada (los administradores eligen entre 10 y 2000; las tareas programadas, las preguntas desde Slack y los invitados, hasta 150). Al llegar al límite, **Continuar** retoma el trabajo. |
 | **Web** | La IA puede abrir páginas web. El servidor comprueba cada dirección y le pregunta antes de abrir las que son arriesgadas. |
 
 :::note

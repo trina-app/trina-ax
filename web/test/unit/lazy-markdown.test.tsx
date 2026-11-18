@@ -6,6 +6,7 @@ import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { answerHtml, forgetMarkdownForTest, loadMarkdown, Markdown, PersonMarkdown } from '../../src/components/LazyMarkdown'
 import { installDom, mount, removeDom } from './dom-host'
+import { MAX_BLANK_LINES } from '../../src/lib/blankLines'
 
 beforeAll(() => { installDom() })
 afterAll(async () => {
@@ -22,6 +23,9 @@ test('before the code is here: the text as it is, its lines kept, and what comes
   const person = renderToStaticMarkup(<PersonMarkdown text="hi" mentions={[]} after={<span data-testid="after">10:00</span>} />)
   expect(person).toContain('hi')
   expect(person).toContain('data-testid="after"')
+  // blank lines as typed, a long run cut to MAX_BLANK_LINES (lib/blankLines.ts; QA TC-4964)
+  expect(renderToStaticMarkup(<PersonMarkdown text={'hei\n\nI test\n\n\nyou'} mentions={[]} />)).toContain('hei\n\nI test\n\n\nyou')
+  expect(renderToStaticMarkup(<PersonMarkdown text={'a' + '\n'.repeat(5000) + 'b'} mentions={[]} />)).toContain('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b<')
 })
 
 test('the component loads the code and draws the text formatted', async () => {

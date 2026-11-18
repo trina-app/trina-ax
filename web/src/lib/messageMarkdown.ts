@@ -7,7 +7,8 @@
 //   the name as typed (text, no mention);
 // - plain web addresses are links by lib/textLinks.ts's rules, as before (GFM's own looser autolinks are undone: no
 //   email or "www." rule of its own; an address cut by Korean text stays text);
-// - a line break stays a line break (Markdown would join the lines).
+// - a line break stays a line break (Markdown would join the lines), and a blank line an empty line (keepBlankLines;
+//   Markdown would make any run of them one paragraph gap).
 // No DOM, no network: test/unit/message-markdown.test.ts.
 import { gfmAutolinkLiteralFromMarkdown, gfmAutolinkLiteralToMarkdown } from 'mdast-util-gfm-autolink-literal'
 import { gfmStrikethroughFromMarkdown, gfmStrikethroughToMarkdown } from 'mdast-util-gfm-strikethrough'
@@ -20,6 +21,7 @@ import { gfmTaskListItem } from 'micromark-extension-gfm-task-list-item'
 import { mentionCanStart, mentionClass } from './rooms'
 import { classifyLink } from './markdown'
 import { linkParts } from './textLinks'
+import { MAX_BLANK_LINES } from './blankLines'
 
 /** A mention to mark: the person (or "all", or the AI) and the name as the message writes it; `strong`: it is me (or
  * "@all" in someone else's message), shown on a soft background. */
@@ -407,6 +409,50 @@ export function tooHeavyForMarkdown(text0: string): boolean {
   return false
 }
 
+/** Nodes whose children are blocks, with blank lines between them as typed (a list's: between its items). */
+const SPACED = new Set(['root', 'blockquote', 'listItem', 'list'])
+
+/** A blank line as typed (QA TC-4964; docs/decisions/20261118-message-blank-lines.md): Markdown reads one blank line or
+ * ten between two paragraphs as the same paragraph break, so "a", a blank line, "b", two blank lines, "c" looked evenly
+ * spaced. Between two neighbouring blocks (in the message, a quote, a list item) this puts the blank lines the source
+ * has between them, as a block of that many empty lines (`<br>`s, so the lines are the text's own height and a copy
+ * keeps them), at most MAX_BLANK_LINES. Between two list items they go at the end of the first one, so the second
+ * item's bullet stays on its words. Code keeps its lines itself. `src`: the text read (the tree's offsets are into it);
+ * a node without offsets (made by a step before) gets none. No recursion. */
+export function keepBlankLines(tree: Node, src: string) {
+  const blanks = (a: Node, b: Node): number => {
+    const from = a.position?.end.offset
+    const to = b.position?.start.offset
+    if (from === undefined || to === undefined) return 0
+    let lines = 0
+    for (let k = src.indexOf('\n', from); k >= 0 && k < to; k = src.indexOf('\n', k + 1)) if (++lines > MAX_BLANK_LINES) break
+    return Math.min(lines - 1, MAX_BLANK_LINES)
+  }
+  const spacer = (n: number): Node => ({
+    type: 'blankLines',
+    data: { hName: 'div', hProperties: { dataBlankLines: String(n), ariaHidden: 'true' }, hChildren: Array.from({ length: n }, () => ({ type: 'element', tagName: 'br', properties: {}, children: [] })) },
+  })
+  const work: Node[] = [tree]
+  while (work.length) {
+    const node = work.pop()!
+    if (!node.children) continue
+    for (const c of node.children) work.push(c)
+    if (!SPACED.has(node.type) || node.children.length < 2) continue
+    const out: Node[] = [node.children[0]]
+    for (let i = 1; i < node.children.length; i++) {
+      const prev = node.children[i - 1]
+      const c = node.children[i]
+      const n = blanks(prev, c)
+      if (n > 0) {
+        if (node.type !== 'list') out.push(spacer(n))
+        else if (prev.children) prev.children.push(spacer(n))
+      }
+      out.push(c)
+    }
+    node.children = out
+  }
+}
+
 /** The remark step that caps nesting (capDepth), for the AI's answers too. */
 export const remarkCapDepth = () => (tree: Node) => capDepth(tree)
 
@@ -531,6 +577,8 @@ export function personWords({ found, origin }: { found: Found[]; origin: string 
   return (tree: Node, file: { value?: unknown }) => {
     capDepth(tree)
     const src = typeof file.value === 'string' ? file.value : ''
+    // (before footnotesAsText: the notes it makes have no offsets)
+    keepBlankLines(tree, src)
     footnotesAsText(tree, src)
     // the definitions of reference links, by their identifier
     const defs = new Map<string, Node>()

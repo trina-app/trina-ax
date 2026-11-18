@@ -25,6 +25,7 @@ import { noLongerMember } from './project-joins'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { confidentialChat } from '../safe-ops/confidential'
 import { redactorFor } from '../integrations/connections/redact'
+import { OthersText } from './live-answer'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
 import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
@@ -482,7 +483,15 @@ export function messageView(rt: ChatRuntime, r: Pick<ChatRow, 'id' | 'shared_at'
  * request's messageView, when it shows more than one message. */
 export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_at' | 'project_id' | 'people_shared_at'>, m: MessageRow, viewer: string, locale: Locale, view = messageView(rt, chat, viewer, locale)) {
   const e = m.status === 'streaming' ? rt.execForMessage(m.id) : undefined
-  return rt.store.toMessage(m, e ? { content: e.content, steps: e.steps.map((s) => ({ ...s })) } : undefined, view)
+  // a running answer of a shared chat to anyone but its asker: the others' copy of its text, as its live events give it
+  // (chat/live-answer.ts OthersText); its last save with no turn running (a crash) goes through the same filter
+  const running = !!view && m.role === 'assistant' && m.status === 'streaming'
+  const asker = running && m.turn_id ? rt.store.turnUser(m.turn_id) : null
+  const others = running && asker !== viewer
+  // (no turn to tell whose it is: nothing of its text)
+  if (others && (!e || asker === null)) return rt.store.toMessage({ ...m, content: asker === null ? '' : new OthersText(() => redactorFor(rt.ctx, asker)).of(m.content) }, undefined, view)
+  const content = e ? (others ? e.othersText() ?? '' : e.content) : undefined
+  return rt.store.toMessage(m, e ? { content: content!, steps: e.steps.map((s) => ({ ...s })) } : undefined, view)
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
