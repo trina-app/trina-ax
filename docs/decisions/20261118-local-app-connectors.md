@@ -53,6 +53,10 @@
   create and update paths (a local kind is refused there), `store.ts mayUse` (a local connection is used only by its
   owner, in that owner's own turn), and the skills share in `remote-mcp/share.ts` (still leaves local entries out).
   A shared chat or a room does not make it usable by anyone else.
+- **Only the person adds the command.** The command comes from the person in Settings, from the known tools list or
+  pasted by them. The AI's connect card (`connect_service`) and an admin's request to a member
+  (`API.createIntegrationRequest`) can never fill in a command, so neither the AI nor a teammate can put one in front
+  of the person to confirm.
 - **Only while the computer is there.** It works only while that person's desktop app is open and signed in to the team.
   When it is not, the AI says so in plain words: "Your computer is offline, so I can't use <name> right now."
   Scheduled runs, sub-agents and confidential chats never get these tools, as with the PC runner.
@@ -68,10 +72,16 @@
     asks again.
   - No secrets in the command. Setting values are typed on the computer and stay there; the server only knows their
     names.
-  - The program runs as the signed-in user, never as root or with admin rights.
+  - The program runs as the signed-in user, never as root or with admin rights. It runs outside the PC runner's jail,
+    because it needs the person's own browser and sign-ins, so it can do what the person can. The confirm window says
+    so in plain words, and a pasted command (not from the known tools list) gets a stronger warning.
+  - The desktop app starts the program from its command and arguments as a list, never through a shell. For a wrapped
+    CLI, what the AI fills in is passed as separate arguments, never joined into the command line.
   - A stop control on the connection's page and in the desktop app ends the program at once.
-  - What the tools send back to the AI goes through the existing hide and redact (`hide.ts`, `redact.ts`), and counts as
-    outside content seen by this person only, as the PC runner's results do.
+  - The server never knows the setting values, so `hide.ts` cannot hide them. The desktop app replaces them in what
+    the tools send back before it leaves the computer. Then the server's own hide and redact (`hide.ts`, `redact.ts`)
+    run as for other connections, and the result counts as outside content seen by this person only, as the PC
+    runner's results do.
 - **Self-hosted Linux or Docker servers (later).** An optional later step may allow a browser MCP that runs on the
   server itself, inside the sandbox, for teams without desktop apps. Not part of this plan.
 
