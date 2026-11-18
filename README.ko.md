@@ -37,11 +37,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="관리자의 팀용 앱 추가 창: 이름, MCP 주소, 키, 팀 전체, 팀에 연결 하나"><br><sub>팀 전체용 앱 추가</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="팀 모두에게 적용되는 관리자 › 연결한 서비스: Google Drive, Gmail, Calendar, Docs, Sheets(한 번 설정하면 각자 Google에 로그인만 해요), Slack, Notion, Linear, Atlassian, Canva, 그리고 주소로 추가하기"><br><sub>관리자 › 연결한 서비스: 한 번 설정하면 팀 모두가 써요</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
 </tr>
 </table>
 

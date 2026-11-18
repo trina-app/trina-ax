@@ -37,11 +37,11 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave, para todo el equipo, una conexión para el equipo"><br><sub>Añadir una app para todo el equipo</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Administración › Apps conectadas, para todo el equipo: Google Drive, Gmail, Calendar, Docs y Sheets (una configuración y cada miembro solo inicia sesión en Google), Slack, Notion, Linear, Atlassian, Canva y Añadir una por su dirección"><br><sub>Administración › Apps conectadas: se configura una vez para todo el equipo</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 

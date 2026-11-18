@@ -37,11 +37,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、チーム全員、チームで1つの接続"><br><sub>チーム全体にアプリを追加</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="チーム全員に適用される管理 › 連携サービス：Google Drive、Gmail、Calendar、Docs、Sheets（一度設定すれば各自 Google にサインインするだけ）、Slack、Notion、Linear、Atlassian、Canva、アドレスで追加"><br><sub>管理 › 連携サービス：一度設定すればチーム全員が使えます</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
 </tr>
 </table>
 

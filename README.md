@@ -37,11 +37,11 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <table>
 <tr>
-<td width="40%" rowspan="2"><img src="docs/site/images/connect/add-by-address-key.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key, for everyone in the team, one connection for the team"><br><sub>Add an app for the whole team</sub></td>
-<td width="60%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td colspan="2"><img src="docs/images/readme/v4/connected-apps.webp" alt="Admin › Connected apps, applying to everyone in the team: Google Drive, Gmail, Calendar, Docs and Sheets (one setup, then every member just signs in to Google), Slack, Notion, Linear, Atlassian, Canva, and Add one by its address"><br><sub>Admin › Connected apps: set up once for everyone in the team</sub></td>
 </tr>
 <tr>
-<td width="60%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
