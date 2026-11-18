@@ -236,15 +236,15 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
   })
   test('what each one does, as the decisions say', () => {
     const s = appMapSection({ ...base, view: 'member' }, 'en')
-    // chat-answer-threads: shared chats only, Send to fills the box; the AI there reads it when someone asks
+    // chat-answer-threads: shared chats only; the AI there reads it when someone asks
     // (ai-reads-answer-comments, 2026-11-17: it no longer says the AI does not read it; CHT-16)
     expect(s).toContain("Shared chat (a project's or shared with people), under a finished answer")
     expect(s).toContain('the AI there reads it when someone asks')
-    // Send to only fills the message box; in the shared form it is no longer "then Send to" (CHT-14, CHT-15, 2026-11-17)
-    expect(s).toContain('fills the message box, unsent')
+    // no button sends a thread to the AI (TC-4866)
+    expect(s).not.toContain('unsent')
     const shared = appMapSection({ ...base, view: 'shared' }, 'en')
     expect(shared).toContain('which you read when asked')
-    expect(shared).toContain("fills the person's message box, unsent")
+    expect(shared).not.toContain('unsent')
     expect(shared).not.toMatch(/, then .*Send to/)
     expect(s).not.toContain('the AI does not read')
     expect(s).toContain('not in a private chat')

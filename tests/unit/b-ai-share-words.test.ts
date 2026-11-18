@@ -147,8 +147,8 @@ describe('where the rules are', () => {
     expect(p).toContain(CARD_WORDS_RULE)
     expect(p).not.toContain('Asked to send something by Gmail')
     expect(p).not.toContain(OTHERS_WORDS_RULE)
-    // a chat shared with people (no project), in Korean: the button by its Korean name
-    expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko', true)).toContain('"트리나에게 보내기"')
+    // a chat shared with people (no project), in Korean: no button is named
+    expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko', true)).not.toContain('트리나에게 보내기')
     // an own chat has no such line
     expect(buildTurnPrompt(h.ctx.files, input({ tools: OWN }))).not.toContain('People can comment under an answer here')
   })
