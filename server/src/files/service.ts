@@ -213,6 +213,9 @@ export class TurnFiles {
   /** image blocks sent to the model in this turn (files/vision.ts turnImageCaps) */
   imageBytes = 0
   imageCount = 0
+  /** image files a read showed in this turn: a second read of one comes back at full size (FileService.readImage); one
+   * set for the turn, so a sub-agent's view (a Proxy over this object) adds to it */
+  readonly imagesShown = new Set<string>()
   /** safe operations 1A: image versions a presentation used (safe-ops/publication.ts) */
   imageSources = new Map<string, { hash: string; identity: string }>()
   bytesWritten = 0
@@ -793,7 +796,9 @@ export class FileService {
     // normalizer took the picture (it refuses huge ones first)
     const facts = imageFactsLine(src.bytes, await this.seeThrough(src.bytes, ctx.signal).catch(() => null))
     ctx.signal?.throwIfAborted()
-    jpeg = await this.turnSized(ctx, jpeg, ctx.signal)
+    // a picture read a second time in this answer comes back at full size (the AI asked for its details again); it
+    // counts like any other
+    if (!ctx.files.imagesShown.has(src.rel)) jpeg = await this.turnSized(ctx, jpeg, ctx.signal)
     const over = this.imageBudget(ctx, jpeg.length)
     if (over) return { text: over, summary: `read ${r.rel} -> image not shown (turn image limit)` }
     const beforeDelivery = () => this.recheckSource(ctx, src)
@@ -803,6 +808,7 @@ export class FileService {
     ctx.files.sources.note(src.rel, 'read', { agent: ctx.files.agent, sha256: src.hash })
     ctx.files.imageBytes += jpeg.length
     ctx.files.imageCount++
+    ctx.files.imagesShown.add(src.rel)
     const text = `Image ${src.rel} (shown below).${facts ? ` ${facts}` : ''}`
     return { text, content: [{ type: 'text', text }, { type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') }], beforeDelivery,
       summary: `read ${src.rel} -> image ${jpeg.length}B` }
@@ -948,6 +954,8 @@ export class FileService {
         continue
       }
       ctx.signal?.throwIfAborted()
+      // scans add up over a chat like photos do: after the turn's first full-size images, pages go smaller too
+      jpeg = await this.turnSized(ctx, jpeg, ctx.signal)
       if (tokens + textTokens(head) + imageTokens(jpeg) > READ_OUTPUT_TOKENS) { later.push(p); continue }
       const over = this.imageBudget(ctx, jpeg.length)
       if (over) { text(`--- Page ${p} ---\n${over}`); continue }
@@ -1046,10 +1054,11 @@ export class FileService {
   }
 
   /** After a turn's first full-size images (files/vision.ts turnImageCaps), the next ones go smaller, so many fit in
-   * what one request may carry, and in what the model proxy takes in before it fits a request. */
-  private async turnSized(ctx: Pick<ToolCtx, 'files' | 'turnId'>, jpeg: Buffer, signal?: AbortSignal): Promise<Buffer> {
+   * what one request may carry, and in what the model proxy takes in before it fits a request. Images, PDF pages and
+   * video frames alike; `held`: images of this result not counted yet (a video read's frames). */
+  private async turnSized(ctx: Pick<ToolCtx, 'files' | 'turnId'>, jpeg: Buffer, signal?: AbortSignal, held = { count: 0, bytes: 0 }): Promise<Buffer> {
     const caps = turnImageCaps(this.db, ctx.turnId)
-    if (ctx.files.imageCount < caps.full && b64Len(ctx.files.imageBytes + jpeg.length) <= caps.fullBytes) return jpeg
+    if (ctx.files.imageCount + held.count < caps.full && b64Len(ctx.files.imageBytes + held.bytes + jpeg.length) <= caps.fullBytes) return jpeg
     return (await smallForModel(jpeg, this.visionTools(), signal).catch(() => { signal?.throwIfAborted(); return null })) ?? jpeg
   }
 
@@ -1260,6 +1269,7 @@ export class FileService {
           continue
         }
         signal?.throwIfAborted()
+        jpeg = await this.turnSized(ctx, jpeg, signal, { count: made.length, bytes: made.reduce((n, f) => n + f.jpeg.length, 0) })
         const over = pending(jpeg.length)
         if (over) { budgetNote = over; unmade.push(t); continue }
         made.push({ t, jpeg })

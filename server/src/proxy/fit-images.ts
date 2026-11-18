@@ -35,8 +35,13 @@ export const FIT_PARALLEL = 2
 /** how long a request waits for the smaller copies of its older pictures before it goes on without them */
 export const FIT_WAIT_MS = 1500
 /** the cache of smaller pictures (base64 characters together), and of pictures that cannot be made smaller (a count) */
-const CACHE_MAX = 64 * 1024 ** 2
+let cacheMax = 64 * 1024 ** 2
 const NULL_MAX = 2048
+/** a picture whose conversion a limit stopped this many times (time, memory: not a busy server) counts as "cannot be
+ * made smaller": the same picture would stop the converter on every request */
+export const FIT_TRIES = 2
+/** conversions waiting at most; past it a picture goes on as it is (made smaller by a later request) */
+export const FIT_QUEUE_MAX = 64
 
 /** what an image left out of the request becomes; `file` when the read said which file it showed */
 export const droppedNote = (file: string | null) => file
@@ -95,10 +100,26 @@ const remember = (k: string, v: string | null) => {
   cache.set(k, v)
   cached += v.length
   for (const [old, val] of cache) {
-    if (cached <= CACHE_MAX) break
+    if (cached <= cacheMax) break
     cache.delete(old)
     cached -= val.length
   }
+}
+/** limit stops so far, by picture (at most NULL_MAX pictures) */
+const stops = new Map<string, number>()
+const stoppedOnce = (k: string) => {
+  const n = (stops.get(k) ?? 0) + 1
+  stops.delete(k)
+  if (n >= FIT_TRIES) { remember(k, null); return }
+  stops.set(k, n)
+  if (stops.size > NULL_MAX) stops.delete(stops.keys().next().value!)
+}
+/** the copy (or "cannot"), refreshed as the most recently used (the caches let the least recently used go first) */
+const lookup = (k: string): string | null | undefined => {
+  const v = cache.get(k)
+  if (v !== undefined) { cache.delete(k); cache.set(k, v); return v }
+  if (cannot.has(k)) { cannot.delete(k); cannot.set(k, true); return null }
+  return undefined
 }
 /** conversions running or waiting, by picture */
 const pending = new Map<string, Promise<void>>()
@@ -114,7 +135,11 @@ async function limited(f: () => Promise<void>) {
   }
 }
 /** the cache, emptied (tests); conversions still running finish into the new cache */
-export const fitCacheClear = () => { cache.clear(); cannot.clear(); cached = 0 }
+/** the cache's size (tests) */
+export const fitCacheLimit = (bytes: number) => { cacheMax = bytes }
+export const fitCacheClear = () => { cache.clear(); cannot.clear(); stops.clear(); cached = 0 }
+/** conversions running and waiting (tests) */
+export const fitQueue = () => ({ running: active, waiting: queue.length })
 
 /** the picture's cache key, hashed off the event loop (WebCrypto) */
 async function keyOf(b: ImageBlock): Promise<string> {
@@ -122,14 +147,21 @@ async function keyOf(b: ImageBlock): Promise<string> {
   return Buffer.from(d).toString('hex')
 }
 
-/** starts (or joins) the conversion of one picture; resolves when it is in the cache, or failed for now */
-function convert(key: string, data: string, shrink: Shrink): Promise<void> {
+/** starts (or joins) the conversion of one picture; resolves when it is in the cache, or failed for now. null: the
+ * queue is full (FIT_QUEUE_MAX), the picture goes on as it is */
+function convert(key: string, data: string, shrink: Shrink): Promise<void> | null {
   let p = pending.get(key)
   if (p) return p
+  if (active >= FIT_PARALLEL && queue.length >= FIT_QUEUE_MAX) return null
   p = limited(async () => {
     if (cache.has(key) || cannot.has(key)) return
     let out: Buffer | null
-    try { out = await shrink(Buffer.from(data, 'base64')) } catch { return } // not finished: tried again later
+    try { out = await shrink(Buffer.from(data, 'base64')) } catch (e) {
+      // not finished: tried again later; a limit (not a busy server) that stops the same picture again ends the tries
+      if ((e as { code?: unknown } | null)?.code !== 'vision_busy') stoppedOnce(key)
+      return
+    }
+    stops.delete(key)
     remember(key, out && out.length && Math.ceil(out.length / 3) * 4 < data.length ? out.toString('base64') : null)
   }).finally(() => pending.delete(key))
   pending.set(key, p)
@@ -153,7 +185,7 @@ async function wait(ps: Promise<void>[], signal?: AbortSignal, ms?: number) {
 
 /** the smaller copy in place of the picture, when there is one */
 function apply(s: Slot): boolean {
-  const small = s.key && !s.small ? cache.get(s.key) : undefined
+  const small = s.key && !s.small ? lookup(s.key) : undefined
   if (!small) return false
   s.block.source = { type: 'base64', media_type: 'image/jpeg', data: small }
   s.len = small.length
@@ -180,7 +212,9 @@ export async function fitRequestImages(body: unknown, shrink: Shrink, signal?: A
     for (let k = from; k < to; k++) {
       const s = all[k]!
       s.key ??= await keyOf(s.block)
-      if (!cache.has(s.key) && !cannot.has(s.key)) ps.push(convert(s.key, s.block.source.data, shrink))
+      if (lookup(s.key) !== undefined) continue
+      const p = convert(s.key, s.block.source.data, shrink)
+      if (p) ps.push(p)
     }
     return ps
   }

@@ -14,8 +14,8 @@ import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_IMAGES, parsePages, smallForModel, visionTools } from '../../server/src/files/vision'
-import { issueProxyToken } from '../../server/src/proxy/model-proxy'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_FULL_BYTES, VISION_TURN_IMAGES, parsePages, smallForModel, visionTools } from '../../server/src/files/vision'
+import { issueProxyToken, PROXY_BODY_MAX } from '../../server/src/proxy/model-proxy'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
 
@@ -340,17 +340,44 @@ describe('per-turn image budget', () => {
     hf.ctx.files.imageCount = VISION_TURN_FULL
     // the engine's own request must still reach the proxy (PROXY_BODY_MAX): the source sends later pictures smaller too
     expect(jpegSize(images(await hf.call('read', { file_path: `${ALICE}/big.png` }))[0].data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
+    put(`${ALICE}/big2.png`, makePng(2400, 1800))
     const h = handler('alice', A.turn('alice', A.chat('alice')))
     const first = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
     expect(jpegSize(first.data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })
     h.ctx.files.imageCount = VISION_TURN_FULL
-    const later = images(await h.call('read', { file_path: `${ALICE}/big.png` }))[0]
+    const later = images(await h.call('read', { file_path: `${ALICE}/big2.png` }))[0]
     expect(jpegSize(later.data)).toEqual({ width: VISION_SMALL_SIDE, height: 576 })
     expect(Buffer.from(later.data, 'base64').length).toBeLessThanOrEqual(VISION_SMALL_BYTES)
     expect(h.ctx.files.imageCount).toBe(VISION_TURN_FULL + 1)
+    // the same picture read a second time in this answer comes back at full size (the read tool says so), and counts
+    const again = images(await h.call('read', { file_path: `${ALICE}/big2.png` }))[0]
+    expect(jpegSize(again.data)).toEqual({ width: VISION_SIDE_MAX, height: 1176 })
+    expect(h.ctx.files.imageCount).toBe(VISION_TURN_FULL + 2)
     // a picture that is small already, or no picture at all: null (the caller keeps what it has)
     expect(await smallForModel(Buffer.from(later.data, 'base64'), TOOLS)).toBeNull()
     expect(await smallForModel(fakeJpeg, TOOLS)).toBeNull()
+  })
+
+  test.skipIf(!pageRenderer)('scanned pages go smaller after the first 16 too: 36 + 20 pages over two answers stay small', async () => {
+    put(`${ALICE}/scans36.pdf`, makePagesPdf(Array.from({ length: 36 }, () => ({ image: CCITT_SCAN }))))
+    put(`${ALICE}/scans20.pdf`, makePagesPdf(Array.from({ length: 20 }, () => ({ image: CCITT_SCAN }))))
+    let b64 = 0
+    for (const [file, n] of [['scans36.pdf', 36], ['scans20.pdf', 20]] as const) {
+      const h = handler('alice', A.turn('alice', A.chat('alice'))) // a new answer each: the turn's counts start again
+      for (let p = 1; p <= n; p++) {
+        const [img] = images(await h.call('read', { file_path: `${ALICE}/${file}`, pages: String(p) }))
+        expect(img, `${file} page ${p}`).toBeDefined()
+        b64 += img.data.length
+        const { width, height } = jpegSize(img.data)!
+        if (p > VISION_TURN_FULL) {
+          expect(Math.max(width, height), `${file} page ${p}`).toBeLessThanOrEqual(VISION_SMALL_SIDE)
+          expect(Buffer.from(img.data, 'base64').length).toBeLessThanOrEqual(VISION_SMALL_BYTES)
+        } else expect(Math.max(width, height)).toBe(VISION_SIDE_MAX)
+      }
+    }
+    // what the engine carries for both answers: at most 2 x 16 full pages and 24 smaller ones, far under the proxy's limit
+    expect(b64).toBeLessThan(2 * VISION_TURN_FULL_BYTES + 24 * Math.ceil(VISION_SMALL_BYTES / 3) * 4)
+    expect(b64).toBeLessThan(PROXY_BODY_MAX / 2)
   })
 
   test.skipIf(!pageRenderer)('a PDF read stops adding page images at the budget and says so for the rest', async () => {
