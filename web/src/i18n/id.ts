@@ -1382,6 +1382,7 @@ export const id: Record<MessageKey, string> = {
   "projects.insideOwn": "{n} folder di dalamnya punya daftar sendiri tentang siapa yang bisa melihatnya",
   "projects.trashTitle": "Pindahkan '{name}' ke Sampah?",
   "projects.trashBody": "Anggota tidak bisa membuka file dan chat bersamanya sampai admin atau pembuatnya memulihkannya.",
+  "projects.trashBodyDays": "Anggota tidak bisa membuka file atau chat bersamanya. Proyek ini tetap ada di {files} › {trash} selama {days} hari, dan admin atau pembuatnya bisa memulihkannya.",
   "projects.trashGuests": "{n} tamu di proyek ini tidak bisa masuk sampai proyeknya dipulihkan.",
   "projects.deleteForGood": "Hapus permanen",
   "projects.deleteForGoodTitle": "Hapus '{name}' secara permanen?",

@@ -1381,6 +1381,7 @@ export const ko = {
   "projects.insideOwn": "안쪽 폴더 {n}개는 볼 수 있는 사람이 따로 정해져 있어요",
   "projects.trashTitle": "'{name}' 프로젝트를 휴지통으로 옮길까요?",
   "projects.trashBody": "관리자나 만든 사람이 되돌릴 때까지 멤버도 파일과 공유 채팅을 열 수 없어요.",
+  "projects.trashBodyDays": "멤버는 이 프로젝트의 파일과 공유 채팅을 열 수 없어요. {files} › {trash}에 {days}일 동안 남고, 그동안 관리자나 만든 사람이 되돌릴 수 있어요.",
   "projects.trashGuests": "이 프로젝트의 게스트 {n}명은 복원될 때까지 로그인할 수 없어요.",
   "projects.deleteForGood": "완전히 삭제",
   "projects.deleteForGoodTitle": "'{name}' 프로젝트를 완전히 삭제할까요?",

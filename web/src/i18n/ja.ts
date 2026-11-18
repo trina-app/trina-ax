@@ -1357,6 +1357,7 @@ export const ja: Record<MessageKey, string> = {
   "projects.insideOwn": "中のフォルダー{n, plural, one {#個} other {#個}}は、見られる人が別に決まっています",
   "projects.trashTitle": "「{name}」をゴミ箱に移しますか？",
   "projects.trashBody": "管理者か作成者が元に戻すまで、メンバーもファイルや共有チャットを開けません。",
+  "projects.trashBodyDays": "メンバーはファイルや共有チャットを開けません。{files} › {trash}に{days, plural, one {#日} other {#日}}間残り、その間は管理者か作成者が元に戻せます。",
   "projects.trashGuests": "{n, plural, one {このプロジェクトのゲスト#人は、復元されるまでサインインできません。} other {このプロジェクトのゲスト#人は、復元されるまでサインインできません。}}",
   "projects.deleteForGood": "完全に削除",
   "projects.deleteForGoodTitle": "「{name}」を完全に削除しますか？",
