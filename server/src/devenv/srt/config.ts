@@ -59,12 +59,24 @@ export function devenvPaths(base: string) {
     home: path.join(root, 'home'),
     logs: path.join(root, 'logs'),
     work: path.join(root, 'work'),
+    /** HOME, TMPDIR and caches of the runs of one shared chat (docs/decisions/20261118-devenv-shared-chats.md) */
+    chatHome: path.join(root, 'chat-home'),
+    /** the output files of the commands of one shared chat */
+    chatLogs: path.join(root, 'chat-logs'),
   }
 }
 /** HOME, TMPDIR and the caches of one person's runs (read and write) */
 export const personHome = (base: string, userId: string) => path.join(devenvPaths(base).home, safeId(userId))
 /** the logs of one person's runs (the sandbox reads them, never writes them) */
 export const personLogs = (base: string, userId: string) => path.join(devenvPaths(base).logs, safeId(userId))
+/** HOME and caches of a shared chat's runs: everyone in the chat shares them, so nothing of one person's is in them */
+export const chatHome = (base: string, chatId: string) => path.join(devenvPaths(base).chatHome, safeId(chatId))
+/** the output files of a shared chat's commands */
+export const chatLogs = (base: string, chatId: string) => path.join(devenvPaths(base).chatLogs, safeId(chatId))
+/** the home of a run: the shared chat's, else the person's */
+export const runHome = (base: string, o: { userId: string; sharedChat?: string | null }) => (o.sharedChat ? chatHome(base, o.sharedChat) : personHome(base, o.userId))
+/** the logs of a run: the shared chat's, else the person's */
+export const runLogs = (base: string, o: { userId: string; sharedChat?: string | null }) => (o.sharedChat ? chatLogs(base, o.sharedChat) : personLogs(base, o.userId))
 /** the work folder of a chat with no project (read and write); removed when the chat is purged */
 export const chatWork = (base: string, chatId: string) => path.join(devenvPaths(base).work, safeId(chatId))
 
@@ -152,6 +164,9 @@ export interface SettingsInput {
   start: string | null
   /** the chat's work folder (a chat with no project), else null */
   work: string | null
+  /** a run of this shared chat (docs/decisions/20261118-devenv-shared-chats.md): the home and logs are the chat's, not
+   * the person's, and no personal folder is readable, the person's own included. Absent: a run of the person's own chat */
+  sharedChat?: string | null
   network: 'open' | 'offline'
   /** the team's extra domains (devEnv.team) */
   extraDomains: readonly string[]
@@ -183,14 +198,14 @@ const uniq = (a: string[]) => [...new Set(a)]
 /** The srt settings file of one run. It is complete for each run: srt refuses a bad or empty file, so a bug fails
  * closed. */
 export function srtSettings(i: SettingsInput) {
-  const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
+  const home = runHome(i.base, i), logs = runLogs(i.base, i)
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
   // the team's No network (and the plan's) wins over every site a person allowed and over Full internet
   const open = i.network === 'open'
   const domains = open ? mergeSites(DEV_ENV_DEFAULT_DOMAINS, i.extraDomains, i.userDomains ?? []) : []
   const full = open && !!i.full
-  const fixedHidden = [...hiddenUsers(i.teamRoot, i.userId, platform), abs(i.teamRoot, PRODUCT.systemDir)]
+  const fixedHidden = [...hiddenUsers(i.teamRoot, i.sharedChat ? '' : i.userId, platform), abs(i.teamRoot, PRODUCT.systemDir)]
   // srt binds a denied folder's allowed paths back writes first, then reads: a writable folder inside a read-only one
   // (the starting folder inside a folder that Q0 (b) made read-only, for example the team root of an admin) would be
   // read-only. A denyRead landing on the writable folder itself makes srt bind it back again, writable, after the
@@ -252,17 +267,17 @@ const hidden = (s: ReturnType<typeof srtSettings>, p: string) => hiddenBy(s.file
 
 /** Checks that a settings file keeps the rules of the design. Returns the problems (empty = good). The runner calls it
  * before every spawn, so a bug in the builder does not reach srt. */
-export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform'>): string[] {
+export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<SettingsInput, 'base' | 'teamRoot' | 'userId' | 'work' | 'serverPaths' | 'start' | 'connectedSources' | 'platform' | 'sharedChat'>): string[] {
   const out: string[] = []
   const platform = i.platform ?? devPlatform()
   const host = hostLists(platform)
   const deny = s.filesystem.denyRead
   const users = path.join(i.teamRoot, 'users'), own = path.join(users, i.userId), system = path.join(i.teamRoot, PRODUCT.systemDir)
-  const home = personHome(i.base, i.userId), logs = personLogs(i.base, i.userId)
+  const home = runHome(i.base, i), logs = runLogs(i.base, i)
   if (!deny.includes(i.base)) out.push('the base folder is not hidden')
   if (!deny.some((d) => inside(i.teamRoot, d))) out.push('the team folder is not hidden')
   if (platform === 'linux' && !deny.includes(users)) out.push('the personal folders are not hidden')
-  if (platform === 'darwin') for (const u of hiddenUsers(i.teamRoot, i.userId, 'darwin')) if (!deny.includes(u)) out.push(`a personal folder is not hidden: ${u}`)
+  if (platform === 'darwin') for (const u of hiddenUsers(i.teamRoot, i.sharedChat ? '' : i.userId, 'darwin')) if (!deny.includes(u)) out.push(`a personal folder is not hidden: ${u}`)
   if (!deny.includes(system)) out.push('the system folder is not hidden')
   // a base folder from the environment that is not the real one must not show the server's data (fail closed)
   for (const sp of i.serverPaths ?? []) if (!hidden(s, sp)) out.push(`a server path is not hidden: ${sp}`)
@@ -290,6 +305,14 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
   for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  // a shared chat (docs/decisions/20261118-devenv-shared-chats.md): no personal folder, the person's own neither, no
+  // person's home or logs, and in a project chat no team folder outside the project folder
+  if (i.sharedChat) {
+    const given = [...s.filesystem.allowRead, ...s.filesystem.allowWrite]
+    for (const r of given) if (inside(r, users)) out.push(`a personal folder is readable in a shared chat: ${r}`)
+    for (const r of given) if (inside(r, devenvPaths(i.base).home) || inside(r, devenvPaths(i.base).logs)) out.push(`a person's home or logs are readable in a shared chat: ${r}`)
+    if (start !== null) for (const r of given) if (inside(r, i.teamRoot) && !inside(r, start)) out.push(`a team folder outside the project folder is readable in a shared chat: ${r}`)
+  }
   // a host secret in /etc must not be given back
   for (const r of s.filesystem.allowRead) if (host.etcSecrets.some((e) => inside(r, e))) out.push(`a host secret is readable: ${r}`)
   for (const sys of Object.values(SRT_PATHS)) if (inside(sys, i.base)) out.push(`${sys} is inside the base folder`)
@@ -319,12 +342,12 @@ export function resolveRunCwd(root: string, rel: string): string | null {
   } catch { return null }
 }
 
-export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform }
+export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null }
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */
 export function runEnv(i: EnvInput): Record<string, string> {
-  const home = personHome(i.base, i.userId)
+  const home = runHome(i.base, i)
   const mac = (i.platform ?? devPlatform()) === 'darwin'
   const node = path.dirname(i.nodeBin ?? SRT_PATHS.node)
   return {
@@ -348,7 +371,7 @@ export function runEnv(i: EnvInput): Record<string, string> {
     npm_config_cache: path.join(home, '.npm'),
     PIP_CACHE_DIR: path.join(home, '.cache', 'pip'),
     PLAYWRIGHT_BROWSERS_PATH: '0',
-    TRINA_LOGS: personLogs(i.base, i.userId),
+    TRINA_LOGS: runLogs(i.base, i),
     /** the team folder: team paths of the file tools are under it */
     TRINA_TEAM: i.teamRoot,
     ...(i.work ? { TRINA_WORK: i.work } : {}),

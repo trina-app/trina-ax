@@ -91,12 +91,22 @@ person and their AI may open in the file tools.
 - The engine's own working folder (`<agent root>/<chatId>`) is not used: it belongs to the engine account (0700), and
   srt runs as the server account.
 
+### 0.3a Shared chats (2026-11-18)
+
+A shared chat (a team project's chat, shared by default since 2026-11-13, or a chat shared with people and groups) gets
+the dev environment too (`docs/decisions/20261118-devenv-shared-chats.md`). Everyone in it sees the command and its
+output, so its run is fenced: it reads only folders that the person AND everyone who sees the chat now may read (the
+project folder of a project chat; any common team folder, read-only, in a people chat), writes only in the project
+folder where the person may write, never a personal folder (the person's own neither), with a home and logs per chat.
+No jobs, dev servers or login commands there. The view is built again for every command and checked while it runs.
+
 ### 0.4 Per person, per chat, per team
 
 | Thing | Key |
 |---|---|
 | HOME, TMPDIR, caches (`<base>/devenv/home/<userId>`) | person |
 | logs, command output, exit files (`<base>/devenv/logs/<userId>`, `$TRINA_LOGS`) | person: another person's job log can hold text from folders this person cannot open |
+| HOME, caches and command output of a shared chat's runs (`<base>/devenv/chat-home/<chatId>`, `<base>/devenv/chat-logs/<chatId>`) | chat (section 0.3a) |
 | log names of jobs and dev servers | person |
 | waiting jobs: at most 3 | person |
 | one foreground command at a time | root folder (the change window needs it) |

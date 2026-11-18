@@ -46,6 +46,9 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   'who_can_open',
   // "use the price Bob put in the thread" (chat/answer-comments.ts): read-only, this chat's comments the asker sees
   'answer_comments',
+  // "unzip this" (devenv/tool.ts): a command sees only what everyone in the chat may read
+  // (docs/decisions/20261118-devenv-shared-chats.md)
+  'box_shell',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something

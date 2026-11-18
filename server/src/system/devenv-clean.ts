@@ -137,16 +137,18 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
     res.removedBytes += bytes
   }
 
-  // caches and tmp of every person
-  for (const u of await ls(p.home)) {
+  // caches and tmp of every person, and of every shared chat (its runs have the chat's home, srt/config.ts chatHome)
+  const homes = [...(await ls(p.home)).map((e) => ({ e, top: p.home, chat: false })), ...(await ls(p.chatHome)).map((e) => ({ e, top: p.chatHome, chat: true }))]
+  for (const { e: u, top, chat } of homes) {
     if (!u.isDirectory() || !SAFE_ID_RE.test(u.name)) continue
-    if (busy.users.has(u.name)) { res.keptBusy++; continue }
-    const home = path.join(p.home, u.name)
+    if (chat ? busy.chats.has(u.name) : busy.users.has(u.name)) { res.keptBusy++; continue }
+    const who = chat ? { chat: u.name } : { user: u.name }
+    const home = path.join(top, u.name)
     for (const rel of CACHE_ROOTS) {
       const abs = path.join(home, rel)
       if (!await plain(home, abs)) continue // a link on the way (.npm, .cache, .bun ...) or a file: not a cache folder of ours
       const s = await scan(abs)
-      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, { user: u.name })
+      if (s.truncated || s.bytes > (o.cacheMaxBytes ?? CACHE_MAX_BYTES) || now - s.newest >= CACHE_IDLE_DAYS * DAY) await drop(abs, 'cache', s.bytes, who)
     }
     const tmp = path.join(home, 'tmp')
     if (!await plain(home, tmp)) continue
@@ -157,7 +159,7 @@ export async function cleanDevenv(o: CleanOptions): Promise<CleanResult> {
       if (now - s.mtimeMs < TMP_KEEP_DAYS * DAY) continue
       // a folder is judged by its newest file: a dev server's socket or log in it may still be live
       const inner = s.isDirectory() ? await scan(abs) : { bytes: s.size, newest: s.mtimeMs, truncated: false }
-      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes, { user: u.name })
+      if (now - inner.newest >= TMP_KEEP_DAYS * DAY) await drop(abs, 'tmp', inner.bytes, who)
     }
   }
 

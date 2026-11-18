@@ -1,0 +1,229 @@
+// The dev environment in shared chats (docs/decisions/20261118-devenv-shared-chats.md, QA TC-4848): a team project's
+// chat is shared by default, and box_shell is offered there now, fenced so that nothing reaches the other people in the
+// chat that they could not open themselves. A fake srt system records each run's settings and environment (real srt
+// runs are Linux only: tests/linux, the Docker suite).
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
+import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { _active, setSrtSystem, type SharedRun } from '../../server/src/devenv/srt/runner'
+import { chatHome, chatLogs, personHome, personLogs, unitName } from '../../server/src/devenv/srt/config'
+import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
+import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
+import { pollSrt } from '../../server/src/devenv/jobs'
+import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
+import { boxShellTool } from '../../server/src/devenv/tool'
+import { sharedSection } from '../../server/src/chat/prompt'
+
+setDefaultTimeout(60_000)
+const PLAN: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
+type Settings = { filesystem: { allowRead: string[]; allowWrite: string[]; denyRead: string[]; denyWrite: string[] } }
+interface FakeRun { spec: SpawnSpec; settings: Settings; state: 'active' | 'gone'; resolve: (v: { code: number | null; signal: string | null }) => void }
+const runs = new Map<string, FakeRun>()
+const stops: string[] = []
+const fake: SrtSystem = {
+  spawn(spec) {
+    let resolve!: FakeRun['resolve']
+    const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
+    // the settings file is removed when the run ends: read it now
+    runs.set(spec.runId, { spec, settings: JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')), state: 'active', resolve })
+    const m = /^echo (.*)$/.exec(spec.command)
+    if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); runs.get(spec.runId)!.state = 'gone'; resolve({ code: 0, signal: null }) })
+    return { pid: 999_999, exited }
+  },
+  async stop(runId) { stops.push(runId); const r = runs.get(runId); if (r && r.state === 'active') { r.state = 'gone'; r.resolve({ code: null, signal: 'SIGTERM' }) } },
+  async unit(runId): Promise<UnitInfo> { const r = runs.get(runId); return !r || r.state === 'gone' ? { state: '', result: '', memoryBytes: null } : { state: 'active', result: '', memoryBytes: 50 << 20 } },
+  async units() { return [...runs.entries()].filter(([, r]) => r.state !== 'gone').map(([id]) => unitName(id)) },
+  async forget(runId) { const r = runs.get(runId); if (r) r.state = 'gone' },
+  oomKills() { return 0 }, cpuUsec() { return 0 }, procs() { return [] }, async selfTest() { return '' },
+}
+
+let h: Harness, base = '', team = '', P: { id: string; folderPath: string; name: string }
+let chat = ''
+const ws: Record<string, TestSocket> = {}
+const user = (id: string): ProjectParticipant => ({ subjectType: 'user', subjectId: id })
+const out = (r: { content: { type: string; text?: string }[] }) => r.content.map((c) => c.text ?? '').join('\n')
+const last = () => [...runs.values()].at(-1)!
+const turnOn = () => saveTeamSetting(h.ctx.db, { ...teamSetting(h.ctx.db), enabled: true, scope: { mode: 'writers', groupIds: [], userIds: [] }, network: 'open', limits: DEV_ENV_DEFAULT_LIMITS, extraDomains: [], consent: newConsent({ id: 'carol', name: 'Carol Park' }) })
+/** a SharedRun as the turn makes it (chat/turn.ts): the audience is read each time, the reads are recorded */
+function sharedRun(audience: string[], within: string | null, noted: { folders: readonly string[]; audience: readonly string[] }[] = [], ok = true): SharedRun {
+  return { within, audience: () => [...audience], noteReads: (folders, a) => { noted.push({ folders, audience: a }); return ok } }
+}
+const confirms: string[] = []
+const shell = (userId: string, shared: SharedRun | undefined, chatId = chat, signal = new AbortController().signal) =>
+  boxShellTool({ ctx: h.ctx, project: shared?.within === null ? null : P, userId, turnId: 't-' + crypto.randomUUID(), chatId, signal, redact: (s) => s,
+    confirm: async (q) => { confirms.push(q); return 'run' }, ...(shared ? { shared } : {}) })
+const abs = (rel: string) => path.join(team, rel)
+const fsOf = (r: FakeRun) => r.settings.filesystem
+const readable = (r: FakeRun) => [...new Set([...fsOf(r).allowRead, ...fsOf(r).allowWrite])]
+
+beforeAll(async () => {
+  process.env.MYCEL_DEV_ENV = '1'
+  h = await startHarness({ name: 'devenv-shared', askUserTimeoutMs: 2500 })
+  for (const u of ['alice', 'bob']) { ws[u] = await h.ws(u); await ws[u]!.next('hello') }
+  base = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-'))
+  team = h.ctx.files.fx.root
+  setSrtSystem(fake, { base, id: 'mycel', plan: PLAN })
+  const p = await h.api('dana').call(API.createProject, { body: { name: 'Proj S', participants: [user('alice'), user('bob')], instructions: '' } })
+  P = { id: p.id, folderPath: p.folderPath, name: p.name }
+  chat = (await h.api('alice').call(API.createChat, { body: { projectId: P.id } })).id
+  // a folder in the project only alice may open (a limited folder with her rule), and her own folder
+  fs.mkdirSync(abs(`${P.folderPath}/secret`), { recursive: true })
+  fs.writeFileSync(abs(`${P.folderPath}/secret/s.md`), 'SECRET')
+  fs.mkdirSync(abs('users/alice'), { recursive: true })
+  const fid = crypto.randomUUID()
+  h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(fid, `${P.folderPath}/secret`)
+  h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(crypto.randomUUID(), fid)
+})
+afterAll(async () => { for (const s of Object.values(ws)) s.close(); setSrtSystem(null); delete process.env.MYCEL_DEV_ENV; await h.close(); fs.rmSync(base, { recursive: true, force: true }) })
+beforeEach(() => {
+  for (const r of runs.values()) if (r.state === 'active') { r.state = 'gone'; r.resolve({ code: null, signal: 'SIGKILL' }) }
+  runs.clear(); stops.length = 0; confirms.length = 0; _active().clear()
+  setSrtSystem(fake, { base, id: 'mycel', plan: PLAN })
+  h.ctx.db.query('DELETE FROM dev_env_runs').run()
+  turnOn()
+})
+
+describe('a shared project chat', () => {
+  test('the chat is shared, and its turn offers box_shell; the instructions no longer say it is not available', async () => {
+    expect((h.ctx.db.query('SELECT shared_at FROM chats WHERE id = ?').get(chat) as { shared_at: string | null }).shared_at).not.toBeNull()
+    const started = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: '@fake {"echo":"tools"}', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const done = await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
+    expect(done.data.message.content.split(',').map((t: string) => t.replace(/^mcp__team__/, ''))).toContain('box_shell')
+    const on = sharedSection({ project: 'Proj S', audience: 2, asker: 'Alice Kim' }, 'en', false, false, false, true)
+    const off = sharedSection({ project: 'Proj S', audience: 2, asker: 'Alice Kim' }, 'en')
+    expect(off).toContain('the dev environment.')
+    expect(on).not.toContain('the dev environment.')
+    expect(on).toContain('box_shell commands here see only the team folders everyone in this chat may open inside the project folder')
+  })
+
+  test('a whole turn: the command runs in the project folder, without what bob cannot open, and the answer records what it may read', async () => {
+    const started = await h.api('alice').call(API.sendMessage, { params: { id: chat }, body: { content: '@fake {"tool":"box_shell","args":{"command":"echo hi"},"sayResult":true}', clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const done = await ws.alice!.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 30_000)
+    expect(done.data.message.content).toContain('hi')
+    const r = last()
+    expect(r.spec.cwd).toBe(fs.realpathSync(abs(P.folderPath)))
+    // the turn ran it as a shared chat's run: the chat's home
+    expect(r.spec.env.HOME).toBe(chatHome(base, chat))
+    expect(fsOf(r).allowWrite).toContain(abs(P.folderPath))
+    expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
+    expect(readable(r).filter((p) => p.startsWith(team + '/')).every((p) => p.startsWith(abs(P.folderPath)))).toBe(true)
+    // the answer's record (chat/shared-answers.ts): the project folder, with alice and bob
+    const reads = (h.ctx.db.query('SELECT reads FROM shared_answer_reads WHERE message_id = ?').get(started.assistantMessage.id) as { reads: string | null } | null)?.reads ?? ''
+    expect(reads).toContain('alice')
+    expect(reads).toContain('bob')
+  })
+
+  test('alice (writes the project): the restricted folder and her own folder are not in the run; the chat\'s home, not hers', async () => {
+    const r0 = await shell('alice', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo ok' })
+    expect(out(r0)).toContain('ok')
+    const r = last()
+    expect(fsOf(r).allowWrite).toContain(abs(P.folderPath))
+    expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    expect(readable(r)).not.toContain(abs('users/alice'))
+    expect(readable(r)).not.toContain(abs('shared'))
+    expect(r.spec.env.HOME).toBe(chatHome(base, chat))
+    expect(r.spec.env.TRINA_LOGS).toBe(chatLogs(base, chat))
+    expect(readable(r)).not.toContain(personHome(base, 'alice'))
+    expect(readable(r)).not.toContain(personLogs(base, 'alice'))
+    expect(Object.values(r.spec.env).some((v) => v.includes(personHome(base, 'alice')))).toBe(false)
+    expect(r.spec.stdoutFile.startsWith(chatLogs(base, chat))).toBe(true)
+  })
+
+  test('bob (reads the project): read-only, the restricted folder hidden', async () => {
+    // bob only reads the project folder while this runs
+    const rule = h.ctx.db.query("SELECT r.id, r.access FROM folder_rules r JOIN folders f ON f.id = r.folder_id WHERE f.path = ? AND r.subject_type = 'user' AND r.subject_id = 'bob'").get(P.folderPath) as { id: string; access: string }
+    h.ctx.db.query("UPDATE folder_rules SET access = 'read' WHERE id = ?").run(rule.id)
+    try { await shell('bob', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo ok' }) } finally { h.ctx.db.query('UPDATE folder_rules SET access = ? WHERE id = ?').run(rule.access, rule.id) }
+    const r = last()
+    expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
+    expect(fsOf(r).allowRead).toContain(abs(P.folderPath))
+    expect(readable(r)).not.toContain(abs(`${P.folderPath}/secret`))
+  })
+
+  test('each call reads the audience again: alone in the chat, alice\'s next command sees her restricted folder', async () => {
+    const audience = ['alice', 'bob']
+    const tool = shell('alice', sharedRun(audience, P.folderPath))
+    await tool.call({ command: 'echo 1' })
+    expect(fsOf(last()).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    audience.splice(1, 1)
+    await tool.call({ command: 'echo 2' })
+    expect(fsOf(last()).denyRead).not.toContain(abs(`${P.folderPath}/secret`))
+  })
+
+  test('the audience changes while a command runs: the next poll stops it', async () => {
+    const audience = ['alice', 'bob']
+    const cmd = shell('alice', sharedRun(audience, P.folderPath)).call({ command: 'sleep', timeout_sec: 60 })
+    await Bun.sleep(150)
+    expect(runs.size).toBe(1)
+    await pollSrt(h.ctx)
+    expect(last().state).toBe('active')
+    // erin joins the chat and cannot open the project: the run's view is no longer the one it started with
+    audience.push('erin')
+    await pollSrt(h.ctx)
+    expect(stops).toHaveLength(1)
+    expect(out(await cmd)).toContain('Stopped: the dev environment setting or your access to this folder changed.')
+  })
+
+  test('someone who cannot be loaded, or the person no longer in the chat: nothing runs', async () => {
+    expect(out(await shell('alice', sharedRun(['alice', 'nobody-here'], P.folderPath)).call({ command: 'echo x' }))).toContain('could not run')
+    expect(out(await shell('alice', sharedRun(['bob'], P.folderPath)).call({ command: 'echo x' }))).toContain('could not run')
+    expect(runs.size).toBe(0)
+  })
+
+  test('the reads are recorded before the run, without the restricted folder; a record that fails stops the run', async () => {
+    const noted: { folders: readonly string[]; audience: readonly string[] }[] = []
+    await shell('alice', sharedRun(['alice', 'bob'], P.folderPath, noted)).call({ command: 'echo ok' })
+    expect(noted).toHaveLength(1)
+    expect(noted[0]!.folders).toContain(P.folderPath)
+    expect(noted[0]!.folders).not.toContain(`${P.folderPath}/secret`)
+    expect([...noted[0]!.audience].sort()).toEqual(['alice', 'bob'])
+    runs.clear()
+    const r = await shell('alice', sharedRun(['alice', 'bob'], P.folderPath, [], false)).call({ command: 'echo ok' })
+    expect(out(r)).toContain('could not run')
+    expect(runs.size).toBe(0)
+  })
+
+  test('no jobs or dev servers, no login commands (and no card for them); no job results of the person', async () => {
+    const s = sharedRun(['alice', 'bob'], P.folderPath)
+    expect(out(await shell('alice', s).call({ command: 'npm run build', job: true }))).toContain('jobs and dev servers do not run in a shared chat')
+    expect(out(await shell('alice', s).call({ command: 'npm run dev', background: true, port: 3000 }))).toContain('jobs and dev servers do not run in a shared chat')
+    expect(out(await shell('alice', s).call({ command: 'git push origin main' }))).toContain('do not run in a shared chat')
+    expect(confirms).toEqual([])
+    expect(runs.size).toBe(0)
+    // a job alice ran in her own chat earlier: its result is not told here
+    const own = (await h.api('alice').call(API.createChat, { body: {} })).id
+    h.ctx.db.query("INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ended_at, exit_code, log_tail) VALUES (?, 'alice', ?, NULL, 't0', 'job', 'render', 'x', ?, '', 'ended', ?, ?, 0, 'PRIVATE-JOB-TAIL')")
+      .run(crypto.randomUUID(), chat, path.join(base, 'devenv/work', own), new Date().toISOString(), new Date().toISOString())
+    expect(out(await shell('alice', s).call({ command: 'echo ok' }))).not.toContain('PRIVATE-JOB-TAIL')
+  })
+
+  test('the tool text says what a command sees here', () => {
+    const t = shell('alice', sharedRun(['alice', 'bob'], P.folderPath))
+    expect(t.description).toContain('This is a shared chat')
+    expect(t.description).toContain('not even the person\'s own')
+    expect(t.description).not.toContain('person\'s own folder users/<id>')
+  })
+})
+
+describe('a chat shared with people and groups', () => {
+  test('only the folders everyone in it may open, read-only; the chat\'s work folder is writable', async () => {
+    const people = (await h.api('alice').call(API.createChat, { body: {} })).id
+    await shell('alice', sharedRun(['alice', 'bob'], null), people).call({ command: 'echo ok' })
+    const r = last()
+    const work = path.join(base, 'devenv/work', people)
+    expect(r.spec.cwd).toBe(fs.realpathSync(work))
+    expect(fsOf(r).allowWrite.filter((p) => p.startsWith(team + '/'))).toEqual([])
+    expect(fsOf(r).allowWrite).toContain(work)
+    expect(fsOf(r).allowRead).toContain(abs('shared'))
+    expect(readable(r)).not.toContain(abs('groups/marketing'))
+    expect(readable(r)).not.toContain(abs('groups/finance'))
+    expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
+    expect(readable(r)).not.toContain(abs(`${P.folderPath}/secret`))
+    expect(r.spec.env.HOME).toBe(chatHome(base, people))
+  })
+})

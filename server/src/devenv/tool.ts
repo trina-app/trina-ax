@@ -23,7 +23,7 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, spaceOf, startServer, submitJob, teamHosts, type Space } from './srt/runner'
+import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import path from 'node:path'
@@ -82,6 +82,21 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
   + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+/** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
+ * command and its output, so it sees only what all of them may open; foreground commands only; no login. */
+export const sharedShellDescription = (project: boolean) => 'Run a shell command in the dev environment (bash, git, node, npm, python3, pip, ffmpeg, chromium) on the team server. '
+  + 'This is a shared chat: everyone in it sees the command and its output, so the command sees only the team folders that EVERYONE in this chat may open. No personal folder (users/...) is there, not even the person\'s own, and no other chat\'s files. '
+  + (project
+    ? 'It starts in the project folder and sees only the parts of it that everyone here may open (a folder some of them cannot open is not there); it can write only in the project folder, where the person may write. Changes there are shared with the team and recorded with your name. To use a file from somewhere else, the person must copy it into the project folder first. '
+    : 'It starts in the chat\'s own work folder ($TRINA_WORK), which it can write and which the file tools do not show. It can read the team folders that everyone in this chat may open, under $TRINA_TEAM with the same paths as in the file tools, and write none of them: save a result for the people here with the file tools. ')
+  + 'The network reaches only allowed sites (npm, PyPI, GitHub, the team\'s sites and the sites this person allowed), or nothing (the team setting No network). '
+  + 'A blocked site answers HTTP 403 (curl: "CONNECT tunnel failed, response 403"). If the command needs that site, call box_shell again with the same command and request_sites set to its host name: the person is asked to allow it, and the command runs when they do. Never ask for an IP address, localhost or the team server; those stay blocked. '
+  + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
+  + 'No jobs and no dev servers here (job and background are refused): each command must finish within its time limit (default 120 s, at most 1800 s). For longer work the person can ask in a chat of their own. '
+  + 'You cannot change .git/config or .git/hooks. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
+  + 'One command at a time per folder; only the first 32 KiB of stdout and of stderr come back. '
+  + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
+
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
 export const previewReady = () => !!previewBase() && previewSupported()
 
@@ -129,6 +144,9 @@ export interface BoxShellHost {
   askSite?(host: string, command: string): Promise<'once' | 'always' | 'deny' | null>
   /** nobody can answer a card in this turn (a scheduled run): no site card is raised */
   unattended?: boolean
+  /** a shared chat (srt/runner.ts SharedRun): each run sees only what everyone who sees the chat may read; foreground
+   * commands only, no command that needs a login, no results of the person's jobs */
+  shared?: SharedRun
   redact(s: string): string
 }
 
@@ -273,7 +291,11 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const { ctx, project } = h
   // never trust the start of the turn alone: the admin may have turned it off, the person may be out of scope now
   if (!mayUseDevEnv(ctx.db, ctx.files, h.userId)) return { ...text('The dev environment is off for you now. Do not try again.', true), summary: `${what} -> off` }
-  const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null })
+  // a shared chat: no job or dev server (its row, log and notice are the person's), no command that would use a login
+  // (no card: a run holds no credentials anyway), checked before anything else runs
+  if (h.shared && (data.job || data.background)) return { ...text('Not started: jobs and dev servers do not run in a shared chat. Run the command without job and background, within its time limit (at most 1800 s), or tell the person to ask for it in a chat of their own.', true), summary: `${what} -> refused (job in a shared chat)` }
+  if (h.shared && usesCredentials(data.command)) return { ...text('Not run: commands that need a login (git push, npm publish, ssh ...) do not run in a shared chat. Tell the person to do it on their own computer.', true), summary: `${what} -> refused (login in a shared chat)` }
+  const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null, ...(h.shared ? { shared: h.shared } : {}) })
   if (!space) return { ...text('Error: this chat has no folder for commands. Do not try again.', true), summary: `${what} -> no folder` }
   const tracked = project && space.projectId === project.id && space.root === path.join(ctx.files.fx.root, project.folderPath) ? { id: project.id, folderPath: project.folderPath } : null
   const cwd = boxCwd(data.cwd)
@@ -281,6 +303,8 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   const background = !!data.background || !!data.job
   /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
   const jobNotes = async () => {
+    // a shared chat: none (a job's log is the person's, from a time the chat may not have been shared)
+    if (h.shared) return []
     await pollSrt(ctx, { userId: h.userId }).catch(() => {})
     return runResultsForAI(ctx, h.userId, h.chatId ?? null).map((n) => h.redact(n))
   }
@@ -400,7 +424,7 @@ export function boxShellTool(h: BoxShellHost) {
   const denied = new Set<string>()
   return {
     name: BOX_SHELL_TOOL,
-    description: srtShellDescription(previewReady()),
+    description: h.shared ? sharedShellDescription(h.shared.within !== null) : srtShellDescription(previewReady()),
     inputSchema: (() => { const j = z.toJSONSchema(BoxShellInput, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j })(),
     async call(args: unknown): Promise<{ content: McpContent[]; isError?: boolean; summary?: string }> {
       const a = BoxShellInput.safeParse(args)
