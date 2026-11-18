@@ -109,10 +109,23 @@ export function relationships(xml: string, part = 'part', what = 'file'): { type
 /** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
  * not be scanned as text, so such a part is refused rather than skipped (security review) */
 const utf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
-/** fonts (.odttf is scrambled bytes), pictures and other binary parts may start with FF FE by chance: there only a
- * byte order mark followed by "<" counts as UTF-16 text (QA TC-4966) */
+/** fonts (.odttf is scrambled bytes), pictures and other binary parts may start with FF FE by chance: there a part
+ * counts as UTF-16 text when, read as UTF-16 (little or big endian, after a byte order mark if there is one), its first
+ * character that is not white space is "<" (QA TC-4966; white space before "<" is still XML, review of #1341) */
 const BINARY_PART = /(^|\/)(fonts|media|embeddings)\/|\.(odttf|ttf|otf|bin|png|jpe?g|gif|bmp|tiff?|emf|wmf|svg)$/i
-const utf16Text = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe && d[2] === 0x3c && d[3] === 0x00) || (d[0] === 0xfe && d[1] === 0xff && d[2] === 0x00 && d[3] === 0x3c) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
+function utf16Text(d: Uint8Array): boolean {
+  const opensWithTag = (le: boolean, from: number) => {
+    for (let i = from; i + 1 < d.length; i += 2) {
+      const u = le ? d[i]! | (d[i + 1]! << 8) : (d[i]! << 8) | d[i + 1]!
+      if (u === 0x20 || u === 0x09 || u === 0x0a || u === 0x0d || u === 0xfeff) continue
+      return u === 0x3c
+    }
+    return false
+  }
+  if (d[0] === 0xff && d[1] === 0xfe) return opensWithTag(true, 2)
+  if (d[0] === 0xfe && d[1] === 0xff) return opensWithTag(false, 2)
+  return opensWithTag(true, 0) || opensWithTag(false, 0)
+}
 /** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
 function looksXml(d: Uint8Array): boolean {
   let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0

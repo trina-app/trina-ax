@@ -110,6 +110,17 @@ describe('hostile spellings (security review): quoting, spaces, another prefix, 
       expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: new Uint8Array([0xff, 0xfe, 0x12, 0x9a, 0x00, 0x01]) }]))).not.toThrow()
       expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name, data: u16([0xff, 0xfe], true) }]))).toThrow(/UTF-16/)
     }
+    // white space between the byte order mark and "<" is still XML (review of #1341): a header stored under media/
+    const spaced = (bom: number[], le: boolean, lead: string) => {
+      const t = Buffer.from(`${lead}<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr="DDEAUTO a b"/></w:p></w:hdr>`, 'utf16le')
+      if (!le) t.swap16()
+      return new Uint8Array([...bom, ...t])
+    }
+    for (const [bom, le] of [[[0xff, 0xfe], true], [[0xfe, 0xff], false], [[], true], [[], false]] as [number[], boolean][]) {
+      for (const lead of [' ', '\n', '\r\n\t ']) {
+        expect(() => checkOfficeTemplate('docx', writeZip([...readZip(base), { name: 'word/media/part.xml', data: spaced(bom, le, lead) }]))).toThrow(/UTF-16/)
+      }
+    }
     // the same field name in another namespace is not a Word field
     expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })
