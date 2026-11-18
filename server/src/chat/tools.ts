@@ -5,7 +5,7 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
-import { chatFileOffered, chatFileTool } from './chat-file-tool'
+import { chatFileOffered, chatFileTool, saveChatFileTool } from './chat-file-tool'
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
@@ -209,8 +209,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // them anyway)
   if (!exec.templateRun && !exec.shared) for (const t of roomReadTools(exec)) add(t)
   // a file sent from the computer in a chat shared with people (chat/chat-file-tool.ts): read as this person while they
-  // see the chat; only where the chat holds such files or is shared with people
-  if (chatFileOffered(exec)) add(chatFileTool(exec))
+  // see the chat; only where the chat holds such files or is shared with people. save_chat_file copies one into the team
+  // folder behind the wider-audience card (docs/decisions/20261118-chat-files-full-read-and-save.md)
+  if (chatFileOffered(exec)) { add(chatFileTool(exec)); add(saveChatFileTool(exec)) }
   // the comments under answers in this chat, read as this person while they see the chat (chat/answer-comments.ts):
   // a shared chat or one that still holds replies; never a scheduled run, Slack, a confidential, template or restricted
   // run, nor a sub-agent (PARENT_ONLY_TOOLS)

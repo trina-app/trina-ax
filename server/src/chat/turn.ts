@@ -1,5 +1,6 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
+import { chatFileCopyOf } from './chat-file-tool'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -247,7 +248,9 @@ const FILE_TIMELINE_MAX = 1000
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
-const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
+const SELF_LABELLED_TOOLS = new Set(['save_room_file', 'save_chat_file'])
+/** Tools that copy a file kept outside the team folder (a room's, a chat's): only their widen hook knows the target */
+const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
@@ -2656,7 +2659,7 @@ export class TurnExec {
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
     const cover = !o.noCover ? this.scheduleCover : null
     if (cover) {
-      const t = tool === 'save_room_file' ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
         : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
@@ -2913,7 +2916,7 @@ export class TurnExec {
   private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return false
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t?.mayBeNew) return false
       const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
@@ -2940,7 +2943,7 @@ export class TurnExec {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
       // the PDF tools (QA TC-4703): every place the call may write must qualify (ownFolderPdf)
       if (PDF_OUT_TOOLS.has(tool)) return this.ownFolderPdf(tool, input)
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
       return this.ownFolderPlace(tool, t.path, t.mayBeNew)
     } catch { return null }
@@ -2960,7 +2963,7 @@ export class TurnExec {
     // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
     // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
     // as they are over the person's draft; security review of this change)
-    if (r.exists && tool === 'save_room_file') return null
+    if (r.exists && WIDEN_TARGET_TOOLS.has(tool)) return null
     if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
     if (!r.exists && !mayBeNew) return null
     // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
@@ -3304,6 +3307,9 @@ export class TurnExec {
       if (tool === 'list' && k === 'path') continue
       if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (writes.has(k) && !exists(v)) continue
+      // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
+      // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
+      if (!writes.has(k) && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       for (const p of this.roomNames(v)) note(p)
     }
     // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
@@ -4859,6 +4865,12 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     case 'save_room_file': {
       // a copy of a room file: named by save_as, or for a folder ("…/") or none by the file's own name, which an id does
       // not tell here (the tool refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
+    }
+    case 'save_chat_file': {
+      // a copy of a chat's file: as save_room_file (the file's own name for a folder or none)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }

@@ -445,11 +445,17 @@ export const RoomFileInput = z.strictObject({
   as_images: roomAsImages,
 })
 
-/** chat_file: the text (or the picture) of a file sent from the computer in a chat shared with people
- * (server/src/chat/chat-file-tool.ts) */
+/** chat_file: a file sent from the computer in a chat shared with people, read as read gives a team file (text lines,
+ * a PDF's pages, a picture, a video's frames and transcript; server/src/chat/chat-file-tool.ts) */
 export const ChatFileInput = z.strictObject({
   file: z.string().min(1).max(300).describe('The file\'s id from the message ("file_id=…"), or its exact name.'),
-  offset: z.number().int().min(0).optional().describe('Characters of the text to skip (to read on after a cut result).'),
+  offset: ReadInput.shape.offset,
+  limit: ReadInput.shape.limit,
+  pages: ReadInput.shape.pages,
+  as_images: ReadInput.shape.as_images,
+  time: ReadInput.shape.time,
+  frames: ReadInput.shape.frames,
+  transcript: ReadInput.shape.transcript,
 })
 
 const saveAs = z.string().max(300).optional().describe('Team path to save to, e.g. "shared/photos/receipt.jpg"; a path ending in "/" keeps the file\'s own name ("shared/"). Default: users/<you>/downloads/.')
@@ -457,6 +463,12 @@ const saveAs = z.string().max(300).optional().describe('Team path to save to, e.
 export const SaveRoomFileInput = z.strictObject({
   room: z.string().min(1).max(200).describe('The room the file was sent in (its room_id, best, or its name, as for room_read).'),
   file: z.string().min(1).max(300).describe('The file\'s id from room_read ("file_id=…"); a name is not taken, as two files may share one.'),
+  save_as: saveAs,
+})
+/** save_chat_file: a copy of a file sent from the computer in a chat shared with people put into the team folder
+ * (server/src/chat/chat-file-tool.ts) */
+export const SaveChatFileInput = z.strictObject({
+  file: z.string().min(1).max(300).describe('The file\'s id from the message ("file_id=…"); a name is not taken, as two files may share one.'),
   save_as: saveAs,
 })
 /** post_to_room in a person's own chat (server/src/chat/post-to-room.ts): a message to one of their rooms, a reply in a
@@ -586,6 +598,7 @@ export const OTHER_TOOLS = {
   room_file: { input: RoomFileInput, output: TextOutput },
   chat_file: { input: ChatFileInput, output: TextOutput },
   save_room_file: { input: SaveRoomFileInput, output: TextOutput },
+  save_chat_file: { input: SaveChatFileInput, output: TextOutput },
   post_to_room: { input: PostToRoomInput, output: TextOutput },
   share_with_person: { input: ShareWithPersonInput, output: TextOutput },
   stop_sharing: { input: StopSharingInput, output: TextOutput },

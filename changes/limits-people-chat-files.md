@@ -1,0 +1,1 @@
+- In a chat shared with people, the AI now reads attached recordings and videos (their sound as text and their frames), scanned PDF pages and files up to the upload limit of 50 MB, as in your own chats. It can also save an attached file to a team folder, and then stamp, merge, split, unzip or resize it. When more people can see that folder than the chat, it asks you first.
