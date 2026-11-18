@@ -352,8 +352,9 @@ export class MakeFile {
             sources.push(tpl.rel)
             args.push('--reference-doc', tpl.local)
           }
-          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000 })
-          if (r.code !== 0) throw new ToolError(convertError('pandoc', r.stderr, r.killed, work))
+          // a memory cap: a small template (any readable file now) can expand to hundreds of MB in pandoc (QA TC-4948)
+          const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000, maxRssMiB: PANDOC_RSS_MIB })
+          if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? `the conversion needed more than ${PANDOC_RSS_MIB} MB of memory${a.template ? ' (the template is too large or too complex; use another one)' : ''}; nothing was saved` : convertError('pandoc', r.stderr, r.killed, work))
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
@@ -872,6 +873,9 @@ export function markdownTables(md: string): { title?: string; rows: string[][] }
 
 /** "1,234" / "12.5" / "-3" become numbers; "007" and long digit strings (phone, account numbers) stay text.
  * "=SUM(B2:B5)" becomes a formula (or an error when it is not allowed, see formulaOf); "'=x" is the text "=x". */
+/** pandoc's memory for a .docx / .pptx (with or without a template) */
+export const PANDOC_RSS_MIB = 1024
+
 export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue | { error: string } {
   const s = v.trim()
   if (s.startsWith('=') && startsLikeFormula(s.slice(1))) {

@@ -30,11 +30,11 @@ const complex = (instr: string[]) => `<w:r><w:fldChar w:fldCharType="begin"/></w
 
 describe('template check (office-template.ts)', () => {
   test('field words: complex fields joined across runs, nested ones, simple ones', () => {
-    expect(fieldWords(`<w:p>${complex([' DDE', 'AUTO c:\\\\x "a" '])}</w:p>`)).toEqual(['DDEAUTO'])
-    expect(fieldWords(`<w:p><w:fldSimple w:instr=" includePicture &quot;http://x/a.png&quot;"/></w:p>`)).toEqual(['INCLUDEPICTURE'])
+    expect(fieldWords(`<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${complex([' DDE', 'AUTO c:\\\\x "a" '])}</w:p>`)).toEqual(['DDEAUTO'])
+    expect(fieldWords(`<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:fldSimple w:instr=" includePicture &quot;http://x/a.png&quot;"/></w:p>`)).toEqual(['INCLUDEPICTURE'])
     const nested = `<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>IF 1 = 1 </w:instrText></w:r>${complex(['LINK Excel.Sheet "c:\\\\a.xlsx"'])}<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>`
-    expect(fieldWords(`<w:p>${nested}</w:p>`).sort()).toEqual(['IF', 'LINK'])
-    expect(fieldWords(`<w:p>${complex([' PAGE '])}</w:p>`)).toEqual(['PAGE'])
+    expect(fieldWords(`<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${nested}</w:p>`).sort()).toEqual(['IF', 'LINK'])
+    expect(fieldWords(`<w:p xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${complex([' PAGE '])}</w:p>`)).toEqual(['PAGE'])
   })
 
   withPandoc('Word: unsafe fields in body or header, external or object relationships, macros: refused; page numbers and hyperlinks pass', () => {
@@ -61,6 +61,32 @@ describe('template check (office-template.ts)', () => {
     expect(() => checkOfficeTemplate('pptx', linked)).toThrow(/outside the file/)
     const ole = edit(deck, 'ppt/slideMasters/_rels/slideMaster1.xml.rels', (x) => x.replace('</Relationships>', `${R('oleObject', '../embeddings/a.bin', false)}</Relationships>`))
     expect(() => checkOfficeTemplate('pptx', ole)).toThrow(/embedded object/)
+  })
+})
+
+describe('hostile spellings (security review): quoting, spaces, another prefix, strict namespace', () => {
+  withPandoc('relationships with single quotes, spaces around =, odd case: still refused', () => {
+    const base = made('# T\n', 'docx')
+    const rels = (rel: string) => addPart(base, 'word/_rels/settings.xml.rels', `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rel}</Relationships>`)
+    expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id='r1' Type='http://schemas.openxmlformats.org/officeDocument/2006/relationships/attachedTemplate' Target='http://evil.example/t.dotm' TargetMode='External'/>`))).toThrow(/attachedTemplate/)
+    expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id = "r1" Type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target = "http://x/y.png" TargetMode = "External" />`))).toThrow(/outside the file/)
+    expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="http://x/y.png" TargetMode=" external "/>`))).toThrow(/outside the file/)
+    // a prefixed relationships element is the same element
+    expect(() => checkOfficeTemplate('docx', addPart(base, 'word/_rels/settings.xml.rels', `<x:Relationships xmlns:x="http://schemas.openxmlformats.org/package/2006/relationships"><x:Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="a.htm"/></x:Relationships>`))).toThrow(/aFChunk/)
+    // an altChunk (aFChunk) inside the file pulls another document in: refused too
+    expect(() => checkOfficeTemplate('docx', rels(`<Relationship Id="r1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" Target="chunk.htm"/>`))).toThrow(/aFChunk/)
+    // a DTD or a part that is not well-formed is not vouched for
+    expect(() => checkOfficeTemplate('docx', rels(`</Relationships><!DOCTYPE x>`))).toThrow(/well-formed/)
+  })
+  withPandoc('fields with single quotes, spaces, another WordprocessingML prefix, the strict namespace: still found', () => {
+    const base = made('# T\n', 'docx')
+    const hdr = (xml: string) => addPart(base, 'word/header9.xml', xml)
+    const W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}"><w:p><w:fldSimple w:instr = 'DDEAUTO c:\\a "b"'/></w:p></w:hdr>`))).toThrow(/DDEAUTO/)
+    expect(() => checkOfficeTemplate('docx', hdr(`<q:hdr xmlns:q="${W}"><q:p><q:r><q:fldChar q:fldCharType='begin'/></q:r><q:r><q:instrText>INCLUDE</q:instrText></q:r><q:r><q:instrText>PICTURE "http://x/a.png"</q:instrText></q:r><q:r><q:fldChar q:fldCharType = "end"/></q:r></q:p></q:hdr>`))).toThrow(/INCLUDEPICTURE/)
+    expect(() => checkOfficeTemplate('docx', hdr(`<hdr xmlns="http://purl.oclc.org/ooxml/wordprocessingml/main" xmlns:s="http://purl.oclc.org/ooxml/wordprocessingml/main"><p><fldSimple s:instr="LINK Excel.Sheet x"/></p></hdr>`))).toThrow(/LINK/)
+    // the same field name in another namespace is not a Word field
+    expect(() => checkOfficeTemplate('docx', hdr(`<w:hdr xmlns:w="${W}" xmlns:o="urn:other"><w:p><o:fldSimple o:instr="DDEAUTO x"/></w:p></w:hdr>`))).not.toThrow()
   })
 })
 

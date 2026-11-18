@@ -24,7 +24,11 @@
   across runs and simple ones, in any part under `word/`), a relationship to something outside the file other than a
   plain hyperlink (an attached template, a linked picture, an OLE object, a frame, a subdocument), an embedded object or
   control, or macros. Refused rather than stripped: the person learns which file is unsafe, and a cleaned copy would
-  silently differ from the template they named. Page numbers, dates and hyperlinks pass. A .hwpx template was already
+  silently differ from the template they named. Every `.rels` part and every part under `word/` is read with saxes, namespaces resolved
+  (security review): single quotes, spaces around `=`, another prefix for WordprocessingML or the strict namespace hide
+  nothing, and a part with a DTD or that is not well-formed is refused. An included document (`aFChunk`, altChunk) is
+  refused like an object. pandoc runs with a memory cap (1 GB, `PANDOC_RSS_MIB`): a small template can expand to
+  hundreds of MB. In a chat the template is asked on the same one card as a source (`chat/tools.ts` widenOf). Page numbers, dates and hyperlinks pass. A .hwpx template was already
   safe here: only its header's style lists and its first section's page setup are used, never its text, and scripts,
   OLE objects and addresses or paths in what is kept are refused (`files/hwpx-write.ts`).
 - **Guests:** they may use a file they can read (their project, their own folder); their tool text drops the
