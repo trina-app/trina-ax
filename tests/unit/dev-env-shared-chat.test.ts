@@ -119,7 +119,7 @@ describe('a shared project chat', () => {
     expect(named(r).some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
     expect(done.data.message.content).toContain(lockedTopsNote([P.folderPath]))
     // the entries given one by one are checked inside the sandbox before the command (QA TC-4945 review)
-    expect(r.spec.command.split('\n')[0]).toMatch(/stat -c %d:%i -- '.+'.*exit 97/)
+    expect(r.spec.command.split('\n')[0]).toMatch(/^\/usr\/bin\/xargs -0 \/usr\/bin\/stat -c %d:%i -- < '.+'.*exit 97/)
     expect(r.spec.command.split('\n').pop()).toBe('echo hi')
     expect(r.spec.command).not.toContain('secret')
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)

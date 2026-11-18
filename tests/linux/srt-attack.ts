@@ -11,7 +11,7 @@ import net from 'node:net'
 import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
-import { entryGuard, entryPins, hideDeniedNames } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { chatHome, chatLogs, chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -127,6 +127,7 @@ w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
 w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
 w('projects/mix/readme.md', 'mix readme\n'); w('projects/mix/w/notes.md', 'mix notes\n'); w('projects/mix/hid/pay.md', `${ASKER}-mix-hid\n`)
 sh(`cd ${TEAM}/projects/mix && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm init && chmod -R a+rX .git`)
+sh(`cd ${TEAM}/projects/mix && git clone -q --bare . mix.git && chmod -R a+rX mix.git`)
 fs.writeFileSync(`${TEAM}/users/alice/key.txt`, `${ASKER}-own-folder`)
 fs.mkdirSync(`${WEB}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${WEB}/.git/config`, '[core]\n')
 fs.writeFileSync(path.join(personHome(BASE, ME), '.netrc'), `machine github.com password ${ASKER}-home\n`)
@@ -181,7 +182,9 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
   const given = sh_ ? hideDeniedNames(view, TEAM) : view
   // as the runner: the entries given one by one are checked first inside the sandbox (mounts.ts entryGuard)
-  const guard = sh_ ? entryGuard(entryPins(view, given, TEAM)) : ''
+  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM)) : null
+  if (pinFiles) sh(`chown ${SRV}:${SRV} '${pinFiles.paths}' '${pinFiles.ids}'`)
+  const guard = entryGuard(pinFiles)
   // S18: the disk changes after the listing, before srt binds
   o.afterPins?.()
   const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
@@ -364,11 +367,24 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
       return /hid\/pay\.md|mix-hid/.test(r.out) ? `git told of the hidden folder: ${r.out.slice(0, 300)}` : null
     }), o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] } },
     after: () => { const f = `${TEAM}/projects/mix/w/new.txt`; if (!fs.existsSync(f)) return 'a write in the writable sub-folder is not on the disk'; fs.rmSync(f); return null } },
+  // the guard stops the command with 97 and its own words (srt/mounts.ts entryGuard)
   { id: 'S18', what: 'shared project chat: a sub-folder swapped for a link to the hidden folder after the listing stops the command before it runs (QA TC-4945 review)', cmd: 'echo RAN; cat docs/secret.md; ls -A docs; true',
-    // (the guard stops it with 97; srt may also refuse the link itself first: either way it must not run)
-    check: both(noAsker, (r) => (r.out.includes('RAN') || r.code === 0 ? `the command ran: ${r.out.slice(0, 200)}` : null)),
+    check: both(noAsker, (r) => (r.out.includes('RAN') ? `the command ran: ${r.out.slice(0, 200)}` : r.code !== 97 || !r.out.includes('a folder changed while it started') ? `not stopped by the guard (exit ${r.code}): ${r.out.slice(0, 200)}` : null)),
     o: { ...SPC, afterPins: () => { fs.renameSync(`${WEB}/docs`, `${WEB}/docs-was`); fs.symlinkSync(`${WEB}/mine`, `${WEB}/docs`) } },
     after: () => { fs.rmSync(`${WEB}/docs`); fs.renameSync(`${WEB}/docs-was`, `${WEB}/docs`); return null } },
+  // a writable folder the view gave already, inside an opened one (projects/mix/w): pinned too
+  { id: 'S18b', what: 'shared project chat: the writable sub-folder of an opened folder swapped for a link to the hidden folder stops the command (QA TC-4945 re-review)', cmd: 'echo RAN; cat w/pay.md; echo x > w/planted; true',
+    check: both(noAsker, (r) => (r.out.includes('RAN') ? `the command ran: ${r.out.slice(0, 200)}` : r.code !== 97 || !r.out.includes('a folder changed while it started') ? `not stopped by the guard (exit ${r.code}): ${r.out.slice(0, 200)}` : null)),
+    o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] }, afterPins: () => { fs.renameSync(`${TEAM}/projects/mix/w`, `${TEAM}/projects/mix/w-was`); fs.symlinkSync(`${TEAM}/projects/mix/hid`, `${TEAM}/projects/mix/w`) } },
+    after: () => {
+      const planted = fs.existsSync(`${TEAM}/projects/mix/hid/planted`)
+      fs.rmSync(`${TEAM}/projects/mix/w`); fs.renameSync(`${TEAM}/projects/mix/w-was`, `${TEAM}/projects/mix/w`)
+      return planted ? 'the hidden folder was written through the link' : null
+    } },
+  // a bare repository beside the hidden folder (web.git/): not given either
+  { id: 'S19', what: 'shared project chat: a bare git repository in a folder that holds a hidden one is not there (QA TC-4945 re-review)', cmd: 'echo LS: $(ls -A); git --git-dir=mix.git log --stat 2>&1 | head; true',
+    check: both(ok, noAsker, (r) => (/^LS:.*\bmix\.git\b/m.test(r.out) || /hid\/pay\.md/.test(r.out) ? `the bare repository is there: ${r.out.slice(0, 300)}` : null)),
+    o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] } } },
   { id: 'S10', what: 'chat shared with people: the work folder writes; folders everyone in the chat may open read; HOME is the chat\'s', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${TEAM}/skills/rules.md && cat ${TEAM}/groups/marketing/brief.md && echo HOME=$HOME && echo WORK=$TRINA_WORK`,
     check: both(ok, has(SW_WORK), has('shared text'), has('skills text'), has('marketing brief'), has(`HOME=${chatHome(BASE, SW)}/attack`), has(`WORK=${SW_WORK}\n`), noAsker), o: SWC,
     after: () => (!fs.existsSync(path.join(SW_WORK, 'w.txt')) ? 'w.txt is not in the work folder' : fs.existsSync(path.join(chatWork(BASE, SW), 'w.txt')) ? 'w.txt went into the private work folder' : null) },

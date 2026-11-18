@@ -32,12 +32,15 @@
     names inside a root it is given, not one given as a root of its own). The folder itself is only a place: a command
     cannot add, rename or delete an entry at its top (Linux: what it makes there is not kept, a rename or delete fails as
     busy; macOS: refused). A read-only folder that holds a hidden one is opened the same way, also when a writable
-    folder is inside it (that one stays given as it is). A `.git` in an opened folder is not given at all: it sits at or
-    above a hidden folder, and its history may hold that folder's files (`git status`, `git show HEAD:…`, `checkout`).
-    Every entry given one by one is pinned by device and inode as listed (`entryPins`), and on Linux the command's
-    first line checks inside the sandbox that each mount is that very entry (`entryGuard`): a folder swapped for a link
-    between the listing and srt's bind (which follows links) stops the command (exit 97) before it runs. Checked in the
-    Docker suite (S16, S17, S18). Each command's result says which folders (names everyone
+    folder is inside it (that one stays given as it is). A git repository in an opened folder is not given at all
+    (`.git` in any letter case, or a folder with HEAD, objects/ and refs/ such as `web.git/`): it sits at or above a
+    hidden folder, and its history may hold that folder's files (`git status`, `git show HEAD:…`, `checkout`). Every
+    entry given inside an opened folder (the ones it adds and the view's own entries there, such as a writable
+    sub-folder) is pinned by device and inode as listed (`entryPins`). The pins go to two files in the run's own TMPDIR
+    (`writePins`), and on Linux the command's first line runs one `/usr/bin/stat` over them inside the sandbox
+    (through xargs, so the list has no length limit) and compares the result with what was listed (`entryGuard`). A
+    folder swapped for a link between the listing and srt's bind (which follows links) stops the command with exit 97
+    before it runs. Checked in the Docker suite (S16, S17, S18, S18b, S19). Each command's result says which folders (names everyone
     may see) and what to do instead (`devenv/tool.ts` lockedTopsNote). A cwd in a hidden folder is refused with the words
     of a folder that is not there (`srt/runner.ts` sharedCwdShown). The tool's path notes use the same rule
     (sharedPathAccess).
@@ -69,5 +72,5 @@
   folder and a read-only one with a writable folder inside given entry by entry, `.git` left out, the pins and the
   guard, one refusal for writes), `tests/unit/b-shared-hidden-subfolders.test.ts` (whole turns: list, glob, grep, read
   with no card, the same words as a missing path, nothing for another viewer), `tests/unit/dev-env-shared-chat.test.ts`,
-  `tests/linux/srt-attack.ts` S16, S17, S18 and S9b/S9c.
+  `tests/linux/srt-attack.ts` S16, S17, S18, S18b, S19 and S9b/S9c.
 - **Version impact:** patch.

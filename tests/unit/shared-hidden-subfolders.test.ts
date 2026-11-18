@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { hiddenNow, withHiddenFolders, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedHiddenFolders, sharedPathAccess, viewAccess } from '../../server/src/devenv/srt/access'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, writePins } from '../../server/src/devenv/srt/mounts'
 import { authorize } from '../../server/src/policy/authorize'
 import { Denied } from '../../server/src/policy/errors'
 import { lockedTopsNote } from '../../server/src/devenv/tool'
@@ -120,6 +120,28 @@ describe('a run of a shared project chat', () => {
     expect(viewAccess(g, `${F}/src/lib/a.ts`)).toBe('write')
   })
 
+  test('a writable folder the view gave already inside an opened one is pinned too; one outside stays unpinned', () => {
+    const v = { read: [F], write: [`${F}/src`], denyRead: [`${F}/hr-PAYROLL`], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    const pins = entryPins(v, g, root)
+    expect(Object.keys(pins)).toContain(path.join(root, F, 'src'))
+    expect(Object.keys(pins)).toContain(path.join(root, F, 'docs'))
+    const plain = { read: [F], write: [`${F}/src`], denyRead: [], denyWrite: [] }
+    expect(entryPins(plain, hideDeniedNames(plain, root), root)).toEqual({})
+  })
+
+  test('git repositories in an opened folder are not given: .git in any letter case, a bare one', () => {
+    const r2 = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-git-'))
+    for (const d of [`${F}/hr-PAYROLL`, `${F}/.GIT`, `${F}/web.git/objects`, `${F}/web.git/refs`, `${F}/docs`, `${F}/not-a-repo/objects`]) fs.mkdirSync(path.join(r2, d), { recursive: true })
+    fs.writeFileSync(path.join(r2, F, 'web.git/HEAD'), 'ref: refs/heads/main\n')
+    const v = { read: [], write: [F, `${F}/web.git`], denyRead: [`${F}/hr-PAYROLL`], denyWrite: [] }
+    const g = hideDeniedNames(v, r2)
+    const all = [...g.read, ...g.write]
+    expect(all.some((p) => /\.git$|web\.git/i.test(p))).toBe(false)
+    expect(all).toContain(`${F}/docs`)
+    expect(all).toContain(`${F}/not-a-repo`)
+  })
+
   test('the entries given one by one are pinned; a folder swapped for a link is refused before the run', () => {
     const v = sharedFolderView(RULES, alice, { start: F }, { audience: [alice, bob], within: F })
     const g = hideDeniedNames(v, root)
@@ -127,19 +149,26 @@ describe('a run of a shared project chat', () => {
     expect(Object.keys(pins).sort()).toEqual([...g.read, ...g.write].map((r) => path.join(root, r)).sort())
     const st = fs.statSync(path.join(root, F, 'src'), { bigint: true })
     expect(pins[path.join(root, F, 'src')]).toBe(`${st.dev}:${st.ino}`)
-    const guard = entryGuard(pins)
-    expect(guard).toContain(`stat -c %d:%i -- '${path.join(root, F, 'src')}'`)
+    // one stat for all of them, by its full path, from files in the run's TMPDIR (no long argument)
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pins-'))
+    const files = writePins(tmp, pins)!
+    expect(fs.readFileSync(files.paths, 'utf8').split('\0').filter(Boolean).sort()).toEqual(Object.keys(pins).sort())
+    expect(fs.readFileSync(files.ids, 'utf8').trim().split('\n')).toEqual(Object.values(pins))
+    const guard = entryGuard(files)
+    expect(guard).toContain('/usr/bin/xargs -0 /usr/bin/stat -c %d:%i --')
     expect(guard).toContain('exit 97')
+    expect(guard.length).toBeLessThan(1000)
     expect(guard).not.toMatch(/hr-PAYROLL|secret-PLAN/)
-    expect(entryGuard({})).toBe('')
+    expect(writePins(tmp, {})).toBeNull()
+    expect(entryGuard(null)).toBe('')
     // swapped after the listing: a link where a folder was
     fs.renameSync(path.join(root, F, 'src'), path.join(root, F, 'src-was'))
     fs.symlinkSync(path.join(root, F, 'hr-PAYROLL'), path.join(root, F, 'src'))
     try { expect(() => entryPins(v, g, root)).toThrow('a folder changed') } finally {
       fs.rmSync(path.join(root, F, 'src')); fs.renameSync(path.join(root, F, 'src-was'), path.join(root, F, 'src'))
     }
-    // a quote in a name stays one argument
-    expect(entryGuard({ "/t/it's": '1:2' })).toContain(`'/t/it'\\''s'`)
+    // a quote in a file name stays one argument
+    expect(entryGuard({ paths: "/t/it's", ids: '/t/i' })).toContain(`'/t/it'\\''s'`)
   })
 })
 

@@ -11,11 +11,13 @@
 //     a rename or delete of an entry fails as busy; macOS: refused), which the tool tells the AI (lockedTops). Not the
 //     skill folders and no folder whose name starts with a dot (.vscode, .claude): srt protects names inside a
 //     writable root it is given, not one given as a root of its own, so those are read-only there (fail closed).
-//   - Either way a `.git` in an opened folder is not given: it is at or above a hidden folder, and its history may hold
-//     that folder's files (QA TC-4945 review).
-//   - Each entry given one by one is pinned (entryPins: device and inode as listed); the command first checks inside
-//     the sandbox that each mount is that very entry (entryGuard), so a folder swapped for a link between the listing
-//     and srt's bind (which follows links) stops the command before it runs.
+//   - Either way a git repository in an opened folder (`.git` in any letter case, or a folder with HEAD, objects/ and
+//     refs/ such as web.git/) is not given: it is at or above a hidden folder, and its history may hold that folder's
+//     files (QA TC-4945 review).
+//   - Every entry given inside an opened folder is pinned (entryPins: device and inode as listed, the view's own entries
+//     there too); the command first checks inside the sandbox, with one stat, that each mount is that very entry
+//     (writePins, entryGuard), so a folder swapped for a link between the listing and srt's bind (which follows links)
+//     stops the command (exit 97) before it runs.
 // Links are never given one by one (a link given by its own path would be followed by the mount and show its target).
 // Only for the settings of a run: the view's hash stays the view's (a file saved in such a folder must not stop a
 // running command).
@@ -55,12 +57,12 @@ export function hideDeniedNames(v: FolderView, teamRoot: string, max = 5000): Fo
     for (const e of names) {
       const c = join(g, e.name)
       if (denyRead.includes(c)) { denyRead = denyRead.filter((d) => d !== c); continue }
+      // a git repository at or above a hidden folder may hold its files (a commit made before the folder was limited):
+      // git status, show and checkout would bring them back, so it is not given at all, also when the view gave it
+      if (!e.isSymbolicLink() && gitLike(path.join(teamRoot, c), e.name, e.isDirectory())) { read = read.filter((x) => x !== c); write = write.filter((x) => x !== c); continue }
       // a deeper entry of the view decides there already
       if (read.includes(c) || write.includes(c)) continue
       if (e.isSymbolicLink() || (!e.isDirectory() && !e.isFile())) continue
-      // a git repository at or above a hidden folder may hold its files (a commit made before the folder was limited):
-      // git status, show and checkout would bring them back, so it is not given at all
-      if (e.name === '.git') continue
       if (++added > max) return { read: read.filter((x) => !isUnder(x, g)), write: write.filter((x) => !isUnder(x, g)), denyRead, denyWrite: denyWrite.filter((x) => !isUnder(x, g)) }
       // a read-only folder inside a writable one (a skill folder, a shared folder): given read-only on its own now
       if (denyWrite.includes(c)) { denyWrite = denyWrite.filter((x) => x !== c); read.push(c); continue }
@@ -80,13 +82,23 @@ export function lockedTops(v: FolderView, given: FolderView): string[] {
   return v.write.filter((w) => !given.write.includes(w)).sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1))
 }
 
-/** Device and inode (`dev:ino`) of every entry `given` adds to `v` (hideDeniedNames), by absolute path. Throws when one
- * is a link or gone now (fail closed: the run does not start). */
+/** A git repository by its look: `.git` in any letter case (a folder, or the file of a worktree), or a folder with
+ * HEAD, objects/ and refs/ (a bare repository such as web.git/). */
+function gitLike(abs: string, name: string, dir: boolean): boolean {
+  if (name.toLowerCase() === '.git') return true
+  if (!dir) return false
+  try { return fs.statSync(path.join(abs, 'HEAD')).isFile() && fs.statSync(path.join(abs, 'objects')).isDirectory() && fs.statSync(path.join(abs, 'refs')).isDirectory() } catch { return false }
+}
+
+/** Device and inode (`dev:ino`) of every entry given inside a folder that hideDeniedNames opened (the ones it added and
+ * the ones the view gave already: each is bound by its own path now), by absolute path. Throws when one is a link or
+ * gone now (fail closed: the run does not start). */
 export function entryPins(v: FolderView, given: FolderView, teamRoot: string): Record<string, string> {
-  const before = new Set([...v.read, ...v.write])
+  const now = new Set([...given.read, ...given.write])
+  const opened = [...v.read, ...v.write].filter((f) => !now.has(f))
   const out: Record<string, string> = {}
-  for (const rel of [...given.read, ...given.write]) {
-    if (before.has(rel)) continue
+  for (const rel of now) {
+    if (!opened.some((f) => rel !== f && isUnder(rel, f))) continue
     const abs = rel === '' ? teamRoot : path.join(teamRoot, rel)
     const st = fs.lstatSync(abs, { bigint: true })
     if (st.isSymbolicLink() || (!st.isDirectory() && !st.isFile())) throw new Error('a folder changed while the command started; run it again')
@@ -96,12 +108,20 @@ export function entryPins(v: FolderView, given: FolderView, teamRoot: string): R
 }
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
-/** The first line of a command whose run has pinned entries (Linux, GNU stat): inside the sandbox, every pinned path
- * must be the very entry that was listed, else the command does not run (exit 97). Names only entries everyone in the
- * chat may see; prints no path. Empty when nothing is pinned. */
-export function entryGuard(pins: Record<string, string>): string {
+/** The pins of a run as two files in `dir` (the run's own TMPDIR): the paths NUL-separated, and the expected
+ * `dev:ino` lines. */
+export function writePins(dir: string, pins: Record<string, string>): { paths: string; ids: string } | null {
   const ps = Object.entries(pins)
-  if (!ps.length) return ''
-  const checks = ps.map(([p, id]) => `[ "$(stat -c %d:%i -- ${shq(p)} 2>/dev/null)" = ${shq(id)} ]`).join(' && ')
-  return `{ ${checks}; } || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }`
+  if (!ps.length) return null
+  const paths = path.join(dir, '.trina-pins'), ids = path.join(dir, '.trina-pins.ids')
+  fs.writeFileSync(paths, ps.map(([p]) => p + '\0').join(''), { mode: 0o600 })
+  fs.writeFileSync(ids, ps.map(([, id]) => id + '\n').join(''), { mode: 0o600 })
+  return { paths, ids }
+}
+/** The first line of a command whose run has pinned entries (Linux): inside the sandbox one stat (GNU, by its full
+ * path; xargs splits only a very long list) prints every pinned entry's `dev:ino`, which must be the list written
+ * before the run, else the command does not run (exit 97). The files are removed before the command. Prints no path. */
+export function entryGuard(f: { paths: string; ids: string } | null): string {
+  if (!f) return ''
+  return `/usr/bin/xargs -0 /usr/bin/stat -c %d:%i -- < ${shq(f.paths)} 2>/dev/null | /usr/bin/cmp -s - ${shq(f.ids)} || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }; /bin/rm -f ${shq(f.paths)} ${shq(f.ids)}`
 }
