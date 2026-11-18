@@ -44,6 +44,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { gitWrapperSource } from './git-guard'
+import { hideDeniedNames } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -437,7 +438,10 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
   const input = {
-    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId, view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
+    base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
+    // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
+    // below stays the view's
+    view: space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,

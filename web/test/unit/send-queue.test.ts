@@ -176,6 +176,28 @@ describe('the runner', () => {
     expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('error')
   })
 
+  test('a failed or stopped answer tried again: the pause no longer says it did not finish (QA TC-4930)', async () => {
+    for (const end of ['error', 'stopped'] as const) {
+      useChats.getState().reset(); useSendQueue.getState().reset(); calls = []
+      const a = running()
+      useSendQueue.getState().enqueue(me.id, CHAT, { content: 'next', attachments: [], author: me })
+      done(a, end)
+      await tick(10)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe(end)
+      // the person tries again: a new answer in its place (regenerate), and it finishes
+      const again = msg({ role: 'assistant', parentId: a.parentId, status: 'streaming', turnId: uuidv7() })
+      const t = useChats.getState().threads[CHAT]!
+      useChats.setState({ threads: { [CHAT]: { ...t, messages: [...t.messages.slice(0, -1), again] } } })
+      await tick(10)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('away')
+      done(again, 'done')
+      await tick(10)
+      // still waits for "Send now": nothing drops into the conversation by itself
+      expect(sends()).toHaveLength(0)
+      expect(useSendQueue.getState().queues[CHAT]!.paused).toBe('away')
+    }
+  })
+
   test('another answer already running (409): the messages wait again, nothing shows as failed', async () => {
     const a = running()
     useSendQueue.getState().enqueue(me.id, CHAT, { content: 'next', attachments: [], author: me })

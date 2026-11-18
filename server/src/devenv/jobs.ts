@@ -7,6 +7,7 @@
 //
 // dev_env_jobs and dev_env_stops are the tables of the removed box runner (docs/DECISIONS.md "Dev environment: box
 // runner removed, srt only"): nothing writes them now, and purgeOldJobs deletes their old rows.
+import { hideProxyLogin } from './srt/proxy-login'
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { Locale } from '@mycel/shared/api'
@@ -47,7 +48,8 @@ const clipEnd = (s: string, max: number) => (s.length > max ? '...' + s.slice(-m
 /** Log text of a running job as it may be kept. The command can be in the middle of a stored secret, and hide knows only
  * whole values, so what can be the start of one goes too; the next poll has the rest. An ended job has no such end. */
 const hideRunning = (r: Redactor, s: string) => {
-  const h = r.hide(s)
+  // srt's proxy login too (srt/proxy-login.ts): the lists show the tail to other people
+  const h = hideProxyLogin(r.hide(s))
   return h.slice(0, h.length - carryLength(h, r.values))
 }
 
@@ -94,7 +96,7 @@ const RUN_ENDED_NOTE: Record<Locale, (name: string, why: string) => string> = {
 function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: string; tail: string; lastLine: string; reason: EndReason }) {
   const at = new Date().toISOString()
   const r = redactorFor(ctx, row.user_id)
-  const tail = r.hide(end.tail), lastLine = r.hide(end.lastLine).slice(0, LINE_MAX)
+  const tail = hideProxyLogin(r.hide(end.tail)), lastLine = hideProxyLogin(r.hide(end.lastLine)).slice(0, LINE_MAX)
   // one notice: a poll of the tool and a poll of the timer can meet here
   const done = ctx.db.query("UPDATE dev_env_runs SET ended_at = ?, state = 'ended', exit_code = ?, end_note = ?, end_reason = ?, log_tail = ?, last_line = ? WHERE id = ? AND ended_at IS NULL")
     .run(at, end.code, end.note, end.reason, tail, lastLine, row.id)
