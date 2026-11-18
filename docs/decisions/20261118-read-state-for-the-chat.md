@@ -27,6 +27,12 @@ Plan: docs/AGENTS/plan/20261118-1000-read-state-for-the-chat.md.
   (Codex, the API engine, a lost or oversized stash, an engine switch, another person's turn in between, a summarized
   history) gets `edit` and the in-place tools only (edit_hwp, comment_docx, the PDF and image tools work from the exact
   old bytes): `write` asks for a read, `make_file` asks for a new read before any conversion instead of a copy.
+  The session is recorded per path when the text is seen: a sub-agent's read (the main session never saw it) and a read
+  made before the turn moved to another session (an account switch, a "No conversation found" retry) are saved without
+  one. A sub-agent never replaces a whole file from an earlier answer's read (it never saw that text); it may edit.
+  A compaction in the stash (Claude Code's "compact_boundary" line) clears the chat's sessions on its reads: edits
+  only from then on. A stash slimmed by the session summary (#1283) must do the same (TODO in chat/turn.ts
+  stashSession, `forgetSessionText`).
 - **Per person:** rows carry the turn's person and only that person's rows load. In a shared chat person B's turn never
   uses person A's reads, because their access differs. An edited or regenerated message starts a branch without the
   other branch's reads.

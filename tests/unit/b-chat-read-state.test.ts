@@ -12,7 +12,7 @@ import crypto from 'node:crypto'
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { legacyProjectFolder, oldProject } from '../lib/legacy-project'
-import { carriedReads, CARRIED_READS_PER_ANSWER, CARRIED_READS_PER_CHAT, mayCarryReads, saveReads } from '../../server/src/chat/carried-reads'
+import { carriedReads, CARRIED_READS_PER_ANSWER, CARRIED_READS_PER_CHAT, compactionsIn, forgetSessionText, mayCarryReads, saveReads } from '../../server/src/chat/carried-reads'
 import { TurnFiles, type CarriedReads, type ToolCtx } from '../../server/src/files/service'
 import { placeProduced } from '../../server/src/tools/make-file'
 import { componentC } from '../../server/src/team-files/component'
@@ -112,14 +112,20 @@ describe('a file read in an earlier message', () => {
     expect(ok.text).toContain(`Updated ${f}`)
   })
 
-  test('a sub-agent of a later answer may change it too', async () => {
+  test('a sub-agent of a later answer may edit it, but never replace it whole (it never saw the text)', async () => {
     const f = `${dirOf()}/list.md`
     put(f, 'a\n')
     const chat = await newChat('alice')
     await ask('alice', chat, `read\n${fake({ tool: 'read', args: { file_path: f } }, { say: 'read' })}`)
-    const r = await ask('alice', chat, `delegate\n${fake({ agents: [{ id: 'k1', type: 'general-purpose', description: 'fix the list', steps: [{ tool: 'write', args: { file_path: f, content: 'b\n' }, sayChildResult: true }] }] })}`)
-    expect(r.text).toContain(`Updated ${f}`)
+    const w = await ask('alice', chat, `delegate\n${fake({ agents: [{ id: 'k1', type: 'general-purpose', description: 'rewrite the list', steps: [{ tool: 'write', args: { file_path: f, content: 'guessed\n' }, sayChildResult: true }] }] })}`)
+    expect(w.text).toContain('first (with read)')
+    expect(read(f)).toBe('a\n')
+    const r = await ask('alice', chat, `delegate\n${fake({ agents: [{ id: 'k2', type: 'general-purpose', description: 'fix the list', steps: [{ tool: 'edit', args: { file_path: f, old_string: 'a', new_string: 'b' }, sayChildResult: true }] }] })}`)
+    expect(r.text).toContain(`Edited ${f}`)
     expect(read(f)).toBe('b\n')
+    // the sub-agent's own read is saved without a session: the main session never saw it
+    const row = h.ctx.db.query('SELECT session_id FROM chat_reads WHERE chat_id = ? AND path = ? ORDER BY id DESC LIMIT 1').get(chat, f) as { session_id: string | null }
+    expect(row.session_id).toBeNull()
   })
 
   test('another branch of the chat (an edited message) does not get the read', async () => {
@@ -226,8 +232,8 @@ describe('carriedReads (the rows)', () => {
     const a1 = await ask('alice', chat, 'one')
     const a2 = await ask('alice', chat, 'two')
     const db = h.ctx.db
-    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice', sessionId: 's1' }, new Map([[f, 'old']]))
-    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'alice', sessionId: 's2' }, new Map([[f, now]]))
+    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice' }, new Map([[f, 'old']]), new Map([[f, 's1']]))
+    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'alice' }, new Map([[f, now]]), new Map([[f, 's2']]))
     const mine = carriedReads(db, h.ctx.files, { chatId: chat, userId: 'alice', answers: [a1.assistantId, a2.assistantId] })!
     expect(mine.hashes.get(f)).toBe(now)
     expect(mine.current(f)).toBe(now)
@@ -240,7 +246,7 @@ describe('carriedReads (the rows)', () => {
     // another person: none of alice's rows
     expect(carriedReads(db, h.ctx.files, { chatId: chat, userId: 'carol', answers: [a1.assistantId, a2.assistantId] })).toBeNull()
     // bob's own row on alice's private file: bob may not read it, so it is never "the same version"
-    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'bob', sessionId: null }, new Map([[f + '.x', now]]))
+    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'bob' }, new Map([[f + '.x', now]]), new Map([[f + '.x', null]]))
     expect(carriedReads(db, h.ctx.files, { chatId: chat, userId: 'bob', answers: [a2.assistantId] })!.current(f)).toBeNull()
   })
 
@@ -250,13 +256,13 @@ describe('carriedReads (the rows)', () => {
     const a2 = await ask('alice', chat, 'two')
     const db = h.ctx.db
     const many = new Map(Array.from({ length: CARRIED_READS_PER_ANSWER + 5 }, (_, i) => [`p/${i}.md`, 'h'] as [string, string]))
-    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice', sessionId: null }, many)
+    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice' }, many, new Map())
     const kept = (db.query('SELECT path FROM chat_reads WHERE message_id = ?').all(a1.assistantId) as { path: string }[]).map((r) => r.path)
     expect(kept.length).toBe(CARRIED_READS_PER_ANSWER)
     expect(kept).toContain(`p/${CARRIED_READS_PER_ANSWER + 4}.md`)
     expect(kept).not.toContain('p/0.md')
     expect(CARRIED_READS_PER_CHAT).toBeGreaterThan(CARRIED_READS_PER_ANSWER)
-    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'alice', sessionId: null }, new Map([['q.md', 'h']]))
+    saveReads(db, { chatId: chat, messageId: a2.assistantId, userId: 'alice' }, new Map([['q.md', 'h']]), new Map([['q.md', null]]))
     db.query('DELETE FROM messages WHERE id = ?').run(a2.assistantId)
     expect(db.query('SELECT 1 FROM chat_reads WHERE message_id = ?').get(a2.assistantId)).toBeNull()
     expect(rowsOf(chat)).toBe(CARRIED_READS_PER_ANSWER)
@@ -300,5 +306,50 @@ describe('carriedReads (the rows)', () => {
     const made = await placeProduced(h.ctx, files, ctx(inSession()), rel.split('/'), tmp(), 'make_file')
     expect(made.conflictCopyOf).toBeUndefined()
     expect(read(rel)).toBe('v2\n')
+  })
+})
+
+describe('the session a read was made in', () => {
+  test('a turn that moves to another session (an account switch, a lost stash) saves its earlier reads without one', () => {
+    const tf = new TurnFiles()
+    tf.engineSession('s1', true)
+    tf.readHashes.set('a.md', 'h1')
+    expect(tf.readSessions.get('a.md')).toBe('s1')
+    tf.forAgent('k1').readHashes.set('b.md', 'h2')
+    expect(tf.readSessions.get('b.md')).toBeNull()
+    tf.engineSession('s2', false)
+    expect(tf.readSessions.get('a.md')).toBeNull()
+    tf.readHashes.set('c.md', 'h3')
+    expect(tf.readSessions.get('c.md')).toBe('s2')
+    // the same session again (a continue after a connect): nothing changes
+    tf.engineSession('s2', true)
+    expect(tf.readSessions.get('c.md')).toBe('s2')
+  })
+
+  test('a sub-agent view never offers a whole-file replace from an earlier read', () => {
+    const tf = new TurnFiles()
+    tf.carried = carried('a.md', 'h1', () => 'h1')
+    tf.engineSession('s1', true)
+    expect(tf.carried.wholeFile('a.md')).toBe(true)
+    const sub = tf.forAgent('k1')
+    expect(sub.carried!.wholeFile('a.md')).toBe(false)
+    expect(sub.readHashes.get('a.md')).toBe('h1')
+  })
+
+  test('a compaction in the stash: the chat\'s reads lose their session (edit only from then on)', async () => {
+    const line = (o: unknown) => JSON.stringify(o) + '\n'
+    expect(compactionsIn(Buffer.from(line({ type: 'user' })))).toBe(0)
+    expect(compactionsIn(Buffer.from(line({ type: 'system', subtype: 'compact_boundary' }) + line({ type: 'user' })))).toBe(1)
+    const chat = await newChat('alice')
+    const a1 = await ask('alice', chat, 'one')
+    const db = h.ctx.db
+    saveReads(db, { chatId: chat, messageId: a1.assistantId, userId: 'alice' }, new Map([['x.md', 'h']]), new Map([['x.md', 's1']]))
+    forgetSessionText(db, chat)
+    expect((db.query('SELECT session_id FROM chat_reads WHERE chat_id = ?').get(chat) as { session_id: string | null }).session_id).toBeNull()
+    const tf = new TurnFiles()
+    tf.engineSession('s1', true)
+    tf.readHashes.set('y.md', 'h')
+    tf.sessionLostText()
+    expect(tf.readSessions.get('y.md')).toBeNull()
   })
 })

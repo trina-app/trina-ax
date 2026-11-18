@@ -134,7 +134,7 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
-import { carriedReads, mayCarryReads, saveReads } from './carried-reads'
+import { carriedReads, compactionsIn, forgetSessionText, mayCarryReads, saveReads } from './carried-reads'
 
 export { noSearchPath } from './search-path'
 
@@ -319,8 +319,8 @@ export class TurnExec {
   readonly files = new TurnFiles()
   /** the person's reads carry over between answers in this chat (not a guest, not a restricted run: chat/carried-reads.ts) */
   private carryReads = false
-  /** the Claude session this answer last ran in (its reads are saved under it), null for Codex or the API engine */
-  private readSession: string | null = null
+  /** compactions in the session file this turn resumed (a new one in its stash: the session dropped text) */
+  private compactionsBefore = 0
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
@@ -1110,11 +1110,12 @@ export class TurnExec {
         this.files.subagents ||= subagents
         // whole-file replaces (write, make_file) from an earlier answer's read only inside the very engine session that
         // read it (it still holds the text); a fresh session gets edit and the in-place tools only (chat/carried-reads.ts)
-        this.files.carried?.inSession(resume ? sid : null)
-        this.readSession = sid
+        this.files.engineSession(sid, resume)
+        const resumedStash = resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null
+        this.compactionsBefore = resumedStash ? compactionsIn(resumedStash) : 0
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
           turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick
           ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
@@ -4171,6 +4172,13 @@ export class TurnExec {
       this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
       return
     }
+    // Claude Code compacted the session in this turn: it no longer holds the text earlier reads saw (whole-file replaces
+    // from them ask for a new read; chat/carried-reads.ts)
+    // TODO(#1283): a stash slimmed by the session summary drops text too: call forgetSessionText there as well
+    if (compactionsIn(bytes) > this.compactionsBefore) {
+      this.files.sessionLostText()
+      try { forgetSessionText(this.rt.db, this.spec.chatId) } catch (e) { this.rt.log.warn('forgetting the session text failed', { err: e, turn: this.id }) }
+    }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     for (const f of fs.readdirSync(dir)) if (f !== `${sid}.jsonl`) fs.rmSync(path.join(dir, f), { force: true })
     const file = this.rt.sessionStash(this.spec.chatId, sid)
@@ -4210,7 +4218,7 @@ export class TurnExec {
       }
     }
     // what this answer's AI read or saved, for the person's next answers in this chat (chat/carried-reads.ts)
-    if (this.carryReads && this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId, sessionId: this.readSession }, this.files.allReads))
+    if (this.carryReads && this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId }, this.files.allReads, this.files.readSessions))
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })

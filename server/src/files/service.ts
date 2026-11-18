@@ -89,6 +89,14 @@ export interface CarriedReads {
   wholeFile(rel: string): boolean
 }
 
+const subViews = new WeakMap<CarriedReads, CarriedReads>()
+/** the earlier answers' reads as a sub-agent sees them: the same hashes and checks, no whole-file replace */
+function subagentCarried(c: CarriedReads): CarriedReads {
+  let v = subViews.get(c)
+  if (!v) { v = { hashes: c.hashes, current: (rel) => c.current(rel), inSession: () => {}, wholeFile: () => false }; subViews.set(c, v) }
+  return v
+}
+
 /** read_state_stale: a file read in an earlier message that changed since (the AI reads it again, nothing is saved) */
 export const staleReadText = (rel: string) =>
   `'${rel}' changed after you read it earlier in this chat (someone saved a new version). Read it again, then make your change to what it says now.`
@@ -100,9 +108,16 @@ export const staleReadText = (rel: string) =>
  * read; never a conflict copy or an overwrite from an old read), has() says false.
  */
 class ReadHashes extends Map<string, string> {
-  constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null) { super() }
+  /** `seen`: the turn's path -> the engine session whose AI saw the text (null: a sub-agent's or an unknown call's read,
+   * which the main session never saw), filled with `all` */
+  constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null,
+    private readonly seen: { sessions: Map<string, string | null>; session: () => string | null } | null = null) { super() }
   // newest last in `all` (saveReads keeps the newest when an answer read more than it keeps)
-  override set(k: string, v: string) { this.all?.delete(k); this.all?.set(k, v); return super.set(k, v) }
+  override set(k: string, v: string) {
+    this.all?.delete(k); this.all?.set(k, v)
+    if (this.seen) this.seen.sessions.set(k, this.seen.session())
+    return super.set(k, v)
+  }
   private earlier(k: string): { was: string; now: string | null } | null {
     if (super.has(k)) return null
     const c = this.carried()
@@ -163,7 +178,13 @@ export class TurnFiles {
   /** the files this agent read (or wrote) in this turn and their hashes then: write / edit / make_file refuse an
    * existing file that is not here and make a conflict copy when it changed since. Per agent (forAgent): siblings do
    * not share it, so one sub-agent cannot overwrite what another wrote after it read the file (review M3) */
-  readHashes: Map<string, string> = new ReadHashes(this.allReads, () => this.carried)
+  /** path -> the engine session in which the main AI saw what allReads holds for it (null: a sub-agent's read, an unknown
+   * call's, or one made before the turn moved to another session): saved with the reads, so a later answer's whole-file
+   * replace (write, make_file) counts it only in that same session (chat/carried-reads.ts) */
+  readonly readSessions = new Map<string, string | null>()
+  /** the engine session the main AI runs in now (engineSession), null for Codex or the API engine */
+  private session: string | null = null
+  readHashes: Map<string, string> = new ReadHashes(this.allReads, () => this.carried, { sessions: this.readSessions, session: () => this.session })
   /** the person's reads of earlier answers on this branch of the chat (chat/carried-reads.ts), set when a chat turn
    * starts: the main AI and its sub-agents may change those files without reading them again while they are unchanged
    * (ReadHashes). Null: every read is per answer (a guest, a restricted run, no chat) */
@@ -210,6 +231,23 @@ export class TurnFiles {
   /** a sub-agent's state (forAgent), or a call whose agent is not known: no folder share is listed or read there
    * (files/shared-folder-reads.ts; the main AI passes what it needs on) */
   readonly agentView: boolean = false
+
+  /**
+   * The main AI runs in engine session `sid` from now on (a launch of the turn), `resumed`: it goes on with the session
+   * that earlier answers ran in. Another session than before (an account switch, a lost stash, a compaction that
+   * dropped the text) means the reads made so far are not in it: they stay usable for edits, never for a whole-file
+   * replace (readSessions -> null).
+   */
+  engineSession(sid: string | null, resumed: boolean) {
+    if (sid !== this.session) for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.session = sid
+    this.carried?.inSession(resumed ? sid : null)
+  }
+  /** the session lost text (Claude Code compacted it): as a move to another session for what was read so far */
+  sessionLostText() {
+    for (const k of this.readSessions.keys()) this.readSessions.set(k, null)
+    this.carried?.inSession(null)
+  }
 
   // ---------------- sub-agents (docs/DECISIONS.md "Sub-agents") ----------------
   /** tool_use id -> the Agent call of the sub-agent that made it (null: the main AI), from the engine's stream */
@@ -266,9 +304,12 @@ export class TurnFiles {
    * marked so), null for a call whose agent is not known; `carry`: it may use the chat's earlier reads (a sub-agent
    * may, a call whose agent is not known may not: it fails closed) */
   private view(agent: string | null = null, carry = true): TurnFiles {
-    const own = new ReadHashes(this.allReads, () => (carry ? this.carried : null))
+    // a sub-agent never saw the earlier answers' text: it may edit from their reads, never replace a whole file from
+    // them (wholeFile false), and its own reads are saved without a session (the main session never saw them)
+    const sub = (): CarriedReads | null => (carry && this.carried ? subagentCarried(this.carried) : null)
+    const own = new ReadHashes(this.allReads, sub, { sessions: this.readSessions, session: () => null })
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? (carry ? t.carried : null) : Reflect.get(t, k, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? sub() : Reflect.get(t, k, t)),
       set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' ? false : Reflect.set(t, k, v, t)),
     })
   }

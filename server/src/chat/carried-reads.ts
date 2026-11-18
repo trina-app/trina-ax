@@ -24,13 +24,22 @@ export const CARRIED_READS_PER_ANSWER = 2000
 /** the most rows one chat keeps (its newest; older answers' reads are dropped first) */
 export const CARRIED_READS_PER_CHAT = 20_000
 
+/** Claude Code's session file marks a compaction with a "compact_boundary" system line: the text before it is gone */
+export const compactionsIn = (stash: Uint8Array): number => Buffer.from(stash).toString('latin1').split('"compact_boundary"').length - 1
+
+/** The chat's engine session no longer holds the text of what its earlier answers read (a compaction, a slimmed
+ * stash): their reads stay usable for edits, never again for a whole-file replace. */
+export function forgetSessionText(db: Database, chatId: string) {
+  db.query('UPDATE chat_reads SET session_id = NULL WHERE chat_id = ? AND session_id IS NOT NULL').run(chatId)
+}
+
 /** Keep what a finished turn's AI read or saved, under its answer (a turn that goes on with the same answer adds to
  * it; a path's newer hash replaces the older one). `reads` in the order they were last set (newest last). */
-export function saveReads(db: Database, o: { chatId: string; messageId: string; userId: string; sessionId: string | null }, reads: ReadonlyMap<string, string>) {
+export function saveReads(db: Database, o: { chatId: string; messageId: string; userId: string }, reads: ReadonlyMap<string, string>, sessions: ReadonlyMap<string, string | null>) {
   const newest = [...reads].slice(-CARRIED_READS_PER_ANSWER)
   db.transaction(() => {
     const ins = db.query('INSERT OR REPLACE INTO chat_reads (chat_id, message_id, user_id, session_id, path, sha256) VALUES (?,?,?,?,?,?)')
-    for (const [p, sha] of newest) ins.run(o.chatId, o.messageId, o.userId, o.sessionId, p, sha)
+    for (const [p, sha] of newest) ins.run(o.chatId, o.messageId, o.userId, sessions.get(p) ?? null, p, sha)
     db.query('DELETE FROM chat_reads WHERE chat_id = ?1 AND id NOT IN (SELECT id FROM chat_reads WHERE chat_id = ?1 ORDER BY id DESC LIMIT ?2)').run(o.chatId, CARRIED_READS_PER_CHAT)
   })()
 }
