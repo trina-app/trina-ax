@@ -46,10 +46,12 @@ export const PDF_WORDS: Record<'edited' | 'merged' | 'part', Record<Locale, stri
 
 export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result as a new PDF next to it (the original stays as it is; a PDF you made in this turn is changed in place unless you give output): ' +
   'operations, applied in order: remove_pages, keep_pages (extract pages), reorder_pages, rotate_pages, insert_pdf (pages of another PDF at a position), ' +
-  'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page) and page_numbers. ' +
+  'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page), page_numbers, ' +
+  'and replace_text (change words inside the PDF: every match of find on the pages becomes replace; the old words are removed from the file, not covered, ' +
+  'and the new ones are written in their place in the same size and colour, in the PDF\'s own font when it has the letters; "" removes them). ' +
   'Pages are written like "1,3-5,last", "2-last" or "all"; each operation sees the pages as they are after the ones before it. ' +
   'Positions are a preset or { x_mm, y_mm } from the top-left of the page as it is shown. Works on scanned PDFs too. ' +
-  'It cannot change the PDF\'s own text or pictures. A PDF locked with a password cannot be changed. ' +
+  'Words that are part of a picture (a scanned page) and the PDF\'s pictures cannot be changed. A PDF locked with a password cannot be changed. ' +
   'Replace the original (replace: true) only when the user explicitly asks for that, after reading it. ' +
   'After adding text, a stamp or a watermark, read the changed page of the new file with pages and as_images to check it before you answer.'
 export const MERGE_PDFS_DESCRIPTION = 'Join several PDFs into one new PDF, in the order given (a { path, pages } entry takes only those pages). ' +
@@ -135,7 +137,7 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     return op as PageOp
   })
   // text that is not Latin needs the Pretendard font, sent with the request (the worker reads no files)
-  const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : []))
+  const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : 'replace_text' in op ? [op.replace_text.replace] : []))
   let font: number | null = null
   if (texts.some((t) => /[^\x20-\x7e\xa0-\xff]/.test(t))) {
     const f = textFontFile()
@@ -229,5 +231,6 @@ export function pdfResultText(tool: string, r: PdfResult, link: (p: string) => s
   const kept = replaced ? `This is a new version of ${r.sources[0]}; the previous version is in its file history.` : `${r.sources.join(', ')} ${r.sources.length === 1 ? 'is' : 'are'} unchanged.`
   const signed = r.report.signed ? ' A PDF here had a digital signature; tell the user that the new file no longer carries a valid signature.' : ''
   const look = check ? `\nCheck the pages you drew on before you answer: read the new file with pages and as_images: true.` : ''
-  return `${lines.join('\n')}\n${kept}${signed}${look}`
+  const notes = r.report.notes.length ? `\n${r.report.notes.join('\n')}` : ''
+  return `${lines.join('\n')}\n${kept}${signed}${notes}${look}`
 }

@@ -90,7 +90,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'the file without its extension, cut to 31 characters (sales.csv: "sales"). xlsx formulas: a data cell that starts with "=" is written as a formula, e.g. "=SUM(B2:E2)"; start it ' +
       'with "\'=" for literal text. Row 1 is the header, data starts at row 2, columns are A, B, ... in table order; a sheet is named ' +
       'after the heading above its table (max 31 characters, \\ / ? * [ ] : removed), e.g. "=Q3!B2" or "=\'Q3 sales\'!B2". Formulas may ' +
-      'use only cells of this workbook (no other files, DDE, HYPERLINK, WEBSERVICE, INDIRECT). Simple formulas (numbers, cells of the same ' +
+      'use only cells of this workbook (no other files, DDE, WEBSERVICE, INDIRECT); HYPERLINK may link to a web page, a mail address or a place in this ' +
+      'workbook, written out in the formula, e.g. =HYPERLINK("https://example.com/item/"&A2,A2), =HYPERLINK("mailto:sales@example.com","Mail us"), ' +
+      '=HYPERLINK("#\'Q3 sales\'!A1","Q3"), never to a file or a network share. Simple formulas (numbers, cells of the same ' +
       'sheet, + - * / ^, parentheses, SUM, AVERAGE, MIN, MAX, COUNT, ABS, ROUND) are saved together with their computed result, so the file ' +
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
@@ -192,7 +194,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     describe: (a) => `edit_pdf ${a.file_path} (${a.operations.map((o) => Object.keys(o)[0]).join(', ')})${a.replace ? ' replace' : a.output ? ` -> ${a.output}` : ''}`,
     async run(a, t) {
       const r = await editPdfFile(ctx, c.files, t, a)
-      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o)
+      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o || 'replace_text' in o)
       return { text: pdfResultText('edit_pdf', r, pdfLink, drew), summary: pdfSummary('edit_pdf', r), structured: pdfStructured(r) }
     },
   })

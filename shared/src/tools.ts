@@ -240,6 +240,12 @@ export const EditPdfOperation = z.union([
     start: z.number().int().min(0).max(100_000).optional().describe('The first number (default 1)'),
     size_pt: z.number().min(4).max(72).optional().describe('Default 10'),
   }) }),
+  z.strictObject({ replace_text: z.strictObject({
+    find: z.string().min(1).max(1000).describe('The words as they are on the page, e.g. "Acme Ltd" (a space also matches a gap or a line break between words)'),
+    replace: z.string().max(1000).describe('The new words, one line ("" removes the old ones)'),
+    pages: pdfPages.optional().describe('Default "all"'),
+    match_case: z.boolean().optional().describe('Default true; false also finds "ACME" for "Acme"'),
+  }) }),
 ])
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
