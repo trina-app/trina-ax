@@ -12,7 +12,7 @@
 // Kept: masters, layouts, themes, notes, animations, transitions, charts and every other slide byte for byte.
 import {
   addRel, applySplices, attrOf, ensureContentType, escAttr, escText, find, findAll, kid, kidsNamed, mainPart, matchesOf, paragraphs, pick,
-  readRels, refuse, registerEditor, registerLister, slice, textSplices, withAttr, without, xmlTree, A,
+  readRels, refuse, relId, relIdPrefix, registerEditor, registerLister, slice, textSplices, withAttr, without, xmlTree, A,
   type EditNote, type Para, type Pkg, type Splice, type XNode,
 } from './office-edit'
 
@@ -36,7 +36,7 @@ function slidesOf(pkg: Pkg, pres: string, tree: XNode): Slide[] {
   const rels = readRels(pkg, pres)?.rels ?? []
   const list = find(tree, 'p:sldIdLst')
   return (list ? kidsNamed(list, 'p:sldId') : []).map((node, i) => {
-    const rid = /\s(\w+):id="([^"]*)"/.exec(node.head)?.[2] ?? ''
+    const rid = relId(node.head)
     const rel = rels.find((r) => r.id === rid && r.type === 'slide')
     return { n: i + 1, part: rel?.target ?? '', sldId: node }
   }).filter((s) => s.part && pkg.has(s.part))
@@ -114,7 +114,7 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     if (!Number.isInteger(after) || after < 0 || after > slides.length) refuse(`change ${i + 1}: after is 0 (first) to ${slides.length}`)
     return after === 0 ? slides[0]!.sldId.start : slides[after - 1]!.sldId.end
   }
-  const rIdAttr = /\s(\w+):id="/.exec(slides[0]!.sldId.head)?.[1] ?? 'r'
+  const rIdAttr = relIdPrefix(slides[0]!.sldId.head)
   const newSlideEntry = (i: number, part: string, after: number, what: string) => {
     if (nextId >= 2147483648) refuse(`change ${i + 1}: the deck's slide numbers are used up`)
     const rid = addRel(pkg, pres, `${REL}/slide`, part.slice(pres.lastIndexOf('/') + 1))
@@ -267,7 +267,9 @@ export function editPptx(pkg: Pkg, changes: unknown[], images: Uint8Array[]): { 
     splices.get(para.part)!.push(...textSplices(x, para, edits, (piece, text) => aText(piece.node.head, text, `change ${edits[0]!.change + 1}`)))
     let after = para.text
     for (const e of [...edits].sort((a, b) => b.at - a.at)) after = after.slice(0, e.at) + e.text + after.slice(e.at + e.len)
-    for (const e of edits) notes.push({ change: e.change, where: `slide ${slideNo.get(para.part)}`, before: para.text, after: [after] })
+    // one paragraph, one before and after (the read-back counts them); the other changes in it point at the first
+    const w = `slide ${slideNo.get(para.part)}`
+    edits.forEach((e, k) => notes.push(k === 0 ? { change: e.change, where: w, before: para.text, after: [after] } : { change: e.change, where: `${w}, the same paragraph as change ${edits[0]!.change + 1}` }))
   }
   for (const [part, list] of splices) if (list.length) pkg.set(part, applySplices(xmls.get(part)!, list, part))
   if (presSplices.length) {

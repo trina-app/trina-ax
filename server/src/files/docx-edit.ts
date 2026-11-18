@@ -13,7 +13,7 @@
 // a find/replace hit); every other part keeps its compressed bytes.
 import {
   find, findAll, kid, kidsNamed, matchesOf, paragraphs, pick, refuse, registerEditor, registerLister, slice, textSplices, W, without,
-  applySplices, escText, mainPart, type EditNote, type Para, type Pkg, type Splice, type XNode, xmlTree,
+  applySplices, attrOf, escText, mainPart, type EditNote, type Para, type Pkg, type Splice, type XNode, xmlTree,
 } from './office-edit'
 
 export type DocxChange =
@@ -51,8 +51,9 @@ function looks(xml: string, p: XNode): { pPr: string; rPr: string } {
   const rPr = run ? kid(run, 'w:rPr') : null
   return { pPr: pPr ? without(xml, pPr, PPR_DROP) : '', rPr: rPr ? without(xml, rPr, RPR_DROP) : '' }
 }
-function paragraphXml(l: { pPr: string; rPr: string }, text: string): string {
-  return `<w:p>${l.pPr}${text ? `<w:r>${l.rPr}${wText('', text)}</w:r>` : ''}</w:p>`
+/** a new paragraph; `pre` and `post` (kept bookmarks) go right after its properties and before its end */
+function paragraphXml(l: { pPr: string; rPr: string }, text: string, pre = '', post = ''): string {
+  return `<w:p>${l.pPr}${pre}${text ? `<w:r>${l.rPr}${wText('', text)}</w:r>` : ''}${post}</w:p>`
 }
 
 /** The top-level tables of the body in reading order (one inside another is part of that one). */
@@ -77,12 +78,8 @@ function cellXml(xml: string, tc: XNode, value: string, where: string): string {
   const marks = findAll(tc, 'w:bookmarkStart').map((n) => slice(xml, n))
   const ends = findAll(tc, 'w:bookmarkEnd').map((n) => slice(xml, n))
   const lines = value.split(/\r?\n/)
-  const paras = lines.map((line, i) => {
-    const p = paragraphXml(look, line)
-    if (i === 0 && marks.length) return p.replace(/^(<w:p>(?:<w:pPr\b[\s\S]*?<\/w:pPr>|<w:pPr\b[^>]*\/>)?)/, `$1${marks.join('')}`)
-    return p
-  })
-  if (ends.length) paras[paras.length - 1] = paras[paras.length - 1]!.replace(/<\/w:p>$/, `${ends.join('')}</w:p>`)
+  // built, never spliced in with a replace pattern ("$1" or "$&" in a bookmark's name stays as it is)
+  const paras = lines.map((line, i) => paragraphXml(look, line, i === 0 ? marks.join('') : '', i === lines.length - 1 ? ends.join('') : ''))
   return `<w:tc${tc.head}>${tcPr ? slice(xml, tcPr) : ''}${paras.join('')}</w:tc>`
 }
 /** the open tag of an element without Word's ids for it (a copy must not repeat them) */
@@ -142,6 +139,9 @@ export function editDocx(pkg: Pkg, changes: unknown[]): { notes: EditNote[] } {
       if (/<w:sectPr[\s>/]/.test(s)) refuse(`change ${i + 1}: that paragraph ends a section of the document (page size, margins, columns); delete its text with find and replace instead`)
       if (COMMENTED.test(s)) refuse(`change ${i + 1}: that paragraph has a comment on it; delete the comment in Word first, or change its text with find and replace`)
       if (p.node.parent?.name === 'w:tc' && kidsNamed(p.node.parent, 'w:p').length === 1) refuse(`change ${i + 1}: that is the only paragraph of a table cell; set the cell's text with table_cell instead`)
+      // a field that starts here and ends in another paragraph (or the other way) would lose its other half
+      const fields = findAll(p.node, 'w:fldChar').reduce((n, f) => n + (attrOf(f.head, 'w:fldCharType') === 'begin' ? 1 : attrOf(f.head, 'w:fldCharType') === 'end' ? -1 : 0), 0)
+      if (fields !== 0) refuse(`change ${i + 1}: a field (a table of contents, a cross-reference) starts or ends in that paragraph and goes on outside it; change its text with find and replace instead`)
       const starts = findAll(p.node, 'w:bookmarkStart').length, ends = findAll(p.node, 'w:bookmarkEnd').length
       if (starts !== ends) refuse(`change ${i + 1}: a bookmark starts or ends in that paragraph and goes on outside it; change its text with find and replace instead`)
       splices.get(main)!.push({ from: p.node.start, to: p.node.end, text: '', change: i })
@@ -209,7 +209,9 @@ export function editDocx(pkg: Pkg, changes: unknown[]): { notes: EditNote[] } {
     splices.get(para.part)!.push(...textSplices(pxml, para, edits, (piece, text) => wText(piece.node.head, text)))
     let after = para.text
     for (const e of [...edits].sort((a, b) => b.at - a.at)) after = after.slice(0, e.at) + e.text + after.slice(e.at + e.len)
-    for (const e of edits) notes.push({ change: e.change, where: `paragraph${label(para)}`, before: para.text, after: [after] })
+    // one paragraph, one before and after (the read-back counts them); the other changes in it point at the first
+    const w = `paragraph${label(para)}`
+    edits.forEach((e, k) => notes.push(k === 0 ? { change: e.change, where: w, before: para.text, after: [after] } : { change: e.change, where: `${w}, the same paragraph as change ${edits[0]!.change + 1}` }))
   }
   for (const [part, list] of splices) if (list.length) pkg.set(part, applySplices(xmls.get(part)!, list, part))
   notes.sort((a, b) => a.change - b.change)

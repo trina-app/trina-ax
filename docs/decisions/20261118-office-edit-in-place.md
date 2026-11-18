@@ -13,7 +13,7 @@
   numbering), set a table cell, add or delete table rows. Excel: set a cell (keeps its style; text as an inline string,
   so the shared strings part is not rewritten), append rows after the last row (styled like the last row; a table that
   ends there grows). PowerPoint: find/replace, set a shape's text, duplicate a slide, add a slide from a layout, replace
-  a picture (fitted into its frame). Changes name things as the AI read them, never the result of another change in
+  a picture (re-encoded by the image helper, fitted into its frame). Changes name things as the AI read them, never the result of another change in
   the same call. Saved like edit_hwp and comment_docx: read first, a new version (old bytes in the history) or a
   conflict copy, `output` for a new file with make_file's wider-audience check (a replacement picture is a source
   too), never under `skills/`.
@@ -45,6 +45,17 @@
   (a linked picture would be fetched again), as well as charts, objects and media. Fields and links already in the
   person's own file stay as they are: it is their file, changed in place, as `copy_files` would keep them. Templates
   for make_file are checked separately (docs/decisions/20261118-any-file-template.md).
+- **Security review (after the first push):** a replacement picture must be a .png/.jpg/.jpeg/.webp the person can
+  read and is decoded and written again by the isolated image helper (`mycel-safeops resize`, same size, details
+  removed), so a file that only starts like a picture is refused; each picture is read once per call and the pictures
+  of one call are at most 40 MB together. Stored formula results are cleared only when a cell reads differently, and
+  never for formulas that cannot be calculated again on open (another workbook, CUBE*, RTD, add-in and web functions).
+  Relationship ids are read as XML (either quoting) so a new one never repeats one, and the read-back checks every
+  changed relationships part has unique ids. The read-back counts paragraphs (a multiset), not a set. The AI's text is
+  cleaned of characters XML cannot hold before anything is matched or reported. Deleting a paragraph where a field
+  starts or ends without the other half is refused; two zip entries with one name are refused. make_file's
+  description no longer names edit_office (guests and chats shared with people do not have it; edit_office's own
+  description says when to use make_file).
 - **Left for later:** tracked changes made by the AI, inserting sheet rows in the middle, pictures in Word, deleting or
   moving slides, older formats (.doc/.xls/.ppt, audit #9), shared chats with people (comment_docx is not there either,
   audit #22), guests.

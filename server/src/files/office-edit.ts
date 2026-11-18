@@ -106,6 +106,13 @@ export function attrOf(head: string, name: string): string | undefined {
   const m = new RegExp(`(?:^|\\s)${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*("([^"]*)"|'([^']*)')`).exec(head)
   return m ? unescapeXml(m[2] ?? m[3] ?? '') : undefined
 }
+/** The value of a prefixed `…:id` attribute (r:id, the relationship an element points at), either quoting, or ''. */
+export function relId(head: string): string {
+  const m = /(?:^|\s)[A-Za-z_][\w.-]*:id\s*=\s*("([^"]*)"|'([^']*)')/.exec(head)
+  return m ? unescapeXml(m[2] ?? m[3] ?? '') : ''
+}
+/** The prefix of that attribute ("r"), for a new element written next to the others. */
+export const relIdPrefix = (head: string) => /(?:^|\s)([A-Za-z_][\w.-]*):id\s*=/.exec(head)?.[1] ?? 'r'
 /** The start tag's attribute text with one attribute set (added at the end when it is not there) or removed (null). */
 export function withAttr(head: string, name: string, value: string | null): string {
   const re = new RegExp(`\\s${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*("[^"]*"|'[^']*')`)
@@ -265,7 +272,9 @@ export function readRels(pkg: Pkg, part: string): { xml: string; tree: XNode; re
 export function addRel(pkg: Pkg, part: string, typeUri: string, target: string): string {
   const name = relsPartOf(part)
   const xml = pkg.text(name) ?? '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>'
-  const taken = new Set([...xml.matchAll(/\sId="([^"]*)"/g)].map((m) => m[1]))
+  // every Id as XML has it (either quoting, spaces around =), so a new one never repeats one (security review)
+  const root = kid(xmlTree(xml, name), 'Relationships')
+  const taken = new Set((root ? kidsNamed(root, 'Relationship') : []).map((r) => attrOf(r.head, 'Id') ?? ''))
   let n = taken.size + 1
   while (taken.has(`rId${n}`)) n++
   const id = `rId${n}`
@@ -543,6 +552,7 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
     if (!/\.(xml|rels)$/i.test(name)) continue
     assertWellFormed(neu.need(name), name)
   }
+  assertUniqueRelIds(neu, [...r.changed, ...r.added])
   if (r.kind === 'xlsx') {
     const before = cellsOf(oldBytes), after = cellsOf(newBytes)
     const written = new Map((r.cells ?? []).map((w) => [`${w.sheet}!${w.ref}`, w]))
@@ -562,17 +572,39 @@ export function verifyOfficeEdit(r: VerifyRequest, oldBytes: Uint8Array, newByte
   const a = lister(new Pkg(oldBytes, r.kind)), b = lister(neu)
   const diff = listDiff(a, b)
   if (!diff) refuse('the changed file did not read back as asked (too many paragraphs differ)')
-  const before = new Set(r.notes.flatMap((n) => (n.before !== undefined ? [n.before] : [])))
-  const after = new Set(r.notes.flatMap((n) => n.after ?? []))
-  for (const i of diff!.removed) if (!before.has(a[i]!)) refuse(`the changed file did not read back as asked (the paragraph ${JSON.stringify(a[i]!.slice(0, 80))} changed, but no change named it)`)
-  for (const i of diff!.added) if (!after.has(b[i]!)) refuse(`the changed file did not read back as asked (the paragraph ${JSON.stringify(b[i]!.slice(0, 80))} is new, but no change made it)`)
-  const have = new Set(b)
-  for (const t of after) if (!have.has(t)) refuse(`the changed file did not read back as asked (${JSON.stringify(t.slice(0, 80))} is not in it)`)
+  // counted, not as sets: two paragraphs with the same text are two paragraphs (security review)
+  const count = (xs: string[]) => { const m = new Map<string, number>(); for (const x of xs) m.set(x, (m.get(x) ?? 0) + 1); return m }
+  const before = count(r.notes.flatMap((n) => (n.before !== undefined ? [n.before] : [])))
+  const after = count(r.notes.flatMap((n) => n.after ?? []))
+  const take = (m: Map<string, number>, t: string) => { const n = m.get(t) ?? 0; if (n > 0) m.set(t, n - 1); return n > 0 }
+  for (const i of diff!.removed) if (!take(before, a[i]!)) refuse(`the changed file did not read back as asked (the paragraph ${JSON.stringify(a[i]!.slice(0, 80))} changed, but no change named it)`)
+  const want = new Map(after)
+  for (const i of diff!.added) if (!take(after, b[i]!)) refuse(`the changed file did not read back as asked (the paragraph ${JSON.stringify(b[i]!.slice(0, 80))} is new, but no change made it)`)
+  const have = count(b)
+  for (const [t, n] of want) if (t !== '' && (have.get(t) ?? 0) < n) refuse(`the changed file did not read back as asked (${JSON.stringify(t.slice(0, 80))} is not in it)`)
+}
+
+/** Every changed or added relationships part has each Id once (a repeated one makes Office repair or misread the file). */
+function assertUniqueRelIds(pkg: Pkg, names: string[]): void {
+  for (const name of names) {
+    if (!/\.rels$/i.test(name)) continue
+    const root = kid(xmlTree(pkg.need(name), name), 'Relationships')
+    const ids = (root ? kidsNamed(root, 'Relationship') : []).map((r) => attrOf(r.head, 'Id') ?? '')
+    if (new Set(ids).size !== ids.length) refuse(`the changed file did not pass the checks (${name} has a relationship id twice)`)
+  }
 }
 
 // ---------------------------------------------------------------- the worker's modes
 
 export interface EditRequest { kind: OfficeKind; changes: unknown[] }
+/** every string of the changes through xmlSafe (tabs and line breaks stay) */
+function cleanStrings(v: unknown, depth = 0): unknown {
+  if (depth > 8) return v
+  if (typeof v === 'string') return xmlSafe(v)
+  if (Array.isArray(v)) return v.map((x) => cleanStrings(x, depth + 1))
+  if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cleanStrings(x, depth + 1)]))
+  return v
+}
 type Editor = (pkg: Pkg, changes: unknown[], images: Uint8Array[]) => Omit<EditReport, 'changed' | 'added' | 'removed'>
 const editors: Partial<Record<OfficeKind, Editor>> = {}
 export function registerEditor(kind: OfficeKind, f: Editor) { editors[kind] = f }
@@ -585,7 +617,9 @@ export function officeEditRequest(input: Uint8Array): Uint8Array {
   if (!editor || !Array.isArray(changes) || !req.blobs.length) return refuse('the request could not be read')
   if (changes.length > OFFICE_EDIT_LIMITS.changes) refuse(`give at most ${OFFICE_EDIT_LIMITS.changes} changes in one call`)
   const pkg = new Pkg(req.blobs[0]!, kind)
-  const report = editor(pkg, changes, req.blobs.slice(1))
+  // the AI's text without the characters XML cannot hold, before anything is matched or reported: the report and the
+  // read-back then compare the text that is really written (security review)
+  const report = editor(pkg, cleanStrings(changes) as unknown[], req.blobs.slice(1))
   const w = pkg.write()
   const full: EditReport = { ...report, changed: w.changed, added: w.added, removed: w.removed }
   return frame(full as unknown as Record<string, unknown>, [w.file])

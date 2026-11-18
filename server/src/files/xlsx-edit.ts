@@ -12,7 +12,7 @@
 // does when it rebuilds the chain. The sheets' XML outside the edited rows, every other sheet, styles, charts, pivot
 // tables, named ranges and every other part are kept byte for byte.
 import {
-  applySplices, attrOf, escAttr, escText, find, kid, kidsNamed, mainPart, readRels, refuse, registerEditor, relsPartOf,
+  applySplices, attrOf, escAttr, escText, find, kid, kidsNamed, mainPart, readRels, refuse, registerEditor, relId, relsPartOf,
   slice, withAttr, xmlTree, type CellWrite, type EditNote, type Pkg, type Splice, type XNode,
 } from './office-edit'
 import { unescapeXml } from './ooxml'
@@ -23,6 +23,9 @@ export type XlsxChange =
   | { append_rows: { sheet?: string; rows: XlsxValue[][] } }
 
 const MAX_ROW = 1_048_576, MAX_COL = 16_384
+/** formulas whose stored result is kept: they cannot be calculated again when the file opens (another workbook,
+ * an OLAP cube, a real-time server, an add-in, the web) */
+export const KEEP_RESULT = /\[\d+\]|(?:^|[^A-Za-z0-9_.])(?:_xlfn\.)?(?:CUBE[A-Z]*|RTD|WEBSERVICE|FILTERXML|STOCKHISTORY|IMAGE|INFO|CALL|REGISTER(?:\.ID)?|EUROCONVERT|SQL\.REQUEST|DDE)\s*\(|_xll\.|_xlws\.|\|/i
 export const colName = (n: number): string => (n > 26 ? colName(Math.floor((n - 1) / 26)) : '') + String.fromCharCode(65 + ((n - 1) % 26))
 export function parseRef(ref: string): { col: number; row: number } | null {
   const m = /^\$?([A-Za-z]{1,3})\$?(\d{1,7})$/.exec(ref.trim())
@@ -78,7 +81,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
   const wbRels = readRels(pkg, wbPart) ?? refuse('this file cannot be changed (the workbook has no relationships)')
   const sheetsEl = find(wbTree, 'sheets') ?? refuse('this file is not an Excel workbook (no sheets)')
   const list = kidsNamed(sheetsEl, 'sheet').map((n) => {
-    const rid = /\s(\w+):id="([^"]*)"/.exec(n.head)?.[2] ?? ''
+    const rid = relId(n.head)
     const rel = wbRels.rels.find((r) => r.id === rid)
     return { name: attrOf(n.head, 'name') ?? '', rel }
   })
@@ -126,6 +129,8 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
   const notes: EditNote[] = []
   const cells: CellWrite[] = []
   let formulaTouched = false
+  /** a cell now reads differently: formulas that use it must be calculated again */
+  let valuesChanged = false
 
   /** what stops a write to one cell (merged areas, array and shared formulas, a table's header, pictures in cells) */
   const blockers = new Map<Sheet, { merges: ReturnType<typeof parseRange>[]; arrays: ReturnType<typeof parseRange>[]; sharedMasters: Map<string, string>; headers: ReturnType<typeof parseRange>[]; tables: { part: string; xml: string; node: XNode; ref: ReturnType<typeof parseRange> }[] }>()
@@ -177,7 +182,9 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
     if (row1.has(col)) refuse(`changes ${row1.get(col).change + 1} and ${i + 1} both write ${s.name}!${ref}`)
     row1.set(col, { xml: out.xml, change: i })
     cells.push({ sheet: s.name, ref, ...out.write })
-    return { ref, before: shown(s.xml, existing, shared) }
+    const before = shown(s.xml, existing, shared)
+    if (before !== (out.write.formula !== undefined ? `=${out.write.formula}` : v === null ? '' : String(out.write.value))) valuesChanged = true
+    return { ref, before }
   }
   const cellAt = (s: Sheet, col: number, row: number) => {
     const r = s.rows.get(row)
@@ -232,7 +239,7 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
           const v = value(i, v0)
           const out = cellXml(`${colName(col)}${row}`, style, v)
           if (out.write.formula !== undefined) formulaTouched = true
-          if (v !== null && v !== '') cells.push({ sheet: s.name, ref: `${colName(col)}${row}`, ...out.write })
+          if (v !== null && v !== '') { cells.push({ sheet: s.name, ref: `${colName(col)}${row}`, ...out.write }); valuesChanged = true }
           parts.push(out.xml)
           c2 = Math.max(c2, col)
         })
@@ -318,8 +325,10 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
   // stored results of formulas would be the old ones (LibreOffice does not calculate a file from Excel again on open,
   // and previews show the stored results): every formula cell of the workbook's sheets loses its stored result, so the
   // app calculates it when it opens the file. The formulas themselves are not touched.
+  // Only when a cell reads differently, and never for a formula whose result cannot be calculated again on open (a
+  // link to another workbook, CUBE*, RTD, add-in and web functions): its stored result is the only value there is.
   let cleared = 0
-  for (const sh of list) {
+  for (const sh of valuesChanged ? list : []) {
     if (!sh.rel || sh.rel.type !== 'worksheet' || sh.rel.external) continue
     const x = pkg.text(sh.rel.target)
     if (x === null || !x.includes('<f')) continue
@@ -327,9 +336,18 @@ export function editXlsx(pkg: Pkg, changes: unknown[]): { notes: EditNote[]; cel
     const data = kid(kid(t, 'worksheet') ?? t, 'sheetData')
     if (!data) continue
     const cuts: Splice[] = []
+    // a shared formula's text is on its first cell only; the others name it by `si`
+    const sharedText = new Map<string, string>()
+    for (const r of kidsNamed(data, 'row')) for (const c of kidsNamed(r, 'c')) {
+      const f = kid(c, 'f')
+      if (f && !f.self && attrOf(f.head, 't') === 'shared') sharedText.set(attrOf(f.head, 'si') ?? '', x.slice(f.openEnd, f.closeStart))
+    }
     for (const r of kidsNamed(data, 'row')) for (const c of kidsNamed(r, 'c')) {
       const v = kid(c, 'v')
-      if (!kid(c, 'f') || !v) continue
+      const f = kid(c, 'f')
+      if (!f || !v) continue
+      const text = f.self || f.openEnd === f.closeStart ? sharedText.get(attrOf(f.head, 'si') ?? '') ?? '' : x.slice(f.openEnd, f.closeStart)
+      if (KEEP_RESULT.test(unescapeXml(text))) continue
       // the result's type goes with it (t="str", "b", "e"); the cell's style stays
       cuts.push({ from: c.start, to: c.openEnd, text: `<c${c.head.replace(/\st="[^"]*"/, '')}>`, change: 0 })
       cuts.push({ from: v.start, to: v.end, text: '', change: 0 })

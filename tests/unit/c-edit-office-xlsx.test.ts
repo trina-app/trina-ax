@@ -150,6 +150,20 @@ describe('edit_office: Excel workbooks', () => {
     expect(run(before, [{ cell: { sheet: 'budget', ref: 'A7', value: 'Approved' } }]).report.cells).toEqual([{ sheet: 'Budget', ref: 'A7', value: 'Approved' }])
   })
 
+  test('stored results: kept for formulas that cannot be calculated again (CUBE, another workbook, RTD); none cleared when no cell reads differently', async () => {
+    const before = writeZip(readZip(await budget()).map((e) => (e.name === 'xl/worksheets/sheet1.xml' ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace('</sheetData>', '<row r="20"><c r="A20" t="str"><f>CUBEVALUE("Sales","[Measures].[Total]")</f><v>99</v></c><c r="B20"><f>[1]Rates!A1</f><v>1.5</v></c><c r="C20" t="str"><f>RTD("x",,"y")</f><v>live</v></c><c r="D20"><f>B2*2</f><v>2400</v></c></row></sheetData>')) } : e)))
+    const { file } = run(before, [{ cell: { sheet: 'Budget', ref: 'B3', value: 350 } }])
+    const x = part(file, 'xl/worksheets/sheet1.xml')!
+    expect(x).toContain('<v>99</v>')
+    expect(x).toContain('<v>1.5</v>')
+    expect(x).toContain('<v>live</v>')
+    expect(x).toMatch(/<c r="D20"><f>B2\*2<\/f><\/c>/)
+    // the same value again: nothing reads differently, every stored result stays
+    const same = run(before, [{ cell: { sheet: 'Budget', ref: 'B3', value: 300 } }])
+    expect(part(same.file, 'xl/worksheets/sheet1.xml')).toContain('<v>2400</v>')
+    expect(same.report.recalc).toBe(false)
+  })
+
   test('the verifier catches a cell changed that no change named', async () => {
     const before = await budget()
     const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'xlsx', changes: [{ cell: { sheet: 'Budget', ref: 'B3', value: 350 } }] }, [before])))

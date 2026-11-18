@@ -134,6 +134,15 @@ describe('edit_office: PowerPoint decks', () => {
     if (soffice) inOffice(file)
   })
 
+  withPandoc('relationship ids with single quotes are read: a new picture gets an id the slide does not use yet; the verifier checks ids are unique', () => {
+    const before = deck()
+    const quoted = writeZip(readZip(before).map((e) => (/^ppt\/slides\/_rels\//.test(e.name) ? { name: e.name, data: new TextEncoder().encode(new TextDecoder().decode(e.data).replace(/Id="(rId\d+)"/g, "Id = '$1'")) } : e)))
+    const { file, report } = run(quoted, [{ replace_picture: { slide: 3, picture: 1, image: 0 } }], [png(4, 4)])
+    const rels = part(file, report.changed.find((n) => n.endsWith('.rels'))!)!
+    const ids = [...rels.matchAll(/Id\s*=\s*["']([^"']+)["']/g)].map((m) => m[1])
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   test('image sizes from their headers', () => {
     expect(imageInfo(png(7, 3))).toEqual({ ext: 'png', type: 'image/png', w: 7, h: 3 })
     expect(imageInfo(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 5, 0, 9, 0, 0, 0]))).toMatchObject({ ext: 'gif', w: 5, h: 9 })

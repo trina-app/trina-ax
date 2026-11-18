@@ -29,7 +29,8 @@ import { ToolError } from '../policy/errors'
 import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
-import { makeWorkDir } from './isolate'
+import { imageSlot } from '../files/vision'
+import { makeWorkDir, runIsolated } from './isolate'
 import { cellValue, confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
 
@@ -56,7 +57,7 @@ export const EditOfficeInput = z.strictObject({
     z.strictObject({ shape_text: z.strictObject({ slide: z.number().int().min(1), shape: z.union([text(200).min(1), z.number().int().min(1)]).describe('"title", "subtitle", "body", the shape\'s name, or its number among the slide\'s text shapes'), text: text(20_000).describe('One paragraph per line') }).describe('PowerPoint: set the whole text of one shape') }),
     z.strictObject({ duplicate_slide: z.strictObject({ slide: z.number().int().min(1), after: z.number().int().min(0).optional().describe('Put the copy after this slide (0 = first; default: right after the slide)') }) }),
     z.strictObject({ add_slide: z.strictObject({ layout: text(200).min(1).describe('A layout name of the deck, e.g. "Title and Content"'), after: z.number().int().min(0).optional().describe('Default: at the end'), title: text(5000).optional(), body: text(20_000).optional().describe('One paragraph per line') }) }),
-    z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or GIF in the team folder') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
+    z.strictObject({ replace_picture: z.strictObject({ slide: z.number().int().min(1), picture: z.union([text(200).min(1), z.number().int().min(1)]).describe('The picture\'s name or its number on the slide'), image: z.string().min(1).max(1000).describe('A PNG, JPEG or WebP picture in the team folder') }).describe('PowerPoint: the picture shows a new image, fitted into its frame') }),
   ])).min(1).max(OFFICE_EDIT_LIMITS.changes).describe('Applied together, each to the file as you read it (slide, table and row numbers as read; never the result of another change in the same call)'),
   output: z.string().min(1).max(1000).optional().describe('Save as a new file (same format) instead of a new version of file_path'),
 })
@@ -75,6 +76,30 @@ export const EDIT_OFFICE_DESCRIPTION =
   'Without `output` the result is a new version of the same file (the previous one stays in its history).'
 
 const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pptx' }
+/** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
+const PICTURE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp'])
+export const PICTURES_TOTAL_MAX = 40 * 1024 * 1024
+
+/**
+ * A replacement picture decoded and written again by the isolated image helper (`mycel-safeops resize`, as
+ * resize_images uses it: same size, details removed, upright; PNG and WebP become PNG, JPEG stays JPEG), so the deck
+ * gets only pixels the helper made, never bytes that only start like a picture (security review of #1291).
+ */
+async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, i: number, signal?: AbortSignal): Promise<Buffer> {
+  const helper = ctx.files.visionTools().normalizer
+  if (!helper) throw new ToolError(`change ${i + 1}: pictures cannot be replaced on this server right now (its image helper is missing); nothing was saved`)
+  const jpeg = /^jpe?g$/.test(ext(rel))
+  // details none (2) + format (1 JPEG, 2 PNG) * 4 + upright (16); the longest side 65535 never makes it smaller
+  const r = await imageSlot(() => runIsolated({
+    cmd: helper, args: ['resize', '65535', '0', '0', '0', String(2 + 4 * (jpeg ? 1 : 2) + 16)], stdin: bytes,
+    timeoutMs: 60_000, maxRssMiB: 1536, maxStdout: 48 * 1024 * 1024, signal, env: { GOMAXPROCS: '2', GOMEMLIMIT: '800MiB' },
+  }), signal)
+  if (r.killed === 'aborted') signal?.throwIfAborted()
+  const out = r.stdout
+  const ok = jpeg ? out.length > 3 && out[0] === 0xff && out[1] === 0xd8 && out[2] === 0xff : out.length > 8 && out.readUInt32BE(0) === 0x89504e47
+  if (r.killed || r.code !== 0 || !ok) throw new ToolError(`change ${i + 1}: '${rel}' could not be read as a picture (${r.killed ? 'too large or too slow to read' : (r.stderr.trim().split('\n')[0] ?? '').replace(/^resize: /, '') || 'damaged'}); nothing was saved`)
+  return out
+}
 /** where an `output` saves: the source's format ("x" and "x/" save x.docx for a .docx) */
 export const editOfficeOutput = (o: string, src: string) => { const x = ext(src); return ext(o) === x ? o : `${o.replace(/\/+$/, '')}.${x}` }
 
@@ -92,6 +117,9 @@ export function officePartsMismatch(kind: OfficeKind, a: Uint8Array, b: Uint8Arr
   try { ea = readCentral(a); eb = readCentral(b) } catch (e) { return e instanceof ZipProblem ? `the zip: ${e.why}` : 'the zip' }
   const name = (e: (typeof ea)[number]) => new TextDecoder().decode(e.nameBytes)
   const A = new Map(ea.map((e) => [name(e), e])), B = new Map(eb.map((e) => [name(e), e]))
+  // two entries with one name: readers disagree about which one is the part
+  if (A.size !== ea.length) return 'the original has two parts with one name'
+  if (B.size !== eb.length) return 'the result has two parts with one name'
   const may = MAY[kind]
   for (const n of r.changed) if (!may.changed.test(n) || !A.has(n) || !B.has(n)) return `a part that is not changed here: ${n}`
   for (const n of r.added) if (!may.added?.test(n) || A.has(n) || !B.has(n)) return `a part that is not added here: ${n}`
@@ -142,7 +170,11 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   // the changes as the worker gets them: Excel values read as make_file reads them, pictures as their bytes
   const images: Buffer[] = []
   const imagePaths: string[] = []
-  const changes = a.changes.map((ch, i) => {
+  /** each picture read once, however many changes name it; all of them together bounded */
+  const imageIndex = new Map<string, number>()
+  let imageBytes = 0
+  const changes: unknown[] = []
+  for (const [i, ch] of a.changes.entries()) changes.push(await (async () => {
     const x = ch as Record<string, any>
     if (kind !== 'xlsx' && (x.cell || x.append_rows)) throw new ToolError(`change ${i + 1}: cell and append_rows are for Excel workbooks`)
     if (kind !== 'docx' && (x.insert_paragraph || x.delete_paragraph || x.table_cell || x.add_rows || x.delete_rows)) throw new ToolError(`change ${i + 1}: ${Object.keys(x)[0]} is for Word documents`)
@@ -153,13 +185,21 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
     if (x.replace_picture) {
       const img = authorize(fx, files.rules(), c.user, x.replace_picture.image, 'read')
       if (img.st!.isDirectory()) throw new ToolError(`'${img.rel}' is a folder`, 'is_folder')
-      if (checkRegular(img.abs).size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the image is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
-      images.push(readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes)
+      const known = imageIndex.get(img.rel)
+      if (known !== undefined) return { replace_picture: { ...x.replace_picture, image: known } }
+      if (!PICTURE_EXT.has(ext(img.rel))) throw new ToolError(`change ${i + 1}: '${img.rel}' is not a PNG, JPEG or WebP picture; give one of those`)
+      const size = checkRegular(img.abs).size
+      if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
+      if ((imageBytes += size) > PICTURES_TOTAL_MAX) throw new ToolError(`change ${i + 1}: the new pictures together are larger than ${PICTURES_TOTAL_MAX / 1024 / 1024} MB; replace fewer pictures in one call`)
+      const raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
+      ctx.files.quarantine.assertBytes(raw)
+      images.push(await reencodePicture(ctx, raw, img.rel, i, c.signal))
       imagePaths.push(img.rel)
+      imageIndex.set(img.rel, images.length - 1)
       return { replace_picture: { ...x.replace_picture, image: images.length - 1 } }
     }
     return x
-  })
+  })())
   // what the chat read, the document (for a new file) and a new picture may go where more people see them: asked before
   // the worker runs, in place too, as comment_docx does
   await confirmSources(ctx, files, c, out.rel, out.segs, [...(inPlace ? [] : [src.rel]), ...imagePaths])

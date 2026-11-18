@@ -186,6 +186,28 @@ describe('edit_office: Word documents', () => {
     expect(doc).toContain('&lt;w:instrText&gt;DDE&lt;/w:instrText&gt;')
   })
 
+  withPandoc('control characters in the AI\'s text are left out before it is matched and reported (no false refusal)', () => {
+    const { file, report } = run(docx(CONTRACT), [{ find: 'Supply', replace: 'Ser\u0001vice\u000b' }])
+    expect(texts(file)).toContain('Service Contract')
+    expect(report.notes[0]!.after).toEqual(['Service Contract'])
+  })
+
+  withPandoc('a bookmark named with $ patterns stays as it is; deleting a paragraph where a field starts but does not end is refused', () => {
+    const b = withPart(docx(CONTRACT), 'word/document.xml', (x) => x.replace('<w:t xml:space="preserve">5,000</w:t>', () => '<w:t xml:space="preserve">5,000</w:t></w:r><w:bookmarkStart w:id="7" w:name="price$1$&amp;"/><w:bookmarkEnd w:id="7"/><w:r><w:t></w:t>'))
+    const { file } = run(b, [{ table_cell: { table: 1, row: 2, column: 3, value: '6,000' } }])
+    expect(part(file, 'word/document.xml')).toContain('w:name="price$1$&amp;"')
+    const open = withPart(docx(CONTRACT), 'word/document.xml', (x) => x.replace('Paid on the 25th', 'Paid on the 25th</w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText>TOC</w:instrText></w:r><w:r><w:t xml:space="preserve">'))
+    expect(() => run(open, [{ delete_paragraph: { text: 'Article 3' } }])).toThrow(/a field .* starts or ends in that paragraph/)
+  })
+
+  withPandoc('the verifier counts: one note for a paragraph does not cover a second paragraph with the same text', () => {
+    const b = docx('# T\n\nsame\n\nsame\n\nother\n')
+    const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ delete_paragraph: { text: 'same', occurrence: 1 } }] }, [b])))
+    const both = withPart(out.blobs[0]!, 'word/document.xml', (x) => x.replace(/<w:p>(?:(?!<w:p>)[\s\S])*?>same<\/w:t>(?:(?!<w:p>)[\s\S])*?<\/w:p>/, ''))
+    expect(texts(both)).not.toContain('same')
+    expect(() => officeVerifyRequest(frame({ kind: 'docx', changed: out.json.changed, added: [], notes: out.json.notes }, [b, both]))).toThrow(/changed, but no change named it/)
+  })
+
   withPandoc('the verifier catches a paragraph changed that no change named', () => {
     const before = docx(CONTRACT)
     const out = unframe<EditReport>(officeEditRequest(frame({ kind: 'docx', changes: [{ find: 'Supply', replace: 'Service' }] }, [before])))
