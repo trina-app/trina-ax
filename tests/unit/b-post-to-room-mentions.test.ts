@@ -145,17 +145,26 @@ describe('the AI\'s post mentions people of the room for real', () => {
     expect(admin.mentionsAll).toBe(true)
   })
 
-  test('"Always allow" on: a post with no mention goes with no card; one that mentions someone the asker did not name shows the card (no "Always allow" on it)', async () => {
-    keepAlways(h.ctx.db, 'bob', 'post_to_room', null)
+  test('"Always allow" on (Rule A): a post that mentions a room member goes with no card, also one the AI resolved; "@everyone" still shows the card', async () => {
+    keepAlways(h.ctx.db, 'alice', 'post_to_room', null)
     try {
-      const quiet = await turn('bob', post({ room: rooms.all, text: 'no one tagged here' }))
-      expect(quiet.card).toBeNull()
-      expect(JSON.parse(quiet.content).status).toBe('sent')
-      const tagged = await turn('bob', post({ room: rooms.all, text: 'please look', mention: ['Erin Yoo'] }), 'send')
-      expect(tagged.card).not.toBeNull()
-      expect((tagged.card as unknown as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['send', 'no'])
-      expect((await last('erin', rooms.all)).mentions).toEqual(['erin'])
-    } finally { expect(dropAlways(h.ctx.db, 'bob', 'card:post_to_room')).toBe(true) }
+      const tagged = await turn('alice', post({ room: rooms.marketing, text: 'please look', mention: ['Erin'] }))
+      expect(tagged.card).toBeNull()
+      expect(JSON.parse(tagged.content)).toMatchObject({ status: 'sent', mentioned: ['Erin Yoo'] })
+      expect((await last('erin', rooms.marketing)).mentions).toEqual(['erin'])
+      // everyone: the asker wrote it, and the card still asks (no "Always allow" button on it)
+      const all = await turn('alice', `@everyone heads up\n${post({ room: rooms.marketing, text: 'Launch moved', mention: ['everyone'] })}`, 'send')
+      expect((all.card as unknown as { options: { value: string }[] }).options.map((o) => o.value)).toEqual(['send', 'no'])
+      expect((await last('erin', rooms.marketing)).mentionsAll).toBe(true)
+    } finally { expect(dropAlways(h.ctx.db, 'alice', 'card:post_to_room')).toBe(true) }
+  })
+
+  test('the asker\'s own words name the person (in full, or by the name the AI found exactly one member by): no card after the explicit ask; a name inside another member\'s name they wrote: the card', async () => {
+    const named = await turn('alice', `post this to the Marketing room and tag Erin\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`)
+    expect(named.card).toBeNull()
+    expect(JSON.parse(named.content)).toMatchObject({ status: 'sent', mentioned: ['Erin Yoo'] })
+    const other = await turn('alice', `post this to the Marketing room\n${post({ room: 'Marketing', text: 'budget is approved', mention: ['Erin'] })}`, 'no')
+    expect(other.card).not.toBeNull()
   })
 
   test('the button\'s share of a finished answer still mentions nobody', async () => {

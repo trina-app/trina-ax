@@ -32,11 +32,16 @@
     `mentioned` (names; in a shared chat only how many) and `mentioned_everyone`, read from the stored message. The tool
     description and one prompt sentence tell the model to use `mention` and to say someone was tagged only when
     `mentioned` lists them.
-  - The explicit-ask skip (no card when the asker's message asked for exactly this post) and "Always allow" apply to a
-    post with mentions only when the asker's own words name each person in full (display name or username as whole
-    words; a Hangul name followed only by a particle), and never with "@everyone". Otherwise the card shows, without
-    the "Always allow" button: who gets a notice is the person's to see, and the names may come from text someone else
-    wrote that the AI summarised. A post with no mention behaves as before.
+  - "Always allow" for post_to_room covers posts that mention room members, also ones the AI resolved from a nickname
+    the asker used (Rule A, [Always allow means done](20261116-always-allow-final-rule-a.md); the owner's case: "이거
+    라카에게 전달해줘 LG톡방에" with Always allow on goes with no card). A wrong member mention is a notice to someone
+    already in that room. "@everyone" (and "@channel"/"@here") always shows the card, without the "Always allow" button,
+    and needs the asker's own "@everyone" and, in the room for everyone, an owner or admin. A non-member is never
+    mentioned.
+  - The explicit-ask skip (no card when the asker's message asked for exactly this post) applies with mentions when the
+    asker's own words name each person: in full (display name or username as whole words; a Hangul name followed only
+    by a particle), or by the word the AI resolved to exactly that one member (a nickname is fine), unless that word is
+    part of another member's name the asker also wrote ("tell Erin Yoo" is no ask to tag Erin). Never with "@everyone".
   - In a shared chat (everyone there reads the AI's results) the result gives only how many people were mentioned, and a
     name that matches nobody or several people is refused with one neutral line, never which names are or are not in
     the room. Others still see only the step's verb. Guests and scheduled runs (post_to_room off) are unchanged.

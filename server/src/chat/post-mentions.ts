@@ -46,16 +46,17 @@ export const isBroadcastRef = (ref: string) => BROADCAST.has(fold(strip(ref)))
 export const broadcastIn = (text: string) => roomMentionAllIn(text) || BROADCAST_AT.test(text)
 
 export type PickedMentions =
-  | { ok: true; ids: string[]; all: boolean }
+  | { ok: true; ids: string[]; all: boolean; byName: { ref: string; id: string }[] }
   | { ok: false; unknown: string[]; many: { ref: string; people: Mentionable[] }[]; broadcast: boolean; tooMany: boolean }
 
 /**
  * The people `refs` (the tool's `mention`) name among `people`: person:<id> of one of them; else a name or username
  * equal to the ref (folded: case, width and spaces); else one person whose name holds the ref as whole words. Several
- * that fit, none, everyone without `allowAll`, or more than POST_MENTIONS_MAX: not ok, with which ones.
+ * that fit, none, everyone without `allowAll`, or more than POST_MENTIONS_MAX: not ok, with which ones. `byName`: the
+ * name each person was found by (never a person:<id>), for whether the asker's own words used it.
  */
 export function pickMentions(people: readonly Mentionable[], refs: readonly string[], o: { allowAll: boolean; personRef: string }): PickedMentions {
-  const ids: string[] = [], unknown: string[] = [], many: { ref: string; people: Mentionable[] }[] = []
+  const ids: string[] = [], unknown: string[] = [], many: { ref: string; people: Mentionable[] }[] = [], byName: { ref: string; id: string }[] = []
   let all = false, broadcast = false
   for (const raw of refs) {
     const ref = strip(raw)
@@ -78,13 +79,13 @@ export function pickMentions(people: readonly Mentionable[], refs: readonly stri
       const w = words(ref)
       hits = w.trim() ? people.filter((x) => words(x.name).includes(w)) : []
     }
-    if (hits.length === 1) { if (!ids.includes(hits[0]!.id)) ids.push(hits[0]!.id) }
+    if (hits.length === 1) { if (!ids.includes(hits[0]!.id)) ids.push(hits[0]!.id); byName.push({ ref, id: hits[0]!.id }) }
     else if (hits.length > 1) many.push({ ref: raw, people: hits })
     else unknown.push(raw)
   }
   const tooMany = ids.length > POST_MENTIONS_MAX
   if (unknown.length || many.length || broadcast || tooMany) return { ok: false, unknown, many, broadcast, tooMany }
-  return { ok: true, ids, all }
+  return { ok: true, ids, all, byName }
 }
 
 /** One "@Name" found in a text: where it stands and whose it is (`all`: "@everyone"). */

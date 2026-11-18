@@ -15,7 +15,7 @@ const P = 'person:'
 
 describe('pickMentions (the tool\'s mention)', () => {
   test('a full name, a username, person:<id>, a unique part of a name; each once', () => {
-    expect(pickMentions(people, ['Mira Santoso', '@jonas', 'person:u3', 'mira santoso', 'Santoso'], { allowAll: false, personRef: P })).toEqual({ ok: true, ids: ['u1', 'u2', 'u3'], all: false })
+    expect(pickMentions(people, ['Mira Santoso', '@jonas', 'person:u3', 'mira santoso', 'Santoso'], { allowAll: false, personRef: P })).toMatchObject({ ok: true, ids: ['u1', 'u2', 'u3'], all: false })
   })
   test('someone not in the room, an id of someone not there, a look-alike: not ok', () => {
     const r = pickMentions(people, ['Mira Sant0so', 'person:zz', 'Lee'], { allowAll: false, personRef: P })
@@ -29,7 +29,7 @@ describe('pickMentions (the tool\'s mention)', () => {
   test('everyone: only when allowed', () => {
     for (const w of ['everyone', '@전체', 'channel', '@here', 'semua']) expect(isBroadcastRef(w)).toBe(true)
     expect(pickMentions(people, ['everyone'], { allowAll: false, personRef: P })).toMatchObject({ ok: false, broadcast: true })
-    expect(pickMentions(people, ['@everyone'], { allowAll: true, personRef: P })).toEqual({ ok: true, ids: [], all: true })
+    expect(pickMentions(people, ['@everyone'], { allowAll: true, personRef: P })).toMatchObject({ ok: true, ids: [], all: true })
   })
   test('at most POST_MENTIONS_MAX people', () => {
     const many = Array.from({ length: POST_MENTIONS_MAX + 1 }, (_, i) => ({ id: `x${i}`, name: `Person ${i}`, username: `p${i}` }))

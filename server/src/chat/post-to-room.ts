@@ -564,7 +564,15 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const noteOk = !ownNote || fold(said).includes(fold(ownNote))
         // the people it mentions: each named in the asker's own words, and never everyone (a notice to everyone there is
         // the card's to ask)
-        const mentionsSaid = !mentionAll && mentionIds.every((id) => { const p = canMention.find((x) => x.id === id); return !!p && namesPerson(said, p) && namedInFull(said, soleNames(db, id)) })
+        // (each person: the asker's words name them in full, or say the name the AI found exactly that one member by, when
+        // that word is not part of another member's name the asker also wrote: "tell Erin Yoo" is no ask to tag Erin)
+        const mentionsSaid = !mentionAll && mentionIds.every((id) => {
+          const p = canMention.find((x) => x.id === id)
+          if (!p) return false
+          if (namesPerson(said, p) && namedInFull(said, soleNames(db, id))) return true
+          return picked.byName.some((b) => b.id === id && namesPerson(said, { name: b.ref, username: '' })
+            && !canMention.some((q) => q.id !== id && fold(q.name).includes(fold(b.ref)) && namesPerson(said, q)))
+        })
         const place = a.data.room === undefined ? !!side && a.data.thread_id === undefined
           : !readRooms(exec) && a.data.thread_id === undefined && (() => { const r = recipientNames(db, spec.userId, mine?.room ?? null, pendingTo); return namedInFull(said, r.names, { place: !r.person }) })()
         // a room, a thread or a 1:1 chat's person the AI learned from looking_at in this turn is not the asker's word
@@ -576,10 +584,11 @@ export function postToRoomTool(exec: TurnExec): Tool {
           && (plain ? theirText : !exec.shared && !exec.otherAuthors) && noteOk && mentionsSaid && place
         // (where the choice counts, the card offers "Always allow" on its first showing; where it does not, the card shows.
         // Once on it is final, Rule A (#1143): a screen target only stops the explicit-ask skip above)
-        // a post that mentions someone the asker's own words do not name (the AI picked them, or a name in a text it wrote
-        // from something someone else wrote), or everyone: the card shows, also under "Always allow", and offers no
-        // "Always allow" (who gets a notice is the person's to see; docs/decisions/20261118-ai-post-real-mentions.md)
-        const alwaysHereOk = alwaysOk && mentionsSaid
+        // a post that mentions everyone: the card shows, also under "Always allow", and offers no "Always allow". Room
+        // members it mentions are under the person's own "Always allow" (Rule A, docs/decisions/
+        // 20261116-always-allow-final-rule-a.md: a notice to someone already in the room; docs/decisions/
+        // 20261118-ai-post-real-mentions.md)
+        const alwaysHereOk = alwaysOk && !mentionAll
         const place1 = alwaysHereOk ? exec.alwaysPlace?.() : null
         // why the card asks first: one line, the reason that matters most (chat/share-words.ts whyFirst)
         const whyLine = whyFirst(L, { fromLook, seenLine, others: othersWordsCard(exec, all ? 'post_files' : 'post_to_room', alwaysHereOk) })
