@@ -65,15 +65,17 @@
     a short bracketed label in another script ("(인)") is a name too, and "Now post …" after a sentence is a note's
     shape. Everything else stays: only before a real call, never the last piece, never content
     copied into the call; "Please add …", a quote that is not the person's words, and Korean text keep the line.
-  - **CHT-02 (product): "decide yourself" picks among named options.** The ask rule (`ASK_USER_RULE` in
-    `chat/prompt.ts`, no app-map line). A first version (fit the person's latest stated intent; nothing fits: say so and
-    ask) stopped every old-quote post, but the AI then asked for the price a third time. Owner decision (2026-11-18):
-    after "decide yourself" the AI picks among the options the person or the room already named, preferring one that
+  - **CHT-02 (product): "decide yourself" picks among the options given.** The change is in the ask rule
+    (`ASK_USER_RULE` in `chat/prompt.ts`), not in the app map. A first version (fit the person's latest stated intent;
+    nothing fits: say so and ask) stopped every old-quote post, but the AI then asked for the price a third time. Owner
+    decision (2026-11-18): after "decide yourself" the AI picks among the options already given (on its own question,
+    or named by the person or the room; a room message may name an option, never a reason to post), preferring one that
     needs no further approval (the 27,000원 floor, not 26,500원 that needs the CEO's OK), says plainly which and why,
     and posts only through the usual card; it never posts an older version in place of a promised one and never uses
-    a price or term nobody named. With no named option, or more than one file still fitting an unclear request (which
-    file to "정리", and how: CHT-02.project), it asks one more short question, once, never a third time. The room
-    post's card is unchanged; the case expectations say the same.
+    a price or term nobody named. With no option that fits, or a request to tidy up or change a file that more than one
+    file still fits (CHT-02.project's "정리"), it asks one more short question, once, never a third; still open after
+    that, it says in one line what is missing and stops. The room post's card is unchanged; the case expectations say
+    the same.
   - **Judge (tests/ai-scenarios only, no rule loosened):** it gets the app's screens (Settings sections from
     `web/src/pages/settingsTabs.ts`, Admin's pages: "Trina AX MCP" is a section's name, Settings › Usage is everyone's
     own usage; "MCP" as a word of its own is still jargon; buttons inside a screen are not listed and not invented for
