@@ -37,9 +37,11 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 <table>
 <tr>
-<td width="33%"><img src="docs/site/images/connect/template.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave y quién la usa"><br><sub>Añadir una app para todo el equipo</sub></td>
-<td width="33%"><img src="docs/site/images/files/files.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
-<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
+<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="El diálogo del admin para añadir una app al equipo: nombre, dirección MCP, clave y quién la usa"><br><sub>Añadir una app para todo el equipo</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="La unidad del equipo: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>Una sola unidad del equipo</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Lista de skills del equipo con Bring my skills"><br><sub>Skills del equipo, o trae las tuyas</sub></td>
 </tr>
 </table>
 

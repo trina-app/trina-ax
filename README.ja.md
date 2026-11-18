@@ -37,9 +37,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="33%"><img src="docs/site/images/connect/template.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、使う人"><br><sub>チーム全体にアプリを追加</sub></td>
-<td width="33%"><img src="docs/site/images/files/files.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
-<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
+<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="管理者がチーム用にアプリを追加する画面：名前、MCP アドレス、キー、使う人"><br><sub>チーム全体にアプリを追加</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="チームのドライブ：Company-wide、Groups、Projects、Team skills、Personal"><br><sub>チームのドライブは1つ</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="チームのスキル一覧と Bring my skills"><br><sub>チームのスキル、手元のスキルも持ち込める</sub></td>
 </tr>
 </table>
 

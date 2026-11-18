@@ -37,9 +37,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <table>
 <tr>
-<td width="33%"><img src="docs/site/images/connect/template.webp" alt="관리자의 팀용 앱 추가 창: 이름, MCP 주소, 키, 쓰는 사람"><br><sub>팀 전체용 앱 추가</sub></td>
-<td width="33%"><img src="docs/site/images/files/files.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
-<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
+<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="관리자의 팀용 앱 추가 창: 이름, MCP 주소, 키, 쓰는 사람"><br><sub>팀 전체용 앱 추가</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="팀 드라이브: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>팀 드라이브 하나</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="팀 스킬 목록과 Bring my skills"><br><sub>팀 스킬, 내 스킬도 가져오기</sub></td>
 </tr>
 </table>
 

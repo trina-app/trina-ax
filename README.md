@@ -37,9 +37,11 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 
 <table>
 <tr>
-<td width="33%"><img src="docs/site/images/connect/template.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key and who uses it"><br><sub>Add an app for the whole team</sub></td>
-<td width="33%"><img src="docs/site/images/files/files.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
-<td width="33%"><img src="docs/site/images/skills/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
+<td width="50%" rowspan="2"><img src="docs/site/images/connect/template.webp" alt="The admin's Add an app for the team dialog: name, MCP address, key and who uses it"><br><sub>Add an app for the whole team</sub></td>
+<td width="50%"><img src="docs/images/readme/v4/team-drive.webp" alt="The team drive: Company-wide, Groups, Projects, Team skills, Personal"><br><sub>One team drive</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/images/readme/v4/team-skills.webp" alt="Team skills list with Bring my skills"><br><sub>Team skills, or bring your own</sub></td>
 </tr>
 </table>
 
