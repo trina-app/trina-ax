@@ -79,7 +79,6 @@ import { isolate } from '../components/handover/isolate'
 import { RoomSideColumn } from '../components/rooms/RoomSideColumn'
 import { ChatThreadPanel } from '../components/chat/ChatThreadPanel'
 import { closeSidePanel, useSidePanel } from '../lib/sidePanel'
-import { useAiAccess } from '../store/aiAccess'
 import { AiMark } from '../components/rooms/AiFace'
 import { useFolderWords } from '../lib/folderLabels'
 
@@ -528,16 +527,6 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     if (sidePanel && threadRoot) { focusBack.current = false; closeThread() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sidePanel])
-  // the chat's box can send the thread as my question now: the chat can be continued (not in the trash, not read-only),
-  // my AI is on, and no answer of mine runs; else Send to Trina is not offered (the panel's own line says why)
-  const noAiHere = useAiAccess((s) => s.loaded && !s.usable)
-  const boxSends = !!shared && !chat?.deletedAt && !readOnly && !guestNoAi && !noAiHere && !runningMine
-  const sendToTrina = (draft: string) => {
-    // a phone: back to the chat, whose box (still there under the thread) takes the draft
-    if (phone) { focusBack.current = false; closeThread() }
-    requestAnimationFrame(() => composer.current?.prepareDraft(draft))
-  }
-
   // a shared chat of a project in the trash, to one of its members: the server says so (and only to them), and the page
   // says what the project's page says (QA TC-1060)
   if (loadError && isApiError(loadError, 'not_found') && loadError.body.params?.reason === 'project_in_trash' && typeof loadError.body.params.projectId === 'string')
@@ -746,7 +735,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     {/* the thread in the address (a shared chat's answer): a column beside the chat on a computer, the screen on a phone */}
     {threadRoot && chat && (
       <RoomSideColumn label={t('rooms.thread')} testId="chat-thread-column" divider="thread">
-        <ChatThreadPanel key={threadRoot} chat={chat} rootId={threadRoot} meId={me.user.id} onClose={closeThread} onShownBranch={messages.some((m) => m.id === threadRoot)} focusBox={threadFocus} onSendToTrina={boxSends ? sendToTrina : undefined} />
+        <ChatThreadPanel key={threadRoot} chat={chat} rootId={threadRoot} meId={me.user.id} onClose={closeThread} onShownBranch={messages.some((m) => m.id === threadRoot)} focusBox={threadFocus} />
       </RoomSideColumn>
     )}
     </div>

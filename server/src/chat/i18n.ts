@@ -222,8 +222,6 @@ export const TEXT = {
   /** a share or post card raised because what it acts on came from what is open on the screen (looking_at), not from
    * the person's own words (chat/looking-at.ts): said in place of othersWordsWhy */
   lookedWhy: t('메시지에 이름이 없어서 지금 화면에 열려 있는 것을 보고 골랐어요. 그래서 먼저 물어봐요.', 'Your message didn\'t name this, so it was taken from what is open on your screen. That is why this is asked first.', 'Pesan Anda tidak menyebut namanya, jadi ini diambil dari yang terbuka di layar Anda. Karena itu ini ditanyakan dulu.', 'メッセージに名前がなかったため、いま画面で開いているものから選びました。そのため先に確認します。', 'Su mensaje no lo nombraba, así que se tomó de lo que tiene abierto en la pantalla. Por eso se consulta antes.', '你的消息没有写名称，所以是根据你屏幕上打开的内容选的。因此会先问你。'),
-  /** "Send to Trina" in an answer's thread, as the web app names it (chat.thread.sendToAi; chat/share-words.ts) */
-  threadSendToAi: t('{name}에게 보내기', 'Send to {name}', 'Kirim ke {name}', '{name}に送る', 'Enviar a {name}', '发送给{name}'),
   /** the same three sentences when the cause is a file someone shared with the person, read through its share, and no
    * room's words came in (chat/grant-reads.ts seenWhy; docs/decisions/20261116-ai-screen-and-shared-tools.md) */
   sharedFileSeenWhy: t('여기에서 다른 사람이 공유한 파일(다른 사람이 쓴 글)을 읽어서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'A file someone shared with you (other people\'s words) was read here, so changes are asked first.', 'Chat ini membaca berkas yang dibagikan orang lain kepada Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットでほかの人が共有したファイル（ほかの人が書いたもの）を読んだため、変更の前に確認します。", "En este chat se leyó un archivo que alguien compartió con usted (palabras de otras personas), así que los cambios se consultan antes.", "这里读取了别人共享给你的文件（其他人写的内容），所以修改前会先问你。"),

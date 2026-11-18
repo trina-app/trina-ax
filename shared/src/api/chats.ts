@@ -6,7 +6,6 @@ import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
-import { oneLineName } from '../name-chars'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
@@ -45,8 +44,6 @@ export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 export const CHAT_THREAD_REPLY_MAX = ROOM_MESSAGE_MAX
 /** at most this many replies under one answer (409 thread_full) */
 export const CHAT_THREAD_MAX = 500
-/** "Send to Trina" quotes at most this much of a thread into the chat's box (the side chat's quote cap), newest kept */
-export const CHAT_THREAD_DRAFT_MAX = 4000
 export const ListChatThreadQuery = PageQuery
 /** Why I can read a thread but not reply: safe operations are on (or the chat is confidential), the chat is in the
  * trash, or it is not shared any more (its creator still reads it). */
@@ -79,57 +76,6 @@ export const SendChatThreadReplyBody = z.object({
 }).strict()
 /** the newest reply I have read (one of the thread's) */
 export const MarkChatThreadReadBody = z.object({ upTo: Uuid7 }).strict()
-
-/** One reply as "Send to Trina" quotes it. */
-export interface ChatThreadDraftReply { name: string; at: string; text: string }
-/**
- * What "Send to Trina" puts in the chat's box: the thread as a Markdown quote, every line starting with "> " (the
- * server reads quote lines as other people's words: chat/read-rooms.ts isQuoteLine, chat/project-members.ts ownWords),
- * names and the header made one line (a name with a line break would end the quote), the newest replies kept within
- * CHAT_THREAD_DRAFT_MAX characters with `cut` on top when older ones were left out, then an empty line for the
- * presser's own words. The answer's text is never quoted (it may be hidden from someone; the AI has it already).
- * `head`: the header line's words ("Thread on Trina's answer · 2:10 PM · 4 replies"); `time`: a reply's time as shown.
- */
-export function chatThreadDraft(replies: readonly ChatThreadDraftReply[], o: { head: string; cut: string; time: (iso: string) => string; max?: number }): string {
-  const max = o.max ?? CHAT_THREAD_DRAFT_MAX
-  const q = (l: string) => `> ${l}`.trimEnd()
-  const head = q(oneLineName(o.head))
-  const blocks: string[] = []
-  let size = head.length + 1
-  let cut = false
-  for (let i = replies.length - 1; i >= 0; i--) {
-    const r = replies[i]!
-    const lines = [q(oneLineName(`${r.name} · ${o.time(r.at)}`)), ...r.text.split(/\r\n|[\n\r\u2028\u2029\u0085\v\f]/).map(q)]
-    let block = lines.join('\n')
-    if (size + block.length + 1 > max) {
-      // the newest reply alone does not fit (QA TC-3786): it goes in cut to the room left, its end marked "…", so the
-      // draft is never just the header; an older one that does not fit is left out
-      if (!blocks.length) {
-        const room = max - size - 1 - (q(oneLineName(o.cut)).length + 1) - 1
-        if (room > lines[0]!.length + 3) {
-          // (never half of a character: a cut that ends on a high surrogate drops it)
-          block = `${block.slice(0, room).replace(/[\uD800-\uDBFF]$/, '').replace(/\n>?$/, '').trimEnd()}…`
-          blocks.unshift(block)
-          size += block.length + 1
-        }
-        // older replies left out: the line says so (none older: only the newest, cut)
-        cut = i > 0 || !blocks.length
-        break
-      }
-      cut = true
-      break
-    }
-    blocks.unshift(block)
-    size += block.length + 1
-  }
-  // the line that says older ones were left out takes room too: the oldest kept go until it fits
-  const cutLine = q(oneLineName(o.cut))
-  if (cut) {
-    size += cutLine.length + 1
-    while (blocks.length && size > max) size -= blocks.shift()!.length + 1
-  }
-  return [head, ...(cut ? [cutLine] : []), ...blocks].join('\n') + '\n\n'
-}
 
 // ---------------- an existing chat shared with its project's members ("프로젝트 멤버와 공유") ----------------
 export const ShareChatBody = z.object({

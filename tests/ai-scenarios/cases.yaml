@@ -2758,7 +2758,7 @@ cases:
     outcome: explain
     # docs/decisions/20261117-ai-reads-answer-comments.md: the AI reads the comments under its answers in this chat when
     # someone here asks about them; it does not read them on its own
-    good: Under a finished answer of a shared chat there is "Reply in thread" for people to talk; the AI does not read it on its own, only when someone in the chat asks it to (and everyone who sees the chat can read the thread, so it is not hidden from people). "Send to Trina" in the thread puts the thread into the message box, it does not send; she can edit it and sends it as her own message. Plain words, no tool names.
+    good: Under a finished answer of a shared chat there is "Reply in thread" for people to talk; the AI does not read it on its own, only when someone in the chat asks it to (and everyone who sees the chat can read the thread, so it is not hidden from people). Plain words, no tool names.
     checks:
       - { type: answer_not_matches, pattern: "자동으로 (전달|전송)" }
   variants:
@@ -2793,8 +2793,8 @@ cases:
   expect:
     outcome: explain
     # docs/decisions/20261117-ai-reads-answer-comments.md: the AI reads a thread's comments when the asker refers to them
-    # (answer_comments), not only through Send to Trina
-    good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads the comments under its answers in this chat when someone here asks about them, and Send to Trina also puts a thread in the message box. No names or reply texts invented.
+    # (answer_comments)
+    good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads the comments under its answers in this chat when someone here asks about them. No names or reply texts invented.
     checks: []
 
 - id: MTG-01
