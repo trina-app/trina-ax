@@ -5,7 +5,8 @@
 // images:
 //   - an OpenAI-compatible model list that says it (OpenRouter `architecture.input_modalities`, and the same field or
 //     `capabilities.vision` / `supports_vision` on other lists);
-//   - Ollama /api/show `capabilities` ("vision"; an older Ollama: a vision projector in its answer);
+//   - Ollama /api/show `capabilities` ("vision"; an older Ollama: a vision projector in its answer), asked only after
+//     GET /api/version answered as Ollama;
 //   - LM Studio /api/v0/models/<id> `type` ("vlm" or "llm");
 //   - llama.cpp's /props `modalities.vision` (an address on this computer or the local network only).
 // Nothing said: unknown. Then the admin's choice in the API engine form counts ("Reads pictures": yes or no, stored in
@@ -100,10 +101,13 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ApiVision> {
   const entries: any[] = Array.isArray(list?.data) ? list.data : Array.isArray(list?.models) ? list.models : []
   const listed = visionOfModelEntry(entries.find((m) => same(m?.id) || same(m?.name) || same(m?.model)))
   if (listed !== null) return { images: listed, source: 'models' }
-  // Ollama
-  const show = await get(`${origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model }) })
-  const ollama = visionOfOllamaShow(show)
-  if (ollama !== null) return { images: ollama, source: 'ollama' }
+  // Ollama: asked with a POST only once its GET /api/version answered as Ollama does (no POST to another server)
+  const version = await get(`${origin}/api/version`) as any
+  if (version && typeof version === 'object' && typeof version.version === 'string') {
+    const show = await get(`${origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model }) })
+    const ollama = visionOfOllamaShow(show)
+    if (ollama !== null) return { images: ollama, source: 'ollama' }
+  }
   // LM Studio
   const lms = await get(`${origin}/api/v0/models/${encodeURIComponent(conf.model)}`) as any
   if (lms && typeof lms === 'object' && typeof lms.type === 'string' && (lms.type === 'vlm' || lms.type === 'llm')) return { images: lms.type === 'vlm', source: 'lmstudio' }

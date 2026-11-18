@@ -146,7 +146,7 @@ describe('F: does the API model take images', () => {
     await apiVisionOf(orConf, { fetchFn: or.f })
     expect(or.hits).toHaveLength(2)
 
-    const ollama = server({ '/api/show': (b) => ({ capabilities: b.model === 'llava' ? ['completion', 'vision'] : ['completion', 'tools'] }) })
+    const ollama = server({ '/api/version': () => ({ version: '0.12.0' }), '/api/show': (b) => ({ capabilities: b.model === 'llava' ? ['completion', 'vision'] : ['completion', 'tools'] }) })
     expect(await apiVisionOf({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'llava', label: 'L', key: null }, { fetchFn: ollama.f })).toEqual({ images: true, source: 'ollama' })
     expect((await apiVisionOf({ baseUrl: 'http://127.0.0.1:11434/v1', model: 'qwen3', label: 'L', key: null }, { fetchFn: ollama.f })).images).toBe(false)
     // the key never goes to the other paths of the host
@@ -157,6 +157,8 @@ describe('F: does the API model take images', () => {
     const llama = server({ '/props': () => ({ modalities: { vision: false } }) })
     expect(await apiVisionOf({ baseUrl: 'http://127.0.0.1:8080/v1', model: 'any', label: 'A', key: null }, { fetchFn: llama.f })).toEqual({ images: false, source: 'llamacpp' })
 
+    // a server that is not Ollama gets no POST
+    expect(lms.hits.some((x) => x.startsWith('POST'))).toBe(false)
     const silent = server({ '/v1/models': () => ({ data: [{ id: 'mystery' }] }) })
     const mystery = { baseUrl: 'https://llm.example.com/v1', model: 'mystery', label: 'M', key: 'sk-m' }
     expect(await apiVisionOf(mystery, { fetchFn: silent.f })).toEqual({ images: null, source: null })
