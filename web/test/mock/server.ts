@@ -870,7 +870,7 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   // ---------------- threads on AI answers in shared chats (server/src/chat/threads.ts, short) ----------------
   /** the replies under answers, oldest first; who follows each thread (the asker, the repliers) and the newest they read */
-  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string }[] = []
+  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string; mentions?: string[] }[] = []
   chatThreadFollows = new Map<string, Map<string, string | null>>()
   /** the answer a thread is under: a finished answer of a chat shared now (the mock's Chat.shared); else 404 */
   threadRoot(chatId: string, rootId: string) {
@@ -888,10 +888,15 @@ export class MockServer {
     const newReplies = !!read?.has(viewer) && list.some((r) => r.authorId !== viewer && r.id > (read.get(viewer) ?? ''))
     return { replyCount: list.length, lastReplyAt: list.at(-1)!.createdAt, repliers, newReplies }
   }
-  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string }, viewer: string) {
+  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string; mentions?: string[] }, viewer: string) {
     const u = this.users.find((x) => x.id === r.authorId)
     const chat = this.chats.find((x) => x.id === r.chatId)
-    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, mentions: r.mentions ?? [], createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+  }
+  /** who a thread's box may mention (ChatThreadPage.people, chat/threads.ts threadPeople): the mock's active members
+   * other than the viewer (no guests: the mock's shared chats are members' chats), by name */
+  threadPeople(viewer: string) {
+    return this.users.filter((u) => u.status === 'active' && u.role !== 'guest' && u.id !== viewer).map((u) => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name))
   }
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
@@ -2897,14 +2902,17 @@ export class MockServer {
       const th = this.threadSummary(m.id, c.user.id)
       const replies = this.chatThreadReplies.filter((r) => r.rootId === m.id)
       const shown = this.path(chat.id).some((x) => x.id === m.id)
-      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500 }
+      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500, ...(!this.allConfidential ? { people: this.threadPeople(c.user.id) } : {}) }
     },
     sendChatThreadReply: (c) => {
       const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
       if (this.allConfidential) fail('conflict', 409, '이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요.', undefined, { reason: 'safe_ops' })
       const again = this.chatThreadReplies.find((r) => r.authorId === c.user.id && r.clientId === c.body.clientId)
       if (again) return { status: 201, body: this.threadReplyOut(again, c.user.id) }
-      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now() }
+      // the server keeps only mentions of people who see the thread (threadPeople)
+      const allowed = new Set(this.threadPeople(c.user.id).map((u) => u.id))
+      const mentions = [...new Set((c.body.mentions ?? []) as string[])].filter((id) => allowed.has(id))
+      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now(), mentions }
       this.chatThreadReplies.push(r)
       const follows = this.chatThreadFollows.get(m.id) ?? new Map<string, string | null>()
       this.chatThreadFollows.set(m.id, follows)

@@ -17,7 +17,7 @@ import { gfmAutolinkLiteral } from 'micromark-extension-gfm-autolink-literal'
 import { gfmStrikethrough } from 'micromark-extension-gfm-strikethrough'
 import { gfmTable } from 'micromark-extension-gfm-table'
 import { gfmTaskListItem } from 'micromark-extension-gfm-task-list-item'
-import { mentionCanStart } from './rooms'
+import { mentionCanStart, mentionClass } from './rooms'
 import { classifyLink } from './markdown'
 import { linkParts } from './textLinks'
 
@@ -32,8 +32,8 @@ const CLOSE = ''
 /** Markdown's marks a mention may follow: emphasis, strike, a code span's tick, a list's or quote's sign */
 const MARKS = /[*_~`>]/
 const TOKEN = /(\d+)/g
-/** The class of a mention: the accent colour; mine on a soft background (as RoomMessages drew it before) */
-export const mentionClass = (strong?: boolean) => ['font-medium', 'text-accent-text', ...(strong ? ['rounded', 'bg-accent-soft', 'px-0.5'] : [])]
+/** The class of a mention (lib/rooms.ts, where plain text that shows mentions takes it too) */
+export { mentionClass }
 
 /** The text to read as Markdown, its mentions replaced by placeholders (the characters a placeholder uses, if the
  * text has them itself, become U+FFFD so nothing typed can pose as one). */

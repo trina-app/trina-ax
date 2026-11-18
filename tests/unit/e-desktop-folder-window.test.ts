@@ -8,7 +8,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs
 import { opendir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, refusedShare, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, guardedIdentities, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, refusedShare, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { pickRefused } from '../../desktop/src/common/work-files'
 
 /**
  * A made-up computer: every path is a string, nothing is read. realpath answers from `links` (else the path itself);
@@ -406,6 +407,54 @@ describe('never the home folder or a folder that holds it, whatever the path loo
     // a share that may be picked is asked (the person's pick already reached it)
     expect(await opensHome('\\\\nas\\company\\Sales', sys, 'win32', { shares: true })).toBe(false)
     expect(log).toContain('\\\\nas\\company\\Sales')
+  })
+
+  test('TC-4846: other spellings of an admin share, a device path, a loopback host, dot names, mixed slashes and case are refused without asking the network', async () => {
+    const log: string[] = []
+    const sys = fakeSystem('C:\\Users\\Alex', 'win32', { log })
+    const refused = [
+      // forward slashes, and the two mixed
+      '//host/C$', '//host/c$/Users/Alex', '\\\\HOST/c$', '/\\host\\C$', '\\/host/Admin$/System32',
+      // device paths under GLOBALROOT (a shadow copy of the profile, the network redirector)
+      '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Users\\Alex', '//?/GLOBALROOT/Device/Mup/host/share', '\\\\.\\GLOBALROOT\\Device\\HarddiskVolume3', '\\\\?\\globalroot\\??\\C:\\Users',
+      // this computer by its loopback address: the admin share is refused whatever names the host
+      '\\\\[::1]\\c$', '\\\\[::1]\\C$\\Users\\Alex', '\\\\127.0.0.1\\C$', '\\\\127.0.0.1\\ADMIN$', '\\\\0--1.ipv6-literal.net\\c$', '\\\\localhost.\\c$',
+      // dot names where the host or the share should be
+      '\\\\host\\..\\C$', '\\\\..\\C$', '\\\\.\\..', '\\\\host\\.\\Users', '\\\\host\\..', '\\\\.\\C:\\Users\\Alex\\..',
+      // a trailing dot or space on the share name (Windows drops them)
+      '\\\\host\\C$.', '\\\\host\\C$..', '\\\\host\\C$ ', '\\\\host\\ADMIN$. .\\System32', '\\\\host\\IPC$ \\x', '\\\\host\\print$.',
+      // case
+      '\\\\Host\\Print$', '\\\\host\\iPc$', '\\\\WSL$\\Ubuntu\\home\\alex', '\\\\Wsl.LocalHost\\Ubuntu',
+    ]
+    for (const path of refused) {
+      expect([path, refusedShare(path, 'win32')]).toEqual([path, true])
+      expect([path, await opensHome(path, sys, 'win32', { shares: true })]).toEqual([path, true])
+      expect([path, pickRefused(path, 'win32', 'C:\\Users\\Alex')]).toEqual([path, true])
+    }
+    expect(log).toEqual([])
+    // `..` below the share name stays inside the share; one that climbs to the share's top lands on its system folders
+    for (const path of ['\\\\nas\\share\\..\\..\\Windows', '\\\\nas\\share\\x\\..\\Program Files\\Acme', '\\\\nas/share/./Windows/System32', '//NAS/share/x/../PROGRAMDATA']) {
+      expect([path, pickRefused(path, 'win32', 'C:\\Users\\Alex')]).toEqual([path, true])
+    }
+    // the same spellings of an ordinary share are still a share
+    for (const path of ['//nas/company/Sales', '\\\\NAS/Company\\Sales', '\\\\127.0.0.1\\Team', '\\\\[::1]\\Team\\2026']) {
+      expect([path, refusedShare(path, 'win32')]).toEqual([path, false])
+    }
+  })
+
+  test('TC-4844: guardedIdentities, what a walk must not reach (home and above it, the system folders), as far as they can be told', async () => {
+    const id = (ino: bigint) => ({ dev: 3_029_372_109n, ino })
+    const sys: FolderSystem = { ...fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\Users\\Alex': id(70n), 'C:\\Users': id(60n), 'C:\\': id(5n), 'C:\\Windows': id(200n), 'C:\\Users\\Alex\\AppData\\Roaming': id(500n), 'C:\\Program Files': new Error('no such folder'), 'D:\\Apps': id(600n) } }), systemFolders: () => ['D:\\Apps', '\\\\fs\\apps'] }
+    const ids = (await guardedIdentities(sys, 'win32')).map((x) => x.ino)
+    for (const ino of [70n, 60n, 5n, 200n, 500n, 600n]) expect(ids).toContain(ino)
+    // what cannot be told is left out (only a match refuses in the walk); no home, or a home on a network path, gives none
+    const partial = (await guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { ids: { 'C:\\Users\\Alex': id(70n), 'C:\\Users': new Error('late'), 'C:\\': { dev: 1n, ino: 0n } } }), 'win32')).map((x) => x.ino)
+    expect(partial).toContain(70n)
+    expect(partial).not.toContain(0n)
+    expect(await guardedIdentities(fakeSystem('\\\\fs\\home$\\alex', 'win32'), 'win32')).toEqual([])
+    expect(await guardedIdentities(fakeSystem('', 'win32'), 'win32')).toEqual([])
+    // a realpath that fails: home as written still counts
+    expect((await guardedIdentities(fakeSystem('C:\\Users\\Alex', 'win32', { realpathFails: true, ids: { 'C:\\Users\\Alex': id(70n) } }), 'win32')).map((x) => x.ino)).toContain(70n)
   })
 
   test('macOS and Linux: the same folder under another name is caught by its identity', async () => {

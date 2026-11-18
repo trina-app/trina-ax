@@ -233,3 +233,41 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
     }
   })
 }
+
+// @mentions (docs/decisions/20261118-chat-thread-mentions.md): "@" in the thread's box lists the people who see the
+// thread (the page's people, never me), Enter picks, the reply shows the name in the mention look and goes with the id
+for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`${size.width}: "@" in the thread's box lists the chat's people; the reply shows the mention`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await signIn(page)
+    const { chatId, answerId } = await chatWithAnswer(page, true)
+    await page.goto(`/c/${chatId}/t/${answerId}`)
+    const panel = page.getByTestId('chat-thread')
+    const box = panel.getByTestId('chat-thread-input')
+    await expect(box).toBeVisible()
+    const thread = (await (await page.request.get(`/api/chats/${chatId}/messages/${answerId}/thread`)).json()) as { people: { id: string; name: string }[] }
+    expect(thread.people.length).toBeGreaterThan(0)
+    const first = thread.people[0]!
+    await box.click()
+    await page.keyboard.type('@')
+    const menu = panel.getByTestId('mention-menu')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByTestId('mention-option')).toHaveCount(Math.min(8, thread.people.length))
+    // never "@everyone" in a thread
+    await expect(menu.locator('[data-all]')).toHaveCount(0)
+    await page.keyboard.type(first.name.slice(0, 2))
+    await expect(menu.getByTestId('mention-option').first()).toContainText(first.name)
+    await page.keyboard.press('Enter')
+    await expect(box).toHaveValue(`@${first.name} `)
+    await expect(menu).toHaveCount(0)
+    await page.keyboard.type('can you check the seal?')
+    const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith(`/messages/${answerId}/thread`))
+    await panel.getByTestId('chat-thread-send').click()
+    expect((await sent).postDataJSON()).toMatchObject({ text: `@${first.name} can you check the seal?`, mentions: [first.id] })
+    const text = panel.getByTestId('chat-thread-reply-text')
+    await expect(text).toHaveText(`@${first.name} can you check the seal?`)
+    await expect(text.locator('.text-accent-text').first()).toHaveText(`@${first.name}`)
+    // (not with the list open: the rooms' shared "@" list has a button inside each option, axe's nested-interactive)
+    await audit(page, `thread, a reply with a mention ${size.width}`)
+  })
+}

@@ -1,11 +1,11 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
 import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
-import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { oneLineName } from '../name-chars'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -65,12 +65,17 @@ export const ChatThreadPage = z.object({
   onShownBranch: z.boolean(),
   /** the thread holds CHAT_THREAD_MAX replies: no more */
   full: z.boolean(),
+  /** who the reply box may mention ("@"): the people who see this thread now (the chat's audience and the answer not
+   * hidden from them), never me. Only while I may reply. Older servers omit it (no mentions) */
+  people: z.array(UserRef).optional(),
 })
 export type ChatThreadPage = z.infer<typeof ChatThreadPage>
 export const SendChatThreadReplyBody = z.object({
   text: z.string().max(CHAT_THREAD_REPLY_MAX).refine((t) => t.trim().length > 0, { message: 'empty reply' }),
   /** client-made id: sending the same one again returns the first reply */
   clientId: z.string().min(8).max(64),
+  /** the people picked with "@" (ids). The server keeps only those who see the thread now, never the sender */
+  mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).optional(),
 }).strict()
 /** the newest reply I have read (one of the thread's) */
 export const MarkChatThreadReadBody = z.object({ upTo: Uuid7 }).strict()

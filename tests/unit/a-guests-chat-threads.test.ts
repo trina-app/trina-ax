@@ -56,3 +56,28 @@ test('a guest replies in a thread of their own shared chat (201); a member\'s sh
   }
   expect((h.ctx.db.query('SELECT COUNT(*) AS n FROM chat_thread_replies WHERE chat_id = ?').get(hers.id) as { n: number }).n).toBe(1)
 })
+
+test('@mentions and guests (docs/decisions/20261118-chat-thread-mentions.md): a guest is offered and kept only where the chat\'s audience holds them', async () => {
+  h = await harness('a-guests-chat-thread-mentions')
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const project = await mia.client.call('POST', '/api/projects', { name: 'Quote', participants: [] })
+  const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'project', id: project.id } })
+  // mia's own shared chat of the project: the guest does not see it, so is never offered, and a mention of them goes
+  const hers = await mia.client.call('POST', '/api/chats', { projectId: project.id })
+  const herAnswer = answered(hers.id, mia.id)
+  const list = await mia.client.call('GET', `/api/chats/${hers.id}/messages/${herAnswer}/thread`)
+  expect((list.people ?? []).map((p: { id: string }) => p.id)).not.toContain(g.id)
+  const r = await mia.client.call('POST', `/api/chats/${hers.id}/messages/${herAnswer}/thread`, { text: '@gus look', clientId: 'cid-mia-m0001', mentions: [g.id] })
+  expect(r.mentions).toEqual([])
+  expect(h.ctx.db.query('SELECT 1 FROM chat_thread_notices WHERE user_id = ?').get(g.id)).toBeNull()
+  // the guest's own chat there: its members see it and the guest is its creator, so each may mention the other
+  const own = await g.client.call('POST', '/api/chats', { projectId: project.id })
+  const ownAnswer = answered(own.id, g.id)
+  const asMia = await mia.client.call('GET', `/api/chats/${own.id}/messages/${ownAnswer}/thread`)
+  expect((asMia.people ?? []).map((p: { id: string }) => p.id)).toContain(g.id)
+  const r2 = await mia.client.call('POST', `/api/chats/${own.id}/messages/${ownAnswer}/thread`, { text: '@gus ok', clientId: 'cid-mia-m0002', mentions: [g.id] })
+  expect(r2.mentions).toEqual([g.id])
+  const asGuest = await g.client.call('GET', `/api/chats/${own.id}/messages/${ownAnswer}/thread`)
+  expect((asGuest.people ?? []).map((p: { id: string }) => p.id)).toContain(mia.id)
+})

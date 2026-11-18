@@ -152,6 +152,8 @@ export function noticeText(item: InboxNotification, t: T, locale: Locale): React
   if (item.code === 'chat.shared' && item.chatShared) return item.chatShared.gone ? t('notifications.event.chat.sharedGone') : item.chatShared.name ? t('notifications.event.chat.sharedNamed', { name: item.chatShared.name }) : t('notifications.event.chat.shared')
   // a reply in a thread I follow under an AI answer of a shared chat: who and which chat while I still see it; else it
   // says so with nothing of it
+  // a reply of it mentions me (docs/decisions/20261118-chat-thread-mentions.md): "mentioned you", by who did
+  if (item.code === 'chat.thread_reply' && item.chatThread?.mention && !item.chatThread.gone) return item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_mentionNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_mention')
   if (item.code === 'chat.thread_reply') return !item.chatThread || item.chatThread.gone ? t('notifications.event.chat.thread_replyGone') : item.chatThread.name && item.chatThread.title ? isolate(locale, 'notifications.event.chat.thread_replyNamed', { name: item.chatThread.name, title: item.chatThread.title }, ['name', 'title']) : t('notifications.event.chat.thread_reply')
   if (item.code.startsWith('file.')) return fileShareText(item, t)
   if (item.code === 'access.requested' || item.code === 'access.answered') return accessRequestText(item, t)
