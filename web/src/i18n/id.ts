@@ -2905,7 +2905,7 @@ export const id: Record<MessageKey, string> = {
   'skills.issues.description': 'Deskripsi tidak ada atau terlalu panjang (maksimal 1024 karakter).',
   'skills.issues.compatibility': 'Nilai compatibility kosong atau terlalu panjang (maksimal 500 karakter).',
   'skills.issues.location': 'Taruh SKILL.md di foldernya sendiri di dalam skills/, maksimal tiga tingkat.',
-  'skills.issues.too_large': 'Berkas terlalu besar (maksimal 128 KB).',
+  'skills.issues.too_large': 'Berkas terlalu besar (maksimal 512 KB).',
   'skills.issues.too_many': 'Folder ini berisi lebih dari 1.000 berkas: AI hanya membaca 1.000 berkas pertama (menurut nama), jadi sisanya tidak dipakai sebagai skill. Hapus skill lama atau gabungkan beberapa.',
   'skills.issues.too_many_rules': 'Ada lebih dari 50 berkas aturan tim (skills/*.md tanpa header): AI hanya mengikuti 50 berkas pertama menurut nama dan diberi tahu bahwa sisanya tidak disertakan. Gabungkan aturan ke lebih sedikit berkas.',
   'skills.aiList': 'Skill: {skills} · di daftar AI dengan deskripsi: {described} · hanya nama: {nameOnly}',

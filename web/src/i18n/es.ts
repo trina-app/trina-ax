@@ -2864,7 +2864,7 @@ export const es: Record<MessageKey, string> = {
   'skills.issues.description': "Falta la descripción o es demasiado larga (máximo 1024 caracteres).",
   'skills.issues.compatibility': "El valor de compatibility está vacío o es demasiado largo (máximo 500 caracteres).",
   'skills.issues.location': "Coloque SKILL.md en su propia carpeta dentro de skills/, hasta tres niveles de profundidad.",
-  'skills.issues.too_large': "El archivo es demasiado grande (máximo 128 KB).",
+  'skills.issues.too_large': "El archivo es demasiado grande (máximo 512 KB).",
   'skills.issues.too_many': "Esta carpeta tiene más de 1000 archivos: la IA solo lee los primeros 1000 (por nombre), así que el resto no se usa como habilidades. Elimine habilidades antiguas o combine algunas.",
   'skills.issues.too_many_rules': "Hay más de 50 archivos de reglas del equipo (skills/*.md sin encabezado): la IA solo sigue los 50 primeros por nombre de archivo y se le indica que faltan los demás. Combine las reglas en menos archivos.",
   'skills.aiList': "Habilidades: {skills} · en la lista de la IA con su descripción: {described} · solo con el nombre: {nameOnly}",

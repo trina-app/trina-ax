@@ -29,7 +29,7 @@ import path from 'node:path'
 import type { Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { audit } from '../admin/audit'
-import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillEntriesOnDisk, skillFileProblem, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
+import { groupOfFolder, listGroupSkills, listSkills, listTeamSkills, liveProjectRoots, parseSkill, projectOfFolder, sameSkillName, skillAlias, skillEntriesOnDisk, SKILL_FILE_MAX_BYTES, skillFileProblem, skillTier, widerSkillsNamed, type Skill } from '../chat/skills'
 import { ext } from '../files/extract'
 import { readRegular } from '../files/store'
 import { atLeast, RuleSet, type Principal } from '../policy/access'
@@ -328,7 +328,7 @@ function nameCheck(ctx: AppContext, user: Principal, rules: RuleSet, l: Level, n
  * it is part of (that skill changes). */
 function leaving(ctx: AppContext, user: Principal, rules: RuleSet, from: string, files: FileHash[], level: Level | null): SkillTouched[] {
   const rf = rootFolder(from)!
-  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes ?? (() => { try { return readRegular(path.join(ctx.files.fx.root, ...p.split('/')), 128 * 1024).bytes } catch { return undefined } })()
+  const bytesOf = (p: string) => files.find((f) => f.path === p)?.bytes ?? (() => { try { return readRegular(path.join(ctx.files.fx.root, ...p.split('/')), SKILL_FILE_MAX_BYTES).bytes } catch { return undefined } })()
   const out: SkillTouched[] = []
   const add = (entry: string, kind: 'skill' | 'rule', effect: SkillTouched['effect']) =>
     out.push({ name: kind === 'rule' ? nameOf(entry) : entryName(entry, bytesOf(entry)), entry, kind, effect, followers: followers(ctx, rules, level, entry), readable: atLeast(rules.access(user, segsOf(entry)), 'read') })

@@ -2906,7 +2906,7 @@ export const en: Record<MessageKey, string> = {
   'skills.issues.description': 'The description is missing or too long (1024 characters at most).',
   'skills.issues.compatibility': 'The compatibility value is empty or too long (500 characters at most).',
   'skills.issues.location': 'Put SKILL.md in its own folder inside skills/, at most three levels down.',
-  'skills.issues.too_large': 'The file is too large (128 KB at most).',
+  'skills.issues.too_large': 'The file is too large (512 KB at most).',
   'skills.issues.too_many': 'More than 1,000 files in this folder: the AI reads only the first 1,000 (by name), so the rest are not used as skills. Remove old skills or combine some.',
   'skills.issues.too_many_rules': 'More than 50 team rule files (skills/*.md without a header): the AI follows only the first 50 by file name and is told the others are left out. Combine rules into fewer files.',
   'skills.aiList': 'Skills: {skills} · in the AI\'s list with their description: {described} · by name only: {nameOnly}',

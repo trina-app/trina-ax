@@ -2864,7 +2864,7 @@ export const ja: Record<MessageKey, string> = {
   'skills.issues.description': "説明がないか、長すぎます（最大1024文字）。",
   'skills.issues.compatibility': "compatibilityの値が空か、長すぎます（最大500文字）。",
   'skills.issues.location': "SKILL.mdはskills/内の専用フォルダーに置いてください。深さは3階層までです。",
-  'skills.issues.too_large': "ファイルが大きすぎます（最大128 KB）。",
+  'skills.issues.too_large': "ファイルが大きすぎます（最大512 KB）。",
   'skills.issues.too_many': "このフォルダーのファイルが1,000個を超えています。AIは名前順で最初の1,000個だけを読むため、残りはスキルとして使われません。古いスキルを削除するか、いくつかまとめてください。",
   'skills.issues.too_many_rules': "チームルールのファイル（ヘッダーのない skills/*.md）が50個を超えています。AIはファイル名順で最初の50個だけに従い、残りは含まれていないと伝えられます。ルールを少ないファイルにまとめてください。",
   'skills.aiList': "スキル{skills}個 · AIのリストに説明付き：{described}個 · 名前のみ：{nameOnly}個",

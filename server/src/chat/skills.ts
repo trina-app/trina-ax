@@ -59,7 +59,9 @@ export const MAX_FILES = 1000
 /** characters of a skill's steps given to the AI when it is used (16,000 before 2026-11-18; a longer one is cut with a
  * note to read the rest, docs/decisions/20261118-limits-caps.md). The file itself is at most SKILL_FILE_MAX_BYTES. */
 export const SKILL_BODY_MAX = 100_000
-export const SKILL_FILE_MAX_BYTES = 128 * 1024
+/** a skill or rule file, in bytes (128 KB before 2026-11-18: about 43,000 Korean characters; now room for SKILL_BODY_MAX
+ * in Korean, docs/decisions/20261118-limits-caps.md). Skill shares keep the same cap (SKILL_SHARE_LIMITS.fileBytes). */
+export const SKILL_FILE_MAX_BYTES = 512 * 1024
 const HEADER_MAX = 8 * 1024
 /** The name rule of a SKILL.md folder (shared/src/api/skills.ts isSkillName; docs/decisions/20261116-skill-names-unicode.md). */
 export { isSkillName, SKILL_NAME_MAX, SKILL_NAME_RE }

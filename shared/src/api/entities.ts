@@ -889,7 +889,7 @@ export const DEFAULT_ANSWER_STEP_LIMIT = 500
  * docs/decisions/20261118-limits-caps.md) */
 export const GUEST_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
-export const ANSWER_STEP_LIMIT_MAX = 500
+export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({

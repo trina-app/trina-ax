@@ -2904,7 +2904,7 @@ export const ko = {
   'skills.issues.description': 'description이 없거나 너무 길어요(최대 1024자).',
   'skills.issues.compatibility': 'compatibility 값이 비었거나 너무 길어요(최대 500자).',
   'skills.issues.location': 'SKILL.md는 skills/ 안의 자기 폴더에 두세요(세 단계까지).',
-  'skills.issues.too_large': '파일이 너무 커요(최대 128KB).',
+  'skills.issues.too_large': '파일이 너무 커요(최대 512KB).',
   'skills.issues.too_many': '이 폴더의 파일이 1,000개를 넘어요. AI는 이름순으로 앞의 1,000개만 읽어서 나머지는 스킬로 쓰이지 않아요. 오래된 스킬을 지우거나 몇 개를 합쳐 주세요.',
   'skills.issues.too_many_rules': '팀 규칙 파일(머리말이 없는 skills/*.md)이 50개를 넘어요. AI는 파일 이름순으로 앞의 50개만 따르고, 나머지는 빠졌다고 안내받아요. 규칙을 더 적은 파일로 합쳐 주세요.',
   'skills.aiList': '스킬 {skills}개 · AI 목록에 설명까지 {described}개 · 이름만 {nameOnly}개',

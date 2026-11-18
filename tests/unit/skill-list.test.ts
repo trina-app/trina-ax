@@ -8,12 +8,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { makeEnv } from '../lib/env'
 import { newId } from '../../server/src/db'
-import { listSkills, MAX_FILES, scanSkills, SKILL_BODY_MAX, skillIssues, type Skill } from '../../server/src/chat/skills'
+import { listSkills, MAX_FILES, scanSkills, SKILL_BODY_MAX, SKILL_FILE_MAX_BYTES, skillIssues, type Skill } from '../../server/src/chat/skills'
+import { SKILL_SHARE_LIMITS } from '@mycel/shared/api'
 import {
   buildSkillList, chatSkillOrder, descriptionOrder, frequentSkills, hintSkills, listedFor, matchSkills, recordListed, resolveSkill, shortDescription,
   skillChanges, skillChangesText, skillTokens, SKILL_LINE_DESCRIPTION_MAX, SKILL_LIST_BUDGET, usageScores,
 } from '../../server/src/chat/skill-list'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, cutToTokens, neutralizeTags, ruleFileText, RULES_TEXT_MAX, skillBlock, skillHintsBlock, skillsSection, SKILL_FILE_MAX, SKILL_FILES_MAX, SKILL_TOOL_TOKENS, teamRuleFiles, teamRules } from '../../server/src/chat/prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, cutToTokens, neutralizeTags, QUIET_CUT_NOTE, ruleFileText, RULES_TEXT_MAX, skillBlock, skillHintsBlock, skillsSection, SKILL_FILE_MAX, SKILL_FILES_MAX, SKILL_TOOL_TOKENS, teamRuleFiles, teamRules } from '../../server/src/chat/prompt'
 import { skillsOverview } from '../../server/src/skills/suggestions'
 
 const sk = (p: string, name: string, description = '', body = 'steps'): Skill => ({ path: p, name, description, body })
@@ -286,6 +287,7 @@ describe('instructions, caps and counts (real folder rules)', () => {
       expect(text).not.toContain('RULE-BODY-50')
       expect(text).toContain('(5 more team rule files under skills/ are not included')
       expect(text).toContain('read the rest with the read tool')
+      expect(text).toContain(QUIET_CUT_NOTE)
       expect(skillIssues(e.files, who('carol'), { rules: r })).toContainEqual({ path: 'skills', problem: 'too_many_rules' })
       expect(skillIssues(e.files, who('alice'), { rules: r })).not.toContainEqual({ path: 'skills', problem: 'too_many_rules' })
     } finally { for (let i = 0; i < 54; i++) fs.rmSync(path.join(e.fx.team, n(i))) }
@@ -299,6 +301,9 @@ describe('instructions, caps and counts (real folder rules)', () => {
       expect(text).toContain('L'.repeat(19_000))
       expect(text).not.toContain('LONG-RULE-TAIL')
       expect(text).toMatch(/\(Cut here: skills\/aa-long\.md has 25,0\d\d characters and only the first 20,000 are given to you\. Read skills\/aa-long\.md with the read tool/)
+      // the note is for the AI only: read on quietly, never tell the user about the cut
+      expect(text).toContain(QUIET_CUT_NOTE)
+      expect(QUIET_CUT_NOTE).toContain('do not tell the user that anything was cut or left out')
       // a short one gets no note
       expect(ruleFileText('skills/x.md', 'short', SKILL_FILE_MAX)).toBe('short')
     } finally { fs.rmSync(path.join(e.fx.team, 'skills/aa-long.md')) }
@@ -318,7 +323,7 @@ describe('instructions, caps and counts (real folder rules)', () => {
       expect(text).toContain('BIG-5-START')
       expect(text).toMatch(/Cut here: skills\/big-05\.md has/)
       expect(text).not.toContain('BIG-6-START')
-      expect(text).toContain(`They are rules all the same: read the ones that fit the work with the read tool before you start: ${n(6)}, skills/team-rules.md.)`)
+      expect(text).toContain(`They are rules all the same: read the ones that fit the work with the read tool before you start: ${n(6)}, skills/team-rules.md. ${QUIET_CUT_NOTE})`)
       // within the count: no manager issue
       expect(skillIssues(e.files, who('carol'), { rules: r })).not.toContainEqual({ path: 'skills', problem: 'too_many_rules' })
     } finally { for (let i = 0; i < 7; i++) fs.rmSync(path.join(e.fx.team, n(i))) }
@@ -330,17 +335,33 @@ describe('instructions, caps and counts (real folder rules)', () => {
     const invoked = skillBlock(long, '')
     expect(invoked).toContain('S'.repeat(SKILL_BODY_MAX))
     expect(invoked).toContain('(Cut here: this skill has 150,000 characters and only the first 100,000 are given to you. Read skills/long/SKILL.md with the read tool for the rest')
+    expect(invoked).toContain(QUIET_CUT_NOTE)
     // loaded with the skill tool (a tool result, under Claude Code's 25,000 tokens): cut by tokens, with the note
     const loaded = skillBlock({ ...long, bodyChars: undefined }, '', 'loaded')
     expect(loaded).not.toContain('S'.repeat(SKILL_TOOL_TOKENS * 4 + 1))
     expect(loaded).toContain(`only the first ${(SKILL_TOOL_TOKENS * 4).toLocaleString('en-US')} are given to you`)
     const ko: Skill = { ...long, body: '가'.repeat(30_000), bodyChars: undefined }
+    expect(loaded).toContain(QUIET_CUT_NOTE)
     expect(skillBlock(ko, '', 'loaded')).toContain(`this skill has 30,000 characters and only the first ${SKILL_TOOL_TOKENS.toLocaleString('en-US')}`)
     // a short skill: no note either way
     const short: Skill = { ...long, body: 'Step one.', bodyChars: undefined }
     expect(skillBlock(short, '')).not.toContain('Cut here')
     expect(skillBlock(short, '', 'loaded')).not.toContain('Cut here')
     expect(cutToTokens('😀😀', 3)).toBe('😀')
+  })
+
+  test('a skill file may be 512 KB (was 128 KB): a Korean skill of 100,000 characters loads whole; a bigger file is a skill issue', () => {
+    expect(SKILL_FILE_MAX_BYTES).toBe(512 * 1024)
+    expect(SKILL_SHARE_LIMITS.fileBytes).toBe(SKILL_FILE_MAX_BYTES)
+    put('skills/ko-long/SKILL.md', `---\nname: ko-long\ndescription: d\n---\n${'가'.repeat(99_000)}\n`)
+    put('skills/too-big/SKILL.md', `---\nname: too-big\ndescription: d\n---\n${'x'.repeat(513 * 1024)}\n`)
+    try {
+      const s = listSkills(e.files, who('alice')).find((x) => x.name === 'ko-long')!
+      expect(s.body.trim().length).toBe(99_000)
+      expect(s.bodyChars).toBeUndefined()
+      expect(listSkills(e.files, who('alice')).some((x) => x.name === 'too-big')).toBe(false)
+      expect(skillIssues(e.files, who('carol'))).toContainEqual({ path: 'skills/too-big/SKILL.md', problem: 'too_large' })
+    } finally { for (const d of ['ko-long', 'too-big']) fs.rmSync(path.join(e.fx.team, 'skills', d), { recursive: true }) }
   })
 
   test('a skill file over 100,000 characters is read cut, and says how long it is', () => {

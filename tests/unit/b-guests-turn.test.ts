@@ -66,6 +66,12 @@ test('a guest keeps at most 150 tool rounds per answer; a member gets the team l
   expect(await maxTurns('erin', erin)).toBe(String(GUEST_ANSWER_STEP_LIMIT))
   expect(GUEST_ANSWER_STEP_LIMIT).toBe(150)
   expect(await maxTurns('alice', alice)).toBe('500')
+  // a team limit above it (admins may set up to 2,000): the guest still gets 150
+  setSetting(h.ctx.db, 'answerStepLimit', 2000)
+  try {
+    expect(await maxTurns('erin', erin)).toBe('150')
+    expect(await maxTurns('alice', alice)).toBe('2000')
+  } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'answerStepLimit'").run() }
   // a team limit under the guest ceiling applies to the guest too
   setSetting(h.ctx.db, 'answerStepLimit', 40)
   try { expect(await maxTurns('erin', erin)).toBe('40') } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'answerStepLimit'").run() }

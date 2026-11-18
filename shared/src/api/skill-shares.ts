@@ -21,7 +21,7 @@ export type SkillGroupRef = z.infer<typeof SkillGroupRef>
 
 export const SKILL_SHARE_LIMITS = {
   /** one file of a skill (the team's own skill file cap, chat/skills.ts SKILL_FILE_MAX_BYTES) */
-  fileBytes: 128 * 1024,
+  fileBytes: 512 * 1024,
   /** every file of one skill together */
   skillBytes: 1024 * 1024,
   /** files of one skill */
