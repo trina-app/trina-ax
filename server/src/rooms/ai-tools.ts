@@ -18,6 +18,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',
+  // many renames in one call (tools/file-moves.ts), like rename_file
+  'rename_files',
 ])
 
 /**
@@ -37,6 +39,8 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
   'comment_docx',
+  // many renames in one call (tools/file-moves.ts), like rename_file: what each names counts as read (namedPaths)
+  'rename_files',
   // the original of a Gmail attachment the asker's connection gave in this chat (tools/save-connector-file.ts; drive:
   // refuses in a shared chat)
   'save_connector_file',
@@ -83,6 +87,11 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
       if (typeof ins?.file === 'string') out.push({ key: 'insert_pdf.file', value: ins.file })
       if (typeof st?.image === 'string') out.push({ key: 'stamp_image.image', value: st.image })
     }
+  }
+  // rename_files: each listed file or folder, and the folder a pattern renames in (its names are read)
+  if (tool === 'rename_files') {
+    if (Array.isArray(a.renames)) for (const r of a.renames as unknown[]) { const p = r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined; if (typeof p === 'string') out.push({ key: 'path', value: p }) }
+    if (typeof a.folder === 'string') out.push({ key: 'path', value: a.folder })
   }
   if (tool === 'merge_pdfs' && Array.isArray(a.files)) {
     for (const f of a.files as unknown[]) {
@@ -182,4 +191,5 @@ export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
   'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',
+  'rename_files',
 ])

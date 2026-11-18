@@ -55,7 +55,14 @@ test('unbound turns, revoked downloads, redirects and shortcut loops are refused
 test('Google exports use existing text and all-sheet spreadsheet converters with output limits', async () => {
   fake.blobs.set('doc', { owner: 'alice', name: 'Google document', mime: 'application/vnd.google-apps.document', bytes: new TextEncoder().encode('A Google document body') })
   const doc = await call('drive_read', { fileId: 'doc', maxChars: 8 }).result
-  expect(doc.isError).not.toBe(true); expect(doc.structured).toMatchObject({ text: 'A Google', truncated: true })
+  expect(doc.isError).not.toBe(true); expect(doc.structured).toMatchObject({ text: 'A Google', truncated: true, offset: 0, totalChars: 22 })
+  // TC-4984: a cut read says where to go on, and offset reads on from there to the end
+  expect(String((doc.structured as { next?: string }).next)).toContain('offset 8')
+  const rest = await call('drive_read', { fileId: 'doc', maxChars: 8, offset: 8 }).result
+  expect(rest.structured).toMatchObject({ text: ' documen', truncated: true, offset: 8 })
+  const end = await call('drive_read', { fileId: 'doc', offset: 16 }).result
+  expect(end.structured).toMatchObject({ text: 't body', truncated: false, offset: 16, totalChars: 22 })
+  expect((end.structured as { next?: string }).next).toBeUndefined()
   expect(fake.calls.some(c => c.url.includes('/doc/export?mimeType=text%2Fplain'))).toBe(true)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['first tab']]), 'One')

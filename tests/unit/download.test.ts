@@ -59,6 +59,7 @@ beforeAll(async () => {
         case '/to-ftp': return Response.redirect('ftp://example.com/x', 302)
         case '/loop': return Response.redirect(`http://127.0.0.1:${port}/loop`, 302)
         case '/missing': return new Response('no', { status: 404 })
+        case '/lang': return new Response(`lang=${req.headers.get('accept-language')}`)
         case '/big': return new Response(Buffer.alloc(300_000, 1))
         default: return new Response('?', { status: 400 })
       }
@@ -95,6 +96,14 @@ describe('downloadToFile', () => {
     expect(r.first.subarray(0, 4).toString('latin1')).toBe('\x89PNG')
     expect(fs.readFileSync(f).equals(PNG)).toBe(true)
     expect(fs.statSync(f).mode & 0o777).toBe(0o600)
+  })
+  test('Accept-Language (TC-4981): as given (the person\'s language, then English), English by default; was "ko,en"', async () => {
+    const plain = dst()
+    await downloadToFile(at('/lang'), plain, LOCAL)
+    expect(fs.readFileSync(plain, 'utf8')).toBe('lang=en')
+    const es = dst()
+    await downloadToFile(at('/lang'), es, { ...LOCAL, acceptLanguage: 'es,en;q=0.8' })
+    expect(fs.readFileSync(es, 'utf8')).toBe('lang=es,en;q=0.8')
   })
   test('never writes into an existing file', async () => {
     const f = dst()

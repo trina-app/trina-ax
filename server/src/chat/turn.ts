@@ -36,6 +36,7 @@ import type { LaunchRequest } from '@mycel/shared'
 import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
+import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
@@ -2589,7 +2590,7 @@ export class TurnExec {
   roomCardDetails(tool: string, input: unknown, own: ToolCard | null = this.toolCard(tool, input)): ConfirmDetailT[] {
     // a tool's own words (a connection's HTTP API call: "Read from Tasks", its address, the exact request one click away)
     // in place of its raw arguments one per line (QA TC-233)
-    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId)
+    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId, (p) => this.visibleTree(p))
     return raw.map((d) => ({
       ...d, text: this.redact(d.text),
       ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}),
@@ -4857,11 +4858,6 @@ export const ROOM_CHANGE_PREVIEW = 400
 /** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
 export const ROOM_CHANGE_FULL = 100_000
 
-/** A team path as the file layer reads it (policy/resolve.ts parseInput: no empty or "." names), NFC; null when it is
- * not one (the tool refuses it). */
-function teamSegs(p: unknown): string[] | null {
-  try { return parseInput(p).map((x) => x.normalize('NFC')) } catch { return null }
-}
 
 /** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
  * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
@@ -4902,12 +4898,13 @@ export function writeTargetOf(tool: string, input: unknown, source: (p: string) 
   return p.trim() ? { path: p, mayBeNew } : null
 }
 
-export function instructionLike(rel: string): boolean {
-  const segs = teamSegs(rel)
-  if (!segs?.length) return false
-  const p = segs.join('/')
-  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(segs.at(-1)!)
-}
+// instructionLike and teamSegs live in tools/rename-pattern.ts (rename_files checks them when it runs too)
+export { instructionLike }
+
+/** a rename_files pattern's card lists this many of the files it renames, then "+N" */
+const ROOM_RENAME_SHOWN = 50
+/** rename_files' `at` as the call gives it (anything else: anywhere, as the input check would refuse it anyway) */
+const renameAt = (v: unknown): RenameAt => (v === 'start' || v === 'end' ? v : 'anywhere')
 
 /** at most this many names of a folder a room change would carry are looked at (more: treated as unknown) */
 export const ROOM_CHANGE_SCAN_MAX = 2000
@@ -4973,6 +4970,18 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const segs = teamSegs(a.path)
       return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
     }
+    case 'rename_files': {
+      // a list: each lands as rename_file's; a pattern: the new names of what is directly in the folder, worked out as
+      // the tool does (tools/rename-pattern.ts patternName); past ROOM_CHANGE_SCAN_MAX, counted as holding an instruction
+      // file (it might). The tool checks every item again when it runs (the folder may change after this card)
+      if (Array.isArray(a.renames)) {
+        return { targets: a.renames.flatMap((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; const segs = teamSegs(str(x.path)); return segs?.length ? landing(str(x.path), segs.slice(0, -1), str(x.new_name)) : [] }), shown: false }
+      }
+      const folder = teamSegs(str(a.folder)) ?? []
+      const under = tree(str(a.folder))
+      if (under === null || !str(a.find)) return { targets: [[...folder, 'SKILL.md'].join('/')], shown: false }
+      return { targets: under.filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : landing([...folder, n].join('/'), folder, to) }), shown: false }
+    }
   }
   // any other change (a tool added later): every string it is given may be a place it writes
   return { targets: Object.values(a).flatMap(list), shown: false }
@@ -4985,7 +4994,7 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -5039,6 +5048,19 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'rename_files': {
+      // each rename on a line ("old → new"), or the folder and the pattern
+      if (Array.isArray(a.renames)) {
+        const lines = a.renames.map((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; return `${at(str(x.path))} → ${str(x.new_name)}` })
+        return detail([], lines.join('\n'), [], true)
+      }
+      // a pattern: the files it would rename now, old → new (the first ROOM_RENAME_SHOWN, then "+N"); the tool renames
+      // no others (it checks each again when it runs)
+      const under = tree(str(a.folder))
+      const now = (under ?? []).filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : [`${n} → ${to}`] })
+      const shown = now.slice(0, ROOM_RENAME_SHOWN).join('\n') + (now.length > ROOM_RENAME_SHOWN ? `\n… +${now.length - ROOM_RENAME_SHOWN}` : '')
+      return detail([field('roomAiChangeFolder', place(str(a.folder))), field('roomAiChangeNewName', `${str(a.find)} → ${str(a.replace)}`)], shown, [], true)
+    }
     case 'save_connector_file':
       return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':

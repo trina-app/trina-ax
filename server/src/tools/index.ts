@@ -37,7 +37,8 @@ import { saveConnectorFile, SAVE_CONNECTOR_FILE_DESCRIPTION } from './save-conne
 import { registerFileMoveTools, FILE_MOVE_TOOL_NAMES } from './file-moves'
 import { extractUrls, gateUrl, rememberUrls, TEXT as GATE_TEXT, type WebPageFailure } from './url-gate'
 import { redirectGuard, webEcho } from './connection-urls'
-import { precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { acceptLanguage, precheckTarget, webFetch, wrapExternal, type FetchOptions } from './web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { SAVE_URL_DESCRIPTION, saveUrl, type SaveUrlOptions } from './save-url'
 import { safeOpsEnabled } from '../safe-ops/runner'
 
@@ -345,7 +346,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
           if (no) { why = 'off_site'; hop = next; throw new ToolError(`the page redirected outside what this chat may open: ${no}`) }
           await redirects.check(next)
         } : redirects.check
-        const r = await webFetch(a.url, { ...o.fetch, blockedIps, maxChars: a.maxChars, offset: a.offset, pdftotext: ctx.engineConfig.pdftotext, onRedirect,
+        const r = await webFetch(a.url, { acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)), ...o.fetch, blockedIps, maxChars: a.maxChars, offset: a.offset, pdftotext: ctx.engineConfig.pdftotext, onRedirect,
           // an Office file or a table from the web: read like a team file's text, the text layer only (no OCR of a stranger's file)
           extract: (name, bytes) => extractText(name, bytes, { pandoc: ctx.engineConfig.pandoc, pdftotext: ctx.engineConfig.pdftotext, ocr: ctx.engineConfig.ocr, quarantine: ctx.files.quarantine, textLayerOnly: true }, t.signal), ...(t.person?.pages?.wantsHtml ? { keepHtml: true } : {}) })
         ctx.files.events.emit('external', { turnId: t.turnId, userId: t.user.id, source: 'web_fetch', url: r.url })

@@ -51,7 +51,8 @@ import { placeProduced } from './make-file'
 import { ACCEPTED, RefusedKind, refusedName, settleKind, sniffDownload, withExtension, type FileKind, type ReadAt } from './sniff'
 import { redirectGuard } from './connection-urls'
 import { gateUrl } from './url-gate'
-import { precheckTarget } from './web-fetch'
+import { acceptLanguage, precheckTarget } from './web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { diskStat } from '../system/disk-stat'
 
 /** larger downloads ask the person first (save_url's card) */
@@ -246,7 +247,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       })
       const r = await downloadToFile(source, tmp, {
         lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep, totalTimeoutMs: o.totalTimeoutMs,
-        blockedIps, signal: t.signal,
+        blockedIps, signal: t.signal, acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)),
         askAbove: o.askAbove ?? ASK_ABOVE_BYTES,
         onLarge: async ({ size: total, received }) => {
           const shown = humanBytes(total ?? received)

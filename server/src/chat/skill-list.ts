@@ -18,8 +18,9 @@ import { groupOrder, isPersonalSkill, isSkillManifest, skillTier, type Skill } f
 
 /** characters of the skill lines in the instructions (Claude Code: 1% of a 200K context x 4 characters) */
 export const SKILL_LIST_BUDGET = 8_000
-/** a description in the list is cut here (the skill tool and find_skills give more) */
-export const SKILL_LINE_DESCRIPTION_MAX = 160
+/** a description in the list is cut here (the skill tool and find_skills give more); 160 before the second limits
+ * audit (TC-4979), which lost the "use when …" part of most descriptions */
+export const SKILL_LINE_DESCRIPTION_MAX = 400
 /** skills the server puts in front of a message when the list is cut */
 export const SKILL_HINTS_MAX = 3
 /** find_skills results */
@@ -34,7 +35,7 @@ const fold = (s: string) => s.normalize('NFC').toLowerCase()
 /** one line: white space (also NEL), control characters and line or paragraph separators become one space, so a name or
  * description cannot start a line of its own in the instructions */
 export const oneLine = (s: string) => s.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, ' ').trim()
-/** the description as the list shows it: one line, at most 160 characters */
+/** the description as the list shows it: one line, at most SKILL_LINE_DESCRIPTION_MAX characters */
 export function shortDescription(d: string, max = SKILL_LINE_DESCRIPTION_MAX): string {
   const t = oneLine(d)
   return [...t].length > max ? [...t].slice(0, max - 1).join('').trimEnd() + '…' : t

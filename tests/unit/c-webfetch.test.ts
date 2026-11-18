@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import nodeNet from 'node:net'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { FETCH_TIMEOUT_MS, fetchedLine, htmlToText, isPublicAddress, mayEndEvent, pinnedRequest, resolveTarget, textPart, webFetch, wrapExternal, type FetchOptions, type Target } from '../../server/src/tools/web-fetch'
+import { acceptLanguage, FETCH_TIMEOUT_MS, fetchedLine, htmlToText, isPublicAddress, mayEndEvent, pinnedRequest, resolveTarget, textPart, webFetch, wrapExternal, type FetchOptions, type Target } from '../../server/src/tools/web-fetch'
 import { sseEvents } from '../../server/src/integrations/connections/mcp'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makePdf } from '../lib/pdf'
@@ -215,6 +215,7 @@ describe('fetching (local test servers stand in for public sites)', () => {
         case '/slow': return new Promise((r) => setTimeout(() => r(new Response('late')), 5000))
         case '/late': return new Promise((r) => setTimeout(() => r(new Response('a slow handler')), 200))
         case '/404': return new Response('no', { status: 404 })
+        case '/lang': return new Response(`lang=${req.headers.get('accept-language')}`, { headers: { 'content-type': 'text/plain' } })
         case '/to-private': return Response.redirect('http://10.0.0.1/admin', 302)
         case '/to-metadata': return Response.redirect('http://169.254.169.254/latest/meta-data/', 301)
         case '/to-localhost': return Response.redirect('http://localhost/', 307)
@@ -228,6 +229,16 @@ describe('fetching (local test servers stand in for public sites)', () => {
   })
   afterAll(() => { http.stop(true); https.stop(true) })
   const H = (p: string) => `http://fetch.test:19135${p}`
+
+  test('Accept-Language (TC-4981): the person\'s language, then English; English alone by default (was "ko,en" for all)', async () => {
+    expect(acceptLanguage('ko')).toBe('ko,en;q=0.8')
+    expect(acceptLanguage('id')).toBe('id,en;q=0.8')
+    expect(acceptLanguage('en')).toBe('en')
+    expect(acceptLanguage(null)).toBe('en')
+    expect(acceptLanguage('x\r\nEvil: 1')).toBe('en')
+    expect((await webFetch(H('/lang'), T)).text).toBe('lang=en')
+    expect((await webFetch(H('/lang'), { ...T, acceptLanguage: acceptLanguage('ja') })).text).toBe('lang=ja,en;q=0.8')
+  })
 
   test('HTML becomes readable text: no scripts, styles or hidden text; links absolute; title', async () => {
     const r = await webFetch(H('/page'), T)

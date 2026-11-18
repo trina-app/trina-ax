@@ -187,7 +187,7 @@ export async function readDrive(conn: DriveConn, a: z.output<typeof DriveReadInp
     try { checkAbort(signal); shown = await image(`image.${imageExt}`, r.bytes, signal) }
     catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
     r.assertCurrent(); checkAbort(signal)
-    return { ...publicItem(item), text: shown.text.slice(0, a.maxChars), truncated: shown.text.length > a.maxChars, ...(shown.jpeg ? { image: shown.jpeg } : {}) }
+    return { ...publicItem(item), ...part(shown.text, a), ...(shown.jpeg ? { image: shown.jpeg } : {}) }
   }
   let text: string
   const ext = ex?.ext ?? DOWNLOAD_EXT[item.mimeType]
@@ -195,5 +195,20 @@ export async function readDrive(conn: DriveConn, a: z.output<typeof DriveReadInp
   catch (e) { if (signal?.aborted) throw new DriveError('cancelled', 409); throw new DriveError('conversion_failed') }
   r.assertCurrent(); checkAbort(signal)
   const scanned = ext === 'pdf' && looksScanned(text)
-  return { ...publicItem(item), text: text.slice(0, a.maxChars), truncated: text.length > a.maxChars, ...(scanned ? { note: SCANNED_NOTE } : {}) }
+  return { ...publicItem(item), ...part(text, a), ...(scanned ? { note: SCANNED_NOTE } : {}) }
+}
+
+/** The part of a file's text a read asked for: from `offset`, at most `maxChars`. Cut: the whole length and the
+ * offset to go on at, like the team files' read with offset/limit (TC-4984: a long Drive file had no way past its
+ * first 100,000 characters). */
+export function part(text: string, a: { maxChars: number; offset?: number }): { text: string; truncated: boolean; offset?: number; totalChars?: number; next?: string } {
+  const from = Math.min(a.offset ?? 0, text.length)
+  const end = from + a.maxChars
+  const cut = end < text.length
+  return {
+    text: text.slice(from, end), truncated: cut,
+    ...(from > 0 || cut ? { offset: from, totalChars: text.length } : {}),
+    ...(cut ? { next: `The text was cut at character ${end} of ${text.length}: call drive_read again with offset ${end} to read on.` } : {}),
+    ...(from > 0 && from >= text.length ? { next: `offset ${a.offset} is past the end of the text (${text.length} characters).` } : {}),
+  }
 }
