@@ -101,6 +101,13 @@ export function converterReadTimeoutMs(bytes: number): number {
   return Math.min(300_000, 60_000 + Math.ceil(Math.max(0, bytes) / (1024 * 1024)) * 2_000)
 }
 
+/** The memory this process may use: a container's limit where the runtime knows it (process.constrainedMemory, Docker's
+ * cgroup), else the machine's. */
+function machineMemoryBytes(): number {
+  const total = os.totalmem()
+  const limit = typeof process.constrainedMemory === 'function' ? process.constrainedMemory() : 0
+  return limit && limit > 0 && limit < total ? limit : total
+}
 let workersMaxOverride: number | null = null
 /** Tests: a fixed number of office workers at the same time (null: back to officeWorkersMax's own). */
 export function setOfficeWorkersMaxForTests(n: number | null) { workersMaxOverride = n }
@@ -113,7 +120,7 @@ export function officeWorkersMax(): number {
   if (workersMaxOverride !== null) return workersMaxOverride
   const plan = currentPlan()
   const byCpu = Math.floor(cpuBudget() / 2)
-  const byMemory = plan ? Math.floor(planLimits(plan).convMiB / 512) : Math.floor(os.totalmem() / (1024 * 1024) * 0.25 / OFFICE_WORKER_RSS_MIB)
+  const byMemory = plan ? Math.floor(planLimits(plan).convMiB / 512) : Math.floor(machineMemoryBytes() / (1024 * 1024) * 0.25 / OFFICE_WORKER_RSS_MIB)
   return Math.max(2, Math.min(6, byCpu, byMemory))
 }
 

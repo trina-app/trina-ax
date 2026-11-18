@@ -38,7 +38,7 @@ Cells without a formula are unchanged, and a formula without a stored result sti
 at most 4 MB of formula text (FORMULA_TEXT_MAX), and never so much that the text passes OFFICE_TEXT_MAX: a sheet past
 that shows its values, as before, and one labelled line at the end says so (`=== Sheet 'X' shows values only: its N
 formula cells are too many to show next to them ===`). So a formula-heavy workbook that read before still reads. The
-text cache format goes to 7; format-6 text stays usable, and only .docx/.xlsx/.xls/.ods text is made again in the
+text cache format goes to 7; format-6 text stays usable, and only .docx/.odt/.xlsx/.xls/.ods text is made again in the
 background (a PDF's or deck's text, OCR included, did not change and is kept).
 
 PR #1290 adds a streaming reader for big .xlsx files (sheet-stream.ts) and its own one-sheet path (sheetRangeText); both
@@ -51,7 +51,7 @@ need `formulasWithValues` (or the same text) after `formulaStubsAsText` once bot
   named; the listing has no file contents and stops at 20,000 files.
 - grep and list stop at about 20,000 tokens (28,000 characters, the estimate of files/vision.ts), under Claude Code's
   25,000 for a tool result, and end with the exact next call: `offset=N`. Both tools take a new optional `offset` (skip
-  N output lines or entries). A single grep line longer than the budget comes back cut, with a note. The file screen's
+  N output lines or entries). A single grep line longer than the budget comes back cut, with a note, and its file counts as read (read scope, sources) like any shown line. The file screen's
   content search has no budget.
 - Paging needs one order: with `offset` or a budget, ripgrep runs with `--sort path` (its threads give files in any
   order; paging 1,500 files without it showed about 1,150 of them). A later page extracts no office text before its
@@ -67,7 +67,7 @@ need `formulasWithValues` (or the same text) after `formulaStubsAsText` once bot
 |---|---|---|
 | office worker read or write (xlsx/xls/ods/hwp/hwpx, docx/pptx extras, hwpx and PDF tools) | 60 s | 60 s + 4 s per MB (32 MB: 188 s), at most 10 min |
 | pandoc (docx/pptx/odt) and pdftotext reads | 20 s | 60 s + 2 s per MB, at most 5 min |
-| office workers at once | 2 | half the CPU budget, 2 to 6; at most its converter memory / 512 MB with a plan, a quarter of the machine's memory / 2 GB without one (never below 2) |
+| office workers at once | 2 | half the CPU budget, 2 to 6; at most its converter memory / 512 MB with a plan, a quarter of the memory (a container's limit where known, process.constrainedMemory) / 2 GB without one (never below 2) |
 
 The memory caps stay: each worker 2,048 MB RSS, and the converter cgroup's memory.max for all of them together, so more
 workers never take more memory. Background work still takes at most one worker. PR #1290 scales the same timeout

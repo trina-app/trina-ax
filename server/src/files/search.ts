@@ -163,8 +163,8 @@ export const TEXT_CACHE_VERSION = '7'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
 const UPGRADABLE_VERSIONS = new Set(['5', '6'])
-/** the formats whose text format 7 changed (a Word title; spreadsheet formulas) */
-const V7_CHANGED = new Set(['docx', 'xlsx', 'xls', 'ods'])
+/** the formats whose text format 7 changed (a Word or OpenDocument title; spreadsheet formulas) */
+const V7_CHANGED = new Set(['docx', 'odt', 'xlsx', 'xls', 'ods'])
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -733,16 +733,19 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
   let usedChars = 0, usedTokens = 0
   /** for each line of `out`: its file and its index in `hits` (-1: none), so a cut after the place labels keeps both right */
   const meta: { real: string | null; hit: number }[] = []
-  /** true: shown; false: the result is full (stop); null: left out for `offset` (go on) */
-  const push = (s: string, real: string | null = null): boolean | null => {
+  /** true: shown; 'cut': shown cut, and the result is full (record it, then stop); false: the result is full (stop);
+   * null: left out for `offset` (go on) */
+  const push = (s: string, real: string | null = null): boolean | 'cut' | null => {
     if (o.offset && offsetSkipped < o.offset) { offsetSkipped++; return null }
     if (out.length >= o.limit) { truncated = true; return false }
     if (o.budget) {
       const t = textTokens(s) + 1
       if (usedChars + s.length + 1 > o.budget.chars || usedTokens + t > o.budget.tokens) {
         // one line longer than the whole budget: its start, so the result is never empty
-        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); meta.push({ real: null, hit: -1 }); usedChars = o.budget.chars }
-        truncated = true; budgetCut = true; return false
+        truncated = true; budgetCut = true
+        // the start of it is shown: its file is read (files, hits) like any shown line
+        if (!out.length) { out.push(s.slice(0, Math.min(o.budget.chars, o.budget.tokens)).replace(/[\uD800-\uDBFF]$/, '') + ' … (line cut: read the file at this line for all of it)'); meta.push({ real, hit: -1 }); usedChars = o.budget.chars; return 'cut' }
+        return false
       }
       usedChars += s.length + 1; usedTokens += t
     }
@@ -788,7 +791,7 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
       const m = map(raw); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
       const ln: number = j.data.line_number
       const text = (j.data.lines.text ?? Buffer.from(j.data.lines.bytes ?? '', 'base64').toString('utf8')).replace(/\r?\n$/, '')
-      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) if (push('--') === false) return false
+      if (last && (last.file !== m.shown || ln > last.line + 1) && (o.before || o.after)) { const sp = push('--'); if (sp === false || sp === 'cut') return false }
       last = { file: m.shown, line: ln }
       const sep = j.type === 'match' ? ':' : '-'
       const pushed = push(o.lineNumbers ? `${m.shown}${sep}${ln}${sep}${text}` : `${m.shown}${sep}${text}`, m.real)
@@ -797,13 +800,13 @@ export async function grepFiles(d: SearchDeps, baseSegs: string[], baseIsFile: b
         if (j.type === 'match') { hits.push({ path: m.shown, line: ln, text }); meta[out.length - 1]!.hit = hits.length - 1 }
         if (placing && structureOf(m.real)) placed.push({ out: out.length - 1, hit: j.type === 'match' ? hits.length - 1 : -1, real: m.real, line: ln, sep, text })
       }
-      return pushed !== false
+      return pushed === true || pushed === null
     }
     const parts = rec.split('\0')
     const m = map(parts[0].replace(/^\n/, '')); if (!m || !real(m) || !ok(m.shown, m.real) || !keep(m.real)) return
     const pushed = push(o.mode === 'count' ? `${m.shown}:${(parts[1] ?? '').trim()}` : m.shown, m.real)
     if (pushed) files.add(m.real)
-    return pushed !== false
+    return pushed === true || pushed === null
   }
   const recSep: '\n' | '\0' = o.mode === 'files_with_matches' ? '\0' : '\n'
   // literal text is searched in NFC and NFD, so Korean text written in either form matches (macOS can write NFD)

@@ -199,6 +199,16 @@ describe('TC-4921 paging and place labels', () => {
     expect(seen.length).toBe(1500)
     expect(new Set(seen).size).toBe(1500)
   })
+  test('a first line longer than the whole budget: its start is shown and its file is recorded as read', async () => {
+    put('users/alice/WIDE/one.txt', 'needle ' + 'y'.repeat(40_000) + '\n')
+    const t = A.toolCtx('alice', null)
+    const h = makeHandler(A.ctx.files, A.ctx.db, t)
+    const r = await h({ jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name: 'grep', arguments: { pattern: 'needle', path: 'users/alice/WIDE', output_mode: 'content' } } })
+    const text = r.result.content[0].text as string
+    expect(text).toContain('line cut')
+    expect(text.length).toBeLessThan(30_000)
+    expect(t.files.readPaths.has('users/alice/WIDE/one.txt')).toBe(true)
+  })
   test('Korean sheet rows with their place labels stay under the budget', async () => {
     const rows: string[][] = [['항목', '설명', '금액']]
     for (let i = 0; i < 3000; i++) rows.push([`매출 항목 ${i}`, '지역별 월간 매출 합계와 비고', String(i * 1000)])
