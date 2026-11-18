@@ -143,7 +143,9 @@ export function chatFileTool(exec: TurnExec): Tool {
       signal.throwIfAborted()
       if (e instanceof Denied) return { ...text(`${head}\nAccess changed during the call. Please retry.`, true), summary: 'chat_file -> access changed' }
       // a converter's message can quote the file: one line, our tags neutralised, inside the file's framing
-      const why = e instanceof Error ? neutralizeTags(swap(e.message).replace(/[\r\n<>\u2028\u2029]+/g, ' ').slice(0, 300)) : 'it could not be read'
+      // only a tool's own refusal is passed on (its words name the file, swapped below); anything else could carry the
+      // storage path or a converter's internals
+      const why = e instanceof ToolError ? neutralizeTags(swap(e.message).replace(/[\r\n<>\u2028\u2029]+/g, ' ').slice(0, 300)) : 'it could not be read'
       return { ...text(`${head}\nThe file could not be read: ${why}`, true), summary: `chat_file -> ${e instanceof ToolError ? `refused: ${e.code}` : 'not read'}` }
     }
     const blocks: McpContent[] = out.content ?? [{ type: 'text', text: out.text }, ...(out.images ?? [])]
@@ -175,23 +177,44 @@ function findChatFile(exec: TurnExec, ref: string, byName: boolean): ChatFileRow
   return null
 }
 
+/** The calls that only take a file's bytes, by the argument that names the file (chatFileCopyOf): plain content reads
+ * and the byte tools. Never a call that reads history (read's versions/version), lists, moves, renames or copies. */
+const BYTE_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = {
+  read: ['file_path'], split_pdf: ['file_path'], unzip_file: ['path'], merge_pdfs: ['files'], stamp_pdf: ['file_path', 'image'],
+  edit_pdf: ['file_path', 'insert_pdf.file', 'stamp_image.image'], resize_images: ['paths'], make_file: ['source'],
+}
+
 /**
- * Is the team file at `p` (as `userId` reads it) byte for byte a file sent in a message of this chat that they see now?
- * A shared chat's read card (chat/turn.ts sharedSources) then counts its read as the chat's ({type:'chat'}): everyone in
- * the chat already has those bytes, so a copy save_chat_file put in the person's own folder is used by the file tools
- * (split_pdf, unzip_file, read …) without asking to share the folder. Only a file of exactly a sent chat file's size is
- * hashed; an upload not sent yet (its sender's alone), one changed since or anything else is false.
+ * May a shared chat's read card (chat/turn.ts sharedSources) count this argument of this call as the chat's
+ * ({type:'chat'}) instead of its folder's? Only when all of this holds:
+ *   - the call only takes the file's bytes (BYTE_ONLY_ARGS; read without versions or version: history is not the copy);
+ *   - the path is in the person's own folder (users/<them>/), and the newest file event there is the 'create' a
+ *     save_chat_file of this chat by this person made, of exactly that chat file (nothing since: no overwrite, rename,
+ *     move or restore; an earlier file at the path is never "the copy");
+ *   - the chat file was sent in a message (an upload not sent yet is its sender's alone) of this chat, the person sees
+ *     the chat now, and the file's bytes now hash to that chat file's sha256 (same size first).
+ * Everyone in the chat already has those bytes, so "split it", "unzip it" after the copy ask nothing new. Anything
+ * else, or a check that fails, is false (the card asks as before). A write after this check makes a new file event and
+ * is the folder's file from then on.
  */
-export function chatFileCopyOf(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string, p: string): boolean {
+export function chatFileCopyOf(ctx: TurnExec['rt']['ctx'], userId: string, chatId: string, tool: string, key: string, input: unknown, p: string): boolean {
   try {
+    if (!(BYTE_ONLY_ARGS[tool] ?? []).includes(key)) return false
+    const a = input && typeof input === 'object' ? input as Record<string, unknown> : {}
+    if (tool === 'read' && (a.versions !== undefined || a.version !== undefined)) return false
     const me = ctx.files.principal(userId)
     const r = authorize(ctx.files.fx, ctx.files.rules(), me, p, 'read')
+    if (r.segs[0] !== 'users' || r.segs[1] !== userId || r.segs.length < 3) return false
     if (!r.st?.isFile() || r.st.size > CHAT_FILE_MAX) return false
-    const rows = ctx.db.query('SELECT id, chat_id, sha256 FROM chat_files WHERE chat_id = ? AND size = ?').all(chatId, r.st.size) as Pick<ChatFileRow, 'id' | 'chat_id' | 'sha256'>[]
-    if (!rows.length || !seesChatFiles(ctx.db, userId, chatId)) return false
-    const hash = createHash('sha256').update(readRegular(r.abs, CHAT_FILE_MAX, r.st).bytes).digest('hex')
-    const store = chatFilesOf(ctx)
-    return rows.some((f) => f.sha256 === hash && store.sent(f))
+    const ev = ctx.db.query("SELECT e.action, e.user_id, e.sha256, e.detail, t.chat_id, t.user_id AS turn_user FROM file_events e LEFT JOIN turns t ON t.id = e.turn_id WHERE e.path = ? AND e.action <> 'rejected' ORDER BY e.id DESC LIMIT 1").get(r.rel) as { action: string; user_id: string | null; sha256: string | null; detail: string | null; chat_id: string | null; turn_user: string | null } | null
+    if (!ev || ev.action !== 'create' || ev.user_id !== userId || ev.chat_id !== chatId || ev.turn_user !== userId) return false
+    let d: { tool?: unknown; chatFile?: unknown } = {}
+    try { d = JSON.parse(ev.detail ?? '{}') } catch { return false }
+    if (d.tool !== SAVE_CHAT_FILE_TOOL || typeof d.chatFile !== 'string') return false
+    const f = ctx.db.query('SELECT id, chat_id, sha256, size FROM chat_files WHERE id = ? AND chat_id = ?').get(d.chatFile, chatId) as Pick<ChatFileRow, 'id' | 'chat_id' | 'sha256' | 'size'> | null
+    if (!f || f.size !== r.st.size || ev.sha256 !== f.sha256) return false
+    if (!seesChatFiles(ctx.db, userId, chatId) || !chatFilesOf(ctx).sent(f) || ctx.files.quarantine.hasHash(f.sha256)) return false
+    return createHash('sha256').update(readRegular(r.abs, CHAT_FILE_MAX, r.st).bytes).digest('hex') === f.sha256
   } catch { return false }
 }
 
@@ -312,7 +335,7 @@ export function saveChatFileTool(exec: TurnExec): Tool {
       const tmp = path.join(work, 'file')
       fs.writeFileSync(tmp, bytes, { mode: 0o600 })
       const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call) }
-      const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, SAVE_CHAT_FILE_TOOL, undefined, { turnBytes: false, detail: { type: file.mime } })
+      const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, SAVE_CHAT_FILE_TOOL, undefined, { turnBytes: false, detail: { type: file.mime, chatFile: file.id } })
       const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''
       return { ...text(`Saved a copy of "${neutralizeTags(oneLine(file.name, 200))}" from this chat as ${made.path} (${made.size} bytes). The file tools (read, stamp_pdf, merge_pdfs, unzip_file, resize_images, …) can use it at that path.${note}`), summary: `save_chat_file -> ${made.path} (${made.size} B)` }
     } catch (e) {

@@ -28,9 +28,17 @@
   a conflict copy next to an unread file, versions, file events). Default place: the person's own downloads, no card
   there. Offered where `chat_file` is (SHARED_TOOLS), never to a sub-agent or a guest.
 - **Other file tools:** they take the copy's team path. In a shared chat, a read of the person's own folder normally
-  asks to share it; a file whose bytes are exactly a file sent in this chat (and that the person sees) counts as the
-  chat's instead (`chatFileCopyOf`, only files of a sent chat file's exact size are hashed), so "split this PDF" or
-  "unzip it" after the copy asks nothing new. Once the copy is changed it is the folder's file again.
+  asks to share it. The shared-read card counts an argument as the chat's (`chatFileCopyOf`) only when all hold
+  (security review of #1286): the call only takes the file's bytes (read without `versions`/`version`, split_pdf,
+  unzip_file, merge_pdfs, stamp_pdf, edit_pdf, resize_images, make_file's source; never history, listings, moves,
+  renames or copies); the path is in the person's own folder; the newest file event there is the 'create' of a
+  save_chat_file of this chat by this person, naming that chat file (`detail.chatFile`), with nothing since (an
+  overwrite with the same bytes is not the copy: its versions would leak what was there before); the chat file was
+  sent in a message, the person sees the chat and the bytes hash to its sha256. A write after the check is a new file
+  event and asks from then on; the check and the read are not one atomic step, which provenance in the person's own
+  folder makes harmless (only they and their AI write there).
+- **Errors:** chat_file passes on only a tool's own refusal (ToolError); any other failure says "it could not be read",
+  never a storage path.
 - **Kept:** who may open a chat file (seesChatFiles), the download-only list, the people-shared rule after a chat gets
   another audience, guests without the tools, the read record of the chat.
 - **Left out:** passing a chat file id straight to stamp_pdf, unzip_file and the others (they go through the copy);

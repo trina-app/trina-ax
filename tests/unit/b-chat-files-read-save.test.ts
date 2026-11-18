@@ -158,3 +158,93 @@ describe('save_chat_file', () => {
     expect(r).toBe('refused')
   })
 })
+
+describe('who and what never gets through', () => {
+  const notFound = /No file .* sent in this chat/
+  test('a file held by the safety check: neither read nor saved', async () => {
+    const bytes = 'QA-HELD-CHAT-FILE ' + crypto.randomUUID()
+    const { chat, file } = await sent('held.txt', bytes)
+    h.ctx.files.quarantine.add(Buffer.from(bytes), 'image')
+    const r = await run('bob', chat, `${fake({ tool: 'chat_file', args: { file }, sayResult: true })}`)
+    expect(r.content).toContain("held by the team's safety check")
+    expect(r.content).not.toContain('QA-HELD-CHAT-FILE')
+    const s = await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file }, sayResult: true })}`)
+    expect(s.cards).toHaveLength(0)
+    expect(s.content).toContain("held by the team's safety check")
+    expect(fs.existsSync(path.join(h.team, 'users/bob/downloads/held.txt'))).toBe(false)
+  })
+
+  test("another chat's file id and someone else's upload not sent yet: not found, for read and save", async () => {
+    const other = await sent('other-chat.txt', 'OTHER CHAT TEXT')
+    const { chat } = await sent('here.txt', 'HERE')
+    const unsent = await upload('alice', chat, 'draft.txt', 'ALICE DRAFT NOT SENT')
+    for (const file of [other.file, unsent.body.id]) {
+      const r = await run('bob', chat, `${fake({ tool: 'chat_file', args: { file }, sayResult: true })}`)
+      expect(r.content).toMatch(notFound)
+      const s = await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file }, sayResult: true })}`)
+      expect(s.content).toMatch(notFound)
+      expect(s.cards).toHaveLength(0)
+    }
+    const dl = path.join(h.team, 'users/bob/downloads')
+    const texts = fs.existsSync(dl) ? fs.readdirSync(dl, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => fs.readFileSync(path.join(dl, e.name), 'utf8')) : []
+    for (const t of ['OTHER CHAT TEXT', 'ALICE DRAFT NOT SENT']) expect(texts).not.toContain(t)
+  })
+
+  test('someone taken out of the chat: no turn and no file there for them; taken out while the save card waits: nothing saved', async () => {
+    const { chat, file } = await sent('roster.txt', 'QA ROSTER')
+    // erin is in through marketing; bob asks to save to a folder others see, and is taken out while the card waits
+    const started = await h.api('bob').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'save_chat_file', args: { file, save_as: 'shared/' }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } })
+    await ws.bob!.next('turn.request', (f) => f.data.turnId === started.turnId, 30_000)
+    await share('alice', chat, [{ subjectType: 'group', subjectId: 'marketing' }])
+    const card = ws.bob!.frames.find((f) => f.type === 'turn.request' && f.data.turnId === started.turnId)
+    if (card && card.type === 'turn.request') await h.api('bob').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: card.data.request.requestId, answer: 'save' } }).catch(() => null)
+    for (let i = 0; i < 200 && (db().query("SELECT status FROM turns WHERE id = ?").get(started.turnId) as { status: string }).status === 'running'; i++) await Bun.sleep(50)
+    expect(fs.existsSync(path.join(h.team, 'shared/roster.txt'))).toBe(false)
+    // and from then on bob gets neither the chat nor its files
+    expect((await h.req('bob', `/api/chats/${chat}/files/${file}`)).status).toBe(404)
+    const again = await h.api('bob').call(API.sendMessage, { params: { id: chat }, body: { content: fake({ tool: 'chat_file', args: { file }, sayResult: true }), clientMessageId: cm(), attachmentIds: [] } }).then(() => 'sent', () => 'refused')
+    expect(again).toBe('refused')
+  })
+
+  test('guests and sub-agents do not get save_chat_file (nor chat_file)', async () => {
+    const { GUEST_TURN_TOOLS } = await import('../../server/src/chat/guest-tools')
+    const { PARENT_ONLY_TOOLS } = await import('../../server/src/chat/subagents')
+    for (const t of ['chat_file', 'save_chat_file']) { expect(GUEST_TURN_TOOLS.has(t)).toBe(false); expect(PARENT_ONLY_TOOLS.has(t)).toBe(true) }
+  })
+})
+
+describe('the copy counts as the chat\'s only when it is this chat\'s untouched copy, taken as bytes', () => {
+  const readCard = async (user: string, chat: string, args: Record<string, unknown>) => (await run(user, chat, `${fake({ tool: 'read', args, sayResult: true })}`)).cards.length
+
+  test('read with versions or version on the copy asks (its history is not the chat\'s); a plain read does not', async () => {
+    const { chat, file } = await sent('quote.txt', 'QA QUOTE 900')
+    await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file, save_as: 'users/bob/quotes/' }, sayResult: true })}`)
+    expect(await readCard('bob', chat, { file_path: 'users/bob/quotes/quote.txt' })).toBe(0)
+    expect(await readCard('bob', chat, { file_path: 'users/bob/quotes/quote.txt', versions: true })).toBe(1)
+    expect(await readCard('bob', chat, { file_path: 'users/bob/quotes/quote.txt', version: 1 })).toBe(1)
+  })
+
+  test('a file overwritten with a chat file\'s bytes is not the copy: read and its versions ask (no "SECRET SALARY" leak)', async () => {
+    const { chat } = await sent('memo-src.txt', 'PUBLIC MEMO TEXT')
+    const own = await h.api('bob').call(API.createChat, { body: {} })
+    await run('bob', own.id, `${fake({ tool: 'write', args: { file_path: 'users/bob/memo.txt', content: 'SECRET SALARY' }, sayResult: true })}`, [], () => 'save')
+    await run('bob', own.id, `${fake({ tool: 'read', args: { file_path: 'users/bob/memo.txt' } }, { tool: 'write', args: { file_path: 'users/bob/memo.txt', content: 'PUBLIC MEMO TEXT' }, sayResult: true })}`, [], () => 'save')
+    expect(fs.readFileSync(path.join(h.team, 'users/bob/memo.txt'), 'utf8')).toBe('PUBLIC MEMO TEXT')
+    const v = await run('bob', chat, `${fake({ tool: 'read', args: { file_path: 'users/bob/memo.txt', versions: true }, sayResult: true })}`)
+    expect(v.cards).toHaveLength(1)
+    expect(v.content).not.toContain('SECRET SALARY')
+    expect(await readCard('bob', chat, { file_path: 'users/bob/memo.txt' })).toBe(1)
+  })
+
+  test("another chat's copy, and a copy of an upload not sent yet, still ask", async () => {
+    const a = await sent('a-file.txt', 'QA A FILE')
+    const b = await sent('b-file.txt', 'QA B FILE')
+    await run('bob', a.chat, `${fake({ tool: 'save_chat_file', args: { file: a.file, save_as: 'users/bob/a/' }, sayResult: true })}`)
+    expect(await readCard('bob', b.chat, { file_path: 'users/bob/a/a-file.txt' })).toBe(1)
+    // alice's own upload, not sent: she may copy it, but it is hers alone, so reading the copy in the chat asks
+    const up = await upload('alice', b.chat, 'not-sent.txt', 'QA NOT SENT ' + crypto.randomUUID())
+    await run('alice', b.chat, `${fake({ tool: 'save_chat_file', args: { file: up.body.id, save_as: 'users/alice/ns/' }, sayResult: true })}`)
+    expect(fs.existsSync(path.join(h.team, 'users/alice/ns/not-sent.txt'))).toBe(true)
+    expect(await readCard('alice', b.chat, { file_path: 'users/alice/ns/not-sent.txt' })).toBe(1)
+  })
+})

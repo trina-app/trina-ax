@@ -3169,8 +3169,9 @@ export class TurnExec {
       if (tool === 'list' && k === 'path') continue
       if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
       if (writes.has(k) && !exists(v)) continue
-      // a copy of a file everyone in the chat was sent (save_chat_file): read as the chat's, not as its folder's
-      if (!writes.has(k) && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
+      // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
+      if (!writes.has(k) && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
       for (const p of this.roomNames(v)) note(p)
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
