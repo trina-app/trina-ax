@@ -1188,9 +1188,14 @@ describe('the storage rule before each command', () => {
     expect(r.isError).toBeUndefined()
     expect(runs.size).toBe(1)
   })
-  test('where the rule is not enforced the command runs', async () => {
-    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
+  test('where the rule is not enforced the command runs while the simple floor has room', async () => {
+    // #1284: without the plan's rule the simple floor (2 GiB or 5% free, system/storage.ts simpleFloorBytes) still applies
+    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: (100 * GiB) / 4096, bfree: (50 * GiB) / 4096, bavail: (50 * GiB) / 4096 }) })
     expect((await alice().call({ command: 'echo hi' })).isError).toBeUndefined()
+    configureStorageGuard({ root: h.team, enforce: () => false, statfs: () => ({ bsize: 4096, blocks: 100, bfree: 0, bavail: 0 }) })
+    const r = await alice().call({ command: 'echo hi' })
+    expect(r.isError).toBe(true)
+    expect(out(r)).toContain("the team's storage is full")
   })
 })
 
