@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 01:56
 - Branch: `fix/chats-tab-sideways`
-- Status: in progress
+- Status: done
 - Where: web/ (the team web app, shown by the phone app's WebView). Why: the overflow is in the web page at phone width
   (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a layout bug fix
@@ -49,4 +49,7 @@ The ⊕ moves 2 px left on phones. Computers are unchanged (`sm:pr-4`, and `touc
 
 ## Result
 
-To be filled in.
+As planned. `web/src/pages/Rooms.tsx`: the section header's right padding on phones is 10 px. The Chats list's
+scrollWidth went from 362/392/432 to 360/390/430 at 360/390/430 px, in Chromium and WebKit, in light and dark. The other
+tabs were already as wide as the screen. A swipe on the list now leaves scrollLeft and window.scrollX at 0 (before, a
+sideways drag moved the list 2 px). Guard: `web/test/e2e/phone-chats-tab.cases.ts`, "no tab is wider than the phone".

@@ -288,4 +288,58 @@ export function chatsTabCases() {
     })
   })
 
+  test.describe('a phone, long names and counts', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 3 })
+
+    // QA TC-4833: the 대화 list dragged sideways (the section header's ⊕ took taps from a 44 px box that stuck 2 px out
+    // of the list, so the list was 392 px wide on a 390 px phone). No phone tab is wider than the screen, with long
+    // names and counts too, and a swipe on the 대화 list (a thumb drifts sideways) leaves it where it was across.
+    test('no tab is wider than the phone, and the 대화 list never moves sideways (TC-4833)', async ({ page, browserName }) => {
+      const LONG = '아주아주긴방이름입니다한줄에절대로들어가지않는그런방이름예시예요 An-extremely-long-room-name-without-any-spaces-at-all'
+      await reset(page)
+      await routeRooms(page, [
+        ...ROOMS,
+        { id: id(60), kind: 'group', name: LONG, peers: [MINJUN, SEOYEON], unread: 999, mentioned: true, ago: 1, last: LONG + LONG },
+        { id: id(61), kind: 'team', name: LONG, peers: [JIHO], unread: 120, threads: 3, muted: true, ago: 2, last: LONG },
+        { id: id(62), kind: 'group', name: null, peers: [{ id: 'long', name: LONG }, JIHO], unread: 88, pinnedAt: ago(1), ago: 3, last: LONG },
+      ])
+      await signIn(page)
+      /** the page and every box that scrolls sideways (not the message box or a row of tabs meant to scroll): wider than shown */
+      const wider = () => page.evaluate(() => {
+        const de = document.documentElement
+        const boxes = Array.from(document.querySelectorAll<HTMLElement>('body *')).filter((el) => {
+          const ox = getComputedStyle(el).overflowX
+          return (ox === 'auto' || ox === 'scroll') && el.tagName !== 'TEXTAREA' && !el.closest('.edge-fade') && el.scrollWidth > el.clientWidth
+        })
+        return [...(de.scrollWidth > de.clientWidth ? [`page ${de.scrollWidth}/${de.clientWidth}`] : []), ...boxes.map((el) => `${el.dataset.testid ?? el.tagName} ${el.scrollWidth}/${el.clientWidth}`)]
+      })
+      for (const width of [360, 390, 430]) {
+        await page.setViewportSize({ width, height: 844 })
+        for (const path of ['/', '/rooms', '/projects', '/files', '/activity']) {
+          await page.goto(path)
+          if (path === '/rooms') await expect(page.getByTestId('rooms-row').first()).toBeVisible()
+          await expect.poll(wider, { message: `${path} at ${width}` }).toEqual([])
+        }
+      }
+      // the swipe: up the list while drifting sideways, then mostly sideways (Chromium: a touch gesture; mobile WebKit
+      // takes neither a touch gesture nor a wheel from Playwright: the same scroll asked of the list)
+      await page.setViewportSize({ width: 390, height: 844 })
+      await page.goto('/rooms')
+      const list = page.getByTestId('rooms-page')
+      await expect(page.getByTestId('rooms-row').first()).toBeVisible()
+      const across = () => list.evaluate((el) => ({ list: el.scrollLeft, page: window.scrollX }))
+      for (const [x, y] of [[-60, -300], [-150, -20]] as const) {
+        if (browserName === 'chromium') {
+          const cdp = await page.context().newCDPSession(page)
+          await cdp.send('Input.synthesizeScrollGesture', { x: 195, y: 500, xDistance: x, yDistance: y, gestureSourceType: 'touch', speed: 800 })
+        } else {
+          await list.evaluate((el, [dx, dy]) => el.scrollBy({ left: dx, top: dy, behavior: 'instant' }), [-x, -y])
+        }
+        await page.waitForTimeout(300)
+        expect(await across()).toEqual({ list: 0, page: 0 })
+      }
+      // and nothing to scroll to: set by hand, it stays at 0
+      expect(await list.evaluate((el) => { el.scrollLeft = 50; return el.scrollLeft })).toBe(0)
+    })
+  })
 }
