@@ -48,6 +48,10 @@ export interface WorkFs {
   realpath(path: string): Promise<string>
   /** open read only, never through a link at the last part */
   open(path: string): Promise<WorkHandle>
+  /** the folder's identity with links followed (stat): what a network share's server shows as a plain folder may be a
+   * junction it resolves itself (scanRoots compares it with guard before the folder is read). Absent: a share's
+   * folders below its top are not entered */
+  identity?(path: string): Promise<{ dev: bigint; ino: bigint }>
   /** a Mac: whether the file's content is in the cloud only (SF_DATALESS), so a read downloads it first. Absent: not
    * known before the read (Windows, where the look's index said so: Found.late) */
   cloudOnly?(path: string): Promise<boolean>
@@ -147,6 +151,12 @@ export interface ScanOptions {
    * not answer ends the walk (cut); a folder's date that does not answer stops the ordering (the rest of the folders are
    * walked as listed) and that folder is not asked again (cut) */
   serial?: boolean
+  /** Windows: the identities a folder reached through a reparse point must not have (common/folder-access.ts
+   * guardedIdentities: home and every folder above it, the system's folders). A folder the listing marks as a reparse
+   * point that lstat calls a folder (lstat follows what it cannot read as a link: a OneDrive folder, a volume mounted in
+   * a folder, an unknown tag) is entered only when its identity is none of these; on a network share never. Absent or
+   * rejected: no such folder is entered. */
+  guard?: () => Promise<readonly { dev: bigint; ino: bigint }[]>
   /** files listed before this call: by identity (dev:ino) and by path (sameKey); shared across calls */
   seen?: Set<string>
   seenPaths?: Set<string>
@@ -201,6 +211,32 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
     const statInTime = <T,>(q: Promise<T>) => within(q, Math.min(STAT_MS, Math.max(CALL_MIN_MS, left())))
     // a picked share whose folder date did not answer: the rest of the walk is not ordered (no more such calls)
     let unordered = false
+    // a network share (\\nas\company, a mapped drive: its real path is the network one): the server resolves its own
+    // links and junctions, so a folder the listing marks as a reparse point is never entered there, and a plain folder
+    // below the share's top only when its identity is none of guard's, before and after its listing (TC-4844)
+    const share = isUncPath(real, p) || isUncPath(root.path, p)
+    let guardIds: Promise<Set<string> | null> | null = null
+    /** is this identity none of guard's (home, a folder above it, a system folder); false when that cannot be told */
+    const unguarded = async (id: { dev: bigint; ino: bigint }): Promise<boolean> => {
+      if (!o.guard || id.dev === 0n || id.ino === 0n) return false
+      guardIds ??= inTime(o.guard()).then((ids) => new Set(ids.map((x) => `${x.dev}:${x.ino}`)), () => null)
+      const ids = await guardIds
+      return !!ids && !ids.has(`${id.dev}:${id.ino}`)
+    }
+    /** may a folder the listing marked as a reparse point, and lstat then called a folder, be entered: never on a share;
+     * elsewhere only when it stays where its path says (its real path is that path: a OneDrive folder; a mounted volume
+     * or a junction written as a volume or GLOBALROOT target is not, and a read under it is refused anyway) and its
+     * identity is none of guard's */
+    const reparseOk = async (st: WorkStat, path: string): Promise<boolean> => {
+      if (share || !(await unguarded(st))) return false
+      return sameKey(await statInTime(fs.realpath(path)), p) === sameKey(path, p)
+    }
+    /** a share's folder's identity, links followed, when it is none of guard's; null when it is or cannot be told */
+    const shareFolderId = async (path: string): Promise<string | null> => {
+      if (!fs.identity) return null
+      const id = await statInTime(fs.identity(path))
+      return (await unguarded(id)) ? `${id.dev}:${id.ino}` : null
+    }
     // the folders whose date did not answer in time (their parts joined): likely stuck, so never waited on for long again
     const slow = new Set<string>()
     let docs = 0
@@ -223,13 +259,33 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         // listing gets STAT_MS too, and one that does not answer then is skipped (cut), the rest of the walk goes on
         const stuck = slow.has(dir.parts.join('\0'))
         if (stuck && o.serial) { r.cut = true; continue }
+        // a share's folder below its top: its identity, links followed, is none of guard's before it is read (a junction
+        // the server resolves itself shows as a plain folder); one that cannot be told is not entered, and one that does
+        // not answer in time ends the walk on a share looked at one call at a time
+        const at = join(p, real, ...dir.parts)
+        let before: string | null = null
+        if (share) {
+          try { before = await shareFolderId(at) } catch (x) {
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+          }
+          if (!before) continue
+        }
         try {
-          const list = fs.readdir(join(p, real, ...dir.parts), Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
+          const list = fs.readdir(at, Math.max(1, Math.min(lim.folderEntries, lim.walkFiles - r.checked)))
           entries = await (stuck ? statInTime(list) : inTime(list))
         } catch (e) {
           // a folder that does not answer in time ends this root's look (cut); any other error skips that folder
           if ((e as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; if (stuck) continue; end = true; break }
           continue
+        }
+        // asked again after the listing: a folder swapped for a junction meanwhile gives another identity, and its
+        // listing is dropped
+        if (share) {
+          let after: string | null = null
+          try { after = await shareFolderId(at) } catch (x) {
+            if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
+          }
+          if (after !== before) continue
         }
         // a program's or a code project's folder (its .dll files, package.json, bin and lib): not entered further, and
         // the recent lists' files inside it are left out too (lookRoots)
@@ -248,15 +304,19 @@ export async function scanRoots(roots: readonly WorkRoot[], fs: WorkFs, o: ScanO
         const name = e.name.normalize('NFC')
         if (!name || neverListed(name)) continue
         let kind = e.kind
+        let reparse: WorkStat | null = null
         // Windows lists every reparse point as a link, OneDrive's online-only files too: lstat tells a real link
         if (kind === 'link' && p === 'win32') {
           // one that does not answer is skipped; on a picked share (one call at a time) it ends the walk, as a file's does
-          try { kind = (await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name)))).kind } catch (x) {
+          try { reparse = await statInTime(fs.lstat(join(p, real, ...dir.parts, e.name))); kind = reparse.kind } catch (x) {
             if (o.serial && (x as { code?: string } | null)?.code === 'ETIMEDOUT') { r.cut = true; end = true; break }
             continue
           }
         }
         if (kind === 'dir') {
+          // a reparse point lstat could not read as a link (it followed it): on a share never entered, elsewhere only
+          // when its real path is its path and it is not home, a folder above it or a system folder (guard)
+          if (reparse && !(await reparseOk(reparse, join(p, real, ...dir.parts, e.name)).catch(() => false))) continue
           // a browser's "Save page as" folder (its page saved beside it): never entered
           if (savedPage(name, entries.map((x) => x.name))) continue
           if (dir.parts.length + 1 > lim.depth) { r.cut = true; continue }

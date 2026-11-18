@@ -160,6 +160,125 @@ describe('the look through Documents, Desktop and Downloads', () => {
     expect(r.files.map((x) => x.name).sort()).toEqual(['b.pdf', 'cloud.docx'])
   })
 
+  describe('TC-4844: a folder reached through a reparse point that lstat follows (Windows paths through the posix fake)', () => {
+    // libuv's lstat follows a reparse point it cannot read as a link (a volume mounted in a folder, a OneDrive folder, an
+    // unknown tag, a junction whose data a share does not give): the listing says link, lstat then says folder, with
+    // the identity of what it leads to. HOME/DRIVE: the identities of C:\Users\Alex and C:\ (guardedIdentities).
+    const HOME = { dev: 7n, ino: 70n }
+    const DRIVE = { dev: 7n, ino: 5n }
+    const OTHER = { dev: 7n, ino: 900n }
+    const st = (kind: WorkStat['kind'], id: { dev: bigint; ino: bigint }): WorkStat => ({ kind, size: 0, mtimeMs: 0, ...id })
+    /** the entries named in `marks` are listed as links and lstat gives `marks[name]`; a UNC path is its own real path;
+     * identity (stat, links followed) gives `ids[name]`, else a number of the folder's own */
+    const reparse = (f: ReturnType<typeof fakeFs>, marks: Record<string, WorkStat>, ids: Record<string, { dev: bigint; ino: bigint } | Error> = {}): WorkFs => ({
+      ...f.fs,
+      readdir: async (p, max) => (await f.fs.readdir(p, max)).map((d) => (marks[d.name] ? { ...d, kind: 'link' } : d)),
+      lstat: async (p) => marks[p.split(/[\\/]/).pop()!] ?? f.fs.lstat(p),
+      realpath: async (p) => (/^[\\/]{2}/.test(p) ? p : f.fs.realpath(p)),
+      identity: async (p) => {
+        f.calls.push(`identity ${p}`)
+        const id = ids[p.split(/[\\/]/).pop()!]
+        if (id instanceof Error) throw id
+        return id ?? { dev: 7n, ino: BigInt(1000 + p.length) }
+      },
+    })
+    const tree = () => dir({
+      'Team.docx': file(),
+      // what each reparse point leads to, as the server or the volume shows it when it is entered
+      Back: dir({ 'Alex secret.pdf': file() }),
+      // a junction the share's server resolves itself and lists as a plain folder (no reparse mark): only its identity
+      // (stat, links followed) tells
+      Plain: dir({ 'Alex plain.pdf': file() }),
+      CVol: dir({ 'drive top.pdf': file() }),
+      Mount: dir({ 'other volume.pdf': file() }),
+      Junction: dir({ 'linked.pdf': file() }),
+      Sales: dir({ 'quote.xlsx': file() }),
+    })
+    const marks = { Back: st('dir', HOME), CVol: st('dir', DRIVE), Mount: st('dir', OTHER), Junction: st('link', HOME) }
+    const entered = (f: ReturnType<typeof fakeFs>) => f.calls.filter((c) => c.startsWith('readdir')).map((c) => c.split('/').pop())
+
+    const shareTree = () => fakeFs({ localhost: dir({ TrinaQAShare: dir({ Team: tree() }) }), nas: dir({ company: dir({ Team: tree() }) }), NAS: dir({ Company: dir({ Team: tree() }) }) })
+    const SHARE: WorkRoot = { id: 'folder', path: '\\\\localhost\\TrinaQAShare\\Team', oneDrive: false }
+
+    test('a picked network share never enters a reparse point (a junction, link or mount point), and no plain folder that is home by identity', async () => {
+      for (const path of ['\\\\localhost\\TrinaQAShare\\Team', '//nas/company/Team', '\\\\NAS\\Company\\Team']) {
+        const f = shareTree()
+        const r = await scanRoots([{ id: 'folder', path, oneDrive: false }], reparse(f, marks, { Plain: HOME }), opts({ platform: 'win32', serial: true, guard: async () => [HOME, DRIVE] }))
+        expect(r.files.map((x) => x.name).sort()).toEqual(['Team.docx', 'quote.xlsx'])
+        expect(entered(f)).toEqual(['Team', 'Sales'])
+        // each folder below the share's top is asked its identity before it is read, and again after its listing
+        expect(f.calls.filter((c) => c.startsWith('identity')).map((c) => c.split(/[\\/]/).pop()).sort()).toEqual(['Plain', 'Sales', 'Sales'])
+      }
+    })
+
+    test('a share\'s folder whose identity cannot be told is not entered; one that does not answer ends a walk one call at a time', async () => {
+      const run = async (fs: (f: ReturnType<typeof fakeFs>) => WorkFs, over: Partial<Parameters<typeof scanRoots>[2]> = {}) => {
+        const f = shareTree()
+        const r = await scanRoots([SHARE], fs(f), opts({ platform: 'win32', serial: true, guard: async () => [HOME, DRIVE], ...over }))
+        return { names: r.files.map((x) => x.name).sort(), entered: entered(f), cut: r.roots[0]!.cut }
+      }
+      const top = { names: ['Team.docx'], entered: ['Team'] }
+      // no identity call, no guard, a guard that fails, an identity of 0 or an error: only the share's top
+      expect(await run((f) => { const { identity: _, ...fs } = reparse(f, marks); return fs })).toMatchObject(top)
+      expect(await run((f) => reparse(f, marks), { guard: undefined })).toMatchObject(top)
+      expect(await run((f) => reparse(f, marks), { guard: async () => { throw new Error('home cannot be told') } })).toMatchObject(top)
+      expect(await run((f) => reparse(f, marks, { Plain: { dev: 7n, ino: 0n }, Sales: { dev: 0n, ino: 9n } }))).toMatchObject(top)
+      expect(await run((f) => reparse(f, marks, { Plain: new Error('EACCES'), Sales: new Error('EIO') }))).toMatchObject(top)
+      // one that never answers: the walk ends there (cut), with what it found
+      const hung = await run((f) => ({ ...reparse(f, marks), identity: () => new Promise(() => {}) }))
+      expect(hung).toMatchObject({ ...top, cut: true })
+      // a folder swapped for a junction between the check and its listing: another identity after, the listing is dropped
+      const swapped = await run((f) => {
+        const fs = reparse(f, marks)
+        let n = 0
+        return { ...fs, identity: async (q) => (q.endsWith('Sales') && n++ > 0 ? HOME : fs.identity!(q)) }
+      })
+      expect(swapped.names).not.toContain('quote.xlsx')
+      expect(swapped.entered).toContain('Sales')
+      // a local folder is not asked its identity (a plain folder there is a real one; Windows marks every reparse point)
+      const f = fakeFs({ 'D:': dir({ Work: tree() }) })
+      await scanRoots([{ id: 'folder', path: 'D:\\Work', oneDrive: false }], reparse(f, marks), opts({ platform: 'win32', guard: async () => [HOME, DRIVE] }))
+      expect(f.calls.some((c) => c.startsWith('identity'))).toBe(false)
+    })
+
+    test('a local folder enters one only when it is not home, a folder above it or a system folder; nothing when that cannot be told', async () => {
+      const local = () => fakeFs({ 'D:': dir({ Work: tree() }) })
+      const root: WorkRoot = { id: 'folder', path: 'D:\\Work', oneDrive: false }
+      const run = async (over: Partial<Parameters<typeof scanRoots>[2]>) => {
+        const f = local()
+        const r = await scanRoots([root], reparse(f, marks), opts({ platform: 'win32', ...over }))
+        return { names: r.files.map((x) => x.name).sort(), entered: entered(f) }
+      }
+      // a mounted volume elsewhere (or a OneDrive folder) is walked; one onto the profile or the drive's top is not; a
+      // junction lstat reads as a link never is
+      expect(await run({ guard: async () => [HOME, DRIVE] })).toEqual({ names: ['Alex plain.pdf', 'Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Work', 'Plain', 'Mount', 'Sales'] })
+      // no guard, a guard that fails (home cannot be told) or never answers: no such folder
+      for (const guard of [undefined, async () => { throw new Error('home cannot be told') }]) {
+        expect(await run(guard ? { guard } : {})).toEqual({ names: ['Alex plain.pdf', 'Team.docx', 'quote.xlsx'], entered: ['Work', 'Plain', 'Sales'] })
+      }
+      let clock = 0
+      expect((await run({ guard: () => new Promise(() => { clock += 60_000 }), now: () => clock, limits: { rootMs: 5000 } })).entered).not.toContain('Mount')
+      // a mounted volume, or a junction written as a volume or GLOBALROOT target: its real path is not its path, so it is
+      // not entered even when its identity is no guarded one (a read under it would be refused anyway)
+      const g = local()
+      const moved = reparse(g, marks)
+      const gone = await scanRoots([root], { ...moved, realpath: async (q) => (q.endsWith('Mount') ? '\\\\?\\Volume{0b1c}\\' : moved.realpath(q)) }, opts({ platform: 'win32', guard: async () => [HOME, DRIVE] }))
+      expect(gone.files.map((x) => x.name)).not.toContain('other volume.pdf')
+      expect(entered(g)).not.toContain('Mount')
+      // an identity of 0 (a file system that cannot tell) is never entered
+      const f = local()
+      const r = await scanRoots([root], reparse(f, { ...marks, Mount: st('dir', { dev: 7n, ino: 0n }) }), opts({ platform: 'win32', guard: async () => [HOME, DRIVE] }))
+      expect(r.files.map((x) => x.name)).not.toContain('other volume.pdf')
+    })
+
+    test('macOS and Linux never ask lstat about a link: it is not entered at all', async () => {
+      const f = fakeFs({ srv: dir({ Work: tree() }) })
+      const r = await scanRoots([{ id: 'folder', path: '/srv/Work', oneDrive: false }], reparse(f, marks), opts({ platform: 'linux', guard: async () => [] }))
+      expect(r.files.map((x) => x.name).sort()).toEqual(['Alex plain.pdf', 'Team.docx', 'quote.xlsx'])
+      expect(f.calls.some((c) => c.startsWith('lstat') && /Back|CVol|Mount|Junction/.test(c))).toBe(false)
+    })
+  })
+
   test('macOS privacy (EPERM) marks that folder blocked and the look goes on; a missing folder is missing', async () => {
     const f = fakeFs(home({ Documents: dir({ 'a.pdf': file() }), Desktop: dir({ 'b.pdf': file() }) }), { denied: new Set(['/Users/alex/Desktop']) })
     const r = await scanRoots(ROOTS, f.fs, opts())
