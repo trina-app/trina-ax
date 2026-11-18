@@ -8,11 +8,11 @@
 // (docs/decisions/20261118-shared-chat-queued-sends.md). What to do is
 // decided from the visible branch alone, so a reconnect, a reload or a missed event cannot lose the moment.
 import { z } from 'zod'
-import { Attachment, MESSAGE_ATTACHMENTS_MAX, type Attachment as AttachmentT } from '@mycel/shared/api'
+import { Attachment, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, type Attachment as AttachmentT } from '@mycel/shared/api'
 import type { ViewMessage } from '../store/thread'
 
 /** SendMessageBody.content's limit: waiting messages that would go over it wait for the next answer. */
-export const QUEUE_CONTENT_MAX = 200_000
+export const QUEUE_CONTENT_MAX = MESSAGE_TEXT_MAX
 /** At most this many waiting messages per chat (the composer says so and keeps the text). */
 export const QUEUE_ITEMS_MAX = 10
 

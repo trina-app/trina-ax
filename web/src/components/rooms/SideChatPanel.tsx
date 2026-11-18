@@ -43,6 +43,7 @@
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { isGuestMe, meGuest } from '../../lib/guests'
+import { textOverLimit } from '../../lib/longPaste'
 import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
 import { QueueFull, useSendQueue } from '../../store/sendQueue'
@@ -52,7 +53,7 @@ import { ArrowUp, ChevronLeft, CirclePause, Clock, ExternalLink, Eye, History, L
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { oneLineName } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { answerTooLong, BoxAnswers, composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
@@ -520,6 +521,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       }
       return
     }
+    // longer than a message holds (a long paste went in as a file): said, the text kept
+    if (textOverLimit(text)) return fail(new Error(t('composer.textTooLong', { max: MESSAGE_TEXT_MAX.toLocaleString(locale) })))
     if (asked === undefined && queueing && chatId) return void queue(text, atts)
     if (busy || (asked === undefined && files.uploading)) return
     stick.current = true
@@ -848,7 +851,6 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                   }
                 }}
                 rows={2}
-                maxLength={20_000}
                 placeholder={voice.transcribing ? voice.transcribingText : busy && queueing ? t('outbox.placeholder') : boxLabel}
                 // not disabled: the focus stays in the box while the words are on their way
                 readOnly={voice.busy}

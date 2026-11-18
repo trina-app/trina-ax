@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 17:00
 - Branch: `fix/audit2-web-limits`
-- Status: in progress
+- Status: done
 - Where: web/ and shared/ (Team AX core). Why: both limits are in the web client of the core chat and file screens.
 - Version impact: patch, two limits removed from the web client, no API change.
 
@@ -54,4 +54,7 @@ Out: room message box limits, the phone app's picker limits (N37), Office stream
 
 ## Result
 
-(filled in at the end)
+Built as planned. The long-paste rule lives in the shared `useComposerFiles.onPaste`, so the side chat's diff is three
+lines. Checked on a QA team copy at 1440/390, light/dark: a 107 MB video and a 101 MB recording play at once (the
+player asks for parts with Range), a 107 MB PDF shows its pages after about 40 requests of 64 KB, and a 258,000-character
+paste becomes `Pasted text.txt` in both boxes for owner, admin and member.

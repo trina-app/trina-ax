@@ -4,7 +4,7 @@ import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { AudienceSplit, Chat, ChatThreadReply, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
 import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
@@ -253,7 +253,7 @@ export const PutChatWaitingBody = z.object({ count: z.number().int().min(0).max(
 export type PutChatWaitingBody = z.infer<typeof PutChatWaitingBody>
 
 export const SendMessageBody = z.object({
-  content: z.string().max(200_000),
+  content: z.string().max(MESSAGE_TEXT_MAX),
   /** uploaded via POST /api/uploads or an upload session with target attachment */
   attachmentIds: z.array(Uuid7).max(20).default([]),
   /** message to answer under; default: the chat's active leaf */
@@ -300,7 +300,7 @@ export const RegenerateBody = z.object({
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
  * old branch are NOT undone (the UI says so). */
 export const EditMessageBody = z.object({
-  content: z.string().min(1).max(200_000),
+  content: z.string().min(1).max(MESSAGE_TEXT_MAX),
   attachmentIds: z.array(Uuid7).max(20).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),

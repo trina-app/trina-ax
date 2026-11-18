@@ -38,6 +38,9 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
 // are blank and Korean text in fonts the file does not embed is missing. One object for good: react-pdf reloads the
 // document when `options` changes.
 const OPTIONS = pdfjsDataOptions(location.origin, pdfjs.version)
+/** A PDF read from its address (a file past what the preview reads whole, components/FileBody.tsx `stream`): pdf.js asks
+ * the server for the parts it draws (HTTP Range), not the whole file behind them (docs/decisions/20261118-audit2-web-limits.md). */
+const STREAM_OPTIONS = { ...OPTIONS, disableAutoFetch: true, disableStream: true }
 // zoom steps of the buttons, as a part of the panel width (1 = the page fits the panel); a pinch goes anywhere between
 // the first and the last
 const ZOOMS = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3]
@@ -120,20 +123,22 @@ function scrollBox(el: HTMLElement | null): HTMLElement | null {
   return null
 }
 
-export default function PdfView({ blob, width, startPage, download, thumbnails }: { blob: Blob; width: number; startPage?: number; download: () => void; thumbnails?: HTMLElement | null }) {
+/** `source`: the file's bytes, or its address on this server to read in parts (a large file). */
+export default function PdfView({ source, width, startPage, download, thumbnails }: { source: Blob | string; width: number; startPage?: number; download: () => void; thumbnails?: HTMLElement | null }) {
   const t = useT()
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const pages = pdf?.numPages ?? 0
   // a blob URL instead of raw bytes: pdf.js detaches ArrayBuffers it hands to its worker
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
-    const u = URL.createObjectURL(blob)
-    setUrl(u)
     setPdf(null)
+    if (typeof source === 'string') return void setUrl(source)
+    const u = URL.createObjectURL(source)
+    setUrl(u)
     // revoked a moment later: closed while it loads, pdf.js may still start reading it as its loading task is dropped,
     // and the browser reports that read as an error
     return () => void setTimeout(() => URL.revokeObjectURL(u), 1000)
-  }, [blob])
+  }, [source])
   const target = startPage && startPage >= 1 && (!pages || startPage <= pages) ? startPage : null
   const [error, setError] = useState(false)
   // the parser's message helps a developer, not the person: it goes to the console only
@@ -143,7 +148,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
   }
   // a part of the panel width; a new file opens at the panel width again
   const [scale, setScale] = useState(1)
-  useEffect(() => setScale(1), [blob])
+  useEffect(() => setScale(1), [source])
   const pageWidth = Math.round(Math.max(240, width - 32) * scale)
   const { sizes, note } = usePageSizes(pdf, fail)
   const layout = useMemo(() => pageLayout(sizes, pageWidth), [sizes, pageWidth])
@@ -325,7 +330,7 @@ export default function PdfView({ blob, width, startPage, download, thumbnails }
     <Boundary onError={fail}>
       <Document
         file={url}
-        options={OPTIONS}
+        options={typeof source === 'string' ? STREAM_OPTIONS : OPTIONS}
         // as wide as the widest page: a page wider than the panel (zoomed in) scrolls to its left edge too. No scroll
         // anchoring: the place being read is kept here (the browser's would fight it while pages change size)
         className="relative min-h-full w-max min-w-full [overflow-anchor:none]"

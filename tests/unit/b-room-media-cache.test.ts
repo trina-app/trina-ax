@@ -160,3 +160,26 @@ test('keptMediaCache: only the session\'s own key, never past the session\'s end
   expect(keptMediaCache(h.ctx.db, s, undefined)).toBeNull()
   expect(keptMediaCache(h.ctx.db, { ...s, id: crypto.randomUUID() }, k)).toBeNull()
 })
+
+// docs/decisions/20261118-audit2-web-limits.md: the preview's player and pdf.js read a room's video or PDF from this
+// address in parts (no size limit in the app): each part is a 206 for a member, checked like every read, never kept
+test('a player reads a room video in parts (Range): members only, never kept by the browser', async () => {
+  const { mia, nora, otto, dm, upload, get } = await setup()
+  const bytes = new Uint8Array(200_000).map((_, i) => i % 251)
+  const clip = await upload('all-hands.mp4', bytes)
+  await mia.client.call('POST', `/api/rooms/${dm.id}/messages`, { body: '', fileIds: [clip.id], clientMessageId: cm() })
+  const media = { range: 'bytes=1000-1999', 'sec-fetch-dest': 'video', 'sec-fetch-mode': 'no-cors' }
+  const part = await get(nora.client, clip.id, {}, media)
+  expect(part.status).toBe(206)
+  expect(part.headers.get('content-range')).toBe(`bytes 1000-1999/${bytes.length}`)
+  expect(part.headers.get('accept-ranges')).toBe('bytes')
+  expect(part.headers.get('content-type')).toStartWith('video/mp4')
+  expect(part.headers.get('content-disposition')).toStartWith('inline')
+  expect(part.headers.get('cache-control')).toBe('private, no-cache')
+  expect(new Uint8Array(await part.arrayBuffer())).toEqual(bytes.slice(1000, 2000))
+  // the end of the file (a player looks for an MP4's index there)
+  const tail = await get(nora.client, clip.id, {}, { ...media, range: 'bytes=-10' })
+  expect(new Uint8Array(await tail.arrayBuffer())).toEqual(bytes.slice(-10))
+  // someone outside the room: the 404 of every read, a range or not
+  expect((await get(otto.client, clip.id, {}, media)).status).toBe(404)
+})
