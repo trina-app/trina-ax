@@ -13,7 +13,8 @@ Plan: docs/AGENTS/plan/20261118-0657-chat-thread-mentions.md
   with the page (`ChatThreadPage.people`, `chat/threads.ts threadPeople`). They are the chat's audience
   (`Audiences.ofChat`: a project chat's project audience, a people-shared chat's creator and its people and groups,
   a guest only where the chat's audience holds them), without anyone the answer is hidden from, and never the caller.
-  The list comes only while the caller may reply. The box is the rooms' mention box (TokenTextarea + useMentionMenu,
+  The list comes only while the caller may reply, and only with the first page (QA TC-4853: the app keeps it while it
+  reads older replies; each person is judged on the answer and the messages above it, the chat read once). The box is the rooms' mention box (TokenTextarea + useMentionMenu,
   no "@everyone"). A picked name is one token, and the reply goes with its ids.
 - **The server decides:** a send keeps a mention only when the person is among `threadPeople` at that moment and passes
   `threadAccess` for themselves. The server keeps each id once, in the order given, never the sender. Every other id is
@@ -24,8 +25,9 @@ Plan: docs/AGENTS/plan/20261118-0657-chat-thread-mentions.md
 - **Notified:** a mentioned person follows the thread from that reply on, as a room thread's mention does. Their read
   mark starts before that reply, so the unread dot and later replies follow the existing thread rules. Someone who
   already follows keeps their read mark. They get the thread's one notice. It records the mention
-  (`chat_thread_notices.mention_id`), and the Inbox row says "{name} mentioned you in a thread in {title}." while that
-  reply is still there. Without the reply, the row is a plain reply notice again. The push is the existing thread push:
+  (`chat_thread_notices.mention_id`, its first mention), and the Inbox row says "{name} mentioned you in a thread in
+  {title}." while a reply of it still mentions them (the newest such reply's author: QA TC-4853, a deleted mention
+  falls back to another one still there). With none left, the row is a plain reply notice again. The push is the existing thread push:
   the generic words, after 10 seconds, only while "Replies in threads I'm part of" is on and outside quiet hours, and a
   tap opens `/c/<chat>/t/<answer>`.
 - **Why:** the owner wants to tag the people of the project. The one gate (`threadAccess`) and the one audience

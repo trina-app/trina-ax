@@ -114,3 +114,14 @@ test('a reply shows its mentions as names in the mention look; mine on the soft 
   expect(names[1]!.getAttribute('class')).not.toContain('bg-accent-soft')
   expect(m.get('chat-thread-reply-text').textContent).toBe('@Ada and @Cy Park, see this. @Nobody')
 })
+
+test('the people come with the first page only: reading older replies keeps them (TC-4853)', async () => {
+  const older = reply({ text: 'older one' })
+  globalThis.fetch = (async () => new Response(JSON.stringify({ root, replies: [older], nextCursor: null, canReply: true, version: { index: 1, count: 1 }, onShownBranch: true, full: false }), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch
+  const { threadKey } = await import('../../src/store/chatThreads')
+  useChatThreads.setState({ views: { [threadKey(CHAT, root.id)]: { root, replies: [], nextCursor: 'c1', people: [BEN, CY], loading: false, error: null } } })
+  await useChatThreads.getState().loadOlder(CHAT, root.id)
+  const v = useChatThreads.getState().views[threadKey(CHAT, root.id)]!
+  expect(v.replies.map((r) => r.content)).toEqual(['older one'])
+  expect(v.people).toEqual([BEN, CY])
+})

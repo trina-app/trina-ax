@@ -109,9 +109,10 @@ describe('a project chat', () => {
   })
 
   test('the push follows "Replies in threads I\'m part of", as every thread notice', async () => {
-    const r = await reply('alice', chatId, root, '@Bob Lee push?', ['bob'])
+    await reply('alice', chatId, root, '@Bob Lee push?', ['bob'])
     const n = notice('bob', root)!
-    expect(n.mention_id).toBe(r.id)
+    const row = (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((i) => i.id === n.id)!
+    expect(row.chatThread?.mention).toBe(true)
     const due = Date.now() + 60_000
     expect(chatThreadWanted(h.ctx, n.id, due)).toBe(true)
     savePreferences(db(), 'bob', { roomThreadReplies: false })
@@ -145,6 +146,45 @@ describe('a chat shared with people', () => {
     if (r.status === 'confirm') r = await put(subjects, id, r.confirmKey)
     expect(r.status).toBe('saved')
   }
+
+  test('several mentions in one unread notice: deleting the newest falls back to the one still there, by its author (TC-4853)', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const root = await answered(c, 'alice', 'three people answer')
+    await share(c, [{ subjectType: 'user', subjectId: 'bob' }, { subjectType: 'user', subjectId: 'erin' }])
+    const a = await reply('alice', c, root, '@Bob Lee first', ['bob'])
+    await reply('alice', c, root, 'no mention in between')
+    const cc = await reply('erin', c, root, '@Bob Lee second', ['bob'])
+    const n = notice('bob', root)!
+    // the notice keeps its first mention as where to look from
+    expect(n).toMatchObject({ mention_id: a.id, reply_id: cc.id })
+    const rowOf = async () => (await h.api('bob').call(API.listNotifications, { query: {} })).items.find((i) => i.id === n.id)!
+    expect((await rowOf()).chatThread).toMatchObject({ mention: true, name: 'Erin Yoo' })
+    // the newest mention deleted: still "mentioned you", now by alice (her reply is still there)
+    await h.api('erin').call(API.deleteChatThreadReply, { params: { id: c, replyId: cc.id } })
+    expect(notice('bob', root)?.id).toBe(n.id)
+    expect((await rowOf()).chatThread).toMatchObject({ mention: true, name: 'Alice Kim' })
+    // the first one deleted too: a plain reply notice (the reply without a mention is still unread)
+    await h.api('alice').call(API.deleteChatThreadReply, { params: { id: c, replyId: a.id } })
+    expect(notice('bob', root)?.id).toBe(n.id)
+    expect((await rowOf()).chatThread?.mention).toBeUndefined()
+    // the first deleted but a later one there: found from the first one's place on
+    const later = await reply('erin', c, root, '@Bob Lee third', ['bob'])
+    expect(notice('bob', root)).toMatchObject({ id: n.id, mention_id: a.id, reply_id: later.id })
+    expect((await rowOf()).chatThread).toMatchObject({ mention: true, name: 'Erin Yoo' })
+  })
+
+  test('the people come only with the first page (an older page carries none)', async () => {
+    const c = (await h.api('alice').call(API.createChat, { body: {} })).id
+    const root = await answered(c, 'alice', 'paged answer')
+    await share(c, [{ subjectType: 'user', subjectId: 'bob' }])
+    for (const t of ['one', 'two', 'three']) await reply('alice', c, root, t)
+    const first = await h.api('bob').call(API.listChatThread, { params: { id: c, messageId: root }, query: { limit: 1 } })
+    expect(ids(first.people)).toEqual(['alice'])
+    expect(first.nextCursor).toBeTruthy()
+    const older = await h.api('bob').call(API.listChatThread, { params: { id: c, messageId: root }, query: { limit: 1, cursor: first.nextCursor! } })
+    expect(older.replies.map((r) => r.content)).toEqual(['two'])
+    expect(older.people).toBeUndefined()
+  })
 
   test('its creator and its people are offered; someone taken out is dropped at send time', async () => {
     const c = (await h.api('alice').call(API.createChat, { body: {} })).id

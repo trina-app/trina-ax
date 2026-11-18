@@ -134,9 +134,11 @@ export class Notifications {
    * "Replies in threads I'm part of" (chat/threads.ts chatThreadWanted). */
   chatThreadReply(userId: string, o: { chatId: string; rootId: string; replyId: string; by: string; mention?: boolean }, at = new Date().toISOString()) {
     if (!this.active(userId)) return
-    // `mention`: this reply mentions them (docs/decisions/20261118-chat-thread-mentions.md): the notice keeps it (mention_id)
+    // `mention`: this reply mentions them (docs/decisions/20261118-chat-thread-mentions.md): the notice keeps its FIRST
+    // mention (mention_id), the start of the replies the Inbox looks through for one that still mentions them
+    // (chat/threads.ts mentionerOf), so a deleted mention falls back to another one still there
     const mention = o.mention ? o.replyId : null
-    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(?, mention_id) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
+    const up = this.ctx.db.query('UPDATE chat_thread_notices SET by_user=?, reply_id=?, mention_id=COALESCE(mention_id, ?) WHERE user_id=? AND source_id=? AND read_at IS NULL').run(o.by, o.replyId, mention, userId, o.rootId)
     if (!up.changes) this.ctx.db.query(`INSERT INTO chat_thread_notices(id,user_id,event_type,source_id,chat_id,by_user,reply_id,created_at,push_at,suppressed,mention_id)
       VALUES(?,?,'chat.thread_reply',?,?,?,?,?,?,0,?)`).run(newId(), userId, o.rootId, o.chatId, o.by, o.replyId, at, new Date(Date.parse(at) + CHAT_THREAD_PUSH_DELAY_MS).toISOString(), mention)
     this.signal(userId)

@@ -35,7 +35,7 @@ import { getPreferences } from '../notifications/preferences'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime, type ChatRuntime } from './runtime'
 import { Audiences, chatFor, isProjectSharedRow, isSharedRow, messageFor, messageView, type ChatAccess } from './shared'
-import { AnswerSight } from './shared-answers'
+import { AnswerSight, chatNodes, withheldAmong, type Node } from './shared-answers'
 import { decodeCursor, encodeCursor, type ChatRow, type MessageRow, type MessageView } from './store'
 import { mayEditProject } from './projects'
 import { tr } from './i18n'
@@ -185,12 +185,18 @@ export function threadSummaries(db: Database, rootIds: readonly string[], viewer
 export function threadPeople(rt: ChatRuntime, row: ChatRow, root: MessageRow, viewer: string): { id: string; name: string }[] {
   const ids = new Audiences(rt.db, rt.files).ofChat(row)
   if (!ids.length) return []
-  const sight = new AnswerSight(rt.db, rt.files)
+  // whether the answer is hidden from someone depends only on it and the messages above it on its branch: the chat is
+  // read once, and each person is judged on that chain alone (not on every answer of the chat), with one rule set
+  const nodes = chatNodes(rt.db, row.id)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const chain: Node[] = []
+  for (let n = byId.get(root.id), seen = new Set<string>(); n && !seen.has(n.id); n = n.parent ? byId.get(n.parent) : undefined) { seen.add(n.id); chain.push(n) }
+  const rules = rt.files.rules()
   const asker = root.turn_id ? rt.store.turnUser(root.turn_id) : null
   const out: { id: string; name: string }[] = []
   for (const id of ids) {
     if (id === viewer) continue
-    if (id !== asker && sight.withheld(row.id, id).has(root.id)) continue
+    if (id !== asker && withheldAmong(rt.db, rules, chain, id).has(root.id)) continue
     const u = rt.store.userRef(id)
     if (u) out.push({ id: u.id, name: u.name })
   }
@@ -237,7 +243,8 @@ export function listThread(rt: ChatRuntime, userId: string, chatId: string, root
     version: { index: root.branch.index + 1, count: root.branch.count },
     onShownBranch,
     full: count >= CHAT_THREAD_MAX,
-    ...(!g.readOnly ? { people: threadPeople(rt, g.a.row, g.root, userId) } : {}),
+    // only with the first page (the app keeps it while it reads older ones), and only while I may reply
+    ...(!g.readOnly && !q.cursor ? { people: threadPeople(rt, g.a.row, g.root, userId) } : {}),
   }
 }
 
@@ -369,11 +376,14 @@ export function markRead(ctx: AppContext, rt: ChatRuntime, userId: string, chatI
 
 type NoticeRow = { user_id: string; chat_id: string; source_id: string; by_user: string | null; reply_id: string; read_at: string | null; suppressed: number; mention_id: string | null }
 const noticeOf = (db: Database, id: string) => db.query('SELECT user_id, chat_id, source_id, by_user, reply_id, read_at, suppressed, mention_id FROM chat_thread_notices WHERE id = ?').get(id) as NoticeRow | null
-/** Who mentioned the notice's person, while the reply that did is still there and still mentions them; else null. */
+/** Who mentioned the notice's person: the author of the newest reply still there, from the notice's first mention
+ * (mention_id, kept from the first one: notifications/service.ts chatThreadReply) up to its newest reply, that mentions
+ * them. One of several mentions deleted: an earlier or later one still counts; none left: null (a plain reply notice). */
 function mentionerOf(db: Database, n: NoticeRow): { by: string | null } | null {
   if (!n.mention_id) return null
-  const r = db.query('SELECT author_id, mentions FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.mention_id, n.source_id) as { author_id: string | null; mentions: string } | null
-  return r && parseReplyMentions(r.mentions).includes(n.user_id) ? { by: r.author_id } : null
+  const r = db.query(`SELECT author_id FROM chat_thread_replies WHERE root_id = ? AND id >= ? AND id <= ? AND mentions <> '[]' AND json_valid(mentions)
+    AND EXISTS (SELECT 1 FROM json_each(mentions) j WHERE j.value = ?) ORDER BY id DESC LIMIT 1`).get(n.source_id, n.mention_id, n.reply_id, n.user_id) as { author_id: string | null } | null
+  return r ? { by: r.author_id } : null
 }
 /** the notice still has its reply (one deleted since: settleNotices moved it or removed the notice) */
 const replyThere = (db: Database, n: NoticeRow) => !!db.query('SELECT 1 FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.reply_id, n.source_id)
