@@ -138,6 +138,10 @@ export function formCarryLength(text: string, values: readonly string[]): number
   return n
 }
 
+/** The characters any written form of these values is made of (formRunLength's set), for a caller that scans text as it
+ * grows (chat/live-answer.ts OthersText). */
+export function formChars(values: readonly string[]): ReadonlySet<string> { return formsOf(values).chars }
+
 /** How many characters at the end of `text` are one run of the characters a written form of these values is made of,
  * with no length cap: the part of a shared answer the others do not get yet (chat/live-answer.ts OthersText). A form
  * padded past formCarryLength's longest (HTML entities with leading zeros, `&#0000…065;`) stays in it, so no form is
