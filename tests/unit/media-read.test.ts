@@ -612,7 +612,7 @@ describe('who transcribes, and when sound may leave the server', () => {
       // the next read within the pause does not download again
       text = (await read({ file_path: put('nomodel2.mp4') })).out.text
       expect(dl).toHaveLength(1)
-      expect(text).toContain('The server tries again by itself')
+      expect(text).toContain('It is tried again automatically')
       expect(local.calls).toBe(0)
       F().speech.whisperBin = null
       expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('The transcription tool is missing here')

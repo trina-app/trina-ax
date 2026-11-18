@@ -305,7 +305,10 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     // unverified (images above already fail the decode check when truncated)
     if (!k.image && openEnded) notes.push(`The site did not send the file's length (the connection just closed), so there is no way to confirm the ${k.label} file is complete; if it will not open, download it again.`)
     // the name: the one asked for, or the address's, with the extension of what the file really is
-    const baseName = firstName || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
+    // no name asked for: the last address's name (a download link like ".../fwlink/?LinkID=1" ends at the file's real
+    // name after its redirects), else the first address's
+    const urlName = !handle && !(wanted && !folderOnly) ? nameFromUrl(from) || firstName : firstName
+    const baseName = urlName || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
     const named = withExtension(baseName, k)
     if (named.changed && wanted && !folderOnly) notes.push(`Saved with the extension .${k.ext}: the file is ${k.label} (judged by its bytes), not what "${baseName}" said.`)
     const folder = explicitFolder ?? `users/${t.user.id}/${k.image ? 'images' : 'downloads'}`

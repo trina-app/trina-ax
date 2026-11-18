@@ -56,6 +56,9 @@ beforeAll(async () => {
         '/table.csv': [Buffer.from('<!doctype html><html><body>sign in</body></html>'), { 'content-type': 'text/csv' }],
         '/big.docx': [Buffer.concat([DOCX, Buffer.alloc(6 * 1024 * 1024)]), OCTET],
       }
+      // a download link that redirects to the file under its real name (Microsoft's fwlink, a CDN)
+      if (p === '/fwlink/') return Response.redirect(at('/files/Financial%20Sample.xlsx'), 302)
+      if (p === '/files/Financial%20Sample.xlsx') return new Response(new Uint8Array(XLSX_FILE), { headers: OCTET })
       const key = p + new URL(req.url).search
       const r = routes[key] ?? routes[p]
       return r ? new Response(new Uint8Array(r[0]), { headers: r[1] }) : new Response('no', { status: 404 })
@@ -92,6 +95,8 @@ describe('save_url: Office, CSV and ZIP files (QA TC-4922)', () => {
     expect((await s.run('/sheet.bin', 'groups/marketing/web/')).structured).toMatchObject({ path: 'groups/marketing/web/sheet.xlsx', type: KINDS.xlsx.mime })
     expect((await s.run('/deck', 'groups/marketing/web/')).structured.path).toBe('groups/marketing/web/deck.pptx')
     expect((await s.run('/form.hwpx', 'groups/marketing/web/')).structured.path).toBe('groups/marketing/web/form.hwpx')
+    // no name asked for: the name the redirects end at, not "fwlink"
+    expect((await s.run('/fwlink/?LinkID=521962', 'groups/marketing/web/')).structured.path).toBe('groups/marketing/web/Financial Sample.xlsx')
   })
   test('old Excel and Word files (compound files) by their streams; an installer is refused', async () => {
     const s = setup()

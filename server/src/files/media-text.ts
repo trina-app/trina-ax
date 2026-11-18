@@ -181,12 +181,12 @@ export const MEDIA_TEXT = {
     zh: '这里没有转写工具，所以声音没有转写。管理员可以在“团队设置 › 语音输入”中查看缺少什么。',
   },
   noModel: {
-    ko: '음성 인식 모델을 아직 내려받지 못해서 소리를 받아쓰지 않았어요. 서버가 알아서 다시 내려받고 있어요. 몇 분 뒤에 다시 읽으면 돼요.',
-    en: 'The speech model could not be downloaded yet, so the sound was not transcribed. The server tries again by itself; reading it again in a few minutes will work.',
-    id: 'Model suara belum berhasil diunduh, jadi suara tidak ditranskripsi. Server mencoba lagi dengan sendirinya; membaca lagi beberapa menit lagi akan berhasil.',
-    ja: '音声認識モデルをまだダウンロードできていないため、文字起こししませんでした。サーバーが自動でもう一度ダウンロードします。数分後にもう一度読み取ればできます。',
-    es: 'El modelo de voz aún no se pudo descargar, por lo que el sonido no se transcribió. El servidor lo vuelve a intentar por sí solo; leerlo de nuevo en unos minutos funcionará.',
-    zh: '语音模型还没能下载下来，所以声音没有转写。服务器会自动重新下载，过几分钟再读取就可以了。',
+    ko: '음성 인식 모델을 아직 내려받지 못해서 소리를 받아쓰지 않았어요. 자동으로 다시 내려받으니 몇 분 뒤에 다시 읽으면 돼요.',
+    en: 'The speech model could not be downloaded yet, so the sound was not transcribed. It is tried again automatically; reading it again in a few minutes will work.',
+    id: 'Model suara belum berhasil diunduh, jadi suara tidak ditranskripsi. Unduhan dicoba lagi secara otomatis; membaca lagi beberapa menit lagi akan berhasil.',
+    ja: '音声認識モデルをまだダウンロードできていないため、文字起こししませんでした。自動でもう一度ダウンロードするので、数分後にもう一度読み取ればできます。',
+    es: 'El modelo de voz aún no se pudo descargar, por lo que el sonido no se transcribió. Se vuelve a intentar automáticamente; leerlo de nuevo en unos minutos funcionará.',
+    zh: '语音模型还没能下载下来，所以声音没有转写。会自动重新下载，过几分钟再读取就可以了。',
   },
   slow: {
     ko: '여기서는 한 번 읽을 때 새 소리를 {min}분까지만 글로 바꿔요.',
