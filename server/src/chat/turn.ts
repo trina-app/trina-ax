@@ -134,6 +134,7 @@ import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
+import { carriedReads, saveReads } from './carried-reads'
 
 export { noSearchPath } from './search-path'
 
@@ -868,6 +869,11 @@ export class TurnExec {
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // the person's own reads of the answers above on this branch (chat/carried-reads.ts): not for a guest or a restricted
+    // run (theirs stay per answer); a failure only means a read again, as before
+    if (!guestTurn && !this.restricted) {
+      try { this.files.carried = carriedReads(rt.db, rt.files, { chatId: spec.chatId, userId: spec.userId, answers: rt.store.pathTo(userMsg.parent_id).filter((m) => m.role === 'assistant').map((m) => m.id) }) } catch (e) { rt.log.warn('loading earlier reads failed', { err: e, turn: this.id }) }
+    }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
@@ -4194,6 +4200,8 @@ export class TurnExec {
         return
       }
     }
+    // what this answer's AI read or saved, for the person's next answers in this chat (chat/carried-reads.ts)
+    if (this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId }, this.files.allReads))
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })

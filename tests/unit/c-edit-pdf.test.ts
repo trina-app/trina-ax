@@ -255,7 +255,7 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
     const call = turn('alice')
     const no = await call('edit_pdf', { file_path: `${D}/replace-me.pdf`, operations: [{ remove_pages: '3' }], replace: true })
     expect(no.isError).toBe(true)
-    expect(no.text).toContain('read it in this turn first')
+    expect(no.text).toContain('read it in this chat first')
     const over = await call('edit_pdf', { file_path: `${D}/replace-me.pdf`, operations: [{ remove_pages: '3' }], output: `${D}/replace-me.pdf` })
     expect(over.isError).toBe(true)
     expect(over.text).toContain('use replace: true, only when the user asked for that')

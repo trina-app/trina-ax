@@ -301,7 +301,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       if (refusal) throw new ToolError(refusal)
     }
     if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
-    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type: k.mime } })
+    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, thisAnswerOnly: true, detail: { url: from.slice(0, 4000), type: k.mime } })
     if (made.conflictCopyOf) notes.push(`${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.`)
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')
     const rel = made.path

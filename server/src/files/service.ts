@@ -74,11 +74,51 @@ function refuseLegacyText(rel: string, cur: Uint8Array) {
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
 }
 
-/** "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. */
-class ReadHashes extends Map<string, string> {
-  constructor(private readonly all: Map<string, string> | null) { super() }
-  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+/**
+ * What the person's earlier answers in this chat read (chat/carried-reads.ts): path -> the sha256 of the version their
+ * AI last saw, and the sha256 of the file now, or null when the person may not read it now (permission checked at that
+ * moment), it is gone, not a regular file or too large to hash. Never another person's reads, never another branch's.
+ */
+export interface CarriedReads {
+  hashes: ReadonlyMap<string, string>
+  current(rel: string): string | null
 }
+
+/** read_state_stale: a file read in an earlier message that changed since (the AI reads it again, nothing is saved) */
+export const staleReadText = (rel: string) =>
+  `'${rel}' changed after you read it earlier in this chat (someone saved a new version). Read it again, then make your change to what it says now.`
+
+/**
+ * "Read before write" hashes of one agent of a turn; every hash set also goes to the turn's `allReads`. A path this
+ * agent did not read in this turn falls back to the chat's earlier reads (`carried`), but only while the file is still
+ * exactly that version and the person may still read it: get() throws 'stale_read' for a changed one (asks for a new
+ * read; never a conflict copy or an overwrite from an old read), has() says false.
+ */
+class ReadHashes extends Map<string, string> {
+  constructor(private readonly all: Map<string, string> | null, private readonly carried: () => CarriedReads | null = () => null) { super() }
+  override set(k: string, v: string) { this.all?.set(k, v); return super.set(k, v) }
+  private earlier(k: string): { was: string; now: string | null } | null {
+    if (super.has(k)) return null
+    const c = this.carried()
+    const was = c?.hashes.get(k)
+    return c && was ? { was, now: c.current(k) } : null
+  }
+  override get(k: string) {
+    const e = this.earlier(k)
+    if (!e) return super.get(k)
+    if (e.now === null) return undefined
+    if (e.now !== e.was) throw new ToolError(staleReadText(k), 'stale_read')
+    return e.was
+  }
+  override has(k: string) {
+    const e = this.earlier(k)
+    return e ? e.now !== null && e.now === e.was : super.has(k)
+  }
+}
+
+/** the hash `files`' agent recorded for `rel` in THIS answer only (never an earlier answer's read): for saves of a new
+ * thing (a web page, a room's file, a video, an unzip) that keep a copy next to a file the chat saw before */
+export const readThisAnswer = (files: TurnFiles, rel: string): string | undefined => Map.prototype.get.call(files.readHashes, rel) as string | undefined
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
 export const CALL_OWNER_WAIT_MS = 3000
@@ -92,7 +132,11 @@ export class TurnFiles {
   /** the files this agent read (or wrote) in this turn and their hashes then: write / edit / make_file refuse an
    * existing file that is not here and make a conflict copy when it changed since. Per agent (forAgent): siblings do
    * not share it, so one sub-agent cannot overwrite what another wrote after it read the file (review M3) */
-  readHashes: Map<string, string> = new ReadHashes(this.allReads)
+  readHashes: Map<string, string> = new ReadHashes(this.allReads, () => this.carried)
+  /** the person's reads of earlier answers on this branch of the chat (chat/carried-reads.ts), set when a chat turn
+   * starts: the main AI and its sub-agents may change those files without reading them again while they are unchanged
+   * (ReadHashes). Null: every read is per answer (a guest, a restricted run, no chat) */
+  carried: CarriedReads | null = null
   /** team-folder files whose content went to the model in this turn (read, grep results): the chat's read scope */
   readPaths = new Set<string>()
   /** folders whose files' names went to the model in this turn (a listing that showed files, glob): a team chat room's
@@ -182,18 +226,19 @@ export class TurnFiles {
       })
       this.ownerWaits.delete(toolUseId)
     }
-    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(), agent: null, known: false } : { files: this, agent: null, known: false }
+    if (!this.owners.has(toolUseId)) return this.subagents ? { files: this.view(null, false), agent: null, known: false } : { files: this, agent: null, known: false }
     const agent = this.owners.get(toolUseId) ?? null
     return { files: agent ? this.forAgent(agent) : this, agent, known: true }
   }
 
   /** this turn's state with read-before-write hashes of its own; `agent`: the sub-agent it is for (its sources are
-   * marked so), null for a call whose agent is not known */
-  private view(agent: string | null = null): TurnFiles {
-    const own = new ReadHashes(this.allReads)
+   * marked so), null for a call whose agent is not known; `carry`: it may use the chat's earlier reads (a sub-agent
+   * may, a call whose agent is not known may not: it fails closed) */
+  private view(agent: string | null = null, carry = true): TurnFiles {
+    const own = new ReadHashes(this.allReads, () => (carry ? this.carried : null))
     return new Proxy(this, {
-      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : Reflect.get(t, k, t)),
-      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' ? false : Reflect.set(t, k, v, t)),
+      get: (t, k) => (k === 'readHashes' ? own : k === 'agent' ? agent : k === 'agentView' ? true : k === 'carried' ? (carry ? t.carried : null) : Reflect.get(t, k, t)),
+      set: (t, k, v) => (k === 'readHashes' || k === 'agent' || k === 'agentView' || k === 'carried' ? false : Reflect.set(t, k, v, t)),
     })
   }
 }

@@ -86,7 +86,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       'and its preview show numbers; any other formula is calculated by Excel or LibreOffice when the file opens. Never tell the person the ' +
       'file holds only formulas or that numbers appear only after opening it in Excel; the result text says how many results are stored. ' +
       'xlsx `charts` adds real Excel charts (column, bar, line, pie) over a range of one of the sheets, so never say Excel charts cannot be made. ' +
-      OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists and you did not read it in this turn, a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
+      OFFICE_PICTURE_HINT + `Images must be team-folder files referenced by relative path. If \`output\` exists, it is replaced (its old version stays in its history) when you read it in this chat; otherwise a conflict copy is saved next to it instead. \`template\`: a ${hangul ? '.docx/.pptx/.hwpx' : '.docx/.pptx'} under skills/ for styles. ` +
       (hangul ? 'hwpx (Hangul): # to ###### headings become Hangul outline levels 1-6; also paragraphs, **bold**, *italic*, bullet and numbered lists (up to 6 levels), ' +
         'simple tables (no merged cells, plain text in cells) and page breaks (a line with only \\newpage). Nothing else: images, links, footnotes, code, ' +
         'block quotes, horizontal rules, HTML, math and YAML metadata are refused and nothing is saved, so write those as plain text (a link as "text (address)"). ' +
@@ -107,7 +107,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       if (writesHangul('make_file', a) && !hwpWritingOn(ctx)) throw new ToolError(hwpWritingOffTextFor(ctx.db, t.user.id), 'hwp_writing_off')
       const r = await c.makeFile.run(t, a)
       const saved = r.conflictCopyOf
-        ? `'${r.conflictCopyOf}' already exists and was not read in this turn, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both.`
+        ? `'${r.conflictCopyOf}' already exists and was not read in this chat, so the new file was saved as '${r.path}' (${human(r.size)}). Tell the user about both. To update a file instead, read it first and save to its name.`
         : `Saved ${r.path} (${human(r.size)}). Link for the user: [${r.path.split('/').pop()}](${fileShareUrl(r.path, 'preview')})`
       const chartLine = r.charts ? `\nThe file has ${r.charts === 1 ? 'a native Excel chart' : `${r.charts} native Excel charts`} that follow${r.charts === 1 ? 's' : ''} the cells.` : ''
       const text = (r.deck ? `${saved}\nThe file has ${deckSummary(r.deck)}.`
@@ -123,7 +123,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
   reg.register({
     name: 'edit_hwp',
     description: 'Change the text of an existing Hangul document (.hwp or .hwpx) and save it in the same format, keeping everything else in the file exactly as it was: ' +
-      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows. Read the file in this turn first. ' +
+      'fill placeholders such as {{name}}, replace exact text, fill empty table cells, add table rows. Read the file in this chat first. ' +
       'Each change is found in the document as you read it: { find, replace } replaces text inside one paragraph (the new text takes the ' +
       'formatting of the text it replaces; when it appears more than once, give occurrence or all: true); { cell: { next_to: "<the label ' +
       'cell\'s whole text>" } (or with direction "below"; or { table, row, col }, 1-based), value } fills an empty cell; { add_rows: ' +

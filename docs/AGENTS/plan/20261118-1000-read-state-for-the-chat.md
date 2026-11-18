@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 10:00
 - Branch: `fix/limits-read-state`
-- Status: in progress
+- Status: done
 - Where: server/src/files/service.ts (TurnFiles read hashes), server/src/chat/ (a new carried-reads.ts, two calls in
   turn.ts), server/src/tools/make-file.ts, server/migrations. Why: the read-before-write state and make_file's save
   path live there (see docs/REPOSITORY-RULES.md).
@@ -31,8 +31,10 @@ model remembers of the file's text.
 3. TurnFiles.carried + ReadHashes.get/has fall back to it: the file's sha256 now (read permission checked now, fresh
    principal) must equal the carried one; changed -> ToolError 'stale_read' "read it again". An unknown-agent call
    view gets none (fails closed).
-4. Tool wording: "read it in this turn" -> "in this chat" where the read state is meant (not "made in this turn").
-5. Unit tests: carried read lets edit/write/make_file update in place; changed file refused with re-read; person B in
+4. placeProduced `thisAnswerOnly` for saves of a new thing (save_url, save_room_file, save_promo_video,
+   generate_video, unzip_file): they keep a copy next to a file seen in an earlier message, as before.
+5. Tool wording: "read it in this turn" -> "in this chat" where the read state is meant (not "made in this turn").
+6. Unit tests: carried read lets edit/write/make_file update in place; changed file refused with re-read; person B in
    a shared chat does not get A's reads; another branch does not carry; lost read permission does not carry.
 
 ## Decisions

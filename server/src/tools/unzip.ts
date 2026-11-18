@@ -266,7 +266,7 @@ export async function unzipFile(ctx: AppContext, files: TeamFiles, c: ToolCtx, a
         const name = fs.existsSync(path.join(fx.root, ...dirSegs)) ? freeName(path.join(fx.root, ...dirSegs), want) : want
         const tmp = path.join(work, String(i))
         await inflateEntryToFile(bytes, f.entry, tmp, c.signal)
-        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, detail: { from: src.rel } })
+        const r = await placeProduced(ctx, files, c, [...dirSegs, name], tmp, 'unzip_file', undefined, { turnBytes: guest, turnFiles: guest, thisAnswerOnly: true, detail: { from: src.rel } })
         saved.push({ path: r.path, size: r.size, ...(name !== want || r.conflictCopyOf ? { renamedFrom: [...dirSegs, want].join('/') } : {}) })
       } catch (e) {
         if (!(e instanceof Error)) throw e
