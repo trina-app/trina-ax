@@ -135,6 +135,9 @@ export interface PromptInput {
    * devEnvDownReason): no box_shell this turn, and the AI says so once (devEnvDownRule); 'staff': the asker is the
    * owner or an admin, 'member': anyone else (also every shared chat, which names no one's role) */
   devEnvDown?: 'staff' | 'member' | null
+  /** a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): its fictional company's name; the AI is told what
+   * the demo leaves out (demoRule) */
+  demo?: { company: string } | null
   now?: Date
 }
 
@@ -834,6 +837,7 @@ function personLines(files: FileService, i: PromptInput, subagent = false): stri
     i.tools.includes('delete_files') ? '' : i.guest ? GUEST_NO_DELETE_RULE : deleteRule(i.locale),
     i.confidential ? confidentialRule(i.confidential) : '',
     !subagent && i.devEnvDown ? devEnvDownRule(i.devEnvDown, i.locale) : '',
+    !subagent && i.demo ? demoRule(i.demo.company) : '',
     timeLine(now, i.timeZone, i.personTimeZone),
     answerLanguageLine(i.locale, subagent),
     // last, after the time line (it changes every minute): the instructions before that line stay as they were
@@ -1044,6 +1048,12 @@ export const TITLE_RULE = 'The set_title tool is offered only at the start of a 
  * how to use it; this says what is different here (S2: the number at once, so the model does not tell a person to set
  * an environment variable when the fifth is refused).
  */
+/** A free-roam demo instance (docs/decisions/20261119-demo-free-roam-a.md): what it leaves out, said once and plainly (the demo file's company, e.g. Steepling). The
+ * server refuses those tools and endpoints whatever the AI says (demo/guard.ts); this keeps the answer honest. */
+export function demoRule(company: string): string {
+  return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can.`
+}
+
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
  * again in a few minutes"). Said once, in plain words; the reason itself is for an admin, on the dev environment page. */
 export function devEnvDownRule(who: 'staff' | 'member', L: Locale): string {

@@ -558,8 +558,8 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 
 | Method | Path | Who | What it does |
 |---|---|---|---|
-| `GET` | `/api/demo` | Anyone | Demo mode only (MYCEL_DEMO on a development server; 404 otherwise): the fictional company, its demo people and which one the caller is. |
-| `POST` | `/api/demo/persona` | Anyone | Demo mode only: sign in as one of the demo people (the seeded account's password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends. |
+| `GET` | `/api/demo` | Anyone | Demo mode only (MYCEL_DEMO on a development server; 404 otherwise): the fictional company, its demo people and which one the caller is; in a free-roam demo also the weighted tokens used, the demo limit and the sign-up address. |
+| `POST` | `/api/demo/persona` | Anyone | Demo mode only: sign in as one of the demo people (the seeded account's password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends. A free-roam demo has one person, the only one this signs in. |
 
 ## People directory and profiles
 

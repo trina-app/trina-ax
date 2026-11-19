@@ -1,6 +1,8 @@
 // Route module "demo" (docs/DECISIONS.md "Demo company: a new hire at 트리나"). Exists only on a development server
 // started with MYCEL_DEMO (`bun run demo:company`); every endpoint answers 404 otherwise, like a route that is not there.
 // app-config.ts refuses the flag in production, on the hosted service and in office mode; the mode is checked here again.
+// A free-roam demo (DemoFile.kind "freeRoam", docs/decisions/20261119-demo-free-roam-a.md) has one person, whom
+// demo-gate signs the visitor in as through the switch below; GET /api/demo also says the demo limit and its use.
 //
 // Switching to another demo person is not an impersonation shortcut: the server checks the seeded account's password
 // (the demo's public password) like a sign-in, writes the same audit row ("auth.login", detail demo: true), makes a
@@ -19,6 +21,8 @@ import { verifyPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { getUserByUsername } from '../auth/users'
 import type { RouteModule } from './module'
+import { demoLimitState } from '../admin/budgets'
+import { demoLimitOf, startFreeRoam } from '../demo/free-roam'
 
 /** the demo file, only on a development server that was started with it */
 export function demoOf(ctx: AppContext): DemoFile | null {
@@ -37,13 +41,20 @@ function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInf
   })
   const host = ctx.config.listen.host
   const network = !(host === 'localhost' || isLoopback(host)) || !!ctx.config.tls
-  return { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas }
+  const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas }
+  if (demo.kind !== 'freeRoam') return { ...base, kind: 'scripted' }
+  // a free-roam demo: what the visitor's answers used of the demo limit (admin/budgets.ts demoLimitState), for the
+  // meter and the limit screen
+  const s = demoLimitState(ctx.db)
+  return { ...base, kind: 'freeRoam', used: s?.used ?? 0, cap: s?.cap ?? demoLimitOf(demo), signupUrl: demo.signupUrl ?? null }
 }
 
 export const demoRoutes: RouteModule = {
   name: 'demo',
   owner: 'A',
   register(kit, ctx) {
+    // a free-roam demo's start: its demo limit and its one AI connection (demo/free-roam.ts)
+    startFreeRoam(ctx)
     kit.handle(API.demoInfo, ({ auth }) => {
       const demo = demoOf(ctx)
       if (!demo) return fail('not_found')

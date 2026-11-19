@@ -3,9 +3,9 @@
 // proxy never picks a connection from anything the engine sends (headers, account ids): token -> row -> connection.
 // Every request reads the connection again, so switching it off or removing it stops the next request (T15), and its
 // 401 / long 429 state belongs to that connection only (one subscription at its limit does not stop the others).
-import type { CredentialKind } from '@mycel/shared/api'
+import { DEMO_CACHE_READ_WEIGHT, type CredentialKind } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
-import { anthropicGateway, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
+import { anthropicGateway, isFreeRoam, type AnthropicGatewayConf, type ModelUpstreams } from '../app-config'
 import type { ProxyTurnEvent } from '../proxy/model-proxy'
 import { ensureFresh } from './chatgpt-tokens'
 import { ctAll, fmtTime } from './i18n'
@@ -33,6 +33,9 @@ export interface CredentialBroker {
   /** engine.anthropicGateway: the anthropic family goes there (upstreams.anthropic), on its models only (the proxy's
    * allow-list); absent or null = Anthropic */
   readonly gateway?: AnthropicGatewayConf | null
+  /** a free-roam demo instance (app-config.ts isFreeRoam): its one AI connection is a stand-in the gate swaps for the
+   * real one, so no answer of the upstream marks it (proxy/model-proxy.ts) */
+  readonly freeRoam?: boolean
   /** the connection bound to this token, if it can be used now, and what to put on the request */
   forRequest(t: TokenBinding, want: Family): Promise<ForRequest>
   /** the upstream answered 401. API keys and Claude tokens: marked refused ('refused'). ChatGPT: refreshed once (or
@@ -60,6 +63,7 @@ const LIMIT_AUDIT_MS = 10 * 60_000
 
 export function createBroker(cc: CredCtx): CredentialBroker {
   const gateway = anthropicGateway(cc.config)
+  const freeRoam = isFreeRoam(cc.config)
   setUnknownPriceHook((model) => {
     audit(cc.db, { actor: null, action: 'credential.unknown_price', target: null, detail: { model: model.slice(0, 100) } })
     cc.log.warn('a model has no price: its cost is counted at the most expensive price of its family', { model: model.slice(0, 100), ...(gateway ? { hint: 'engine.anthropicGateway.prices' } : {}) })
@@ -79,6 +83,7 @@ export function createBroker(cc: CredCtx): CredentialBroker {
   return {
     upstreams: cc.upstreams,
     gateway,
+    freeRoam,
 
     async forRequest(t, want) {
       if (!t.credentialId || t.family !== want) return fail(403, 'permission_error', 'this token is not bound to an AI connection of this kind', { type: 'auth' })
@@ -159,7 +164,10 @@ export function createBroker(cc: CredCtx): CredentialBroker {
       let input: number, output: number
       if (familyOfKind(row.kind) === 'anthropic') {
         const u = usage as ClaudeUsage
-        input = n(u.input_tokens) + n(u.cache_read_input_tokens) + n(u.cache_creation_input_tokens)
+        // a free-roam demo's limit weighs a cache read at DEMO_CACHE_READ_WEIGHT (admin/budgets.ts demoLimitState): what
+        // the demo counts is what the visitor's answers really cost, not the instructions read again from the cache
+        const cacheRead = freeRoam ? Math.round(n(u.cache_read_input_tokens) * DEMO_CACHE_READ_WEIGHT) : n(u.cache_read_input_tokens)
+        input = n(u.input_tokens) + cacheRead + n(u.cache_creation_input_tokens)
         output = n(u.output_tokens)
       } else {
         const u = usage as OpenAiUsage

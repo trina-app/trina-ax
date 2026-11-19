@@ -64,8 +64,41 @@ export const DemoFile = z.object({
     questions: z.array(z.string().min(1).max(200)).max(6),
   }).strict()).min(1).max(3)
     .refine((ps) => new Set(ps.map((p) => p.key)).size === ps.length, 'each persona key once'),
+  /**
+   * The kind of demo (docs/decisions/20261119-demo-free-roam-a.md). Absent or "scripted": the demo company of
+   * `bun run demo:company` (persona switcher, replays). "freeRoam": one visitor's own instance behind demo-gate, with
+   * the real AI until the demo limit: exactly one persona (the gate signs the visitor in as it), and the server accepts
+   * it only with engine.authMode "managed", a loopback listener, no relay and a loopback model upstream
+   * (server/src/app-config.ts readDemoFile). Everything a visitor must not reach is refused (server/src/demo/guard.ts).
+   */
+  kind: z.enum(['scripted', 'freeRoam']).optional(),
+  /** freeRoam: the demo limit in weighted tokens (uncached input + cache writes + output + 0.1 x cache reads), for the
+   * whole instance; default DEMO_LIMIT_DEFAULT */
+  limitTokens: z.number().int().min(1_000).max(50_000_000).optional(),
+  /** freeRoam: where "Start free" goes at the limit (https only) */
+  signupUrl: z.string().max(500).regex(/^https:\/\/[^\s]+$/, 'an https:// address').optional(),
+  /** freeRoam: the largest file one upload may hold (bytes; default DEMO_UPLOAD_FILE_MAX) */
+  uploadFileMax: z.number().int().min(1).max(50 * 1024 * 1024).optional(),
+  /** freeRoam: all uploads of the instance together (bytes; default DEMO_UPLOAD_TOTAL_MAX) */
+  uploadTotalMax: z.number().int().min(1).max(1024 * 1024 * 1024).optional(),
 }).strict()
+  .refine((d) => d.kind === 'freeRoam' || (d.limitTokens === undefined && d.signupUrl === undefined && d.uploadFileMax === undefined && d.uploadTotalMax === undefined), 'limitTokens, signupUrl and the upload limits are for kind "freeRoam" only')
+  .refine((d) => d.kind !== 'freeRoam' || d.personas.length === 1, 'a freeRoam demo has exactly one persona')
 export type DemoFile = z.infer<typeof DemoFile>
+
+/** freeRoam's demo limit when the demo file names none (weighted tokens, see DemoFile.limitTokens) */
+export const DEMO_LIMIT_DEFAULT = 300_000
+/** freeRoam: the weight of a cache read in the demo limit */
+export const DEMO_CACHE_READ_WEIGHT = 0.1
+/** freeRoam: one upload's largest file, and all uploads of an instance together */
+export const DEMO_UPLOAD_FILE_MAX = 10 * 1024 * 1024
+export const DEMO_UPLOAD_TOTAL_MAX = 100 * 1024 * 1024
+/** freeRoam: `params.reason` of a send refused at the demo limit (code budget_exceeded, with params used and cap) */
+export const DEMO_LIMIT_REASON = 'demo_limit'
+/** freeRoam: `params.reason` of an answer demo-gate stopped (its daily cap or its pause; code budget_exceeded) */
+export const DEMO_REST_REASON = 'demo_rest'
+/** freeRoam: `params.reason` of any other answer that failed (the words are always "The demo is busy, try again in a bit.") */
+export const DEMO_BUSY_REASON = 'demo_busy'
 
 /**
  * The demo content's company.json (scripts/demo/company/README.md, read by scripts/demo/company/content.ts): a fictional
@@ -171,6 +204,13 @@ export const DemoInfo = z.object({
   /** the server listens beyond this machine (not only 127.0.0.1): anyone on a network the machine is on can use it */
   network: z.boolean(),
   personas: z.array(DemoPersona),
+  /** the demo file's kind (DemoFile.kind; absent = scripted, as from a server before free roam) */
+  kind: z.enum(['scripted', 'freeRoam']).optional(),
+  /** freeRoam only: weighted tokens used so far on this instance, and the demo limit */
+  used: z.number().nonnegative().optional(),
+  cap: z.number().int().positive().optional(),
+  /** freeRoam only: where "Start free" goes (null: none set) */
+  signupUrl: z.string().nullable().optional(),
 })
 export type DemoInfo = z.infer<typeof DemoInfo>
 
@@ -179,10 +219,10 @@ export const DemoSwitchBody = z.object({ key: DemoPersonaKey }).strict()
 export const DEMO = {
   demoInfo: endpoint({
     method: 'GET', path: '/api/demo', auth: 'public', owner: 'A', response: DemoInfo,
-    summary: 'Demo mode only (MYCEL_DEMO on a development server; 404 otherwise): the fictional company, its demo people and which one the caller is.',
+    summary: 'Demo mode only (MYCEL_DEMO on a development server; 404 otherwise): the fictional company, its demo people and which one the caller is; in a free-roam demo also the weighted tokens used, the demo limit and the sign-up address.',
   }),
   demoSwitch: endpoint({
     method: 'POST', path: '/api/demo/persona', auth: 'public', owner: 'A', body: DemoSwitchBody, response: z.object({ ok: z.literal(true) }),
-    summary: 'Demo mode only: sign in as one of the demo people (the seeded account\'s password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends.',
+    summary: 'Demo mode only: sign in as one of the demo people (the seeded account\'s password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends. A free-roam demo has one person, the only one this signs in.',
   }),
 } as const

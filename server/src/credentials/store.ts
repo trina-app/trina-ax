@@ -6,7 +6,7 @@ import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import type { Credential, CredentialKind, CredentialState, Locale, ServerEventInput } from '@mycel/shared/api'
 import { sharedSubscriptionsAllowed } from './policy'
-import { allowedCredentialKinds, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
+import { allowedCredentialKinds, isFreeRoam, modelUpstreams, type AllowedKinds, type AppConfig, type ModelUpstreams } from '../app-config'
 import { audit } from '../admin/audit'
 import { periodEnd } from '../admin/budgets'
 import { teamTimeZone } from '../admin/settings'
@@ -60,7 +60,7 @@ export interface CredCtx {
   db: Database
   vault: Vault
   sealer: Sealer
-  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'>
+  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'> & Partial<Pick<AppConfig, 'demo'>>
   /** the kinds this server allows, and its Anthropic-compatible gateway (app-config allowedCredentialKinds) */
   allowedKinds: Set<CredentialKind> & { gateway: string | null }
   upstreams: ModelUpstreams
@@ -331,10 +331,20 @@ export function toCredential(cc: CredCtx, r: CredRow, locale: Locale): Credentia
   }
 }
 
+/** A free-roam demo's one connection is a stand-in demo-gate swaps for the real credential
+ * (docs/decisions/20261119-demo-free-roam-a.md): no answer, check or refresh says anything about it, so it is never
+ * marked refused, out of credit or to reconnect. */
+function standIn(cc: CredCtx, r: CredRow): boolean {
+  if (!isFreeRoam(cc.config)) return false
+  cc.log.warn('free-roam demo: a mark on the stand-in AI connection was ignored', { credential: r.id, kind: r.kind })
+  return true
+}
+
 /** mark a connection refused by its provider (401) and tell the admins (once an hour) */
 export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatus: number | null) {
   const r = getRow(cc.db, id)
   if (!r) return
+  if (standIn(cc, r)) return
   cc.db.query("UPDATE engine_credentials SET status = 'invalid', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   if (r.status !== 'invalid' || r.status_code !== code) audit(cc.db, { actor: null, action: 'credential.rejected', target: id, detail: { kind: r.kind, upstreamStatus, newStatus: 'invalid' } })
   cc.log.warn('an AI connection was refused by its provider', { credential: id, kind: r.kind, upstreamStatus })
@@ -344,6 +354,7 @@ export function markInvalid(cc: CredCtx, id: string, code: string, upstreamStatu
 export function markNoCredit(cc: CredCtx, id: string) {
   const r = getRow(cc.db, id)
   if (!r) return
+  if (standIn(cc, r)) return
   const now = cc.now()
   cc.db.query('UPDATE engine_credentials SET limited_until = ?, status_code = ?, updated_at = ? WHERE id = ?').run(new Date(now + NO_CREDIT_HOLD_MS).toISOString(), NO_CREDIT, new Date(now).toISOString(), id)
   if (r.status_code !== NO_CREDIT) audit(cc.db, { actor: null, action: 'credential.no_credit', target: id, detail: { kind: r.kind } })
@@ -353,6 +364,7 @@ export function markNoCredit(cc: CredCtx, id: string) {
 export function markNeedsReconnect(cc: CredCtx, id: string, code: string) {
   const r = getRow(cc.db, id)
   if (!r) return
+  if (standIn(cc, r)) return
   cc.db.query("UPDATE engine_credentials SET status = 'needs_reconnect', status_code = ?, updated_at = ? WHERE id = ?").run(code, new Date(cc.now()).toISOString(), id)
   notifyAboutConnection(cc, r, { level: 'error', code: 'credential_needs_reconnect', message: ctAll('nNeedsReconnect', { label: r.label }), link: '/admin/credentials' }, ctAll('nOwnNeedsReconnect', { label: r.label }))
 }
