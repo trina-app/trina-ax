@@ -399,6 +399,18 @@ test.describe('computer', () => {
     await expect(page.getByTestId('login-username')).toBeVisible()
     await expect(page.getByTestId('login-removed')).toHaveCount(0)
   })
+
+  test("a member's chat link: the guest's own words (no \"ask them to share it\", no Trina), and a way back to their place (QA AP-056)", async ({ page }) => {
+    await guestIn(page, { kind: 'project', name: '견적 준비' })
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/)
+    const place = new URL(page.url()).pathname
+    await page.goto(`/c/${uuidv7()}`)
+    await expect(page.getByTestId('chat-not-found')).toBeVisible()
+    await expect(page.getByTestId('chat-not-found-why')).toHaveText('게스트는 내 채팅과 초대받은 곳만 열 수 있어요. 팀 멤버의 채팅은 열 수 없어요. 이 채팅의 내용이 필요하면 나를 초대한 사람에게 물어봐 주세요.')
+    await expect(page.getByTestId('chat-not-found')).not.toContainText('트리나에게')
+    await page.getByTestId('chat-not-found-home').click()
+    await expect(page).toHaveURL(new RegExp(`${place}$`))
+  })
 })
 
 test.describe('phone', () => {

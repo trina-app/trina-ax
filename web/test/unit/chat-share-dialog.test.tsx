@@ -95,6 +95,8 @@ describe('the save model and every exit', () => {
     expect(m.get('chat-share-save').hasAttribute('disabled')).toBe(true)
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
     expect(m.get('chat-share-note').textContent).toBe(en('chat.share.note'))
+    // whose AI usage a question of theirs runs on (each person's own: "A turn is its sender's", QA AP-048)
+    expect(m.get('chat-share-note').textContent).toContain('each on their own AI usage')
     expect(m.get('chat-share-title').textContent).toBe('Share "Q3 budget questions"')
     // me is never offered
     await m.type('chat-share-picker-search', 'mia')
@@ -198,6 +200,7 @@ describe('the save model and every exit', () => {
     expect(en('share.warn.files', { n: 3, names: 'Mina' })).toBe("3 answers used files Mina can't open.")
     expect(en('share.warn.memories', { n: 2 })).toBe('2 answers may have used your personal memories.')
     expect(m.get('chat-share-note').textContent).toBe(en('chat.share.noteShort'))
+    expect(m.get('chat-share-note').textContent).toContain('on their own AI usage')
     expect(m.get('chat-share-save').textContent).toBe(en('chat.share.share'))
     expect(m.get('chat-share-save').className).not.toMatch(/danger/)
     // the list, about this chat

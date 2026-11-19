@@ -23,7 +23,7 @@
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import clsx from 'clsx'
 import { composerInset } from '../components/chat/composerBox'
-import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
+import { GuestNoAi, useGuestNoAi, useGuestPlacePath } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -144,6 +144,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
   const guestHere = isGuestMe(me)
+  // a guest's own place (their project or group chat): where the not-found page sends them
+  const guestHome = useGuestPlacePath()
   const [olderBusy, setOlderBusy] = useState(false)
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
@@ -570,7 +572,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               I am not in): the server answers each with the same 404, so the page tells nothing about this one; the
               likely case, a teammate's link to a chat still private to them, says what to ask for (QA TC-919, TC-948;
               docs/DECISIONS.md "Team project chats shared by default") */}
-          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
+          {/* a guest: nobody can share a member's chat with them, so "ask the person who sent the link to share it" and
+              "Ask Trina" led nowhere; they open only their own chats and the place they were invited to (QA AP-056,
+              docs/DECISIONS.md "Guests: only what they were invited to") */}
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t(guestHere ? 'chat.notFoundGuest' : 'chat.notFoundWhy')}</p>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}
@@ -589,9 +594,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               ))}
             </p>
           )}
-          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
-            {t('sidebar.askAi', { name: aiName(t) })}
-          </Link>
+          {guestHere ? (
+            <Link to={guestHome ?? '/'} className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-not-found-home">
+              {t('notFound.home')}
+            </Link>
+          ) : (
+            <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
+              {t('sidebar.askAi', { name: aiName(t) })}
+            </Link>
+          )}
         </EmptyState>
       </div>
     } />

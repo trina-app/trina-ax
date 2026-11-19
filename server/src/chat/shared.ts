@@ -410,7 +410,9 @@ export function sharedOf(rt: ChatRuntime, viewer: string, r: ChatRow, aud: Audie
   return {
     kind: 'project',
     by: rt.store.userRef(r.user_id) ?? { id: r.user_id, name: r.user_id },
-    audience: project ? aud.of(project).length : 0,
+    // who can open this chat, not who sees the project: a guest of the project sees only their own chats there, so
+    // another member's chat must not count them ("3 people can see this chat" while the guest gets the 404; QA AP-056)
+    audience: project ? aud.ofChat(r).length : 0,
     answering: runner && runner !== viewer ? { name: rt.store.userRef(runner)?.name ?? '', ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}) } : null,
     ...othersWaiting(rt, r.id, viewer),
     mine: r.user_id === viewer || wroteIn(rt.db, r.id, viewer),
