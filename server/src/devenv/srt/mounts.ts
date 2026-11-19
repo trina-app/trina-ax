@@ -131,34 +131,57 @@ export function entryPins(v: FolderView, given: FolderView, teamRoot: string): R
 }
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
-/** The pins of a run as files in `dir` (the run's own TMPDIR): the paths NUL-separated and the expected `dev:ino` lines
- * (when there are pins), and the places to lock (placeFolders), NUL-separated. Null when there is neither. */
-export function writePins(dir: string, pins: Record<string, string>, places: readonly string[] = []): { paths?: string; ids?: string; places?: string } | null {
+/** TMPFS_MAGIC (statfs f_type). */
+const TMPFS = 0x01021994
+/** The folders whose write bits a run's first line takes (Linux), absolute: srt's places above what is given
+ * (placeFolders) and srt's empty masks over hidden folders inside the team folder (the settings' denyRead: users/,
+ * .system, the group and project skills folders, a folder limited inside a readable one; QA TC-4932, attacks SK2, PL1,
+ * PL2, RW4). bwrap makes both as writable folders of the sandbox's own tmpfs, so a file made there seemed written and
+ * was never kept. Only folders that are folders on the disk now (no link, no file: a denied file is masked with
+ * /dev/null, which must never be touched). None when the team folder itself is on a tmpfs: inside the sandbox a lock
+ * tells a mask from the real folder by its file system type (entryGuard), which then would not hold. */
+export function lockFolders(given: FolderView, denyRead: readonly string[], teamRoot: string): string[] {
+  try { if (Number(fs.statfsSync(teamRoot).type) === TMPFS) return [] } catch { return [] }
+  const inTeam = (p: string) => p === teamRoot || p.startsWith(teamRoot.endsWith('/') ? teamRoot : teamRoot + '/')
+  const dir = (p: string) => { try { return fs.lstatSync(p).isDirectory() } catch { return false } }
+  // a folder given itself is never one, also when it is in denyRead (srtSettings puts a writable folder inside a
+  // read-only one there, so srt binds it back writable)
+  const givenAbs = new Set([...given.read, ...given.write].map((r) => (r === '' ? teamRoot : path.join(teamRoot, r))))
+  return [...new Set([...placeFolders(given, teamRoot), ...denyRead.filter(inTeam)])].filter((p) => !givenAbs.has(p) && dir(p))
+}
+
+/** The pins of a run as files in `dir` (the run's own TMPDIR; `tag`, the run's id, keeps runs that share one apart):
+ * the paths NUL-separated and the expected `dev:ino` lines (when there are pins), and the folders to lock
+ * (lockFolders), NUL-separated. Null when there is neither. */
+export function writePins(dir: string, pins: Record<string, string>, places: readonly string[] = [], tag = ''): { paths?: string; ids?: string; places?: string } | null {
   const ps = Object.entries(pins)
   if (!ps.length && !places.length) return null
+  if (tag && !/^[A-Za-z0-9]{1,64}$/.test(tag)) throw new Error('bad run id')
+  const t = tag ? `-${tag}` : ''
   const out: { paths?: string; ids?: string; places?: string } = {}
   if (ps.length) {
-    out.paths = path.join(dir, '.trina-pins'); out.ids = path.join(dir, '.trina-pins.ids')
+    out.paths = path.join(dir, `.trina-pins${t}`); out.ids = path.join(dir, `.trina-pins${t}.ids`)
     fs.writeFileSync(out.paths, ps.map(([p]) => p + '\0').join(''), { mode: 0o600 })
     fs.writeFileSync(out.ids, ps.map(([, id]) => id + '\n').join(''), { mode: 0o600 })
   }
   if (places.length) {
-    out.places = path.join(dir, '.trina-places')
+    out.places = path.join(dir, `.trina-places${t}`)
     fs.writeFileSync(out.places, places.map((p) => p + '\0').join(''), { mode: 0o600 })
   }
   return out
 }
-/** The first line of a shared chat's command on Linux. With pins: inside the sandbox one stat (GNU, by its full path;
- * xargs splits only a very long list) prints every pinned entry's `dev:ino`, which must be the list written before the
- * run, else the command does not run (exit 97). Then the places (placeFolders) lose their write bits: they are folders
- * of the sandbox's own tmpfs, so nothing on the disk changes, and a file or folder made there fails ("Permission
+/** The first line of a run's command on Linux. With pins (a shared chat): inside the sandbox one stat (GNU, by its
+ * full path; xargs splits only a very long list) prints every pinned entry's `dev:ino`, which must be the list written
+ * before the run, else the command does not run (exit 97). Then each folder to lock (lockFolders) that is, inside the
+ * sandbox, a folder (not a link) on a tmpfs loses its write bits: these are srt's places and masks, so nothing on the
+ * disk changes (the team folder is never on a tmpfs here), and a file or folder made there fails ("Permission
  * denied") instead of seeming written. This keeps honest writes from being lost in silence; it is not a security
- * boundary: the sandbox's user owns those places and can give the write bit back (chmod u+w), and what it then makes
+ * boundary: the sandbox's user owns those folders and can give the write bit back (chmod u+w), and what it then makes
  * there is still never kept and reaches no one. The files are removed before the command. Prints no path. */
 export function entryGuard(f: { paths?: string; ids?: string; places?: string } | null): string {
   if (!f) return ''
   const pin = f.paths && f.ids ? `/usr/bin/xargs -0 /usr/bin/stat -c %d:%i -- < ${shq(f.paths)} 2>/dev/null | /usr/bin/cmp -s - ${shq(f.ids)} || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }; ` : ''
-  const lock = f.places ? `/usr/bin/xargs -0 /bin/chmod a-w -- < ${shq(f.places)} 2>/dev/null; ` : ''
+  const lock = f.places ? `while IFS= read -r -d '' __lock_dir; do [ -d "$__lock_dir" ] && [ ! -L "$__lock_dir" ] && [ "$(/usr/bin/stat -f -c %T -- "$__lock_dir" 2>/dev/null)" = tmpfs ] && /bin/chmod a-w -- "$__lock_dir" 2>/dev/null; done < ${shq(f.places)}; unset __lock_dir; ` : ''
   const files = [f.paths, f.ids, f.places].filter((x): x is string => !!x).map(shq).join(' ')
   return `${pin}${lock}/bin/rm -f ${files}`
 }

@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
-import { entryGuard, entryPins, hideDeniedNames, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockFolders, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -200,17 +200,18 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const sharedChat = sh_ ? sh_.chat : null
   // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
   const given = sh_ ? hideDeniedNames(view, TEAM) : view
-  // as the runner: the entries given one by one are checked first inside the sandbox, and srt's places above what is
-  // given are made read-only there (mounts.ts entryGuard, placeFolders)
-  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM), placeFolders(given, TEAM)) : null
-  if (pinFiles) sh(`chown ${SRV}:${SRV} ${[pinFiles.paths, pinFiles.ids, pinFiles.places].filter(Boolean).map((f) => `'${f}'`).join(' ')}`)
-  const guard = entryGuard(pinFiles)
-  // S18: the disk changes after the listing, before srt binds
-  o.afterPins?.()
+  const pinsNow = sh_ ? entryPins(view, given, TEAM) : {}
   const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, logKey, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
+  // as the runner: the entries given one by one are checked first inside the sandbox, and srt's places and masks are
+  // made read-only there, in every run (mounts.ts entryGuard, lockFolders)
+  const pinFiles = writePins(runTmp(BASE, owner), pinsNow, lockFolders(given, settings.filesystem.denyRead, TEAM), runId)
+  if (pinFiles) sh(`chown ${SRV}:${SRV} ${[pinFiles.paths, pinFiles.ids, pinFiles.places].filter(Boolean).map((f) => `'${f}'`).join(' ')}`)
+  const guard = entryGuard(pinFiles)
+  // S18: the disk changes after the listing, before srt binds
+  o.afterPins?.()
   const root = work ?? `${TEAM}/${start}`
   const cwd = resolveRunCwd(root, o.cwd ?? '')
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
@@ -253,6 +254,8 @@ const noAsker: Check = (r) => (r.out.includes(ASKER) || r.out.includes('alice to
 const SPC = { shared: { chat: SP, within: 'projects/web', audience: [ALICE, DAVE] } }
 const SWC = { shared: { chat: SW, within: null, audience: [ALICE, ERIN] } }
 const SW_WORK = sharedWork(BASE, SW, sharedWorkKey([ALICE.id, ERIN.id]))
+/** a shared project chat in projects/gitp (alice and erin): a writable project folder given whole, no hidden sub-folder */
+const GITPC = { shared: { chat: '01a1ed7a-0000-7000-8000-00000000gitp', within: 'projects/gitp', audience: [ALICE, ERIN] } }
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
 const GITP = `${TEAM}/projects/gitp`
@@ -533,11 +536,27 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     after: () => (fs.existsSync(`${WEB}/rv6.md`) ? 'rv6.md reached the disk' : null) },
   { id: 'RV7', what: 'S16 raw: the other audience\'s logs key in the LIST line only', cmd: `echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -lA ${chatLogs(BASE, SP)} 2>&1; find ${chatLogs(BASE, SP)} 2>&1; true`, check: (r) => (r.out.includes(path.basename(SP_LOGS_OTHER)) ? `other key: ${r.out.slice(0, 400)}` : null), o: SPC },
   { id: 'RV8', what: 'S16d raw: her own chat lists no shared chat logs', cmd: `ls -lA ${devenvPaths(BASE).chatLogs} 2>&1; find ${devenvPaths(BASE).chatLogs} 2>&1; ls -A ${path.dirname(devenvPaths(BASE).chatLogs)} 2>&1; true`, check: (r) => (r.out.includes(SP) ? `shared chat id seen: ${r.out.slice(0, 400)}` : null) },
+  // ---- second review of PR #1372: legitimate writes still reach the disk (RW1-RW3); srt's masks over hidden folders
+  // and its places take no silent write, in shared and private runs (RW4, RW4b, RW5); RW6 shows the modes ----
+  { id: 'RW1', what: 'shared project chat, writable project folder given whole (projects/gitp, no hidden sub-folder): a new file and folder at its top write and reach the disk', cmd: `echo rw1 > ${TEAM}/projects/gitp/rw1.md && mkdir ${TEAM}/projects/gitp/rw1d && echo rw1b > ${TEAM}/projects/gitp/rw1d/f.md && echo OK-RW1`, check: both(ok, has('OK-RW1')), o: GITPC,
+    after: () => { const r = fs.existsSync(`${TEAM}/projects/gitp/rw1.md`) && fs.existsSync(`${TEAM}/projects/gitp/rw1d/f.md`) ? null : 'a legitimate write did not reach the disk'; fs.rmSync(`${TEAM}/projects/gitp/rw1.md`, { force: true }); fs.rmSync(`${TEAM}/projects/gitp/rw1d`, { recursive: true, force: true }); return r } },
+  { id: 'RW2', what: 'shared project chat with a hidden sub-folder: a writable sub-folder of the opened folder (projects/web/docs) still writes to disk', cmd: `echo rw2 > ${WEB}/docs/rw2.md && mkdir -p ${WEB}/docs/rw2d/x && echo OK-RW2`, check: both(ok, has('OK-RW2')), o: SPC,
+    after: () => { const r = fs.existsSync(`${WEB}/docs/rw2.md`) && fs.existsSync(`${WEB}/docs/rw2d/x`) ? null : 'a legitimate write did not reach the disk'; fs.rmSync(`${WEB}/docs/rw2.md`, { force: true }); fs.rmSync(`${WEB}/docs/rw2d`, { recursive: true, force: true }); return r } },
+  { id: 'RW3', what: 'chat shared with people: the work folder and TMPDIR and HOME still write', cmd: 'echo a > rw3.txt && echo b > $TMPDIR/rw3 && echo c > $HOME/rw3 && echo OK-RW3', check: both(ok, has('OK-RW3')), o: SWC },
+  { id: 'RW4', what: 'denied mount points and hidden places: users/bob, .system, salaries, hr-alicealone, a hidden skills place: no silent write', cmd: `echo x > ${TEAM}/users/bob/rw4.md || echo x > ${TEAM}/.system/rw4.md || mkdir ${TEAM}/users/rw4u || echo x > ${TEAM}/groups/marketing/salaries/rw4 || echo x > ${TEAM}/groups/marketing/hr-alicealone/rw4 || echo x > ${TEAM}/projects/rw4.md || mkdir ${TEAM}/projects/web/mine || echo x > ${TEAM}/projects/web/mine/rw4`, check: failsQuietly, o: SWC },
+  { id: 'RW4b', what: 'same in the shared project chat', cmd: `echo x > ${TEAM}/users/bob/rw4.md || echo x > ${TEAM}/.system/rw4.md || echo x > ${TEAM}/projects/rw4.md || mkdir ${WEB}/mine || echo x > ${WEB}/mine/rw4 || echo x > ${TEAM}/rw4.md || mkdir ${TEAM}/shared`, check: failsQuietly, o: SPC },
+  { id: 'RW5', what: 'admin in a chat shared only with herself as audience (team root given whole, read-only): denied users/ places do not take silent writes', cmd: `echo x > ${TEAM}/users/bob/rw5.md || echo x > ${TEAM}/.system/rw5.md || echo x > ${TEAM}/rw5.md`, check: failsQuietly, o: { who: CAROL, shared: { chat: '01a1ed7a-0000-7000-8000-0000000000ca', within: null, audience: [CAROL] } } },
+  { id: 'RW6', what: 'locked places listed: stat of places and given entries inside the sandbox', cmd: `stat -c '%A %n' ${TEAM} ${TEAM}/projects ${WEB} ${WEB}/docs ${WEB}/index.html ${TEAM}/shared 2>&1; true`, check: () => null, o: SPC },
+  { id: 'RW4c', what: 'her own chat (no project): srt\'s masks over hidden folders and its places take no silent write', cmd: `mkdir ${TEAM}/users/rw4c || echo x > ${TEAM}/.system/rw4c || echo x > ${TEAM}/groups/marketing/salaries/rw4c || echo x > ${TEAM}/rw4c.md || mkdir ${TEAM}/groups/rw4c`, check: failsQuietly, o: { work: true } },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)
 // preflight: a plain command must run through srt. If srt or bwrap cannot start (for example the AppArmor userns
 // restriction of an Ubuntu 24.04 host), every attack that expects a failure would pass without a test.
+// no folder or file in the team folder changes mode or owner on the disk during the suite (a lock inside the sandbox
+// touches only srt's tmpfs; HOSTMODES at the end)
+const modesNow = () => new Map(Bun.spawnSync(['bash', '-c', `find ${TEAM} -xdev \\( -type d -o -type f \\) -printf '%m %U %p\\n'`]).stdout.toString().trim().split('\n').map((l) => { const [m, u, ...p] = l.split(' '); return [p.join(' '), `${m} ${u}`] as [string, string] }))
+const MODES0 = modesNow()
 const pre = await run('true')
 if (pre.code !== 0) {
   console.log(`FAIL preflight: \`true\` did not run through srt (exit code ${pre.code}): ${pre.out.slice(0, 300).replace(/\n/g, ' ')}`)
@@ -568,6 +587,7 @@ for (const a of attacks) {
   const r = await run(a.id === 'S15b' ? a.cmd.replace('@OLD_PROXY@', firstProxy) : a.cmd, a.o)
   const why = (r.out.includes(CANARY) ? `canary: ${r.out.slice(r.out.indexOf(CANARY) - 40, r.out.indexOf(CANARY) + 40)}` : null) ?? a.check(r) ?? a.after?.() ?? null
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)
+  if (a.id === 'RV2b' || a.id === 'RW6') console.log(`     ${r.out.slice(0, 900).replace(/\n/g, ' | ')}`)
   if (why) failed++
 }
 // L1 (QA TC-4990): with no bridge (mycel-sandbox port-bridge, started by the runner for the chat's own dev server
@@ -582,6 +602,7 @@ for (const a of attacks) {
   console.log(`${why ? 'FAIL' : 'pass'} L1 a run's dev server is not reachable from another run (each its own localhost)${why ? `\n     ${why}` : ''}`)
   if (why) failed++
 }
+{ const m1 = modesNow(); const ch = [...MODES0].filter(([p, m]) => m1.has(p) && m1.get(p) !== m).map(([p, m]) => `${p}: ${m} -> ${m1.get(p)}`); console.log(ch.length ? `FAIL HOSTMODES changed on disk: ${ch.slice(0, 20).join(' | ')}` : `pass HOSTMODES no mode or owner changed on disk (${MODES0.size} entries)`); if (ch.length) failed++ }
 server.stop(true); us.close()
 console.log(failed ? `\n${failed} of ${attacks.length + 1} attacks got through` : `\nall ${attacks.length + 1} attacks held`)
 process.exit(failed ? 1 : 0)

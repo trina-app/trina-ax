@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { hiddenNow, withHiddenFolders, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedHiddenFolders, sharedPathAccess, viewAccess } from '../../server/src/devenv/srt/access'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
 import { authorize } from '../../server/src/policy/authorize'
 import { Denied } from '../../server/src/policy/errors'
 import { lockedTopsNote } from '../../server/src/devenv/tool'
@@ -197,6 +197,20 @@ describe('srt\'s places above what is given', () => {
     // a read-only folder inside a writable one given whole: the writable one is the real folder, never locked
     expect(placeFolders({ read: [`${F}/docs/x`], write: [F], denyRead: [], denyWrite: [] }, root)).toEqual(abs('', 'projects'))
   })
+  test('every run: the places and srt\'s masks over hidden folders in the team folder; never a given folder, a file or a path outside', () => {
+    fs.mkdirSync(path.join(root, 'groups/marketing/skills'), { recursive: true }); fs.mkdirSync(path.join(root, 'users/alice'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'shared/secret.txt'), 'x')
+    const given = { read: ['shared', 'groups/marketing'], write: [F, 'users/alice'], denyRead: [], denyWrite: [] }
+    const deny = [path.join(root, 'users'), path.join(root, 'groups/marketing/skills'), path.join(root, F), path.join(root, 'shared/secret.txt'), '/var/lib/elsewhere', path.join(root, 'missing')]
+    const got = lockFolders(given, deny, root)
+    // a temp folder on a tmpfs: nothing is locked (inside the sandbox a mask could not be told from it)
+    if (Number(fs.statfsSync(root).type) === 0x01021994) { expect(got).toEqual([]); return }
+    expect(got).toContain(root)
+    expect(got).toContain(path.join(root, 'users'))
+    expect(got).toContain(path.join(root, 'groups/marketing/skills'))
+    // the start folder bound back writable (srtSettings puts it in denyRead), a masked file, outside, not on disk: never
+    for (const p of [path.join(root, F), path.join(root, 'shared/secret.txt'), '/var/lib/elsewhere', path.join(root, 'missing'), path.join(root, 'shared'), path.join(root, 'users/alice')]) expect(got).not.toContain(p)
+  })
   test('the guard locks the places after the pin check and removes its files; places alone, no pins', () => {
     const v = { read: ['shared'], write: [], denyRead: ['shared/deep/hr-deep'], denyWrite: [] }
     const g = hideDeniedNames(v, root)
@@ -212,6 +226,12 @@ describe('srt\'s places above what is given', () => {
     expect(entryGuard(only)).not.toContain('exit 97')
     expect(entryGuard(only)).toContain('/bin/chmod a-w')
     expect(writePins(tmp, {}, [])).toBeNull()
+    // a person's runs share one TMPDIR: the files are named by the run
+    expect(writePins(tmp, {}, abs(''), 'run0123456789abc')!.places).toBe(path.join(tmp, '.trina-places-run0123456789abc'))
+    expect(() => writePins(tmp, {}, abs(''), '../x')).toThrow()
+    // the lock touches only folders that are folders on a tmpfs inside the sandbox
+    expect(entryGuard(only)).toContain('[ -d "$__lock_dir" ] && [ ! -L "$__lock_dir" ]')
+    expect(entryGuard(only)).toContain('= tmpfs ]')
   })
 })
 

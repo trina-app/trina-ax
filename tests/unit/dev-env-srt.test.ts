@@ -837,7 +837,7 @@ const fake: SrtSystem = {
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     const r: FakeRun = { spec, settings, settingsMode, state: 'active', result: '', resolve, oom: 0 }
     runs.set(spec.runId, r)
-    const c = spec.command
+    const c = spec.command.split('\n').pop()!
     const end = (code: number) => { fs.writeFileSync(spec.exitFile, `${code}\n`); r.state = 'gone'; resolve({ code, signal: null }) }
     queueMicrotask(() => {
       if (c === 'sleep') return
@@ -1249,11 +1249,11 @@ describe('jobs and the queue (per team)', () => {
     expect(rows().map((r) => [r.name, r.state, r.end_reason])).toEqual([['one', 'ended', 'exit'], ['two', 'running', ''], ['three', 'waiting', '']])
     expect(rows()[0]!.exit_code).toBe(0)
     expect(publish.filter((p) => p.frame.data.code === 'dev_env_job')).toMatchObject([{ user: 'alice', frame: { data: { link: `/c/${chatFalcon}` } } }])
-    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command).toBe('echo two')
+    expect(runs.get(runIdOfRow(rows()[1]!))!.spec.command.split('\n').pop()).toBe('echo two')
     expect(runs.get(runIdOfRow(rows()[1]!))!.spec.env.HOME).toBe(projectHome(devBase, 'bob', FALCON))
     finish(runIdOfRow(rows()[1]!), 0)
     await pollSrt(h.ctx)
-    expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command).toBe('echo three hunter2')
+    expect(runs.get(runIdOfRow(rows()[2]!))!.spec.command.split('\n').pop()).toBe('echo three hunter2')
     // the result goes to the AI of the chat that started the job, once, and to nobody else
     expect(runResultsForAI(h.ctx, 'bob', chatBob).join('\n')).not.toContain('Job one')
     expect(runResultsForAI(h.ctx, 'alice', chatPlain).join('\n')).not.toContain('Job one')
@@ -1730,7 +1730,7 @@ describe('starts that meet (one start at a time)', () => {
     open()
     expect(out(await p)).toContain('Exit code 0.')
     // the run itself gets the real command
-    expect([...runs.values()][0]!.spec.command).toBe('echo hunter2')
+    expect([...runs.values()][0]!.spec.command.split('\n').pop()).toBe('echo hunter2')
   })
   test('the server\'s data folder is hidden from a run even outside the base folder', async () => {
     await alice().call({ command: 'echo x' })
