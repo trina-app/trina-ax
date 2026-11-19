@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API } from '@mycel/shared/api'
+import { API, type ClientKind } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
 import { FakeServices, MCP_KEY } from '../lib/fake-services'
@@ -19,12 +19,17 @@ import { mp4Available } from '../../server/src/promo-video/render'
 const W = (p: string) => labeledPath(p.replace(/\/+$/, ''), 'en', 'alice', ' › ')
 
 setDefaultTimeout(30_000)
+// the harness's session carries whatever client the test names; the app list in ClientKind has no Slack (a Slack turn arrives by the connector)
+const SLACK = 'slack' as unknown as ClientKind
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
 
 let h: Harness
 let alice: TestSocket
 beforeAll(async () => {
-  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 3000, stallTimeoutMs: 60_000 })
+  // A card stays open for askUserTimeoutMs from the moment it is made. The tests below answer it a few awaits later, and
+  // on a loaded CI runner those awaits can take more than the old 3 s: the card then expired before the answer and the turn
+  // ended without the refusal under test. No test here needs a card to expire, so it stays open as long as the stall guard.
+  h = await startHarness({ name: 'i-wiring', askUserTimeoutMs: 60_000, stallTimeoutMs: 60_000 })
   // edit_hwp and make_file .hwpx come with the HWP plugin (tools/hwp-writing.ts): on, but where a test turns it off
   hwpPluginOn(h.ctx)
   alice = await h.ws('alice', { windowId: 'win-i-main' })
@@ -80,8 +85,12 @@ describe('B turns use C tools', () => {
     fs.writeFileSync(path.join(h.team, ...form.split('/')), employmentForm())
     const chat = await h.api('alice').call(API.createChat, { body: {} })
     // on when the turn starts (edit_hwp is in its list); after reading a personal file, a new file in shared/ would ask
-    // the person first (a wider audience)
-    const sent = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
+    // the person first (a wider audience).
+    // The turn must stand still on its ask_user card while the plugin is turned off. Only a turn of these apps keeps the
+    // card inside the tool call (open-questions.ts questionsWaitInCall); on the web the call returns at once and the turn
+    // runs on to edit_hwp, which then raced the test's "turn it off" and, on a loaded runner, won it (plugin still on, so a
+    // second card instead of the refusal). A Slack turn waits for the answer, so the order no longer depends on speed.
+    const sent = await h.api('alice', { client: SLACK }).call(API.sendMessage, { params: { id: chat.id }, body: { content: fake(
       { tool: 'read', args: { file_path: form } },
       { tool: 'ask_user', args: { question: 'Go on?', options: [{ label: 'Yes', value: 'yes' }] } },
       { tool: 'edit_hwp', args: { file_path: form, changes: [{ find: '{{발급일}}', replace: '2026년 11월 4일' }], output: 'shared/hwp-filled' }, sayResult: true },

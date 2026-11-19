@@ -58,7 +58,10 @@ describe('ownership transfer: the ex-owner\'s admin invite no longer makes an ad
     // the new owner's own admin invites work
     const fresh = await heir.client.call('POST', '/api/admin/invites', { role: 'admin', groupIds: [], expiresInHours: 24 })
     await t.expectWorks(fresh.token, 'newadmin', 'admin')
-  })
+    // Not a timing test: it builds a whole server and runs a dozen argon2id hashes (64 MiB each, a few at a time:
+    // auth/passwords.ts HASH_SLOTS) for the owner, heir, invitees and the password check. About 1 s alone, but the hashes queue
+    // behind each other when CI runs shards in parallel, so Bun's 5 s default was too tight. The assertions are unchanged.
+  }, 60_000)
 })
 
 describe('accepting an invite re-checks its maker (defense in depth, any demotion path)', () => {
