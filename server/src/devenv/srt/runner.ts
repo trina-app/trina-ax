@@ -45,12 +45,12 @@ import { projectZoneFolders } from '../../policy/zone'
 import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, writePins } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -606,10 +606,16 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   try { skills = runSkillFolders(runWrites(ctx, c, s.space), s.space.userId) } catch { /* settingsFor says why it cannot run */ }
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
+  let dropGuard = () => {}
   try {
     const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
-    // the pinned entries and the folders to lock, in the run's TMPDIR (named by the run: a person's runs share one), done by the command's first line
-    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId, ctx.files.fx.root)), pins, places, s.runId))
+    // the pinned entries and the folders to lock, in the run's own guard folder (made new, read-only in the run, removed
+    // when it ends: never the TMPDIR, which an earlier run of the person can swap for a link), done by the command's
+    // first line
+    const g = runPlatform() === 'linux' ? runGuard(c.base, s.runId) : null
+    if (runPlatform() === 'linux' && !g) throw new Error('a run needs its run id')
+    if (g) dropGuard = makeGuardDir(g)
+    const guard = g ? entryGuard(writePins(g, pins, places)) : ''
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
@@ -628,8 +634,8 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); bridges?.stop() }), hash, net }
-  } catch (e) { release(); releaseSkills(); throw e }
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop() }), hash, net }
+  } catch (e) { release(); releaseSkills(); dropGuard(); throw e }
 }
 
 // ---------------- a chat's own dev servers on localhost ----------------

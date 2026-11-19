@@ -75,6 +75,9 @@ export function devenvPaths(base: string) {
     chatLogs: path.join(root, 'chat-logs'),
     /** TMPDIR of a shared chat's command (runTmp): short, because srt makes its proxy sockets there */
     runTmp: path.join(root, 'rt'),
+    /** the files of a run's first line (srt/mounts.ts writePins), one folder per run that the server makes fresh and
+     * removes when the run ends; read-only in that run, not there in any other */
+    guard: path.join(root, 'guard'),
   }
 }
 /** HOME, TMPDIR and the caches of one person's runs (read and write) */
@@ -106,6 +109,9 @@ export const runHome = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.
  * shared chat's command gets a short temp folder of its own, devenv/rt/<run>, removed when it ends like its home; a
  * person's run keeps <home>/tmp. */
 export const runTmp = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(devenvPaths(base).runTmp, sharedRunId(o)) : path.join(runHome(base, o), 'tmp'))
+/** The folder of a run's first-line files (Linux): never in a folder a run can write (a person's TMPDIR is in her
+ * HOME, where an earlier run could leave a link the server would write through). Null without a valid run id. */
+export const runGuard = (base: string, runId: string | undefined) => (runId && RUN_ID_RE.test(runId) ? path.join(devenvPaths(base).guard, runId) : null)
 /** The longest path of a unix socket on Linux: sun_path is 108 bytes with its closing NUL. */
 export const SUN_PATH_MAX = 107
 /** The unix sockets srt 0.0.81 makes in TMPDIR for its network bridge (linux-sandbox-utils.js
@@ -278,7 +284,8 @@ export function srtSettings(i: SettingsInput) {
   const deny = uniq([i.base, ...(inside(i.teamRoot, i.base) ? [] : [i.teamRoot]), ...(platform === 'linux' ? serverFilesOutsideBase(i.id) : []), ...host.denied,
     ...(i.serverPaths ?? []).filter((p) => !inside(p, i.base)), ...fixedHidden, ...i.view.denyRead.filter((r) => platform === 'linux' || r !== 'users').map((r) => abs(i.teamRoot, r)),
     ...writeInRead.map((w) => abs(i.teamRoot, w))])
-  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], host.read))
+  const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
+  const allowRead = uniq([...i.view.read, ...i.view.write].map((r) => abs(i.teamRoot, r)).concat([home, logs, devenvPaths(i.base).bin], i.work ? [i.work] : [], guard ? [guard] : [], host.read))
   return {
     filesystem: {
       denyRead: uniq(deny.concat((i.connectedSources ?? []).filter((src) => !hiddenBy(deny, allowRead, src)))),
@@ -366,7 +373,10 @@ export function settingsProblems(s: ReturnType<typeof srtSettings>, i: Pick<Sett
   for (const w of s.filesystem.allowWrite) {
     if (inside(w, i.teamRoot) && !inside(w, own) && !(start !== null && inside(w, start))) out.push(`a team folder outside the starting folder is writable: ${w}`)
   }
-  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  const guard = platform === 'linux' ? runGuard(i.base, i.runId) : null
+  for (const r of s.filesystem.allowRead) if (!allowed(r, [logs, devenvPaths(i.base).bin, ...(guard ? [guard] : []), ...host.read])) out.push(`a path that a run may not read: ${r}`)
+  // the run's first-line files are read-only in it
+  for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).guard) || inside(devenvPaths(i.base).guard, w)) out.push(`the run's guard folder is writable: ${w}`)
   // the server's programs are read-only in a run (a run that could write the git wrapper would switch it off)
   for (const w of s.filesystem.allowWrite) if (inside(w, devenvPaths(i.base).bin) || inside(devenvPaths(i.base).bin, w)) out.push(`the server's programs are writable: ${w}`)
   // a shared chat (docs/decisions/20261118-devenv-shared-chats.md): no personal folder, the person's own neither, no

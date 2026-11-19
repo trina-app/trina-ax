@@ -20,6 +20,11 @@
   Folders the run is given stay as they are: the lock skips them, and inside the sandbox it touches only a folder (not
   a link, not a masked file) on a tmpfs. When the team folder itself is on a tmpfs nothing is locked. The Docker suite
   checks that no folder or file in the team folder changes mode or owner on the disk (HOSTMODES).
+- **Where the lists live:** the first line's files (pins, folders to lock) are written into a guard folder of the run
+  (`devenv/guard/<run>`, `config.ts` `runGuard`, `mounts.ts` `makeGuardDir`): made new by the server for that run, in
+  a folder no run can see, read-only in the run, removed when it ends. Never the run's TMPDIR: a person's TMPDIR is in
+  her HOME, and one run could swap it for a link to a folder she may not open, which the next run's server write would
+  follow (review of PR #1372, T1 RX1-RX4).
 - **Not a boundary:** the sandbox's user owns these folders and can give the write bit back with `chmod u+w`. What it then
   makes there still stays in the sandbox's tmpfs and reaches no disk and no one else (attack RV2). The lock is there so
   honest writes are not lost without a word.

@@ -150,9 +150,11 @@ export function lockFolders(given: FolderView, denyRead: readonly string[], team
   return [...new Set([...placeFolders(given, teamRoot), ...denyRead.filter(inTeam)])].filter((p) => !givenAbs.has(p) && dir(p))
 }
 
-/** The pins of a run as files in `dir` (the run's own TMPDIR; `tag`, the run's id, keeps runs that share one apart):
- * the paths NUL-separated and the expected `dev:ino` lines (when there are pins), and the folders to lock
- * (lockFolders), NUL-separated. Null when there is neither. */
+/** The pins of a run as files in `dir`: the paths NUL-separated and the expected `dev:ino` lines (when there are pins),
+ * and the folders to lock (lockFolders), NUL-separated. Null when there is neither. `dir` is the run's own guard folder
+ * (config.ts runGuard, made fresh by makeGuardDir): never a folder a run can write, such as a person's TMPDIR inside her
+ * HOME, where an earlier run could leave a link that the server would follow and write a list of hidden folders
+ * through (review of PR #1372, attacks RX1-RX4). Each file is made new (wx). */
 export function writePins(dir: string, pins: Record<string, string>, places: readonly string[] = [], tag = ''): { paths?: string; ids?: string; places?: string } | null {
   const ps = Object.entries(pins)
   if (!ps.length && !places.length) return null
@@ -161,14 +163,23 @@ export function writePins(dir: string, pins: Record<string, string>, places: rea
   const out: { paths?: string; ids?: string; places?: string } = {}
   if (ps.length) {
     out.paths = path.join(dir, `.trina-pins${t}`); out.ids = path.join(dir, `.trina-pins${t}.ids`)
-    fs.writeFileSync(out.paths, ps.map(([p]) => p + '\0').join(''), { mode: 0o600 })
-    fs.writeFileSync(out.ids, ps.map(([, id]) => id + '\n').join(''), { mode: 0o600 })
+    fs.writeFileSync(out.paths, ps.map(([p]) => p + '\0').join(''), { mode: 0o600, flag: 'wx' })
+    fs.writeFileSync(out.ids, ps.map(([, id]) => id + '\n').join(''), { mode: 0o600, flag: 'wx' })
   }
   if (places.length) {
     out.places = path.join(dir, `.trina-places${t}`)
-    fs.writeFileSync(out.places, places.map((p) => p + '\0').join(''), { mode: 0o600 })
+    fs.writeFileSync(out.places, places.map((p) => p + '\0').join(''), { mode: 0o600, flag: 'wx' })
   }
   return out
+}
+/** The run's guard folder (config.ts runGuard), made new: its parent (devenv/guard) is the server's and hidden from every
+ * run, and the folder itself must not exist yet (a run id is used once), so no link of a run is followed. Returns a
+ * function that removes it (when the run ends, or when it does not start). */
+export function makeGuardDir(dir: string): () => void {
+  fs.mkdirSync(path.dirname(dir), { recursive: true, mode: 0o700 })
+  if (fs.lstatSync(path.dirname(dir)).isSymbolicLink()) throw new Error('the guard folder is a link')
+  fs.mkdirSync(dir, { mode: 0o700 })
+  return () => { try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* gone */ } }
 }
 /** The first line of a run's command on Linux. With pins (a shared chat): inside the sandbox one stat (GNU, by its
  * full path; xargs splits only a very long list) prints every pinned entry's `dev:ino`, which must be the list written
@@ -177,11 +188,11 @@ export function writePins(dir: string, pins: Record<string, string>, places: rea
  * disk changes (the team folder is never on a tmpfs here), and a file or folder made there fails ("Permission
  * denied") instead of seeming written. This keeps honest writes from being lost in silence; it is not a security
  * boundary: the sandbox's user owns those folders and can give the write bit back (chmod u+w), and what it then makes
- * there is still never kept and reaches no one. The files are removed before the command. Prints no path. */
+ * there is still never kept and reaches no one. The files are in the run's read-only guard folder, which the server
+ * removes when the run ends. Prints no path. */
 export function entryGuard(f: { paths?: string; ids?: string; places?: string } | null): string {
   if (!f) return ''
   const pin = f.paths && f.ids ? `/usr/bin/xargs -0 /usr/bin/stat -c %d:%i -- < ${shq(f.paths)} 2>/dev/null | /usr/bin/cmp -s - ${shq(f.ids)} || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }; ` : ''
   const lock = f.places ? `while IFS= read -r -d '' __lock_dir; do [ -d "$__lock_dir" ] && [ ! -L "$__lock_dir" ] && [ "$(/usr/bin/stat -f -c %T -- "$__lock_dir" 2>/dev/null)" = tmpfs ] && /bin/chmod a-w -- "$__lock_dir" 2>/dev/null; done < ${shq(f.places)}; unset __lock_dir; ` : ''
-  const files = [f.paths, f.ids, f.places].filter((x): x is string => !!x).map(shq).join(' ')
-  return `${pin}${lock}/bin/rm -f ${files}`
+  return `${pin}${lock}:`
 }
