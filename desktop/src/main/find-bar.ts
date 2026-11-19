@@ -51,6 +51,14 @@ export class FindBar {
       if (this.pending) this.send('ui:find-open', this.pending)
       this.pending = undefined
     })
+  }
+
+  /** the bar's page loads at the first Cmd+F, not with the window (a loaded view outside the window could take the
+   * keyboard's focus events from the views on screen) */
+  private started = false
+  private start() {
+    if (this.started) return
+    this.started = true
     void this.view.webContents.loadURL(`${UI_ORIGIN}/findbar.html`)
   }
 
@@ -69,6 +77,7 @@ export class FindBar {
       wc.on('destroyed', this.onGone)
       this.result = null
     }
+    this.start()
     this.place()
     this.o.focusBar()
     // the page's selection, read in an isolated world (the page cannot fake what getSelection answers there)

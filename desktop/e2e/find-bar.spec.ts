@@ -249,3 +249,29 @@ test('Cmd+F in the in-app browser searches its tab; the bar sits over the tab an
     await close(app)
   }
 })
+
+test('a closed find bar leaves the keyboard alone: the page keeps it after the bar was used and closed', async () => {
+  const app = await launch(newUserData())
+  try {
+    const page = await signIn(await addTeam(app, 'acme.localhost:19151', ACME))
+    await page.evaluate((html) => {
+      document.body.innerHTML = html
+    }, TEXT)
+    await focusView(app, ACME)
+    await menu(app, 'find')
+    const bar = await findBar(app)
+    await bar.getByTestId('find-field').fill('apple')
+    await bar.getByTestId('find-field').press('Escape')
+    await expect.poll(() => barBox(app)).toBeNull()
+    await page.locator('#box').focus()
+    // another view of the app takes the keyboard and gives it back: the page's field still has it
+    await app.evaluate(({ BaseWindow }) => {
+      const win = BaseWindow.getAllWindows().find((w) => w.contentView.children.length > 0)!
+      win.blur()
+      win.focus()
+    })
+    await expect.poll(() => page.evaluate(() => document.hasFocus() && document.activeElement?.id)).toBe('box')
+  } finally {
+    await close(app)
+  }
+})

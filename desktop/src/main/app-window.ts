@@ -1605,6 +1605,8 @@ export class AppWindow {
   private watchKeys(view: WebContentsView, inPane: boolean) {
     const wc = view.webContents
     wc.on('focus', () => {
+      // the find bar's page outside the window (closed) never holds the keyboard
+      if (view === this.findBar.view && !this.findBar.open) return
       // a press in the browser toolbar (its edge handle) takes the keyboard first: remember where it was (keysAfterDrag)
       if (view === this.chrome) this.beforeToolbarFocus = { keys: this.keys, at: Date.now() }
       this.keysAt(view, inPane)
