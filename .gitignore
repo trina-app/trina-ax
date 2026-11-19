@@ -11,6 +11,8 @@ tests/out/
 .dev/
 tests/.cache/
 dist/
+# temporary file of `bun build --compile`, left behind when a build stops early
+*.bun-build
 __pycache__/
 *.provisionprofile
 AuthKey_*.p8
