@@ -591,7 +591,10 @@ function pageLetters(p: PageText, matchCase: boolean): { text: string; from: num
   let text = ''
   const from: number[] = []
   let prev: Glyph | null = null
-  const space = () => { if (text && !text.endsWith(' ')) { text += ' '; from.push(-1) } }
+  // the last letter is kept apart: text.endsWith on a string grown with += flattens it at every call, which made a page
+  // of a 2 MB stream take seconds (CI, re-review of #1337)
+  let last = ''
+  const space = () => { if (text && last !== ' ') { text += ' '; last = ' '; from.push(-1) } }
   for (const [i, g] of p.glyphs.entries()) {
     if (prev) {
       const ex = prev.x + prev.dx, ey = prev.y + prev.dy
@@ -605,7 +608,7 @@ function pageLetters(p: PageText, matchCase: boolean): { text: string; from: num
     const l = fold(g.letters, matchCase).replace(/\s+/g, ' ')
     for (let k = 0; k < l.length; k++) {
       if (l[k] === ' ') { space(); if (from[from.length - 1] === -1) from[from.length - 1] = i; continue }
-      text += l[k]; from.push(i)
+      text += l[k]; last = l[k]!; from.push(i)
     }
     prev = g
   }

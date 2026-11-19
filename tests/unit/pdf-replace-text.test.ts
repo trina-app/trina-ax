@@ -379,7 +379,9 @@ describe('re-review of #1337: many pages sharing one big stream', () => {
     expect(notes).toContain('changed 1 place of "Acme Ltd" on page 1')
     expect(notes).not.toContain('could not check')
     expect(Date.now() - t0).toBeLessThan(20_000)
-  })
+    // the bound above is the test's own: bun's default 5 s timeout must not cut it first (a loaded CI runner reads the
+    // 3,000 pages several times slower than a Mac)
+  }, 30_000)
 
   test('the search for leftovers stops at its budget and says so, it does not fail', async () => {
     const doc = await PDFDocument.load(sharedPdf(50, 1))
