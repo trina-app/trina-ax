@@ -1,1 +1,0 @@
-- Messages in rooms, DMs and threads show their blank lines as typed: one blank line is one empty line, two are two. Before, any number of blank lines looked like one small gap. A long run shows at most 5 empty lines.

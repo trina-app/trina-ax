@@ -1,1 +1,0 @@
-- The AI now reads files with very long lines to the end, such as a one-line JSON export or JSONL posts. It cut each line at 2,000 characters and asked people to export their data again. A long line now comes back in parts, a one-line JSON file is shown neatly formatted, and a search finds a word anywhere in a long line.
