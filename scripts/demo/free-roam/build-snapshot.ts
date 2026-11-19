@@ -28,7 +28,9 @@ import { STEEPLING_LOCALES, writeSteepling, type SteeplingLocale } from '../stee
 import { baseConfig, baseLayout, cloneBase, freePort, shortTemp, SNAPSHOT_CONFIG, SNAPSHOT_DEMO_FILE, startInstance } from './instance'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
-export const USAGE = 'Usage: bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<dir> --locale en|ko --out <snapshots dir> [--name <name>] [--no-verify]'
+/** the snapshot team's default model (Admin › AI engines; the alias, which Claude Code resolves to its Sonnet) */
+export const SNAPSHOT_MODEL = 'sonnet'
+export const USAGE ='Usage: bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<dir> --locale en|ko --out <snapshots dir> [--name <name>] [--no-verify]'
 
 export interface Manifest {
   codeVersion: string
@@ -253,6 +255,11 @@ export async function buildSnapshot(o: BuildOptions): Promise<{ dir: string; man
       log(`seeded: ${seeded.people.length} people, ${seeded.files.length} files`)
       const story = await seedStoryState({ baseUrl: inst.url, content, ownerPassword, now, log })
       log(`story: ${Object.keys(story.rooms).length} rooms, ${Object.keys(story.chats).length} chats, ${story.connections.length} connections`)
+      // the team's default model is pinned: with the subscription stand-in a turn nobody chose a model for would start
+      // on Opus (server/src/engine/claude.ts SUBSCRIPTION_DEFAULT_MODEL); demo-gate's allow-list sends Sonnet anyway
+      const owner = await ownerClient(inst.url, content.company.owner.username, ownerPassword)
+      await owner.call(API.updateEngines, { body: { defaultEngine: 'claude-code', defaultModel: SNAPSHOT_MODEL } })
+      log(`team default model: ${SNAPSHOT_MODEL}`)
       writeFakesAt(content.dir, content.fakes, path.join(base, SNAPSHOT_FAKES), now)
     } catch (e) {
       if (e instanceof ApiError) log(`the server said: ${JSON.stringify(e.body).slice(0, 400)}`)
