@@ -1,1 +1,0 @@
-- Everyone can now open the team menu on top of the left rail, not only admins. **Switch team** opens another team you belong to, by its address or an invite link; Invite people and Admin still show for admins only. On a phone the same row is on the Me tab.

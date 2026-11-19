@@ -1,1 +1,0 @@
-- The AI can look at many pictures in one answer. Attach up to 100 files to a message (it was 20), for example 60 photos, and ask about all of them: the answer covers them without asking you to continue in a new message. Pictures from earlier in the answer are kept at a lower resolution so more of them fit.

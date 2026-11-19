@@ -1,2 +1,0 @@
-- Pasting very long text into the ✦ side chat no longer cuts it at 20,000 characters. Both AI message boxes take up to 200,000 characters, and a longer paste is added as a text file instead of being cut.
-- Videos, audio and large PDFs open in the preview at any size: they play or show their pages as they load instead of saying "too large to preview". Pictures now preview up to 100 MB (was 20 MB).

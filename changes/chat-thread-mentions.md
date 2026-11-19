@@ -1,1 +1,0 @@
-- In a shared chat's thread, type **@** in the reply box to tag someone who can see the chat. They get a notice that opens the thread. Only people who can see the chat are listed.
