@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
-import { entryGuard, entryPins, hideDeniedNames, readOnlyTops, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -78,7 +78,8 @@ const RULES = ruleWorld(([
   // repository at its top that once tracked hid/
   ['projects/mix', 'user', ME, 'read'], ['projects/mix', 'user', 'dave', 'read'], ['projects/mix/w', 'user', ME, 'write'], ['projects/mix/w', 'user', 'dave', 'read'],
   ['projects/mix/hid', 'user', ME, 'read'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp', 'groups/marketing/hr-alicealone', 'projects/mix', 'projects/mix/hid'])
+  ['shared/deep/hr-deep', 'user', ME, 'write'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp', 'groups/marketing/hr-alicealone', 'projects/mix', 'projects/mix/hid', 'shared/deep/hr-deep'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
@@ -129,6 +130,7 @@ w('projects/web/docs/guide.md', 'web guide\n')
 w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
 // a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
 w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
+w('shared/deep/hr-deep/x.md', `${ASKER}-deep`); w('shared/deep/ok.md', 'deep ok\n')
 w('projects/mix/readme.md', 'mix readme\n'); w('projects/mix/w/notes.md', 'mix notes\n'); w('projects/mix/hid/pay.md', `${ASKER}-mix-hid\n`)
 sh(`cd ${TEAM}/projects/mix && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm init && chmod -R a+rX .git`)
 sh(`cd ${TEAM}/projects/mix && git clone -q --bare . mix.git && chmod -R a+rX mix.git`)
@@ -175,7 +177,7 @@ process.env.GH_TOKEN = `${CANARY}-gh-token`; process.env.ANTHROPIC_API_KEY = `${
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] }; rawCwd?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
   // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
@@ -198,10 +200,10 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const sharedChat = sh_ ? sh_.chat : null
   // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
   const given = sh_ ? hideDeniedNames(view, TEAM) : view
-  // as the runner: the entries given one by one are checked first inside the sandbox, and the tops of read-only folders
-  // given so are made read-only there (mounts.ts entryGuard, readOnlyTops)
-  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM), readOnlyTops(view, given, TEAM)) : null
-  if (pinFiles) sh(`chown ${SRV}:${SRV} '${pinFiles.paths}' '${pinFiles.ids}'${pinFiles.readOnly ? ` '${pinFiles.readOnly}'` : ''}`)
+  // as the runner: the entries given one by one are checked first inside the sandbox, and srt's places above what is
+  // given are made read-only there (mounts.ts entryGuard, placeFolders)
+  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM), placeFolders(given, TEAM)) : null
+  if (pinFiles) sh(`chown ${SRV}:${SRV} ${[pinFiles.paths, pinFiles.ids, pinFiles.places].filter(Boolean).map((f) => `'${f}'`).join(' ')}`)
   const guard = entryGuard(pinFiles)
   // S18: the disk changes after the listing, before srt binds
   o.afterPins?.()
@@ -214,7 +216,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
   // as the runner: a shared chat's cwd in a team folder the chat does not show is refused before srt (runner.ts
   // sharedCwdShown, by the rules for everyone in the chat)
-  if (sh_) {
+  if (sh_ && !o.rawCwd) {
     const rel = path.relative(fs.realpathSync(TEAM), cwd)
     const outside = rel.startsWith('..') || path.isAbsolute(rel)
     if (!outside && (rel === '' || sharedPathAccess(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }, rel) === 'none')) return { code: null, out: '', refused: 'cwd' }
@@ -243,8 +245,9 @@ type Check = (r: { code: number | null; out: string; refused?: string }) => stri
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
-/** the output without the error lines of cat, ls and stat, which repeat the path the attack typed itself */
-const shown = (out: string) => out.split('\n').filter((l) => !/^(cat|ls|stat): .*(No such file or directory|Permission denied)$/.test(l)).join('\n')
+/** the output without the exact "No such file or directory" lines of cat and ls for paths the attack typed itself
+ * (they repeat that path). Any other line stays, "Permission denied" too: it would tell that a hidden folder is there. */
+const typedNotThere = (out: string, ...paths: string[]) => out.split('\n').filter((l) => !paths.some((p) => l === `cat: ${p}: No such file or directory` || l === `ls: cannot access '${p}': No such file or directory`)).join('\n')
 /** nothing that only alice may open (her own folder, her sub-folder, her home and logs) came back */
 const noAsker: Check = (r) => (r.out.includes(ASKER) || r.out.includes('alice todo') ? `something only alice may open came back: ${r.out.slice(Math.max(0, r.out.indexOf(ASKER) - 60), r.out.indexOf(ASKER) + 40)}` : null)
 const SPC = { shared: { chat: SP, within: 'projects/web', audience: [ALICE, DAVE] } }
@@ -492,16 +495,44 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     }), o: SWC,
     after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
   { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
-    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(shown(r.out)) ? `a folder they may not all open is listed: ${shown(r.out).slice(0, 300)}` : null)), o: SWC },
+    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => ((o) => (/hr-alicealone|hr-limited/.test(o) ? `a folder they may not all open is listed: ${o.slice(0, 300)}` : null))(typedNotThere(r.out, `${TEAM}/groups/marketing/hr-alicealone/pay.md`))), o: SWC },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
   // jobs and dev servers of shared chats (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md, QA TC-4989): a
   // command reads the job logs of its chat's people, never those of another audience of the same chat, and writes none
   { id: 'S16', what: 'shared project chat: $TRINA_LOGS is the folder of the chat\'s people (a job\'s log there reads); another audience\'s logs of the same chat do not, and are not listed', cmd: `echo LOGS=$TRINA_LOGS; cat $TRINA_LOGS/build.log; cat ${SP_LOGS_OTHER}/build.log; echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -A ${SP_LOGS_OTHER}; true`,
-    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => (shown(r.out).includes(path.basename(SP_LOGS_OTHER)) ? `the other audience's logs folder is listed: ${shown(r.out).slice(0, 300)}` : null)), o: SPC },
+    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => ((o) => (o.includes(path.basename(SP_LOGS_OTHER)) ? `the other audience's logs folder is listed: ${o.slice(0, 300)}` : null))(typedNotThere(r.out, `${SP_LOGS_OTHER}/build.log`, SP_LOGS_OTHER))), o: SPC },
   { id: 'S16b', what: 'shared project chat: the logs folder is read-only in a run (no planted log for the next command)', cmd: 'echo planted > $TRINA_LOGS/build.log || echo planted > $TRINA_LOGS/new.log || rm -f $TRINA_LOGS/build.log', check: failsQuietly, o: SPC,
     after: () => (fs.readFileSync(path.join(SP_LOGS, 'build.log'), 'utf8') !== 'JOB-LOG-OF-THESE-PEOPLE\n' || fs.existsSync(path.join(SP_LOGS, 'new.log')) ? 'the logs folder changed' : null) },
   { id: 'S16c', what: 'chat shared with people: another chat\'s job logs, and her own private runs see no shared chat\'s logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') ? 'another chat\'s job log was read' : null)), o: SWC },
-  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || shown(r.out).includes(SP) ? `a shared chat's logs were seen: ${shown(r.out).slice(0, 300)}` : null)) },
+  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || typedNotThere(r.out, `${SP_LOGS}/build.log`).includes(SP) ? `a shared chat's logs were seen: ${r.out.slice(0, 300)}` : null)) },
+  // ---- variants of the independent review of PR #1372: nested opened folders, srt's places, raw listings, the cwd
+  // without the suite's copy of the runner's refusal (bwrap itself) ----
+  { id: 'RV1', what: 'nested read-only folder given entry by entry (shared/deep holds hr-deep): a new file at its top', cmd: `echo x > ${TEAM}/shared/deep/new.md || mkdir ${TEAM}/shared/deep/d2`, check: failsQuietly, o: SWC },
+  { id: 'RV1b', what: 'shared/deep listing does not show hr-deep (raw, no filter)', cmd: `ls -A ${TEAM}/shared/deep; ls -lA ${TEAM}/shared/deep; true`, check: both(ok, has('ok.md'), (r) => (r.out.includes('hr-deep') ? `hr-deep shown: ${r.out.slice(0, 300)}` : null)), o: SWC },
+  { id: 'RV1c', what: 'group folder (read-only, holds hidden ones): a new file at its top', cmd: `echo x > ${TEAM}/groups/marketing/new.md || mkdir ${TEAM}/groups/marketing/d2`, check: failsQuietly, o: SWC },
+  { id: 'RV1d', what: 'ancestor places (team root, groups/): a new file or folder', cmd: `echo x > ${TEAM}/new-root.md || mkdir ${TEAM}/groups/newg || echo x > ${TEAM}/groups/new.md`, check: failsQuietly, o: SWC },
+  // the lock is not a boundary (mounts.ts entryGuard): the sandbox's user owns the place and may give the write bit
+  // back. What it then makes there stays in the sandbox's tmpfs: never on the disk, never seen by anyone else
+  { id: 'RV2', what: 'the sandbox user gives a locked place its write bit back and writes: nothing reaches the disk', cmd: `chmod u+w ${TEAM}/shared && echo x > ${TEAM}/shared/new3.md && ls -ld ${TEAM}/shared && echo WROTE; true`, check: ok, o: SWC,
+    after: () => (fs.existsSync(`${TEAM}/shared/new3.md`) ? 'reached the disk' : null) },
+  { id: 'RV2b', what: 'mode and owner of the locked top in the sandbox', cmd: `stat -c '%A %u %g %n' ${TEAM}/shared ${TEAM}/shared/deep ${TEAM} ${TEAM}/groups/marketing; id; true`, check: () => null, o: SWC },
+  { id: 'RV3', what: 'hidden vs not-there look the same in errors (ls/cat/stat/cd)', cmd: `for p in groups/marketing/hr-alicealone groups/marketing/nope-xyzzyx shared/hr-limited shared/nope-abcdefg shared/deep/hr-deep shared/deep/nope-qq; do echo "== $p"; ls -A ${TEAM}/$p 2>&1; cat ${TEAM}/$p/pay.md 2>&1; stat ${TEAM}/$p 2>&1 | head -1; (cd ${TEAM}/$p) 2>&1; touch ${TEAM}/$p/t 2>&1; done; true`,
+    check: (r) => {
+      const sec: Record<string, string> = {}
+      for (const part of r.out.split('== ').slice(1)) { const [h, ...rest] = part.split('\n'); sec[h.trim()] = rest.join('\n').split(h.trim()).join('P') }
+      const pairs = [['groups/marketing/hr-alicealone', 'groups/marketing/nope-xyzzyx'], ['shared/hr-limited', 'shared/nope-abcdefg'], ['shared/deep/hr-deep', 'shared/deep/nope-qq']]
+      const bad = pairs.filter(([a, b]) => sec[a] !== sec[b])
+      return bad.length ? `existence oracle: ${bad.map(([a, b]) => `${a}=[${sec[a]}] vs ${b}=[${sec[b]}]`).join(' | ').slice(0, 900)}` : null
+    }, o: SWC },
+  { id: 'RV4', what: 'other listers on the parents (find, du, ls -lR, rg --files) show no hidden name, raw output', cmd: `ls -lAR ${TEAM}/groups/marketing ${TEAM}/shared 2>&1; find ${TEAM}/groups/marketing ${TEAM}/shared 2>&1; du -a ${TEAM}/shared 2>&1; rg --files ${TEAM}/shared ${TEAM}/groups/marketing 2>&1; true`,
+    check: (r) => (/hr-alicealone|hr-limited|hr-deep|salaries/.test(r.out) ? `a hidden name in raw output: ${r.out.split('\n').filter((l) => /hr-alicealone|hr-limited|hr-deep|salaries/.test(l)).slice(0, 5).join(' / ')}` : null), o: SWC },
+  { id: 'RV5', what: 'S9b without the suite\'s cwd copy: bwrap itself, cwd in the hidden sub-folder', cmd: 'pwd; ls -A; cat secret.md; ls -A ..; true', check: (r) => (r.out.includes(ASKER) || /^secret\.md$/m.test(r.out) ? `hidden content: ${r.out.slice(0, 300)}` : null), o: { ...SPC, cwd: 'mine', rawCwd: true } },
+  { id: 'RV5b', what: 'S9c without the copy: cwd through a link', cmd: 'pwd; ls -A; cat secret.md; true', check: (r) => (r.out.includes(ASKER) || /^secret\.md$/m.test(r.out) ? `hidden content: ${r.out.slice(0, 300)}` : null), o: { ...SPC, cwd: 'to-mine', rawCwd: true } },
+  // a new file there is refused with an error the AI can read (keeping it is QA TC-5209)
+  { id: 'RV6', what: 'shared project chat: a new file at the top of the writable project folder that holds a hidden one fails loudly', cmd: `echo x > ${WEB}/rv6.md && echo WROTE-RV6`, check: both(failsQuietly, has('Permission denied')), o: SPC,
+    after: () => (fs.existsSync(`${WEB}/rv6.md`) ? 'rv6.md reached the disk' : null) },
+  { id: 'RV7', what: 'S16 raw: the other audience\'s logs key in the LIST line only', cmd: `echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -lA ${chatLogs(BASE, SP)} 2>&1; find ${chatLogs(BASE, SP)} 2>&1; true`, check: (r) => (r.out.includes(path.basename(SP_LOGS_OTHER)) ? `other key: ${r.out.slice(0, 400)}` : null), o: SPC },
+  { id: 'RV8', what: 'S16d raw: her own chat lists no shared chat logs', cmd: `ls -lA ${devenvPaths(BASE).chatLogs} 2>&1; find ${devenvPaths(BASE).chatLogs} 2>&1; ls -A ${path.dirname(devenvPaths(BASE).chatLogs)} 2>&1; true`, check: (r) => (r.out.includes(SP) ? `shared chat id seen: ${r.out.slice(0, 400)}` : null) },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)

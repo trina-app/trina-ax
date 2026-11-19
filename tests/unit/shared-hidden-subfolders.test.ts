@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { hiddenNow, withHiddenFolders, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedHiddenFolders, sharedPathAccess, viewAccess } from '../../server/src/devenv/srt/access'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, readOnlyTops, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
 import { authorize } from '../../server/src/policy/authorize'
 import { Denied } from '../../server/src/policy/errors'
 import { lockedTopsNote } from '../../server/src/devenv/tool'
@@ -152,8 +152,8 @@ describe('a run of a shared project chat', () => {
     // one stat for all of them, by its full path, from files in the run's TMPDIR (no long argument)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pins-'))
     const files = writePins(tmp, pins)!
-    expect(fs.readFileSync(files.paths, 'utf8').split('\0').filter(Boolean).sort()).toEqual(Object.keys(pins).sort())
-    expect(fs.readFileSync(files.ids, 'utf8').trim().split('\n')).toEqual(Object.values(pins))
+    expect(fs.readFileSync(files.paths!, 'utf8').split('\0').filter(Boolean).sort()).toEqual(Object.keys(pins).sort())
+    expect(fs.readFileSync(files.ids!, 'utf8').trim().split('\n')).toEqual(Object.values(pins))
     const guard = entryGuard(files)
     expect(guard).toContain('/usr/bin/xargs -0 /usr/bin/stat -c %d:%i --')
     expect(guard).toContain('exit 97')
@@ -172,33 +172,46 @@ describe('a run of a shared project chat', () => {
   })
 })
 
-// attack S12 (tests/linux/srt-attack.ts): the top of a read-only folder given entry by entry is srt's writable place
-// in the sandbox; the command's first line takes its write bits, so a file made there fails instead of seeming written
-describe('a read-only folder given entry by entry', () => {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-readonly-')))
-  for (const d of ['shared/hr-limited', 'shared/repo', `${F}/hr-PAYROLL`, `${F}/docs`]) fs.mkdirSync(path.join(root, d), { recursive: true })
-  fs.writeFileSync(path.join(root, 'shared/s.md'), 's')
-  test('its top is locked in the sandbox; a writable one (its top: lockedTops) and a folder given whole are not', () => {
-    const v = { read: ['shared'], write: [F], denyRead: ['shared/hr-limited', `${F}/hr-PAYROLL`], denyWrite: [] }
+// attacks S12, RV1, RV1d, RV6 (tests/linux/srt-attack.ts): srt's places above what is given (the team root, groups/, a
+// folder given entry by entry at any depth) are writable folders of the sandbox's tmpfs; the command's first line takes
+// their write bits, so a file made there fails instead of seeming written
+describe('srt\'s places above what is given', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-places-')))
+  for (const d of ['shared/hr-limited', 'shared/repo', 'shared/deep/hr-deep', 'shared/deep/docs', `${F}/hr-PAYROLL`, `${F}/docs`]) fs.mkdirSync(path.join(root, d), { recursive: true })
+  fs.writeFileSync(path.join(root, 'shared/s.md'), 's'); fs.writeFileSync(path.join(root, 'shared/deep/ok.md'), 'ok')
+  const abs = (...r: string[]) => r.map((x) => (x === '' ? root : path.join(root, x)))
+  test('a read-only folder opened at any depth, and every folder above, up to the team root', () => {
+    const v = { read: ['shared'], write: [], denyRead: ['shared/deep/hr-deep'], denyWrite: [] }
     const g = hideDeniedNames(v, root)
-    expect(g.read.sort()).toEqual(['shared/repo', 'shared/s.md'])
-    expect(readOnlyTops(v, g, root)).toEqual([path.join(root, 'shared')])
-    const plain = { read: ['shared'], write: [], denyRead: [], denyWrite: [] }
-    expect(readOnlyTops(plain, hideDeniedNames(plain, root), root)).toEqual([])
+    expect(g.read.sort()).toEqual(['shared/deep/docs', 'shared/deep/ok.md', 'shared/hr-limited', 'shared/repo', 'shared/s.md'])
+    expect(placeFolders(g, root)).toEqual(abs('', 'shared', 'shared/deep'))
+    const both = { read: ['shared'], write: [], denyRead: ['shared/hr-limited', 'shared/deep/hr-deep'], denyWrite: [] }
+    expect(placeFolders(hideDeniedNames(both, root), root)).toEqual(abs('', 'shared', 'shared/deep'))
   })
-  test('the guard locks them after the pin check and removes the list; no list, no lock', () => {
-    const v = { read: ['shared'], write: [], denyRead: ['shared/hr-limited'], denyWrite: [] }
+  test('a writable folder given entry by entry is a place too; a folder given whole and what is inside it never are', () => {
+    const v = { read: ['shared'], write: [F], denyRead: [`${F}/hr-PAYROLL`], denyWrite: [] }
     const g = hideDeniedNames(v, root)
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pins-ro-'))
-    const files = writePins(tmp, entryPins(v, g, root), readOnlyTops(v, g, root))!
-    expect(fs.readFileSync(files.readOnly!, 'utf8')).toBe(path.join(root, 'shared') + '\0')
+    // projects/falcon is opened (lockedTops); shared is given whole: neither shared nor anything in it is a place
+    expect(placeFolders(g, root)).toEqual(abs('', 'projects', F))
+    expect(placeFolders({ read: [''], write: [], denyRead: [], denyWrite: [] }, root)).toEqual([])
+    // a read-only folder inside a writable one given whole: the writable one is the real folder, never locked
+    expect(placeFolders({ read: [`${F}/docs/x`], write: [F], denyRead: [], denyWrite: [] }, root)).toEqual(abs('', 'projects'))
+  })
+  test('the guard locks the places after the pin check and removes its files; places alone, no pins', () => {
+    const v = { read: ['shared'], write: [], denyRead: ['shared/deep/hr-deep'], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pins-places-'))
+    const files = writePins(tmp, entryPins(v, g, root), placeFolders(g, root))!
+    expect(fs.readFileSync(files.places!, 'utf8')).toBe(abs('', 'shared', 'shared/deep').map((p) => p + '\0').join(''))
     const guard = entryGuard(files)
     expect(guard.indexOf('/bin/chmod a-w')).toBeGreaterThan(guard.indexOf('exit 97'))
-    expect(guard).toContain(`/bin/rm -f '${files.paths}' '${files.ids}' '${files.readOnly}'`)
-    expect(guard).not.toContain('hr-limited')
-    const noRo = writePins(tmp, entryPins(v, g, root))!
-    expect(noRo.readOnly).toBeUndefined()
-    expect(entryGuard(noRo)).not.toContain('chmod')
+    expect(guard).toContain(`/bin/rm -f '${files.paths}' '${files.ids}' '${files.places}'`)
+    expect(guard).not.toContain('hr-deep')
+    const only = writePins(tmp, {}, abs(''))!
+    expect(only.paths).toBeUndefined()
+    expect(entryGuard(only)).not.toContain('exit 97')
+    expect(entryGuard(only)).toContain('/bin/chmod a-w')
+    expect(writePins(tmp, {}, [])).toBeNull()
   })
 })
 

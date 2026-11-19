@@ -49,7 +49,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, readOnlyTops, writePins } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, placeFolders, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -557,8 +557,9 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   // command checks them first inside the sandbox (entryGuard)
   const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
   const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
-  // and the read-only folders given entry by entry: their tops are made read-only in the sandbox (mounts.ts readOnlyTops)
-  const readOnly = space.shared && runPlatform() === 'linux' ? readOnlyTops(view, given, ctx.files.fx.root) : []
+  // and srt's places above what is given (the team root, groups/, every folder given entry by entry): read-only in the
+  // sandbox, so a file made there fails instead of being lost in silence (mounts.ts placeFolders)
+  const places = space.shared && runPlatform() === 'linux' ? placeFolders(given, ctx.files.fx.root) : []
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
     view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder, logKey: runOwner(space).logKey,
@@ -578,7 +579,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
     throw new Error(`refused settings: ${problems.join('; ')}`)
   }
-  return { settings, work, pins, readOnly, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
+  return { settings, work, pins, places, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
@@ -597,9 +598,9 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   try {
-    const { settings, work, pins, readOnly, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
     // the pinned entries, in the run's own TMPDIR (a shared chat's run always has one), checked by the command's first line
-    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId)), pins, readOnly))
+    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId)), pins, places))
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')

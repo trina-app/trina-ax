@@ -183,7 +183,7 @@ export interface BoxShellHost {
 
 /** What a shared chat's command cannot do in a folder given entry by entry (srt/mounts.ts). Names only folders everyone
  * in the chat may open, and never what is hidden or why. */
-export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (what it makes there is not kept), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
+export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (a new file or folder there fails with "Permission denied"), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
 
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 
@@ -257,7 +257,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const see = sharedVisible(ctx, space)
     w = { ...w, changes: w.changes.filter((c) => see(c.path)), background: w.background.filter((c) => see(c.path)), conflicts: w.conflicts.filter(see) }
     // a writable folder that holds a folder some of them cannot open is given entry by entry (srt/mounts.ts): its top
-    // cannot change in a command, which the AI must know (else a file it makes there is silently not kept)
+    // cannot change in a command, which the AI must know (else it would try to make files there, which fails)
     const locked = sharedLockedTops(ctx, space)
     if (locked.length) notes.push(lockedTopsNote(locked))
   }

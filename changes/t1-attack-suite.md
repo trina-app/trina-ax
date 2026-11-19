@@ -1,1 +1,1 @@
-- In a chat shared with people, a command that writes into a read-only team folder (for example Shared, when it holds a folder not everyone in the chat may open) now fails with "Permission denied". Before, the write seemed to work and the file was never saved.
+- In a shared chat, a command that writes into a read-only team folder, a folder above it (such as the team root or Groups), or the top of a project folder that holds a sub-folder not everyone in the chat may open now fails with "Permission denied". Before, the write seemed to work and the file was never saved.
