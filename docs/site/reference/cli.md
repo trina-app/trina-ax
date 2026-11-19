@@ -51,6 +51,7 @@ Call it as `~/TeamAX/teamax <command>`.
 | `update status\|check\|now\|pause\|resume` | Manage updates |
 | `update channel stable\|beta`, `update time HH:MM` | Pick the channel and the update time |
 | `public-address set HOST TOKEN-FILE\|off\|status` | The optional internet address |
+| `tailscale-address on [--port N]\|off\|status` | The optional Tailscale address for devices on your tailnet |
 | `desktop list\|add\|remove` | Desktop installers offered under Settings › Apps |
 | `check-ports`, `claude-mcp check` | Diagnostics |
 

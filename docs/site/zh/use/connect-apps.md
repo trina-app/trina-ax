@@ -26,7 +26,7 @@ Trina AX 可以连接两类东西：
 | 在 Slack 中向 Trina AX 提问 | 管理员操作一次，然后每人操作一次 | **管理 › 已连接的应用 › Slack** | [Slack](slack.md) |
 | 让 AI 使用 Notion、Linear、Atlassian、Figma、GitHub 等应用 | 你为自己设置，管理员为团队设置 | **设置 › 连接器**或**管理 › 已连接的应用** | [Notion、Linear 等应用](mcp.md) |
 | 让 AI 使用公司自己的系统（API），或需要用你自己的登录应用的服务，例如 NAVER WORKS | 管理员 | **管理 › 已连接的应用** › **通过地址添加** | [公司自己的 API](api-connections.md) |
-| 在 Claude 或 ChatGPT 中使用你在 Trina AX 中的文件 | 你 | **设置 › Trina AX MCP** | [Team AX MCP 连接器](../../agents/mcp-connector.md)（英文） |
+| 在 Claude 或 ChatGPT 中使用你在 Trina AX 中的文件 | 你 | **设置 › Trina AX MCP** | [Trina AX MCP 连接器](../../agents/mcp-connector.md)（英文） |
 
 要打开**设置**，点左侧栏底部你的头像，再点**设置**（在手机上是**我**标签页）。所有者和管理员在同一个菜单中还能看到**管理**。
 

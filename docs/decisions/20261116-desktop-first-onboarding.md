@@ -2,7 +2,7 @@
 
 - Date: 2026-11-16
 - Status: accepted
-- Supersedes: none
+- Supersedes: the Mac part of [Mac users get the App Store only](../DECISIONS.md#mac-users-get-the-app-store-only-the-relay-does-not-say-whether-setup-is-done-fixmac-store-setup-hidden-2026-11-11-product-owner-qa-tc-193-tc-194) (Settings › Apps now leads to the dmg download page)
 - Branch: feat/desktop-first-onboarding (plan: docs/AGENTS/plan/20261116-1936-desktop-first-onboarding.md)
 
 - **Ask:** "Find work files on this computer" works only in the desktop app, and nothing tells a new owner that the app

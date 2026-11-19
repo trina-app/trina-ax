@@ -25,7 +25,7 @@ import { answerHtml } from '../LazyMarkdown'
 import { formAnswers } from '../../lib/skillForm'
 import { skillByName, splitCommand, useSkillList } from '../../lib/skillTitles'
 import { useAutoGrow } from '../../lib/autoGrow'
-import { formatNumber, formatResetDay, formatSize } from '../../lib/format'
+import { formatNumber, formatResetDay, formatResetTime, formatSize } from '../../lib/format'
 import { openArtifact, openFilePreview, openTeamFile, useSidePanel } from '../../lib/sidePanel'
 import { TEAM_FILE_DRAG_TYPE } from '../../lib/teamAttach'
 import { useChatArtifacts } from '../../lib/useArtifacts'
@@ -49,6 +49,7 @@ import { isNoAiReason } from '../../lib/aiAccess'
 import { adminPath, chatErrorText } from '../../lib/chatErrors'
 import { Button, CopyButton, IconButton, inputCls, useCopy, useMediaQuery } from '../ui'
 import AskCard from './AskCard'
+import TodoCard, { todoStepOf } from './TodoCard'
 import ShareCard from './ShareCard'
 import TeamFolderCard from './TeamFolderCard'
 import PostedCard from './PostedCard'
@@ -682,6 +683,8 @@ export function AssistantMessage({
   const build = useMessageBuild(chatId, m.id)
   const question = useChats((s) => (streaming && m.parentId ? s.threads[chatId]?.messages.find((x) => x.id === m.parentId)?.content : undefined))
   const deck = !!build || readsForDeck(m, question)
+  // the AI's to-do list of this answer (todo_write): one card that moves on in place
+  const todoStep = todoStepOf(m.steps)
   const thinking = streaming && !m.content && !waitingForYou && !deck
   const known = m.error ? ERROR_MESSAGES[m.error.code] : undefined
   const reason = m.error ? chatErrorReason(m.error) : null
@@ -708,13 +711,15 @@ export function AssistantMessage({
   // at the limit: when it resets (the server's date, params.resetsAt, in the team's time zone: QA TC-2201)
   const resetsAt = m.error?.code === 'budget_exceeded' && typeof m.error.params?.resetsAt === 'string' ? m.error.params.resetsAt : null
   const guestKey = !guest || !m.error ? null : m.error.code === 'budget_exceeded' ? (resetsAt ? 'guest.aiLimitUntil' as const : 'guest.aiLimit' as const) : reason && GUEST_ASKS.has(reason) ? (guestOwn && isNoAiReason(reason) ? 'aiAccess.banner.connectOwn' as const : 'guest.noAi' as const) : null
-  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi) : null
+  // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
+  const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
+  const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
   const errText = m.error
     ? guestKey === 'guest.aiLimitUntil' ? (guestTokens
       // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
       ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
       : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
-      : said ? t(said.key, said.where ? { path: adminPath(t, said.where) } : undefined)
+      : said ? t(said.key, said.where || usageUntil ? { ...(said.where ? { path: adminPath(t, said.where) } : {}), ...(usageUntil ? { date: formatResetTime(usageUntil, locale) } : {}) } : undefined)
       : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
     : null
   const [suggesting, setSuggesting] = useState(false)
@@ -784,6 +789,7 @@ export function AssistantMessage({
             <Steps steps={m.steps} streaming={streaming} failed={m.status === 'error'} receipt={m.receipt} />
           </StepPostView.Provider>
         )}
+        {todoStep?.todos && <TodoCard todos={todoStep.todos} streaming={streaming} />}
         {providerBusy && !waitingForYou && (queuePos === undefined || queuePos === 0) && (
           <p className="mb-2 text-sm text-muted" role="status" data-testid="provider-busy">{t('chat.providerBusy')}</p>
         )}
@@ -825,9 +831,12 @@ export function AssistantMessage({
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
-                <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
-                  <RotateCcw size={13} aria-hidden /> {t('common.retry')}
-                </Button>
+                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one) */}
+                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && (
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
+                    <RotateCcw size={13} aria-hidden /> {t('common.retry')}
+                  </Button>
+                )}
                 {/* the AI could not start on the server: another model starts the same way and fails the same (QA TC-3521) */}
                 {retryWith && retryWith.engines.length > 0 && reason !== 'engine_start_failed' && <RetryWithModel m={m} busy={busy} retryWith={retryWith} onPick={(p) => onRegenerate(m, p)} />}
               </span>

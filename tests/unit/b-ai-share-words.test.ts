@@ -13,6 +13,7 @@ import path from 'node:path'
 import { API, uuidv7 } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { buildTurnPrompt, ROOMS_POST_RULE, sharedSection, SOURCE_LINK_RULE, type PromptInput } from '../../server/src/chat/prompt'
+import { answeredNote } from '../../server/src/chat/open-questions'
 import { POST_TO_ROOM_DESCRIPTION, postRefusal } from '../../server/src/chat/post-to-room'
 import { SHARE_WITH_PERSON_DESCRIPTION } from '../../server/src/chat/share-with-person'
 import {
@@ -453,7 +454,12 @@ describe('through the tools', () => {
     const args = { question: 'Which Quote.pdf do you mean?', options: [{ label: 'users/bob/Work/Quote.pdf', value: 'users/bob/Work/Quote.pdf' }, { label: 'users/bob/Old/Quote.pdf', value: 'users/bob/Old/Quote.pdf' }] }
     const r = await turn('bob', fake({ tool: 'ask_user', args, sayResult: true }), { answer: 'users/bob/Old/Quote.pdf' })
     expect(r.card!.options).toEqual([{ label: '내 폴더 › Work › Quote.pdf', value: 'users/bob/Work/Quote.pdf' }, { label: '내 폴더 › Old › Quote.pdf', value: 'users/bob/Old/Quote.pdf' }])
-    expect(JSON.parse(r.content)).toEqual({ answer: 'users/bob/Old/Quote.pdf' })
+    // the card waits after the answer ends (chat/open-questions.ts); the next turn's message is the label the person
+    // picked, and the AI gets the value it gave
+    expect(JSON.parse(r.content)).toMatchObject({ asked: true })
+    const next = await socks.bob!.next('message.created', (f) => f.data.message.role === 'user' && f.data.message.content === '내 폴더 › Old › Quote.pdf', 20_000)
+    expect(answeredNote(h.ctx.db, next.data.message.id)).toContain('"answer":"users/bob/Old/Quote.pdf"')
+    await socks.bob!.next('message.done', (f) => f.data.chatId === next.data.chatId && f.data.message.parentId === next.data.message.id, 30_000)
   })
 
   test('the post card\'s thread title quotes the message without its Markdown marks', async () => {

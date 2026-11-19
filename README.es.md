@@ -17,7 +17,7 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Si Trina AX puede servirle a tu equipo, una estrella ayuda a que más equipos lo encuentren.</sub></p>
+<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Después pulsa ☆ Star arriba de la página. Una estrella ayuda a que más equipos encuentren Trina AX.</sub></p>
 
 ## Se configura una vez. Lo usa todo tu equipo.
 
@@ -73,7 +73,7 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 <td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Trina está en cada conversación.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, la respuesta de Trina en el canal y un hilo abierto a la derecha"></td>
+<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Pregunta a Trina junto a cualquiera de ellas, en un chat lateral que solo ves tú.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, una respuesta enviada al canal y un hilo abierto a la derecha"></td>
 </tr>
 </table>
 

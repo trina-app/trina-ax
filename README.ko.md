@@ -17,7 +17,7 @@
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>우리 팀에도 쓸모 있겠다 싶으면 별을 눌러 주세요. 더 많은 팀이 트리나 AX를 찾게 돼요.</sub></p>
+<p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>버튼을 누른 뒤 페이지 맨 위의 ☆ Star를 눌러 주세요. 별 하나가 더 많은 팀이 트리나 AX를 찾게 도와줘요.</sub></p>
 
 ## 한 번 설정하면, 팀 전체가 써요
 
@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
 <tr>
-<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널에 올라온 트리나의 답, 오른쪽에 열린 스레드"></td>
+<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 어느 대화에서든 옆에 나만 보는 채팅을 열어 트리나에게 물어봐요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널로 보낸 답변, 오른쪽에 열린 스레드"></td>
 </tr>
 </table>
 

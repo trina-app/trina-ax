@@ -12,10 +12,10 @@ Google Drive keeps its own integration ([GOOGLE-DRIVE.md](GOOGLE-DRIVE.md)), sho
 card whose Connect goes straight to Google (`web/src/components/integrations/DriveConnector.tsx`; the old
 `/settings/drive` leads there), and so does asking the AI from Slack ([SLACK.md](SLACK.md)). App connectors are the
 apps this server's AI uses with a person's own account (`web/src/lib/connectors.ts` `APP_CONNECTORS`, one card each).
-Admin › App connectors shows whether the server has a Google client and how many members are connected, and an admin
+Admin › Connected apps shows whether the server has a Google client and how many members are connected, and an admin
 can set the client up there. These connections are the other direction from the "connectors" of
-`server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › AI
-apps and Admin › Trina AX MCP.
+`server/src/connectors/remote-mcp` (outside AI apps such as Claude using this server's files), which are Settings › Trina AX MCP
+and Admin › Trina AX MCP.
 
 Gmail, Google Calendar, Google Docs and Google Sheets are built-in connectors too
 ([GOOGLE-APPS.md](GOOGLE-APPS.md)): a card each, one Google sign-in per app, the tools of the Google Workspace MCP
@@ -80,7 +80,7 @@ back), `server/src/routes/integrations.ts`, migration
 
 | | Personal | Team |
 | --- | --- | --- |
-| Made by | the member (Settings › External services) | an admin (Admin › External services) |
+| Made by | the member (Settings › Connectors) | an admin (Admin › Connected apps) |
 | Used by | that member, in their own chats only | the people its rules name: everyone, groups, people |
 | Managed by | the member; nobody else sees it, admins and the owner included | admins |
 | Ends | when the member deletes it or their account is deleted | when an admin deletes it |
@@ -176,10 +176,10 @@ advances the safe-operations policy generation); web: `web/src/components/integr
 ## Asking a member to connect
 
 Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.
-An admin cannot add a personal connection for someone else. Instead, Admin › External services › "Requests to members"
+An admin cannot add a personal connection for someone else. Instead, Admin › Connected apps › "Ask a member to connect"
 sends one member a request with the service filled in (kind, name, address, key or sign-in, the key's header, usage
 notes for an API). The member gets an inbox entry and a banner, and the admin can copy a link
-(`/settings/integrations?request=<id>`; only that member, signed in, can open it). In Settings › External services the
+(`/settings/connectors?request=<id>`; only that member, signed in, can open it). In Settings › Connectors the
 member connects it with their own key or signs in, which creates their personal connection through the same path as
 one they add themselves, or declines it. The admin sees the state (waiting, connected, declined, withdrawn, expired
 after 7 days) and can withdraw a waiting request; the admin never sees the key or the member's connection. A guest is
@@ -222,7 +222,7 @@ the page says "Request sent" (also when opened again while the request is open),
   own connection to the service does not stop the ask.
 - **Taking it back:** "Cancel request" under "Request sent" (`DELETE /api/integrations/service-requests/:service`, one's
   own only; audited `service_request.withdraw`). It still counts toward the 10 a day.
-- **Admin › Connectors, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
+- **Admin › Connected apps, "Asked by members":** one line per app or service with open requests (who asked), **Add** (a
   Google one: its page; a listed service: "Connect for the team") and **Dismiss** (`POST
   /api/admin/service-requests/:service/dismiss`: closes them; each member who asked gets one quiet notice
   (`service.closed`, never an admin's name) that it was closed and that they may ask again, as after the 30 days (QA
@@ -627,7 +627,7 @@ Setting up Google (Gmail, Calendar … MCP servers; in Google's Workspace Develo
    External with test users. Restricted scopes (`gmail.readonly`, `drive.readonly`) need Google's verification before an
    External app may go public.
 3. Credentials › OAuth client ID › Web application, with the redirect address above.
-4. Admin › External services › add, as a template (each member signs in with their own Google account): MCP server,
+4. Admin › Connected apps › add, as a template (each member signs in with their own Google account): MCP server,
    `https://gmailmcp.googleapis.com/mcp/v1`, sign-in, "Sign in with my own app", the client ID and secret, and the scopes,
    e.g. `https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose`.
 
@@ -635,7 +635,7 @@ Setting up NAVER WORKS (API 2.0):
 
 1. Developer Console › the app: its Client ID and Client Secret, the Redirect URL above, the OAuth scopes the AI needs
    (`calendar`, `mail`, `file`, `user.read` …), and the access token's lifetime.
-2. Admin › External services › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
+2. Admin › Connected apps › add, as a template: API, `https://www.worksapis.com/v1.0`, sign-in, the client ID and
    secret, sign-in address `https://auth.worksmobile.com/oauth2/v2.0/authorize`, token address
    `https://auth.worksmobile.com/oauth2/v2.0/token`, the same scopes, and notes with the endpoints the AI should call.
 
@@ -737,7 +737,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
 - Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed
   sign-in: `changed: ["signIn"]`, and a tool turned on or off: `changed: ["tools"]`), `integration.delete`. Team connections are named with their host; a member's own
   connections only by scope, kind and auth (no name or address).
-- Requests to members: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
+- Ask a member to connect: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
   member), with the member, kind, name, host and auth the admin filled in.
 - Each call is a `tool_events` row with a summary only: the tool, `api_request <connection> <METHOD> <path> -> <status>`,
   "confirmed by the user" or why it was refused. No arguments, bodies, query strings or secrets.

@@ -8,8 +8,9 @@
 //   Korean, Japanese or Chinese font, and without one those characters came out as empty boxes. A Mac uses its own.
 // - xlsx: exceljs (CSV, or every Markdown pipe table becomes a sheet); numbers become numbers, header row bold,
 //   filter + frozen header. A data cell that starts with "=" becomes a formula (R2-GEN-02); "'=" keeps it as text.
-//   A formula that can reach outside the workbook (external workbook refs, DDE, HYPERLINK, WEBSERVICE, INDIRECT, ...)
-//   is refused and nothing is saved. Simple formulas also store their result (formula-values.ts); Excel / LibreOffice calculate every one on open.
+//   A formula that can reach outside the workbook (external workbook refs, DDE, WEBSERVICE, INDIRECT, ...)
+//   is refused and nothing is saved. HYPERLINK is allowed to a web page, a mail address or a place in the workbook,
+//   written out in the formula (hyperlinkProblem; docs/decisions/20261118-xlsx-hyperlink.md). Simple formulas also store their result (formula-values.ts); Excel / LibreOffice calculate every one on open.
 //   `charts`: native Excel charts over a range of a sheet, added to the zip after exceljs wrote it (xlsx-chart.ts).
 // Converters run isolated (tools/isolate.ts) in an empty work folder. Images the document refers to by a relative
 // path are copied into the work folder only if the person may read them; anything else fails the conversion.
@@ -1097,7 +1098,7 @@ export function cellValue(v: string): string | number | ExcelJS.CellFormulaValue
 /** Functions that read or open something outside the workbook, run code, or build references from text (which gets
  * past the checks below). The AI writes the formula and a team-folder CSV can be an upload, so these are refused. */
 const BLOCKED_FUNCTIONS = new Set([
-  'HYPERLINK', 'WEBSERVICE', 'FILTERXML', 'ENCODEURL', 'RTD', 'CALL', 'REGISTER', 'REGISTER.ID', 'EXEC', 'DDE', 'DDEAUTO',
+  'WEBSERVICE', 'FILTERXML', 'ENCODEURL', 'RTD', 'CALL', 'REGISTER', 'REGISTER.ID', 'EXEC', 'DDE', 'DDEAUTO',
   'IMAGE', 'INDIRECT', 'STOCKHISTORY', 'INFO', 'CELL', 'IMPORTDATA', 'IMPORTXML', 'IMPORTHTML', 'IMPORTFEED', 'IMPORTRANGE',
 ])
 /** Functions newer than Excel 2007: the file format stores them with the "_xlfn." prefix, else Excel shows #NAME?. */
@@ -1210,6 +1211,76 @@ function structureError(tokens: Token[]): string | null {
   return null
 }
 
+/** mailto parameters a link may carry (the same list as the Word and PowerPoint links of make_file) */
+const MAILTO_PARAMS = new Set(['subject', 'body', 'cc', 'bcc', 'to'])
+// eslint-disable-next-line no-control-regex
+const NOT_IN_LINK = /[\s\x00-\x1f\x7f\\\p{Cf}]/u
+// eslint-disable-next-line no-control-regex
+const NOT_IN_PLACE = /[\x00-\x1f\x7f\\\p{Cf}]/u
+const LINK_RULE = 'HYPERLINK may point only to a web page (http, https), a mail address (mailto:) or a place in this workbook ("#Sheet1!A1"): ' +
+  'a file:, network-share (\\\\server) or other local link is refused, because opening one can hand a coworker\'s Windows sign-in to another computer'
+
+/**
+ * The link of every HYPERLINK in the formula, or why one is refused. Claude Code's openpyxl writes any HYPERLINK; the one
+ * thing kept from coworkers who open the file is a link to something on their own computer or network (file:,
+ * \\host\share, a relative path, javascript:, a program's own scheme), which can run a program or send their Windows
+ * sign-in to another computer. So the link is the first argument, written out as "text": a web page (http, https), a
+ * mail address (mailto:, with subject, body, cc, bcc, to only, written out whole), or a place in this workbook
+ * ("#Sheet1!A1", "#'Q3 sales'!B2", "#Total"). A web link may go on with & and cells ("https://example.com/item/"&A2),
+ * with no comparison: the kind of link is fixed by the text it starts with. A link that is a cell, or a place built from cells, cannot be checked and is refused.
+ */
+export function hyperlinkProblem(tokens: Token[]): string | null {
+  for (const [k, t] of tokens.entries()) {
+    if (t.kind !== 'code') continue
+    for (const m of t.text.matchAll(/([A-Za-z0-9_.]?)HYPERLINK\s*\(/gi)) {
+      // a prefixed or longer name (_xludf.HYPERLINK, XHYPERLINK) is not checked here: refused as before
+      if (m[1]) return 'the function HYPERLINK may only be written as HYPERLINK(...), with no prefix'
+      const rest = t.text.slice(m.index! + m[0].length)
+      const arg = tokens[k + 1]
+      if (rest.trim() !== '' || arg?.kind !== 'string') return `${LINK_RULE}. Write the link in the formula in "double quotes", e.g. HYPERLINK("https://example.com/report","Report") or HYPERLINK("https://example.com/item/"&A2,A2)`
+      const target = arg.text.slice(1, -1).replace(/""/g, '"')
+      const after = tokens[k + 2]
+      const joined = after?.kind === 'code' && /^\s*&/.test(after.text)
+      const ended = !after || (after.kind === 'code' && /^\s*[,)]/.test(after.text))
+      if (!joined && !ended) return `${LINK_RULE}. Write the link in the formula in "double quotes"`
+      if (joined) {
+        // the rest of the first argument: a comparison there ("https://x"&A1="y") makes the link TRUE or FALSE, not
+        // the text it starts with (review of #1337)
+        let depth = 0
+        outer: for (let j = k + 2; j < tokens.length; j++) {
+          const tj = tokens[j]!
+          if (tj.kind !== 'code') continue
+          for (const ch of tj.text) {
+            if (ch === '(' || ch === '{') depth++
+            else if (ch === ')' || ch === '}') { if (depth === 0) break outer; depth-- }
+            else if (ch === ',' && depth === 0) break outer
+            else if ((ch === '=' || ch === '<' || ch === '>') && depth === 0) return `${LINK_RULE}. The link may go on with & and cells, but not with a comparison (=, <, >)`
+          }
+        }
+      }
+      // a place in this workbook may have a space in a 'quoted sheet name'; a web or mail link has none
+      if (target.length > 2048 || (target.startsWith('#') ? NOT_IN_PLACE : NOT_IN_LINK).test(target)) return `${LINK_RULE}. The link "${target.slice(0, 60)}" has spaces, backslashes or control characters`
+      if (/^https?:\/\//i.test(target)) { if (joined || /^https?:\/\/[^/?#]/i.test(target)) continue }
+      else if (/^mailto:/i.test(target)) {
+        const q = target.indexOf('?')
+        const params = q < 0 ? [] : target.slice(q + 1).split('&').filter(Boolean).map((p) => p.split('=')[0]!.toLowerCase())
+        // a mail link is written out whole: what & would add after it could be another parameter (&attach=...)
+        if (joined) return `${LINK_RULE}. Write a mail link out whole in "double quotes", e.g. "mailto:sales@example.com?subject=Order"`
+        if (params.every((p) => MAILTO_PARAMS.has(p)) && target.length > 7) continue
+        return `${LINK_RULE}. A mail link may carry only subject, body, cc, bcc and to`
+      } else if (target.startsWith('#') && !joined) {
+        // a place in this workbook: a defined name, a cell or range, or one on a (quoted) sheet; never another file
+        const place = target.slice(1)
+        const cell = '\\$?[A-Za-z]{1,3}\\$?\\d+(?::\\$?[A-Za-z]{1,3}\\$?\\d+)?'
+        if (new RegExp(`^(?:(?:'(?:[^'\\[\\]\\\\/:*?]|'')+'|[\\p{L}_][\\p{L}\\p{N}_.]*)!)?${cell}$`, 'u').test(place) || /^[\p{L}_][\p{L}\p{N}_.]*$/u.test(place)) continue
+        return `${LINK_RULE}. A place in this workbook is written like "#Sheet1!A1" or "#'Q3 sales'!B2"`
+      }
+      return `${LINK_RULE}. This link is "${target.slice(0, 60)}${target.length > 60 ? '…' : ''}"`
+    }
+  }
+  return null
+}
+
 const BLOCKED_CALL = new RegExp(`(${[...BLOCKED_FUNCTIONS].map((n) => n.replace('.', '\\.')).join('|')})\\s*\\(`, 'i')
 
 /** A formula (without the leading "=") as ExcelJS writes it, or why it is refused. Only text in "double quotes" is
@@ -1234,6 +1305,8 @@ export function formulaOf(f: string): ExcelJS.CellFormulaValue | { error: string
   const code = tokens.map((t) => (t.kind === 'code' ? t.text : ' ')).join('')
   const call = BLOCKED_CALL.exec(code)
   if (call) return { error: `the function ${call[1]!.toUpperCase()} is not allowed in formulas (it can reach outside the workbook)` }
+  const link = hyperlinkProblem(tokens)
+  if (link) return { error: link }
   // the whole formula must parse; when it does not, cellValue keeps the cell as text ("=3 days", "=2x")
   const bad = structureError(tokens)
   if (bad) return { error: `the formula does not parse: ${bad}`, notFormula: true }

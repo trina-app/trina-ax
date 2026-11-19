@@ -127,12 +127,19 @@ export function withoutAi(ctx: Ctx, o: AccessOptions = {}): { ids: string[]; unt
   for (const p of people) {
     if (canUseAi(ctx, p, { ...o, now }, allowed)) continue
     ids.push(p.id)
-    // the API engine answers with its own key (canUseAi would have said yes), so only Claude Code and Codex are left
-    const back = enginesAnswering(ctx, p, o.problems).filter((e): e is CredEngine => e !== 'api')
-      .map((e) => credentialBackAt(ctx.db, p.id, e, allowed, now)).filter((t): t is string => t !== null).sort()[0]
+    const back = aiBackAt(ctx, p, { ...o, now }, allowed)
     if (back) until[p.id] = back
   }
   return { ids, until }
+}
+
+/** For a person without usable AI now: the earliest time a connection of theirs works again by itself (ISO), or null
+ * when no wait fixes it (credentials/resolve.ts credentialBackAt). The API engine answers with its own key (canUseAi
+ * would have said yes), so only Claude Code and Codex are asked. */
+export function aiBackAt(ctx: Ctx, p: Person, o: AccessOptions = {}, allowed = allowedCredentialKinds(ctx.config)): string | null {
+  const now = o.now ?? new Date()
+  return enginesAnswering(ctx, p, o.problems).filter((e): e is CredEngine => e !== 'api')
+    .map((e) => credentialBackAt(ctx.db, p.id, e, allowed, now)).filter((t): t is string => t !== null).sort()[0] ?? null
 }
 
 /** What a person without a usable AI connection can do about it (the button in the chat error and the banner above the

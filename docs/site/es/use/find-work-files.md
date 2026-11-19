@@ -121,8 +121,8 @@ archivos que acaba de añadir. **No hay nada marcado**, y no se comparte nada ha
 - **Ahora no** no comparte nada. Después, **Compartir con su equipo** en la misma ventana vuelve a este paso, y siempre
   puede compartir un archivo más tarde desde su **⋯ › Compartir** en la página de Archivos, o quitar el acceso allí.
 
-El paso no aparece si su equipo desactivó **Los miembros pueden compartir sus propios archivos** (Administración › Ajustes del
-equipo).
+El paso no aparece si su equipo desactivó **Los miembros pueden compartir sus propios archivos y carpetas** (Administración ›
+Ajustes del equipo).
 
 ## Deshacer
 

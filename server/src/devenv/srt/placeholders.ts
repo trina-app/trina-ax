@@ -97,6 +97,13 @@ export function holdSkillFolders(teamRoot: string, rels: readonly string[]): () 
   }
 }
 
+/** An empty skills folder this server made for a run (holdSkillFolders), not one a person made: not a group's or a
+ * project's skills (runner.ts othersSkillRoots leaves it out). */
+export function isSkillPlaceholder(abs: string): boolean {
+  if (!heldSkills.get(path.resolve(abs))?.made) return false
+  try { return fs.lstatSync(abs).isDirectory() && fs.readdirSync(abs).length === 0 } catch { return false }
+}
+
 /** for tests */
 export const _held = () => held
 export const _heldSkills = () => heldSkills

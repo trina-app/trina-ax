@@ -17,7 +17,7 @@ Trina AX 把团队的文件、技能和工具放在一台服务器上。每个�
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>如果 Trina AX 对你的团队有用，点个 Star 能让更多团队发现它。</sub></p>
+<p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>然后点页面顶部的 ☆ Star。点个 Star 能让更多团队发现 Trina AX。</sub></p>
 
 ## 只需设置一次，全队都能用
 
@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的 Trina 回答，右侧打开了一个话题"></td>
+<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，在任何对话旁边都能打开只有你能看到的聊天来问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的一条回答，右侧打开了一个话题"></td>
 </tr>
 </table>
 

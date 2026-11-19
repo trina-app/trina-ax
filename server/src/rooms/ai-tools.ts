@@ -18,6 +18,8 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
   // an existing team Office file changed in place (tools/edit-office.ts)
   'edit_office',
   ...Object.keys(FILE_TOOLS), 'edit_files', 'skill', 'find_skills', 'ask_user', 'agent',
+  // the AI's own to-do list (chat/tools.ts todo_write): its words only, kept on its answer
+  'todo_write',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact',
   'room_file', 'save_room_file',
   // many renames in one call (tools/file-moves.ts), like rename_file
@@ -27,7 +29,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
 /**
  * The only tools a shared project chat gets (docs/DECISIONS.md "Shared project chats"; an allowlist: a tool added later
  * is not offered there until it is listed). Its transcript is seen by everyone who sees its project, so: no memories, no
- * chat title, no Google Drive, no schedules, nothing on a computer or in the person's signed-in
+ * chat title, no Google Drive, nothing on a computer or in the person's signed-in
  * browser, no room reading (rooms, room_read, room_file, save_room_file). Posting is there (docs/DECISIONS.md "Sending
  * to a person or a room from a shared chat"): post_to_room sends as the person whose turn it is, after their yes on its
  * card, which only they see; it brings nothing into the chat. The connections' tools are not listed here: chat/tools.ts
@@ -36,7 +38,7 @@ export const ROOM_FILE_TOOLS: ReadonlySet<string> = new Set([
  */
 export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   ...Object.keys(FILE_TOOLS),
-  'edit_files', 'skill', 'find_skills', 'ask_user',
+  'edit_files', 'skill', 'find_skills', 'ask_user', 'todo_write',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'web_fetch', 'save_url',
   // Word comments on a team .docx (tools/comment-docx.ts; limits audit 1 #22): a team file in, a new version or a new
   // .docx out, as edit_hwp; the document counts as read (chat/tools.ts), a new file goes through the write gates
@@ -66,6 +68,13 @@ export const SHARED_TOOLS: ReadonlySet<string> = new Set([
   // "unzip this" (devenv/tool.ts): a command sees only what everyone in the chat may read
   // (docs/decisions/20261118-devenv-shared-chats.md)
   'box_shell',
+  // "every Monday at 9, summarize this here" (tools/schedules.ts): behind the asker's card; a task made here runs as
+  // them, in this chat, with its gates (chat/schedules.ts postsInto); list and delete see only this chat's tasks
+  // (docs/decisions/20261118-shared-schedules-any-frequency.md)
+  'schedule_create', 'schedule_list', 'schedule_delete',
+  // videos (tools/higgsfield.ts behind the asker's card; promo-video/: the chat's artifact, its material and pictures
+  // weighed by the read card like any named file, namedPaths)
+  'generate_video', 'promo_video', 'save_promo_video',
 ])
 
 /** The arguments that name where a call writes, per tool: a shared chat's read card counts them only when something
@@ -134,6 +143,14 @@ export function namedPaths(tool: string, input: unknown): { key: string; value: 
     if (Array.isArray(a.renames)) for (const r of a.renames as unknown[]) { const p = r && typeof r === 'object' ? (r as { path?: unknown }).path : undefined; if (typeof p === 'string') out.push({ key: 'path', value: p }) }
     if (typeof a.folder === 'string') out.push({ key: 'path', value: a.folder })
   }
+  // promo_video's logo and the pictures of its beats (promo-video/spec.ts): team files whose content goes into the video
+  if (tool === 'promo_video') {
+    if (typeof a.logo === 'string') out.push({ key: 'logo', value: a.logo })
+    for (const beat of ['promise', 'work', 'proof']) {
+      const pic = (a[beat] as { picture?: unknown } | undefined)?.picture
+      if (typeof pic === 'string') out.push({ key: `${beat}.picture`, value: pic })
+    }
+  }
   if (tool === 'merge_pdfs' && Array.isArray(a.files)) {
     for (const f of a.files as unknown[]) {
       const p = typeof f === 'string' ? f : f && typeof f === 'object' ? (f as { path?: unknown }).path : undefined
@@ -153,7 +170,7 @@ export const SEARCH_TOOLS: ReadonlySet<string> = new Set(['grep', 'glob'])
  * other people's words, and one of them may tell the AI to change something.
  */
 export const ROOM_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'ask_user', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
+  'list', 'glob', 'grep', 'read', 'skill', 'find_skills', 'ask_user', 'todo_write', 'hwp_render', 'share_file', 'artifact', 'web_fetch',
   'room_file',
 ])
 
@@ -229,7 +246,7 @@ export const OWN_CHAT_TEAM_TOOLS: ReadonlySet<string> = new Set([...ROOM_FILE_TO
  * people's words; a connection's tools mark it when the service answers (connections/tools.ts noteAnswer).
  */
 export const OWN_WORDS_TOOLS: ReadonlySet<string> = new Set([
-  ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'edit_office', 'skill', 'ask_user', 'agent', 'Agent', 'Task',
+  ...Object.keys(FILE_TOOLS), 'edit_files', 'comment_docx', 'edit_office', 'skill', 'ask_user', 'todo_write', 'agent', 'Agent', 'Task',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'hwp_render', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'share_file', 'artifact',
   'set_title', 'remember', 'forget', 'connect_service', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access',
   'schedule_create', 'schedule_list', 'schedule_delete', 'move_skill', 'skill_files', 'generate_video', 'save_promo_video',

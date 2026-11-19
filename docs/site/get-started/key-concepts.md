@@ -14,7 +14,7 @@ Trina AX has a few building blocks. Every other page uses these words.
 | **Member** | Chat with the AI, use files and skills they may open, and keep personal folders and skills. |
 | **Guest** | Someone from outside the team, in one private channel or group chat, and one project, at most. No AI, unless an AI is picked for them. Doesn't take a seat. [Read about guests](../use/guests.md). |
 
-A **group** is a set of people, such as Sales or Finance. Folder rules can name groups or people.
+A **group** is a set of people, such as Sales or Finance. A folder can be shared with groups or people.
 
 ## The team folder
 
@@ -22,9 +22,9 @@ All company knowledge lives in one team folder on the server.
 
 | Folder | Who sees it |
 |---|---|
-| `shared/` | As the folder rules say, usually the whole team. |
-| `groups/<group>/` | People in that group, unless a rule adds others. |
-| `projects/<project>/` | As the folder rules say. |
+| `shared/` | As its sharing says, usually the whole team. |
+| `groups/<group>/` | People in that group, plus anyone it is shared with. |
+| `projects/<project>/` | The project's members only. |
 | `skills/` | Everyone reads. Skill managers change it. |
 | `users/<id>/` | Only that person. Not even the owner or admins. |
 
@@ -32,7 +32,7 @@ A folder or file you cannot open is invisible: in Files, in AI answers, in searc
 
 ## Chats and projects
 
-A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or groups. Chats in a team project are seen by the project's members.
+A **chat** is a conversation with the AI. Only the person who started it sees it, until they share it with people or groups. Chats in a team project are seen by the project's members, unless the person who starts one locks it.
 
 A **project** is a folder with instructions, for work that keeps coming back to the same files. A chat in a project gives the AI that folder and those instructions. [Read about chats and projects](../use/chats-and-projects.md).
 

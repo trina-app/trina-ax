@@ -17,7 +17,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>If Trina AX could help your team, a star helps more teams find it.</sub></p>
+<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>Then press ☆ Star at the top of the page. A star helps more teams find Trina AX.</sub></p>
 
 ## Set up once. Your whole team gets it.
 
@@ -73,7 +73,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, Trina's answer in the channel, and a thread open on the right"></td>
+<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Ask Trina beside any of them, in a side chat only you see.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, an answer sent to the channel, and a thread open on the right"></td>
 </tr>
 </table>
 

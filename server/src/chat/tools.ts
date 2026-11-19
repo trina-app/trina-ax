@@ -9,7 +9,7 @@ import { chatFileOffered, chatFileTool, saveChatFileTool } from './chat-file-too
 import { answerCommentsOff, answerCommentsTool } from './answer-comments'
 import path from 'node:path'
 import { z } from 'zod'
-import { AskUserInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
+import { AskUserInput, TodoWriteInput, ConnectServiceInput, EDIT_FILES_DESCRIPTION, EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS, FindSkillsInput, ForgetInput, MoveSkillInput, RememberInput, SetTitleInput, SkillInput, uuidv7 } from '@mycel/shared'
 import { MEMORY_TEXT_MAX } from '@mycel/shared/api'
 import type { BrowserToolName, ConfirmDetail, Locale, Step, TurnRequest } from '@mycel/shared/api'
 import type { McpContent, TurnToolSet } from '../turns'
@@ -31,6 +31,7 @@ import { atLeast, isStaff, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
+import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
@@ -53,7 +54,8 @@ import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
@@ -105,10 +107,17 @@ const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }], ...(isError ? { isError: true } : {}) })
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 
+/** a safety card's call result when the card waits after the answer ends */
+export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. End your answer now: write at most one short line, call no more tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
+
+/** ask_user's result when its card waits after the answer ends (chat/open-questions.ts) */
+export const ASK_USER_LATER_NOTE = 'The card is open for the user and waits until they answer. End your answer now: write at most one short line, call no more tools, and do not answer the question yourself. Their answer comes as their next message in this chat; go on with the work from there.'
+
 export const B_TOOL_DESCRIPTIONS = {
   remember: `Remember one lasting fact or preference about the user for future chats (one line, under ${MEMORY_TEXT_MAX} characters). Only when the user wants it kept. Returns the memory id.`,
   forget: 'Forget one memory by its id (the ids are shown in the memories block of your instructions).',
-  ask_user: 'Ask the user a question and wait for the answer. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. Returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when the user does not answer in time.',
+  ask_user: 'Ask the user a question on a card. When more than one thing is unclear (which file, and to whom or where), ask about all of them in this one question (options for the likeliest pairs, and allowText for the rest) rather than guessing the rest. Offer options when you can; allowText also shows a text box on the card. The user can always answer in their own words from the message box instead. In a chat the user watches the card waits as long as they need (minutes or days) and the call returns {"asked": true} at once: end your answer right after it; their answer comes as their next message in this chat (or {"skipped": true} for a skipped question), and you go on from there. Elsewhere (a scheduled run, a question from Slack) it waits for the answer and returns {"answer": ...} with an option value or the user\'s own text (a list of them when multiple), or {"skipped": true} when nobody answers in time.',
+  todo_write: 'Keep a to-do list for this answer: the user sees it as a checklist under your answer that updates in place. Use it for work of 3 or more steps, or when the user gives several things to do: write the list before you start, mark an item in_progress just before you work on it (one at a time) and completed as soon as it is done, and add items you find on the way. Each call replaces the whole list. content: the task in the imperative ("Read the March invoices"); activeForm: the same while under way ("Reading the March invoices"). Skip it for a single or quick task, or a plain question.',
   connect_service: 'Connect a service for the user (by its MCP endpoint or HTTP API: Notion, Linear, GitHub, Higgsfield, any other), or their Google Drive (target google_drive). Gmail, Google Calendar, Google Docs and Google Sheets are built into the app: give only the name (no address; never look one up), and the result says how they connect. For others, fill in the service\'s official address from its documentation (prefer its MCP endpoint, and oauth when it offers sign-in); the user then pastes their key into the card or signs in there. The key never reaches you: never ask for it in the chat. Returns {"connected": true, "name", "status", "tools"} once it works, or {"skipped": true} when the user does not finish the card; without a card, a text says why (a field to fix, a connection that already exists, or what is not allowed). The result says when its tools are offered: in most chats this same answer goes on with them (then do what the request needed them for), else from the user\'s next message.',
   set_title: 'Name this new chat: a short title in the user\'s language that says what the person wants (2-60 characters). Call it once, early in your answer. Never put keys, tokens, passwords, personal data or quotes of the message in it.',
   skill: 'Load one of the user\'s skills (a saved team or personal workflow) by its name as listed under Team skills in your instructions, and get its full steps. Call it when a request matches a skill, before you follow it; then follow the steps and say which skill you used. A folder skill\'s other files are read with read, relative to the folder the result names.',
@@ -157,6 +166,11 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
     })
   }
 }
+
+/** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
+ * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
+const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
+  inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
@@ -344,6 +358,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
+      // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
+      const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
+      if (runWrite) return { ...text(runWrite, true), summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
       if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
         // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
         // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
@@ -477,6 +494,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
+      const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
+      if (runWrite) return { refusal: runWrite, summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
       // a shared project chat: grep and glob without a path look in the project folder (the call's own arguments are
       // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
       // for the person's yes (chat/turn.ts confirmSharedRead)
@@ -517,6 +537,22 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // (skills/guard.ts; a failed call left one for the rest of the turn)
   const run = set.call
   set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args); exec.releaseScheduleCover(name, args) } }
+  // a safety card of these tools waits after the answer ends (chat/open-questions.ts; TurnExec.cardLater): the call
+  // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
+  const once = set.call
+  set.call = async (name, args, caller) => {
+    const track = CARD_LATER_TOOLS.has(name) && (caller?.files ?? exec.files) === exec.files
+    if (!track) return once(name, args, caller)
+    const was = exec.callNow
+    const call = { name, args, deferred: null as string | null }
+    exec.callNow = call
+    try {
+      const out = await once(name, args, caller)
+      if (!call.deferred) return out
+      exec.markCallWaiting(name)
+      return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
+    } finally { exec.callNow = was }
+  }
   return set
 }
 
@@ -822,6 +858,19 @@ function skillTools(exec: TurnExec, scripts: () => boolean): Tool[] {
 }
 
 // ---------------- move_skill ----------------
+/** A group's or project's skill that holds code (files that are not Markdown), copied or moved into the team's or the
+ * person's own skills: the card says who wrote that code and that it can run with the access of whoever uses it there
+ * (QA TC-4932: a group or project skill's scripts never run where they are; a team or own skill's do). '' otherwise. */
+export function copyCodeLine(plan: Pick<MovePlan, 'from' | 'to' | 'files'>, L: Locale): string {
+  if (plan.to.level !== 'team' && plan.to.level !== 'personal') return ''
+  const n = plan.files.filter((f) => !/\.md$/i.test(f.path)).length
+  if (!n) return ''
+  if (plan.from.level === 'group') return skillText('copyCodeGroup', L, { group: plan.from.group.name, n: String(n) })
+  if (plan.from.level === 'project') return skillText('copyCodeProject', L, { project: plan.from.project.name, n: String(n) })
+  return ''
+}
+
+// ---------------- move_skill ----------------
 // One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
 // yes on the server's card, which the AI cannot write. The card says who newly gets the skill, who stops getting it and
@@ -933,6 +982,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,
+        copyCodeLine(plan, L),
       ].filter(Boolean).join('\n\n')
       // names only where the person may see who is there; the counts are in the line above
       const card = (ids: readonly string[]) => peopleText(peopleNames(ctx, ids, L, 5), L)
@@ -1081,6 +1131,14 @@ function bTools(exec: TurnExec): Tool[] {
           ...(a.data.allowText !== undefined ? { allowText: a.data.allowText } : {}),
           expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
         }
+        // a chat a person watches: the card waits as long as it takes, after this answer ends (chat/open-questions.ts).
+        // A shared chat too: its answer becomes the asker's message there, which everyone in the chat reads (owner
+        // 2026-11-19: in a shared chat everything is shared); only the asker answers it
+        if (!questionsWaitInCall(spec.clientKind)) {
+          const { expiresAt: _no, ...open } = request
+          if (!exec.askLater(open as typeof request & { kind: 'ask_user' })) return { ...text(JSON.stringify({ skipped: true })), summary: 'ask_user -> skipped' }
+          return { ...text(JSON.stringify({ asked: true, note: ASK_USER_LATER_NOTE })), summary: 'ask_user -> asked' }
+        }
         const answer = await exec.waitForPerson(request, { timeoutMs: rt.askUserTimeoutMs() })
         if (answer === null || answer === undefined) {
           exec.patchToolStep('ask_user', () => ({ detail: tr('notAnswered', L) }))
@@ -1088,6 +1146,17 @@ function bTools(exec: TurnExec): Tool[] {
         }
         exec.patchToolStep('ask_user', () => ({ detail: (Array.isArray(answer) ? answer.join(', ') : String(answer)).slice(0, 4000) }))
         return { ...text(JSON.stringify({ answer })), summary: 'ask_user -> answered' }
+      },
+    },
+    {
+      // the answer's checklist (TurnExec.setTodos): no files, no network, only the AI's own words on its answer
+      name: 'todo_write', description: B_TOOL_DESCRIPTIONS.todo_write, inputSchema: schema(TodoWriteInput),
+      async call(args) {
+        const a = TodoWriteInput.safeParse(args)
+        if (!a.success) return text(zodText(a.error), true)
+        exec.setTodos(a.data.todos)
+        const done = a.data.todos.filter((x) => x.status === 'completed').length
+        return { ...text(`To-do list updated (${done} of ${a.data.todos.length} done). The user sees it under your answer. Keep it current as you work: one item in_progress at a time, each marked completed as soon as it is done.`), summary: `todo_write -> ${done}/${a.data.todos.length}` }
       },
     },
     {

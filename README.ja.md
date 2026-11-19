@@ -17,7 +17,7 @@ Trina AX は、チームのファイル、スキル、ツールを1台のサー�
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>同じ Claude、同じ依頼、違う結果。97秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-ja.png" height="44" alt="GitHub で Trina AX にスター"></a><br><sub>チームの役に立ちそうなら、スターをお願いします。より多くのチームが Trina AX を見つけやすくなります。</sub></p>
+<p align="center"><sub>同じ Claude、同じ依頼、違う結果。97秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ja.png" height="44" alt="GitHub で Trina AX にスター"></a><br><sub>そのあと、ページ上部の ☆ Star を押してください。スターがあると、より多くのチームが Trina AX を見つけやすくなります。</sub></p>
 
 ## 設定は一度だけ。チーム全員が使える。
 
@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>すべてを検索。</b> ⌘K でチャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探す ⌘K 検索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークにも Trina がいます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた Trina の回答、右に開いたスレッド"></td>
+<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークでも、横の自分だけに見えるチャットで Trina に聞けます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた回答、右に開いたスレッド"></td>
 </tr>
 </table>
 

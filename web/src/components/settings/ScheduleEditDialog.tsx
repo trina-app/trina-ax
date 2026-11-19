@@ -7,27 +7,70 @@
 // as they will be. A template: its time (and weekday) and folders, saved directly (checked like at creation).
 import { useEffect, useRef, useState } from 'react'
 import { ChevronRight, X } from 'lucide-react'
+import clsx from 'clsx'
 import type { Project, Schedule, ScheduleReviewCard, ScheduleTaskEdit } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { zoneDay } from '../../lib/format'
-import { sourceName } from '../../lib/scheduleText'
+import { intervalUnit, sourceName } from '../../lib/scheduleText'
 import { useMeStrict } from '../../store/session'
 import AskCard from '../chat/AskCard'
 import FolderPicker from '../FolderPicker'
 import { Button, ErrorNote, Field, IconButton, Modal, inputCls } from '../ui'
 
-const REPEATS = ['once', 'daily', 'weekdays', 'weekly', 'monthly'] as const
+const REPEATS = ['once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron'] as const
+const UNITS = { minutes: 1, hours: 60, days: 1440 } as const
+type Unit = keyof typeof UNITS
+/** the days of the week in the order the week is read (Monday first; 0 = Sunday last) */
+const WEEK = [1, 2, 3, 4, 5, 6, 0]
 
-/** The form's fields as the server takes them (only the field the repeat uses is sent). `save`: the save folder (null:
+/** The form's fields (every kind's, so switching the repeat keeps what was picked). */
+export interface TaskForm {
+  title: string; prompt: string; repeat: Schedule['repeat']; time: string
+  /** weekly: one or more days (0 = Sunday) */
+  weekdays: number[]
+  day: number | 'last'; date: string
+  /** interval: every `every` `unit` */
+  every: number; unit: Unit
+  cron: string
+  projectId: string
+}
+
+/** The form's fields as the server takes them (only the fields the repeat uses are sent). `save`: the save folder (null:
  * none) and the keys of the places kept, for a task that has or gets one. */
-export function taskEdit(f: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday: number; day: number; date: string; projectId: string }, save?: { folder: string | null; sources: string[] }): ScheduleTaskEdit {
+export function taskEdit(f: TaskForm, save?: { folder: string | null; sources: string[] }): ScheduleTaskEdit {
+  const days = [...new Set(f.weekdays)].sort((a, b) => a - b)
   return {
-    kind: 'task', title: f.title, prompt: f.prompt, repeat: f.repeat, time: f.time,
-    weekday: f.repeat === 'weekly' ? f.weekday : null, day: f.repeat === 'monthly' ? f.day : null, date: f.repeat === 'once' ? f.date : null,
+    kind: 'task', title: f.title, prompt: f.prompt, repeat: f.repeat, time: f.repeat === 'cron' ? '' : f.time,
+    weekday: f.repeat === 'weekly' && days.length === 1 ? days[0]! : null,
+    weekdays: f.repeat === 'weekly' && days.length > 1 ? days : null,
+    day: f.repeat === 'monthly' ? f.day : null,
+    date: f.repeat === 'once' || f.repeat === 'interval' ? f.date : null,
+    everyMinutes: f.repeat === 'interval' ? Math.max(1, Math.round(f.every)) * UNITS[f.unit] : null,
+    cron: f.repeat === 'cron' ? f.cron.trim() : null,
     projectId: f.projectId || null,
     ...(save ? { saveFolder: save.folder, saveSources: save.sources } : {}),
   }
+}
+
+/** A task as the form starts: its own fields, and a sensible value for each kind it does not use. */
+export function formOf(s: Schedule, today: string): TaskForm {
+  const every = intervalUnit(s.everyMinutes ?? 60)
+  return {
+    title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.repeat === 'cron' ? '09:00' : s.time,
+    weekdays: s.weekdays?.length ? s.weekdays : [s.weekday ?? 1], day: s.day ?? 1, date: s.date ?? today,
+    every: every.n, unit: every.unit, cron: s.cron ?? '0 9 * * 1-5', projectId: s.projectId ?? '',
+  }
+}
+
+/** Can the form be checked: a title, an instruction, and what its repeat needs. */
+export function formReady(f: TaskForm): boolean {
+  if (!f.title.trim() || f.prompt.trim().length < 3) return false
+  if (f.repeat === 'cron') return f.cron.trim().split(/\s+/).length === 5 || f.cron.trim().startsWith('@')
+  if (!f.time) return false
+  if (f.repeat === 'weekly') return f.weekdays.length > 0
+  if (f.repeat === 'interval') return Number.isFinite(f.every) && f.every >= 1
+  return true
 }
 
 export function ScheduleEditDialog({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null; onClose: () => void; onSaved: (s: Schedule) => void }) {
@@ -38,7 +81,7 @@ const fieldErr = (e: unknown, name: string) => (isApiError(e) ? e.body.fields?.[
 
 function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null; onClose: () => void; onSaved: (s: Schedule) => void }) {
   const t = useT(), locale = useLocale()
-  const [f, setF] = useState({ title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday ?? 1, day: s.day ?? 1, date: s.date ?? zoneDay(new Date(), tz), projectId: s.projectId ?? '' })
+  const [f, setF] = useState<TaskForm>(() => formOf(s, zoneDay(new Date(), tz)))
   const [projects, setProjects] = useState<Project[] | null>(null)
   // the save folder and its places: only taking places away here (the AI adds them when it makes the task)
   const [saveFolder, setSaveFolder] = useState<string | null>(s.saveFolder ?? null)
@@ -56,7 +99,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
     return () => { live.current = false }
   }, [])
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => { setF((x) => ({ ...x, [k]: v })); setNote(null) }
-  const weekday = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
+  const weekdayShort = (n: number) => new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + n)))
   const check = async () => {
     const body = taskEdit(f, hadSave || saveFolder ? { folder: saveFolder, sources: kept } : undefined)
     setBusy(true); setError(null); setNote(null)
@@ -88,7 +131,7 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
     ? <Button variant="ghost" onClick={() => setCard(null)} data-testid="schedule-edit-back">{t('schedules.backToEdit')}</Button>
     : <>
         <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
-        <Button variant="primary" busy={busy} disabled={!f.title.trim() || f.prompt.trim().length < 3 || !f.time} onClick={() => void check()} data-testid="schedule-edit-check">{t('schedules.check')}</Button>
+        <Button variant="primary" busy={busy} disabled={!formReady(f)} onClick={() => void check()} data-testid="schedule-edit-check">{t('schedules.check')}</Button>
       </>
   return (
     <Modal open onClose={onClose} title={t('schedules.editTitle')} width={600} footer={footer}>
@@ -107,27 +150,20 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
             <textarea className={`${inputCls} h-auto min-h-32 resize-y py-2 max-md:resize-none`} rows={6} value={f.prompt} maxLength={4000} onChange={(e) => set('prompt', e.target.value)} data-testid="schedule-edit-prompt" />
           </Field>
           <div className="flex flex-wrap gap-3">
-            <div className="min-w-40 flex-1">
+            {/* a phone: the repeat on its own row, so its longer kinds are read in full */}
+            <div className="min-w-40 flex-1 max-sm:basis-full">
               <Field label={t('schedules.field.repeat')} error={fieldErr(error, 'repeat')}>
                 <select className={inputCls} value={f.repeat} onChange={(e) => set('repeat', e.target.value as Schedule['repeat'])} data-testid="schedule-edit-repeat">
                   {REPEATS.map((r) => <option key={r} value={r}>{t(`schedules.repeatOpt.${r}` as MessageKey)}</option>)}
                 </select>
               </Field>
             </div>
-            {f.repeat === 'weekly' && (
-              <div className="min-w-40 flex-1">
-                <Field label={t('schedules.field.weekday')} error={fieldErr(error, 'weekday')}>
-                  <select className={inputCls} value={f.weekday} onChange={(e) => set('weekday', Number(e.target.value))} data-testid="schedule-edit-weekday">
-                    {Array.from({ length: 7 }, (_, i) => <option key={i} value={i}>{weekday(i)}</option>)}
-                  </select>
-                </Field>
-              </div>
-            )}
             {f.repeat === 'monthly' && (
               <div className="min-w-40 flex-1">
                 <Field label={t('schedules.field.day')} error={fieldErr(error, 'day')}>
-                  <select className={inputCls} value={f.day} onChange={(e) => set('day', Number(e.target.value))} data-testid="schedule-edit-day">
-                    {Array.from({ length: 28 }, (_, i) => <option key={i} value={i + 1}>{t('schedules.dayOpt', { n: i + 1 })}</option>)}
+                  <select className={inputCls} value={String(f.day)} onChange={(e) => set('day', e.target.value === 'last' ? 'last' : Number(e.target.value))} data-testid="schedule-edit-day">
+                    {Array.from({ length: 31 }, (_, i) => <option key={i} value={i + 1}>{t('schedules.dayOpt', { n: i + 1 })}</option>)}
+                    <option value="last">{t('schedules.dayLast')}</option>
                   </select>
                 </Field>
               </div>
@@ -139,12 +175,47 @@ function TaskEdit({ s, tz, onClose, onSaved }: { s: Schedule; tz: string | null;
                 </Field>
               </div>
             )}
-            <div className="min-w-32 flex-1">
-              <Field label={t('schedules.field.time')} error={fieldErr(error, 'time')}>
-                <input type="time" required className={inputCls} value={f.time} onChange={(e) => set('time', e.target.value)} data-testid="schedule-edit-time" />
-              </Field>
-            </div>
+            {/* its own row under the repeat and the start time: the number and the unit side by side stay readable on a phone */}
+            {f.repeat === 'interval' && (
+              <div className="order-last basis-full">
+                <Field label={t('schedules.field.every')} error={fieldErr(error, 'everyMinutes')}>
+                  <div className="grid max-w-sm grid-cols-[5.5rem_minmax(0,1fr)] gap-2">
+                    <input type="number" inputMode="numeric" min={1} step={1} className={inputCls} value={Number.isFinite(f.every) ? f.every : ''} onChange={(e) => set('every', e.target.valueAsNumber)} aria-label={t('schedules.field.everyCount')} data-testid="schedule-edit-every" />
+                    <select className={inputCls} value={f.unit} onChange={(e) => set('unit', e.target.value as Unit)} aria-label={t('schedules.field.everyUnit')} data-testid="schedule-edit-unit">
+                      {(Object.keys(UNITS) as Unit[]).map((u) => <option key={u} value={u}>{t(`schedules.unit.${u}` as MessageKey)}</option>)}
+                    </select>
+                  </div>
+                </Field>
+              </div>
+            )}
+            {f.repeat !== 'cron' && (
+              <div className="min-w-32 flex-1">
+                <Field label={t(f.repeat === 'interval' ? 'schedules.field.startTime' : 'schedules.field.time')} error={fieldErr(error, 'time')}>
+                  <input type="time" required className={inputCls} value={f.time} onChange={(e) => set('time', e.target.value)} data-testid="schedule-edit-time" />
+                </Field>
+              </div>
+            )}
           </div>
+          {f.repeat === 'weekly' && (
+            <Field label={t('schedules.field.weekdays')} error={fieldErr(error, 'weekday') ?? fieldErr(error, 'weekdays')}>
+              {/* a phone: the seven days in one row of equal cells (44 px tall to tap) */}
+              <div className="grid grid-cols-7 gap-1 sm:flex sm:flex-wrap sm:gap-1.5" role="group" aria-label={t('schedules.field.weekdays')} data-testid="schedule-edit-weekdays">
+                {WEEK.map((d) => {
+                  const on = f.weekdays.includes(d)
+                  return (
+                    <button key={d} type="button" aria-pressed={on} onClick={() => set('weekdays', on ? f.weekdays.filter((x) => x !== d) : [...f.weekdays, d])}
+                      className={clsx('inline-flex h-11 min-w-0 items-center justify-center rounded-full border text-sm font-medium sm:h-9 sm:min-w-11 sm:px-3', on ? 'border-ink bg-ink text-canvas' : 'border-field-border text-muted hover:bg-hover hover:text-ink')}
+                      data-testid={`schedule-edit-weekday-${d}`}>{weekdayShort(d)}</button>
+                  )
+                })}
+              </div>
+            </Field>
+          )}
+          {f.repeat === 'cron' && (
+            <Field label={t('schedules.field.cron')} hint={t('schedules.field.cronHint')} error={fieldErr(error, 'cron')}>
+              <input className={`${inputCls} font-mono`} value={f.cron} maxLength={200} spellCheck={false} autoCapitalize="off" autoCorrect="off" onChange={(e) => set('cron', e.target.value)} data-testid="schedule-edit-cron" />
+            </Field>
+          )}
           <Field label={t('schedules.field.project')} hint={t('schedules.field.projectHint')} error={fieldErr(error, 'projectId')}>
             <select className={inputCls} value={f.projectId} onChange={(e) => set('projectId', e.target.value)} disabled={projects === null} data-testid="schedule-edit-project">
               <option value="">{t('schedules.noProject')}</option>

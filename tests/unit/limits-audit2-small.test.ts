@@ -258,6 +258,9 @@ describe('TC-4926 the sub-agent sentence follows the tool list', () => {
   test('every tool only the main AI has has plain words', () => {
     for (const t of PARENT_ONLY_TOOLS) if (!BROWSER_TOOL_NAMES.has(t)) expect(PARENT_ONLY_WORDS[t], t).toBeTruthy()
   })
+  test('TC-5058 promo_video is the main AI\'s only, like the other video tools', () => {
+    for (const t of ['generate_video', 'promo_video', 'save_promo_video']) expect(PARENT_ONLY_TOOLS.has(t), t).toBe(true)
+  })
   test('the sentence names what this turn has and helpers lack, and nothing else', () => {
     const rule = subagentRule(['read', 'write', 'delete_files', 'room_read', 'rooms', 'box_shell', 'make_file'])
     // box_shell is a sub-agent's tool too since #1289 (QA TC-4911): it is not in the sentence

@@ -294,8 +294,12 @@ describe('only the person turns it on', () => {
     const r1 = await send(fake({ tool: 'ask_user', args: { question: 'Allow all websites?', options: [{ label: 'Allow all websites (turn off in Settings)', value: ALL_SITES_ANSWER }] } }, { say: 'done' }))
     const own = await alice.next('turn.request', (f) => f.data.turnId === r1.turnId, 20_000)
     expect(req(own).origin).not.toBe('server')
-    await h.api('alice').call(API.answerTurn, { params: { id: r1.turnId }, body: { kind: 'ask_user', requestId: own.data.request.requestId, answer: ALL_SITES_ANSWER } })
     await alice.next('message.done', (f) => f.data.messageId === r1.assistantMessage.id, 30_000)
+    await h.api('alice').call(API.answerTurn, { params: { id: r1.turnId }, body: { kind: 'ask_user', requestId: own.data.request.requestId, answer: ALL_SITES_ANSWER } })
+    // the answer goes on as the next turn of the chat (chat/open-questions.ts); it turns nothing on
+    const u = await alice.next('message.created', (f) => f.data.chatId === chat && f.data.message.parentId === r1.assistantMessage.id, 20_000)
+    const a = await alice.next('message.created', (f) => f.data.chatId === chat && f.data.message.parentId === u.data.message.id, 20_000)
+    await alice.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
     expect(webAllowAll(db(), 'alice')).toBe(false)
     // the server's address card that does not offer it (a random-looking part): that answer, typed text, another person
     const r2 = await send(fake({ tool: 'web_fetch', args: { url: 'https://card-only.example/doc/aB3dE5fG7hJ9kL1mN3pQ5rT' } }, { say: 'done' }))

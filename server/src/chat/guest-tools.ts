@@ -12,7 +12,7 @@ import { guestPlace, guestRow } from '../auth/guests'
 // plugin tools (hwp_render), schedules, the web (web_fetch, save_url), paid services (generate_video), the dev
 // environment and the browser pane. The file tools themselves follow the folder policy (their project only).
 export const GUEST_TURN_TOOLS: ReadonlySet<string> = new Set([
-  'edit_files', 'ask_user', 'set_title', 'remember', 'forget', 'room_read', 'room_file',
+  'edit_files', 'ask_user', 'todo_write', 'set_title', 'remember', 'forget', 'room_read', 'room_file',
   // the comments under answers in their own chat (chat/answer-comments.ts): a guest opens only their own chats
   'answer_comments',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'delete_files',

@@ -35,6 +35,7 @@ import { placeInLine, projectBusy, waitProjectFree, previewPortProblem, previewS
 import { previewBase } from './preview'
 import { addTicket, armTicket, commandWaitFor, FULL_MESSAGE, releaseCommand, waitTicket } from './srt/queue'
 import { newId } from '../db'
+import { inOthersSkills } from '../skills/script-copies'
 import { hideProxyLogin } from './srt/proxy-login'
 
 export const BOX_SHELL_TOOL = 'box_shell'
@@ -351,12 +352,17 @@ async function srtCall(h: BoxShellHost, data: BoxShellInput, what: string, first
   // anything else runs. Jobs and dev servers run there with the chat's view (srt/runner.ts sharedRowStart)
   // a sub-agent (QA TC-4911): foreground commands only; the main AI starts jobs and dev servers
   if (h.helper && (data.job || data.background)) return { ...text(HELPER_NO_JOB, true), summary: `${what} -> refused (job of a sub-agent)` }
+  // a group's or project's skills folder is not in any run (srt/access.ts RunWrites.othersSkills); a command that names
+  // one gets the reason before anything runs (QA TC-4932)
+  if (namesOthersSkills(data.command) || (data.cwd && namesOthersSkills(data.cwd))) return { ...text(OTHERS_SKILLS_REFUSAL, true), summary: `${what} -> refused (a group or project skills folder)` }
   if (h.shared && usesCredentials(data.command)) return { ...text('Not run: commands that need a login (git push, npm publish, ssh ...) do not run in a shared chat. Tell the person to do it on their own computer.', true), summary: `${what} -> refused (login in a shared chat)` }
   const space = spaceOf(ctx, { userId: h.userId, chatId: h.chatId ?? null, project: project ? { id: project.id, folderPath: project.folderPath } : null, ...(h.shared ? { shared: h.shared } : {}) })
   if (!space) return { ...text('Error: this chat has no folder for commands. Do not try again.', true), summary: `${what} -> no folder` }
   const tracked = project && space.projectId === project.id && space.root === path.join(ctx.files.fx.root, project.folderPath) ? { id: project.id, folderPath: project.folderPath } : null
   const cwd = boxCwd(data.cwd)
   if (cwd === null) return { ...text('Invalid input: cwd must be a folder inside the folder of this chat (the project folder, or the work folder).', true), summary: `${what} -> bad cwd` }
+  // the project's own skills folder as cwd: not in the run either (QA TC-4932)
+  if (tracked && cwd && inOthersSkills(`${tracked.folderPath}/${cwd}`)) return { ...text(OTHERS_SKILLS_REFUSAL, true), summary: `${what} -> refused (a project skills folder)` }
   const background = !!data.background || !!data.job
   /** the jobs of this chat that ended and the AI does not know of yet, in every answer that goes back to it */
   const jobNotes = async () => {
@@ -489,6 +495,14 @@ export const blockedHint = (o: { full: boolean }) => o.full
   : 'A connection was blocked: the site is not on the allowed list. If the command needs it, call box_shell again with the same command and request_sites set to the host name (not an IP address): the person is asked to allow it.'
 
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }] as McpContent[], ...(isError ? { isError: true } : {}) })
+
+/** a path of a group's or project's skills folder under $TRINA_TEAM in a command ($TRINA_TEAM/groups/<folder>/skills,
+ * $TRINA_TEAM/projects/<name>/skills, any letter case; a folder name may hold spaces). A hint for a clear refusal only,
+ * so a relative path or a look-alike elsewhere is not refused by its text: the run itself never has these folders
+ * (srt/access.ts RunWrites.othersSkills), however the command names them */
+const OTHERS_SKILLS_PATH = /\$\{?TRINA_TEAM\}?\/+(?:\.\/+)*(?:groups|projects)\/+[^/\n'"`]+?\/+skills(?=$|[\/\s'"`;|&)<>*?])/i
+export const namesOthersSkills = (s: string) => OTHERS_SKILLS_PATH.test(s.normalize('NFC'))
+export const OTHERS_SKILLS_REFUSAL = 'Not run: this command names a group\'s or project\'s skills folder. Those folders are not in the dev environment: other members wrote what is there, and their scripts never run or get copied (they would run with this user\'s access). Follow the skill\'s other steps, and tell the user that a skill manager can make it a team skill if they need its script.'
 
 /** a sub-agent's job or dev server (QA TC-4911) */
 export const HELPER_NO_JOB = 'Not started: a sub-agent runs commands that finish within their time limit (at most 1800 s); jobs and dev servers are started by the main assistant. Run it without job and background, or say in your report that it needs a job or a dev server.'

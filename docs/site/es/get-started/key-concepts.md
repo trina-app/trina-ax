@@ -14,7 +14,7 @@ Trina AX se basa en unas pocas piezas. Todas las demás páginas usan estos tér
 | **Miembro** | Chatear con la IA, usar los archivos y las habilidades que puede abrir, y tener carpetas y habilidades personales. |
 | **Invitado** | Una persona de fuera del equipo, como máximo en un canal privado o chat de grupo, y en un proyecto. Sin IA, salvo que se elija una IA para ella. No ocupa una plaza. [Más información sobre los invitados](../use/guests.md). |
 
-Un **grupo** es un conjunto de personas, como Ventas o Finanzas. Las reglas de carpetas pueden nombrar grupos o personas.
+Un **grupo** es un conjunto de personas, como Ventas o Finanzas. Una carpeta se puede compartir con grupos o personas.
 
 ## La carpeta del equipo
 
@@ -22,9 +22,9 @@ Todo el conocimiento de la empresa vive en una sola carpeta del equipo en el ser
 
 | Carpeta | Quién la ve |
 |---|---|
-| `shared/` | Lo que digan las reglas de carpetas; normalmente todo el equipo. |
-| `groups/<group>/` | Las personas de ese grupo, salvo que una regla añada a otras. |
-| `projects/<project>/` | Lo que digan las reglas de carpetas. |
+| `shared/` | Lo que diga su uso compartido; normalmente todo el equipo. |
+| `groups/<group>/` | Las personas de ese grupo, más quien tenga la carpeta compartida. |
+| `projects/<project>/` | Solo los miembros del proyecto. |
 | `skills/` | Todos la leen. Los responsables de habilidades la modifican. |
 | `users/<id>/` | Solo esa persona. Ni siquiera el propietario ni los administradores. |
 
@@ -32,7 +32,7 @@ Una carpeta o un archivo que usted no puede abrir es invisible: en Archivos, en 
 
 ## Chats y proyectos
 
-Un **chat** es una conversación con la IA. Solo lo ve la persona que lo empezó, hasta que lo comparte con personas o grupos. Los chats de un proyecto del equipo los ven los miembros del proyecto.
+Un **chat** es una conversación con la IA. Solo lo ve la persona que lo empezó, hasta que lo comparte con personas o grupos. Los chats de un proyecto del equipo los ven los miembros del proyecto, salvo que la persona que empieza uno lo bloquee.
 
 Un **proyecto** es una carpeta con instrucciones, para el trabajo que vuelve una y otra vez a los mismos archivos. Un chat dentro de un proyecto le da a la IA esa carpeta y esas instrucciones. [Más información sobre chats y proyectos](../use/chats-and-projects.md).
 

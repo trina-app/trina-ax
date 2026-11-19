@@ -4,7 +4,7 @@ Which features the tests reach, without a hand-kept list. Two levels:
 
 - **Units**, read from the code: every API endpoint of the contract (`shared/src/api`) and every web screen (the routes
   in `web/src/App.tsx`, one screen per Settings section and Admin page). See `scripts/features/units.ts`.
-- **Features**, kept by hand in [`docs/features.ts`](features.ts): about 120 named groups with a stable ID
+- **Features**, kept by hand in [`docs/features.ts`](features.ts): about 140 named groups with a stable ID
   (`rooms.threads`, `admin.members`), a plain name, an area, and the endpoints and screens they claim. Features of the
   desktop and phone apps, installs and releases have no endpoint or screen: they are `manual: true` and judged by QA rows.
 
