@@ -1,0 +1,1 @@
+- Server operators can turn on error reports to their own Sentry project with `MYCEL_ERROR_REPORT_URL`. Off by default: a server without it sends nothing. Reports hold errors and how a failed or timed-out AI answer ended (a reason code, never the text), and Admin › System says where they go.

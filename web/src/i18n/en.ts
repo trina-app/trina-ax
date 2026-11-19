@@ -2774,6 +2774,7 @@ export const en: Record<MessageKey, string> = {
   'system.queue': 'Queue',
   'system.queueLine': '{running} running · {queued} waiting · max {max}',
   'system.generatedAt': 'As of {date}',
+  'system.errorReports': 'Error reports are sent to {host} to keep this server running.',
   'system.check.ok': 'OK',
   'system.check.warn': 'Warning',
   'system.check.fail': 'Problem',

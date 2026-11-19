@@ -13,6 +13,7 @@ import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } fr
 import { SchemaTooNewError, openDb } from './db'
 import { syncFollowingLocales } from './admin/settings'
 import { createLogger, type Logger } from './log'
+import { ERROR_REPORT_ENV, errorReportsFrom, reportLogLine, reportServerCrashes, setErrorReports } from './system/error-reports'
 import { applyPendingRestore, recordRestore } from './system/backup'
 import { ensureLanCert } from './system/lan-cert'
 import { resolveLayout } from './system/layout'
@@ -24,7 +25,7 @@ import { socketPathMessage, underSandboxDeniedTmp } from './system/sockets'
 import { guardOfficeClaudeJson } from './engine/claude-json-guard'
 import { setupServerCgroups } from './system/cgroups'
 import { exitAddressCheckOff, startEgressLearning } from './tools/egress'
-import { isHosted } from './system/deployment'
+import { isHosted, runKindOf } from './system/deployment'
 import { dropHostedSpeechKey } from './credentials/speech-key'
 import { setLocalSpeechReady } from './admin/settings'
 import { localSpeechReady } from './jobs/transcribe'
@@ -315,7 +316,16 @@ if (import.meta.main) {
     console.error(`${PRODUCT.displayName}: ${(e as Error).message}`)
     process.exit(e instanceof ConfigError ? EXIT.config : EXIT.startFailed)
   }
-  const log = createLogger({ level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY })
+  // opt-in error reports (MYCEL_ERROR_REPORT_URL, system/error-reports.ts): built before the logger so a failed start
+  // is reported too; without the setting nothing is built and no crash handler is installed
+  const reportSetup = errorReportsFrom(process.env, { version: SERVER_VERSION, environment: runKindOf(cfg) })
+  setErrorReports(reportSetup.reports)
+  const log = createLogger({ level: cfg.logLevel, dir: cfg.logDir, name: 'server', pretty: cfg.mode === 'dev' && process.stdout.isTTY, ...(reportSetup.reports ? { onError: reportLogLine } : {}) })
+  if (reportSetup.invalid) log.warn(`${ERROR_REPORT_ENV} is set but is not a Sentry key (https://<key>@<host>/<project id>); no error reports are sent`)
+  if (reportSetup.reports) {
+    log.info('error reports are on', { host: reportSetup.reports.host })
+    reportServerCrashes(reportSetup.reports, (what, err) => log.info('crash reported', { what, name: err.name }))
+  }
   // the person's own folder is "내 파일" (파일's name for it; shared/src/folder-labels.ts): the AI says what the screen says
   setOwnFolderWord('files')
   let started: Started

@@ -2729,6 +2729,7 @@ export const zh: Record<MessageKey, string> = {
   "system.queue": "队列",
   "system.queueLine": "{running}个运行中 · {queued}个等待中 · 最多{max}个",
   "system.generatedAt": "截至{date}",
+  "system.errorReports": "为保持这台服务器正常运行，错误报告会发送到 {host}。",
   "system.check.ok": "正常",
   "system.check.warn": "警告",
   "system.check.fail": "问题",

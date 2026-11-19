@@ -2,6 +2,7 @@
 // edit / regenerate, stop, restart recovery, chat-trash purge, and the shared pieces turns need (hub, browser
 // relay, engines, settings). Installed by the chats route module's init(); other B modules reach it with
 // getChatRuntime(ctx).
+import { reportTurnEnd } from '../system/error-reports'
 import { dropChatMedia } from '../integrations/connections/media'
 import { chatFilesOf } from './chat-files'
 import type { Database } from 'bun:sqlite'
@@ -754,7 +755,9 @@ export class ChatRuntime {
     }
   }
   private runExec(exec: TurnExec) {
-    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id }))
+    // the opt-in error report of a failed or timed-out turn reads the saved end state after the turn's own end
+    // (system/error-reports.ts; nothing happens when reports are off)
+    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id })).finally(() => reportTurnEnd(this.db, exec.id))
   }
   /** A turn stopped before its engine launched (Stop, a deleted chat, shutdown): it leaves the gate and runs now, which
    * only ends it (TurnExec.run skips the engine once stopReason is set), so its slot comes back at once. After the
