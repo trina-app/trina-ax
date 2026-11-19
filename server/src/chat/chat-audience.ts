@@ -18,6 +18,16 @@ import type { Database } from 'bun:sqlite'
  * older build makes it its creator's private project chat; chat/people-share.ts undoes the mark at start). */
 export const isPeopleRow = (r: { people_shared_at: string | null; project_id: string | null }): boolean => !!r.people_shared_at && !r.project_id
 
+/** A chat row that is a shared project chat (made shared and still in a project) or a chat outside projects shared with
+ * chosen people and groups: seen by more people than its creator, each turn its sender's. */
+export const isSharedRow = (r: { shared_at: string | null; project_id: string | null; people_shared_at: string | null }): boolean => (!!r.shared_at && !!r.project_id) || isPeopleRow(r)
+
+/** Is this chat a shared chat of either kind? (one read) */
+export function isSharedChat(db: Database, chatId: string): boolean {
+  const r = db.query('SELECT shared_at, project_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as { shared_at: string | null; project_id: string | null; people_shared_at: string | null } | null
+  return !!r && isSharedRow(r)
+}
+
 /** One entry of a chat's audience. */
 export interface AudienceSubject { type: 'user' | 'group'; id: string }
 

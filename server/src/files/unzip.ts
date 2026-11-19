@@ -25,7 +25,7 @@ export const UNZIP_DEPTH_MAX = 30
 
 /** `part`: an email's attachment (tools/unzip.ts with an .eml / .msg: files/mail-parts.ts), by its place in the list;
  * its `entry` is then MAIL_ENTRY and unused */
-export interface PlannedFile { segs: string[]; entry: ZipEntry; size: number; part?: number }
+export interface PlannedFile { segs: string[]; entry: ZipEntry; size: number; part?: number; data?: { off: number; len: number } }
 export const MAIL_ENTRY: ZipEntry = { nameBytes: new Uint8Array(0), flags: 0, extra: new Uint8Array(0), madeBy: 0, external: 0, method: 0, crc: 0, csize: 0, usize: 0, local: 0 }
 export interface ZipPlan {
   files: PlannedFile[]
@@ -68,6 +68,9 @@ function unicodePath(e: ZipEntry): string | null {
   return null
 }
 
+/** Name bytes with no UTF-8 flag: UTF-8 when they are valid UTF-8, else CP949 (Korean Windows), then NFC. */
+export const decodeLegacy = (b: Uint8Array): string => { try { return UTF8.decode(b).normalize('NFC') } catch { return CP949.decode(b).normalize('NFC') } }
+
 /** An entry's name as people wrote it (see the head of this file). */
 export function decodeName(e: Pick<ZipEntry, 'nameBytes' | 'flags' | 'extra'>): string {
   const b = e.nameBytes
@@ -89,6 +92,18 @@ const S_IFREG = 0o100000
 const S_IFDIR = 0o040000
 const S_IFLNK = 0o120000
 
+/** One entry of an archive (a zip's, or a tar's: files/tar.ts) before its path is checked: its name as people wrote
+ * it, what kind of entry it is, and where its data is. planEntries turns these into a plan with the same rules for every
+ * archive kind. */
+export interface RawEntry {
+  name: string
+  kind: 'file' | 'dir' | 'link' | 'hardlink' | 'sparse' | 'other'
+  size: number
+  entry: ZipEntry
+  /** a tar's file: its bytes in the (unpacked) archive */
+  data?: { off: number; len: number }
+}
+
 /**
  * The plan of a zip: what it holds, where each file goes under the target folder, and what is left out. Throws a
  * ZipProblem (zip-guard.ts) or UnsafeZip; nothing has been written then.
@@ -102,11 +117,29 @@ export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPla
   // bomb made from overlap, never a zip a program writes
   const ranges = entries.map((e) => { const d = entryData(bytes, e); return [e.local, d.byteOffset - bytes.byteOffset + d.length] as const }).sort((x, y) => x[0] - y[0])
   for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) throw new ZipProblem('complex', 'parts of the zip share their data')
-  const items: { segs: string[]; dir: boolean; entry: ZipEntry; name: string }[] = []
+  const raw: RawEntry[] = entries.map((e) => {
+    const name = decodeName(e)
+    // a Unix mode in the upper half of the external attributes (made by Unix, 3): links and devices stay out
+    const mode = e.madeBy === 3 ? (e.external >>> 16) & S_IFMT : 0
+    const dir = name.replace(/\\/g, '/').endsWith('/') || mode === S_IFDIR || (e.external & 0x10) !== 0
+    const kind: RawEntry['kind'] = mode === S_IFLNK ? 'link' : mode && mode !== S_IFREG && mode !== S_IFDIR ? 'other' : dir ? 'dir' : 'file'
+    return { name, kind, size: e.usize, entry: e }
+  })
+  return planEntries(raw, o)
+}
+
+/**
+ * The plan of an archive's entries, the same for a zip and a tar: an absolute path or ".." refuses the whole archive
+ * (UnsafeZip); junk is left out; links, hard links, sparse and device entries, names the team folder does not take, too
+ * deep paths, a name given twice or a name that is a file and a folder are skipped and named; one folder around
+ * everything is taken off (`unwrap`).
+ */
+export function planEntries(entries: RawEntry[], o: { unwrap?: boolean } = {}): ZipPlan {
+  const items: { segs: string[]; dir: boolean; entry: ZipEntry; name: string; size: number; data?: RawEntry['data'] }[] = []
   const skipped: ZipPlan['skipped'] = []
   let junk = 0
   for (const e of entries) {
-    const name = decodeName(e)
+    const name = e.name
     const raw = name.replace(/\\/g, '/')
     if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) throw new UnsafeZip(name)
     const parts = raw.split('/')
@@ -114,15 +147,15 @@ export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPla
     const segs = parts.filter((s) => s !== '' && s !== '.')
     if (!segs.length) continue
     if (isJunk(segs)) { junk++; continue }
-    // a Unix mode in the upper half of the external attributes (made by Unix, 3): links and devices stay out
-    const mode = e.madeBy === 3 ? (e.external >>> 16) & S_IFMT : 0
-    if (mode === S_IFLNK) { skipped.push({ name, why: 'a link (shortcut) to another file, which is not saved' }); continue }
-    if (mode && mode !== S_IFREG && mode !== S_IFDIR) { skipped.push({ name, why: 'not a regular file' }); continue }
-    const dir = raw.endsWith('/') || mode === S_IFDIR || (e.external & 0x10) !== 0
+    if (e.kind === 'link') { skipped.push({ name, why: 'a link (shortcut) to another file, which is not saved' }); continue }
+    if (e.kind === 'hardlink') { skipped.push({ name, why: 'a hard link to another file in the archive, which is not saved' }); continue }
+    if (e.kind === 'sparse') { skipped.push({ name, why: 'a sparse file, which is not saved' }); continue }
+    if (e.kind === 'other') { skipped.push({ name, why: 'not a regular file' }); continue }
+    const dir = e.kind === 'dir'
     if (segs.length > UNZIP_DEPTH_MAX) { skipped.push({ name, why: `more than ${UNZIP_DEPTH_MAX} folders deep` }); continue }
     const bad = segs.map((s) => badSegment(s)).find(Boolean)
     if (bad) { skipped.push({ name, why: `the name is not allowed in the team folder (${bad})` }); continue }
-    items.push({ segs, dir, entry: e, name })
+    items.push({ segs, dir, entry: e.entry, name, size: e.size, ...(e.data ? { data: e.data } : {}) })
   }
   // one folder around everything ("report/…"): taken off, the tool's folder is named after it
   const firsts = new Set(items.map((i) => i.segs[0]!))
@@ -152,8 +185,8 @@ export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPla
     if (fileKeys.has(k) || dirKeys.has(k)) { skipped.push({ name: i.name, why: 'the zip has this name twice' }); continue }
     fileKeys.add(k)
     for (const p of parents) dirKeys.add(p)
-    total += i.entry.usize
-    files.push({ segs: i.segs, entry: i.entry, size: i.entry.usize })
+    total += i.size
+    files.push({ segs: i.segs, entry: i.entry, size: i.size, ...(i.data ? { data: i.data } : {}) })
   }
   return { files, folders, skipped, junk, top, total }
 }

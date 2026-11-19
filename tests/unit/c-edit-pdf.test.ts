@@ -239,6 +239,32 @@ describe('edit_pdf: each operation, as a new file next to the original', () => {
     }
   })
 
+  test('replace_text: words inside the PDF changed, the old ones gone from the file; a scan said plainly (TC-4992)', async () => {
+    put(`${D}/offer-acme.pdf`, makePagedPdf([['Quote for Acme Ltd', 'Total 1,200 EUR'], ['Acme Ltd thanks you']]))
+    const call = turn('alice')
+    const r = await call('edit_pdf', { file_path: `${D}/offer-acme.pdf`, operations: [{ replace_text: { find: 'Acme Ltd', replace: 'Northwind Traders' } }, { replace_text: { find: '1,200', replace: '950' } }] })
+    expect(r.isError, r.text).toBe(false)
+    expect(r.text).toContain('changed 2 places of "Acme Ltd" on pages 1, 2')
+    expect(r.text).toContain('the old words are removed from the page text there, not covered')
+    expect(r.text).toContain('read the new file with pages and as_images: true')
+    const out = `${D}/offer-acme (${word('edited')}).pdf`
+    const all = await streams(out)
+    expect(all).not.toContain('Acme')
+    expect(all).not.toContain('1,200')
+    if (pdftotext) { expect(text(out, 1)).toContain('QuoteforNorthwindTraders'); expect(text(out, 1)).toContain('Total950EUR'); expect(text(out, 2)).toContain('NorthwindTradersthanksyou') }
+    // the original is as it was
+    expect(await streams(`${D}/offer-acme.pdf`)).toContain('Acme Ltd')
+    // a page that is only a picture: nothing saved, the reason in plain words
+    const img = pngRgbaOf(20, 20, () => [120, 120, 120, 255])
+    const doc = await PDFDocument.create()
+    doc.addPage([595, 842]).drawImage(await doc.embedPng(img), { x: 0, y: 0, width: 595, height: 842 })
+    put(`${D}/scan1.pdf`, await doc.save())
+    const scan = await call('edit_pdf', { file_path: `${D}/scan1.pdf`, operations: [{ replace_text: { find: 'Acme', replace: 'Beta' } }] })
+    expect(scan.isError).toBe(true)
+    expect(scan.text).toContain('words that are part of a picture cannot be removed or changed here')
+    expect(fs.existsSync(file(`${D}/scan1 (${word('edited')}).pdf`))).toBe(false)
+  })
+
   test('a scanned PDF (pages that are only pictures) works the same', async () => {
     const img = pngRgbaOf(20, 20, () => [120, 120, 120, 255])
     const doc = await PDFDocument.create()

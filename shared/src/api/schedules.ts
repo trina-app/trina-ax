@@ -13,12 +13,22 @@ export const Schedule = z.object({
   id: z.string(),
   title: z.string(),
   prompt: z.string(),
-  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly']),
+  /** interval: every `everyMinutes` from `date` + `time`; cron: `cron` (five fields, the team's time zone; `L` = the
+   * last day of the month). Older servers send only the first five */
+  repeat: z.enum(['once', 'daily', 'weekdays', 'weekly', 'monthly', 'interval', 'cron']),
   time: z.string(),
+  /** weekly: its first day (older clients read this one); `weekdays` has them all */
   weekday: z.number().nullable(),
-  day: z.number().nullable(),
+  weekdays: z.array(z.number()).nullable().optional(),
+  /** monthly: 1–31, or 'last' (the last day of the month) */
+  day: z.union([z.number(), z.literal('last')]).nullable(),
   date: z.string().nullable(),
+  everyMinutes: z.number().nullable().optional(),
+  cron: z.string().nullable().optional(),
   projectId: z.string().nullable(),
+  /** made in a shared chat: its runs post there (null: each run is a new chat of the owner's). `title`: the chat's
+   * title, while its owner may still open it */
+  postsIn: z.object({ chatId: z.string(), title: z.string() }).nullable().optional(),
   enabled: z.boolean(),
   resumeBlockedReason: z.enum(['completed', 'expired']).nullable().optional(),
   nextRunAt: z.string().nullable(),
@@ -74,8 +84,8 @@ export const ConfirmScheduleReview = z.object({ requestId: z.string().min(1).max
 /** Admin view: a task waiting for its owner to confirm it again. Metadata only: never its title or instruction (the
  * person's own words, like their chats). */
 export const ScheduleAwaitingReview = z.object({
-  id: z.string(), user: UserRef, repeat: Schedule.shape.repeat, time: z.string(), weekday: z.number().nullable(), day: z.number().nullable(),
-  date: z.string().nullable(), reviewSince: z.string().nullable(),
+  id: z.string(), user: UserRef, repeat: Schedule.shape.repeat, time: z.string(), weekday: z.number().nullable(), weekdays: Schedule.shape.weekdays, day: Schedule.shape.day,
+  date: z.string().nullable(), everyMinutes: Schedule.shape.everyMinutes, cron: Schedule.shape.cron, reviewSince: z.string().nullable(),
 })
 export type ScheduleAwaitingReview = z.infer<typeof ScheduleAwaitingReview>
 
@@ -98,8 +108,11 @@ const TaskFields = {
   repeat: Schedule.shape.repeat,
   time: z.string().max(10),
   weekday: z.number().int().min(0).max(6).nullable().optional(),
-  day: z.number().int().min(1).max(28).nullable().optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
+  day: z.union([z.number().int().min(1).max(31), z.literal('last')]).nullable().optional(),
   date: z.string().max(20).nullable().optional(),
+  everyMinutes: z.number().int().min(1).max(527040).nullable().optional(),
+  cron: z.string().max(200).nullable().optional(),
   projectId: z.string().max(64).nullable(),
   /** the save folder (server/src/chat/schedule-scope.ts): another one, null for none; left out: as it is */
   saveFolder: z.string().max(1000).nullable().optional(),

@@ -538,6 +538,13 @@ export function ScheduleView({ s, tz, project, onToggle, onRunNow, running, onRe
             <p>{repeatText(s, t, locale)}</p>
             {tz && <p className="mt-0.5 text-xs text-faint">{t('schedules.timeZone', { tz })}</p>}
           </Side>
+          {/* made in a shared chat: each run's result goes there, for everyone in it */}
+          {s.postsIn && (
+            <Side label={t('scheduled.postsIn')} testId="schedule-posts-in">
+              <Link to={`/c/${s.postsIn.chatId}`} className="break-words text-ink hover:underline">{s.postsIn.title || t('chat.untitled')}</Link>
+              <p className="mt-0.5 text-xs text-faint">{t('scheduled.postsInHint')}</p>
+            </Side>
+          )}
           <Side label={t('scheduled.runsWith')} testId="schedule-runs-with">
             {s.templateId ? (
               <>

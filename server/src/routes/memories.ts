@@ -26,6 +26,8 @@ import { registerNotifications } from './notifications'
 import { registerPush } from './push'
 import { installPush } from '../notifications/push-service'
 import { needsReview, type ScheduleRow } from '../chat/schedules'
+import { timingOf } from '../chat/schedule-timing'
+import { chatFor } from '../chat/shared'
 import { scopeOut } from '../chat/schedule-scope'
 import { awaitingReview, confirmReview, reviewCard } from '../chat/schedule-review'
 import { editCard, saveTask, saveTemplate } from '../chat/schedule-edit'
@@ -109,11 +111,21 @@ export const memoriesRoutes: RouteModule = {
       if (r.changes) audit(ctx.db, { actor: auth.user.id, action: 'memory.clear', target: null, detail: { count: r.changes } })
       rt.hub.publish(auth.user.id, { type: 'memory.changed', data: { change: 'cleared', memory: null } })
     })
-    const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, repeat: s.repeat, time: s.time, weekday: s.weekday, day: s.day, date: s.date,
-      projectId: s.project_id, enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
+    const scheduleOut = (s: ScheduleRow) => ({ id: s.id, title: s.title, prompt: s.prompt, ...timingOut(s),
+      projectId: s.project_id, postsIn: postsIn(s), enabled: !!s.enabled, resumeBlockedReason: rt.schedules.resumeBlockedReason(s), nextRunAt: s.next_run_at, lastRunAt: s.last_run_at, lastChatId: s.last_chat_id,
       templateId: s.template_id, templateVersion: s.template_version, sourcePath: s.template_source_path, outputPath: s.template_output_path,
       pendingDueAt: s.pending_due_at, retryAt: s.retry_at, deferredCount: s.deferred_count, ...lastOf(s),
       needsReview: needsReview(s), reviewSince: s.review_since, ...scopeOut(ctx, s) })
+    /** its timing as the server reads it (chat/schedule-timing.ts: `rule` for the kinds the old columns cannot hold) */
+    function timingOut(s: ScheduleRow) {
+      const t = timingOf(s)
+      return { repeat: t.repeat, time: t.time, weekday: t.weekdays?.[0] ?? null, weekdays: t.weekdays, day: t.day, date: t.date, everyMinutes: t.everyMinutes, cron: t.cron }
+    }
+    /** the shared chat its runs post in, by its title while its owner may open it (a run there starts only then) */
+    function postsIn(s: ScheduleRow) {
+      if (!s.chat_id) return null
+      try { const a = chatFor(rt, s.user_id, s.chat_id, 'view'); return { chatId: a.row.id, title: a.row.title } } catch { return null }
+    }
     /** the last run's result and when it came, whether a run is queued or running now (its chat is lastChatId: "Run
      * now" moves only that), and for a run that needed the owner's own key for a template, which one */
     function lastOf(s: ScheduleRow) {

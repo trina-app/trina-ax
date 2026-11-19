@@ -181,7 +181,7 @@ function findChatFile(exec: TurnExec, ref: string, byName: boolean): ChatFileRow
  * and the byte tools. Never a call that reads history (read's versions/version), lists, moves, renames or copies. */
 const BYTE_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = {
   read: ['file_path'], split_pdf: ['file_path'], unzip_file: ['path'], merge_pdfs: ['files'], stamp_pdf: ['file_path', 'image'],
-  edit_pdf: ['file_path', 'insert_pdf.file', 'stamp_image.image'], resize_images: ['paths'], make_file: ['source'],
+  edit_pdf: ['file_path', 'insert_pdf.file', 'stamp_image.image'], resize_images: ['paths'], make_file: ['source'], query_data: ['paths'],
 }
 
 /**

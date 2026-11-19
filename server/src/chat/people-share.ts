@@ -137,7 +137,9 @@ export function peopleShareRefusal(ctx: AppContext, r: ChatRow): { status: 'not_
     if (p && isPersonalFolder(p.folder_path)) return { status: 'conflict', reason: 'project_personal', key: 'chatSharePersonalProject' }
     return { status: 'conflict', reason: 'share_people_in_project', key: 'chatSharePeopleInProject' }
   }
-  if (scheduledRun(ctx, r)) return { status: 'conflict', reason: 'scheduled_run', key: 'chatShareScheduled' }
+  // a run in a chat already shared with people ran with its gates (a task made there posts there, chat/schedules.ts
+  // postsInto), like any turn there: its people can still be changed. A private chat a run made or ran in is never shared
+  if (!isPeopleRow(r) && scheduledRun(ctx, r)) return { status: 'conflict', reason: 'scheduled_run', key: 'chatShareScheduled' }
   // a room's side chat holds the room's words; only the room's members may read them (QA TC-1010)
   if (r.side_room_id) return { status: 'conflict', reason: 'side_chat', key: 'chatShareSideChat' }
   return null

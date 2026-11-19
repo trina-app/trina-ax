@@ -329,7 +329,8 @@ export default function Steps({ steps: all, streaming, failed = false, receipt }
   const [open, setOpen] = useState(false)
   // a demo server's replayed answer: its note is no step of the work (shown in the opened list only)
   const note = all.find((s) => s.tool === DEMO_REPLAY_STEP)
-  const steps = note ? all.filter((s) => s !== note) : all
+  // the to-do list is its own card under the steps (TodoCard.tsx), not a row of them
+  const steps = all.filter((s) => s !== note && !s.todos)
   // a team skill on team files, once the answer is done
   const rec = !streaming && receipt && receipt.teamFiles > 0 ? receipt : null
   const skill = useSkillTitle(rec?.skill.path ?? null, rec?.skill.name ?? '')

@@ -38,7 +38,7 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
       const answers = severalAuthors(ctx.db, r.id) ? rt.store.answerState(r, r.user_id) : rt.store.answerState(r)
       return { id: r.id, runState, ...(rt.waitsForPerson(r.id) ? { waiting: true as const } : {}), ...answers }
     }
-    const waiting = rt.activeTurnUser(r.id) === userId && rt.waitsForPerson(r.id)
+    const waiting = rt.waitsForPerson(r.id, userId)
     return { id: r.id, runState, ...(waiting ? { waiting: true as const } : {}), ...(r.user_id === userId ? rt.store.answerState(r, userId) : {}) }
   })
 }

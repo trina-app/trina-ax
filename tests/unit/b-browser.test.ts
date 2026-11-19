@@ -80,7 +80,7 @@ describe('browser tools', () => {
     // so a Linux CI runner does not get it
     const got = d.data.message.content.split(',')
     expect(got.includes('save_promo_video')).toBe(mp4Available(h.ctx))
-    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_folder_access,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_office,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,looking_at,make_file,make_zip,merge_pdfs,move_files,move_skill,post_to_room,promo_video,query_data,read,remember,rename_file,rename_files,resize_images,room_file,room_read,rooms,save_connector_file,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_folder,share_with_person,shared_with_me,skill,skill_files,split_pdf,stamp_pdf,stop_sharing,unzip_file,web_fetch,who_can_open,write')
+    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_folder_access,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_office,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,looking_at,make_file,make_zip,merge_pdfs,move_files,move_skill,post_to_room,promo_video,query_data,read,remember,rename_file,rename_files,resize_images,room_file,room_read,rooms,save_connector_file,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_folder,share_with_person,shared_with_me,skill,skill_files,split_pdf,stamp_pdf,stop_sharing,todo_write,unzip_file,web_fetch,who_can_open,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
@@ -161,6 +161,36 @@ describe('browser tools', () => {
       const d3 = await desk.next('message.done', (f) => f.data.messageId === r3.assistantMessage.id, 20_000)
       expect(d3.data.message.content).toContain('did not allow opening intranet.corp')
     } finally { stop() }
+  })
+
+  test('a browser site card waits after the answer (docs/decisions/20261119-safety-cards-wait.md): for that window only, and the answer opens it once in that window', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'wiki page' }] }))
+    // the window's browser was asked to open the address (each call once)
+    const calls = () => desk.frames.filter((f) => f.type === 'browser.call' && JSON.stringify(f.data.call.args).includes('192.168.10.9')).length
+    h.rt().safetyCardsWait = true
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await send(fake({ tool: 'navigate', args: { url: 'http://192.168.10.9/wiki' }, sayResult: true }))(chat.id)
+      const card = await desk.next('turn.request', (f) => f.data.turnId === r.turnId)
+      expect(card.data.request).toMatchObject({ kind: 'browser_site', host: '192.168.10.9' })
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(JSON.parse(d.data.message.content)).toMatchObject({ waiting_for_user: true })
+      expect(calls()).toBe(0)
+      // after the answer ended: listed for the desktop window only, from the database
+      expect((await h.api('alice', { window: DESK }).call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+      expect((await h.api('alice', { window: 'win-web-00001' }).call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+      // answered from that window only (another window of the same person: refused, the card stays)
+      const elsewhere = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-window': 'win-web-00001' }, body: JSON.stringify({ kind: 'browser_site', requestId: card.data.request.requestId, decision: 'always' }) })
+      expect(elsewhere.status).toBe(409)
+      await h.api('alice', { window: DESK, client: 'desktop' }).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'once' } })
+      const u = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === r.assistantMessage.id, 20_000)
+      expect(u.data.message.content).toBe('Allow once')
+      const a = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+      await desk.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
+      // the call ran again once, in that window's browser; "once" is not remembered
+      expect(calls()).toBe(1)
+      expect(h.ctx.db.query("SELECT host FROM browser_site_grants WHERE user_id = 'alice' AND host = '192.168.10.9'").all()).toEqual([])
+    } finally { h.rt().safetyCardsWait = false; stop() }
   })
 
   test('shared screenshot: saved in the chat attachment folder, shown under the step, image goes to the engine', async () => {

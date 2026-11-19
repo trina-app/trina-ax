@@ -128,9 +128,15 @@ describe('which answers make a notice', () => {
     expect(Date.parse(w!.push_at) - Date.parse(w!.created_at)).toBe(CHAT_CARD_PUSH_DELAY_MS)
     expect(chatAnswerWanted(h.ctx, w!.id)).toBe(true)
     expect(pushPathOf(h.ctx, 'chat.answer_done', w!.id)).toBe(`/c/${chat.id}`)
-    await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: (card.data.request as TurnRequest).requestId, answer: 'the first' } })
+    // the answer ends on its question (chat/open-questions.ts): the card's notice is the only one, still wanted
     await ws.alice!.next('message.done', (f) => f.data.messageId === s.assistantMessage.id, 20_000)
-    // answered: the card's push is no longer wanted; the finished answer is a notice of its own
+    expect(notices(chat.id).map((n) => n.kind)).toEqual(['waiting'])
+    expect(chatAnswerWanted(h.ctx, w!.id)).toBe(true)
+    await h.api('alice').call(API.answerTurn, { params: { id: s.turnId }, body: { kind: 'ask_user', requestId: (card.data.request as TurnRequest).requestId, answer: 'the first' } })
+    const u = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === s.assistantMessage.id, 20_000)
+    const a = await ws.alice!.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+    await ws.alice!.next('message.done', (f) => f.data.messageId === a.data.message.id, 20_000)
+    // answered: the card's push is no longer wanted; the answer after it is a notice of its own
     expect(chatAnswerWanted(h.ctx, w!.id)).toBe(false)
     expect(notices(chat.id).map((n) => n.kind)).toEqual(['waiting', 'done'])
   })

@@ -1,0 +1,2 @@
+- Pasting more than 10,000 characters into a room's message box no longer cuts the text without a word. Like the AI chat boxes, the box adds the text as a "Pasted text" file and says so; in an edit, or with no room for one more file, it says a message holds up to 10,000 characters and keeps your text as it was.
+- The PDF tools accept a page written as text: `stamp_pdf` with `page: "1"` (it refused it as an invalid input), a page in `edit_pdf`'s stamp or insert, a page list given as a bare number, and `split_pdf`'s `every` as text.
