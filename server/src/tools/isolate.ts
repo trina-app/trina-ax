@@ -136,11 +136,22 @@ export function browserProfileRules(services: readonly string[] = BROWSER_MACH_S
   ]
 }
 
+/** A free-roam demo instance (demo/free-roam.ts startFreeRoam): demo-gate's folder on the hosting Mac, which holds the
+ * one real AI credential. Never readable by a converter, whatever the hosting user setup. */
+export const DEMO_GATE_DIR = '/private/var/demo-gate'
+let demoDenyRead: string[] = []
+/** Free-roam only: the folders no converter may read (DEMO_GATE_DIR and the gate's configured state and secret folders,
+ * which the gate passes as MYCEL_DEMO_GATE_DIRS). Absolute paths only; [] turns it off (tests). */
+export function setDemoDenyRead(dirs: readonly string[]): void {
+  demoDenyRead = [...new Set(dirs.filter((d) => path.isAbsolute(d) && d !== '/'))]
+}
+export const demoDenyReadDirs = (): readonly string[] => demoDenyRead
+
 export function sandboxProfile(o: { cmd: string; workDir: string; readPaths: string[]; denyRead: string[]; gpu?: boolean; curatedFonts?: boolean; helpersIn?: string; execAlso?: string[]; browserProfile?: boolean }): string {
   const gpu = o.gpu ? metalCacheDirs() : []
   const deny = [...new Set([
     '/Users', '/Volumes', '/private/tmp', '/private/var/folders', '/private/var/root', '/Library/Keychains',
-    `/Library/Application Support/${PRODUCT.id}`, os.homedir(), ...o.denyRead,
+    `/Library/Application Support/${PRODUCT.id}`, os.homedir(), ...demoDenyRead, ...o.denyRead,
   ].map(real))]
   const allowRead = [o.workDir, ...o.readPaths].map(real).concat(gpu)
   return [

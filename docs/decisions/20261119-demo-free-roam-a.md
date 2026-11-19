@@ -131,6 +131,13 @@
   | Slack reading (provider "slack") | refused | its API calls go straight out |
   | WebSearch, Agent (sub-agents) | off per turn | the plan's fences |
 
+- **Rule: demo-gate's folders (review fix, 2026-11-20).** Instances run as their own user (demo-gate `pool.runAs`), so
+  the gate's credential file is not theirs to read. On top of that, a free-roam server's converter sandbox
+  (tools/isolate.ts) never reads `/private/var/demo-gate` nor the gate's state and secret folders, which the gate passes
+  as `MYCEL_DEMO_GATE_DIRS` (demo/free-roam.ts startFreeRoam → setDemoDenyRead). Other servers are unchanged. The
+  engine sandbox (scripts/macos/engine.sb) denies by default and opens none of them. GET /api/demo says `builder: true`
+  while the builder is on; the gate takes an instance only when it says `kind: "freeRoam"` and no builder.
+
 - **Left out:** the fakes (PR B), the Steepling content, the snapshot builder and the canary (PR C), demo-gate and the
   web's free-roam screens (PR D), hosting. Some AI calls happen outside a turn: the chat history summary and the file
   list's nightly reading. If they do not go through the turn's proxy token, they are not in the instance's count, and

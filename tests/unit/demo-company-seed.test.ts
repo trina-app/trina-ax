@@ -213,6 +213,8 @@ for (const locale of STEEPLING_LOCALES) {
     test('the builder\'s routes: the owner only', async () => {
       const mina = await as('mina')
       await expect(mina.call(API.demoBuilderWelcome, { body: { userId: 'mina', inviterId: 'sara' } })).rejects.toThrow()
+      // GET /api/demo says the builder is on (demo-gate never takes such an instance)
+      expect((await mina.call(API.demoInfo)).builder).toBe(true)
     })
   })
 }

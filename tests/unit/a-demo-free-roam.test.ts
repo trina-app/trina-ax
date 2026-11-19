@@ -15,7 +15,8 @@ import { createBroker } from '../../server/src/credentials/broker'
 import { credentialsOf, getRow, listRows } from '../../server/src/credentials/store'
 import { SHARED_SUBSCRIPTIONS_KEY } from '../../server/src/credentials/policy'
 import { setSetting } from '../../server/src/admin/settings'
-import { DEMO_AI_LABEL, demoRestError, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
+import { DEMO_AI_LABEL, demoRestError, freeRoamDenyRead, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
+import { DEMO_GATE_DIR, demoDenyReadDirs, sandboxProfile, setDemoDenyRead } from '../../server/src/tools/isolate'
 import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_TOKEN_RE, verifySecret } from '../../server/src/credentials/validate'
@@ -115,6 +116,8 @@ describe('a free-roam demo server', () => {
     expect(me.server.features.hostDiagnostics).toBe(false)
     const info = await mina.call('GET', API.demoInfo.path)
     expect(info).toMatchObject({ company: 'Steepling', current: 'newHire', kind: 'freeRoam', used: 0, cap: 5000, signupUrl: 'https://example.com/start' })
+    // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
+    expect(info.builder).toBeUndefined()
     expect(JSON.stringify(info)).not.toContain(PW)
   })
 
@@ -230,6 +233,24 @@ describe('a free-roam demo started as one', () => {
     expect(demoLimitState(h.ctx.db)?.cap).toBe(5000)
     expect(DEMO_LIMIT_DEFAULT).toBe(300_000)
     expect(listRows(h.ctx.db).some((r) => r.label === DEMO_AI_LABEL)).toBe(true)
+  })
+
+  test('converters never read demo-gate\'s folders: the fixed one and the ones the gate names', () => {
+    // started without MYCEL_DEMO_GATE_DIRS: the fixed folder only
+    expect(demoDenyReadDirs()).toEqual([DEMO_GATE_DIR])
+    expect(freeRoamDenyRead('/var/dg/state:/var/dg/secrets:relative::/')).toEqual([DEMO_GATE_DIR, '/var/dg/state', '/var/dg/secrets'])
+    setDemoDenyRead(freeRoamDenyRead('/opt/dg/secrets'))
+    try {
+      const p = sandboxProfile({ cmd: '/bin/cat', workDir: tmp, readPaths: [], denyRead: [] })
+      const denies = p.split('\n').find((l) => l.startsWith('(deny file-read-data (subpath'))!
+      expect(denies).toContain('(subpath "/private/var/demo-gate")')
+      expect(denies).toContain('(subpath "/opt/dg/secrets")')
+    } finally { setDemoDenyRead([DEMO_GATE_DIR]) }
+    // the engine's own sandbox denies by default and opens nothing of /private/var but system data
+    const sb = fs.readFileSync(path.join(import.meta.dir, '..', '..', 'scripts', 'macos', 'engine.sb'), 'utf8')
+    expect(sb).toContain('(deny default)')
+    expect(sb).not.toMatch(/\(allow file-read[^)]*\(subpath "\/private\/var"\)/)
+    expect(sb).not.toContain('demo-gate')
   })
 
   test('sign-in callbacks, room app webhooks and the remote MCP server answer 404; the web app is no developer page', async () => {

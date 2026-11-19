@@ -310,6 +310,9 @@ export const DemoInfo = z.object({
   signupUrl: z.string().nullable().optional(),
   /** free-roam demo: its bar's suggestion chips, in the demo's language (DemoFile.freeRoam); absent elsewhere */
   freeRoam: z.object({ suggestions: z.array(DemoSuggestion) }).optional(),
+  /** true while the demo file turns the snapshot builder on (DemoFile.builder); absent otherwise. demo-gate refuses an
+   * instance that says it (demo-gate/src/pool.ts checkFenced) */
+  builder: z.literal(true).optional(),
 })
 export type DemoInfo = z.infer<typeof DemoInfo>
 

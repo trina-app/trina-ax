@@ -43,7 +43,7 @@ function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInf
   const host = ctx.config.listen.host
   const network = !(host === 'localhost' || isLoopback(host)) || !!ctx.config.tls
   const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas,
-    ...(demo.freeRoam ? { freeRoam: { suggestions: demo.freeRoam.suggestions } } : {}) }
+    ...(demo.freeRoam ? { freeRoam: { suggestions: demo.freeRoam.suggestions } } : {}), ...(demo.builder ? { builder: true as const } : {}) }
   if (demo.kind !== 'freeRoam') return { ...base, kind: 'scripted' }
   // a free-roam demo: what the visitor's answers used of the demo limit (admin/budgets.ts demoLimitState), for the
   // meter and the limit screen

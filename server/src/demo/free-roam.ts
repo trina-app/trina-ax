@@ -4,6 +4,7 @@
 // connections, no relay and the gate as the model upstream. This file is what such a server does at start, and what it
 // counts: its one AI connection, the demo limit and the uploads. What it refuses is in ./guard.ts.
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { DEMO_BUSY_REASON, DEMO_LIMIT_DEFAULT, DEMO_REST_REASON, DEMO_UPLOAD_FILE_MAX, DEMO_UPLOAD_TOTAL_MAX, type ApiErrorBody, type DemoFile, type Locale } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { isFreeRoam } from '../app-config'
@@ -12,6 +13,7 @@ import { getSetting, setSetting } from '../admin/settings'
 import { credentialsOf, connectionsChanged, listRows } from '../credentials/store'
 import { insertRow } from '../credentials/service'
 import { MEMBER_OWN_KEY, SHARED_SUBSCRIPTIONS_KEY } from '../credentials/policy'
+import { DEMO_GATE_DIR, setDemoDenyRead } from '../tools/isolate'
 
 /** the free-roam demo file, only on the development server it was accepted for (routes/demo.ts demoOf's rule) */
 export function freeRoamOf(ctx: AppContext): DemoFile | null {
@@ -35,6 +37,12 @@ export function dummyClaudeToken(): string {
   return 'sk-ant-oat01-demo' + crypto.randomBytes(32).toString('base64url')
 }
 
+/** The folders a free-roam instance's converters may not read: demo-gate's fixed folder and the ones the gate names
+ * (MYCEL_DEMO_GATE_DIRS, colon-separated: its state and secret folders; demo-gate/src/pool.ts gateDirs). */
+export function freeRoamDenyRead(gateDirs: string | undefined): string[] {
+  return [DEMO_GATE_DIR, ...(gateDirs ?? '').split(':').map((s) => s.trim()).filter((s) => path.isAbsolute(s) && s !== '/')]
+}
+
 /**
  * At start (routes/demo.ts register), only on a free-roam demo:
  * - the demo limit for the budget checks (admin/budgets.ts setDemoLimit);
@@ -47,6 +55,8 @@ export function startFreeRoam(ctx: AppContext): void {
   const demo = freeRoamOf(ctx)
   if (!demo) return
   setDemoLimit(ctx.db, demoLimitOf(demo))
+  // converters never read demo-gate's folders (its credential), also if the hosting user setup were wrong
+  setDemoDenyRead(freeRoamDenyRead(process.env.MYCEL_DEMO_GATE_DIRS))
   try {
     if (getSetting(ctx.db, SHARED_SUBSCRIPTIONS_KEY) !== true) setSetting(ctx.db, SHARED_SUBSCRIPTIONS_KEY, true)
     if (getSetting(ctx.db, MEMBER_OWN_KEY) !== false) setSetting(ctx.db, MEMBER_OWN_KEY, false)
