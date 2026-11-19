@@ -112,7 +112,7 @@ import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
-import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
+import { hasCredentialFor, resolveCredential, SOON_MS, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
@@ -307,6 +307,21 @@ const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)
 
 /** The per-turn yes and no of a save card (sharedReadRefusal), apart from a read's of the same place */
 const SAVE_KEY = 'save:'
+
+
+/** An answer that cannot go on because the AI accounts are at their provider's limit until `retryAt`. A short wait (up
+ * to an hour, credentials/resolve.ts SOON_MS) stays "the limit was reached for now, try again a bit later"; a longer one
+ * (a weekly cap, a plan used up until its reset) says the usage has run out and, in params.until, when it starts again
+ * (owner report 2026-11-19: "for now" while it lasted two days). Both keep the code rate_limited, so the "answer with
+ * another AI" fallback still follows. Exported for tests. */
+export function limitError(locale: Locale, retryAt: string | null | undefined, now = Date.now()): ApiErrorBody {
+  const at = retryAt ? Date.parse(retryAt) : NaN
+  if (!Number.isFinite(at)) return engineError('rate_limit', locale)
+  const secs = Math.max(1, Math.ceil((at - now) / 1000))
+  if (at - now <= SOON_MS) return engineError('rate_limit', locale, secs)
+  const e = engineError('usage_used_up', locale, secs)
+  return { ...e, params: { ...e.params, until: new Date(at).toISOString() } }
+}
 
 export class TurnExec {
   content = ''
@@ -1503,7 +1518,7 @@ export class TurnExec {
     if (r.ok) { this.lastCredential = r.credentialId; return r }
     if (this.proxyError) this.error = this.proxyError
     else if (r.reason === 'none') this.error = engineError('no_credential', spec.locale)
-    else if (r.retryAt) this.error = engineError('rate_limit', spec.locale, Math.max(1, Math.ceil((Date.parse(r.retryAt) - Date.now()) / 1000)))
+    else if (r.retryAt) this.error = limitError(spec.locale, r.retryAt)
     else this.error = engineError('credential_unusable', spec.locale)
     return null
   }
@@ -1702,8 +1717,7 @@ export class TurnExec {
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
     } else {
-      const secs = ev.retryAt ? Math.max(1, Math.ceil((Date.parse(ev.retryAt) - Date.now()) / 1000)) : undefined
-      this.proxyError = engineError('rate_limit', L, secs)
+      this.proxyError = limitError(L, ev.retryAt)
     }
     // stop the engine at once: it must not retry or refresh by itself on a refused / limited connection
     if (ev.type !== 'auth') this.handle?.kill()

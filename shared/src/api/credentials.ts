@@ -159,6 +159,10 @@ export const AiAccessResponse = z.object({
    * /api/me/ai-not-ready/tell), so [Tell an admin] reads "Told" after a reload too. The server's own limit record; only
    * the asker's own; never for the owner or an admin; older servers omit it */
   notReadyTold: z.boolean().optional(),
+  /** not usable, but only because the AI accounts this person uses are at a usage limit that ends by itself: the
+   * earliest time one works again (ISO). The screens then say nothing about connecting an AI (one is connected); a
+   * failed answer says until when (chat error usage_used_up). Absent otherwise and from older servers */
+  limitedUntil: z.string().optional(),
 })
 export type AiAccessResponse = z.infer<typeof AiAccessResponse>
 export const AiAccessRequestResponse = z.object({ requested: z.literal(true), already: z.boolean() })

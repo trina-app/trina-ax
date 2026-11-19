@@ -523,6 +523,10 @@ export const id: Record<MessageKey, string> = {
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.id,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.id,
+  'chat.error.usage_used_up': CHAT_ERROR_MESSAGES.usage_used_up.id,
+  "chat.error.usage_used_up_until": "Kuota penggunaan AI sudah habis sampai {date}, jadi AI tidak bisa menjawab. Minta admin Anda menambah kuota AI.",
+  "chat.error.admin.usage_used_up": "Kuota penggunaan AI sudah habis untuk saat ini. Untuk melanjutkan, hubungkan akun AI lain di {path}.",
+  "chat.error.admin.usage_used_up_until": "Kuota penggunaan AI sudah habis sampai {date}. Untuk melanjutkan sebelum itu, hubungkan akun AI lain di {path}.",
   'chat.error.context': CHAT_ERROR_MESSAGES.context.id,
   'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.id,
   'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.id,
