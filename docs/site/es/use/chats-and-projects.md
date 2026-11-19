@@ -292,6 +292,24 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   pueden abrirlo, y una línea debajo lo indica. Necesita permiso de escritura en la carpeta del proyecto (sin él, **+**
   solo ofrece archivos del equipo); **✕** antes de enviar mueve el archivo a la papelera.
 
+### Un canal para el proyecto
+
+Un proyecto del equipo puede tener un canal privado: su gente conversa ahí y los archivos quedan en un solo lugar, la carpeta del proyecto.
+
+- **Crear un canal** en el recuadro **Canal** de la página del proyecto crea un canal privado con las personas del
+  proyecto ya marcadas (puede desmarcar a quien quiera). **Vincular un canal** vincula uno de sus canales privados. También
+  puede vincularlo desde el canal: abra su nombre arriba y elija **Vincular a un proyecto**.
+- En un canal vinculado, **Archivos** arriba abre la carpeta del proyecto. Un documento o una imagen enviados ahí tienen
+  **Guardar en el proyecto**: un clic guarda una copia en la carpeta del proyecto, y **Deshacer** en el aviso que aparece
+  la quita. Otros tipos de archivo, y los que parecen personales, preguntan primero dónde guardarlos.
+- Trina, en el chat lateral del canal, guarda en la carpeta del proyecto los documentos nuevos que usted le pida. Si
+  personas que no están en el canal pueden abrir esa carpeta, le pregunta antes.
+- Solo quien puede abrir el proyecto ve su nombre, el botón **Archivos** y **Guardar en el proyecto**. Los demás del
+  canal solo ven que se vinculó a un proyecto. Los miembros del proyecto ven el nombre del canal en la página del proyecto.
+- Quién está en el canal y quién está en el proyecto van por separado: añadir a alguien a uno no lo añade al otro.
+- **Desvincular** está en la información del canal y en la página del proyecto. Los archivos guardados en el proyecto
+  se quedan ahí; los enviados en el canal se quedan en el canal.
+
 ## Encontrar cualquier cosa
 
 Pulse ⌘K (Ctrl+K en Windows) o elija **Buscar** bajo **Preguntar a Trina** para encontrar chats, mensajes de sus conversaciones, proyectos, archivos, habilidades, tareas programadas y conexiones MCP. [Más información sobre la búsqueda y la configuración](settings-and-search.md).
