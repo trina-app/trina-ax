@@ -70,6 +70,22 @@ test('a conversation set to "Mentions only" adds nothing for plain messages, and
   expect(badge(nora.id)).toBe(1)
 })
 
+test('a reply in a thread I follow adds nothing to the number; one that mentions me counts (QA TC-5363)', async () => {
+  const { mia, nora, send, badge } = await setup()
+  // nora writes in a DM; mia answers in its thread: nora follows it (its root's author), the DM's timeline is read
+  const dm = await nora.client.call('POST', '/api/rooms', { kind: 'dm', userId: mia.id })
+  const root = await send(nora.client, dm.id, 'the quote draft')
+  await send(mia.client, dm.id, 'looks good', { threadRootId: root.id })
+  const listed = () => ((nora.client.call('GET', '/api/rooms')) as Promise<any>).then((r) => r.items.find((x: any) => x.id === dm.id))
+  expect(await listed()).toMatchObject({ unreadCount: 0, threadsUnread: 1, mentioned: false })
+  // nothing is marked on the row, so nothing is on the icon either (the reply is in Mentions & threads)
+  expect(badge(nora.id)).toBe(0)
+  // a reply there that mentions her counts, as its "@" shows on the row
+  await send(mia.client, dm.id, '@nora one more thing', { threadRootId: root.id, mentions: [nora.id] })
+  expect(await listed()).toMatchObject({ unreadCount: 0, mentioned: true })
+  expect(badge(nora.id)).toBe(1)
+})
+
 test('a phone push carries the recipient\'s count at send time, a number only', async () => {
   const { mia, nora, dm, send } = await setup()
   const sent: NativeSend[] = []
