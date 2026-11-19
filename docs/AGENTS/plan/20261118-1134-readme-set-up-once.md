@@ -77,3 +77,7 @@ Out:
   alike); the 40 repos with the most stars now ask in 15%, near the top or at the end, "if it's useful, a star helps
   others find it", no rewards (GitHub's rules). An orange "Star Trina AX on GitHub" button with that line goes under
   the film, and one line opens Community.
+- Follow-up (founder, 11/19): profile photos (the website's fictional people) on the team chat and guest pictures; eight
+  team skills in the skills picture; the star button links to `?tab=readme-ov-file` (a link to the page itself keeps
+  a signed-in visitor where they are, and `/stargazers` is 404 when signed out since GitHub closed stargazer lists) and
+  says to press Star at the top of the page.
