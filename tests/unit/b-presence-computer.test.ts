@@ -6,11 +6,11 @@
 // process now reports the computer's own idle time and lock (POST /api/me/computer) and that decides.
 //   1. Presence on a fake clock: a background window silent past the cut-off, with recent OS input → in use; OS idle
 //      past 10 minutes → not; a locked screen → not, even with a window still "active"; no window and no report → not;
-//      an old report (the app quit, the computer slept) → not; manual away wins; a browser tab hidden is idle (the page
+//      an old report (the app quit, the computer slept) → not; their own away pick changes nothing (TC-5205); a browser tab hidden is idle (the page
 //      says so: current behaviour, here as the window's own word).
 //   2. On the real app: POST /api/me/computer (the caller's own, strict body, CSRF), then phoneDecision cancel / send.
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { Presence, PRESENCE_COMPUTER_FRESH_MS, PRESENCE_COMPUTER_IDLE_MS, PRESENCE_SILENT_MS, type PresenceClock } from '../../server/src/realtime/presence'
+import { Presence, PRESENCE_COMPUTER_FRESH_MS, PRESENCE_COMPUTER_IDLE_MS, PRESENCE_SETTLE_MS, PRESENCE_SILENT_MS, type PresenceClock } from '../../server/src/realtime/presence'
 import { decidePhone, phoneDecision } from '../../server/src/notifications/away'
 import { presenceFor } from '../../server/src/realtime/presence'
 import { getChatRuntime } from '../../server/src/chat/runtime'
@@ -134,11 +134,20 @@ describe('presence: the computer in use, Trina in the back', () => {
     expect(m.p.inUse('ana')).toBe(true)
   })
 
-  test('manual away wins over the computer, with or without a window; one person\'s computer never counts for another', () => {
+  test('their own "away" pick never rings the phone while they use the computer (QA TC-5205); idle 10 min still does', () => {
     const m = machine({ away: ['ana'] })
+    // no window open yet (the Trina window in the back, its socket not counted), the desktop app reports input: in use
     m.p.computer('ana', 'mac', { idleMs: 0, locked: false })
-    expect(m.p.inUse('ana')).toBe(false)
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'computer in use (input 0s ago)' })
     m.p.open('ana', 'w1')
+    m.p.setAway('ana', true)
+    expect(m.p.inUse('ana')).toBe(true)
+    // the dot still says away: the pick is what the team sees
+    m.clock.advance(PRESENCE_SETTLE_MS + 10)
+    expect(m.p.current('ana')).toBe('away')
+    // left alone for 10 minutes: the phone rings again, away or not
+    m.p.computer('ana', 'mac', { idleMs: PRESENCE_COMPUTER_IDLE_MS, locked: false })
+    m.p.activity('ana', 'w1', 'idle')
     expect(m.p.inUse('ana')).toBe(false)
     m.p.computer('bob', 'mac', { idleMs: 0, locked: false })
     expect(m.p.inUse('bob')).toBe(true)
@@ -183,10 +192,11 @@ describe('why, for the log of each phone decision (owner 2026-11-19: the phone r
     expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'browser or app window active' })
     m.p.close('ana', 'w1')
     expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'window closed while in use (grace)' })
+    // their own away pick changes nothing here
     m.p.setAway('ana', true)
-    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'set themselves away' })
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'window closed while in use (grace)' })
     // inUse is the same answer
-    expect(m.p.inUse('ana')).toBe(false)
+    expect(m.p.inUse('ana')).toBe(true)
   })
 
   test('a report says what changed only on a change, not every 30 s', () => {

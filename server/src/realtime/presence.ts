@@ -196,7 +196,9 @@ export class Presence {
    *   the grace. A browser tab counts only while visible (web/src/lib/presence.ts). Not a window on a sign-in whose
    *   fresh report says its screen is locked or the computer idle (that window may not have said idle yet); another
    *   device's windows and reports still count.
-   * Not when they set themselves away. Only this server's memory; nothing of it is shown to anyone. Right after a
+   * Their own "away" pick (PUT /api/me/away) does not count here: it is what the team sees, not whether they are at the
+   * computer. Slack's mobile push follows desktop activity the same way (owner 2026-11-19: the phone rang at the Mac
+   * while the dot said away; QA TC-5205). Only this server's memory; nothing of it is shown to anyone. Right after a
    * start windows are still reconnecting: ask warmingUntil first. */
   inUse(userId: string): boolean {
     return this.phoneUse(userId).inUse
@@ -209,7 +211,6 @@ export class Presence {
     if (this.stopped) return { inUse: false, why: 'presence stopped' }
     const now = this.clock.now()
     const p = this.people.get(userId)
-    if (p?.away) return { inUse: false, why: 'set themselves away' }
     // sign-ins whose computer is locked or idle now: their windows do not count
     const notUsed = new Set<string>()
     const computer: string[] = []
@@ -220,7 +221,7 @@ export class Presence {
         if (age > PRESENCE_COMPUTER_FRESH_MS) { mine.delete(sid); computer.push(`computer report old (${span(age)})`); continue }
         const idle = c.idleMs + age
         if (!c.locked && idle < PRESENCE_COMPUTER_IDLE_MS) {
-          if (p || this.manualAwayOf(userId) === false) return { inUse: true, why: `computer in use (input ${span(idle)} ago)` }
+          if (p || this.activeAccount(userId)) return { inUse: true, why: `computer in use (input ${span(idle)} ago)` }
           computer.push('computer in use, not an active account')
         } else {
           notUsed.add(sid)
@@ -322,12 +323,10 @@ export class Presence {
     for (const w of this.warming.splice(0)) this.o.send(w.userId, { type: 'presence', full: true, people: list }, w.windowId)
   }
 
-  /** a person with no window open yet: their away setting read from the account (null: not an active account) */
-  private manualAwayOf(userId: string): boolean | null {
-    try {
-      if (!this.o.isPerson(userId)) return null
-      return this.o.awayOf(userId)
-    } catch { return null }
+  /** a person with no window open yet: an active account of this team (a report for the AI or a deleted account counts
+   * for nobody) */
+  private activeAccount(userId: string): boolean {
+    try { return this.o.isPerson(userId) } catch { return false }
   }
 
   private person(userId: string): Person {

@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { roomCounts, roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
+import { roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -258,16 +258,17 @@ export const pinnedRooms = <R extends Pinnable>(rooms: R[]): R[] => rooms.filter
 export const pinnedFirst = <R extends Pinnable>(rooms: R[]): R[] => [...pinnedRooms(rooms), ...rooms.filter((r) => !r.pinnedAt)]
 
 /** A room's one badge (roomCounts): "@" when one of the unread messages (or followed replies) mentions me (the count
- * would read as a count of mentions), else its number; '' when it has none (plain messages in a room at 멘션만: the row
- * is only bold). */
+ * would read as a count of mentions), else its number of unread messages of the timeline (a followed thread's reply is
+ * not one: docs/decisions/20261119-room-unread-after-read.md); '' when it has none (plain messages in a room at 멘션만:
+ * the row is only bold). */
 export const roomBadge = (r: CountedRoomFields) => {
   const c = roomCounts(r)
   return c.mention ? '@' : c.number > 0 ? badgeText(c.number) : ''
 }
 
-// roomCounts, roomWantsMe, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's
+// roomCounts, roomWantsMe, roomNoticeWanted, roomLightsDot and roomUnread: shared/src/api/attention.ts (the server counts a phone push's
 // badge with them)
-export { roomCounts, roomLightsDot, roomUnread, roomWantsMe }
+export { roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe }
 
 /** Who put a reaction there, for its tooltip: the names given ("가나, 다라"), then how many more ("외 3명"). */
 export function reactionWho(r: { count: number; users: { name: string }[] }, w: { sep: string; more: (names: string, n: number) => string }): string {

@@ -16,6 +16,7 @@ import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { atLeast, loadPrincipal, RuleSet, splitOf, type Principal } from '../policy/access'
 import { hiddenEntry, badSegment } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { rulesHash } from '../admin/access-edit'
 import { afterAccessChange, captureState, ensureFolderRow, getFolderByPath, isProjectsFolder, resolveFolderPath, rulesOf, setProjectException, validateRules, writeFolderAccess } from '../admin/folders'
 import { getTeamSettings } from '../admin/settings'
@@ -308,7 +309,7 @@ function whatTheySee(ctx: AppContext, folder: string, caller: string, readable: 
     try { entries = fs.readdirSync(path.join(root, ...segs), { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       if (++seen > FILES_SCAN_MAX) return
-      if (hiddenEntry(e.name, segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      if (hiddenEntry(e.name, segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(root, ...segs, e.name))) continue
       const s = [...segs, e.name]
       if (segs.length === base.length && e.name === 'skills' && e.isDirectory()) continue
       // every folder is walked (one nobody added may read can hold one they may), each file counted once someone added

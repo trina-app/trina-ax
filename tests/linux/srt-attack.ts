@@ -13,7 +13,7 @@ import { RuleSet, type Access, type Principal } from '../../server/src/policy/ac
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
 import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
-import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
+import { holdPlaceholders, isRunPlaceholder, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
@@ -611,6 +611,26 @@ for (const a of attacks) {
   const other = second ? await second : { code: null, out: '' }
   const why = !first.out.includes('SELF=DEV-OF-RUN-ONE') ? `the run did not reach its own dev server: ${first.out.slice(0, 200)}` : other.code !== 0 ? `the second run did not run: ${other.out.slice(0, 200)}` : other.out.includes('DEV-OF-RUN-ONE') ? 'another run reached the dev server' : null
   console.log(`${why ? 'FAIL' : 'pass'} L1 a run's dev server is not reachable from another run (each its own localhost)${why ? `\n     ${why}` : ''}`)
+  if (why) failed++
+}
+// PH1 (QA TC-5349): srt's protected names are on the disk of the folder while a run lives (bwrap binds over a path
+// that exists), but no person sees them: each new entry is one the server made for the run (placeholders.ts
+// isRunPlaceholder: the Files tree, the AI's list, the snapshots and change notices skip them), and when the run has
+// ended the folder is exactly what it was (a killed or long run leaves nothing behind)
+{
+  const ph = `${DIR1}/ph-fresh`
+  fs.mkdirSync(ph, { recursive: true }); fs.writeFileSync(`${ph}/keep.txt`, 'a person\n'); sh(`chown -R ${SRV}:${SRV} ${ph}`)
+  const list = () => (fs.existsSync(ph) ? Bun.spawnSync(['bash', '-c', `find ${ph} -mindepth 1 | sort`]).stdout.toString().trim().split('\n').filter(Boolean) : [])
+  const was = list()
+  let during: string[] = []
+  let shown: string[] = []
+  const r = await run('sleep 4; true', { cwd: 'ph-fresh', during: () => { during = list(); shown = during.filter((p) => p !== `${ph}/keep.txt` && !isRunPlaceholder(p)) } })
+  const after = list()
+  const why = r.code !== 0 ? `the run did not end well: ${r.code} ${r.out.slice(0, 200)}`
+    : during.length <= was.length ? 'no placeholder was made during the run (the check does not test anything)'
+      : shown.length ? `entries a person would see during the run: ${shown.join(', ')}`
+        : after.join('|') !== was.join('|') ? `the folder is not as it was after the run: ${after.filter((p) => !was.includes(p)).join(', ')}` : null
+  console.log(`${why ? 'FAIL' : 'pass'} PH1 the names made for a run are never shown (${during.length - was.length} made) and none stay after it${why ? `\n     ${why}` : ''}`)
   if (why) failed++
 }
 { const m1 = modesNow(); const ch = [...MODES0].filter(([p, m]) => m1.has(p) && m1.get(p) !== m).map(([p, m]) => `${p}: ${m} -> ${m1.get(p)}`); console.log(ch.length ? `FAIL HOSTMODES changed on disk: ${ch.slice(0, 20).join(' | ')}` : `pass HOSTMODES no mode or owner changed on disk (${MODES0.size} entries)`); if (ch.length) failed++ }

@@ -21,6 +21,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice, utf16Kind, utf16Text } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
@@ -540,7 +541,7 @@ export class FileService {
     let shownFiles = 0
     const ents = fs.readdirSync(r.abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))
     for (const e of ents) {
-      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
       const c = [...r.segs, e.name]
       // a sub-folder shows its name only (who else may list it decides who may see that, read-scope.ts {type:'name'})
       if (e.isDirectory()) { if (rules.canList(ctx.user, c)) { lines.push(e.name + '/'); ctx.files.listedNames.add(c.join('/')) } }

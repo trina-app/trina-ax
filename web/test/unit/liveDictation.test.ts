@@ -116,6 +116,19 @@ describe('live dictation', () => {
     expect((await d.finish()).heard).toBe(true)
     expect(sent).toBe(1)
   })
+  test('talking on without a pause: after the first, a piece goes out at least every 7 s; a 0.6 s pause ends one', async () => {
+    const at: number[] = []
+    let samples = 0
+    const d = new LiveDictation({ send: async () => { at.push(samples / LIVE_RATE); return { ok: true, lines: [{ start: 0, end: 1, text: 'x' }] } }, onWords: () => {}, onRefused: () => {} })
+    const parts = [tone(2500, 0.0005), tone(20_000, 0.2), tone(700, 0.0005), tone(2000, 0.2), tone(1500, 0.0005)]
+    // the microphone's frames come one by one (a piece's send starts between them)
+    for (const p of parts) for (let i = 0; i < p.length; i += 1024) { const f = p.subarray(i, i + 1024); samples += f.length; d.push(f); await Bun.sleep(0) }
+    await d.finish()
+    for (let i = 1; i < at.length; i++) expect(at[i]! - at[i - 1]!).toBeLessThanOrEqual(7.1)
+    // the 2 s after the pause went out on their own, before Stop
+    expect(at.length).toBeGreaterThanOrEqual(5)
+    expect(at.at(-1)!).toBeLessThan(samples / LIVE_RATE)
+  })
   test("wordsOf joins a piece's lines and drops empty ones", () => {
     expect(wordsOf([{ track: 'me', startMs: 0, endMs: 1, text: ' a ' }, { track: 'me', startMs: 1, endMs: 2, text: '' }, { track: 'me', startMs: 2, endMs: 3, text: 'b' }])).toBe('a b')
   })

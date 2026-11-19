@@ -95,7 +95,11 @@ chmod +x Trina-AX-<v>-linux-x86_64.AppImage
 ./Trina-AX-<v>-linux-x86_64.AppImage
 ```
 
-- **FUSE 2:** an AppImage needs FUSE 2 (`fuse-libs` on Fedora, `fuse2` on Arch, `libfuse2t64` on Ubuntu 24.04).
+- **FUSE:** the AppImage mounts itself with FUSE's `fusermount3` (or `fusermount`). GNOME and KDE desktops have it; on a
+  minimal system install `fuse3` (`sudo dnf install fuse3` on Fedora, `sudo pacman -S fuse3` on Arch, `sudo apt install
+  fuse3` on Debian and Ubuntu). It needs no FUSE 2 library. AppImages of 0.5.18 and earlier still need FUSE 2: on Fedora
+  the `fuse` package (it brings `fusermount` and `fuse-libs`; `fuse-libs` alone is not enough), `fuse2` on Arch,
+  `libfuse2t64` on Ubuntu 24.04. They update themselves to the new kind.
 - **Sandbox:** the app runs only inside Chromium's sandbox. Where the system blocks user namespaces for programs without
   an AppArmor profile (Ubuntu 24.04 and later), the AppImage cannot use it: the app says "Install the .deb instead" and
   quits. Use the .deb there. An AppImage started with `--no-sandbox` by hand is refused the same way. Never start the

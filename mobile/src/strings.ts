@@ -181,16 +181,20 @@ export const IOS_USAGE = {
     NSCameraUsageDescription: 'Take a photo to attach in chat.',
     NSMicrophoneUsageDescription: 'Use your voice to type in chat.',
     NSPhotoLibraryUsageDescription: 'Choose a photo to attach in chat.',
+    // voice input written on the phone itself; only iPhones before iOS 26 ask this (modules/dictation)
+    NSSpeechRecognitionUsageDescription: 'Turn your voice into text on this iPhone, without sending the recording anywhere.',
   },
   ko: {
     NSCameraUsageDescription: '채팅에 첨부할 사진을 찍을 때 사용해요.',
     NSMicrophoneUsageDescription: '채팅에서 음성으로 입력할 때 사용해요.',
     NSPhotoLibraryUsageDescription: '채팅에 첨부할 사진을 고를 때 사용해요.',
+    NSSpeechRecognitionUsageDescription: '녹음을 밖으로 보내지 않고 이 iPhone에서 바로 글자로 바꿀 때 사용해요.',
   },
   zh: {
     NSCameraUsageDescription: '拍摄照片并在聊天中发送。',
     NSMicrophoneUsageDescription: '在聊天中用语音输入文字。',
     NSPhotoLibraryUsageDescription: '选择照片并在聊天中发送。',
+    NSSpeechRecognitionUsageDescription: '在这台 iPhone 上直接把语音转成文字，录音不会发送到任何地方。',
   },
 } as const
 

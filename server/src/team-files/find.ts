@@ -13,6 +13,7 @@ import { allowedRoots, excludeArgs, runRg } from '../files/search'
 import { authorize, siblingVisible, visiblePath } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
 import type { TeamFiles } from './service'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 
 /** ripgrep options for listing names only (no size limit: big files are attachable too) */
 const RG_LIST = ['--files', '--null', '--no-config', '--no-ignore', '--hidden', '--no-follow', '--one-file-system', '--no-messages']
@@ -53,7 +54,7 @@ export async function findFiles(files: TeamFiles, userId: string, q: string, bas
   for (let i = 0; i < names.length && hits.length < HIT_CAP; i += CHECK_CHUNK) {
     if (i) await new Promise((res) => setImmediate(res))
     for (const rel of names.slice(i, i + CHECK_CHUNK)) {
-      const st = visiblePath(files.fx, rules, user, rel)
+      const st = isRunPlaceholder(path.join(files.root, rel)) ? null : visiblePath(files.fx, rules, user, rel)
       if (st) hits.push({ rel, st })
       if (hits.length >= HIT_CAP) break
     }
@@ -80,7 +81,7 @@ async function findFolders(files: TeamFiles, user: ReturnType<TeamFiles['princip
     let names: fs.Dirent[]
     try { names = await fs.promises.readdir(path.join(files.root, ...dir), { withFileTypes: true }) } catch { continue }
     for (const e of names) {
-      if (!e.isDirectory() || !siblingVisible(files.fx, rules, user, dir, e.name)) continue
+      if (!e.isDirectory() || !siblingVisible(files.fx, rules, user, dir, e.name) || isRunPlaceholder(path.join(files.root, ...dir, e.name))) continue
       const segs = [...dir, e.name]
       queue.push(segs)
       const folded = fold(e.name)

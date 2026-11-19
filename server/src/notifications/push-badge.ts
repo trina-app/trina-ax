@@ -48,7 +48,7 @@ function markedChats(ctx: AppContext, userId: string): (MarkedChat & { id: strin
 export function pushBadge(ctx: AppContext, userId: string): number | null {
   try {
     const rooms = roomsOf(ctx)
-    return appBadgeOf(attentionCount(markedChats(ctx, userId), rooms.listed(userId), { threadReplies: rooms.alerts(userId).threadReplies }).n)
+    return appBadgeOf(attentionCount(markedChats(ctx, userId), rooms.listed(userId)).n)
   } catch {
     return null
   }

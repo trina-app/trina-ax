@@ -82,7 +82,11 @@ chmod +x Trina-AX-<v>-linux-x86_64.AppImage
 ./Trina-AX-<v>-linux-x86_64.AppImage
 ```
 
-- **FUSE 2:** AppImage는 FUSE 2가 필요하다(Fedora `fuse-libs`, Arch `fuse2`, Ubuntu 24.04 `libfuse2t64`).
+- **FUSE:** AppImage는 FUSE의 `fusermount3`(또는 `fusermount`)로 자기 자신을 마운트한다. GNOME·KDE 데스크톱에는 이미 있고,
+  최소 설치 시스템이면 `fuse3`를 설치한다(Fedora `sudo dnf install fuse3`, Arch `sudo pacman -S fuse3`, Debian·Ubuntu
+  `sudo apt install fuse3`). FUSE 2 라이브러리는 필요 없다. 0.5.18 이하의 AppImage는 아직 FUSE 2가 필요하다: Fedora는 `fuse`
+  패키지(`fusermount`와 `fuse-libs`를 함께 설치한다. `fuse-libs`만으로는 안 된다), Arch `fuse2`, Ubuntu 24.04 `libfuse2t64`.
+  이 AppImage들은 스스로 새 방식으로 업데이트된다.
 - **샌드박스:** 앱은 Chromium 샌드박스 안에서만 돈다. AppArmor 프로필이 없는 프로그램의 user namespace를 막는 시스템(Ubuntu 24.04
   이후)에서는 AppImage가 샌드박스를 쓸 수 없어서, 앱이 ".deb를 설치하세요"라고 말하고 끝난다. 거기서는 .deb를 쓴다. AppImage를
   손으로 `--no-sandbox`와 함께 띄워도 같이 거절한다. .deb의 앱도 `--no-sandbox`로 띄우지 않는다.

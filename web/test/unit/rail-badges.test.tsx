@@ -27,10 +27,11 @@ describe('marks', () => {
   })
 
   test('대화: conversations with something unread (not messages), muted and hidden left out; a dot for mention rows only', () => {
-    // the second, a channel at its default (mentions only) with plain messages, is only bold: not counted
+    // the second, a channel at its default (mentions only) with plain messages, is only bold: not counted; nor is the
+    // third, read to its end with a followed thread's new replies (they are in 멘션·스레드: QA TC-5363)
     const rooms = [room({ kind: 'group', unreadCount: 12 }), room({ unreadCount: 7 }), room({ unreadCount: 0, threadsUnread: 2 }), room({ unreadCount: 4, muted: true }), room({ unreadCount: 3, hidden: true }), room()]
-    expect(unreadRooms(rooms)).toBe(2)
-    expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 2 })
+    expect(unreadRooms(rooms)).toBe(1)
+    expect(chatsMark(rooms, 5)).toEqual({ kind: 'count', n: 1 })
     // a hidden room does not mark the rail (it shows nowhere)
     expect(chatsMark([room({ unreadCount: 1, hidden: true })], 0)).toBeNull()
     // a mention row unread in Activity, its room read meanwhile: still a mark on 대화

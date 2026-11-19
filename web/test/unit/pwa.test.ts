@@ -10,17 +10,35 @@ const UA = {
   android: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36',
   windows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   linux: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+  linuxFirefox: 'Mozilla/5.0 (X11; Ubuntu; Linux aarch64; rv:140.0) Gecko/20100101 Firefox/140.0',
+  linuxFirefoxWayland: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0',
+  chromebook: 'Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
 }
 
 describe('install guide', () => {
-  test('platform: iPhone, iPad in desktop mode, Android, Mac, Windows, other', () => {
+  test('platform: iPhone, iPad in desktop mode, Android, Mac, Windows, Linux, other', () => {
     expect(platformOf(UA.iphone, 'iPhone', 5)).toBe('ios')
     // iPadOS Safari asks for the desktop site: a "Macintosh" with touch points is an iPad
     expect(platformOf(UA.ipadDesktop, 'MacIntel', 5)).toBe('ios')
     expect(platformOf(UA.ipadDesktop, 'MacIntel', 0)).toBe('mac')
     expect(platformOf(UA.android, 'Linux armv8l', 5)).toBe('android')
     expect(platformOf(UA.windows, 'Win32', 0)).toBe('windows')
-    expect(platformOf(UA.linux, 'Linux x86_64', 0)).toBe('other')
+    // QA TC-5352: a Linux desktop's browser (Chrome, Firefox on x64 and arm64) is Linux, no longer "other"
+    expect(platformOf(UA.linux, 'Linux x86_64', 0)).toBe('linux')
+    expect(platformOf(UA.linuxFirefox, 'Linux aarch64', 0)).toBe('linux')
+    expect(platformOf(UA.linuxFirefoxWayland, 'Linux x86_64', 0)).toBe('linux')
+    // a touchscreen laptop on x64 is still a Linux computer
+    expect(platformOf(UA.linux, 'Linux x86_64', 10)).toBe('linux')
+    // never Android: its own user agent says Linux, and a tablet asking for the desktop site sends a Linux desktop one
+    // with an ARM navigator.platform and touch points
+    expect(platformOf(UA.android, 'Linux aarch64', 5)).toBe('android')
+    expect(platformOf(UA.linux, 'Linux armv81', 5)).toBe('other')
+    expect(platformOf(UA.linux, 'Linux aarch64', 5)).toBe('other')
+    // never ChromeOS: the Linux desktop app does not run there
+    expect(platformOf(UA.chromebook, 'Linux x86_64', 0)).toBe('other')
+    // other Unix desktops have no Linux app
+    expect(platformOf('Mozilla/5.0 (X11; FreeBSD amd64; rv:140.0) Gecko/20100101 Firefox/140.0', 'FreeBSD amd64', 0)).toBe('other')
+    expect(platformOf('', '', 0)).toBe('other')
   })
   test('installed: display-mode standalone or iOS navigator.standalone', () => {
     expect(standaloneOf(true, undefined)).toBe(true)
@@ -32,7 +50,7 @@ describe('install guide', () => {
   test('the steps for this device come first, then the others', () => {
     expect(guideOrder('ios')).toEqual(['ios', 'android', 'desktop'])
     expect(guideOrder('android')).toEqual(['android', 'ios', 'desktop'])
-    for (const p of ['mac', 'windows', 'other'] as const) expect(guideOrder(p)).toEqual(['desktop', 'ios', 'android'])
+    for (const p of ['mac', 'windows', 'linux', 'other'] as const) expect(guideOrder(p)).toEqual(['desktop', 'ios', 'android'])
   })
   test('push needs the Home Screen app only on iOS in a browser tab', () => {
     expect(pushNeedsInstall('ios', false, true)).toBe(true)

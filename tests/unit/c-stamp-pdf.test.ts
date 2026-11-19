@@ -163,6 +163,22 @@ describe('stamping', () => {
     expect(bad.isError).toBe(true)
   })
 
+  test('page with its own quotes, as Claude Code hands a top-level text over: "\\"1\\"" is page 1 (TC-5347)', async () => {
+    // found with the real engine (Claude Code through MCP): a text argument written as "1" arrives as "1" with the
+    // quote characters in it. The same page inside edit_pdf's operations arrives clean, which is why only stamp_pdf failed.
+    const rel = 'groups/marketing/quotes/quote-quoted-page.pdf'
+    put(rel, bluePdf(3))
+    const call = turn('alice')
+    const one = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: '"1"', output: 'groups/marketing/quotes/quoted-page-1' })
+    expect(one.isError, one.text).toBe(false)
+    expect(one.text).toContain('on page 1 of 3')
+    const last = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: '"last"', output: 'groups/marketing/quotes/quoted-page-last' })
+    expect(last.isError, last.text).toBe(false)
+    expect(last.text).toContain('on page 3 of 3')
+    const bad = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: '"first"', output: 'groups/marketing/quotes/quoted-page-bad' })
+    expect(bad.isError).toBe(true)
+  })
+
   test('a turned page and a page that leaves its coordinates changed: the seal still lands bottom right as shown', async () => {
     put('groups/marketing/quotes/turned.pdf', bluePdf(1, { extra: '/Rotate 90' }))
     // a page that flips its coordinates and never puts them back (no q … Q), as some generators write

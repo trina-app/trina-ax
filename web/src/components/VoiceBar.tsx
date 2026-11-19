@@ -7,8 +7,10 @@
 // - VoiceMic: the mic (a click toggles; on touch screens a finger held on it talks), a spinner on it while
 //   transcribing; nothing while voice input can't be used on this server (lib/voice.ts micState).
 // - VoiceLive: the polite live region (녹음 중, 텍스트로 바꾸는 중, 텍스트를 넣었어요). Always there, so a change is read.
-// - VoiceHeld: the box's text while recording (it cannot be typed in then), kept scrolled to its end, so the words of a
-//   live recording (lib/liveDictation.ts) show as they come in.
+// - VoiceHeld: the box's text while recording (it cannot be typed in then). It grows with the words of a live recording
+//   (lib/liveDictation.ts) as the box grows while typing, up to the box's own max-height (each box passes its text
+//   field's), then shows its last whole lines (lib/autoGrow.ts fitLastLines), again when the window or the keyboard
+//   changes what is in sight.
 // - VoiceProgress: the job's own label (a model download, a conversion) over a box that has text; an empty box shows it
 //   as its placeholder.
 // Ping and level movement only without reduced motion.
@@ -16,6 +18,7 @@ import clsx from 'clsx'
 import { Check, Loader2, Mic, X } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, type CSSProperties } from 'react'
 import { useT } from '../i18n'
+import { fitLastLines } from '../lib/autoGrow'
 import { fmtDuration } from '../lib/format'
 import { waveBarPx } from '../lib/recorder'
 import type { VoiceInputState } from '../lib/useVoiceInput'
@@ -95,10 +98,26 @@ export function VoiceMic({ voice, mic, disabled = false, tip = false, className 
 /** `textClass`: the box's own text size where it is not the reading size (the ✦ side chat's box: text-sm) */
 export function VoiceHeld({ text, className, style, testId, textClass = 'text-reading leading-reading' }: { text: string; className?: string; style?: CSSProperties; testId: string; textClass?: string }) {
   const el = useRef<HTMLParagraphElement>(null)
-  // the newest words stay in sight when the text is taller than the box
+  // as tall as its words up to the box's limit; then the newest words stay in sight, no line cut at the top
   useLayoutEffect(() => {
     const p = el.current
-    if (p) p.scrollTop = p.scrollHeight
+    if (!p) return
+    fitLastLines(p)
+    // a phone's keyboard or a turned phone changes the limit: measured again in the next frame, once lib/viewport.ts has
+    // set --app-h for what is in sight now
+    let frame = 0
+    const fit = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => fitLastLines(p))
+    }
+    const vv = window.visualViewport
+    window.addEventListener('resize', fit)
+    vv?.addEventListener('resize', fit)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('resize', fit)
+      vv?.removeEventListener('resize', fit)
+    }
   }, [text])
   return (
     <p ref={el} aria-hidden style={style} className={clsx('overflow-hidden break-words whitespace-pre-wrap', textClass, className)} data-testid={testId}>
