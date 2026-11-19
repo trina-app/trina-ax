@@ -336,7 +336,8 @@ describe('a chat\'s commands reach its own dev server (QA TC-4990)', () => {
     const t = out(await shell('alice', undefined, own, null).call({ command: 'echo curl' }))
     expect(t).toContain('This command can reach the running dev server of this chat: srv (a dev server) at localhost:3000.')
     const cmd = last()
-    expect(cmd.spec.command.startsWith(bridgeWait([3000]))).toBe(true)
+    // (after the run's first line, the guard: srt/mounts.ts entryGuard)
+    expect(cmd.spec.command.split('\n').pop()).toBe(`${bridgeWait([3000])}echo curl`)
     await Bun.sleep(50)
     expect(forwards).toEqual([{ runId: srv.spec.runId, port: 3000, socket: expect.stringContaining(srv.spec.runId) }])
     expect(bridges).toHaveLength(1)
@@ -378,7 +379,7 @@ describe('a chat\'s commands reach its own dev server (QA TC-4990)', () => {
     expect(t).toContain(`at localhost:${port}`)
     expect(last().spec.reach).toEqual([{ runId: srv.spec.runId, port }])
     // macOS needs no bridge and no wait
-    expect(last().spec.command).toBe('echo curl')
+    expect(last().spec.command.split('\n').pop()).toBe('echo curl')
     // another chat of alice's: nothing
     const other = (await h.api('alice').call(API.createChat, { body: {} })).id
     await shell('alice', undefined, other, null).call({ command: 'echo x' })

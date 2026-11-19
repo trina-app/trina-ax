@@ -64,6 +64,8 @@ q('UPDATE folders SET limited = 1 WHERE id = ?', folderId('projects/falcon/mine'
 const w = (rel: string, text: string) => { const f = path.join(TEAM, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text) }
 const FALCON = path.join(TEAM, 'projects/falcon')
 w('projects/falcon/plan.md', 'falcon plan\n')
+// a sub-folder: writable in a shared run, while the top of falcon (which holds mine) takes no new file (mounts.ts placeFolders)
+w('projects/falcon/work/notes.md', 'falcon notes\n')
 w('projects/falcon/mine/secret.md', `${ASKER}-subfolder`)
 w('users/alice/key.txt', `${ASKER}-own-folder`)
 w('users/bob/notes.md', `${CANARY}-bob`)
@@ -114,8 +116,8 @@ function report(id: string, what: string, why: string | null) { count++; if (why
 
 // ---- 1. the same fence for the main AI and a sub-agent in a shared project chat (srt-attack.ts S1-S14) ----
 const fenceCases: { id: string; what: string; cmd: string; check: Check; after?: () => string | null }[] = [
-  { id: 'S1', what: 'the project folder reads and writes; HOME, TMPDIR and logs are the command\'s own', cmd: 'cat plan.md && echo made > made-$RANDOM.txt && echo HOME=$HOME && echo TMP=$TMPDIR && echo LOGS=$TRINA_LOGS && touch $TMPDIR/x && echo tmp-ok',
-    check: all(has('falcon plan'), has(`HOME=${chatHome(BASE, SP)}/`), has(`TMP=${devenvPaths(BASE).runTmp}/`), has(`LOGS=${chatLogs(BASE, SP)}/`), has('tmp-ok')) },
+  { id: 'S1', what: 'the project folder reads, its sub-folder writes, a new file at its top fails loudly; HOME, TMPDIR and logs are the command\'s own', cmd: 'cat plan.md && echo made > work/made-$RANDOM.txt && { echo x > top-$RANDOM.txt; } 2>&1 | grep -q "Permission denied" && echo top-refused && echo HOME=$HOME && echo TMP=$TMPDIR && echo LOGS=$TRINA_LOGS && touch $TMPDIR/x && echo tmp-ok',
+    check: all(has('falcon plan'), has('top-refused'), has(`HOME=${chatHome(BASE, SP)}/`), has(`TMP=${devenvPaths(BASE).runTmp}/`), has(`LOGS=${chatLogs(BASE, SP)}/`), has('tmp-ok')) },
   { id: 'S2', what: 'her own folder and the sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; ls -A ${TEAM}/users; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`, check: hasNot(/MINE: .*secret/, 'the sub-folder lists its files') },
   { id: 'S3', what: 'no team folder outside the project folder', cmd: `cat ${TEAM}/shared/s.md; cat ${TEAM}/groups/marketing/brief.md; cat ${TEAM}/skills/csv-report/SKILL.md; echo TEAM: $(ls -A ${TEAM} 2>/dev/null); true`,
     check: all(hasNot('shared text', 'shared/ came back'), hasNot('marketing brief', 'her group came back'), hasNot('Run scripts/run.py', 'the team skill came back'), (o) => { const l = (o.split('\n').find((x) => x.startsWith('TEAM:')) ?? '').slice(5).trim(); return l && l !== 'projects' ? `the team folder lists: ${l}` : null }) },
