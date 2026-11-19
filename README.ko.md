@@ -16,7 +16,7 @@
 
 </div>
 
-https://github.com/user-attachments/assets/2d0b9459-eae5-4e14-9486-ea81b0fd056c
+https://github.com/user-attachments/assets/a918709d-019d-4743-8e31-f05dd1b4e2ca
 
 <p align="center"><sub>신입의 AI가 첫날 할 수 있는 일. 80초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>버튼을 누른 뒤 페이지 맨 위의 ☆ Star를 눌러 주세요. 별 하나가 더 많은 팀이 트리나 AX를 찾게 도와줘요.</sub></p>
 
