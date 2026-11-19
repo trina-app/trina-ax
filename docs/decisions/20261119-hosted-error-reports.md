@@ -33,9 +33,14 @@ are generic and must be readable by anyone; the hosting service's address, key a
   - an AI answer that **failed** or **timed out** (the stall guard): tags `outcome` (`failed` / `timed_out`), `reason`
     (the code the person's error message was made from, e.g. `rate_limit`, `credential_unusable`, `no_credential`,
     `stalled`; a code outside that list becomes `other`, none becomes `none`), `provider_status` (the AI provider's
-    HTTP status when there was one), `duration_s`, `engine`, `model`, `user_id` (the person's internal id), `turns_1h`
+    HTTP status when there was one), `duration_s`, `engine`, `model`, `user` (a stand-in for the person, see below), `turns_1h`
     and `failed_1h` (answers that ended and that failed on this server in the last hour, so a rate needs no extra
     events). Answers that ended well, that the person stopped, or that an update or restart cut off send nothing.
+- **The person is a stand-in, not the internal id.** `users.id` is made from the username (`auth/users.ts`
+  `deriveUserId`), which is often a person's name, so sending it would send a name. The report carries
+  `u_` + the first 16 hex of HMAC-SHA256(user id) under a random key made on first use and kept only in this server's
+  settings (`system.errorReportSalt`). Reports of one person can be told apart; who it is can be found only with this
+  server's database.
 - **What is never sent:** message text, prompts, AI answers, file names or contents, folder paths, email addresses,
   real names, team names, the team's address, chat or project ids, IP addresses, request paths or headers, keys.
   The turn report is built from codes in the database (`turns` status, the answer's `error.params.reason` and

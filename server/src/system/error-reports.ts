@@ -7,6 +7,7 @@
 // (error type, scrubbed message, code frames, release, environment, tags), and the tags below are built here from fixed
 // codes only (turnReport). Message text, prompts, AI answers, file names and contents, emails and names are never read
 // into a report. tests/unit/hosted-error-reports.test.ts plants them and checks no body holds them.
+import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import { parseDsn, reportCrashes, reporterFromDsn, type ErrorInput, type ErrorReporter, type ReporterOptions } from '@mycel/shared/sentry-report'
@@ -94,7 +95,7 @@ export function turnOutcome(status: string, reason: string | null): TurnOutcome 
 /** The report of one ended turn, or null when there is nothing to report (it ended well, the person stopped it, an
  *  update or restart cut it). Built from codes only: the answer's text, the question, the files and the error's
  *  words are never read. */
-export function turnReport(row: TurnRow, error: unknown, rate: { turns: number; failed: number }): ErrorInput | null {
+export function turnReport(row: TurnRow, error: unknown, rate: { turns: number; failed: number }, person?: string): ErrorInput | null {
   const e = (error && typeof error === 'object' ? error : {}) as { code?: unknown; params?: { reason?: unknown; status?: unknown } }
   const rawReason = typeof e.params?.reason === 'string' ? e.params.reason : null
   const outcome = turnOutcome(row.status, rawReason)
@@ -110,7 +111,7 @@ export function turnReport(row: TurnRow, error: unknown, rate: { turns: number; 
   if (secs) tags.duration_s = secs
   if (ENGINE_RE.test(row.engine)) tags.engine = row.engine
   if (row.model && MODEL_RE.test(row.model)) tags.model = row.model
-  if (ID_RE.test(row.user_id)) tags.user_id = row.user_id
+  if (person) tags.user = person
   tags.turns_1h = String(rate.turns)
   tags.failed_1h = String(rate.failed)
   return {
@@ -121,6 +122,24 @@ export function turnReport(row: TurnRow, error: unknown, rate: { turns: number; 
     fingerprint: ['turn', outcome, reason],
     tags,
   }
+}
+
+const SALT_KEY = 'system.errorReportSalt'
+
+/** The person on a report: a stable stand-in, never the id itself. users.id is made from the username (auth/users.ts
+ *  deriveUserId), which is often a name, so the report carries "u_" + an HMAC of it under a random key that stays on
+ *  this server (settings `system.errorReportSalt`, made on first use). The operators can tell reports of one person
+ *  apart; only someone with this server's database can tell who it is. null when the key cannot be read or made. */
+export function personTag(db: Database, userId: string): string | null {
+  try {
+    let salt = (db.query('SELECT value FROM settings WHERE key = ?').get(SALT_KEY) as { value: string } | null)?.value
+    if (!salt) {
+      db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(SALT_KEY, JSON.stringify(crypto.randomBytes(32).toString('hex')))
+      salt = (db.query('SELECT value FROM settings WHERE key = ?').get(SALT_KEY) as { value: string } | null)?.value
+    }
+    if (!salt) return null
+    return `u_${crypto.createHmac('sha256', String(JSON.parse(salt))).update(userId).digest('hex').slice(0, 16)}`
+  } catch { return null }
 }
 
 /** After a turn ended (ChatRuntime.runExec): one report when it failed or timed out. Never throws, never waits. */
@@ -138,7 +157,7 @@ export function reportTurnEnd(db: Database, turnId: string, now = Date.now()): v
     const outcome = turnOutcome(row.status, (error as { params?: { reason?: unknown } } | null)?.params?.reason as string | null ?? null)
     ended = ended.filter((x) => x.at <= now && now - x.at < HOUR_MS)
     ended.push({ at: now, failed: outcome === 'failed' || outcome === 'timed_out' })
-    const input = turnReport(row, error, { turns: ended.length, failed: ended.filter((x) => x.failed).length })
+    const input = turnReport(row, error, { turns: ended.length, failed: ended.filter((x) => x.failed).length }, personTag(db, row.user_id))
     if (input) r.reporter.capture(input)
   } catch { /* a report never breaks a turn's end */ }
 }

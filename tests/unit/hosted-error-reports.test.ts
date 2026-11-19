@@ -4,17 +4,18 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import {
-  ERROR_REPORT_ENV, errorReports, errorReportsFrom, logLineInput, reportLogLine, reportTurnEnd, setErrorReports, turnOutcome, turnReport,
+  ERROR_REPORT_ENV, errorReports, errorReportsFrom, logLineInput, personTag, reportLogLine, reportTurnEnd, setErrorReports, turnOutcome, turnReport,
 } from '../../server/src/system/error-reports'
 import { createLogger } from '../../server/src/log'
 
 const DSN = 'https://0123abcd@o1.ingest.example.test/42'
 const T0 = Date.UTC(2026, 10, 19, 3)
-const USER = '0196f1a2-7b3c-7d4e-8f90-a1b2c3d4e5f6'
+// users.id is made from the username (auth/users.ts deriveUserId): often a name
+const USER = 'kimminsu'
 const TENANT = '01JC8Z5V3Q1X2Y3Z4A5B6C7D8E'
 
 // what must never reach a report: a message, a prompt, an answer, a file name and its text, an email, a real name
-const CANARIES = ['Quarterly-Bonus-Plan', 'kimminsu@acme.example', 'Kim Minsu', '김민수', 'secret-plan.xlsx', 'Payroll_2026', 'tell me the salaries', 'The answer is 42 apples']
+const CANARIES = ['kimminsu', 'Quarterly-Bonus-Plan', 'kimminsu@acme.example', 'Kim Minsu', '김민수', 'secret-plan.xlsx', 'Payroll_2026', 'tell me the salaries', 'The answer is 42 apples']
 
 function fakeFetch(o: { status?: number; hang?: boolean; fail?: boolean } = {}) {
   const posts: { url: string; body: string }[] = []
@@ -37,6 +38,7 @@ function db() {
   const d = new Database(':memory:')
   d.run(`CREATE TABLE turns (id TEXT PRIMARY KEY, chat_id TEXT, user_id TEXT, engine TEXT, model TEXT, status TEXT, started_at TEXT, dispatched_at TEXT, ended_at TEXT, client_kind TEXT, message_id TEXT, error TEXT)`)
   d.run(`CREATE TABLE messages (id TEXT PRIMARY KEY, content TEXT, error TEXT)`)
+  d.run(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`)
   return d
 }
 
@@ -109,7 +111,7 @@ describe('the turn-end report', () => {
     expect(e!.fingerprint).toEqual(['turn', 'failed', 'rate_limit'])
     expect(e!.tags).toEqual({
       team_id: TENANT, outcome: 'failed', reason: 'rate_limit', turns_1h: '2', failed_1h: '1',
-      provider_status: '429', duration_s: '42', engine: 'claude-code', model: 'claude-sonnet-4-5', user_id: USER,
+      provider_status: '429', duration_s: '42', engine: 'claude-code', model: 'claude-sonnet-4-5', user: personTag(d, USER)!,
     })
   })
 
@@ -133,7 +135,7 @@ describe('the turn-end report', () => {
     reportTurnEnd(d, 't1', T0)
     const [e] = f.events()
     expect(Object.keys(e!).sort()).toEqual(['environment', 'event_id', 'fingerprint', 'level', 'logger', 'message', 'platform', 'release', 'sdk', 'tags', 'timestamp'])
-    const allowedTags = ['team_id', 'outcome', 'reason', 'turns_1h', 'failed_1h', 'provider_status', 'duration_s', 'engine', 'model', 'user_id']
+    const allowedTags = ['team_id', 'outcome', 'reason', 'turns_1h', 'failed_1h', 'provider_status', 'duration_s', 'engine', 'model', 'user']
     for (const k of Object.keys(e!.tags)) expect(allowedTags).toContain(k)
   })
 
@@ -163,6 +165,17 @@ describe('the turn-end report', () => {
     d.query('UPDATE turns SET user_id = ? WHERE id = ?').run('kimminsu@acme.example', 't1')
     reportTurnEnd(d, 't1', T0)
     expect(f.posts[0]!.body).not.toContain('kimminsu')
+  })
+
+  test('the person is a stable stand-in made with a key of this server, never the id', () => {
+    const d = db()
+    const a = personTag(d, 'kimminsu')
+    expect(a).toMatch(/^u_[0-9a-f]{16}$/)
+    expect(personTag(d, 'kimminsu')).toBe(a)
+    expect(personTag(d, 'leejiwoo')).not.toBe(a)
+    // another server (another key): another stand-in for the same id
+    expect(personTag(db(), 'kimminsu')).not.toBe(a)
+    expect(personTag(new Database(':memory:'), 'kimminsu')).toBeNull()
   })
 
   test('a storm of failures is held to the per-minute limit', () => {
