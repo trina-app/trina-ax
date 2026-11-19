@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 08:59
 - Branch: `fix/room-unread-after-read`
-- Status: in progress
+- Status: done
 - Where: web + shared (Team AX core). Why: the rooms list and its counting rule live in the core (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, a fix to how a row is marked
 
@@ -37,4 +37,8 @@ docs/decisions/20261119-room-unread-after-read.md
 
 ## Result
 
-(filled at the end)
+`roomCounts` goes by the timeline (and an unread mention); `roomWantsMe` and `roomLightsDot` keep their answers without
+it. Verified on the private QA copy: before, the channel stayed bold after the read (`unreadCount 0, threadsUnread 1`);
+after, it is plain once left, and the followed replies show in Mentions & threads, under the root and in the header's
+thread mark. Tests: web/test/unit/room-counts.test.tsx (+ rail-badges, room-messages, rooms-store updated to the rule),
+web/test/e2e/room-read-not-bold.spec.ts (fails on the old rule).
