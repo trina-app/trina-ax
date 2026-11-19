@@ -1761,7 +1761,7 @@ export const id: Record<MessageKey, string> = {
   "pushGateway.address": "Alamat layanan push",
   "pushGateway.customNote": "Hanya berfungsi dengan build aplikasi Anda sendiri. Aplikasi dari toko tidak bisa menerimanya.",
   "pushGateway.saved": "Notifikasi ponsel disimpan.",
-  "pushGateway.locked": "Diatur di pengaturan server ({where}), jadi tidak bisa diubah di sini.",
+  "pushGateway.locked": "Diatur di pengaturan server tim Anda, jadi tidak bisa diubah di sini.",
   "pushGateway.problem.address": "Masukkan alamat https:// tanpa apa pun setelah namanya, misalnya https://push.example.com.",
   "pushGateway.problem.private": "Alamat ini mengarah ke jaringan privat atau lokal. Gunakan alamat https publik.",
   "pushGateway.problem.unreachable": "Tidak bisa menghubungi alamat ini. Periksa lalu coba lagi.",

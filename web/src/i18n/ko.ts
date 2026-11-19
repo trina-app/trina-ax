@@ -1760,7 +1760,7 @@ export const ko = {
   "pushGateway.address": "푸시 서비스 주소",
   "pushGateway.customNote": "직접 빌드한 앱에서만 작동해요. 스토어 앱은 이 알림을 받을 수 없어요.",
   "pushGateway.saved": "휴대폰 알림 설정을 저장했어요.",
-  "pushGateway.locked": "서버 설정({where})에서 정해져 있어 여기서는 바꿀 수 없어요.",
+  "pushGateway.locked": "팀 서버 설정에서 정해져 있어 여기서는 바꿀 수 없어요.",
   "pushGateway.problem.address": "이름 뒤에 아무것도 없는 https:// 주소를 넣어 주세요. 예: https://push.example.com",
   "pushGateway.problem.private": "이 주소는 사설망이나 로컬 네트워크를 가리켜요. 공개된 https 주소를 써 주세요.",
   "pushGateway.problem.unreachable": "이 주소에 연결할 수 없어요. 주소를 확인하고 다시 시도해 주세요.",

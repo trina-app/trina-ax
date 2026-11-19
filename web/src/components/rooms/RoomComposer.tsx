@@ -77,6 +77,7 @@ import TeamFilePicker from '../chat/TeamFilePicker'
 import { sendTyping, TypingSender } from '../../lib/roomTyping'
 import { RoomTypingLine } from './RoomTypingLine'
 import { MessageLinkChoice, useLinkChoice } from './MessageLinkChoice'
+import { MicBlockedNotice } from '../MicBlockedNotice'
 
 type Upload = RoomUpload
 
@@ -742,11 +743,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
           </>
         )}
       </div>
-      {voiceError && (
-        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">
-          {voiceError}
-          {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
-        </p>
+      {voiceError && voice.blockedFor === voiceError && (
+        <div className="mx-auto max-w-[780px] px-1 pt-1.5 max-sm:px-4">
+          <MicBlockedNotice text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="room-voice-error" />
+        </div>
+      )}
+      {voiceError && voice.blockedFor !== voiceError && (
+        <p role="alert" className="mx-auto max-w-[780px] px-1 pt-1.5 text-xs text-danger max-sm:px-4" data-testid="room-voice-error">{voiceError}</p>
       )}
       {phone && (
         <TeamFilePicker
