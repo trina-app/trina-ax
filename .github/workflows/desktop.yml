@@ -390,6 +390,8 @@ jobs:
         env:
           # Chromium picks the keyring by desktop: GNOME means the Secret Service (gnome-keyring below), never basic_text
           XDG_CURRENT_DESKTOP: GNOME
+          # Playwright's Electron loader adds --password-store=basic; the app (development runs only) sets it back
+          MYCEL_DESKTOP_TEST_PASSWORD_STORE: gnome-libsecret
         run: |
           # Electron runs from node_modules, without the .deb's AppArmor profile: let it make the user namespaces its
           # sandbox needs for this run (never --no-sandbox)

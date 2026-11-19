@@ -16,6 +16,9 @@
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
  *   MYCEL_DESKTOP_TEST_DOWNLOADS  a folder that stands in for the computer's Downloads folder (main/downloads.ts)
+ *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
+ *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
+ *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
@@ -80,6 +83,9 @@ app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath(
 // Trade-off recorded in docs/DECISIONS.md: origin isolation (opaque origin, CSP) stays; process isolation of
 // sandboxed frames is given up.
 app.commandLine.appendSwitch('disable-features', 'IsolateSandboxedIframes')
+// development and tests only: a Linux keyring instead of the --password-store=basic that a test launcher may have set
+const testStore = dev && process.platform === 'linux' ? process.env.MYCEL_DESKTOP_TEST_PASSWORD_STORE : undefined
+if (testStore && ['gnome-libsecret', 'kwallet5', 'kwallet6'].includes(testStore)) app.commandLine.appendSwitch('password-store', testStore)
 
 const testPublic = new Set(
   dev
