@@ -23,6 +23,7 @@ import { getUserByUsername } from '../auth/users'
 import type { RouteModule } from './module'
 import { demoLimitState } from '../admin/budgets'
 import { demoLimitOf, startFreeRoam } from '../demo/free-roam'
+import { registerDemoBuilder } from './demo-builder'
 
 /** the demo file, only on a development server that was started with it */
 export function demoOf(ctx: AppContext): DemoFile | null {
@@ -41,7 +42,8 @@ function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInf
   })
   const host = ctx.config.listen.host
   const network = !(host === 'localhost' || isLoopback(host)) || !!ctx.config.tls
-  const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas }
+  const base = { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas,
+    ...(demo.freeRoam ? { freeRoam: { suggestions: demo.freeRoam.suggestions } } : {}) }
   if (demo.kind !== 'freeRoam') return { ...base, kind: 'scripted' }
   // a free-roam demo: what the visitor's answers used of the demo limit (admin/budgets.ts demoLimitState), for the
   // meter and the limit screen
@@ -75,5 +77,8 @@ export const demoRoutes: RouteModule = {
       if (auth && auth.session.id !== r.me.session.id) authOf(ctx).revokeSession(auth.session.id, 'logout')
       return { ok: true as const }
     })
+
+    // the free-roam snapshot builder's routes (demo file `builder: true`, the owner only; 404 otherwise)
+    registerDemoBuilder(kit, ctx)
   },
 }

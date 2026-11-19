@@ -1,0 +1,256 @@
+// Steepling at the END of "Mina's first day" (README.md): the demo content folder the free-roam demo's snapshot is
+// seeded from (scripts/demo/free-roam/build-snapshot.ts), made from the scripted story's own words and pictures
+// (scripts/demo/mina/strings/<locale>.ts, scripts/demo/mina/assets/) so the cast, names, rooms, project, skills, files and
+// pictures are the scripted demo's by construction, plus the end of the story and a few lived-in rooms, chats and files
+// (strings/<locale>.ts). The folder it writes is plain data in the format of scripts/demo/company/README.md.
+//
+//   bun scripts/demo/steepling/make.ts --locale en|ko --out <dir>
+//
+// Every person, company, number, address and file is fictional; every address is a reserved `.example` one.
+import fs from 'node:fs'
+import path from 'node:path'
+import type { DemoContentCompany } from '../../../shared/src/api'
+import type { FakeDrive, FakeGmail } from '../company/fakes'
+import { en as minaEn, type Strings } from '../mina/strings/en'
+import { ko as minaKo } from '../mina/strings/ko'
+import { en, type FreeRoamStrings } from './strings/en'
+import { ko } from './strings/ko'
+
+const MINA = path.resolve(import.meta.dir, '..', 'mina')
+const ASSETS = path.join(MINA, 'assets')
+
+export const STEEPLING_LOCALES = ['en', 'ko'] as const
+export type SteeplingLocale = (typeof STEEPLING_LOCALES)[number]
+const WORDS: Record<SteeplingLocale, { story: Strings; more: FreeRoamStrings }> = { en: { story: minaEn, more: en }, ko: { story: minaKo, more: ko } }
+
+/** the story's people (scripts/demo/mina/story.ts), as accounts; Daniel, the CEO, owns the team */
+const PEOPLE = ['mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const
+export const STEEPLING_SKILLS = ['brand-guide', 'social-posts', 'press-release', 'competitor-roundup', 'handover'] as const
+const email = (id: keyof Strings['people']) => `${minaEn.people[id].name.toLowerCase().replace(/\s+/g, '.')}@${id === 'chris' ? 'fieldnote' : 'steepling'}.example`
+
+/** minutes before the build: the story happened this morning, the rest in the days before */
+const T = {
+  everyoneWelcome: 240, homeChat: 205, leoDm: 200, saraDm: 195, bannerChat: 150, share: 140, ceoShip: 138, leoHow: 136, gmailHint: 133,
+  mailAsk: 125, mailSend: 123, chrisReply: 110, chrisRelayed: 105, shoutout: 100, saraWelcome: 98, launchDay: 90,
+  leoChat: 2 * 1440 + 90, leoPost: 2 * 1440 + 80, saraThanks: 2 * 1440 + 60, pressRelease: 1440 + 120, specs: 21 * 1440,
+}
+
+export interface Steepling { company: DemoContentCompany; files: Record<string, string | { asset: string }>; gmail: FakeGmail; drive: FakeDrive; avatars: Record<string, string>; pictures: Record<string, string> }
+
+/** The content of one language (what writeSteepling puts on disk). */
+export function steepling(locale: SteeplingLocale): Steepling {
+  const { story: s, more: x } = WORDS[locale]
+  const a = s.answers, m = s.mail, ev = s.events, pp = s.people
+  const MKT = s.marketingGroup
+  const P = s.project.name
+  const inProject = (name: string) => `projects/${P}/${name}`
+  const brief = `groups/${MKT}/${s.paths.brief}`
+  const leoBanner = inProject(s.paths.leoBanner)
+  const banner = inProject(s.paths.banner), square = inProject(s.paths.square), story = inProject(s.paths.story)
+  const captions = inProject(s.paths.captions), photo = inProject(s.paths.photo)
+  const img = (label: string, p: string) => `![${label}]({file:${p}})`
+  const link = (text: string) => text.replaceAll('{project}', `{project:${P}}`)
+
+  // ---- the files: the story's, the launch set Mina's AI made, the other teams', the CEO's folder
+  const files: Steepling['files'] = {
+    [s.paths.companyIntro]: { asset: `company-intro.${locale}.md` },
+    [brief]: { asset: `launch-brief.${locale}.md` },
+    [leoBanner]: { asset: `banner-leo.${locale}.png` },
+    [banner]: { asset: `campaign-banner.${locale}.jpg` },
+    [square]: { asset: `campaign-square.${locale}.jpg` },
+    [story]: { asset: `campaign-story.${locale}.jpg` },
+    [captions]: `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`,
+    [photo]: { asset: 'higgsfield-photo.jpg' },
+    ...Object.fromEntries(STEEPLING_SKILLS.map((k) => [`skills/${k}/SKILL.md`, { asset: `skill-${k}.${locale}.md` }])),
+    ...Object.fromEntries(x.files.map((f) => [f.path, f.text])),
+    ...Object.fromEntries(x.leadership.files.map((f) => [`${x.leadership.folder}/${f.name}`, f.text])),
+  }
+
+  // ---- the AI answers of the story, as they ended
+  const company = `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- ${a.company.personLine.replace('{name}', `**${pp[id].name}**`).replace('{title}', pp[id].title).replace('{text}', a.company.people[id])}`).join('\n')}`
+  const d = a.deliverables
+  const pictures = `**${a.compare.before}**\n\n${img(a.compare.before, leoBanner)}\n\n**${a.compare.after}**\n\n${img(d.banner, banner)}\n\n${a.otherSizes}\n\n${img(d.square, square)}\n\n${img(d.story, story)}`
+  const captionsQuote = a.captions.map((c, i) => `> ${i + 1}. ${c}`).join('\n>\n')
+  const bannerAnswer = `${a.banner.text}\n\n${pictures}\n\n${captionsQuote}\n\n${a.banner.after}`
+  const draft = `**${m.labels.to}** ${m.to}\\\n**${m.labels.subject}** ${m.plain.subject}\\\n**${m.labels.attachments}** ${s.paths.banner}, ${s.paths.square}\n\n${m.plain.body.map((l) => (l ? `> ${l}` : '>')).join('\n')}`
+
+  const msg = (from: string, minutesAgo: number, text: string, more: Partial<DemoContentCompany['rooms'][number]['messages'][number]> = {}) =>
+    ({ from, minutesAgo, text, files: [], reactions: [], ...more })
+
+  const c: DemoContentCompany = {
+    format: 1,
+    id: locale === 'en' ? 'steepling' : `steepling-${locale}`,
+    teamName: s.company,
+    locale,
+    owner: { username: 'daniel', name: pp.daniel.name, group: MKT },
+    people: [
+      { username: 'mina', name: pp.mina.name, group: MKT, note: 'the visitor: new marketing hire, first day' },
+      { username: 'sara', name: pp.sara.name, group: MKT, note: 'Marketing lead, invited Mina' },
+      { username: 'leo', name: pp.leo.name, group: MKT, note: 'made the first banner, moving to Sales' },
+      { username: 'tom', name: pp.tom.name, group: x.groups.operations.name, note: 'Operations lead' },
+      { username: 'aiko', name: pp.aiko.name, group: x.groups.sales.name },
+      { username: 'omar', name: pp.omar.name, group: x.groups.shop.name },
+    ],
+    groups: [
+      { name: MKT, description: x.groups.marketing },
+      { name: x.groups.operations.name, description: x.groups.operations.description },
+      { name: x.groups.sales.name, description: x.groups.sales.description },
+      { name: x.groups.shop.name, description: x.groups.shop.description },
+    ],
+    rules: [{ path: x.leadership.folder, rules: [], limited: true, why: 'the CEO only (he owns the team; nobody else opens it)' }],
+    uploaders: [
+      { path: `${inProject(s.paths.leoBanner)}`, username: 'leo' },
+      { path: `projects/${P}`, username: 'mina' },
+      { path: `groups/${MKT}`, username: 'sara' },
+      { path: `groups/${x.groups.operations.name}`, username: 'tom' },
+      { path: `groups/${x.groups.sales.name}`, username: 'aiko' },
+      { path: `groups/${x.groups.shop.name}`, username: 'omar' },
+      { path: 'skills', username: 'daniel' },
+    ],
+    defaultUploader: 'daniel',
+    packSkills: [],
+    settings: { aiSubagents: false, ...(locale === 'ko' ? { timeZone: 'Asia/Seoul' } : {}) },
+    memories: [{ username: 'mina', text: x.memory }],
+    profile: { website: 'https://steepling.example', name: s.company, oneLine: x.profile.oneLine, products: x.profile.products, audience: x.profile.audience, tone: x.profile.tone, avoid: x.profile.avoid, sources: [] },
+    demo: {
+      personas: [
+        { key: 'newHire', username: 'mina', intro: x.personas.mina, questions: x.suggestions.map((q) => q.prompt) },
+        { key: 'lead', username: 'sara', intro: x.personas.sara, questions: [] },
+      ],
+    },
+    scenarios: [],
+    checks: [
+      {
+        username: 'mina',
+        opens: [s.paths.companyIntro, brief, leoBanner, banner, square, story, captions, photo, `skills/${s.brandSkill}/SKILL.md`],
+        closed: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, x.files[0]!.path, x.files[1]!.path],
+        skills: [...STEEPLING_SKILLS],
+      },
+      { username: 'sara', opens: [brief, banner], closed: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, x.files[0]!.path] },
+      { username: 'tom', opens: [s.paths.companyIntro, x.files[0]!.path], closed: [banner, brief, `${x.leadership.folder}/${x.leadership.files[0]!.name}`] },
+      { username: 'daniel', opens: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, banner, x.files[1]!.path], closed: [] },
+    ],
+    projects: [{ name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }] }],
+    rooms: [
+      {
+        slug: 'everyone', kind: 'all', messages: [
+          ...x.everyoneBefore.map((e) => msg(e.from, e.minutesAgo, e.text)),
+          ...s.rooms.everyone.map((e, i) => msg(e.from, T.everyoneWelcome - i * 3, e.text)),
+          msg('daniel', T.shoutout, ev.ceoShoutout, { reactions: [{ from: 'tom', emoji: '🎉' }, { from: 'aiko', emoji: '🔥' }, { from: 'omar', emoji: '👏' }, { from: 'leo', emoji: '🙌' }, { from: 'sara', emoji: '🎉' }] }),
+          msg('sara', T.saraWelcome, ev.saraWelcome),
+        ],
+      },
+      {
+        slug: 'marketing', kind: 'team', group: MKT, messages: [
+          ...x.marketingBefore.map((e) => msg(e.from, e.minutesAgo, e.text)),
+          msg('leo', T.leoPost, s.rooms.marketing[0]!.text, { files: [leoBanner] }),
+          msg(s.rooms.marketing[1]!.from, T.saraThanks, s.rooms.marketing[1]!.text),
+          // the story's moment ③: Mina sends her answer, the team reacts (a room's reactions are its members')
+          msg('mina', T.share, x.shareNote, { shareChat: 'banner', reactions: [{ from: 'leo', emoji: '👏' }, { from: 'sara', emoji: '🔥' }, { from: 'daniel', emoji: '🙌' }] }),
+          msg('daniel', T.ceoShip, ev.ceoShip),
+          msg('leo', T.leoHow, ev.leoHow),
+          msg('sara', T.gmailHint, ev.leadGmail),
+          msg('sara', T.chrisRelayed, ev.chrisRelayed.replace('{reply}', ev.chrisReply)),
+        ],
+      },
+      { slug: 'dm-sara', kind: 'dm', people: ['sara', 'mina'], messages: [msg('sara', T.saraDm, link(ev.leadDm))] },
+      { slug: 'dm-leo', kind: 'dm', people: ['leo', 'mina'], messages: [msg('leo', T.leoDm, x.leoDm)] },
+      {
+        slug: 'launch-day', kind: 'group', people: ['omar', 'sara', 'mina', 'tom'], name: x.launchDay.name,
+        messages: x.launchDay.messages.map((e, i) => msg(e.from, T.launchDay - i * 2, e.text)),
+      },
+    ],
+    chats: [
+      { slug: 'company', username: 'mina', title: a.company.prompt, turns: [{ ask: a.company.prompt, answer: company, minutesAgo: T.homeChat }] },
+      { slug: 'leo-banner', username: 'leo', project: P, title: s.leoChat.title, turns: [{ ask: s.leoChat.ask, answer: `${s.leoChat.answer}\n\n${img(s.leoChat.title, leoBanner)}`, minutesAgo: T.leoChat }] },
+      { slug: 'press-release', username: 'sara', project: P, title: x.pressRelease.title, turns: [{ ask: x.pressRelease.ask, answer: x.pressRelease.answer, minutesAgo: T.pressRelease }] },
+      { slug: 'banner', username: 'mina', project: P, title: a.banner.prompt, turns: [{ ask: a.banner.prompt, answer: bannerAnswer, minutesAgo: T.bannerChat }] },
+      {
+        slug: 'mail-chris', username: 'mina', sideRoom: 'marketing', title: a.mail.prompt, turns: [
+          { ask: a.mail.prompt, answer: `${a.mail.intro}\n\n${draft}`, minutesAgo: T.mailAsk },
+          { ask: m.send, answer: m.sent.replaceAll('{subject}', m.plain.subject), minutesAgo: T.mailSend },
+        ],
+      },
+    ],
+    connections: [
+      { service: 'gmail', username: 'mina', account: { name: pp.mina.name, email: email('mina') } },
+      { service: 'google-drive', username: 'mina', account: { name: pp.mina.name, email: email('mina') } },
+      { service: 'higgsfield', account: { name: s.company, email: 'team@steepling.example' } },
+    ],
+    welcome: [{ username: 'mina', inviter: 'sara', asked: true }],
+    // the scripted demo's own sign-up address (scripts/demo/mina/story.ts end.signup)
+    freeRoam: { suggestions: x.suggestions, signupUrl: 'https://ax.trina.app/pricing' },
+  }
+
+  // ---- the fake Gmail (server/src/demo/fakes/gmail.ts): Mina's mailbox. The mail to Chris in Sent, his reply in the
+  // inbox (unread), Sara's forward of his older mail, her welcome
+  const who = (id: keyof Strings['people']) => `${pp[id].name} <${email(id)}>`
+  const g = x.gmail
+  const reply = `${g.replyPrefix}${m.plain.subject}`
+  const gmail: FakeGmail = {
+    me: { name: pp.mina.name, email: email('mina') },
+    messages: [
+      { id: 'chris-reply', threadId: 'launch-banner', from: who('chris'), to: who('mina'), cc: who('sara'), subject: reply, date: ago(T.chrisReply), body: g.replyBody.replace('{reply}', ev.chrisReply), labels: ['INBOX', 'UNREAD', 'IMPORTANT'] },
+      { id: 'to-chris', threadId: 'launch-banner', from: who('mina'), to: who('chris'), cc: who('sara'), subject: m.plain.subject, date: ago(T.mailSend), body: m.plain.body.join('\n'), labels: ['SENT'], attachments: [s.paths.banner, s.paths.square] },
+      { id: 'specs-fwd', threadId: 'specs', from: who('sara'), to: who('mina'), subject: `${g.forwardPrefix}${g.specs.subject}`, date: ago(T.everyoneWelcome + 20), labels: ['INBOX'],
+        body: `${g.forwardNote}\n\n${g.forwarded}\n${who('chris')}\n${g.specs.subject}\n\n${g.specs.body}` },
+      { id: 'welcome', threadId: 'welcome', from: who('sara'), to: who('mina'), subject: g.welcome.subject, date: ago(T.everyoneWelcome + 30), body: g.welcome.body, labels: ['INBOX'] },
+    ],
+  }
+  // ---- the fake Drive (server/src/demo/fakes/drive.ts): Mina's, with Fieldnote's plan in a folder
+  const folders = [...new Set(x.drive.map((f) => f.folder).filter(Boolean))]
+  const drive: FakeDrive = {
+    me: { name: pp.mina.name, email: email('mina') },
+    files: [
+      ...folders.map((name, i) => ({ id: `folder-${i + 1}`, name, mimeType: 'application/vnd.google-apps.folder' })),
+      ...x.drive.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, text: f.text, modifiedTime: ago(f.minutesAgo), ...(f.folder ? { parent: `folder-${folders.indexOf(f.folder) + 1}` } : {}) })),
+    ],
+  }
+  const avatars = Object.fromEntries(['daniel', ...PEOPLE].map((id) => [id, `avatar-${id}.jpg`]))
+  // ---- the fake Higgsfield's pictures (server/src/demo/fakes/higgsfield.ts picks one by the words of its name): the
+  // story's photo
+  const higgsfield = { 'yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light.jpg': 'higgsfield-photo.jpg' }
+  return { company: c, files, gmail, drive, avatars, pictures: higgsfield }
+}
+
+/** "-<n>d" / "-<n>h" / "-<n>m", the fakes' own way to say a time before the instance (at most four digits) */
+function ago(minutes: number): string {
+  if (minutes >= 1440 && minutes % 1440 === 0) return `-${minutes / 1440}d`
+  if (minutes < 10_000) return `-${minutes}m`
+  return `-${Math.round(minutes / 60)}h`
+}
+
+/** Write the content folder of one language to `out` (made empty first). Returns `out`. */
+export function writeSteepling(locale: SteeplingLocale, out: string): string {
+  const st = steepling(locale)
+  fs.rmSync(out, { recursive: true, force: true })
+  fs.mkdirSync(out, { recursive: true })
+  const put = (rel: string, data: string | Buffer) => {
+    const p = path.join(out, rel)
+    fs.mkdirSync(path.dirname(p), { recursive: true })
+    fs.writeFileSync(p, data)
+  }
+  put('company.json', JSON.stringify(st.company, null, 2) + '\n')
+  for (const [rel, v] of Object.entries(st.files)) put(path.join('files', rel), typeof v === 'string' ? v : fs.readFileSync(path.join(ASSETS, v.asset)))
+  put('fakes/gmail.json', JSON.stringify(st.gmail, null, 2) + '\n')
+  put('fakes/drive.json', JSON.stringify(st.drive, null, 2) + '\n')
+  for (const [name, asset] of Object.entries(st.pictures)) put(`fakes/higgsfield/${name}`, fs.readFileSync(path.join(ASSETS, asset)))
+  for (const [u, asset] of Object.entries(st.avatars)) put(`avatars/${u}.jpg`, fs.readFileSync(path.join(ASSETS, asset)))
+  put('README.md', `# Steepling (${locale}), made by scripts/demo/steepling/make.ts\n\nA fictional company at the end of the scripted story "Mina's first day". Do not edit: run make.ts again. Every person, file and address is made up.\n`)
+  return out
+}
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`)
+  return i >= 0 ? process.argv[i + 1] : undefined
+}
+
+if (import.meta.main) {
+  const locale = (arg('locale') ?? 'en') as SteeplingLocale
+  const out = arg('out')
+  if (!STEEPLING_LOCALES.includes(locale) || !out) {
+    console.error('Usage: bun scripts/demo/steepling/make.ts --locale en|ko --out <dir>')
+    process.exit(1)
+  }
+  console.log(`[steepling] ${writeSteepling(locale, path.resolve(out))}`)
+}

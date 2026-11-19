@@ -4,6 +4,7 @@
 // no "sign in as someone else" (docs/WORKPLAN.md A): switching to another demo person is a normal sign-in of that
 // seeded account with the demo's public password, done by the server so the browser never holds the password.
 import { z } from 'zod'
+import { UserId, Uuid7 } from '../ids'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
 import { Username } from './auth'
@@ -45,6 +46,10 @@ export const DemoRecording = z.object({
 }).strict()
 export type DemoRecording = z.infer<typeof DemoRecording>
 
+/** A suggestion chip of the free-roam demo's bar: what it says, and the prompt a tap sends. */
+export const DemoSuggestion = z.object({ label: z.string().min(1).max(60), prompt: z.string().min(1).max(500) }).strict()
+export type DemoSuggestion = z.infer<typeof DemoSuggestion>
+
 /** The demo file (MYCEL_DEMO). Written by scripts/demo/company/start.ts from the demo content (company.json); its texts
  * are the content's data in the company's own language, like the sample files. */
 export const DemoFile = z.object({
@@ -59,6 +64,12 @@ export const DemoFile = z.object({
    * fake data, and every other call to the outside refused. `content`: a folder with gmail.json, drive.json and
    * higgsfield/ pictures; left out, built-in fictional data */
   fakes: z.object({ content: z.string().min(1).max(1000).optional() }).strict().optional(),
+  /** free-roam demo: its bar's suggestion chips ("Try anything"), in the demo's language (the content's
+   * freeRoam.suggestions; the web reads them from GET /api/demo) */
+  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).max(3) }).strict().optional(),
+  /** the snapshot builder only (scripts/demo/free-roam/build-snapshot.ts): the /api/demo/builder/* routes answer, for
+   * the owner. Never in a snapshot's demo file. */
+  builder: z.boolean().optional(),
   personas: z.array(z.object({
     key: DemoPersonaKey,
     username: z.string().min(1).max(64),
@@ -119,6 +130,69 @@ const ContentRule = z.union([
   z.object({ user: Username, access: ContentAccess }).strict(),
   z.object({ everyone: z.literal(true), access: ContentAccess }).strict(),
 ])
+
+// ---- the end of a story as data (free-roam demo; scripts/demo/company/README.md "The state a story ends in") ----
+/** at most 60 days back */
+const MinutesAgo = z.number().int().min(0).max(60 * 24 * 60)
+const ContentProjectName = z.string().trim().min(1).max(100)
+export const DemoContentProject = z.object({
+  name: ContentProjectName,
+  instructions: z.string().max(5000).default(''),
+  /** who makes it: a person of the team or the owner (default: the owner) */
+  by: Username.optional(),
+  /** who is in it (they write in its folder) */
+  members: z.array(z.union([z.object({ group: ContentName }).strict(), z.object({ user: Username }).strict()])).min(1).max(20),
+}).strict()
+export type DemoContentProject = z.infer<typeof DemoContentProject>
+/** One past message. In `text`, `{project:<name>}` becomes a link to that project, `{file:<team path>}` the file's
+ * address and `@<a person's name>` a mention of them. */
+export const DemoContentRoomMessage = z.object({
+  from: Username,
+  text: z.string().max(4000).default(''),
+  minutesAgo: MinutesAgo,
+  /** team files sent with it (copied into the room as the sender's upload) */
+  files: z.array(ContentPath).max(10).default([]),
+  reactions: z.array(z.object({ from: Username, emoji: z.string().min(1).max(16) }).strict()).max(20).default([]),
+  /** this message is the last answer of that seeded chat (`chats[].slug`), sent with "Send to room" by its person;
+   * `text` is the note before it */
+  shareChat: ContentSlug.optional(),
+}).strict()
+export type DemoContentRoomMessage = z.infer<typeof DemoContentRoomMessage>
+export const DemoContentRoom = z.object({
+  /** how chats and checks name it */
+  slug: ContentSlug,
+  /** all: the everyone room; team: a group's room (`group`); dm: two `people`; group: a group chat people[0] makes */
+  kind: z.enum(['all', 'team', 'dm', 'group']),
+  group: ContentName.optional(),
+  people: z.array(Username).min(2).max(20).optional(),
+  /** a group chat's name (it is a private channel then) */
+  name: z.string().min(1).max(80).optional(),
+  messages: z.array(DemoContentRoomMessage).max(200).default([]),
+}).strict()
+export type DemoContentRoom = z.infer<typeof DemoContentRoom>
+export const DemoContentChat = z.object({
+  slug: ContentSlug,
+  username: Username,
+  /** a chat in this project (shared with its members unless `private`) */
+  project: ContentProjectName.optional(),
+  /** the side chat (✦) of this room (`rooms[].slug`) */
+  sideRoom: ContentSlug.optional(),
+  private: z.boolean().optional(),
+  title: z.string().min(1).max(200),
+  /** oldest first; an answer shows a team picture with `![label]({file:<team path>})` */
+  turns: z.array(z.object({ ask: z.string().min(1).max(4000), answer: z.string().min(1).max(20_000), minutesAgo: MinutesAgo }).strict()).min(1).max(20),
+}).strict()
+export type DemoContentChat = z.infer<typeof DemoContentChat>
+const DemoAccount = z.object({ name: z.string().min(1).max(80), email: z.string().email().max(200) }).strict()
+/** gmail and google-drive: a person's own (`username`); higgsfield: the team's (made by the owner). The builder makes up
+ * the secrets; `account` is what the connection shows (a reserved `.example` address). */
+export const DemoContentConnection = z.object({
+  service: z.enum(['gmail', 'google-drive', 'higgsfield']),
+  username: Username.optional(),
+  account: DemoAccount,
+}).strict()
+export type DemoContentConnection = z.infer<typeof DemoContentConnection>
+
 export const DemoContentCompany = z.object({
   format: z.literal(DEMO_CONTENT_FORMAT),
   /** short name: the relay address (<id>.localhost) and the default data folder (~/.<id>demo) */
@@ -127,7 +201,9 @@ export const DemoContentCompany = z.object({
   /** the team's and the people's language (the app's screens; the content's own words are in it too) */
   locale: Locale,
   /** the team's owner: an account of its own, never a demo person; its password is random (<data>/owner-password) */
-  owner: z.object({ username: Username, name: ContentName }).strict(),
+  owner: z.object({ username: Username, name: ContentName,
+    /** a group the owner is in too (a CEO who owns the team and is in #Marketing); none by default */
+    group: ContentName.nullable().optional() }).strict(),
   /** everyone else, all members: a demo may be open to the network with a public password, so nobody else is an owner
    * or an admin */
   people: z.array(z.object({
@@ -186,6 +262,23 @@ export const DemoContentCompany = z.object({
     closed: z.array(ContentPath).default([]),
     skills: z.array(z.string().min(1)).optional(),
   }).strict()).default([]),
+  // ---- the state a story ends in (free-roam demo; scripts/demo/company/story-state.ts seeds it). All optional ----
+  /** team projects, each a folder projects/<name> made by `by` (default: the owner) and seen by its members */
+  projects: z.array(DemoContentProject).max(10).default([]),
+  /** rooms with their past messages, oldest first */
+  rooms: z.array(DemoContentRoom).max(30).default([]),
+  /** past AI chats, seeded as plain messages (no AI runs) */
+  chats: z.array(DemoContentChat).max(40).default([]),
+  /** connected services with made-up secrets (the free-roam demo's fakes answer them) */
+  connections: z.array(DemoContentConnection).max(20).default([]),
+  /** who invited a person (their welcome card on Home: "Sara invited you") */
+  welcome: z.array(z.object({ username: Username, inviter: Username,
+    /** they asked the AI what they can do here (the card's row is done) */
+    asked: z.boolean().optional() }).strict()).max(60).default([]),
+  /** the free-roam demo's bar: two or three suggestion chips */
+  freeRoam: z.object({ suggestions: z.array(DemoSuggestion).min(1).max(3),
+    /** where "Start free" goes at the demo limit (https) */
+    signupUrl: z.string().max(500).regex(/^https:\/\/[^\s]+$/, 'an https:// address').optional() }).strict().optional(),
 }).strict()
 export type DemoContentCompany = z.infer<typeof DemoContentCompany>
 
@@ -215,10 +308,56 @@ export const DemoInfo = z.object({
   cap: z.number().int().positive().optional(),
   /** freeRoam only: where "Start free" goes (null: none set) */
   signupUrl: z.string().nullable().optional(),
+  /** free-roam demo: its bar's suggestion chips, in the demo's language (DemoFile.freeRoam); absent elsewhere */
+  freeRoam: z.object({ suggestions: z.array(DemoSuggestion) }).optional(),
 })
 export type DemoInfo = z.infer<typeof DemoInfo>
 
 export const DemoSwitchBody = z.object({ key: DemoPersonaKey }).strict()
+
+// ---- the snapshot builder's routes (server/src/routes/demo-builder.ts): the owner only, and only while the demo file says
+// `builder: true` (404 otherwise, like a route that is not there). What the public API cannot do: times in the past,
+// who invited a person, connection rows with made-up secrets, the finished turns of a seeded chat ----
+const BuilderAt = z.string().datetime()
+export const DemoBuilderRoomTimesBody = z.object({
+  roomId: Uuid7,
+  times: z.array(z.object({ messageId: Uuid7, at: BuilderAt }).strict()).max(500),
+  /** delete the room's "joined the team" lines (the seed's first sign-ins wrote them today) */
+  dropJoinLines: z.boolean().optional(),
+}).strict()
+export const DemoBuilderWelcomeBody = z.object({ userId: UserId, inviterId: UserId }).strict()
+export const DemoBuilderConnectionBody = z.object({
+  service: DemoContentConnection.shape.service,
+  /** a person's own (gmail, google-drive); none: the team's (higgsfield) */
+  userId: UserId.optional(),
+  account: DemoAccount,
+}).strict()
+export const DemoBuilderChatTurnsBody = z.object({
+  chatId: Uuid7,
+  /** oldest first: each a question of the chat's person and its finished answer */
+  turns: z.array(z.object({ ask: z.string().min(1).max(4000), answer: z.string().min(1).max(20_000), at: BuilderAt }).strict()).min(1).max(20),
+}).strict()
+export const DemoBuilderChatTurns = z.object({ turns: z.array(z.object({ askId: Uuid7, answerId: Uuid7 })) })
+export type DemoBuilderChatTurns = z.infer<typeof DemoBuilderChatTurns>
+
+const DEMO_BUILDER = {
+  demoBuilderRoomTimes: endpoint({
+    method: 'POST', path: '/api/demo/builder/room-times', auth: 'owner', owner: 'A', body: DemoBuilderRoomTimesBody, response: z.object({ updated: z.number().int(), dropped: z.number().int() }),
+    summary: 'Demo snapshot builder only (a demo file with builder: true; 404 otherwise): when messages of a room were sent (its activity follows the latest one), and drop its "joined the team" lines.',
+  }),
+  demoBuilderWelcome: endpoint({
+    method: 'POST', path: '/api/demo/builder/welcome', auth: 'owner', owner: 'A', body: DemoBuilderWelcomeBody, response: z.object({ ok: z.literal(true) }),
+    summary: 'Demo snapshot builder only: who invited a person, as their welcome card on Home says it.',
+  }),
+  demoBuilderConnection: endpoint({
+    method: 'POST', path: '/api/demo/builder/connections', auth: 'owner', owner: 'A', status: 201, body: DemoBuilderConnectionBody, response: z.object({ id: z.string() }),
+    summary: 'Demo snapshot builder only: a person\'s connected Gmail or Google Drive, or the team\'s Higgsfield, with a made-up secret (the demo\'s fakes answer it; no sign-in, nothing goes anywhere).',
+  }),
+  demoBuilderChatTurns: endpoint({
+    method: 'POST', path: '/api/demo/builder/chat-turns', auth: 'owner', owner: 'A', body: DemoBuilderChatTurnsBody, response: DemoBuilderChatTurns,
+    summary: 'Demo snapshot builder only: past questions and finished answers of a chat, as plain messages at the times given (no AI runs).',
+  }),
+} as const
 
 export const DEMO = {
   demoInfo: endpoint({
@@ -229,4 +368,5 @@ export const DEMO = {
     method: 'POST', path: '/api/demo/persona', auth: 'public', owner: 'A', body: DemoSwitchBody, response: z.object({ ok: z.literal(true) }),
     summary: 'Demo mode only: sign in as one of the demo people (the seeded account\'s password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends. A free-roam demo has one person, the only one this signs in.',
   }),
+  ...DEMO_BUILDER,
 } as const
