@@ -111,6 +111,10 @@ def main():
           '<rect x="101.5" y="101.5" width="821" height="821" rx="182.5" fill="none" stroke="#14110f" stroke-opacity=".12" stroke-width="3"/>\n'
           f'<g transform="translate(100 100) scale(25.75)">{scaled("light", 0.82)}</g>\n</svg>\n')
     png('desktop/scripts/trina-icon.svg', 'desktop/build-resources/icon.png', 1024)
+    # Linux (electron-builder.config.ts linux.icon): the same icon at each size the hicolor icon theme looks up; GNOME's
+    # lookup stops at 512, so a lone 1024 px picture showed a generic gear (QA TC-5353). The .deb adds the SVG as scalable.
+    for size in (16, 24, 32, 48, 64, 128, 256, 512):
+        png('desktop/scripts/trina-icon.svg', f'desktop/build-resources/linux-icons/{size}x{size}.png', size)
 
     # phones (mobile/app.config.ts): iOS icon full-bleed; Android adaptive foreground (mark only) on adaptive-background;
     # the launch screen's mark (light) and its dark-mode twin. The notification icon stays the white silhouette.

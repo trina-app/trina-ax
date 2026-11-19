@@ -9,8 +9,10 @@ export const es: Record<MessageKey, string> = {
   // continue in the desktop app after setup, and its one-time sign-in (pages/OpenApp.tsx)
   "openApp.title": "Continúe en la app de {product}",
   "openApp.why": "En la app, Trina puede encontrar los archivos de trabajo de este ordenador y compartirlos con su equipo.",
+  "openApp.whyLinux": "En la app, la IA puede usar programas de este ordenador, como Aside o ego lite.",
   "openApp.mac": "Continuar en la app de Mac",
   "openApp.windows": "Continuar en la app de Windows",
+  "openApp.linux": "Continuar en la app de Linux",
   "openApp.browser": "Continuar en el navegador",
   "openApp.notOpened": "¿No se abrió? Instale la app y vuelva a pulsar el botón.",
   "openApp.download": "Descargar la app",

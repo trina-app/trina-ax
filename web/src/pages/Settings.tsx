@@ -1004,7 +1004,7 @@ function Apps() {
   const kind = clientKind()
   // the device: the phone app and the desktop app say which they are; a browser, its user agent
   const os = desktop()?.platform
-  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
+  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : os === 'linux' ? 'linux' : 'other') : platform()
   const client: AppClient = { kind, here, store }
   // a phone (the phone app, or a browser on an iPhone or Android phone; not a narrow window on a computer): the Mac and
   // Windows apps are for a computer, so the way to send the Apps page there, not their files and not the owner's hint
