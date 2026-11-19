@@ -19,7 +19,7 @@ import { isolation } from '../../server/src/tools/isolate'
 import { imageTokens, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_IMAGES, visionTools } from '../../server/src/files/vision'
 import { TurnFiles } from '../../server/src/files/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
-import { readRoomFileFor, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
+import { lastPageMark, pagedText, readRoomFileFor, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
 import { RoomFileInput } from '@mycel/shared'
 import type { McpContent, TurnToolSet } from '../../server/src/turns'
 import { roomTool } from '../../server/src/connectors/remote-mcp/rooms'
@@ -178,6 +178,10 @@ describe.skipIf(!layers)('a PDF sent in a room, as a read gives it', () => {
       expect(texts(whole)).toContain('Chapter 12:')
       expect(texts(whole)).toContain('Pages without a text layer (scans or pictures): 8.')
       expect(texts(whole)).toContain('pages: "8"')
+      // each page after its mark, and the page count with how to read one page (QA AP-054)
+      expect(texts(whole)).toMatch(/\[p\.11\]\nChapter 11:/)
+      expect(texts(whole)).toContain('This PDF has 12 pages; each starts with its mark [p.N]')
+      expect(texts(whole)).toContain('pages: "11"')
       // as_images on all of it: pages first, as read asks for them
       const all = await read(r, { file: long, as_images: true })
       expect(all.isError).toBe(true)
@@ -448,5 +452,19 @@ describe.skipIf(!layers)("the turn's image budget, room and team reads together"
         expect(calls()).toBe(1)
       })
     } finally { codec.mockRestore() }
+  })
+})
+
+describe('page marks in a long PDF read as text (QA AP-054)', () => {
+  test('pagedText marks each page; lastPageMark names the page a cut falls in', () => {
+    const all = pagedText(['first page', 'second page', 'third page'])
+    expect(all).toBe('[p.1]\nfirst page\n[p.2]\nsecond page\n[p.3]\nthird page')
+    expect(lastPageMark(all, 0)).toBe(1)
+    expect(lastPageMark(all, all.indexOf('second'))).toBe(2)
+    expect(lastPageMark(all, all.length)).toBe(3)
+    // a page's own text that looks like a mark inside a line is not one
+    const tricky = pagedText(['see [p.9] below', 'b'])
+    expect(lastPageMark(tricky, tricky.indexOf('below'))).toBe(1)
+    expect(lastPageMark(tricky, tricky.length)).toBe(2)
   })
 })
