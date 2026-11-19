@@ -70,6 +70,8 @@ import { useConfidentialChat } from '../../lib/confidential'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useStickToBottom } from '../../lib/stickToBottom'
+import { useAutoGrow, useEndAfterRecording } from '../../lib/autoGrow'
+import { useTextSize } from '../../lib/textSize'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
@@ -508,7 +510,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     menuOpen: false,
     onError: setVoiceError,
   })
-  // how tall the text box is, for the text that stands in its place while recording (the person's text size changes it)
+  // the text box grows with its text (two lines at least), up to its max-height, as the other message boxes do; the
+  // text that stands in its place while recording starts as tall as the box was and grows to the same limit
+  const textSize = useTextSize()
+  useAutoGrow(box, [draft, textSize, voice.recording])
+  useEndAfterRecording(box, voice.recording, voice.busy, draft)
   const heldHeight = useRef<number | undefined>(undefined)
   useLayoutEffect(() => {
     if (box.current?.offsetHeight) heldHeight.current = box.current.offsetHeight
@@ -856,11 +862,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           )}
           <ComposerFileList files={files.files} onRemove={files.removeFile} className="px-3 pt-2.5" />
           {voice.recording ? (
-            // the box keeps its height: the text as it was on top, as tall as the text box was (it cannot be typed in while
-            // recording; a live recording's words show there as they come), the bar in the row's place (ComposerToolbar's
+            // the text on top, at least as tall as the text box was (it cannot be typed in while recording); it grows with a
+            // live recording's words as the box does while typing (to the box's max-h-40), the bar in the row's place (ComposerToolbar's
             // own padding; ✓ is as large as send at every width), ✕ and ✓ where the clip and send were
             <>
-              <VoiceHeld text={draft || boxLabel} textClass="text-sm" style={{ height: heldHeight.current }} className={clsx('px-4.5 pt-2.5', draft ? 'text-ink' : 'text-faint')} testId="side-chat-text-held" />
+              <VoiceHeld text={draft || boxLabel} textClass="text-sm" style={{ minHeight: heldHeight.current }} className={clsx('max-h-40 px-4.5 pt-2.5', draft ? 'text-ink' : 'text-faint')} testId="side-chat-text-held" />
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
             </>
           ) : (

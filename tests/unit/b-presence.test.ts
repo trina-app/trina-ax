@@ -395,9 +395,11 @@ describe('in use, for phone pushes (inUse; notifications/away.ts)', () => {
     expect(m.p.inUse('bob')).toBe(false)
   })
 
-  test('manual away is not in use; the warm-up after a start is told (warmingUntil) and then over', () => {
+  test('their own away pick does not change in use (QA TC-5205); the warm-up after a start is told (warmingUntil) and then over', () => {
     const m = machine({ away: ['ana'] })
     m.p.open('ana', 'w1')
+    expect(m.p.inUse('ana')).toBe(true)
+    m.p.activity('ana', 'w1', 'idle')
     expect(m.p.inUse('ana')).toBe(false)
     expect(m.p.warmingUntil()).toBeNull()
     const w = machine({ warmupMs: PRESENCE_WARMUP_MS })

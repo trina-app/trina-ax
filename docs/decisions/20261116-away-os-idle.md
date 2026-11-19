@@ -48,7 +48,15 @@
   line, `phone push decision`: the notice kind, `send` / `cancel` / `wait`, the device's last six id characters and a
   few words on what the server knew (`Presence.phoneUse`: `computer in use (input 4s ago)`, `computer idle 12m; window
   idle`, `computer locked; window on that computer`, `computer report old (2m); window silent 3m`, `no computer
-  report; no window open`, `browser or app window active`, `set themselves away`, `setting: always`). The report
+  report; no window open`, `browser or app window active`, `setting: always`). The report
   itself logs `computer report` (state and rounded idle time) on a sign-in's first report and on each change between
   in use, idle and locked, not every 30 s. Never what a notice says. Tests: `tests/unit/b-push-away.test.ts`,
   `tests/unit/b-presence-computer.test.ts`.
+- **Own "away" pick (2026-11-19, QA TC-5205).** The owner's phone kept ringing at the Mac: the cause was not the
+  desktop app but "Show me as away", picked once and kept in the account (`users.prefs.away`, on every device until
+  changed), which made the phone rule send at once. Slack keeps a manual away until the person sets themselves active
+  (its API: "A manual status ... will persist between connections"), and its mobile push follows desktop activity
+  ("You'll receive mobile notifications when you're inactive on your desktop"). So the pick stays a status the team
+  sees and no longer decides the phone: the computer in use (a fresh desktop report or a window in use) holds the
+  phone push back, away pick or not; idle 10 minutes, locked or no client still rings. The log no longer has
+  `set themselves away`.

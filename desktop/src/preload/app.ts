@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number; dictation?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -113,6 +113,26 @@ const bridge: DesktopBridge = {
           onRunning: on('bridge:local-running'),
           setSettings: (id, values) => ipcRenderer.invoke('bridge:local-settings', String(id), values && typeof values === 'object' ? { ...values } : {}),
           settingNames: (id) => ipcRenderer.invoke('bridge:local-setting-names', String(id)),
+        },
+      }
+    : {}),
+  ...(info?.platform === 'darwin' ? { openMicSettings: () => ipcRenderer.send('bridge:mic-settings') } : {}),
+  // voice input on this Mac (main/dictation.ts): the page hands over samples and gets words; never a file or a path
+  ...(info?.dictation
+    ? {
+        dictation: {
+          version: info.dictation,
+          check: (language: string) => ipcRenderer.invoke('bridge:dictation-check', String(language)),
+          install: (language: string, onProgress?: (percent: number) => void) => {
+            const lang = String(language)
+            const off = typeof onProgress === 'function' ? on('bridge:dictation-progress')((p) => { if (p && p.language === lang && typeof p.percent === 'number') onProgress(p.percent) }) : null
+            return ipcRenderer.invoke('bridge:dictation-install', lang).finally(() => off?.())
+          },
+          start: (language: string) => ipcRenderer.invoke('bridge:dictation-start', String(language)),
+          push: (id: number, samples: Float32Array) => { if (samples instanceof Float32Array) ipcRenderer.send('bridge:dictation-push', Number(id), samples) },
+          stop: (id: number) => ipcRenderer.send('bridge:dictation-stop', Number(id)),
+          cancel: (id: number) => ipcRenderer.send('bridge:dictation-cancel', Number(id)),
+          onEvent: on('bridge:dictation-event'),
         },
       }
     : {}),
