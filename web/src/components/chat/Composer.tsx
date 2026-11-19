@@ -760,10 +760,12 @@ export default function Composer({
                     }
                   }}
                   placeholder={hint}
-                  // not disabled: the focus stays in the box while the words are on their way
-                  readOnly={voice.busy}
+                  // not disabled: the focus stays in the box while the words are on their way. A free-roam demo whose AI
+                  // is used up: nothing more to type for the AI (the line under the box says so), what was typed stays
+                  readOnly={voice.busy || demoOut}
+                  aria-disabled={demoOut || undefined}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldMax, fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldMax, fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]', demoOut && 'cursor-not-allowed text-muted')}
                   data-testid="composer-input"
                 />
               </div>

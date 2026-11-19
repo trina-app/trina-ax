@@ -891,11 +891,12 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                 rows={2}
                 placeholder={voice.transcribing ? voice.transcribingText : busy && queueing ? t('outbox.placeholder') : boxLabel}
                 // not disabled: the focus stays in the box while the words are on their way
-                readOnly={voice.busy}
+                readOnly={voice.busy || demoOut}
+                aria-disabled={demoOut || undefined}
                 aria-busy={voice.transcribing || undefined}
                 aria-label={boxLabel}
                 aria-describedby={question ? noSecretsId : undefined}
-                className="block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm text-ink outline-none placeholder:text-faint"
+                className={clsx('block max-h-40 w-full resize-none bg-transparent px-4.5 pt-2.5 text-sm outline-none placeholder:text-faint', demoOut ? 'cursor-not-allowed text-muted' : 'text-ink')}
                 data-testid="side-chat-input"
               />
               {/* the box's row, as every message box has it (chat/ComposerToolbar.tsx): the clip on the left; on the right
