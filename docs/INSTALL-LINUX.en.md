@@ -69,7 +69,8 @@ People join by pasting the invite link (or the team link) into the app's first s
 ## Desktop app on Linux
 
 This part is about the team's desktop app on a Linux computer, not the server. It is built for x64 and arm64. Get it
-from the [download page](https://ax.trina.app/download) or from the GitHub Release of a version, and pick by system:
+from the website's download page or from the [latest GitHub Release](https://github.com/trina-app/trina-ax/releases/latest),
+and pick by system:
 
 | File | For | Updates |
 |---|---|---|

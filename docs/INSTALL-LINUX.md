@@ -58,7 +58,7 @@ owner와 팀은 설정 화면에서 직접 만드세요. 에이전트도 이 문
 ## 리눅스 데스크톱 앱
 
 이 절은 서버가 아니라 리눅스 컴퓨터에서 쓰는 팀 데스크톱 앱 이야기다. x64와 arm64용이 있다.
-[다운로드 페이지](https://ax.trina.app/download)나 버전별 GitHub Release에서 받고, 시스템에 맞춰 고른다.
+웹사이트의 다운로드 페이지나 [최신 GitHub Release](https://github.com/trina-app/trina-ax/releases/latest)에서 받고, 시스템에 맞춰 고른다.
 
 | 파일 | 대상 | 업데이트 |
 |---|---|---|
