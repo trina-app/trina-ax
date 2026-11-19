@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 00:00
 - Branch: `feat/linux-desktop-app`
-- Status: in progress
+- Status: done
 - Where: trina-ax `desktop/`, `web/src/components/integrations/`, `.github/workflows/desktop.yml`, `scripts/ci/`. Why: the
   desktop app and its PR checks live here (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new download (the decision file's "Version impact")
@@ -40,4 +40,8 @@ All in the decision file; none new.
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus: `deb.packageName: trina-ax` (the default would be "Trina AX") and `appImage.executableArgs: []`
+(electron-builder's default menu entry starts `AppRun --no-sandbox`). The Linux e2e job needs a keyring with a password
+(an empty one makes no login collection) and `MYCEL_DESKTOP_TEST_PASSWORD_STORE` (a development-only switch), because
+Playwright's Electron loader adds `--password-store=basic`. The new jobs were green on run 44436027105: packages (install, start
+sandboxed, update over, remove, the AppImage refusal), arm64 install and start, and the e2e subset (47 passed).
