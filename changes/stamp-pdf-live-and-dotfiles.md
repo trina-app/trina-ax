@@ -1,2 +1,0 @@
-- Asking the AI to put a seal on page "1" of a PDF works again with Claude Code: its page text arrived with the quote marks and was refused. Page lists and "every" take the same text.
-- The empty dotfiles and folders (.bashrc, .vscode, skills ...) that the sandbox keeps in a folder while a background command runs no longer show in Files, the file list, a search or the changes shown to the others in the project.

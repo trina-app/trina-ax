@@ -5,6 +5,25 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.5.19 — 2026-11-19
+
+- Voice input in the Android app now uses only a speech recognizer that works on the phone itself, so your voice never goes to the phone maker's servers. Phones without one for your language (for example a Galaxy Note10 on Android 12 for Korean) keep using the team server, whatever the team's speech setting.
+- **Voice input on Android** (phone app 1.0.10, Google Play; not published yet): in the Android app your words show in the message box while you talk, written by the phone's own speech recognizer. On a phone whose recognizer works on the phone, the sound never leaves it, so this also works in confidential chats. Phones without a recognizer for your language keep using the team server.
+- While you dictate, the message box grows with your words, as it does when you type, instead of keeping one line and scrolling. It keeps its height when a recording starts.
+- **Voice input on the iPhone** (phone app 1.0.10, App Store; not submitted yet): the iPhone itself writes the words in the message box while you talk, with Apple's speech recognition on the phone, as the Mac app does. The recording never leaves the phone, so it works in confidential chats too. The first use of a language fetches Apple's model (that one recording goes through the team server). Older iPhones, a language the phone lacks and Android keep using the team server.
+- **Linux desktop app:** the arm64 AppImage starts on a normal Fedora again (it stopped with "error while loading shared libraries: libz.so"). Both AppImages no longer need FUSE 2: the `fusermount3` that GNOME and KDE desktops already have is enough.
+- **Linux desktop app:** the .deb shows the Trina AX icon in the app grid and the dock, not a generic gear.
+- **Linux:** a web browser on Linux now offers **Open in the app** on join pages and in a chat's menu, and **Continue in the Linux app** after making a team, which signs the app in from the browser.
+- On a Mac with Apple silicon and macOS 26, voice input in the desktop app is now written by the Mac itself: your words show in the box about a second after you start talking and keep up while you talk, and the last word is there a moment after you stop. The sound never leaves your Mac, so this also works in confidential chats. The first time, the Mac fetches its speech model for your language (the bar shows how far); other computers and languages work as before.
+- In the Mac app, a microphone that macOS blocked now says where to turn it on (System Settings › Privacy & Security › Microphone), with an Open Settings link.
+- "Show me as away" no longer sends your phone notifications while you are working at your computer. Your phone gets them when the computer has had no input for 10 minutes, its screen is locked, or Trina is not open, as in Slack. Others still see you as away until you show yourself as active again.
+- A conversation you read to the end is no longer bold in the list when someone replied in a thread you follow. As in Slack, the row shows the conversation's own messages; new thread replies show under their message, in the conversation's thread button and in **Mentions & threads** (a reply that mentions you still shows "@").
+- The number on the app icon, the Dock and the browser tab now counts the same conversations as the list: a reply in a thread you follow adds to it only when it mentions you.
+- Asking the AI to put a seal on page "1" of a PDF works again with Claude Code: its page text arrived with the quote marks and was refused. Page lists and "every" take the same text.
+- The empty dotfiles and folders (.bashrc, .vscode, skills ...) that the sandbox keeps in a folder while a background command runs no longer show in Files, the file list, a search or the changes shown to the others in the project.
+- Voice input in a chat now shows your words while you keep talking: a stretch of speech is written down after about 7 seconds at most, or at a short pause (0.6 s), instead of waiting up to 15 seconds or a full second of quiet. With background noise this helps the most. The first words still show within about 3 seconds.
+- Voice input no longer writes a row of one strange letter (such as "ლლლლლ") when it only heard a fan or a room's hum.
+
 ## 0.5.18 — 2026-11-19
 
 - 0.5.17 was not released (its tag exists, but its release test, the Linux attack suite, failed and the release was stopped before anything was published). Everything that was going to be in 0.5.17 is in 0.5.18 and listed here.
