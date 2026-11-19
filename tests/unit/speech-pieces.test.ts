@@ -65,6 +65,33 @@ describe('the first piece', () => {
   })
 })
 
+describe('the later pieces (voice input: maxMs, searchMs, pauseMs)', () => {
+  const later = { maxMs: 7000, searchMs: 1500, pauseMs: 600 }
+  test('talking without a pause: cut by 7 s instead of 15 s', () => {
+    const got: Piece[] = []
+    const c = chunker((p) => got.push(p), later)
+    frames([quiet(3000), loud(30_000), quiet(1500)], (f, at) => c.push('me', at, f))
+    c.flush()
+    expect(got.length).toBeGreaterThanOrEqual(5)
+    for (const p of got) expect(ms(p)).toBeLessThanOrEqual(7000)
+    // the cut is in the last 1.5 s: never shorter than 5.5 s while the talk goes on
+    for (const p of got.slice(0, -1)) expect(ms(p)).toBeGreaterThanOrEqual(5500)
+  })
+  test('a 0.7 s pause ends a piece; without the option it takes 1 s', () => {
+    const talk = [quiet(3000), loud(2000), quiet(700), loud(2000), quiet(700), loud(2000), quiet(1500)]
+    const short: Piece[] = []
+    const a = chunker((p) => short.push(p), later)
+    frames(talk, (f, at) => a.push('me', at, f))
+    a.flush()
+    expect(short).toHaveLength(3)
+    const long: Piece[] = []
+    const b = chunker((p) => long.push(p))
+    frames(talk, (f, at) => b.push('me', at, f))
+    b.flush()
+    expect(long).toHaveLength(1)
+  })
+})
+
 /** three sentences with pauses: three pieces, cut in this order */
 const threeSentences = (s: MeetingSession) => frames([quiet(3000), loud(1500), quiet(1500), loud(1500), quiet(1500), loud(1500), quiet(1500)], (f) => s.push({ track: 'me', samples: f }))
 

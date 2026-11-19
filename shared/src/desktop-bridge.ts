@@ -102,6 +102,8 @@ export type WorkFolderId = 'documents' | 'desktop' | 'downloads'
 export type WorkPlaceKind = 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'
 /** The version of the wide look (scan({ wide })) and of fullDisk a desktop app offers (workFiles.wide). */
 export const WORK_FILES_WIDE_VERSION = 1
+/** DesktopBridge.dictation: voice input transcribed on this Mac (0: not offered) */
+export const DICTATION_BRIDGE_VERSION = 1
 /** A Mac's Full Disk Access for the app: granted, not granted, or the app cannot tell (an older macOS, no probe). */
 export type FullDiskState = 'granted' | 'denied' | 'unknown'
 
@@ -185,6 +187,22 @@ export type DesktopAccessOutcome = 'changed' | 'unchanged' | 'cancelled' | 'not-
 /** A download of the team page ended in the desktop app: `name` as it was saved ("report (1).pdf"), `ok` false when
  * it failed or was interrupted (nothing is left in the folder). */
 export interface DesktopDownloadDone { id: number; name: string; ok: boolean }
+
+/** Voice input on this Mac (docs/decisions/20261119-mac-dictation.md), for one language:
+ * - ready: the Mac transcribes it itself; `locale` the one it uses (ko-KR, en-GB …)
+ * - needs-model: it can, once Apple's model for it is on this Mac (install() fetches it, once)
+ * - unsupported: no on-device model for this language (Indonesian), or unavailable: not on this Mac (Intel, macOS
+ *   before 26, the helper failed). Both mean the team server transcribes. */
+export type DesktopDictationCheck = { state: 'ready' | 'needs-model'; locale: string } | { state: 'unsupported' | 'unavailable' }
+
+/** What one recording on this Mac says (DesktopBridge.dictation.onEvent), by the id start() gave:
+ * - text: `final` false is a guess for the words since the last final one, replaced by the next text; final true is
+ *   kept. The box shows every final text so far, then the newest guess.
+ * - done: after stop(), every word is final. error: it ended without done (the helper failed or stopped answering). */
+export type DesktopDictationEvent =
+  | { id: number; event: 'text'; final: boolean; text: string }
+  | { id: number; event: 'done' }
+  | { id: number; event: 'error'; code: string }
 
 export interface DesktopBridge {
   bridgeVersion: number
@@ -373,6 +391,29 @@ export interface DesktopBridge {
     onRunning(cb: (s: { id: string; running: boolean }) => void): () => void
     setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
     settingNames(connectionId: string): Promise<string[]>
+  }
+  /**
+   * Voice input transcribed on this Mac (docs/decisions/20261119-mac-dictation.md; DICTATION_BRIDGE_VERSION): Apple's
+   * SpeechTranscriber in a small helper of the app, macOS 26 on Apple silicon. The page records as always and hands
+   * the 16 kHz samples over (push); the words come back as events while the person talks. Nothing leaves the Mac.
+   * check(language): the app language's state here. install(language): Apple's model for it, once (`onProgress`
+   * 0-100); 'failed' when it could not be fetched. start(language): a recording's id, null when it cannot start (the
+   * page then uses the team server). stop(id): the sound ended; the last words and `done` follow. cancel(id): nothing
+   * more comes. One recording at a time: a new start() cancels the one before. Optional: Windows, the Mac App Store
+   * build, an Intel Mac and desktop apps before this addition do not have it (the team server transcribes).
+   */
+  /** The Mac app: System Settings › Privacy & Security › Microphone, where a refused microphone is turned on again
+   * (the page's "Open Settings" under its blocked-mic note). Optional: Windows and older desktop apps lack it. */
+  openMicSettings?(): void
+  dictation?: {
+    version: number
+    check(language: string): Promise<DesktopDictationCheck>
+    install(language: string, onProgress?: (percent: number) => void): Promise<'installed' | 'failed' | 'unsupported'>
+    start(language: string): Promise<number | null>
+    push(id: number, samples: Float32Array): void
+    stop(id: number): void
+    cancel(id: number): void
+    onEvent(cb: (e: DesktopDictationEvent) => void): () => void
   }
   browserSettings?: {
     get(): Promise<DesktopBrowserSettings | null>
