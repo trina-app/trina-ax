@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 09:26
 - Branch: `feat/desktop-find-in-page`
-- Status: in progress
+- Status: done
 - Where: trina-ax `desktop/` (main process, the app's own screens, i18n). Why: find-in-page is the desktop shell's
   job (Electron `webContents.findInPage`); a browser keeps its own find, so the web app does not change.
 - Version impact: minor: a new desktop feature (menu item, find bar); no server or web change.
@@ -61,4 +61,11 @@ none (follows the browser's behaviour; no new rule).
 `bun run typecheck`, `bun run check:prepush`, tests/unit/e-find-bar.test.ts, desktop e2e find-bar.spec.ts.
 
 ## Result
+
+Built as planned. The bar is its own WebContentsView (`mycel-ui://app/findbar.html`) over the searched view; the pane
+learned about "overlays" so its toolbar and tab are not raised over the bar. A new search starts where the page's
+selection is (Chromium's own behaviour, as in a browser), so the first count is not always "1 of M". Retyping the same
+text keeps the place. Checked on macOS with the desktop e2e and the built app against a copy of the QA team; Windows
+and Linux not run by hand. A page's own Cmd+F winning over the menu could not be driven by a test (made-up keys never
+reach the macOS menu); it rests on Chromium's unhandled-key path.
 

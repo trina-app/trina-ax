@@ -38,6 +38,8 @@ import { clearFailed, clearSessionData, type ClearResult } from './clear-session
 import { debug } from './debug'
 import { DirectDownloads } from './downloads'
 import { PAGE_BUSY_GLOBAL, resumePage, type Resume, type ResumeWindow } from '../common/update-guard'
+import { findTarget } from '../common/find-bar'
+import { FindBar } from './find-bar'
 
 export type Mode = 'welcome' | 'team' | 'offline'
 
@@ -113,6 +115,8 @@ export class AppWindow {
   readonly chrome: WebContentsView
   /** the team address above the team's sign-in pages, drawn by the app (hostbar.html): a page cannot fake it */
   readonly hostbar: WebContentsView
+  /** Cmd/Ctrl+F: the find bar over the view it searches (main/find-bar.ts) */
+  readonly findBar: FindBar
   app?: WebContentsView
   pane?: BrowserPane
   team?: TeamEntry
@@ -294,6 +298,16 @@ export class AppWindow {
       attachContextMenu(v.webContents, { window: this.win, locale: o.locale, allowedOrigins: () => [] })
       this.watchKeys(v, v === this.chrome)
     }
+    this.findBar = new FindBar({
+      win: this.win,
+      distDir: o.distDir,
+      locale: o.locale,
+      focusBar: () => this.keysTo(this.findBar.view, 'find bar'),
+      focusTarget: (v) => {
+        if (this.shownViews().includes(v)) this.keysTo(v, 'find bar closed')
+      },
+    })
+    this.watchKeys(this.findBar.view, false)
     // the browser toolbar's view: transparent where it reaches over the team page's edge (the edge's grab strip,
     // common/pane-width.ts); its page paints the toolbar and the area under it in the theme's own colours
     this.chrome.setBackgroundColor('#00000000')
@@ -380,6 +394,7 @@ export class AppWindow {
       // close the views while the window still exists (WebContentsView contents are not closed with it)
       this.disposeTeam()
       for (const v of [this.shell, this.chrome, this.hostbar]) if (!v.webContents.isDestroyed()) v.webContents.close()
+      this.findBar.dispose()
       debug('window closed, team disposed')
     })
     // back to the window (Cmd-Tab, the dock, a notification's click): the keyboard goes back where it was
@@ -804,6 +819,8 @@ export class AppWindow {
         teamHosts: () => teamHostnames(this.teams.teams),
         onKeys: (view) => this.tabKeys(view),
         onPersonActed: (view) => this.personActed(true, view),
+        overlays: () => (this.findBar.open ? [this.findBar.view] : []),
+        onLayout: () => this.placeFind(),
       },
       browserSes,
       this.o.pageScript,
@@ -1509,6 +1526,7 @@ export class AppWindow {
       hide(this.hostbar)
       this.pane?.setBounds(null)
       show(this.shell, { x: 0, y: 0, width: w, height: h })
+      this.placeFind()
       this.sendPaneWidth()
       this.sendFocus()
       return
@@ -1524,8 +1542,41 @@ export class AppWindow {
     else hide(this.hostbar)
     show(this.app, { x: 0, y: top, width: Math.max(0, w - pw), height: Math.max(0, h - top) })
     this.pane?.setBounds(pw ? { x: w - pw, y: 0, width: pw, height: h } : null)
+    this.placeFind()
     this.sendPaneWidth()
     this.sendFocus()
+  }
+
+  // ------------------------------------------------------------------- find
+
+  /** Edit › Find… (Cmd/Ctrl+F), Find Next (Cmd/Ctrl+G), Find Previous (Shift+Cmd/Ctrl+G): the find bar over the view
+   * the person is in (common/find-bar.ts findTarget). Next / previous with the bar closed open it, as Find does. */
+  find(what: 'open' | 'next' | 'prev') {
+    if (this.win.isDestroyed()) return
+    const bar = this.findBar
+    if (what !== 'open' && bar.open) return bar.step(what === 'next')
+    const target = findTarget({
+      shown: this.shownViews(),
+      last: this.keys?.view,
+      bar: bar.view,
+      searching: bar.target,
+      toolbar: this.chrome,
+      paneTab: this.pane?.shownTab(),
+      strip: this.hostbar,
+      page: this.mode === 'team' && this.app ? this.app : undefined,
+      screen: this.shell,
+    })
+    if (target) void bar.show(target)
+  }
+
+  /** On every layout: the find bar over its view's corner, or closed when that view left the window (the team list over
+   * the team page, the browser closed, another tab, another team). */
+  private placeFind() {
+    const bar = this.findBar
+    const t = bar.target
+    if (!t) return
+    if (t.webContents.isDestroyed() || !this.win.contentView.children.includes(t)) return bar.close(false)
+    bar.place()
   }
 
   /** Is the person looking at the team page (DesktopBridge.focus, docs/DECISIONS.md "화면에 연 대화는 울리지 않는다")?
@@ -1625,7 +1676,7 @@ export class AppWindow {
   /** the window's views on screen that could have the keyboard */
   private shownViews(): WebContentsView[] {
     const children = this.win.contentView.children
-    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab()].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
+    return [this.shell, this.chrome, this.hostbar, this.app, this.pane?.shownTab(), this.findBar.view].filter((v): v is WebContentsView => !!v && !v.webContents.isDestroyed() && children.includes(v))
   }
 
   /** the window has the focus and no dialog or right-click menu of the app is open over it */
@@ -1634,7 +1685,7 @@ export class AppWindow {
   }
 
   private keysTo(view: WebContentsView, why: string) {
-    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : 'browser tab'
+    const name = view === this.app ? 'team page' : view === this.chrome ? 'browser toolbar' : view === this.shell ? 'app screen' : view === this.hostbar ? 'host strip' : view === this.findBar.view ? 'find bar' : 'browser tab'
     debug('keyboard to', name, why)
     this.giving = view
     try {
@@ -1704,6 +1755,7 @@ export class AppWindow {
     this.send(this.shell, 'ui:locale', payload)
     this.send(this.chrome, 'ui:locale', payload)
     this.send(this.hostbar, 'ui:locale', payload)
+    this.findBar.localeChanged(payload)
     this.updateTitle()
   }
 
