@@ -320,7 +320,7 @@ describe('hostile: xlsx rule values and formulas', () => {
   })
 
   test('a DDE or outside formula in a rule is refused', async () => {
-    for (const formula of ["=cmd|' /C calc'!A0", '=[1]Sheet1!A1>0', '=WEBSERVICE("http://example.com")', '=HYPERLINK("http://example.com")']) {
+    for (const formula of ["=cmd|' /C calc'!A0", '=[1]Sheet1!A1>0', '=WEBSERVICE("http://example.com")', '=HYPERLINK("file://server/share/x.xlsx")']) {
       const out = `users/alice/hostile-dde-${formula.length}.xlsx`
       const r = await call('make_file', { format: 'xlsx', output: out, content: '| A |\n|---|\n| 1 |\n', sheets: [{ conditional: [{ range: 'A2:A2', when: 'formula', formula }] }] })
       expect(r.isError, `${formula}: ${r.text}`).toBe(true)
