@@ -312,6 +312,38 @@ describe('RealtimeClient', () => {
     expect(r.sockets).toHaveLength(2)
   })
 
+  test('the browser going offline drops the link at once; back online resumes after the last event (QA AP-070)', () => {
+    const r = setup()
+    r.client.start()
+    const s = r.sockets[0]!
+    s.open()
+    s.recv(hello('E1', 0))
+    s.recv(delta(1, 0, 'Part 1'))
+    // no ping timeout needed: "reconnecting" right away (the banner), not up to 30 s later
+    r.client.linkLost()
+    expect(r.client.connState).toBe('reconnecting')
+    expect(s.readyState).toBe(3)
+    // online again: nudge connects at once and asks for what came after seq 1 (the rest of the answer)
+    r.client.nudge()
+    const s2 = r.sockets.at(-1)!
+    expect(s2).not.toBe(s)
+    expect(s2.url).toContain('epoch=E1')
+    expect(s2.url).toContain('after=1')
+    s2.open()
+    s2.recv(hello('E1', 2, true))
+    s2.recv(delta(2, 6, ' Part 2'))
+    expect(r.client.connState).toBe('open')
+    expect(r.events.map((e) => e.seq)).toEqual([1, 2])
+  })
+
+  test('offline while not connected changes nothing', () => {
+    const r = setup()
+    r.client.start()
+    r.client.linkLost()
+    expect(r.sockets).toHaveLength(1)
+    expect(r.client.connState).toBe('connecting')
+  })
+
   test('pong keeps the link', () => {
     const r = setup()
     r.client.start()
