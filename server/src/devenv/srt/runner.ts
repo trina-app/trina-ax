@@ -19,6 +19,11 @@
 //  - dev server (background=true): a row with kind server. At most maxRunning on the server and one per chat; no
 //    queue: past that it is refused ("Preview is full").
 //
+// A shared chat's jobs and dev servers (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md) are rows too, with
+// shared_key set: the tracker builds who sees the chat again for every check (setSharedResolver) and stops the run
+// when they or their access change. Their logs are the chat's for that key (config.ts sharedLogs), never the person's.
+// A command reaches the ports of its chat's own running jobs and dev servers (reachTargets), nothing else on localhost.
+//
 // Runs keep going when the server restarts: their output goes to files, and the tracker finds them again by the
 // unit name in the row. A unit with no row is stopped. The tracker also stops a job or dev server when the person's
 // folder access changes or the person may no longer use the dev environment (reason setting).
@@ -39,7 +44,7 @@ import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
@@ -75,7 +80,24 @@ export interface SharedRun {
    * (chat/shared-answers.ts). false: not recorded, and the run does not start */
   noteReads(folders: readonly string[], audience: readonly string[]): boolean
 }
-export interface Space { userId: string; chatId: string | null; projectId: string | null; root: string; shared?: SharedRun }
+export interface Space { userId: string; chatId: string | null; projectId: string | null; root: string; shared?: SharedRun
+  /** a shared chat's run: the key of its logs folder (sharedLogKey), set when the run is made */
+  logKey?: string }
+
+/** Who sees a shared chat now, rebuilt from the chat alone (devenv/shared-chat.ts sets it): the tracker checks a shared
+ * chat's job or dev server against it, out of any turn. Null: the chat is not shared any more (or is gone). */
+export type SharedResolver = (ctx: AppContext, chatId: string) => Pick<SharedRun, 'audience' | 'within'> | null
+let sharedResolver: SharedResolver = () => null
+export function setSharedResolver(r: SharedResolver) { sharedResolver = r }
+/** a shared chat's run out of a turn: its reads were recorded when it was asked for (submitJob, startServer), so this
+ * records nothing and the start checks that the people and their view are still those (startRow) */
+const NOBODY: SharedRun = { within: null, audience: () => [], noteReads: () => false }
+function sharedOfChat(ctx: AppContext, chatId: string | null): SharedRun {
+  if (!chatId) return NOBODY
+  let r: ReturnType<SharedResolver> = null
+  try { r = sharedResolver(ctx, chatId) } catch { r = null }
+  return r ? { within: r.within, audience: () => { try { return r!.audience() } catch { return [] } }, noteReads: () => false } : NOBODY
+}
 
 // ---------------- configuration ----------------
 
@@ -263,6 +285,28 @@ export function sharedWorkOf(ctx: AppContext, chatId: string, userId: string, sh
   return sharedWork(srtConfig().base, chatId, sharedWorkKey(s.audience.map((q) => q.id), viewHash(v)))
 }
 
+/** The key of a shared chat's runs for who sees it now and what all of them may read there (the view's readable folders,
+ * its root): the name of its logs folder (config.ts sharedLogs). A job's log is read by later commands of the same
+ * people with the same view (a reader and a writer of the project get the same key); anyone more, or anyone whose
+ * access narrowed, another key and an empty folder. Null when the people cannot be loaded. */
+export function sharedLogKey(ctx: AppContext, space: Space): string | null {
+  if (!space.shared) return null
+  let run: RunWrites
+  try { run = runWrites(ctx, srtConfig(), space) } catch { return null }
+  const scope = sharedScopeNow(ctx, space.shared)
+  if (!scope) return null
+  const v = personView(ctx, space.userId, run, space.shared, scope)
+  if (!v) return null
+  const readable = [...new Set([...v.read, ...v.write])].sort()
+  return sharedWorkKey(scope.audience.map((q) => q.id), viewHash({ read: readable, write: [], denyRead: [...v.denyRead].sort(), denyWrite: [] }, `logs\0${run.start ?? space.root}`))
+}
+/** the space with its logs key (a shared chat), or null when the people cannot be loaded; a person's space as it is */
+function keyed(ctx: AppContext, space: Space): Space | null {
+  if (!space.shared) return space
+  const logKey = sharedLogKey(ctx, space)
+  return logKey ? { ...space, logKey } : null
+}
+
 /** A shared chat's run: record what it may read for the answer (SharedRun.noteReads) before it starts. Throws when the
  * record cannot be written. */
 function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedScopeNow | null) {
@@ -272,6 +316,13 @@ function noteSharedRun(ctx: AppContext, space: Space, run: RunWrites, s: SharedS
   if (!s || !p) throw new Error('the person cannot use the dev environment now')
   const folders = sharedReadable(ctx.files.rules(), p, run, s, projectZoneFolders(ctx.files.fx.root).map((z) => z.join('/')))
   if (!space.shared.noteReads(folders, s.audience.map((q) => q.id))) throw new Error('what this command may read could not be recorded')
+}
+
+/** A shared chat's turn is about to give the AI results of the chat's jobs (their log tails): what a run there may read
+ * joins this answer's record first, as for a command. False: not recorded, and no result may be given. */
+export function noteSharedReads(ctx: AppContext, space: Space): boolean {
+  if (!space.shared) return true
+  try { noteSharedRun(ctx, space, runWrites(ctx, srtConfig(), space), sharedScopeNow(ctx, space.shared)); return true } catch { return false }
 }
 
 /** The writable starting folder of a run in `space`: the project folder (team-relative), or null for the chat's work
@@ -390,12 +441,12 @@ export function spaceOf(ctx: AppContext, o: { userId: string; chatId: string | n
 // ---------------- one run ----------------
 
 /** Whose home and logs a run uses: the shared chat's, or the person's. A shared run with no chat is refused. */
-function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared'> & { root?: string }, runId?: string, teamRoot?: string): { userId: string; sharedChat: string | null; runId?: string; projectFolder: string | null } {
+function runOwner(space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'logKey'> & { root?: string }, runId?: string, teamRoot?: string): { userId: string; sharedChat: string | null; runId?: string; projectFolder: string | null; logKey: string | null } {
   if (space.shared && !space.chatId) throw new Error('a run of a shared chat needs its chat')
   // a person's run that starts in a team folder (a project folder): a home of its own for that folder (config.ts
   // projectHome; QA TC-4939), never the home of the person's own chats
   const projectFolder = !space.shared && teamRoot && space.root && space.root.startsWith(teamRoot + path.sep) ? space.root.slice(teamRoot.length + 1) : null
-  return { userId: space.userId, sharedChat: space.shared ? space.chatId : null, ...(runId ? { runId } : {}), projectFolder }
+  return { userId: space.userId, sharedChat: space.shared ? space.chatId : null, ...(runId ? { runId } : {}), projectFolder, logKey: space.shared ? space.logKey ?? null : null }
 }
 
 /** The git wrapper (git-guard.ts) at <base>/devenv/bin/git, written when it is missing or differs. Server-owned and
@@ -410,16 +461,24 @@ function writeGitWrapper(c: SrtConfig, platform: ReturnType<typeof runPlatform>)
   fs.renameSync(tmp, file)
 }
 
-/** A shared chat's command ended: its own home and logs go (nothing of it reaches a later command). */
+/** A shared chat's command, job or dev server ended: its own home and temp folder go (nothing of it reaches a later
+ * run). Its logs folder is the chat's for its people (sharedLogs): its output files are removed one by one, a job's log
+ * stays for the same people's next commands. */
 function dropSharedRun(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared'>, runId: string) {
   if (!space.shared) return
   const o = runOwner(space, runId)
-  for (const d of [runHome(c.base, o), runLogs(c.base, o), runTmp(c.base, o)]) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
+  for (const d of [runHome(c.base, o), runTmp(c.base, o)]) try { fs.rmSync(d, { recursive: true, force: true }) } catch {}
+}
+/** A shared chat's job or dev server row ended (jobs.ts endRun): its run's home and temp folder go. */
+export function dropRowRun(r: Pick<RunRow, 'shared_key' | 'chat_id' | 'user_id' | 'unit'>) {
+  const runId = runIdOf(r.unit)
+  if (!r.shared_key || !r.chat_id || !runId) return
+  dropSharedRun(srtConfig(), { userId: r.user_id, chatId: r.chat_id, shared: NOBODY }, runId)
 }
 
 interface RunSpec { runId: string; space: Space; cwd: string; command: string; network: 'open' | 'offline'; once: readonly string[]; limits: { cpus: number; memoryMiB: number; pids: number }; runtimeMaxSec: number; stdoutFile: string; stderrFile: string }
 
-function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'root'>, runId: string, teamRoot: string) {
+function prepare(c: SrtConfig, space: Pick<Space, 'userId' | 'chatId' | 'shared' | 'root' | 'logKey'>, runId: string, teamRoot: string) {
   const p = devenvPaths(c.base)
   for (const d of [p.root, p.run, p.home, p.logs, p.homeProject]) fs.mkdirSync(d, { recursive: true, mode: 0o700 })
   writeGitWrapper(c, runPlatform())
@@ -500,7 +559,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
-    view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
+    view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder, logKey: runOwner(space).logKey,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -522,6 +581,13 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
   const p = prepare(c, s.space, s.runId, ctx.files.fx.root)
+  // the chat's own running jobs and dev servers this run may reach on localhost (macOS: their ports in the sandbox
+  // profile; Linux: a bridge into this run's network namespace each, started below)
+  const reach = reachTargets(ctx, s.space)
+  const bridged = runPlatform() === 'darwin' ? [] : reach
+  // Linux: a bridge listens only once the run's network namespace exists; the command waits for it a moment (bash's
+  // /dev/tcp, at most 5 s per port; a program that is not bash goes on at once)
+  const command = bridged.length ? `${bridgeWait(bridged.map((t) => t.port))}${s.command}` : s.command
   // the skill folders a run never writes are there while it lives, so srt mounts them read-only (placeholders.ts),
   // before the folder access is read
   let skills: string[] = []
@@ -544,12 +610,87 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // srt's write denies in the cwd stay in force while other runs share it (placeholders.ts)
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
-    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder }),
-    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${s.command}` : s.command,
+    runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder, logKey: runOwner(s.space).logKey }),
+    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${command}` : command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
+    ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }
+    const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); bridges?.stop() }), hash, net }
   } catch (e) { release(); releaseSkills(); throw e }
+}
+
+// ---------------- a chat's own dev servers on localhost ----------------
+
+/** A running job or dev server of this chat that a run in `space` may reach on localhost, and its port there. */
+export interface ReachTarget { rowId: string; runId: string; name: string; kind: 'job' | 'server'; port: number }
+
+/** Can a later command reach the chat's own dev server here? macOS: one localhost, each run's port is its slot's
+ * (srt-mac.mjs). Linux: with the sandbox helper (port-forward and port-bridge), at the port the AI named. */
+export function reachSupported(): boolean {
+  const sys = srtConfig().system as SrtSystem & { slotOf?: unknown }
+  return runPlatform() === 'darwin' ? typeof sys.slotOf === 'function' : !!sys.forward && !!sys.bridge
+}
+
+/**
+ * The ports a run in `space` may reach (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): those of the
+ * running jobs and dev servers of the same chat and folder, and only those whose view is this run's:
+ *  - a person's own chat: the person's own rows that are not a shared chat's, with the access hash of a run here now
+ *    (a run whose view is wider than this one's, from before the person's access narrowed, is never reached; the
+ *    tracker stops it);
+ *  - a shared chat: the chat's rows of the same people and view (shared_key), whoever started them.
+ * macOS: the port of the row's slot (a slot that went to another run has no state for this run any more). Linux: the
+ * port the AI named for the dev server. Nothing else on localhost: not the server's ports, not another chat's runs.
+ */
+export function reachTargets(ctx: AppContext, space: Space): ReachTarget[] {
+  if (!space.chatId || !reachSupported()) return []
+  const rows = openRuns(ctx.db, 'running').filter((r) => r.chat_id === space.chatId && r.root === space.root && r.unit)
+  if (!rows.length) return []
+  let mine: (r: RunRow) => boolean
+  if (space.shared) {
+    // the same people and view (the key, which counts reads and writes alike) and the same access hash as a run of this
+    // person here now: a person who may only read the project never drives the dev server of one who may write it
+    // (security review of #1336)
+    const key = sharedLogKey(ctx, space), h = accessHash(ctx, space)
+    if (!key || h === 'off') return []
+    mine = (r) => r.shared_key === key && r.access === h
+  } else {
+    const h = accessHash(ctx, space)
+    if (h === 'off') return []
+    mine = (r) => !r.shared_key && r.user_id === space.userId && r.access === h
+  }
+  const sys = srtConfig().system as SrtSystem & { slotOf?: (id: string) => { port: number } | null }
+  const mac = runPlatform() === 'darwin'
+  const out: ReachTarget[] = []
+  for (const r of rows) {
+    if (!mine(r)) continue
+    const runId = runIdOf(r.unit)
+    const port = mac ? sys.slotOf?.(runId)?.port ?? null : r.port
+    if (!runId || !port || previewPortProblem(port) || out.some((t) => t.port === port)) continue
+    out.push({ rowId: r.id, runId, name: r.name, kind: r.kind, port })
+  }
+  return out.slice(0, 8)
+}
+
+/** Linux: the start of a command that waits until the bridges listen (each port at most 5 s). bash only. */
+export const bridgeWait = (ports: readonly number[]) =>
+  `if [ -n "$BASH_VERSION" ]; then for __p in ${ports.filter((p) => Number.isInteger(p) && p > 0 && p < 65536).join(' ')}; do for __i in $(seq 50); do (: </dev/tcp/127.0.0.1/$__p) 2>/dev/null && break; sleep 0.1; done; done; unset __p __i; fi; `
+
+/** Linux: start a bridge into run `runId` for each target, through the target's forwarder. Stopped when the run ends. */
+function startBridges(ctx: AppContext, c: SrtConfig, runId: string, targets: readonly ReachTarget[]): { stop(): void } {
+  const live: Forwarder[] = []
+  let stopped = false
+  void (async () => {
+    for (const t of targets) {
+      if (stopped || !c.system.bridge) return
+      const f = await forwarderFor(c, t.runId, t.port)
+      if ('error' in f) { ctx.log?.warn?.('devenv: no forwarder for a bridge', { error: f.error }); continue }
+      const b = await c.system.bridge({ runId, port: t.port, socket: f.socket }).catch((e) => ({ error: String((e as Error).message ?? e) }))
+      if ('error' in b) { ctx.log?.warn?.('devenv: bridge did not start', { error: b.error }); continue }
+      if (stopped) b.stop(); else live.push(b)
+    }
+  })()
+  return { stop: () => { stopped = true; for (const b of live) b.stop() } }
 }
 
 function readHead(file: string, max: number): { text: string; cut: boolean } {
@@ -702,6 +843,10 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
   const slot = commandSlotFree(ctx)
   if (!slot.ok) return slot
   return withRootLock(o.space.root, async () => {
+    // a shared chat: the logs folder of who sees it now (sharedLogKey); they cannot be loaded: no run
+    const space = keyed(ctx, o.space)
+    if (!space) return { ok: false as const, message: 'the person cannot use the dev environment now' }
+    o = { ...o, space }
     const runId = newRunId()
     const p = prepare(c, o.space, runId, ctx.files.fx.root)
     const out = path.join(p.personLogs, `cmd-${runId}.out`), err = path.join(p.personLogs, `cmd-${runId}.err`), exitFile = path.join(p.personLogs, `${runId}.exit`)
@@ -745,19 +890,31 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
 
 // ---------------- jobs and dev servers (rows) ----------------
 
-export interface RunRow { id: string; user_id: string; chat_id: string | null; project_id: string | null; turn_id: string | null; name: string; command: string; root: string; cwd: string; started_at: string; run_at: string | null; state: 'waiting' | 'running' | 'ended'; kind: 'job' | 'server'; unit: string; access: string; last_line: string; log_tail: string; once_domains: string; net: string }
-export const RCOLS = 'id, user_id, chat_id, project_id, turn_id, name, command, root, cwd, started_at, run_at, state, kind, unit, access, last_line, log_tail, once_domains, net'
+export interface RunRow { id: string; user_id: string; chat_id: string | null; project_id: string | null; turn_id: string | null; name: string; command: string; root: string; cwd: string; started_at: string; run_at: string | null; state: 'waiting' | 'running' | 'ended'; kind: 'job' | 'server'; unit: string; access: string; last_line: string; log_tail: string; once_domains: string; net: string
+  /** '' for a person's own chat; a shared chat's run: the key of its people and view (sharedLogKey, migration 421) */
+  shared_key: string
+  /** the port the AI named for a dev server, or null */
+  port: number | null }
+export const RCOLS = 'id, user_id, chat_id, project_id, turn_id, name, command, root, cwd, started_at, run_at, state, kind, unit, access, last_line, log_tail, once_domains, net, shared_key, port'
 
 const openRuns = (db: Database, state: 'waiting' | 'running', kind?: 'job' | 'server') =>
   db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE ended_at IS NULL AND state = ? ${kind ? 'AND kind = ?' : ''} ORDER BY started_at, id`).all(...(kind ? [state, kind] : [state])) as RunRow[]
-const spaceOfRow = (r: RunRow): Space => ({ userId: r.user_id, chatId: r.chat_id, projectId: r.project_id, root: r.root })
+/** The space of a row: a shared chat's with who sees that chat now (sharedResolver), read again for every check */
+const spaceOfRow = (ctx: AppContext, r: RunRow): Space => ({ userId: r.user_id, chatId: r.chat_id, projectId: r.project_id, root: r.root,
+  ...(r.shared_key ? { shared: sharedOfChat(ctx, r.chat_id), logKey: r.shared_key } : {}) })
 
 const runIdOf = runIdOfUnit
-const logFile = (c: SrtConfig, userId: string, name: string) => path.join(personLogs(c.base, userId), `${name}.log`)
+/** the logs folder of a row: the person's, or a shared chat's for the row's people (sharedLogs) */
+const rowLogs = (c: SrtConfig, r: Pick<RunRow, 'user_id' | 'chat_id' | 'shared_key'>) => (r.shared_key && r.chat_id ? sharedLogs(c.base, r.chat_id, r.shared_key) : personLogs(c.base, r.user_id))
+const logFile = (c: SrtConfig, r: Pick<RunRow, 'user_id' | 'chat_id' | 'shared_key' | 'name'>) => path.join(rowLogs(c, r), `${r.name}.log`)
 
-/** Does a job or dev server with this log name still run or wait for this person? (The log is per person.) */
-export const runNameInUse = (db: Database, userId: string, name: string) =>
-  !!db.query('SELECT 1 FROM dev_env_runs WHERE user_id = ? AND name = ? AND ended_at IS NULL').get(userId, name)
+/** Does a job or dev server with this log name still run or wait in this log folder? (A person's log is per person; a
+ * shared chat's per chat and key.) */
+export function runNameInUse(ctx: AppContext, space: Space, name: string): boolean {
+  if (!space.shared) return !!ctx.db.query("SELECT 1 FROM dev_env_runs WHERE user_id = ? AND name = ? AND shared_key = '' AND ended_at IS NULL").get(space.userId, name)
+  const key = sharedLogKey(ctx, space)
+  return !key || !!ctx.db.query('SELECT 1 FROM dev_env_runs WHERE chat_id = ? AND name = ? AND shared_key = ? AND ended_at IS NULL').get(space.chatId, name, key)
+}
 
 export type SubmitResult = { ok: true; state: 'running' | 'waiting'; position: number | null; rowId: string } | { ok: false; message: string }
 
@@ -774,28 +931,47 @@ function takeCommand(c: SrtConfig, rowId: string): string | null {
   try { const t = fs.readFileSync(f, 'utf8'); rm(f); return t } catch { return null }
 }
 
-interface NewRow { space: Space; name: string; turnId: string; command: string; shown: string; cwd: string; once?: readonly string[] }
-function insertRow(ctx: AppContext, j: NewRow, kind: 'job' | 'server'): string {
+interface NewRow { space: Space; name: string; turnId: string; command: string; shown: string; cwd: string; once?: readonly string[]
+  /** a dev server: the port the AI named */
+  port?: number }
+function insertRow(ctx: AppContext, j: NewRow, kind: 'job' | 'server', shared: { access: string; key: string } | null): string {
   const id = newId()
   keepCommand(id, j.command)
   // the once-allowed sites go with the row: a waiting job builds its settings later, outside the turn
-  ctx.db.query('INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ai_told_at, once_domains) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, j.space.userId, j.space.chatId, j.space.projectId, j.turnId, kind, j.name, j.shown.slice(0, 500), j.space.root, j.cwd, 'waiting', new Date().toISOString(), kind === 'server' ? new Date().toISOString() : null, formatOnce(j.once ?? []))
+  ctx.db.query('INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, ai_told_at, once_domains, access, shared_key, port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, j.space.userId, j.space.chatId, j.space.projectId, j.turnId, kind, j.name, j.shown.slice(0, 500), j.space.root, j.cwd, 'waiting', new Date().toISOString(), kind === 'server' ? new Date().toISOString() : null, formatOnce(j.once ?? []),
+      shared?.access ?? '', shared?.key ?? '', kind === 'server' && j.port ? j.port : null)
   return id
 }
 
-/** A shared chat runs foreground commands only: a job's or dev server's row, log and notice are the person's. */
-export const SHARED_NO_BACKGROUND = 'jobs and dev servers do not run in a shared chat'
+/**
+ * A shared chat's job or dev server is asked for (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): what it
+ * may read joins this answer's record with who sees the chat now, as for a command, and the row keeps the access hash
+ * and the key of those people and their view. The run starts only while they are the same (startRow), and the tracker
+ * stops it when they change. A shared chat's work folder for other people than now: refused.
+ */
+function sharedRowStart(ctx: AppContext, space: Space): { ok: true; access: string; key: string } | { ok: false; message: string } {
+  const c = srtConfig()
+  let run: RunWrites
+  try { run = runWrites(ctx, c, space) } catch (e) { return { ok: false, message: (e as Error).message } }
+  const scope = sharedScopeNow(ctx, space.shared!)
+  if (run.start === null && (!scope || space.root !== sharedWorkOf(ctx, space.chatId!, space.userId, space.shared!, scope))) return { ok: false, message: 'the people of this chat changed; run the command again' }
+  try { noteSharedRun(ctx, space, run, scope) } catch (e) { return { ok: false, message: (e as Error).message } }
+  const access = accessHash(ctx, space), key = sharedLogKey(ctx, space)
+  if (access === 'off' || !key) return { ok: false, message: 'the person cannot use the dev environment now' }
+  return { ok: true, access, key }
+}
 
 /** Start a job, or put it in the queue. `shown` is the command with secrets hidden: the text of the row. */
 export async function submitJob(ctx: AppContext, j: NewRow): Promise<SubmitResult> {
-  if (j.space.shared) return { ok: false, message: SHARED_NO_BACKGROUND }
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
   const waiting = withoutTickets(ctx.db, openRuns(ctx.db, 'waiting'))
   if (waiting.filter((r) => r.user_id === j.space.userId).length >= MAX_WAITING_PER_PERSON) return { ok: false, message: `queue full: ${MAX_WAITING_PER_PERSON} of your jobs wait already. Wait for one to start, or stop one.` }
   if (waiting.length >= MAX_WAITING_SERVER) return { ok: false, message: `queue full: ${MAX_WAITING_SERVER} jobs wait on this server. Try again later.` }
-  const id = insertRow(ctx, j, 'job')
+  const shared = j.space.shared ? sharedRowStart(ctx, j.space) : null
+  if (shared && !shared.ok) return shared
+  const id = insertRow(ctx, j, 'job', shared)
   await startWaiting(ctx)
   const row = ctx.db.query('SELECT state, ended_at, end_note FROM dev_env_runs WHERE id = ?').get(id) as { state: string; ended_at: string | null; end_note: string }
   if (row.ended_at) return { ok: false, message: row.end_note || 'the job could not start' }
@@ -814,21 +990,27 @@ function oneStart<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** Start a dev server now, or refuse (no queue). */
-export function startServer(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
+export function startServer(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string; port: number | null } | { ok: false; message: string }> {
   return oneStart(() => startServerNow(ctx, j))
 }
-async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string } | { ok: false; message: string }> {
-  if (j.space.shared) return { ok: false, message: SHARED_NO_BACKGROUND }
+async function startServerNow(ctx: AppContext, j: NewRow): Promise<{ ok: true; rowId: string; port: number | null } | { ok: false; message: string }> {
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
   const servers = openRuns(ctx.db, 'running', 'server')
   const mine = servers.filter((r) => (j.space.chatId ? r.chat_id === j.space.chatId : r.root === j.space.root))
   if (mine.length) return { ok: false, message: `a dev server runs in this chat already (${mine.map((r) => r.name).join(', ')}). Stop it first (the dev environment list, or ask the person).` }
   if (servers.length >= lim.l.maxRunning) return { ok: false, message: `${PREVIEW_FULL} (${servers.length} dev servers run on this server, the most it allows.)` }
-  const id = insertRow(ctx, j, 'server')
+  const shared = j.space.shared ? sharedRowStart(ctx, j.space) : null
+  if (shared && !shared.ok) return shared
+  const id = insertRow(ctx, j, 'server', shared)
   const row = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ?`).get(id) as RunRow
   const r = await startRow(ctx, row)
-  return r.ok ? { ok: true, rowId: id } : r
+  if (!r.ok) return r
+  // where a later command of this chat reaches it: macOS the run's own port ($PORT), Linux the port the AI named
+  const unit = (ctx.db.query('SELECT unit FROM dev_env_runs WHERE id = ?').get(id) as { unit: string } | null)?.unit ?? ''
+  const sys = srtConfig().system as SrtSystem & { slotOf?: (id: string) => { port: number } | null }
+  const port = !reachSupported() ? null : runPlatform() === 'darwin' ? sys.slotOf?.(runIdOf(unit))?.port ?? null : j.port ?? null
+  return { ok: true, rowId: id, port }
 }
 
 async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -845,8 +1027,18 @@ async function startRow(ctx: AppContext, row: RunRow): Promise<{ ok: true } | { 
   const command = takeCommand(c, row.id)
   if (command === null) { endRow(ctx, row.id, { code: null, reason: 'lost', tail: '', lastLine: '' }); return { ok: false, message: 'the command of this job is gone' } }
   const runId = newRunId()
-  const log = logFile(c, row.user_id, row.name)
-  const space = spaceOfRow(row)
+  const log = logFile(c, row)
+  let space = spaceOfRow(ctx, row)
+  if (row.shared_key) {
+    // a shared chat's job: its reads were recorded with the people who saw the chat when it was asked for (submitJob);
+    // it starts only while they and their view are still those (it may have waited in the queue)
+    if (accessHash(ctx, space) !== row.access || sharedLogKey(ctx, space) !== row.shared_key) {
+      takeCommand(c, row.id)
+      endRow(ctx, row.id, { code: null, reason: 'setting', tail: '', lastLine: '' })
+      return { ok: false, message: 'the people of this chat or their access changed; run it again' }
+    }
+    space = { ...space, shared: { ...space.shared!, noteReads: () => true } }
+  }
   prepare(c, space, runId, ctx.files.fx.root)
   rm(log)
   // from the view's making (spawnRun) until the row says running, the run counts as alive: a folder share added in
@@ -920,10 +1112,10 @@ export const PREVIEW_FULL = 'Preview is full. Close another preview or wait.'
 /** What the tracker reads for one running row: still running, or ended with a code and a reason. */
 async function rowStatus(c: SrtConfig, r: RunRow): Promise<{ running: true; tail: string } | { running: false; code: number | null; reason: EndReason; tail: string }> {
   const runId = runIdOf(r.unit)
-  const log = logFile(c, r.user_id, r.name)
+  const log = logFile(c, r)
   const tail = readTail(log, TAIL_BYTES)
   if (!runId) return { running: false, code: null, reason: 'lost', tail }
-  const exitFile = path.join(personLogs(c.base, r.user_id), `${runId}.exit`)
+  const exitFile = path.join(rowLogs(c, r), `${runId}.exit`)
   const code = readExit(exitFile)
   const a = active.get(runId)
   if (code !== null) {
@@ -972,8 +1164,9 @@ export async function pollRuns(ctx: AppContext, filter?: { chatId?: string; user
     if (filter?.chatId && r.chat_id !== filter.chatId) continue
     if (filter?.userId && r.user_id !== filter.userId) continue
     // the run's access: built again each poll, once per person and starting folder
-    const key = `${r.user_id}\0${r.root}`
-    if (!hashes.has(key)) hashes.set(key, accessHash(ctx, spaceOfRow(r)))
+    // a shared chat's row: its own key (the view depends on who sees that chat)
+    const key = `${r.shared_key ? `row\0${r.chat_id}\0` : ''}${r.user_id}\0${r.root}`
+    if (!hashes.has(key)) hashes.set(key, accessHash(ctx, spaceOfRow(ctx, r)))
     if (r.access && hashes.get(key) !== r.access) { await stopRow(ctx, r, 'setting'); continue }
     // the network got narrower (the person removed a site, turned Full internet off; the team removed a site): stop it.
     // A row from an older build has no snapshot and is not checked
@@ -1024,8 +1217,8 @@ async function stopRow(ctx: AppContext, r: RunRow, reason: EndReason) {
   const a = active.get(runId)
   if (a) a.stopReason = reason
   if (runId) await c.system.stop(runId, a?.pid)
-  const tail = readTail(logFile(c, r.user_id, r.name), TAIL_BYTES)
-  rm(path.join(personLogs(c.base, r.user_id), `${runId}.exit`))
+  const tail = readTail(logFile(c, r), TAIL_BYTES)
+  rm(path.join(rowLogs(c, r), `${runId}.exit`))
   endRow(ctx, r.id, { code: null, reason, tail, lastLine: lastLine(tail) })
   active.delete(runId); idleSince.delete(runId); closeForwarders(runId)
 }
@@ -1095,7 +1288,10 @@ export async function runsOf(ctx: AppContext, filter: { projectId: string } | { 
   const out: DevEnvRun[] = []
   for (const r of running) {
     const u = await c.system.unit(runIdOf(r.unit))
-    out.push({ id: r.id, kind: r.kind, name: r.name, by: ref(r.user_id), startedAt: r.started_at, runAt: r.run_at, position: null, memoryMiB: u.memoryBytes === null ? null : Math.round(u.memoryBytes / 1048576), lastLine: r.last_line, chatId: chatOf(r.user_id, r.chat_id), projectId: r.project_id })
+    // a shared chat's run: its log line only to the person who started it (the project page may have other readers
+    // than the chat; the chat's people get its results in the chat)
+    const line = r.shared_key && !('userId' in filter && filter.userId === r.user_id) ? '' : r.last_line
+    out.push({ id: r.id, kind: r.kind, name: r.name, by: ref(r.user_id), startedAt: r.started_at, runAt: r.run_at, position: null, memoryMiB: u.memoryBytes === null ? null : Math.round(u.memoryBytes / 1048576), lastLine: line, chatId: chatOf(r.user_id, r.chat_id), projectId: r.project_id })
   }
   for (const a of commands) out.push({ id: a.runId, kind: 'command', name: a.command.slice(0, 80), by: ref(a.space.userId), startedAt: a.startedAt, runAt: a.startedAt, position: null, memoryMiB: null, lastLine: '', chatId: chatOf(a.space.userId, a.space.chatId), projectId: a.space.projectId })
   // a command's ticket shows as a waiting command; the place in line follows the start order (queue.ts)
@@ -1129,14 +1325,39 @@ const sockName = (key: string) => key.replace(':', '-') + '.sock'
 /** this server can serve previews: a system with port-forward (systemd scopes and the sandbox helper) */
 export const previewSupported = () => !!srtConfig().system.forward
 
-/** The open dev server row of a preview link, or null: the row must be open, running, a dev server, of this person,
- * and still the same run (its unit). */
+/** The open dev server row of a preview link, or null: the row must be open, running, a dev server, and still the same
+ * run (its unit). A person's own chat: only the person who started it (the run has that person's folder access). A
+ * shared chat's (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): everyone who sees that chat now and
+ * whose own run there would have the row's key and access hash now (sharedPreviewer: the same view and the same writes),
+ * and the person who started it may still use the dev environment. */
 export function previewRow(ctx: AppContext, o: { rowId: string; runId?: string; userId: string }): RunRow | null {
   const r = ctx.db.query(`SELECT ${RCOLS} FROM dev_env_runs WHERE id = ? AND ended_at IS NULL`).get(o.rowId) as RunRow | null
-  if (!r || r.kind !== 'server' || r.state !== 'running' || r.user_id !== o.userId) return null
+  if (!r || r.kind !== 'server' || r.state !== 'running') return null
+  if (r.shared_key ? !sharedPreviewer(ctx, r, o.userId) : r.user_id !== o.userId) return null
   const runId = runIdOf(r.unit)
   if (!runId || (o.runId !== undefined && runId !== o.runId)) return null
   return r
+}
+
+/** A shared chat's dev server and a viewer: in the chat now, and a run of the viewer there would have the row's key and
+ * access hash (the same people and view, and the same writes: a reader never drives a writer's dev server; a guest
+ * only when they pass the same check). Fails closed. */
+function sharedPreviewer(ctx: AppContext, r: RunRow, userId: string): boolean {
+  try {
+    const shared = sharedOfChat(ctx, r.chat_id)
+    if (!shared.audience().includes(userId)) return false
+    const space: Space = { userId, chatId: r.chat_id, projectId: r.project_id, root: r.root, shared }
+    const h = accessHash(ctx, space)
+    return h !== 'off' && h === r.access && sharedLogKey(ctx, space) === r.shared_key
+  } catch { return false }
+}
+
+/** May `userId` open (or keep using) a preview of this dev server now? previewRow, and the dev environment allowed for
+ * the person whose run it is: the viewer on a person's own dev server, its starter on a shared chat's. */
+export function previewAllowed(ctx: AppContext, o: { rowId: string; runId?: string; userId: string }): RunRow | null {
+  const r = previewRow(ctx, o)
+  if (!r) return null
+  try { return mayUseDevEnv(ctx.db, ctx.files, r.shared_key ? r.user_id : o.userId) ? r : null } catch { return null }
 }
 
 /** The unix socket that reaches a port of a running dev server (row rowId), for the preview gateway. The run comes from
@@ -1146,22 +1367,29 @@ export async function previewSocket(ctx: AppContext, o: { rowId: string; runId: 
   const c = srtConfig()
   if (previewPortProblem(o.port)) return { ok: false, message: previewPortProblem(o.port)! }
   if (!c.system.forward) return { ok: false, message: 'this server has no preview (no systemd scopes)' }
-  if (!previewRow(ctx, o)) return { ok: false, message: 'the dev server is not running' }
+  if (!previewAllowed(ctx, o)) return { ok: false, message: 'the dev server is not running' }
   lastPreview.set(o.runId, Date.now())
-  const key = `${o.runId}:${o.port}`
+  const f = await forwarderFor(c, o.runId, o.port)
+  return 'error' in f ? { ok: false, message: f.error } : { ok: true, socket: f.socket }
+}
+
+/** The forwarder of a run's port (one per run and port; it ends with the run or this process). */
+async function forwarderFor(c: SrtConfig, runId: string, port: number): Promise<Forwarder | { error: string }> {
+  if (!c.system.forward) return { error: 'this server has no preview (no systemd scopes)' }
+  const key = `${runId}:${port}`
   let start = forwarders.get(key)
   if (start) {
     const f = await start
     if ('error' in f) forwarders.delete(key)
-    else return { ok: true, socket: f.socket }
+    else return f
   }
   const socket = path.join(devenvPaths(c.base).run, sockName(key))
-  start = c.system.forward({ runId: o.runId, port: o.port, socket }).catch((e) => ({ error: String((e as Error).message ?? e).slice(0, 300) }))
+  start = c.system.forward({ runId, port, socket }).catch((e) => ({ error: String((e as Error).message ?? e).slice(0, 300) }))
   forwarders.set(key, start)
   const f = await start
-  if ('error' in f) { if (forwarders.get(key) === start) forwarders.delete(key); return { ok: false, message: f.error } }
+  if ('error' in f) { if (forwarders.get(key) === start) forwarders.delete(key); return f }
   void f.exited.then(() => { if (forwarders.get(key) === start) forwarders.delete(key); rm(socket) })
-  return { ok: true, socket: f.socket }
+  return f
 }
 
 /** Stop the preview forwarders of a run (it ended or stopped). */

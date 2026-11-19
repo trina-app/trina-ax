@@ -72,3 +72,28 @@ export function slimSession(bytes: Buffer, at = SESSION_SLIM_AT, to = SESSION_SL
   }
   return n.removed ? { bytes: Buffer.from(lines.join('\n'), 'utf8'), removed: n.removed } : { bytes, removed: 0 }
 }
+
+/**
+ * The pictures a saved session carries into the next request, each once: the image blocks of its messages (base64
+ * characters and how many), not the copies Claude Code keeps beside them (toolUseResult). A resumed session sends all
+ * of them again with every request (files/vision.ts turnImageCaps counts them against the turn's caps).
+ */
+export function sessionPictures(bytes: Buffer): { count: number; bytes: number } {
+  const out = { count: 0, bytes: 0 }
+  if (!bytes.includes('"image"')) return out
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) { for (const x of v) walk(x); return }
+    if (!v || typeof v !== 'object') return
+    const o = v as Record<string, unknown>
+    if (o.type === 'image') {
+      const d = (o.source as { data?: unknown } | undefined)?.data ?? o.data
+      if (typeof d === 'string') { out.count++; out.bytes += d.length; return }
+    }
+    for (const x of Object.values(o)) walk(x)
+  }
+  for (const line of bytes.toString('utf8').split('\n')) {
+    if (!line.includes('"image"')) continue
+    try { walk((JSON.parse(line) as { message?: unknown }).message) } catch {}
+  }
+  return out
+}

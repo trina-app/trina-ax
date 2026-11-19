@@ -85,10 +85,13 @@ export function missingLocalTools(cfg: Pick<TranscribeConfig, 'whisperBin' | 'ff
 /** Voice input recordings must come as WAV: the server has no ffmpeg and decodes with macOS's programs, which do not
  * open the webm/opus browsers record (Me.team.voiceInputWav). */
 export const wantsWavRecordings = (cfg: Pick<TranscribeConfig, 'ffmpegBin' | 'mac'>): boolean => !cfg.ffmpegBin && !!cfg.mac
-/** 'local' works here with nothing to install or turn on: an Apple silicon Mac with whisper-cli (the office zip's) and
- * macOS's decoders. Such a server's voice input reads 'local' while no admin chose a provider (admin/settings.ts
+/** 'local' works here with nothing to install or turn on, and the machine is meant for it: an Apple silicon Mac with
+ * whisper-cli (the office zip's) and macOS's decoders, or any server with whisper-cli and ffmpeg (the Linux kit and the
+ * Docker image carry both) that has at least 4 CPU cores and 8 GB (`bigEnough`: shared localSpeechBigEnough; the owner,
+ * 2026-11-19). Such a server's voice input reads 'local' while no admin chose a provider (admin/settings.ts
  * setLocalSpeechReady, main.ts). */
-export const localSpeechReady = (cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin' | 'mac'>): boolean => !!cfg.mac && !!cfg.whisperBin
+export const localSpeechReady = (cfg: Pick<TranscribeConfig, 'whisperBin' | 'ffmpegBin' | 'mac'>, bigEnough = false): boolean =>
+  !!cfg.whisperBin && (!!cfg.mac || (!!cfg.ffmpegBin && bigEnough))
 
 export function transcribeConfig(dataDir: string, env: Record<string, string | undefined> = process.env): TranscribeConfig {
   const m = env.MYCEL_WHISPER_MODEL as WhisperModel | undefined

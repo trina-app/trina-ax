@@ -14,7 +14,8 @@ import { runIdOfUnit } from '../devenv/srt/config'
 import { devEnvFlag, mayUseDevEnv, newConsent, oldTeamOffer, saveTeamSetting, teamInForce, teamSetting } from '../devenv/setting'
 import { DEV_ENV_DEFAULT_DOMAINS, DEV_ENV_FULL_WARNING_VERSION, DEV_ENV_MAX_EXTRA_DOMAINS, DEV_ENV_MAX_USER_SITES, cleanExtraDomains, extraDomainProblem } from '@mycel/shared'
 import { fullInternet, removeUserSite, setFullInternet, userSites } from '../devenv/sites'
-import { findRun, fullAvailable, networkNow, planState, previewPortProblem, previewRow, previewSupported, runsOf, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
+import { findRun, fullAvailable, networkNow, planState, previewAllowed, previewPortProblem, previewSupported, runsOf, setSharedResolver, srtProblem, stopAll, stopRun, stopWhere, teamHosts } from '../devenv/srt/runner'
+import { sharedChatResolver } from '../devenv/shared-chat'
 import { pollSrt, startJobTracker } from '../devenv/jobs'
 import { issuePreview, startPreviewGateway } from '../devenv/preview'
 import { devEnvMsg, siteProblemMessage } from '../devenv/messages'
@@ -39,6 +40,8 @@ export const devEnvRoutes: RouteModule = {
     if (g) ctx.onClose(() => g.stop())
   },
   register(kit, ctx: AppContext) {
+    // a shared chat's jobs and dev servers: the tracker reads who sees the chat from the chat (devenv/shared-chat.ts)
+    setSharedResolver(sharedChatResolver)
     const project = (id: string, userId: string) => {
       if (!devEnvFlag()) fail('not_found')
       let p: Principal
@@ -108,12 +111,12 @@ export const devEnvRoutes: RouteModule = {
       audit(ctx.db, { actor: auth.user.id, action: 'dev_env.stop', target: null, detail: { run: params.runId, runner: 'srt' } })
       return mine(auth.user.id)
     })
-    // a preview link to a port of the caller's own running dev server (devenv/preview.ts). Only the person who started
-    // it: the run has that person's folder access, so nobody else may see what it serves
+    // a preview link to a port of a running dev server (devenv/preview.ts). A person's own chat: only the person who
+    // started it (the run has that person's folder access, so nobody else may see what it serves). A shared chat's:
+    // everyone who sees that chat now (its run sees only what all of them may open; runner.ts previewAllowed)
     kit.handle(API.previewMyDevEnvRun, async ({ c, params, body, auth }) => {
       await mine(auth.user.id)
-      if (!mayUseDevEnv(ctx.db, ctx.files, auth.user.id)) fail('forbidden')
-      const row = previewRow(ctx, { rowId: params.runId, userId: auth.user.id })
+      const row = previewAllowed(ctx, { rowId: params.runId, userId: auth.user.id })
       if (!row) fail('not_found', 'The dev server is not running. Ask the AI to start it again.', { params: { reason: 'dev_env_preview_not_running' } })
       const why = previewPortProblem(body.port)
       if (why) fail('validation', `Port ${body.port}: ${why}.`, { params: { reason: 'dev_env_preview_port' } })

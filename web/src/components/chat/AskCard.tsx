@@ -12,7 +12,7 @@
 import clsx from 'clsx'
 import { Globe, MessageCircleQuestion, ShieldAlert } from 'lucide-react'
 import { type ReactNode, useContext, useEffect, useId, useRef, useState } from 'react'
-import { errorText } from '../../lib/api'
+import { api, API, errorText } from '../../lib/api'
 import { BoxAnswers, forgetPicks, rememberPicks } from '../../lib/askAnswer'
 import { useFolderWords } from '../../lib/folderLabels'
 import { issueText } from '../../lib/skillIssues'
@@ -29,9 +29,12 @@ import { SecretWarning, useSecretHold } from './SecretWarning'
 import { ShareAskRows } from './ShareCard'
 import { Markdown } from '../LazyMarkdown'
 
+/** a card's turn and id: where a folded detail's whole text is read (GET /api/turns/:id/requests/:requestId/details/:index) */
+type FullAt = { turnId: string; requestId: string }
+
 type AnswerBody = Parameters<ReturnType<typeof useChats.getState>['answer']>[1]
 
-export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'>; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
+export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'request'> & { turnId?: string }; onAnswer?: (requestId: string, body: AnswerBody) => Promise<void> }) {
   const t = useT()
   const locale = useLocale()
   const storeAnswer = useChats((s) => s.answer)
@@ -47,6 +50,8 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
   const secret = useSecretHold(text)
   const textRef = useRef<HTMLTextAreaElement>(null)
   const r = req.request
+  /** where a long detail's whole text is read (ConfirmDetail.fullChars): the card's own turn */
+  const full = req.turnId ? { turnId: req.turnId, requestId: r.requestId } : null
   const boxAnswers = useContext(BoxAnswers)
   useEffect(() => rememberPicks(r.requestId, picked), [r.requestId, picked])
   useEffect(() => () => forgetPicks(r.requestId), [r.requestId])
@@ -152,7 +157,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
           </p>
         )}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {!r.share && r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain full={full} /> : null}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           {error && <span role="alert" className="mr-auto text-xs text-danger">{error}</span>}
           <Button size="sm" variant="ghost" disabled={busy} busy={busy && picked[0] === no.value} onClick={() => pick(no.value)} data-testid="ask-no">
@@ -186,7 +191,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         )}
         {/* a project skill whose name is taken elsewhere: another name, or the one that runs (docs/DECISIONS.md "Project skills") */}
         {r.preview && <div className="mt-2.5"><SkillPreview p={r.preview} /></div>}
-        {!r.share && r.details?.length ? <Details items={r.details} plain /> : null}
+        {!r.share && r.details?.length ? <Details items={r.details} plain full={full} /> : null}
         <ChoiceRow
           className="mt-3"
           busy={busy}
@@ -221,7 +226,7 @@ export default function AskCard({ req, onAnswer }: { req: Pick<OpenRequest, 'req
         <fieldset className="space-y-2">
           <legend className="mb-2.5 whitespace-pre-wrap text-sm font-medium [overflow-wrap:anywhere]">{r.question}</legend>
           {fromServer && r.preview && <SkillPreview p={r.preview} />}
-          {fromServer && r.details?.length ? <Details items={r.details} /> : null}
+          {fromServer && r.details?.length ? <Details items={r.details} full={full} /> : null}
           {options.length > 0 && (
             <div className="flex flex-col gap-1.5">
               {options.map((o) => (
@@ -433,7 +438,7 @@ function SkillDiff({ lines }: { lines: string[] }) {
  * the fields too. `plain` (a yes/no card): no boxes, the fields as name–value lines and the text under its label with a
  * rule beside it. `exact` (a connected service's call, docs/DECISIONS.md "Plain words in errors, cards and steps"): the
  * fields already show every value, so the text (its exact JSON) is one click away, "보내는 내용 그대로 보기". */
-function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) {
+function Details({ items, plain, full }: { items: ConfirmDetail[]; plain?: boolean; full?: FullAt | null }) {
   const t = useT()
   if (plain)
     return (
@@ -466,10 +471,10 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                 <div>
                   <p className="flex items-baseline gap-2 text-xs text-faint">
                     <span className="min-w-0 flex-1">{d.label}</span>
-                    {!d.noSize && !d.markdown && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.text.length })}</span>}
+                    {!d.noSize && !d.markdown && <span data-testid="ask-detail-size">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
                   </p>
                   <div className="mt-1 border-l-2 border-line">
-                    <DetailText d={d} plain />
+                    <DetailText d={d} plain full={full && { ...full, index: i }} />
                   </div>
                 </div>
               </Exact>
@@ -486,7 +491,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
             <span className="min-w-0 flex-1 font-medium">{d.label}</span>
             {d.text && !d.noSize && !d.markdown && (
               <span className="text-faint" data-testid="ask-detail-size">
-                {t('ask.detailSize', { n: d.text.length })}
+                {t('ask.detailSize', { n: d.fullChars ?? d.text.length })}
               </span>
             )}
           </div>
@@ -511,7 +516,7 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
             </div>
           ) : null}
           {/* a detail of named fields only (a room change card's rename: the file and its new name) has no text */}
-          {d.text && <Exact d={d}><DetailText d={d} /></Exact>}
+          {d.text && <Exact d={d}><DetailText d={d} full={full && { ...full, index: i }} /></Exact>}
         </div>
       ))}
     </div>
@@ -545,7 +550,7 @@ function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chil
       >
         <span>{open ? t('ask.exactHide') : t('ask.exactShow')}</span>
         {/* open, the size shows beside the text's label (once) */}
-        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.text.length })}</span>}
+        {!open && !d.noSize && <span className="font-normal text-faint">{t('ask.detailSize', { n: d.fullChars ?? d.text.length })}</span>}
       </button>
       {open && <div className={plain ? 'mt-1' : 'border-t border-line'}>{children}</div>}
     </div>
@@ -555,11 +560,26 @@ function Exact({ d, plain, children }: { d: ConfirmDetail; plain?: boolean; chil
 /** A detail's text: all of it, or with `collapsedAt` its start and the rest one click away (a room change card's
  * preview of what a call writes; the size above always counts all of it). `markdown` (a message as the room will show
  * it: post_to_room's card) is formatted with the chat's renderer, in the same scrolling box. */
-function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
+function DetailText({ d, plain, full }: { d: ConfirmDetail; plain?: boolean; full?: (FullAt & { index: number }) | null }) {
   const t = useT()
+  const locale = useLocale()
   const [open, setOpen] = useState(false)
-  const long = d.collapsedAt !== undefined && d.text.length > d.collapsedAt
-  const text = long && !open ? `${d.text.slice(0, d.collapsedAt).trimEnd()}…` : d.text
+  /** the whole text of a detail the card carries only the start of (fullChars), read when "Show all" is pressed */
+  const [whole, setWhole] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const more = !!d.fullChars && d.fullChars > d.text.length
+  const long = (d.collapsedAt !== undefined && d.text.length > d.collapsedAt) || more
+  const all = whole ?? d.text
+  const text = long && !open ? `${d.text.slice(0, d.collapsedAt ?? d.text.length).trimEnd()}…` : more && !whole ? `${all}…` : all
+  const toggle = async () => {
+    if (open || !more || whole !== null || !full) { setOpen((v) => !v); return }
+    setLoading(true)
+    try {
+      const r = await api.call(API.turnRequestDetail, { params: { id: full.turnId, requestId: full.requestId, index: String(full.index) } })
+      setWhole(r.text)
+      setOpen(true)
+    } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) } finally { setLoading(false) }
+  }
   return (
     <>
       {d.markdown ? (
@@ -576,10 +596,13 @@ function DetailText({ d, plain }: { d: ConfirmDetail; plain?: boolean }) {
           <Marked text={text} marks={d.marks} alerts={d.alerts} />
         </pre>
       )}
+      {/* the card carries only the start: it says so, with the whole size, before anyone opens it */}
+      {more && !whole && <p className={clsx('text-xs text-muted', plain ? 'mt-1 ml-3' : 'border-t border-line px-3 py-1.5')} data-testid="ask-detail-partial">{t('ask.detailPartial', { shown: (open ? d.text.length : Math.min(d.collapsedAt ?? d.text.length, d.text.length)).toLocaleString(locale), n: d.fullChars!.toLocaleString(locale) })}</p>}
       {long && (
         <button
           type="button"
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => void toggle()}
+          disabled={loading}
           aria-expanded={open}
           className={clsx('block text-left text-xs font-medium text-muted hover:text-ink', plain ? 'mt-1 ml-3 rounded px-0 py-1 underline-offset-2 hover:underline' : 'w-full border-t border-line px-3 py-1.5 hover:bg-hover')}
           data-testid="ask-detail-more"

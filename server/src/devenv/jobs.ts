@@ -16,7 +16,7 @@ import { audit } from '../admin/audit'
 import { teamDefaultLocale } from '../admin/settings'
 import { carryLength, redactorFor, type Redactor } from '../integrations/connections/redact'
 import { notifyDevEnv } from '../notifications/service'
-import { pollRuns, RCOLS, reconcile, startWaiting, type RunRow } from './srt/runner'
+import { dropRowRun, pollRuns, RCOLS, reconcile, startWaiting, type RunRow } from './srt/runner'
 import { END_NOTE, setEnder, type EndReason } from './srt/end'
 
 export const JOB_POLL_MS = 10_000
@@ -82,7 +82,9 @@ export function startJobTracker(ctx: AppContext): { stop(): void } {
 // The rows of runs belong to a person and a chat, with or without a project. When a job ends, the person who
 // started it gets a notice with the exit code, the log tail and a link to the chat; the AI of that chat gets the result
 // on its next box_shell call. Only that person and that chat: the log can hold text from folders other people cannot
-// open. A dev server ends with no notice.
+// open. A shared chat's job saw only what everyone in the chat may open: its result goes to the next box_shell call of
+// anyone in that chat while the people and their view are the same (runResultsForAI sharedKey). A dev server ends with
+// no notice.
 
 const RUN_ENDED_NOTE: Record<Locale, (name: string, why: string) => string> = {
   ko: (n, w) => `개발 환경 작업 ${n}: ${w}`,
@@ -101,6 +103,8 @@ function endRun(ctx: AppContext, row: RunRow, end: { code: number | null; note: 
   const done = ctx.db.query("UPDATE dev_env_runs SET ended_at = ?, state = 'ended', exit_code = ?, end_note = ?, end_reason = ?, log_tail = ?, last_line = ? WHERE id = ? AND ended_at IS NULL")
     .run(at, end.code, end.note, end.reason, tail, lastLine, row.id)
   if (!done.changes) return
+  // a shared chat's run: its own home and temp folder go now (its log stays in the chat's folder for its people)
+  dropRowRun(row)
   audit(ctx.db, { actor: row.user_id, action: 'dev_env.job', target: row.project_id, detail: {
     job: row.id, name: row.name, turnId: row.turn_id, chatId: row.chat_id, code: end.code, note: end.note, reason: end.reason, kind: row.kind,
     seconds: Math.round((Date.parse(at) - Date.parse(row.started_at)) / 1000), runner: 'srt',
@@ -159,12 +163,19 @@ function tellDiskStop(ctx: AppContext, userId: string) {
   } catch (err) { ctx.log.warn('dev env stop notice failed', { err }) }
 }
 
+/** Are there results of a shared chat's jobs of these people and view that its AI did not get yet? */
+export const pendingShared = (ctx: AppContext, chatId: string | null, sharedKey: string) =>
+  !!chatId && !!ctx.db.query("SELECT 1 FROM dev_env_runs WHERE chat_id = ? AND shared_key = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL LIMIT 1").get(chatId, sharedKey)
+
 /** The results that the AI of this chat did not get yet. Each result goes once. The log is text from a command, so it
- * has a section of its own, with an end line that the command cannot know. */
-export function runResultsForAI(ctx: AppContext, userId: string, chatId: string | null): string[] {
-  const rows = (chatId
-    ? ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND user_id = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, userId)
-    : []) as { id: string; name: string; exit_code: number | null; end_note: string; log_tail: string }[]
+ * has a section of its own, with an end line that the command cannot know. `sharedKey`: a shared chat's turn, which gets
+ * the results of that chat's jobs of the same people and view (srt/runner.ts sharedLogKey), whoever started them; a job
+ * of other people (someone joined since, or someone's access narrowed) is not told there. */
+export function runResultsForAI(ctx: AppContext, userId: string, chatId: string | null, sharedKey?: string): string[] {
+  const rows = (!chatId ? []
+    : sharedKey ? ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND shared_key = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, sharedKey)
+    : ctx.db.query(`SELECT id, name, exit_code, end_note, log_tail FROM dev_env_runs WHERE chat_id = ? AND user_id = ? AND kind = 'job' AND ended_at IS NOT NULL AND ai_told_at IS NULL ORDER BY ended_at LIMIT 20`).all(chatId, userId)
+  ) as { id: string; name: string; exit_code: number | null; end_note: string; log_tail: string }[]
   const at = new Date().toISOString()
   return rows.map((r) => {
     ctx.db.query('UPDATE dev_env_runs SET ai_told_at = ? WHERE id = ?').run(at, r.id)

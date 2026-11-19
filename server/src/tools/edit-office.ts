@@ -80,6 +80,12 @@ const KIND: Record<string, OfficeKind> = { docx: 'docx', xlsx: 'xlsx', pptx: 'pp
 /** a replacement picture: these names only, at most 20 MB each and PICTURES_TOTAL_MAX together in one call */
 const PICTURE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp'])
 export const PICTURES_TOTAL_MAX = 40 * 1024 * 1024
+/** Adds a picture's bytes to a call's total, both as read and as the image helper wrote it again (a re-encoded picture
+ * can be larger than its file, QA TC-4965); over PICTURES_TOTAL_MAX the call is refused. */
+export function countPictureBytes(total: { read: number; made: number }, kind: 'read' | 'made', n: number, i: number, max = PICTURES_TOTAL_MAX): void {
+  total[kind] += n
+  if (total[kind] > max) throw new ToolError(`change ${i + 1}: the new pictures together are larger than ${max / 1024 / 1024} MB${kind === 'made' ? ' once they are prepared for the deck' : ''}; replace fewer pictures in one call`)
+}
 
 /**
  * A replacement picture decoded and written again by the isolated image helper (`mycel-safeops resize`, as
@@ -173,7 +179,7 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
   const imagePaths: string[] = []
   /** each picture read once, however many changes name it; all of them together bounded */
   const imageIndex = new Map<string, number>()
-  let imageBytes = 0
+  const imageBytes = { read: 0, made: 0 }
   const changes: unknown[] = []
   for (const [i, ch] of a.changes.entries()) changes.push(await (async () => {
     const x = ch as Record<string, any>
@@ -191,10 +197,12 @@ export async function editOffice(ctx: AppContext, c: ToolCtx, a: Input): Promise
       if (!PICTURE_EXT.has(ext(img.rel))) throw new ToolError(`change ${i + 1}: '${img.rel}' is not a PNG, JPEG or WebP picture; give one of those`)
       const size = checkRegular(img.abs).size
       if (size > OFFICE_EDIT_LIMITS.imageBytes) throw new ToolError(`change ${i + 1}: the picture is larger than ${OFFICE_EDIT_LIMITS.imageBytes / 1024 / 1024} MB`)
-      if ((imageBytes += size) > PICTURES_TOTAL_MAX) throw new ToolError(`change ${i + 1}: the new pictures together are larger than ${PICTURES_TOTAL_MAX / 1024 / 1024} MB; replace fewer pictures in one call`)
+      countPictureBytes(imageBytes, 'read', size, i)
       const raw = readRegular(img.abs, OFFICE_EDIT_LIMITS.imageBytes, img.st).bytes
       ctx.files.quarantine.assertBytes(raw)
-      images.push(await reencodePicture(ctx, raw, img.rel, i, c.signal))
+      const made = await reencodePicture(ctx, raw, img.rel, i, c.signal)
+      countPictureBytes(imageBytes, 'made', made.length, i)
+      images.push(made)
       imagePaths.push(img.rel)
       imageIndex.set(img.rel, images.length - 1)
       return { replace_picture: { ...x.replace_picture, image: images.length - 1 } }

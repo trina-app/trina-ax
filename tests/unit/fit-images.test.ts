@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 import { MESSAGE_ATTACHMENTS_MAX, uuidv7 } from '@mycel/shared/api'
 import { SendMessageBody } from '../../shared/src/api/chats'
-import { droppedNote, FIT_DROPPED_NOTE, FIT_FULL_NEWEST, FIT_REQUEST_BYTES, FIT_REQUEST_IMAGES, FIT_STEP, FIT_WAIT_MS, fitCacheClear, fitRequestImages, type Shrink } from '../../server/src/proxy/fit-images'
+import { droppedNote, FIT_DROPPED_NOTE, FIT_FULL_NEWEST, FIT_REQUEST_BYTES, FIT_REQUEST_IMAGES, FIT_PARALLEL, FIT_QUEUE_MAX, FIT_STEP, FIT_TRIES, FIT_WAIT_MS, fitCacheClear, fitCacheLimit, fitQueue, fitRequestImages, type Shrink } from '../../server/src/proxy/fit-images'
 
 const TAG = 32
 /** a picture: its tag first (what the fake converter and the checks read), then filler; `size` raw bytes */
@@ -14,11 +14,12 @@ const pictureBytes = (tag: string, size: number, random = false) => {
 const img = (tag: string, size = 300, random = false) => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: pictureBytes(tag, size, random).toString('base64') } })
 /** a request the engine sends after reading `n` photos one per step: each read is a tool_result with the read's own
  * text ("Image <path> (shown below).") and a picture */
-function request(n: number, size = 300, random = false) {
+function request(n: number, size = 300, random = false) { return requestOf(Array.from({ length: n }, (_, i) => `photo-${i}`), size, random) }
+function requestOf(tags: string[], size = 300, random = false) {
   const messages: unknown[] = [{ role: 'user', content: [{ type: 'text', text: 'Look at all the photos.' }] }]
-  for (let i = 0; i < n; i++) {
+  for (const [i, tag] of tags.entries()) {
     messages.push({ role: 'assistant', content: [{ type: 'tool_use', id: `t${i}`, name: 'read', input: { file_path: `p${i}.jpg` } }] })
-    messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: [{ type: 'text', text: `Image users/a/p${i}.jpg (shown below).` }, img(`photo-${i}`, size, random)] }] })
+    messages.push({ role: 'user', content: [{ type: 'tool_result', tool_use_id: `t${i}`, content: [{ type: 'text', text: `Image users/a/p${i}.jpg (shown below).` }, img(tag, size, random)] }] })
   }
   return { model: 'claude-sonnet-4-5', messages }
 }
@@ -36,7 +37,7 @@ const shrinkCalls: string[] = []
 const fake = (size = 64): Shrink => async (b) => { const tag = tagOf(b); shrinkCalls.push(tag); return pictureBytes(`small:${tag}`, size) }
 const shrink = fake()
 
-beforeEach(() => { fitCacheClear(); shrinkCalls.length = 0 })
+beforeEach(() => { fitCacheClear(); fitCacheLimit(64 * 1024 ** 2); shrinkCalls.length = 0 })
 
 describe('fitting the pictures of one request', () => {
   test('no pictures, or few: the request is not touched', async () => {
@@ -106,6 +107,49 @@ describe('fitting the pictures of one request', () => {
     busy = false
     const two = request(24)
     expect((await fitRequestImages(two, flaky))!.shrunk).toBe(12)
+  })
+
+  test(`a picture that failed ${FIT_TRIES} times counts as "cannot be made smaller"; a busy or overloaded server never does`, async () => {
+    let calls = 0
+    const damaged: Shrink = async () => { calls++; throw Object.assign(new Error('image conversion stopped (workdir)'), { code: 'vision_damaged' }) }
+    for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), damaged)
+    expect(calls).toBe(12 * FIT_TRIES)
+    for (const code of ['vision_busy', 'vision_heavy']) {
+      fitCacheClear()
+      calls = 0
+      const overloaded: Shrink = async () => { calls++; throw Object.assign(new Error('the server is busy'), { code }) }
+      for (let i = 0; i < FIT_TRIES + 2; i++) await fitRequestImages(request(24), overloaded)
+      expect(calls, code).toBe(12 * (FIT_TRIES + 2))
+    }
+  })
+
+  test('the cache lets the least recently used copy go first: a copy in use stays', async () => {
+    const copy = 64
+    fitCacheLimit(13 * Math.ceil(copy / 3) * 4)
+    const tags = (p: string) => Array.from({ length: 24 }, (_, i) => `${p}${i}`)
+    await fitRequestImages(requestOf(tags('a')), fake(copy)) // a0..a11 kept
+    await fitRequestImages(requestOf(['a0', ...tags('n').slice(0, 23)]), fake(copy)) // a0 used again, n0..n10 made
+    shrinkCalls.length = 0
+    await fitRequestImages(requestOf(['a0', ...tags('z').slice(0, 23)]), fake(copy))
+    expect(shrinkCalls).not.toContain('a0') // still kept: used most recently
+    shrinkCalls.length = 0
+    await fitRequestImages(requestOf(['a1', ...tags('y').slice(0, 23)]), fake(copy))
+    expect(shrinkCalls).toContain('a1') // let go: not used since
+  })
+
+  test(`the conversion queue is bounded (${FIT_QUEUE_MAX} waiting): past it pictures go on as they are`, async () => {
+    let release!: () => void
+    const gate = new Promise<void>((r) => { release = r })
+    const slow: Shrink = async (b) => { await gate; return pictureBytes(`small:${tagOf(b)}`, 64) }
+    const body = request(FIT_REQUEST_IMAGES)
+    const r = await fitRequestImages(body, slow)
+    expect(fitQueue()).toEqual({ running: FIT_PARALLEL, waiting: FIT_QUEUE_MAX })
+    expect(r!.pending).toBe(FIT_PARALLEL + FIT_QUEUE_MAX)
+    expect(r!.dropped).toBe(0)
+    expect(pictures(body).every((x) => x.startsWith('photo-'))).toBe(true)
+    release()
+    await Bun.sleep(50)
+    expect(fitQueue()).toEqual({ running: 0, waiting: 0 })
   })
 
   test('a slow converter does not hold the request: pictures still being made go as they are, the next request uses them', async () => {

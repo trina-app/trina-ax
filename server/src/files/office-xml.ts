@@ -29,8 +29,14 @@ export function parseXml(xml: string, part: string, fail: (part: string, why: st
   if (on.text) { p.on('text', on.text); p.on('cdata', on.text) }
   try { p.write(xml).close() } catch (e) { err ??= String((e as Error).message) }
   const d = doctype as string | null, r = root as SaxesTagNS | null
-  if (d !== null && (d.includes('[') || !r || r.local !== 'svg' || r.uri !== SVG_NS)) err ??= 'a DTD'
+  if (d !== null && (d.includes('[') || !r || r.local !== 'svg' || r.uri !== SVG_NS || !svgDoctype(d))) err ??= 'a DTD'
   if (err) fail(part, `is not a well-formed XML part (${String(err).slice(0, 120)})`)
+}
+/** the W3C's own SVG 1.0 / 1.1 DTD, by its public id and its w3.org address, and nothing else (QA TC-4966) */
+const SVG_DTD_IDS = new Set(['-//W3C//DTD SVG 20010904//EN', '-//W3C//DTD SVG 1.0//EN', '-//W3C//DTD SVG 1.1//EN'])
+function svgDoctype(d: string): boolean {
+  const m = /^\s*svg\s+PUBLIC\s+(["'])([^"']*)\1\s+(["'])([^"']*)\3\s*$/.exec(d)
+  return !!m && SVG_DTD_IDS.has(m[2]!) && /^https?:\/\/www\.w3\.org\/[\w./-]+\.dtd$/.test(m[4]!)
 }
 
 /** an attribute by its namespace ('' for none) and local name, whatever its prefix */
@@ -123,6 +129,33 @@ export function dropElements(xml: string, part: string, fail: (part: string, why
 /** UTF-16 (a byte order mark, or "<" with a zero byte next to it): Word always writes UTF-8, and a UTF-16 part would
  * not be scanned as text, so such a part is refused rather than skipped (security review of #1281) */
 export const isUtf16 = (d: Uint8Array) => (d[0] === 0xff && d[1] === 0xfe) || (d[0] === 0xfe && d[1] === 0xff) || (d[0] === 0x3c && d[1] === 0x00) || (d[0] === 0x00 && d[1] === 0x3c)
+/** UTF-32 (a byte order mark, or "<" as a 32-bit unit) in any part, whatever its name: never written by Office and not
+ * scanned as text, so refused (review of #1341) */
+const isUtf32 = (d: Uint8Array) => d.length >= 4 && [[0, 0, 0xfe, 0xff], [0xff, 0xfe, 0, 0], [0, 0, 0, 0x3c], [0x3c, 0, 0, 0]].some((p) => p.every((b, k) => d[k] === b))
+/** fonts (.odttf is scrambled bytes), pictures and other binary parts may start with FF FE by chance: there a part
+ * counts as UTF-16 text when, read as UTF-16 (little or big endian, after a byte order mark if there is one), its first
+ * character that is not white space is "<" (QA TC-4966; white space before "<" is still XML, review of #1341) */
+const BINARY_PART = /(^|\/)(fonts|media|embeddings)\/|\.(odttf|ttf|otf|bin|png|jpe?g|gif|bmp|tiff?|emf|wmf|svg)$/i
+function utf16Text(d: Uint8Array): boolean {
+  const opensWithTag = (le: boolean, from: number) => {
+    for (let i = from; i + 1 < d.length; i += 2) {
+      const u = le ? d[i]! | (d[i + 1]! << 8) : (d[i]! << 8) | d[i + 1]!
+      if (u === 0x20 || u === 0x09 || u === 0x0a || u === 0x0d || u === 0xfeff) continue
+      return u === 0x3c
+    }
+    return false
+  }
+  if (d[0] === 0xff && d[1] === 0xfe) return opensWithTag(true, 2)
+  if (d[0] === 0xfe && d[1] === 0xff) return opensWithTag(false, 2)
+  return opensWithTag(true, 0) || opensWithTag(false, 0)
+}
+/** why a part is refused as wide text Office never writes (UTF-32 anywhere; UTF-16, for a binary-named part only when
+ * it reads as UTF-16 XML), or null */
+export function wideTextProblem(name: string, d: Uint8Array): string | null {
+  if (isUtf32(d)) return 'is UTF-32 text, which Office does not write in these files'
+  if (BINARY_PART.test(name) ? utf16Text(d) : isUtf16(d)) return 'is UTF-16 text, which Office does not write in these files'
+  return null
+}
 /** the part starts with "<" (after an optional UTF-8 byte order mark and white space): XML, or text pretending to be */
 export function looksXml(d: Uint8Array): boolean {
   let i = d[0] === 0xef && d[1] === 0xbb && d[2] === 0xbf ? 3 : 0
@@ -139,7 +172,8 @@ export function looksXml(d: Uint8Array): boolean {
  */
 export function scanWordFields(entries: { name: string; data: Uint8Array }[], fail: (part: string, why: string) => never, problem: (part: string, why: string) => never): void {
   for (const e of entries) {
-    if (isUtf16(e.data)) fail(e.name, 'is UTF-16 text, which Office does not write in these files')
+    const wide = wideTextProblem(e.name, e.data)
+    if (wide) fail(e.name, wide)
     if (/\.rels$/i.test(e.name) || !looksXml(e.data)) continue
     let xml: string
     try { xml = new TextDecoder('utf-8', { fatal: true }).decode(e.data) } catch { return fail(e.name, 'is not UTF-8 text') }

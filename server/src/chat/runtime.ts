@@ -399,7 +399,7 @@ export class ChatRuntime {
   chatTrashDays(): number { return readSetting(this.db, 'chatTrashRetentionDays', isInt(1, 365), DEFAULT_CHAT_TRASH_DAYS) }
   /** tool rounds per answer (Claude Code --max-turns): Admin > Team settings answerStepLimit, default 500. Read when an
    * answer starts, so a change applies to the next answer. Each sub-agent gets the answer's cap (chat/turn.ts subagentLaunch);
-   * the API engine keeps its own 30 rounds (engine/api-agent.ts) */
+   * the API engine gets the same cap (chat/turn.ts answerStepCap; limits audit 1 #31: it kept its own 30 rounds) */
   get maxEngineTurns(): number {
     return this.engineTurnsOverride ?? readSetting(this.db, 'answerStepLimit', isInt(ANSWER_STEP_LIMIT_MIN, ANSWER_STEP_LIMIT_MAX), DEFAULT_MAX_ENGINE_TURNS)
   }

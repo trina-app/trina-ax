@@ -14,7 +14,7 @@ import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
 import { entryGuard, entryPins, hideDeniedNames, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -143,6 +143,12 @@ for (const c of [SP, SW, SO]) { fs.mkdirSync(path.join(chatHome(BASE, c), 'tmp')
 fs.mkdirSync(chatWork(BASE, SW), { recursive: true }); fs.mkdirSync(chatWork(BASE, SO), { recursive: true })
 fs.writeFileSync(path.join(chatHome(BASE, SO), 'x'), `${CANARY}-other-shared-home`); fs.writeFileSync(path.join(chatLogs(BASE, SO), 'cmd.out'), `${CANARY}-other-shared-logs`)
 fs.writeFileSync(path.join(chatWork(BASE, SO), 'x'), `${CANARY}-other-shared-work`)
+// a shared chat's job logs (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): the folder of SP's people and
+// view (alice and dave) holds a job's log their next command reads; the folder of another audience of SP (erin joined
+// since, or someone's access narrowed) holds one nobody of this audience may read (S16)
+const SP_LOGS = sharedLogs(BASE, SP, sharedWorkKey([ME, 'dave'], 'logs')), SP_LOGS_OTHER = sharedLogs(BASE, SP, sharedWorkKey([ME, 'dave', 'erin'], 'logs'))
+fs.mkdirSync(SP_LOGS, { recursive: true }); fs.writeFileSync(path.join(SP_LOGS, 'build.log'), 'JOB-LOG-OF-THESE-PEOPLE\n')
+fs.mkdirSync(SP_LOGS_OTHER, { recursive: true }); fs.writeFileSync(path.join(SP_LOGS_OTHER, 'build.log'), `${CANARY}-other-audience-log`)
 fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat`)
 // SW was alice's private chat before it was shared: its private work folder holds a copy of her own file (review 1)
 fs.writeFileSync(path.join(chatWork(BASE, SW), 'x'), `${ASKER}-private-work`)
@@ -178,7 +184,9 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // a shared chat's command: a home and logs of its own (runner.ts prepare)
   // a person's run in a project folder: a home of its own for that folder (runner.ts runOwner, config.ts projectHome)
   const projectFolder = sh_ || work ? null : o.start ?? 'projects/one'
-  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId, projectFolder }
+  // a shared chat's logs folder: the one of its people (runner.ts sharedLogKey; here a key of the audience alone)
+  const logKey = sh_ ? sharedWorkKey(sh_.audience.map((q) => q.id), 'logs') : null
+  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId, projectFolder, logKey }
   if (!sh_) { fs.mkdirSync(path.join(runHome(BASE, owner), 'tmp'), { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   if (sh_) { for (const d of [runHome(BASE, owner), runTmp(BASE, owner), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
@@ -196,7 +204,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const guard = entryGuard(pinFiles)
   // S18: the disk changes after the listing, before srt binds
   o.afterPins?.()
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, logKey, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -210,7 +218,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder, logKey }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -360,8 +368,8 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     cmd: 'echo HOME=$HOME; ls $HOME/PLANTED-IN-PROJECT-HOME 2>/dev/null && echo SEEN || echo NOT-SEEN', check: both(ok, has(`HOME=${personHome(BASE, ME)}`), has('NOT-SEEN')) },
   // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
   // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
-  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME, TMPDIR and logs are the command\'s own', cmd: `ls && cat index.html && cat docs/guide.md && echo made > docs/made.txt && cat docs/made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
-    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${chatLogs(BASE, SP)}/attack`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
+  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME and TMPDIR are the command\'s own, the logs folder the chat\'s people\'s', cmd: `ls && cat index.html && cat docs/guide.md && echo made > docs/made.txt && cat docs/made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
+    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${SP_LOGS}`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
     after: () => (!fs.existsSync(`${WEB}/docs/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
   { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
     check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
@@ -476,6 +484,14 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
     check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(r.out) ? `a folder they may not all open is listed: ${r.out.slice(0, 300)}` : null)), o: SWC },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
+  // jobs and dev servers of shared chats (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md, QA TC-4989): a
+  // command reads the job logs of its chat's people, never those of another audience of the same chat, and writes none
+  { id: 'S16', what: 'shared project chat: $TRINA_LOGS is the folder of the chat\'s people (a job\'s log there reads); another audience\'s logs of the same chat do not, and are not listed', cmd: `echo LOGS=$TRINA_LOGS; cat $TRINA_LOGS/build.log; cat ${SP_LOGS_OTHER}/build.log; echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -A ${SP_LOGS_OTHER}; true`,
+    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => (r.out.includes(path.basename(SP_LOGS_OTHER)) ? 'the other audience\'s logs folder is listed' : null)), o: SPC },
+  { id: 'S16b', what: 'shared project chat: the logs folder is read-only in a run (no planted log for the next command)', cmd: 'echo planted > $TRINA_LOGS/build.log || echo planted > $TRINA_LOGS/new.log || rm -f $TRINA_LOGS/build.log', check: failsQuietly, o: SPC,
+    after: () => (fs.readFileSync(path.join(SP_LOGS, 'build.log'), 'utf8') !== 'JOB-LOG-OF-THESE-PEOPLE\n' || fs.existsSync(path.join(SP_LOGS, 'new.log')) ? 'the logs folder changed' : null) },
+  { id: 'S16c', what: 'chat shared with people: another chat\'s job logs, and her own private runs see no shared chat\'s logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') ? 'another chat\'s job log was read' : null)), o: SWC },
+  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || r.out.includes(SP) ? 'a shared chat\'s logs were seen' : null)) },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)
@@ -513,6 +529,18 @@ for (const a of attacks) {
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)
   if (why) failed++
 }
+// L1 (QA TC-4990): with no bridge (mycel-sandbox port-bridge, started by the runner for the chat's own dev server
+// only; it needs run units, so the spike VM checks it, tests/linux/srt-vm-preview.ts P8), a dev server of one run is not
+// reachable from another run at the same time: each run has its own localhost. The run itself reaches it.
+{
+  let second: Promise<{ code: number | null; out: string }> | null = null
+  const dev = `node -e "require('http').createServer((q,s)=>s.end('DEV-OF-RUN-ONE')).listen(4555,'127.0.0.1')" & sleep 6; echo SELF=$(curl -s -m 3 http://127.0.0.1:4555/); kill %1; true`
+  const first = await run(dev, { during: () => { second = run('echo A=$(curl -s -m 3 http://127.0.0.1:4555/); echo B=$(curl -s -m 3 http://localhost:4555/); true', SWC) } })
+  const other = second ? await second : { code: null, out: '' }
+  const why = !first.out.includes('SELF=DEV-OF-RUN-ONE') ? `the run did not reach its own dev server: ${first.out.slice(0, 200)}` : other.code !== 0 ? `the second run did not run: ${other.out.slice(0, 200)}` : other.out.includes('DEV-OF-RUN-ONE') ? 'another run reached the dev server' : null
+  console.log(`${why ? 'FAIL' : 'pass'} L1 a run's dev server is not reachable from another run (each its own localhost)${why ? `\n     ${why}` : ''}`)
+  if (why) failed++
+}
 server.stop(true); us.close()
-console.log(failed ? `\n${failed} of ${attacks.length} attacks got through` : `\nall ${attacks.length} attacks held`)
+console.log(failed ? `\n${failed} of ${attacks.length + 1} attacks got through` : `\nall ${attacks.length + 1} attacks held`)
 process.exit(failed ? 1 : 0)

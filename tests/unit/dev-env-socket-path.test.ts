@@ -24,7 +24,7 @@ describe('srt\'s socket paths on a production base', () => {
     expect(pkg.dependencies['@anthropic-ai/sandbox-runtime']).toBe('0.0.81')
     expect((config.srtSocketPaths('/t')).map((p) => path.basename(p).replace(/0{16}/, 'X'))).toEqual(['claude-http-X.sock', 'claude-socks-X.sock'])
   })
-  for (const [what, o] of [['a shared chat\'s command', { sharedChat: CHAT, runId: RUN }], ['a person\'s own run', {}]] as const) {
+  for (const [what, o] of [['a shared chat\'s command', { sharedChat: CHAT, runId: RUN, logKey: 'b'.repeat(32) }], ['a person\'s own run', {}]] as const) {
     test(`${what}: every socket fits, and the settings check agrees`, () => {
       const env = runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', ...o })
       for (const s of sockets(env.TMPDIR!)) expect({ s, n: Buffer.byteLength(s) <= MAX }).toEqual({ s, n: true })
@@ -36,17 +36,17 @@ describe('srt\'s socket paths on a production base', () => {
     })
   }
   test('a shared chat\'s temp folder is not longer than a person\'s: a base that works for one works for the other', () => {
-    const shared = runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN }).TMPDIR!
+    const shared = runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN, logKey: 'b'.repeat(32) }).TMPDIR!
     const own = runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux' }).TMPDIR!
     expect(shared.length).toBeLessThanOrEqual(own.length)
   })
   test('a base too long for srt\'s sockets: the run is refused with the reason, not by srt', () => {
     const base = `/var/lib/${'x'.repeat(70)}`
-    const tmp = runEnv({ base, userId: USER, teamRoot: `${base}/team`, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN }).TMPDIR!
+    const tmp = runEnv({ base, userId: USER, teamRoot: `${base}/team`, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN, logKey: 'b'.repeat(32) }).TMPDIR!
     expect(srtSocketProblems(tmp).length).toBe(2)
-    expect(srtSocketProblems(runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN }).TMPDIR!)).toEqual([])
+    expect(srtSocketProblems(runEnv({ base: BASE, userId: USER, teamRoot: TEAM, work: null, platform: 'linux', sharedChat: CHAT, runId: RUN, logKey: 'b'.repeat(32) }).TMPDIR!)).toEqual([])
     // on a Linux host settingsProblems says so (the sockets are made on this machine)
-    const input = { base, id: 'mycel', teamRoot: `${base}/team`, userId: USER, view: VIEW, start: 'projects/one', work: null, network: 'open' as const, extraDomains: [], denyHosts: [], denyAddrs: [], platform: 'linux' as const, sharedChat: CHAT, runId: RUN }
+    const input = { base, id: 'mycel', teamRoot: `${base}/team`, userId: USER, view: VIEW, start: 'projects/one', work: null, network: 'open' as const, extraDomains: [], denyHosts: [], denyAddrs: [], platform: 'linux' as const, sharedChat: CHAT, runId: RUN, logKey: 'b'.repeat(32) }
     if (process.platform === 'linux') expect(settingsProblems(srtSettings(input), input).some((p) => p.includes('socket path is too long'))).toBe(true)
   })
 })

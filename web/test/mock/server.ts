@@ -512,9 +512,9 @@ export class MockServer {
   pieceDropHint = false
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
   transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
-  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
-   * ffmpeg (localMissing: the tools 'local' lacks) */
-  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
+  /** GET /api/admin/speech-host: a 4-core, 16 GB self-installed server that has not measured its speed yet, with
+   * whisper.cpp and ffmpeg (localMissing: the tools 'local' lacks) */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hosted: false, bigEnough: true, memoryGb: 16, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** the contract endpoints the API requests reached since the server started, with how often (docs/FEATURES.md):
@@ -777,7 +777,7 @@ export class MockServer {
     this.pieceLanguages = []
     this.pieceDropHint = false
     this.transcribeProgress = null
-    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hosted: false, bigEnough: true, memoryGb: 16, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()

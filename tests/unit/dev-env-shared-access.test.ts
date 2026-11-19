@@ -115,10 +115,12 @@ describe('a chat shared with people and groups', () => {
 
 describe('the settings and environment of a shared run', () => {
   const base = '/var/lib/mycel', teamRoot = '/var/lib/mycel/team', chat = 'chat_1', runId = 'abcdefgh12345678'
-  const home = path.join(chatHome(base, chat), runId), logs = path.join(chatLogs(base, chat), runId)
+  // the logs folder of the chat's people and view (config.ts sharedLogs, runner.ts sharedLogKey), not of one command
+  const logKey = 'a'.repeat(32)
+  const home = path.join(chatHome(base, chat), runId), logs = path.join(chatLogs(base, chat), logKey)
   const input = (view: FolderView, start: string | null, sharedChat: string | null, work?: string) => ({
     base, id: 'mycel', teamRoot, userId: 'alice', view, start, work: start === null ? work ?? path.join(base, 'devenv/work', chat) : null, network: 'open' as const,
-    extraDomains: [], denyHosts: ['team.example.com'], denyAddrs: [], platform: 'linux' as const, ...(sharedChat ? { sharedChat, runId } : {}),
+    extraDomains: [], denyHosts: ['team.example.com'], denyAddrs: [], platform: 'linux' as const, ...(sharedChat ? { sharedChat, runId, logKey } : {}),
   })
   test('the chat\'s home and logs, not the person\'s; no personal folder readable; the settings pass their check', () => {
     const i = input(projectView(alice, [alice, bob]), F, chat)
@@ -148,7 +150,7 @@ describe('the settings and environment of a shared run', () => {
     expect(settingsProblems(srtSettings(mine), mine).filter((p) => p.includes('shared chat'))).toEqual([])
   })
   test('the environment names the chat\'s folders and nothing of the person', () => {
-    const env = runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId })
+    const env = runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId, logKey })
     expect(env.HOME).toBe(home)
     // a short temp folder of its own: srt's sockets there must fit a unix socket path (dev-env-socket-path.test.ts)
     expect(env.TMPDIR).toBe(path.join(base, 'devenv', 'rt', runId))
@@ -156,7 +158,10 @@ describe('the settings and environment of a shared run', () => {
     expect(env.TRINA_LOGS).toBe(logs)
     expect(env.npm_config_cache.startsWith(home)).toBe(true)
     // a shared chat's run with no run id: refused (no shared home to fall back to)
-    expect(() => runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat })).toThrow()
+    expect(() => runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, logKey })).toThrow()
+    // and with no key of its people: refused (never a folder of another audience, never the person's logs)
+    expect(() => runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId })).toThrow('needs the key of its people')
+    expect(() => runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux', sharedChat: chat, runId, logKey: '../x' })).toThrow()
     expect(Object.values(env).some((v) => v.includes('alice'))).toBe(false)
     // her own chat: her home, as before
     expect(runEnv({ base, userId: 'alice', teamRoot, work: null, platform: 'linux' }).HOME).toBe(personHome(base, 'alice'))

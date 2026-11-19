@@ -689,6 +689,8 @@ export const PersonMarkdown = memo(function PersonMarkdown({ text, mentions, cla
         <div
           className={clsx(
             'answer prose max-w-none break-words text-reading leading-reading text-ink prose-headings:mt-3 prose-headings:mb-1 prose-headings:font-semibold prose-h1:text-lg prose-h2:text-base prose-h3:text-reading prose-p:my-0 prose-blockquote:font-normal prose-code:rounded prose-code:bg-subtle prose-code:px-1 prose-code:py-0.5 prose-code:text-[0.85em] prose-code:font-normal prose-code:box-decoration-clone prose-code:before:content-none prose-code:after:content-none prose-ol:my-1 prose-ul:my-1 prose-li:my-0 prose-hr:my-3 prose-table:my-0 prose-th:bg-subtle prose-th:px-3 prose-th:py-1.5 prose-td:px-3 prose-td:py-1.5 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 max-md:[&_li_:is(ul,ol)]:pl-4 max-md:[&_li_li]:pl-0.5 [&_a]:[unicode-bidi:isolate]',
+            // (around empty lines the blocks have no margin of their own: the gap is the lines typed; QA TC-4967)
+            '[&_[data-blank-lines]+*]:mt-0 [&_*:has(+[data-blank-lines])]:mb-0',
             after != null && '[&>p:nth-last-child(2)]:inline',
             className,
           )}

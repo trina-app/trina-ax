@@ -643,21 +643,22 @@ export const transcriptsAfterProvider = (next: SpeechProvider, saved: Pick<TeamS
   next === saved.speechProvider ? saved.aiMediaTranscripts : null
 
 /** The switch with what it means on this server: where the sound goes, the piece length and how a read goes on, a
- * hosted server's cap, the speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault).
- * `hostedKey`: OpenRouter goes with the hosting service's key (on by default, its free hours). */
+ * speed measured here, and why it starts off on a small server (shared mediaTranscriptsDefault: on when hosted, on a Mac
+ * and with 4 cores and 8 GB). `hostedKey`: OpenRouter goes with the hosting service's key (its free hours). */
 export function MediaTranscriptsSwitch({ provider, value, host, hostedKey = false, onChange }: { provider: SpeechProvider; value: boolean | null; host: SpeechHost; hostedKey?: boolean; onChange: (v: boolean) => void }) {
   const t = useT()
-  const on = value ?? mediaTranscriptsDefault(provider, host.cpuCores, hostedKey)
+  // an older server sends no hosted / bigEnough: its hosting key, and more than 2 cores, as it read before
+  const where = { hosted: host.hosted ?? hostedKey, hostedKey, mac: !!host.localMac, bigEnough: host.bigEnough ?? host.cpuCores > 2 }
+  const on = value ?? mediaTranscriptsDefault(provider, where)
   const local = provider === 'local'
   const perMinute = host.localSecPerSec === null ? null : host.localSecPerSec * 60
   return (
     <SettingRow id="ts-media-transcripts" testId="team-media-transcripts" inline attrs={{ 'data-on': on ? 'true' : 'false' }} title={t('speech.mediaTranscripts')}
-      desc={<span className={local ? undefined : hostedKey ? undefined : 'text-warn'}>{local ? t('speech.mediaTranscriptsLocal', { sec: host.localPieceSec }) : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</span>}
+      desc={<span className={local ? undefined : hostedKey ? undefined : 'text-warn'}>{local ? t('speech.mediaTranscriptsLocal') : hostedKey ? t('speech.mediaTranscriptsHostedKey') : t('speech.mediaTranscriptsOpenRouter')}</span>}
       control={<Switch id="ts-media-transcripts" external describedBy="ts-media-transcripts-desc" checked={on} onChange={onChange} label={t('speech.mediaTranscripts')} />}
       below={
         <>
-          {local && value === null && mediaTranscriptsOffSmall(provider, host.cpuCores) && <p className="mt-1 text-xs text-muted" data-testid="team-media-transcripts-small">{t('speech.mediaTranscriptsSmall', { cores: host.cpuCores })}</p>}
-          {local && host.hostedNewSec !== null && <p className="mt-1 text-xs text-faint">{t('speech.mediaTranscriptsHosted', { min: Math.round(host.hostedNewSec / 60) })}</p>}
+          {local && value === null && mediaTranscriptsOffSmall(provider, where) && <p className="mt-1 text-xs text-muted" data-testid="team-media-transcripts-small">{t('speech.mediaTranscriptsSmall', { cores: host.cpuCores, gb: host.memoryGb ?? 0 })}</p>}
           {local && perMinute !== null && (
             <p className="mt-1 text-xs text-faint" data-testid="team-media-transcripts-speed">
               {perMinute < 90 ? t('speech.mediaTranscriptsSpeedSec', { n: Math.max(1, Math.round(perMinute)) }) : t('speech.mediaTranscriptsSpeedMin', { n: Math.round(perMinute / 6) / 10 })}

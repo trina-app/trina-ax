@@ -1,0 +1,1 @@
+- A very long chat no longer ends an answer with "continue in a new chat". When the conversation gets too long for the AI, it makes room and goes on with the same answer by itself; what it already wrote stays on screen, and a step under the answer says it happened. In the rare case that it still does not fit, send "continue" in the same chat.

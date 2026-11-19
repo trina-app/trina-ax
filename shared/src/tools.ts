@@ -579,7 +579,9 @@ export const ChangeProjectMembersInput = z.strictObject({
  * 20261116-team-folder-ai-and-ask.md): ONE person or group on ONE team folder per call, after the owner's or an admin's
  * yes on the server's card every time. A member gets an "Ask an admin" button instead. Never a personal folder, a
  * project's folder, General access or Limit access. */
-export const ChangeFolderAccessInput = z.strictObject({
+/** changes one change_folder_access call may hold: all of them on one card */
+export const FOLDER_CHANGES_MAX = 20
+const FolderChangeFields = {
   folder: z.string().trim().min(1).max(4096).describe('The team folder (its team path, e.g. "Sales/Reports"); not under users/, not a project\'s folder.'),
   action: z.enum(['add', 'change', 'remove']).describe('add a person or group, change their level, or take them off.'),
   who: z.strictObject({
@@ -587,6 +589,20 @@ export const ChangeFolderAccessInput = z.strictObject({
     id: z.string().trim().min(1).max(64).optional().describe('Only the id the tool gave back among this name\'s candidates.'),
   }),
   access: z.enum(['view', 'edit']).optional().describe('For add and change. Default for add: view.'),
+}
+export const FolderChange = z.strictObject(FolderChangeFields)
+export type FolderChange = z.infer<typeof FolderChange>
+/** One change (folder, action, who, access), or several in `changes` (one card lists them all). */
+export const ChangeFolderAccessInput = z.strictObject({
+  folder: FolderChangeFields.folder.optional(),
+  action: FolderChangeFields.action.optional(),
+  who: FolderChangeFields.who.optional(),
+  access: FolderChangeFields.access,
+  changes: z.array(FolderChange).min(1).max(FOLDER_CHANGES_MAX).optional().describe('Several changes at once (more people, more folders): each with folder, action, who and access; the user sees one card that lists them all. Use it instead of folder, action, who and access.'),
+}).superRefine((v, c) => {
+  const one = v.folder !== undefined || v.action !== undefined || v.who !== undefined || v.access !== undefined
+  if (v.changes && one) c.addIssue({ code: 'custom', message: 'give either changes or folder, action and who, not both' })
+  else if (!v.changes && (v.folder === undefined || v.action === undefined || v.who === undefined)) c.addIssue({ code: 'custom', message: 'folder, action and who are required (or give changes)' })
 })
 export const ToolError = z.object({ error: z.object({ code: z.string(), message: z.string() }) })
 /** File tools return plain text (like Claude Code's built-ins). */
@@ -596,7 +612,7 @@ export const FILE_TOOLS = {
   list: { input: ListInput, description: 'List a folder of the team files. Only things you are allowed to see are shown. Folders end with "/".' },
   glob: { input: GlobInput, description: 'Find files by name pattern (e.g. "**/*.pdf"). Returns paths relative to the team root. Folders you cannot access are skipped.' },
   grep: { input: GrepInput, description: 'Search file contents with a regular expression (ripgrep). Also searches text extracted from .docx/.pptx/.xlsx/.pdf. A match inside a very long line (minified or one-line JSON) is shown as the text around it with its character position and the read call (offset, char_offset) that shows that part. Images have no searchable text, and scanned PDF pages may have none: read them to see them. Folders you cannot access are skipped.' },
-  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. No line is ever cut: one call shows about 28,000 characters, a longer line comes back in pieces ("[characters 0–28,000 of 133,000]"), and the result ends with the exact next call (offset and char_offset), so keep reading until the end instead of asking anyone to change the file. A .json file on one long line is shown pretty-printed (pretty: false for the raw text). Word/Excel/PowerPoint files are converted to text (with speaker notes, chart data, headers, footers and comments). A very large spreadsheet comes as an overview (the size, first and last rows of each sheet): read other rows with sheet and range. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. Many pictures (dozens of photos) can be looked at in one answer: read them in batches of about 10 and write down what each shows before the next batch; pictures from earlier in the conversation are kept at a lower resolution, so read one again when you need its small details. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound. ' +
+  read: { input: ReadInput, description: 'Read a file. Text returns numbered lines (cat -n style); use offset/limit for long files. No line is ever cut: one call shows about 28,000 characters, a longer line comes back in pieces ("[characters 0–28,000 of 133,000]"), and the result ends with the exact next call (offset and char_offset), so keep reading until the end instead of asking anyone to change the file. A .json file on one long line is shown pretty-printed (pretty: false for the raw text). Word/Excel/PowerPoint files are converted to text (with speaker notes, chart data, headers, footers and comments). A very large spreadsheet comes as an overview (the size, first and last rows of each sheet): read other rows with sheet and range. Images (PNG, JPEG, GIF, WebP, HEIC, TIFF, BMP) are shown to you as images. Many pictures (dozens of photos) can be looked at in one answer: read them in batches of about 10 and write down what each shows before the next batch. After the first 12 pictures of an answer the next ones come at a lower resolution, and pictures from earlier in the conversation are kept at a lower resolution too; reading a picture a second time in the same answer shows it at full size (up to 4 times an answer), so do that when you need its small details. PDFs: give pages (e.g. "1-5"; at most 20 per call, required over 10 pages); pages with text come back as text, pages without a text layer (scans) as images; as_images also shows text pages as images. Videos (mp4, mov, m4v, webm, mkv, avi, 3gp) come back as frames (pictures with their times) and a timed transcript of the sound; audio files (mp3, m4a, wav, aac, flac, ogg, opus, amr, aiff, caf, wma) as a timed transcript. Use time (e.g. "1:00-2:30") to look at a part, frames for how many pictures, transcript: false to skip the sound. ' +
     'Overwritten versions are kept: versions: true lists who saved each version and when, and shows what the last save changed (version: n compares an earlier one with the file now). Use it when asked what changed in a file, who changed it or what it said before, instead of saying there is no history.' },
   write: { input: WriteInput, description: 'Create a text file or overwrite one. An existing file must be read first in this conversation turn. If someone else changed it since you read it, your version is saved as a conflict copy instead. The server checks access on each call: call it when asked, even if the folder looks read-only. An HTML page\'s preview shows only team files: put images next to it (save_url saves one from the web) and use relative paths.' },
   edit: { input: EditInput, description: 'Replace an exact string in a text file you have read in this turn. old_string must be unique unless replace_all is true. The server checks access on each call: call it when asked, even if the folder looks read-only.' },

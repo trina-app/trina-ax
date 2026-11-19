@@ -201,3 +201,36 @@ for (const width of [1440, 390])
     expect(await gaps(reply.getByTestId('message-markdown'))).toEqual([1, 2])
     if (process.env.SHOTS_DIR) await page.screenshot({ path: `${process.env.SHOTS_DIR}/thread-blank-lines-${width}.png` })
   })
+
+// QA TC-4967 (review of #1310): the blocks around empty lines have no margin of their own there, so the gap is the lines
+// typed; a link definition adds no empty line.
+test('blocks after blank lines sit at the gap typed; a link definition adds none', async ({ page }) => {
+  await reset(page)
+  const blocks = 'top\n\n\n```\ncode\n```\n\n\n# Heading\n\n\n> quote\n\n\n|a|b|\n|-|-|\n|1|2|\n\n\n---\n\n\nend'
+  await routeRoom(page, {
+    members: [SORA],
+    messages: [
+      { id: id(70), author: SORA, body: blocks },
+      { id: id(71), author: SORA, body: 'see [docs][r]\n\n[r]: https://example.com/d\n\nafter' },
+    ],
+  })
+  await signIn(page)
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const msgs = page.getByTestId('room-message')
+  await expect(msgs).toHaveCount(2)
+  // each spacer: from the block before it to the block after it is exactly its lines
+  const gaps = (n: number) =>
+    msgs.nth(n).getByTestId('message-markdown').evaluate((el) => {
+      const line = parseFloat(getComputedStyle(el).lineHeight)
+      return [...el.querySelectorAll(':scope > [data-blank-lines]')].map((s) => {
+        const prev = s.previousElementSibling!.getBoundingClientRect()
+        const next = s.nextElementSibling!.getBoundingClientRect()
+        return { lines: Number(s.getAttribute('data-blank-lines')), gap: Math.round(((next.top - prev.bottom) / line) * 10) / 10, next: s.nextElementSibling!.tagName }
+      })
+    })
+  const g = await gaps(0)
+  expect(g.length).toBe(6)
+  for (const x of g) expect(x, JSON.stringify(g)).toMatchObject({ gap: x.lines })
+  // "see docs", one empty line, "after": the hidden definition's line and its second blank line add nothing
+  expect((await gaps(1)).map((x) => x.lines)).toEqual([1])
+})
