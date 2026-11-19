@@ -54,7 +54,7 @@ import { isAdmin, useMe, useSession } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
-import { fitHeight } from '../../lib/autoGrow'
+import { fitHeight, useEndAfterRecording } from '../../lib/autoGrow'
 import { allMentionNames, lineBreaks, MENTION_ALL_CONFIRM, type PickedMention } from '../../lib/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
@@ -291,6 +291,8 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   useLayoutEffect(() => {
     if (input.current) fitHeight(input.current, 200)
   }, [text, textSize, placeholder, voice.recording, behindPanel, editing])
+  // back after a recording: the newest words in sight, as they were while recording
+  useEndAfterRecording(input, voice.recording, voice.busy, text)
   // a thread just opened (from "reply in thread"): the box is where the person types next
   useEffect(() => {
     if (autoFocus) input.current?.focus({ preventScroll: true })
@@ -489,6 +491,16 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       )}
     </>
   )
+  // the text field's limit, and the text's while recording (VoiceHeld grows to it as the field does): a phone's whole box
+  // (the files' row, the text, its buttons and padding) stays within about 35 % of what is in sight, so the messages keep
+  // the rest while the keyboard is up (QA TC-252); at least one line. The other rows: about 5rem, 6rem with the files' row
+  // (measured at 390 × 480)
+  const fieldMax = clsx(
+    'max-h-[200px]',
+    files.length > 0
+      ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
+      : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
+  )
   const field = (
     <TokenTextarea
       ref={input}
@@ -572,16 +584,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
         }
       }}
       containerClassName={phone ? 'min-w-0 flex-1' : undefined}
-      // a phone: the whole box (the files' row, the text field, its buttons and padding) stays within about 35 % of
-      // what is in sight, so the messages keep the rest while the keyboard is up (QA TC-252); at least one line
+      // a phone: the whole box stays within about 35 % of what is in sight (fieldMax)
       className={clsx(
-        'max-h-[200px] resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
+        'resize-none text-reading leading-reading text-ink outline-none placeholder:text-faint',
         // one line on a phone; on a computer the text alone on top, as in the AI chat's box (its padding)
         phone ? 'px-1.5 py-2' : 'px-4.5 pt-3 pb-1',
-        // the other rows: about 5rem, 6rem with the files' row (measured at 390 × 480)
-        files.length > 0
-          ? 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-6rem)))]'
-          : 'max-md:max-h-[min(200px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-5rem)))]',
+        fieldMax,
       )}
       data-testid="room-input"
     />
@@ -736,14 +744,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where the clip and send were: nothing moves;
             // once a live recording put words in, the box's text shows above it
             <>
-              {voice.heard && <VoiceHeld text={text} className="max-h-32 px-4 pt-2.5 text-ink" testId="room-text-held" />}
+              {voice.heard && <VoiceHeld text={text} className={clsx(fieldMax, 'px-4 pt-2.5 text-ink')} testId="room-text-held" />}
               <VoiceBar voice={voice} className="box-content min-h-composer-line py-1.5 pr-3 pl-2" />
             </>
           ) : (
-            // a computer's box keeps its height: the text as it was on top (it cannot be typed in while recording), the
-            // bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
+            // a computer's box: the text on top (it cannot be typed in while recording), growing with a live recording's
+            // words as the field does while typing; the bar in the row's place (as tall as ComposerToolbar), ✕ and ✓ where the clip and send were
             <>
-              <VoiceHeld text={text || placeholder} className={clsx('max-h-[200px] px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
+              <VoiceHeld text={text || placeholder} className={clsx(fieldMax, 'px-4.5 pt-3 pb-1', text ? 'text-ink' : 'text-faint')} testId="room-text-held" />
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5" />
             </>
           )

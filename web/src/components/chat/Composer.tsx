@@ -46,6 +46,7 @@ import { markBusy } from '../../lib/busy'
 import { readDraft, writeDraft } from '../../lib/localData'
 import { mergeDraft } from '../../lib/composerDraft'
 import { useVoiceInput } from '../../lib/useVoiceInput'
+import { useEndAfterRecording } from '../../lib/autoGrow'
 import { micState, voiceBlockedHere } from '../../lib/voice'
 import { useConfidentialChat } from '../../lib/confidential'
 import { usePanelExpanded } from '../../lib/sidePanel'
@@ -178,8 +179,6 @@ export default function Composer({
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
-  // the text box's last height: the text held on top while recording keeps it, so the box does not move
-  const heldHeight = useRef<string | undefined>(undefined)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)
   const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
@@ -281,9 +280,10 @@ export default function Composer({
     const was = ta.style.height
     ta.style.height = 'auto'
     ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
-    heldHeight.current = ta.style.height || undefined
     // (and again when the box comes back after a recording: the bar stood in its place)
   }, [text, hint, textSize, voice.recording, behindPanel])
+  // back after a recording: the newest words in sight, as they were while recording
+  useEndAfterRecording(taRef, voice.recording, voice.busy, text)
 
   // a box opened with text in it (a chosen suggestion): the caret after the text, never before it
   useEffect(() => {
@@ -564,7 +564,11 @@ export default function Composer({
   // the text's height on a phone: at most 30 % of what is in sight (the keyboard up: --app-h); in the card the whole
   // card stays within 35 % (QA TC-252), so the text gets 35 % less the card's other parts (the tools' row, the text's
   // own padding and the edge: 3.25rem), at least one line
-  const fieldMax = stacked ? 'max-md:max-h-[min(240px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-3.25rem)))]' : 'max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))]'
+  const cardMax = 'max-md:max-h-[min(240px,max(2.75rem,calc(var(--app-h,100dvh)*0.35-3.25rem)))]'
+  const fieldMax = stacked ? cardMax : 'max-md:max-h-[min(240px,calc(var(--app-h,100dvh)*0.3))]'
+  // the text while recording (VoiceHeld) grows as the text box does, to the same limit; a phone's box without the card
+  // has the bar under the text (as tall as the card's tools' row), so it keeps to the card's limit too
+  const heldMax = clsx('max-h-[240px]', cardMax)
 
   // the mic, then send (or stop, or the answer's and the waiting message's buttons): at the end of the box's row
   const actions = (
@@ -669,10 +673,10 @@ export default function Composer({
 
         {voice.recording ? (
           stacked ? (
-            // a phone's card keeps its height: the text as it was on top (it cannot be typed in while recording), the
-            // bar in the tools' row, ✕ and ✓ where + and send were
+            // the text on top (it cannot be typed in while recording), growing with a live recording's words as it does
+            // while typing; the bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <VoiceHeld text={text || hint} style={{ height: heldHeight.current }} className={clsx(fieldMax, fieldPad, text ? 'text-ink' : 'text-faint')} testId="composer-text-held" />
+              <VoiceHeld text={text || hint} className={clsx(heldMax, fieldPad, text ? 'text-ink' : 'text-faint')} testId="composer-text-held" />
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
             </>
@@ -680,7 +684,7 @@ export default function Composer({
             // as tall as the box's row (one slot and the row's padding), ✕ and ✓ where "+" (phones) and send were; once a
             // live recording put words in, the box's text shows above it
             <>
-              {voice.heard && <VoiceHeld text={text} className={clsx('max-h-32 pt-3 text-ink', phone ? 'px-3' : 'px-5')} testId="composer-text-held" />}
+              {voice.heard && <VoiceHeld text={text} className={clsx(heldMax, 'pt-3 text-ink', phone ? 'px-3' : 'px-5')} testId="composer-text-held" />}
               <VoiceBar voice={voice} className={clsx('box-content min-h-composer-line py-1 pr-2 max-md:pr-1', phone ? 'pl-1.5' : 'pl-3')} />
             </>
           )
