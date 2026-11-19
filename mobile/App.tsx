@@ -6,17 +6,18 @@ import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
+import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, PermissionsAndroid, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
-import { documentId, documentScript, FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
+import { dictationEventScript, documentId, documentScript, FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
 import { backAction, nativeGateLost, openScript, START_TAB_SCRIPT, swipeGate } from './src/nav'
 import { clearDownloadCache, fileTransferIO } from './src/files'
+import { PhoneDictation, type DictationNative } from './src/dictation'
 import { PhotoPicks } from './src/photos'
 import { Reconnect } from './src/reconnect'
 import { SheetGate } from './src/sheet'
 import { clearPickCache, photoPickIO } from './src/photo-io'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, DICTATION_CAPABILITY, MOBILE_CAPABILITIES, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, SHARE_TEXT_CAPABILITY, googleOAuthUrl, navigationDecision, sameTeam, type MobileConfig } from './src/protocol'
 import { accentInk, installGuide, mobileProduct, mobileService } from './src/product'
 import { appBadge, devicePushToken, devices, forgetDelivered, labels, notificationPermission, onNotificationTap, openAppSettings, quietForeground } from './src/push'
 import { DARK, LIGHT, frame, insetScript, isDark, padding, pageInsets, type Insets, type Padding, type Palette } from './src/look'
@@ -53,6 +54,18 @@ const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttr
  * pictures of earlier screens (src/nav.ts swipeGate); null on Android and in a build without it. */
 interface EdgeSwipeModule { setEnabled(enabled: boolean): Promise<number> }
 const edgeSwipe = Platform.OS === 'ios' ? requireOptionalNativeModule<EdgeSwipeModule>('EdgeSwipe') : null
+/** The app's own module (modules/dictation) that turns voice input into words on the phone (dictation-v1,
+ * src/dictation.ts); null in a build without it (the team server transcribes then). iPhone: the page's samples go in.
+ * Android (1.0.10): the phone's recognizer opens the microphone itself, so the app asks for it before a recording (the
+ * same permission the page's own recording asks for); a refusal is a recording that did not start (the page's own
+ * recording then asks again and shows its blocked-mic note). */
+const dictationModule = requireOptionalNativeModule<DictationNative>('Dictation')
+const dictationNative: DictationNative | null = !dictationModule ? null : Platform.OS !== 'android' ? dictationModule : {
+  check: l => dictationModule.check(l), install: (n, l) => dictationModule.install(n, l),
+  start: async (n, l) => (await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO).catch(() => null)) === PermissionsAndroid.RESULTS.GRANTED && dictationModule.start(n, l),
+  push: () => {}, stop: n => dictationModule.stop(n), cancel: n => dictationModule.cancel(n),
+  addListener: (e, cb) => dictationModule.addListener(e, cb),
+}
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
 const Look = createContext<Palette>(LIGHT)
 type PageLook = { dark: boolean; system: boolean }
@@ -486,7 +499,7 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
   const receiver = useRef<MobileReceiver | null>(null)
   if (!receiver.current) {
     // push-label-v1 only where the notification extension can read the label key (an iPhone build with the extension)
-    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : [])] }
+    const config: MobileConfig = { protocol: 1, appVersion: VERSION, platform: Platform.OS === 'ios' ? 'ios' : 'android', nonce: '0'.repeat(64), generation: 1, capabilities: [...MOBILE_CAPABILITIES, PUSH_CAPABILITY, PUSH_REGISTERED_CAPABILITY, PUSH_PERMISSION_CAPABILITY, APPEARANCE_CAPABILITY, NAV_CAPABILITY, SHARE_TEXT_CAPABILITY, PHOTO_PICK_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, ...(labels ? [PUSH_LABEL_CAPABILITY] : []), ...(dictationNative ? [DICTATION_CAPABILITY] : [])] }
     // the photo picker and the share sheet: one at a time, and not again right after one closed (src/sheet.ts)
     const sheets = new SheetGate()
     receiver.current = new MobileReceiver(address.origin, config, new FileTransfers(fileTransferIO()), async url => { await Linking.openURL(url) }, {
@@ -516,7 +529,9 @@ function TeamWeb({ address, hidden, pads, signOut, leaving, opened, onDevice, on
     // photo-pick-v1: the phone's own photo picker for the page's 사진 보관함 (no iOS menu before the library)
     }, new PhotoPicks(photoPickIO(), undefined, sheets),
     // change-team-v1: the 나 tab's "다른 팀으로 전환", the same screen as the signed-out footer's "다른 팀에 연결"
-    () => changeTeam())
+    () => changeTeam(),
+    // dictation-v1: the words of the page's recording, back to the document that started it
+    dictationNative ? new PhoneDictation(dictationNative, e => web.current?.injectJavaScript(dictationEventScript(e))) : undefined)
     void receiver.current.disable()
   }
   const r = receiver.current
