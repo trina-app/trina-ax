@@ -10,7 +10,9 @@ import { SaveToTeamSheet } from '../../src/components/rooms/SaveToTeamSheet'
 import { fileMenuActions } from '../../src/lib/fileMenu'
 import { filesToSave, folderOfPath, saveRefusalKey, saveSummary, startFolder, startTicks } from '../../src/lib/roomSave'
 import { useUi } from '../../src/store/ui'
-import { resetRoomSaves, useRoomSaves } from '../../src/store/roomSaves'
+import { resetRoomSaves, saveToProject, useRoomSaves } from '../../src/store/roomSaves'
+import { inProjectFolder, oneClickOk } from '../../src/lib/roomSave'
+import { isProjectPlainName } from '@mycel/shared'
 import { installDom, mount, removeDom } from './dom-host'
 
 const ROOM = '0190f0f0-0000-7000-8000-00000000a001'
@@ -23,6 +25,8 @@ const json = (body: unknown, code = 200) => new Response(JSON.stringify(body), {
 let calls: { url: string; body: any }[] = []
 let plan: unknown
 let saveAnswer: () => Response
+let outside = 0
+let shaNow = 'a'.repeat(64)
 beforeAll(() => {
   installDom()
   useLocaleStore.setState({ locale: 'en' })
@@ -30,7 +34,9 @@ beforeAll(() => {
     const url = String(input)
     const body = init?.body ? JSON.parse(String(init.body)) : null
     calls.push({ url, body })
-    if (url === `/api/rooms/${ROOM}/save-plan`) return body.folder ? json({ ...(plan as object), suggestion: null, folder: { path: body.folder, outside: 0 } }) : json(plan)
+    if (url === `/api/rooms/${ROOM}/save-plan`) return body.folder ? json({ ...(plan as object), suggestion: null, folder: { path: body.folder, outside } }) : json(plan)
+    if (url.startsWith('/api/files/content')) return json({ path: 'x', size: 1, mtime: new Date().toISOString(), sha256: shaNow, mime: null, binary: true, content: null, truncated: false, access: 'write' })
+    if (url.startsWith('/api/files?') && init?.method === 'DELETE') return json({ trashId: '0190f0f0-0000-7000-8000-0000000000d1', purgeAt: new Date().toISOString() })
     if (url === `/api/rooms/${ROOM}/save-to-team`) return saveAnswer()
     if (url.startsWith('/api/files/tree')) return json({ path: '', access: 'write', entries: [], nextCursor: null })
     return json({ error: { code: 'internal', message: 'no route' } }, 500)
@@ -38,6 +44,8 @@ beforeAll(() => {
 })
 beforeEach(() => {
   calls = []
+  outside = 0
+  shaNow = 'a'.repeat(64)
   resetRoomSaves()
   plan = {
     files: [{ id: F1, name: 'acme-quote.pdf', size: 2048 }, { id: F2, name: 'acme-logo.png', size: 10, savedPath: 'shared/acme/acme-logo.png' }],
@@ -159,5 +167,92 @@ describe('the parts', () => {
     const noop = () => {}
     expect(fileMenuActions({ name: 'a.pdf', download: noop, team: { saved: false, run: noop }, ask: noop }, false)).toEqual(['download', 'saveToTeam', 'ask'])
     expect(fileMenuActions({ name: 'a.pdf', download: noop, team: null }, false)).toEqual(['download'])
+  })
+})
+
+// Save to project in a linked channel (docs/decisions/20261119-channel-project-link.md D6)
+describe('Save to project', () => {
+  const PROJECT = { id: '0190f0f0-0000-7000-8000-0000000000a1', name: 'Launch site', folderPath: 'projects/Launch site', canSave: true }
+  const words = { t: (k: string, p?: Record<string, string | number>) => translate('en', k as never, p), locale: 'en' as const, open: () => {} }
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  beforeEach(() => useUi.setState({ toasts: [] }))
+
+  test('one click only for documents and media that do not look personal', () => {
+    const f = (name: string, sensitive = false) => ({ files: [{ id: F1, name, size: 1, ...(sensitive ? { sensitive } : {}) }] })
+    for (const n of ['quote.PDF', 'notes.md', 'deck.pptx', 'photo.heic', 'clip.mp4']) expect(oneClickOk(f(n), isProjectPlainName)).toBe(true)
+    for (const n of ['deploy.sh', 'package.json', 'Makefile', 'conftest.py', 'x.pdf.sh', '.env', 'CLAUDE.md', 'page.html', 'logo.svg']) expect(oneClickOk(f(n), isProjectPlainName)).toBe(false)
+    expect(oneClickOk(f('id-card.pdf', true), isProjectPlainName)).toBe(false)
+    expect(inProjectFolder('projects/Launch site/q.pdf', 'projects/Launch site')).toBe(true)
+    expect(inProjectFolder('projects/Launch site 2/q.pdf', 'projects/Launch site')).toBe(false)
+  })
+
+  test('a PDF: one save with oneClick to the project root, the toast with Open and Undo, no outside line', async () => {
+    plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false }] })
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    const save = calls.find((c) => c.url.endsWith('/save-to-team'))!
+    expect(save.body).toEqual({ fileIds: [F1], folder: 'projects/Launch site', oneClick: true })
+    const t = useUi.getState().toasts.at(-1)!
+    expect(t.text).toBe('Saved to Launch site')
+    expect(t.detail).toBeUndefined()
+    expect(t.more?.label).toBe('Open')
+    expect(t.action?.label).toBe('Undo')
+    expect(useRoomSaves.getState().sheet).toBeNull()
+    expect(useRoomSaves.getState().byRoom[ROOM]?.[F1]).toBe('projects/Launch site/quote.pdf')
+  })
+
+  test('people outside the channel: the toast says how many', async () => {
+    outside = 3
+    plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    expect(useUi.getState().toasts.at(-1)!.detail).toBe('3 people outside this channel can open it.')
+  })
+
+  test('a .sh opens the sheet with the project folder picked; nothing is saved', async () => {
+    plan = { files: [{ id: F1, name: 'deploy.sh', size: 10 }], suggestion: null, sensitive: false }
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    expect(calls.some((c) => c.url.endsWith('/save-to-team'))).toBe(false)
+    expect(useRoomSaves.getState().sheet).toMatchObject({ roomId: ROOM, fileIds: [F1], folder: 'projects/Launch site' })
+  })
+
+  test('the server says needs_sheet: the sheet opens', async () => {
+    plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
+    saveAnswer = () => json({ error: { code: 'conflict', message: 'x', params: { reason: 'needs_sheet' } } }, 409)
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    expect(useRoomSaves.getState().sheet?.folder).toBe('projects/Launch site')
+  })
+
+  test('Undo takes back an unchanged copy, and keeps a changed one', async () => {
+    plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false }] })
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    await tick()
+    useUi.getState().toasts.at(-1)!.action!.run()
+    for (let i = 0; i < 20 && useUi.getState().toasts.at(-1)!.text !== 'Taken out of Launch site'; i++) await tick()
+    expect(calls.some((c) => c.url.startsWith('/api/files?'))).toBe(true)
+    expect(useRoomSaves.getState().byRoom[ROOM]?.[F1]).toBeUndefined()
+
+    calls = []
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    await tick()
+    shaNow = 'b'.repeat(64)
+    useUi.getState().toasts.at(-1)!.action!.run()
+    for (let i = 0; i < 20 && !useUi.getState().toasts.at(-1)!.text.startsWith('It was changed'); i++) await tick()
+    expect(useUi.getState().toasts.at(-1)!.text).toBe('It was changed, so it stays in Launch site')
+    expect(calls.some((c) => c.url.startsWith('/api/files?'))).toBe(false)
+  })
+
+  test('a 404 (the link or folder gone meanwhile): the room is read again', async () => {
+    plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
+    saveAnswer = () => json({ error: { code: 'not_found', message: 'gone' } }, 404)
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    await tick()
+    expect(calls.some((c) => c.url === `/api/rooms/${ROOM}`)).toBe(true)
+    expect(useUi.getState().toasts.at(-1)!.level).toBe('error')
+  })
+
+  test('the file menu offers Save to the project first, then another folder', () => {
+    const noop = () => {}
+    expect(fileMenuActions({ name: 'a.pdf', download: noop, team: { saved: false, run: noop, project: { label: 'Save to Launch site', run: noop } } }, false)).toEqual(['download', 'saveToTeam'])
   })
 })

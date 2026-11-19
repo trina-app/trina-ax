@@ -24,6 +24,7 @@ import { GuestTagFor, isGuestNow } from '../GuestTag'
 import { isGuestMe } from '../../lib/guests'
 import { isPrivateChannel } from '../../lib/rooms'
 import { PersonButton } from '../PersonCard'
+import { RoomProjectRow } from './ProjectLink'
 
 export function MembersDialog({ open, onClose, room, members, meId, onInvite }: { open: boolean; onClose: () => void; room: Room | null; members: RoomMember[] | undefined; meId: string | null; onInvite: () => void }) {
   const t = useT()
@@ -45,6 +46,8 @@ export function MembersDialog({ open, onClose, room, members, meId, onInvite }: 
     <Modal open={open} onClose={onClose} title={sorted ? `${t('rooms.membersTitle')} · ${sorted.length}` : t('rooms.membersTitle')} width={400}>
       <div className="-mx-5 -my-5 divide-y divide-line max-sm:-mx-4" data-testid="room-info">
         {room?.canRename && <NameRow room={room} />}
+        {/* a private channel's project (components/rooms/ProjectLink.tsx): linked, or Link to a project */}
+        {room && <RoomProjectRow room={room} onGo={onClose} />}
         {/* the lists' rows (components/list/List.tsx, a list of people: the face box), inset so the words line up
             with the dialog's 20px (16px on a phone) */}
         {(group || room?.kind === 'dm') && !isGuestMe(me) && (
