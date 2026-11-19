@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>すべてを検索。</b> ⌘K でチャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探す ⌘K 検索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークにも Trina がいます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた Trina の回答、右に開いたスレッド"></td>
+<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークでも、横の自分だけに見えるチャットで Trina に聞けます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた Trina の回答、右に開いたスレッド"></td>
 </tr>
 </table>
 

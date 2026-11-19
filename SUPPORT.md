@@ -9,8 +9,8 @@
 | Bug or workflow suggestion / 오류·업무 개선 제안 | [Issue forms / 문의 양식](https://github.com/trina-app/trina-ax/issues/new/choose); version if known, role, task, fictional steps |
 | Security or private information / 보안·민감 정보 | [Security policy](SECURITY.md); email contact@trina.app privately / 공개 이슈 대신 이메일 |
 
-Public reports are welcome in English and Korean. Japanese/Spanish README translations do not imply staffed support in those languages. Community questions currently use Issues; there is no link to disabled Discussions.
+Public reports are welcome in English and Korean. Japanese, Spanish and Chinese README translations do not imply staffed support in those languages. Community questions use Issues or [Discord](https://discord.gg/zUVfSR8MVk).
 
-공개 문의는 영어·한국어로 받습니다. 일본어·스페인어 README 번역이 해당 언어의 지원 인력을 뜻하지는 않습니다. 커뮤니티 질문은 현재 Issues를 사용합니다.
+공개 문의는 영어·한국어로 받습니다. 일본어·스페인어·중국어 README 번역이 해당 언어의 지원 인력을 뜻하지는 않습니다. 커뮤니티 질문은 Issues나 [Discord](https://discord.gg/zUVfSR8MVk)를 사용합니다.
 
 Never post customer documents, real names, account details, keys, tokens, setup/invite URLs, cookies, databases or raw logs. Reproduce with fictional data and inspect screenshots before posting. / 고객 자료·실명·계정·키·토큰·설정 및 초대 링크·쿠키·DB·원본 로그를 올리지 마세요. 가상 자료로 재현하고 화면을 확인하세요.
