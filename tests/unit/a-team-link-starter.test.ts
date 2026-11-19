@@ -27,9 +27,6 @@ const write = (rel: string, text = '회의록') => {
 beforeAll(async () => {
   h = await harness('team-link-starter')
   owner = await withOwner(h)
-  // a team from before the steps started at setup (docs/decisions/20261119-welcome-steps-in-app.md): with the row, the
-  // pack install below would run the team's start first and make the team group "Acme" itself
-  h.ctx.db.query("DELETE FROM settings WHERE key = 'onboarding.welcome'").run()
   setPlanForTests(null)
   expect((await owner.try('POST', '/api/onboarding/packs/general/install')).status).toBe(200)
   team = await owner.call('POST', '/api/admin/groups', { name: 'Acme' })

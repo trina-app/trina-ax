@@ -215,7 +215,8 @@ test.describe('a fresh owner who goes on in the Mac app', () => {
       await page.getByLabel('Your name').fill('Kim Owner')
       await page.getByLabel('Username').fill('kim')
       await page.getByLabel('Password', { exact: true }).fill('a long password 1')
-      await page.getByRole('button', { name: 'Create team and start' }).click()
+      // the link names the team: "Create account and start" since the setup page asks only for the owner then (#74)
+      await page.getByRole('button', { name: /^Create (team|account) and start$/ }).click()
       await expect(page).toHaveURL(/\/open-app$/)
       // the server has the steps already, with the website, before /welcome was ever opened
       const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress

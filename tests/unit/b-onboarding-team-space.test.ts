@@ -93,9 +93,6 @@ test('the team group with its folders, once; no skill installed; the owner in it
 
 test('a deleted skill is not brought back; a team that has the general skills is recorded without installing', async () => {
   const { owner, root } = await setup()
-  // a team from before the steps started at setup (docs/decisions/20261119-welcome-steps-in-app.md): no row yet, so the
-  // pack goes in before the team's start
-  h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
   await owner.call('POST', '/api/onboarding/packs/general/install')
   fs.rmSync(path.join(root, 'skills/general/card-news'), { recursive: true })
   const r = await owner.call('POST', '/api/onboarding/welcome/team')

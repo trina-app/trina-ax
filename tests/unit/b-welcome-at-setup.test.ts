@@ -3,7 +3,9 @@
 // /app-signin) lands in the steps there and keeps the website. Before, the row was made only when /welcome opened once.
 import { afterEach, expect, test } from 'bun:test'
 import { addMember, harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
-import { startWelcomeAtSetup, WELCOME_SETTING } from '../../server/src/onboarding/welcome'
+import fs from 'node:fs'
+import path from 'node:path'
+import { startWelcomeAtSetup, WELCOME_SETTING, welcomeOpened, welcomeUnfinishedFor } from '../../server/src/onboarding/welcome'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { WelcomeProgress } from '@mycel/shared/api'
 
@@ -92,4 +94,37 @@ test('startWelcomeAtSetup is idempotent and never touches a row that is there: f
   setSetting(h.ctx.db, WELCOME_SETTING, 'broken')
   expect(() => startWelcomeAtSetup({ db: h.ctx.db, log }, 'acme.example')).not.toThrow()
   expect(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).toBe('broken')
+})
+
+test('a row the setup made is not opened: nothing from outside the steps changes it until the owner opens them (security matrix teamFilesLanded)', async () => {
+  h = await harness('b-welcome-at-setup-7')
+  const c = await setupWith()
+  expect(welcomeOpened(h.ctx)).toBe(false)
+  const file = path.join(h.ctx.files.fx.root, 'shared', 'budget.md')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, '# budget')
+  // an upload's record and a pack install change nothing yet; no team group is made for a skill install
+  expect((await c.call('POST', '/api/onboarding/files/landed', { path: 'shared/budget.md' })).recorded).toBe(false)
+  await c.call('POST', '/api/onboarding/packs/general/install')
+  const before = (await c.call('GET', '/api/onboarding/welcome')).progress
+  expect(before.steps.skills).toBeNull()
+  expect(before.steps.files).toBeNull()
+  expect(before.teamGroup).toBeUndefined()
+  expect(welcomeUnfinishedFor(h.ctx, (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id)).toBe(false)
+  // the owner's first move in the steps opens them; then the upload records 팀 파일
+  await c.call('PATCH', '/api/onboarding/welcome', {})
+  expect(welcomeOpened(h.ctx)).toBe(true)
+  expect((await c.call('POST', '/api/onboarding/files/landed', { path: 'shared/budget.md' })).recorded).toBe(true)
+  // a row from before (no openedAt field) is opened
+  const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
+  delete raw.openedAt
+  setSetting(h.ctx.db, WELCOME_SETTING, raw)
+  expect(welcomeOpened(h.ctx)).toBe(true)
+})
+
+test('the steps\' page opens the row: the team start (POST /api/onboarding/welcome/team) marks it', async () => {
+  h = await harness('b-welcome-at-setup-8')
+  const c = await setupWith()
+  await c.call('POST', '/api/onboarding/welcome/team')
+  expect(welcomeOpened(h.ctx)).toBe(true)
 })

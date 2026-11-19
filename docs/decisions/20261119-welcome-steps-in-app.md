@@ -21,10 +21,13 @@
   - `/app-signin` → Continue is unchanged: it lands on Home with the landing state, which now finds the row and opens
     the steps where they stopped. "Continue setup · n/5" follows the existing rules (lib/welcome.ts setupRowState); while
     no AI answers, Home's no-AI card still stands in for it on Home.
-  - Because the row exists from the start, what already happened once the owner had opened `/welcome` now happens from
-    setup on, in the app too: a visual skill installed from Team skills runs the team's start first (the team group and
-    the brand folder, onboarding/welcome-result.ts ensureBrand), and merges into team skills wait for the steps' end
-    (skills/share-merge.ts). Unit tests that modelled a team without a row now delete it first.
+  - A row the setup made is **not opened** (`openedAt: null`) until the owner's first move in the steps (any PATCH of
+    the steps, the team's start, the brand action). Until then nothing from outside the steps changes it or waits for
+    it, exactly as when there was no row: an upload's 팀 파일 record (`POST /api/onboarding/files/landed` answers
+    `recorded: false`; security matrix `teamFilesLanded`), a pack install's 내 스킬, a shared skill, the brand
+    materials before a visual skill install (no team group is made by it), the merges that wait for the steps' end, an
+    admin's "sort the team's files" row. Reading the row (Home's landing, the setup row, /welcome) does not need it
+    opened. A row without the field (every row from before) is opened.
   - Not changed: teams made before this (no row) get no row: an old team whose owner never opened the steps is not sent
     into them now. The command-line owner (`admin create-owner`) gets no row either. Members are not affected (the row is
     the owner's; members never read it).
