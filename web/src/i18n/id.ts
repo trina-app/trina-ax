@@ -3701,6 +3701,7 @@ export const id: Record<MessageKey, string> = {
   "localApps.error.command": "Ketik satu program dan yang mengikutinya. Karakter seperti |, & dan ; tidak dapat dipakai.",
   "localApps.error.settings": "Tulis setiap pengaturan di barisnya sendiri, sebagai NAMA=nilai.",
   "localApps.settingsNotKept": "Komputer ini tidak dapat menyimpan pengaturan dengan aman, jadi pengaturan tidak disimpan.",
+  "localApps.settingsNotKeptLinux": "Komputer ini tidak dapat menyimpan pengaturan dengan aman, jadi pengaturan tidak disimpan. Di Linux, ini memerlukan GNOME Keyring atau KWallet.",
   "localApps.whereHere": "Hanya berfungsi saat Anda menulis dari aplikasi desktop ini di komputer ini. Program berjalan di sini, dengan akses Anda.",
   "localApps.whereElsewhere": "Hanya berfungsi dari aplikasi desktop {product} di komputer tempat ini ditambahkan. Dari sini, AI tidak dapat memakainya.",
   "localApps.runs": "Menjalankan",

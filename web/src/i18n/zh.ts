@@ -3652,6 +3652,7 @@ export const zh: Record<MessageKey, string> = {
   "localApps.error.command": "只输入一个程序及其后面的内容。不能使用 |、&、; 等字符。",
   "localApps.error.settings": "每个设置单独一行，写成 NAME=值。",
   "localApps.settingsNotKept": "这台电脑无法安全保存这些设置，所以没有保存。",
+  "localApps.settingsNotKeptLinux": "这台电脑无法安全保存这些设置，所以没有保存。在 Linux 上需要 GNOME Keyring 或 KWallet。",
   "localApps.whereHere": "只有在这台电脑的这个桌面应用里发消息时才会使用。程序以你的权限在这台电脑上运行。",
   "localApps.whereElsewhere": "只能在添加它的那台电脑上的 {product} 桌面应用中使用。在这里，AI 无法使用它。",
   "localApps.runs": "运行",

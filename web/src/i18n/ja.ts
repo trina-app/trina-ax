@@ -3657,6 +3657,7 @@ export const ja: Record<MessageKey, string> = {
   "localApps.error.command": "プログラム1つと、その後に続く部分だけを入力してください。|、&、; などの文字は使えません。",
   "localApps.error.settings": "設定は1行に1つ、NAME=値の形で書いてください。",
   "localApps.settingsNotKept": "このパソコンで設定を安全に保管できなかったため、保存しませんでした。",
+  "localApps.settingsNotKeptLinux": "このパソコンで設定を安全に保管できなかったため、保存しませんでした。Linux では GNOME Keyring か KWallet が必要です。",
   "localApps.whereHere": "このパソコンのこのデスクトップアプリから送ったときだけ使われます。プログラムはあなたの権限でこのパソコンで動きます。",
   "localApps.whereElsewhere": "追加したパソコンの{product}デスクトップアプリからだけ使えます。ここからはAIは使えません。",
   "localApps.runs": "実行するもの",

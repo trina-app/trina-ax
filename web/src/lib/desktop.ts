@@ -32,6 +32,12 @@ export const noPurchaseLinks = (bridge: DesktopBridge | null = desktop()): boole
  * .claude for a folder input); every other desktop build, the Microsoft Store one too, picks like a browser. */
 export const answersFileInputs = (bridge: DesktopBridge | null = desktop()): boolean => storeApp(bridge) && bridge?.platform === 'darwin'
 
+/** "could not keep the settings safely" (apps on this computer); on Linux, when the system had no keyring for the app,
+ * with what it needs (GNOME Keyring or KWallet) */
+export function settingsNotKeptKey(result: string | undefined, platform: string | undefined = desktop()?.platform) {
+  return result === 'unavailable' && platform === 'linux' ? 'localApps.settingsNotKeptLinux' as const : 'localApps.settingsNotKept' as const
+}
+
 // ---- pane state, shared by every component that shows it (one subscription to the desktop app)
 const CLOSED: DesktopPaneState = { open: false, tabs: [], driving: false }
 let paneState: DesktopPaneState = CLOSED

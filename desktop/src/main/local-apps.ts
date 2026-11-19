@@ -1,11 +1,12 @@
 // Apps on the person's computer (docs/decisions/20261118-local-app-connectors.md): the Electron side of
 // common/local-apps.ts. The confirm is the app's own dialog over its window (never the team page, which cannot answer
 // it); what was confirmed and the setting values are kept in <user data>/local-apps.json, the values sealed with
-// Electron's safeStorage (the system's keychain), per team and connection. Nothing here is sent to the team server.
+// Electron's safeStorage (the system's keychain; on Linux GNOME Keyring or KWallet, never Electron's fixed-key fallback),
+// per team and connection. Nothing here is sent to the team server.
 import { dialog, safeStorage, type BaseWindow } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
-import { LocalApps, type LocalAppsDeps } from '../common/local-apps'
+import { LocalApps, sealable, type LocalAppsDeps } from '../common/local-apps'
 import { t, type UiLocale } from '../common/i18n'
 
 interface Entry { confirmed?: string; settings?: string }
@@ -67,7 +68,7 @@ export class LocalAppsHost {
     const typed = Object.entries(values as Record<string, unknown>)
     if (typed.length > 20) return 'invalid'
     for (const [k, v] of typed) if (!NAME.test(k) || typeof v !== 'string' || v.length > 8000 || v.includes('\0')) return 'invalid'
-    if (!safeStorage.isEncryptionAvailable()) return 'unavailable'
+    if (!sealable(process.platform, () => safeStorage.isEncryptionAvailable(), () => safeStorage.getSelectedStorageBackend())) return 'unavailable'
     const clean: Record<string, string> = { ...this.settings(team, id) }
     for (const [k, v] of typed as [string, string][]) { if (v) clean[k] = v; else delete clean[k] }
     if (Object.keys(clean).length > 20) return 'invalid'
