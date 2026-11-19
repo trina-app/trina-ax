@@ -1,6 +1,5 @@
 /* macOS permission prompts (id). The English base is mac.extendInfo in desktop/electron-builder.config.ts. */
-"NSMicrophoneUsageDescription" = "Input suara dan catatan rapat memakai mikrofon.";
-"NSAudioCaptureUsageDescription" = "Catatan rapat mendengarkan suara panggilan Anda untuk menuliskan apa yang diucapkan. Suaranya tidak disimpan.";
+"NSMicrophoneUsageDescription" = "Input suara di chat memakai mikrofon.";
 "NSLocalNetworkUsageDescription" = "Terhubung langsung ke server tim Anda di dalam kantor.";
 "NSDesktopFolderUsageDescription" = "Mencari file kerja di sini. Isi file tetap di Mac ini sampai Anda memilih untuk menambahkannya.";
 "NSDocumentsFolderUsageDescription" = "Mencari file kerja di sini. Isi file tetap di Mac ini sampai Anda memilih untuk menambahkannya.";

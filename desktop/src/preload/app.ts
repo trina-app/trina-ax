@@ -9,7 +9,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { keepPageFocus } from '../common/keyboard-focus'
 
 // constants come from the main process: this preload stays free of shared runtime code (zod etc.)
-const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; meeting?: number; downloads?: boolean; localApps?: number } | null
+const info = ipcRenderer.sendSync('bridge:info') as { global: string; bridgeVersion: number; appVersion: string; platform: DesktopBridge['platform']; store?: boolean; workFiles?: number; workFilesWide?: number; downloads?: boolean; localApps?: number } | null
 
 const on = (channel: string) => (cb: (payload: any) => void) => {
   const handler = (_e: IpcRendererEvent, payload: unknown) => cb(payload)
@@ -98,24 +98,6 @@ const bridge: DesktopBridge = {
                 },
               }
             : {}),
-        },
-      }
-    : {}),
-  // meeting notes: only where the app has the sound helper (a Mac, macOS 14.4+, not the store build); start() shows the
-  // app's own dialog, the page gets lines and state, never sound
-  ...(info?.meeting
-    ? {
-        meeting: {
-          version: info.meeting,
-          state: () => ipcRenderer.invoke('bridge:meeting-state'),
-          start: () => ipcRenderer.invoke('bridge:meeting-start'),
-          stop: () => ipcRenderer.invoke('bridge:meeting-stop'),
-          lines: () => ipcRenderer.invoke('bridge:meeting-lines'),
-          onLines: on('bridge:meeting-lines-changed'),
-          onState: on('bridge:meeting-state-changed'),
-          openSoundSettings: () => ipcRenderer.send('bridge:meeting-sound-settings'),
-          unsaved: () => ipcRenderer.invoke('bridge:meeting-unsaved'),
-          saved: (startedAt: number) => ipcRenderer.send('bridge:meeting-saved', Number(startedAt)),
         },
       }
     : {}),

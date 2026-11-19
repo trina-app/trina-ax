@@ -121,9 +121,7 @@ function check(ok: boolean, what: string) {
 
 async function main() {
   const dir = resolve(process.argv[2] ?? join(DESKTOP, 'release'))
-  const config = (await import(join(DESKTOP, 'electron-builder.config.ts'))).default as { productName: string; compression?: string; dmg?: DmgOptions; directories?: { buildResources?: string }; mac?: { extraFiles?: { to: string }[] } }
-  /** what mac.extraFiles puts in the app's Contents (the meeting notes' sound helper) */
-  const macExtraFiles = (config.mac?.extraFiles ?? []).map((f) => f.to)
+  const config = (await import(join(DESKTOP, 'electron-builder.config.ts'))).default as { productName: string; compression?: string; dmg?: DmgOptions; directories?: { buildResources?: string } }
   const req = createRequire(join(DESKTOP, 'package.json'))
   const builderVersion = (req('electron-builder/package.json') as { version: string }).version
   const dmgBuilder = resolve(createRequire(req.resolve('electron-builder/package.json')).resolve('dmg-builder/package.json'), '..')
@@ -174,13 +172,6 @@ async function main() {
             const short = plistValue(plistFile, 'CFBundleShortVersionString')
             check(short === v, `its version ${short} (expected ${v})`)
             check(existsSync(join(p, 'Contents', 'Resources', 'app.asar')), 'its Resources/app.asar')
-            // the mac.extraFiles of the config (the meeting notes' sound helper): there, and both Mac architectures
-            for (const f of macExtraFiles) {
-              const file = join(p, 'Contents', f)
-              check(existsSync(file), `its Contents/${f}`)
-              const archs = existsSync(file) ? Bun.spawnSync(['lipo', '-archs', file], { stdout: 'pipe' }).stdout.toString().trim().split(/\s+/).sort().join(' ') : ''
-              check(archs === 'arm64 x86_64', `Contents/${f} is universal (${archs || 'missing'})`)
-            }
           }
         } else {
           check(!!st, `"${e.name}" is there`)

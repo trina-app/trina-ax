@@ -34,7 +34,6 @@ import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
-import { MeetingNotesCard } from './MeetingNotes'
 import { RailColumns } from './rail/RailColumns'
 import { PANEL_ID } from './panels/PanelFrame'
 const ArtifactPanel = lazy(() => import('./ArtifactPanel'))
@@ -190,8 +189,6 @@ export default function Layout() {
           <BottomTabs />
           {/* phones: the 트리나 tab's ☰ drawer (the AI's history) */}
           <TrinaDrawer />
-          {/* meeting notes (desktop app): the one card while a meeting runs, on every page */}
-          <MeetingNotesCard />
         </main>
         {panel && (
           // beside an open thread (a file a reply links to) the panel leaves the room and the thread their minimums

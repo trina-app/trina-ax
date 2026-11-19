@@ -2,4 +2,3 @@ dist/
 release/
 e2e/.work/
 *.tsbuildinfo
-native-build/

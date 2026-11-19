@@ -4,7 +4,7 @@
 // run 2026-11-16, root cause #2).
 //
 // One line per place or group of places, at most 20 lines (docs/decisions/20261117-ai-app-map-five-places.md added
-// Shared with me, folder sharing, threads under an answer, Open the app, meeting notes). The places are named by the
+// Shared with me, folder sharing, threads under an answer, Open the app; meeting notes were removed 2026-11-19). The places are named by the
 // labels the person's app shows, in their language: each label is a web i18n key (APP_MAP_KEYS), its words in app-map-labels.ts, generated from web/src/i18n by
 // scripts/app-map-labels.ts; tests/unit/ai-app-map.test.ts fails when a key is gone or its words changed, and when a
 // Settings tab, Admin page, Team settings group or System group named here is gone.
@@ -18,7 +18,7 @@
 // A guest gets none (none of the team's screens are theirs; the guest section says what they can do).
 // Install facts: guest AI only where the AI runs on the team's connections (managed); the dev environment only where
 // the server has it (MYCEL_DEV_ENV, devenv/setting.ts devEnvFlag); otherwise one line says it is not on this install.
-import { MEETINGS_LABEL, ownFolderLabel, PRODUCT } from '@mycel/shared'
+import { ownFolderLabel, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale } from '@mycel/shared/api'
 import { APP_MAP_LABELS } from './app-map-labels'
 import { APP_MAP_KEYS, type AppMapKey } from './app-map-keys'
@@ -97,7 +97,7 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
     `- ${q('settings.title')}: ${q('settings.profile')} (photo, name${o.pickModel === undefined ? '; own AI and model, if allowed' : o.pickModel ? '; own AI and model for new chats' : ''}), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
     `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
     `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
-    `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; on a Mac ${q('meeting.entry')} (team voice input on: no bot joins, asks first, ${q('meeting.stop')} anytime, sound not kept, a line to tell the call, notes saved every 2 min in ${MEETINGS_LABEL[L]}; the AI cannot listen or start it); in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
+    `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
   ]
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings

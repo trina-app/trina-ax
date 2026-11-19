@@ -80,7 +80,6 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Every change is kept.** By a person or their AI; bring back any version.
 - **In-app browser.** In the desktop app, Trina opens websites in a pane beside your chat, reads them, clicks and fills in forms while you watch; Stop ends it. It asks before a new site unless you allow all websites.
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
-- **Meeting notes.** The Mac app (macOS 14.4+) takes notes from Zoom, Meet and Teams calls.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
 - **Every device.** Mac, Windows, iPhone, Android and any browser, in six languages.

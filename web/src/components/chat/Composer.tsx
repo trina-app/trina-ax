@@ -70,6 +70,7 @@ import { fromWire } from '../../lib/roomRefs'
 import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
 import { ComposerToolbar } from './ComposerToolbar'
+import { MicBlockedNotice } from '../MicBlockedNotice'
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
@@ -799,11 +800,12 @@ export default function Composer({
       {error && error === limitText && (
         <CalmNotice className="mt-2" testId="composer-limit" icon={<CirclePause size={16} />} title={error} />
       )}
-      {error && error !== limitText && (
-        <p role="alert" className="mt-2 px-2 text-sm text-danger">
-          {error}
-          {voice.settingsFor === error && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
-        </p>
+      {/* a blocked mic is a setting to change, not a failure: the calm notice, with the way to the phone's Settings in the app */}
+      {error && error !== limitText && voice.blockedFor === error && (
+        <MicBlockedNotice className="mt-2" text={error} onOpenSettings={voice.settingsFor === error ? voice.openSettings : undefined} testId="composer-mic-blocked" />
+      )}
+      {error && error !== limitText && voice.blockedFor !== error && (
+        <p role="alert" className="mt-2 px-2 text-sm text-danger">{error}</p>
       )}
       {unsent && !error && (
         <CalmNotice

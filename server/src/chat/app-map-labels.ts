@@ -52,8 +52,6 @@ export const APP_MAP_LABELS: Readonly<Record<string, Readonly<Record<Locale, str
   "openApp.lineLink": { ko: "앱에서 열기", en: "Open the app", id: "Buka aplikasi", ja: "アプリで開く", es: "Abrir la app", zh: "打开应用" },
   "openApp.mac": { ko: "Mac 앱에서 계속", en: "Continue in the Mac app", id: "Lanjutkan di aplikasi Mac", ja: "Macアプリで続ける", es: "Continuar en la app de Mac", zh: "在 Mac 应用中继续" },
   "openApp.download": { ko: "앱 내려받기", en: "Download the app", id: "Unduh aplikasi", ja: "アプリをダウンロード", es: "Descargar la app", zh: "下载应用" },
-  "meeting.entry": { ko: "회의 기록하기", en: "Take meeting notes", id: "Catat rapat", ja: "会議メモを取る", es: "Tomar notas de la reunión", zh: "记录会议" },
-  "meeting.stop": { ko: "멈추기", en: "Stop", id: "Berhenti", ja: "停止", es: "Detener", zh: "停止" },
   "admin.members": { ko: "멤버·초대", en: "Members & invites", id: "Anggota & undangan", ja: "メンバーと招待", es: "Miembros e invitaciones", zh: "成员与邀请" },
   "members.inviteToTeam": { ko: "사람 초대", en: "Invite people", id: "Undang orang", ja: "メンバーを招待", es: "Invitar a personas", zh: "邀请成员" },
   "members.inviteMore": { ko: "다른 초대 방법", en: "More ways to invite", id: "Cara lain mengundang", ja: "ほかの招待方法", es: "Otras formas de invitar", zh: "更多邀请方式" },
