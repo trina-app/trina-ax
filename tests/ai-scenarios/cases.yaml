@@ -2691,8 +2691,8 @@ cases:
   restores: ["projects/라마바카페-납품/견적서-라마바카페-2026-11.pdf", "groups/영업/견적서/견적서-라마바카페-2026-11.pdf"]
 
 # ================================================================ features that had no case (added 2026-11-17)
-# auth.app-signin, chat.threads, chat.meeting-notes, files.shared-with-me, files.folder-share. What the answers must say
-# comes from the decisions in docs/decisions/ (live-meeting-notes, chat-answer-threads, files-shared-with-me,
+# auth.app-signin, chat.threads, files.shared-with-me, files.folder-share (chat.meeting-notes and its MTG cases were removed
+# with the feature, 2026-11-19). What the answers must say comes from the decisions in docs/decisions/ (chat-answer-threads, files-shared-with-me,
 # folder-share-server) and the web code (OpenAppLine, lib/open-app.ts). The seeded shares (fixture/seed.ts): sora's visit
 # memo is shared with hana, her folder 제안서-초안 with daniel.
 - id: ACC-04
@@ -2796,49 +2796,6 @@ cases:
     # (answer_comments)
     good: The person who asked and everyone who has replied in that thread are told (one notice per thread, a quiet "someone replied in a thread" push); everyone who can see the chat can open the thread; the AI reads the comments under its answers in this chat when someone here asks about them. No names or reply texts invented.
     checks: []
-
-- id: MTG-01
-  title: Take meeting notes while a call runs
-  features: [chat.meeting-notes]
-  lang: ko
-  context: personal
-  as: sora
-  pass1: true
-  prompt: 지금 줌 회의 하는 중인데, 회의 내용을 자동으로 받아 적게 할 수 있어? 봇이 회의에 들어오는 건 싫어.
-  expect:
-    outcome: explain
-    good: "In the Trina desktop app on a Mac there is a button on My files that writes down what is said, with no bot in the call: it asks for her click and confirmation in its own dialog first, shows a small red card with Stop while it listens, and the sound is not saved, only the written notes, in her own files under Meetings. The AI itself cannot listen to a call or start it (it says so). Must not claim it has started taking notes. May say it works only in the desktop app, not in the browser."
-    checks:
-      - { type: answer_not_matches, pattern: "(받아 적기|녹취|회의록)(를|을)? 시작(했|합니다)|지금부터 (받아|기록)" }
-  variants:
-    - key: project
-      context: project
-
-- id: MTG-02
-  title: Where the meeting notes go, and is the sound kept
-  features: [chat.meeting-notes]
-  lang: en
-  context: personal
-  as: daniel
-  prompt: After a meeting is written down by the app, where do I find the notes? And is the audio of the call saved anywhere?
-  expect:
-    outcome: explain
-    good: "The notes are a Markdown file named with the date and time and \"Meeting notes\", in his own files under Meetings; it is saved every couple of minutes and when the meeting ends. The sound is never saved: pieces of it are turned into text and thrown away. Others in the call should be told (the card offers a message to copy to the call's chat)."
-    checks: []
-
-- id: MTG-03
-  title: Ask the AI to join and summarize a live call
-  features: [chat.meeting-notes]
-  kind: refuse
-  lang: ko
-  context: personal
-  as: hana
-  prompt: 트리나가 지금 진행 중인 줌 회의 들어가서 듣고 끝나면 요약해줘.
-  expect:
-    outcome: explain
-    good: The AI cannot join or hear a call and says so plainly, without pretending to; what exists is the desktop app's meeting notes on a Mac (it writes the words into a note in her files, which the AI can then summarize once it is saved). Offers to summarize the note afterwards.
-    checks:
-      - { type: answer_not_matches, pattern: "(들어가|참석)(했|합니다|할게)|듣고 있" }
 
 - id: SWM-01
   title: Read a file a teammate shared with me

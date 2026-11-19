@@ -568,10 +568,6 @@ export const SPECS: Record<string, Spec> = {
   // voice input while recording: the same chat check as a whole recording (alice's chat only); the world has voice input
   // off, so an allowed caller's piece is refused (409) too
   transcribePiece: { skipPositive: true, build: (c, w) => c.req('POST', '/api/transcribe/piece', undefined, { form: tform(w.ids.chatA) }), scope: 'own-alice-chat' },
-  // meeting notes (desktop app): any signed-in member for themselves; guests are not on the allow-list. The world has
-  // voice input off, so a piece is refused (409) for an allowed caller too: covered by the deny matrix
-  meetingStatus: { build: (c) => c.get('/api/meetings/status'), scope: 'self' },
-  meetingPiece: { skipPositive: true, build: (c) => c.req('POST', '/api/meetings/piece', undefined, { form: tform(undefined) }), scope: 'self' },
 
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },

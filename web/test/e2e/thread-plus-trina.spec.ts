@@ -402,36 +402,3 @@ test('a file preview beside both: the page shows thread and side chat; Esc close
   await expect(side).toBeVisible()
   await page.setViewportSize({ width: 1440, height: 900 })
 })
-
-test('the meeting-notes card (desktop app) sits above the message box of a panel on the right', async ({ page }) => {
-  // a desktop bridge whose meeting is listening (shots-meeting-notes.spec.ts has the full stand-in)
-  await page.addInitScript(() => {
-    const noop = () => {}
-    const state = { state: 'listening', startedAt: Date.now() - 754_000, microphone: true, callSound: true, callApps: ['us.zoom.xos'] }
-    ;(window as unknown as Record<string, unknown>).mycelDesktop = {
-      bridgeVersion: 1, appVersion: '0.5.12', platform: 'darwin',
-      browser: { run: async (c: { callId: string }) => ({ callId: c.callId, ok: false, content: [], error: 'no pane' }), cancel: noop },
-      pane: { open: noop, close: noop, toggle: noop, getState: async () => ({ open: false, tabs: [], driving: false }), onState: () => noop },
-      connection: { get: async () => ({ route: 'remote', origin: location.origin, teamAddress: location.origin, fingerprintMismatch: false }), onChange: () => noop },
-      notify: noop, openTeams: noop,
-      meeting: { version: 1, state: async () => state, lines: async () => [], start: async () => state, stop: async () => [], onLines: () => noop, onState: () => noop, openSoundSettings: noop, unsaved: async () => null, saved: noop },
-    }
-  })
-  await page.route('**/api/meetings/status', (r) => r.fulfill({ json: { state: 'ready' } }))
-  await open(page, { thread: null })
-  const card = page.getByTestId('meeting-card')
-  await expect(card).toBeVisible()
-  await expect(card).not.toHaveAttribute('data-raised', /.*/)
-  // a thread on the right: the card is above its reply box
-  await page.getByTestId('room-thread-line').first().click()
-  await expect(card).toHaveAttribute('data-raised', 'true')
-  const above = async (l: Locator) => expect((await box(card)).y + (await box(card)).height).toBeLessThanOrEqual((await box(l)).y)
-  await above(page.getByTestId('room-thread').locator('textarea').first())
-  // the side chat too: above its box, the chip included
-  await page.getByTestId('room-side-chat-button').click()
-  await above(page.getByTestId('side-chat-thread-chip'))
-  // both closed: back in its corner
-  await page.getByTestId('room-side-chat').getByTestId('side-chat-close').click()
-  await page.getByTestId('room-thread').getByTestId('thread-close').click()
-  await expect(card).not.toHaveAttribute('data-raised', /.*/)
-})

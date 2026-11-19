@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { MEETINGS_LABEL, PRODUCT } from '@mycel/shared'
+import { PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import { APP_MAP_KEYS, APP_MAP_PLACES, appLabel, appMapSection, appMapView, DEV_ENV_WORDS, type AppMapInput } from '../../server/src/chat/app-map'
 import { APP_MAP_LABELS } from '../../server/src/chat/app-map-labels'
@@ -219,7 +219,6 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
         `${d['sidebar.files']} › ${d['filesPanel.shared']}`, // Files › Shared with me
         d['rooms.replyInThread'], // threads under an answer
         d['openApp.lineLink'], d['openApp.download'], // the desktop app hand-off
-        d['meeting.entry'], d['meeting.stop'], MEETINGS_LABEL[L], // meeting notes
         d['folderAccess.menu'], d['fileShare.stop'], d['common.undo'], // folder sharing
       ]
       for (const w of want) expect({ view, L, w, there: s.includes(w) }).toEqual({ view, L, w, there: true })
@@ -251,13 +250,10 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     // app sign-in: a Mac or Windows browser, no second password, not from a phone
     expect(s).toContain(`Mac or Windows browser ${DICTS.en['openApp.lineLink']} › ${DICTS.en['openApp.mac']} (or Windows)`)
     expect(s).toContain('no password')
-    // meeting notes: the Mac desktop app, no bot, the sound is not kept, the AI cannot listen or start it
-    // (only where the helper is: the Mac desktop app, not the Mac App Store build, and the team's voice input is on)
-    expect(s).toContain(`desktop app (not the Mac App Store one): ${DICTS.en['files.findWork.entryButton']}; on a Mac ${DICTS.en['meeting.entry']} (team voice input on`)
-    expect(s).toContain('sound not kept')
-    // MTG-02: the card offers a message for the call's chat; the note is written every 2 minutes (MeetingNotes.tsx)
-    expect(s).toContain('a line to tell the call, notes saved every 2 min in')
-    expect(s).toContain('the AI cannot listen or start it')
+    // meeting notes were removed (owner 2026-11-19, docs/decisions/20261119-remove-meeting-notes.md): the map no longer
+    // names them
+    expect(s).toContain(`desktop app (not the Mac App Store one): ${DICTS.en['files.findWork.entryButton']}; in a Mac`)
+    expect(s).not.toContain('sound not kept')
     // folder sharing: view only, later files too, Undo right after (Files' toast; the server keeps it 10 minutes), team
     // folders are the owner's or an admin's
     expect(s).toContain('view only, later files too')
@@ -273,15 +269,12 @@ describe('five places with no line before (catalog rerun 2026-11-17: ACC-04/05/0
     has('web/src/components/onboarding/OpenAppLine.tsx', 'openApp.lineLink')
     has('web/src/pages/OpenApp.tsx', 'openApp.download')
     has('web/src/pages/OpenApp.tsx', 'openApp.mac')
-    has('web/src/components/MeetingNotes.tsx', 'meeting.entry')
-    has('web/src/components/MeetingNotes.tsx', 'meeting.stop')
     has('web/src/pages/Files.tsx', 'folderAccess.menu')
     has('web/src/components/FolderShareParts.tsx', 'fileShare.stop')
     has('web/src/components/FolderShareParts.tsx', 'common.undo')
     // the map says a folder can be shared: folder sharing is always on (its rollout gate was removed on dev)
-    // "Open the app" and "Take meeting notes" are both on My files (Files.tsx)
+    // "Open the app" is on My files (Files.tsx)
     expect(read('web/src/pages/Files.tsx')).toContain('<OpenAppLine')
-    expect(read('web/src/pages/Files.tsx')).toContain('<MeetingNotesEntry')
   })
 })
 

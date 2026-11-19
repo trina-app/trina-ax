@@ -44,10 +44,7 @@ export default {
     // build-resources/mac-infoplist/ copied into Contents/Resources/<folder>.lproj. Electron already ships zh_CN.lproj
     // and es_419.lproj, so Simplified Chinese and Spanish go there too, whichever folder macOS picks.
     extendInfo: {
-      NSMicrophoneUsageDescription: 'Voice input and meeting notes use the microphone.',
-      // meeting notes hear the sound of the call apps (desktop/native/meeting-audio, a Core Audio process tap): macOS's
-      // "System Audio Recording" question shows this
-      NSAudioCaptureUsageDescription: 'Meeting notes listen to the sound of your calls to write down what is said. The sound is not kept.',
+      NSMicrophoneUsageDescription: 'Voice input in chats uses the microphone.',
       LSApplicationCategoryType: 'public.app-category.productivity',
       NSLocalNetworkUsageDescription: 'Connects straight to your team server inside the office.',
       // what macOS shows under its own question for each folder: "Find work files on this computer" reads Documents,
@@ -59,11 +56,6 @@ export default {
       NSDownloadsFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
       CFBundleLocalizations: ['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'],
     },
-    // the meeting notes' sound helper (desktop/native/meeting-audio/build.sh, run by the dist:mac* scripts) next to the
-    // app's own program in Contents/MacOS; electron-builder signs it with the app (the inherit entitlements: microphone)
-    extraFiles: [{ from: 'native-build/meeting-audio', to: 'MacOS/meeting-audio' }],
-    // it is universal already, so the arm64 and x64 apps hold the same file: @electron/universal takes it as it is
-    x64ArchFiles: 'Contents/MacOS/meeting-audio',
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },

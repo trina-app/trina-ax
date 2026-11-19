@@ -1,4 +1,4 @@
-// Voice input and meeting pieces that hold no speech (QA TC-4581). Whisper writes something for sound with no words:
+// Voice input pieces that hold no speech (QA TC-4581). Whisper writes something for sound with no words:
 // "you" over digital silence, "(beep)" over a beep, letters in a loop over a hum, and from louder noise one of the lines
 // it learned from video subtitles ("Thank you.", "Thanks for watching!", a subtitle credit). The person must see
 // "Nothing was recognized" instead (the web app shows it for an answer with no text, or a piece with no lines), so:

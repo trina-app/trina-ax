@@ -1,10 +1,14 @@
 # Meeting notes: the desktop app captures, the team server turns pieces of sound into text
 
 - Date: 2026-11-16
-- Status: accepted
+- Status: superseded by [Remove meeting notes](20261119-remove-meeting-notes.md)
 - Supersedes: none
 - Branch: feat/live-meeting-notes (the owner, 2026-11-16: live meeting transcription after Yogurt's idea; the hosted
   OpenRouter path live too)
+
+- **2026-11-19, removed:** the owner: "회의 기록하기 필요없어 코드 싹다 지워줘" (Take meeting notes is not needed; delete all
+  its code). What was wanted on 11-16 was fast speech-to-text in the chat composer's microphone, not a meeting recorder.
+  Everything below describes code that no longer exists; see [Remove meeting notes](20261119-remove-meeting-notes.md).
 
 Plan: [docs/AGENTS/plan/20261116-1903-live-meeting-notes.md](../AGENTS/plan/20261116-1903-live-meeting-notes.md).
 
