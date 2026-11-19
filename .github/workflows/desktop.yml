@@ -270,10 +270,10 @@ jobs:
           artifact=$(bun -e 'console.log(require("./shared/src/product.ts").PRODUCT.artifactBase)')
           for kv in "EXE=$exe" "PACKAGE=$pkg" "PRODUCT=$product" "SCHEME=$scheme" "ARTIFACT=$artifact"; do echo "$kv" >> "$GITHUB_ENV"; done
           { echo "exe=$exe"; echo "package=$pkg"; echo "product=$product"; echo "scheme=$scheme"; } >> "$GITHUB_OUTPUT"
+          # the old version first, the x64 .deb only (its latest-linux.yml is written over by the new version below)
+          (cd desktop && NODE_ENV=production bun build.ts && bunx electron-builder --config electron-builder.config.ts --linux deb --x64 --publish never "-c.extraMetadata.version=$base-ci.1")
           # the new version through dist:linux, as the release runs it: both formats, x64 and arm64
           bun run --cwd desktop dist:linux -- "-c.extraMetadata.version=$base-ci.2"
-          # the old version: the same app packed again (electron-builder only; dist/ is already built), the x64 .deb
-          (cd desktop && bunx electron-builder --config electron-builder.config.ts --linux deb --x64 --publish never "-c.extraMetadata.version=$base-ci.1")
           ls -l desktop/release
           for f in "$artifact-$base-ci.1-linux-amd64.deb" "$artifact-$base-ci.2-linux-amd64.deb" "$artifact-$base-ci.2-linux-arm64.deb" \
                    "$artifact-$base-ci.2-linux-x86_64.AppImage" "$artifact-$base-ci.2-linux-arm64.AppImage" latest-linux.yml latest-linux-arm64.yml; do
@@ -384,7 +384,7 @@ jobs:
       - name: Display, session bus and keyring
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q xvfb dbus-x11 gnome-keyring libsecret-1-0 > /dev/null
+          sudo apt-get install -y -q xvfb dbus-x11 gnome-keyring libsecret-1-0 libsecret-tools > /dev/null
       - name: Desktop e2e subset (real Electron under xvfb, fake team servers, made-up homes)
         timeout-minutes: 25
         env:
@@ -396,8 +396,22 @@ jobs:
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           cd desktop
           bun build.ts
-          xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash -c \
-            'echo -n "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null && bunx playwright test -c e2e/linux.config.ts'
+          cat > "$RUNNER_TEMP/keyring-check.cjs" <<'JS'
+          const { app, safeStorage } = require('electron')
+          app.whenReady().then(() => {
+            console.log(`safeStorage: backend ${safeStorage.getSelectedStorageBackend()}, available ${safeStorage.isEncryptionAvailable()}`)
+            app.quit()
+          })
+          JS
+          export KEYRING_CHECK="$RUNNER_TEMP/keyring-check.cjs"
+          xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash -c '
+            set -e
+            echo -n "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null
+            # the keyring answers on the session bus, and Electron picks it (never basic_text)
+            echo -n probe | secret-tool store --label=probe ci probe
+            [ "$(secret-tool lookup ci probe)" = probe ] && echo "secret service: ok"
+            bunx electron "$KEYRING_CHECK" 2>&1 | grep "safeStorage:"
+            bunx playwright test -c e2e/linux.config.ts'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
