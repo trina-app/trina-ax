@@ -135,14 +135,42 @@ describe('agent loop', () => {
     const port = closed.port
     closed.stop(true)
     expect((await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${port}/v1` } })).err?.code).toBe('endpoint_unreachable')
-    // accepts the connection, never answers: stopped after the headers time limit, not at the turn's
+    // a cloud address that accepts the connection and never answers: stopped after the headers time limit, not at the turn's
     const silent = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Promise<Response>(() => {}) })
     try {
       const t0 = Date.now()
-      const r = await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${silent.port}/v1` }, headersTimeoutMs: 300 })
+      const toSilent = ((_u: string, init: RequestInit) => fetch(`http://127.0.0.1:${silent.port}/v1/chat/completions`, init)) as unknown as typeof fetch
+      const r = await runErr(toSilent, { headersTimeoutMs: 300 })
       expect(r.err?.code).toBe('endpoint_unreachable')
       expect(Date.now() - t0).toBeLessThan(5000)
     } finally { silent.stop(true) }
+  })
+  test('TC-5207: a local address waits for a slow first answer (no headers limit); Stop still cancels it', async () => {
+    // answers after 1.2 s of silence, four times the limit a cloud address gets here
+    const slow = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: async () => { await Bun.sleep(1200); return new Response(sse({ text: ['late ok'] })) } })
+    try {
+      const local: ApiEngineConf = { ...conf, baseUrl: `http://127.0.0.1:${slow.port}/v1` }
+      const events: EngineEvent[] = []
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => events.push(e), signal: new AbortController().signal, headersTimeoutMs: 300 })
+      expect(events.find((e) => e.type === 'error')).toBeUndefined()
+      expect(events.filter((e) => e.type === 'text').map((e: any) => e.delta).join('')).toContain('late ok')
+      // the same wait, stopped after 200 ms: ends at once, without an error
+      const ac = new AbortController(), ev2: EngineEvent[] = []
+      const t0 = Date.now()
+      setTimeout(() => ac.abort(), 200)
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => ev2.push(e), signal: ac.signal, headersTimeoutMs: 300 })
+      expect(Date.now() - t0).toBeLessThan(1000)
+      expect(ev2.find((e) => e.type === 'error')).toBeUndefined()
+      // a private-network IP and a .local name count as local too
+      for (const u of ['http://192.168.1.20:1234/v1', 'http://ollama.local:11434/v1', 'http://localhost:11434/v1']) {
+        let sawTimer = false
+        const f = (async (_u: string, init: RequestInit) => { await new Promise((r) => setTimeout(r, 400)); sawTimer = !init.signal!.aborted; return new Response(sse({ text: ['ok'] })) }) as unknown as typeof fetch
+        const e3: EngineEvent[] = []
+        await runApiAgent({ conf: { ...conf, baseUrl: u }, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => e3.push(e), signal: new AbortController().signal, fetchFn: f, headersTimeoutMs: 100 })
+        expect(sawTimer).toBe(true)
+        expect(e3.find((e) => e.type === 'error')).toBeUndefined()
+      }
+    } finally { slow.stop(true) }
   })
   test('B-API-3: the provider\'s cost and request id, else the list price, else tokens with the cost unknown (never free)', async () => {
     // OpenRouter: usage.cost (USD) and the generation id; usage repeated on two chunks counts once
