@@ -28,6 +28,12 @@ export function backoff(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
+/** A demo server's fake Google (server/src/demo/fakes/drive.ts) while its fakes are on: it answers every
+ * GoogleTransport's requests in place of the network, whatever fetcher the transport was made with. Set only by
+ * demo/fakes/index.ts; null everywhere else. */
+let demoGoogle: DriveFetch | null = null
+export function setDemoGoogleFetch(f: DriveFetch | null) { demoGoogle = f }
+
 /** No provider body, request URL, headers or exception message is ever surfaced or logged. */
 export class GoogleTransport {
   constructor(readonly fetcher: DriveFetch = fetch) {}
@@ -37,7 +43,7 @@ export class GoogleTransport {
     const signal = AbortSignal.any([AbortSignal.timeout(20_000), ...(init.signal ? [init.signal] : [])])
     checkAbort(signal)
     try {
-      const r = await this.fetcher(url, { ...init, redirect: 'manual', signal })
+      const r = await (demoGoogle ?? this.fetcher)(url, { ...init, redirect: 'manual', signal })
       if (r.status >= 300 && r.status < 400) { await r.body?.cancel(); throw new DriveError('provider_redirect', 502) }
       const cap = r.ok ? maxBytes : Math.min(maxBytes, 16_384)
       if (Number(r.headers.get('content-length')) > cap) { await r.body?.cancel(); throw new DriveError('too_large', 413) }

@@ -72,6 +72,8 @@ import { useTextSize } from '../../lib/textSize'
 import { Tooltip } from '../Tooltip'
 import { ComposerToolbar } from './ComposerToolbar'
 import { MicBlockedNotice } from '../MicBlockedNotice'
+import { DemoLimitNotice } from '../demo/FreeRoam'
+import { useDemoOut } from '../../store/demo'
 
 export interface EngineChoice { engine: EngineId | undefined; model: string | null | undefined }
 export interface ComposerHandle { prepareDraft: (request: string) => void; focus: () => void }
@@ -356,7 +358,9 @@ export default function Composer({
   const held = !!blocked && !answering && (text.trim().length > 0 || ready.length > 0)
   // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
   // the AI's question is the text alone (an upload in progress does not hold it up).
-  const canSend = answering
+  // a free-roam demo whose AI is used up (store/demo.ts): nothing goes to the AI any more; one line under the box says so
+  const demoOut = useDemoOut()
+  const canSend = demoOut ? false : answering
     ? !sending && !voice.busy && text.trim().length > 0
     : !hold && !blocked && !waiting && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
@@ -762,10 +766,12 @@ export default function Composer({
                     }
                   }}
                   placeholder={hint}
-                  // not disabled: the focus stays in the box while the words are on their way
-                  readOnly={voice.busy}
+                  // not disabled: the focus stays in the box while the words are on their way. A free-roam demo whose AI
+                  // is used up: nothing more to type for the AI (the line under the box says so), what was typed stays
+                  readOnly={voice.busy || demoOut}
+                  aria-disabled={demoOut || undefined}
                   aria-busy={transcribing || undefined}
-                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldMax, fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]')}
+                  className={clsx('relative block max-h-[240px] w-full min-w-0 resize-none bg-transparent text-reading leading-reading outline-none placeholder:text-faint', fieldMax, fieldPad, tokens && 'room-ref-field [scrollbar-gutter:stable]', demoOut && 'cursor-not-allowed text-muted')}
                   data-testid="composer-input"
                 />
               </div>
@@ -817,7 +823,8 @@ export default function Composer({
           {who}
         </p>
       )}
-      {error && error === limitText && (
+      {demoOut && <DemoLimitNotice className="mt-2" />}
+      {error && error === limitText && !demoOut && (
         <CalmNotice className="mt-2" testId="composer-limit" icon={<CirclePause size={16} />} title={error} />
       )}
       {/* a blocked mic is a setting to change, not a failure: the calm notice, with the way to the phone's Settings in the app */}

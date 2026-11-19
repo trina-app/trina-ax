@@ -7,12 +7,14 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { LOCALE_NAMES, type Locale } from '@mycel/shared/api'
-import { Button, Modal } from '../src/components/ui'
+import { Modal } from '../src/components/ui'
 import { useLocale, useT } from '../src/i18n'
 import type { DemoAnswer, DemoGo } from './script'
 import type { DemoServer } from './server'
 import { appPath, appPathNow, BASE } from './base'
 import { demoWord } from './words'
+import { useLiveDemo } from './live'
+import { EndLineLinks, EndPopupBusy, EndPopupButtons, type EndLinks } from './end'
 import './demo.css'
 
 /** the demos of every language on the site (web/demo/vite.ts demoLangs), named in their own language as the app's
@@ -39,11 +41,11 @@ async function waitFor<T extends Element>(selector: string, ms = 4000): Promise<
   return null
 }
 
-export function mountOverlay(server: DemoServer, signupUrl: string) {
+export function mountOverlay(server: DemoServer, signupUrl: string, liveUrl?: string) {
   const host = document.createElement('div')
   host.id = 'demo-overlay'
   document.body.append(host)
-  createRoot(host).render(<Overlay server={server} signupUrl={signupUrl} />)
+  createRoot(host).render(<Overlay server={server} signupUrl={signupUrl} liveUrl={liveUrl} />)
   // a link to a chat, room or project that the browser would follow loads the page again, and a new page starts the
   // story over: such a link moves inside the app instead (the app's own handler may run too; the same address twice
   // is one move). Other links (a file's preview, downloads) are left to the app.
@@ -262,7 +264,7 @@ function shareTarget(server: DemoServer): Element | null {
   return [...document.querySelectorAll('[data-testid="share-room-send"]')].find(visible) ?? row ?? null
 }
 
-function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string }) {
+function Overlay({ server, signupUrl, liveUrl }: { server: DemoServer; signupUrl: string; liveUrl?: string }) {
   const t = useT()
   const locale = useLocale()
   useEngine(server)
@@ -271,6 +273,10 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
   const e = server.engine
   const step = e.guide()
   const end = e.endShown
+  // the story's end: "Now try it yourself" while the live demo can take a visitor (web/demo/live.ts), read once it shows
+  const liveEnd = server.script.end.live ? { ...server.script.end.live, url: liveUrl || server.script.end.live.url } : undefined
+  const [liveState, recheckLive] = useLiveDemo(liveEnd?.url ?? null, end)
+  const endLinks: EndLinks = { signup: { label: server.script.end.signup.label, url: signupUrl }, live: liveEnd, state: liveState, onRetry: recheckLive }
   const here = !!step && atPlace(server, step.go, path)
   // in the room of a side-chat step with the side chat closed: the line already says the step (✦ is ringed)
   const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)
@@ -405,7 +411,7 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           {end ? (
             <span className="demo-end-line" data-testid="demo-end">
               <span><strong>{endTitle(server.script.end.title, elapsed)}</strong>{server.script.end.contrast ? ` (${server.script.end.contrast})` : ''}</span>
-              <a className="demo-next" href={signupUrl} target="_blank" rel="noopener" data-testid="demo-signup">{server.script.end.signup.label} →</a>
+              <EndLineLinks {...endLinks} />
             </span>
           ) : step && !working ? (
             <button type="button" className={target || choices.length ? 'demo-next' : 'demo-next demo-glow'} disabled={typing} onClick={() => void act()} data-testid="demo-next" data-away={here ? undefined : ''}>
@@ -440,17 +446,12 @@ function Overlay({ server, signupUrl }: { server: DemoServer; signupUrl: string 
           onClose={() => e.closeEnd()}
           title={popup.title}
           width={460}
-          footer={(
-            <>
-              <Button onClick={() => location.assign(BASE)} data-testid="demo-popup-restart">{demoWord('restart', locale)}</Button>
-              <Button onClick={() => e.closeEnd()} data-testid="demo-popup-close">{popup.close}</Button>
-              <Button variant="primary" onClick={() => window.open(signupUrl, '_blank', 'noopener')} data-testid="demo-popup-signup">{server.script.end.signup.label}</Button>
-            </>
-          )}
+          footer={<EndPopupButtons {...endLinks} close={popup.close} restart={demoWord('restart', locale)} onClose={() => e.closeEnd()} onRestart={() => location.assign(BASE)} />}
         >
           <div data-testid="demo-popup">
             <p className="text-sm text-ink">{popup.line.replace('{time}', elapsed)}</p>
             {popup.recap?.length ? <p className="mt-2 text-sm text-muted">{popup.recap.join(' · ')}</p> : null}
+            <EndPopupBusy {...endLinks} />
           </div>
         </Modal>
       )}

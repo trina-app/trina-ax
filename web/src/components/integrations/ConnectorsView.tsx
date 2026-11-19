@@ -11,6 +11,7 @@ import { desktop } from '../../lib/desktop'
 import { useT } from '../../i18n'
 import { ConnectionRow, connectionLogo } from './ConnectionRow'
 import { RoomAppEntry } from './RoomAppEntry'
+import { useFreeRoam } from '../../store/demo'
 import { Button, IconButton, StickyHeader, inputCls, useMediaQuery } from '../ui'
 import { SplitAction, type AddMenuItem } from '../PageActions'
 
@@ -150,11 +151,16 @@ export function ConnectorRow({ id, catalogId, logo, name, team, note, status, on
   const t = useT()
   // a phone: the note goes under the name; at the row's right it would take the room the name needs (QA TC-1549)
   const phone = useMediaQuery('(max-width: 767.98px)')
+  // a free-roam demo (store/demo.ts): a row to read, not a page to open (its page changes or removes the connection,
+  // which server/src/demo/guard.ts refuses); only what is connected: a sign-in, a reconnect or a team template to
+  // connect would each be a new connection
+  const freeRoam = useFreeRoam()
+  if (freeRoam && status !== 'connected' && status !== 'on') return null
   return (
-    <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={onOpen} openTestId="connector-row-open"
+    <ConnectionRow testId={testId} data={{ 'data-id': id, 'data-state': status }} className="border-b border-line last:border-b-0" onOpen={freeRoam ? undefined : onOpen} openTestId="connector-row-open"
       logo={logo ? <LogoTile src={logo} className={connectionLogo} /> : <InitialTile name={name} className={connectionLogo} />} name={name}
       badge={team && <span className="shrink-0 rounded-full border border-line px-1.5 text-micro text-muted" data-testid="connector-row-team">{t('connectors.team')}</span>}
-      children={<RoomAppEntry catalogId={catalogId} />}
+      children={freeRoam ? undefined : <RoomAppEntry catalogId={catalogId} />}
       more={phone && note ? <span className="mt-1 flex">{note}</span> : undefined}
       end={<>
         {!phone && note}

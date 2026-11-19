@@ -78,8 +78,12 @@ const TABLE: Record<RunKind, Features> = {
  * password is public: nothing that reaches the Mac's own folders or runs code from a file or an address of the
  * caller's choosing (docs/DECISIONS.md "Demo company: a new hire at 트리나"). */
 const DEMO_OFF: Partial<Features> = { connectedFolders: false, pluginFileInstall: false, apiEngineAnyUrl: false }
+/** A free-roam demo (one visitor's instance behind demo-gate, docs/decisions/20261119-demo-free-roam-a.md) runs in dev
+ * mode for its engine setup, but nothing of the development server shows or works: no update, no machine-level
+ * diagnostics, no connection change, everything else DEMO_OFF says. */
+const FREE_ROAM_OFF: Partial<Features> = { ...DEMO_OFF, connectionChange: false, selfUpdate: false, officeUpdate: false, hostDiagnostics: false }
 
-export function featuresOf(cfg: Cfg): Features { return { ...TABLE[runKindOf(cfg)], ...(cfg.demo ? DEMO_OFF : {}) } }
+export function featuresOf(cfg: Cfg): Features { return { ...TABLE[runKindOf(cfg)], ...(cfg.demo ? (cfg.demo.kind === 'freeRoam' ? FREE_ROAM_OFF : DEMO_OFF) : {}) } }
 export function feature(cfg: Cfg, name: keyof Features): boolean { return featuresOf(cfg)[name] }
 
 /**

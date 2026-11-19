@@ -3,7 +3,8 @@
 // reads the other answers on POST /v1/messages only (never count_tokens: validate.ts treats its OAuth 403 as unclear).
 // Only an answer that is really Anthropic's counts: its JSON error shape ({"type":"error","error":{"type":…}}) and a
 // request-id header, from api.anthropic.com itself (or a loopback test upstream). An edge page, a company proxy, a
-// gateway or a custom upstream never marks an account.
+// gateway or a custom upstream never marks an account, and neither does any answer on a free-roam demo instance, whose
+// loopback upstream is demo-gate and whose one connection is a stand-in (proxy/model-proxy.ts `marks`).
 //   403 permission_error / authentication_error with a known account-level message (organization or account
 //       disabled, no access to Claude Code on this plan, OAuth access revoked or not allowed)   -> marked refused
 //   402 / 400 billing_error, or the exact "credit balance is too low"   -> a subscription: marked refused (plan_ended);

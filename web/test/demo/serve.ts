@@ -21,7 +21,8 @@ export const DEMO_CSP = [
   "img-src 'self' blob: data:",
   "font-src 'self' data:",
   "media-src 'self' blob: data:",
-  "connect-src 'self' blob: data:",
+  // the live demo's status after the story (web/demo/live.ts); the site's header for /demo/ needs the same
+  "connect-src 'self' blob: data: https://demo.trina.app",
   "worker-src 'self' blob:",
   "frame-src 'self' blob:",
   "manifest-src 'self'",

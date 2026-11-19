@@ -35,6 +35,7 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
+import { demoAnswerKey } from '../../lib/freeRoam'
 import { meGuest } from '../../lib/guests'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
@@ -714,8 +715,10 @@ export function AssistantMessage({
   // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
   const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
+  // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
+  const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
-    ? guestKey === 'guest.aiLimitUntil' ? (guestTokens
+    ? demoKey ? t(demoKey) : guestKey === 'guest.aiLimitUntil' ? (guestTokens
       // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
       ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
       : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))

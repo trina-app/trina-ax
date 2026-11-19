@@ -28,6 +28,7 @@ import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLef
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
+import { demoFakesOf } from '../../demo/fakes'
 import { workspaceLibraryOf } from '../google-apps/library'
 import { getChatRuntime } from '../../chat/runtime'
 import { isGuestUser } from '../../credentials/guest-ai'
@@ -205,7 +206,9 @@ export class Integrations {
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'connections'))
-    this.net = { ...deps.net, blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
+    // a demo server with fakes: Higgsfield is answered in this process, anything else is refused (server/src/demo/fakes/)
+    const fakes = demoFakesOf(ctx)
+    this.net = { ...deps.net, ...(fakes ? { answer: fakes.net } : {}), blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
   }
   private get db() { return this.ctx.db }
 

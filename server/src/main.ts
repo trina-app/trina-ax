@@ -35,6 +35,7 @@ import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
 import { MIGRATE_DB_ENV, migrateBeforeStart, runMigrateChild } from './system/migrate-start'
+import { demoFakesOf } from './demo/fakes'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -196,6 +197,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   if (settleHostedFallback({ db, config: cfg })) log.info('turned on "answer with the other AI" for this hosted server')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
+  // a demo whose file asks for fakes: Gmail, Drive and Higgsfield answer in this process and the outside is fenced off
+  // before anything else can reach it (demo/fakes/)
+  demoFakesOf(ctx)
   // an Apple silicon Mac with whisper-cli (the office zip's) and macOS's decoders, or a server with whisper-cli and
   // ffmpeg (the Linux kit, the Docker image) and at least 4 cores and 8 GB: voice input and the AI's reads of
   // recordings work on this server with no key, so 'local' is what "not chosen" reads (admin/settings.ts)

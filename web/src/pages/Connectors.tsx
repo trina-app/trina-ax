@@ -39,6 +39,7 @@ import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
 import { ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
@@ -127,6 +128,10 @@ const useConnectors = () => useContext(Ctx)!
  * …/mcp/<id>). */
 export function ConnectorsSettings() {
   const { id, integrationId } = useParams()
+  // a free-roam demo: the list only, read-only (a connection's page changes or removes it; server/src/demo/guard.ts
+  // refuses connecting, changing and removing)
+  const freeRoam = useFreeRoam()
+  if (freeRoam && (id || integrationId)) return <Navigate to={CONNECTORS_HOME} replace />
   return (
     <ConnectorsProvider>
       {integrationId ? <CustomConnectorPage /> : id ? <ConnectorPage /> : <ConnectorsHome />}
@@ -185,6 +190,8 @@ function ConnectorsHome() {
   const navigate = useNavigate()
   const { list, drive, google, asks, requests, actions, setDialog, admin, local } = useConnectors()
   const hosted = useMe()?.server.deployment === 'hosted'
+  // a free-roam demo (store/demo.ts): what the demo has connected, read-only; nothing to connect, ask for or set up
+  const freeRoam = useFreeRoam()
   // opened from the welcome steps' "Connect another tool": "Set up" (to Admin) carries their way back
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
@@ -268,7 +275,7 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
-  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
+  const cards = freeRoam ? [] : [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -296,11 +303,12 @@ function ConnectorsHome() {
   const loading = !list.data && !list.error
   const nothing = !!q && fromTeam.ready && !cards.length && !yours.length
   // nothing connected and nothing this person can add (the team has set nothing up for members): say so once
-  const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length
+  // (a free-roam demo with nothing connected: its own line above says it all)
+  const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length && !freeRoam
   // next to the search: an owner or admin's Add custom connector; a member's "Not listed? Ask an admin to add it." (an
   // owner who asked why a member's screen had no Add, 2026-11-18: the line was under Discover's last card, out of sight);
   // not with the empty list's own words for members, which say the same
-  const custom = customConnectorAction(personalAllowed, admin)
+  const custom = freeRoam ? null : customConnectorAction(personalAllowed, admin)
   // in the desktop app Add custom connector also adds a program on this computer; a member, who adds no server by its
   // address, gets it for that alone (the dialog says to ask an admin for an address)
   const localHere = desk && !!list.data?.localAllowed && !!personalAllowed
@@ -336,11 +344,12 @@ function ConnectorsHome() {
       </div>
       <div className="mt-6 space-y-8 pb-6">
         {/* what an admin asked this person to connect: answered, its own page, with its row */}
-        <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />
+        {freeRoam && <p className="text-sm text-muted" data-testid="connectors-demo">{t('demo.free.connectors')}</p>}
+        {!freeRoam && <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />}
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
         {/* a service a member looked for and did not find: where to go next is the line next to the search */}
         {/* the team turned own connections off: said once, whether or not this person has any (QA TC-2932) */}
-        {personalAllowed === false && (
+        {personalAllowed === false && !freeRoam && (
           <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
         )}
         {loading ? <Skeleton lines={4} /> : nothing ? (
@@ -357,8 +366,8 @@ function ConnectorsHome() {
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
-            {!q && <SlackAccount />}
-            {cards.length > 0 && (
+            {!q && !freeRoam && <SlackAccount />}
+            {cards.length > 0 && !freeRoam && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">
                 <div className="mb-1 flex items-center gap-2">
                   <h3 id="connectors-discover" className="text-title-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>

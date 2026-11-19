@@ -15,6 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { AppContext } from '../../context'
 import type { Logger } from '../../log'
+import { demoFakesOf } from '../../demo/fakes'
 
 export type LibraryState = 'unsupported' | 'off' | 'starting' | 'ready' | 'down'
 export interface WorkspaceLibrary {
@@ -366,8 +367,11 @@ export function createWorkspaceLibrary(o: LibraryOptions): WorkspaceLibrary {
 }
 
 const instances = new WeakMap<AppContext, WorkspaceLibrary>()
-/** This server's library: one per context, stopped when the server closes. */
+/** This server's library: one per context, stopped when the server closes. A demo server with fakes
+ * (server/src/demo/fakes/) has the fake one instead: ready at once, no Python program. */
 export function workspaceLibraryOf(ctx: AppContext): WorkspaceLibrary {
+  const fakes = demoFakesOf(ctx)
+  if (fakes) return fakes.library
   let lib = instances.get(ctx)
   if (!lib) {
     lib = createWorkspaceLibrary({ log: ctx.log.child({ part: 'google-apps-library' }) })

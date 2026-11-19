@@ -219,6 +219,10 @@ export const en = {
     usually: 'usually ~2 days',
     signup: 'See plans',
     explore: 'Look around',
+    /** the live demo (demo.trina.app) after the story: its button, and the line while it cannot take a visitor */
+    tryLive: 'Now try it yourself',
+    liveBusy: 'The live demo is busy right now',
+    liveRetry: 'Try again',
     /** the end popup */
     popupTitle: 'That\'s Mina\'s first day 🎉',
     /** {time}: the visitor's real time */

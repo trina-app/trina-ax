@@ -33,6 +33,7 @@ import { teamAddressHost } from '../lib/team-address'
 import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
+import { FreeRoamStart } from '../components/demo/FreeRoam'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -364,6 +365,14 @@ export function Login() {
       const next = safeNext(location.search)
       if (r.me.user.mustChangePassword) navigate(`/password${next ? `?next=${encodeURIComponent(next)}` : ''}`, { replace: true })
     })
+  }
+  // a free-roam demo: only "Continue as Mina" (demo-gate signs in; the form is refused on such a server)
+  if (demo?.kind === 'freeRoam') {
+    return (
+      <AuthFrame title={t('demo.signIn.title', { company: demo.company })}>
+        <FreeRoamStart info={demo} />
+      </AuthFrame>
+    )
   }
   if (demo && !form) {
     return (

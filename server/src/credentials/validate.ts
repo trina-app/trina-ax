@@ -8,7 +8,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { CredentialKind } from '@mycel/shared/api'
-import { anthropicGateway, isOpenRouter, REPO_ROOT, type AnthropicGatewayConf } from '../app-config'
+import { anthropicGateway, isFreeRoam, isOpenRouter, REPO_ROOT, type AnthropicGatewayConf } from '../app-config'
 import type { CredCtx } from './store'
 
 export const CLAUDE_TOKEN_RE = /^sk-ant-oat\d{2}-[A-Za-z0-9_-]{20,1000}$/
@@ -72,6 +72,9 @@ async function verifyGatewayKey(cc: CredCtx, g: AnthropicGatewayConf, secret: st
 
 /** Ask the provider about a token / key without spending tokens. */
 export async function verifySecret(cc: CredCtx, kind: Exclude<CredentialKind, 'chatgpt'>, secret: string): Promise<CheckResult> {
+  // a free-roam demo: its one connection is a stand-in for demo-gate (docs/decisions/20261119-demo-free-roam-a.md); no
+  // check goes anywhere, and none can call it refused
+  if (isFreeRoam(cc.config)) return { result: 'unverified', upstreamStatus: null }
   const g = anthropicGateway(cc.config)
   if (g && kind === 'anthropic-api-key') return verifyGatewayKey(cc, g, secret)
   // the anthropic upstream is the gateway: a Claude subscription token is never sent there (not even to check it)

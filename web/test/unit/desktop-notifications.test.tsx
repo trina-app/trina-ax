@@ -132,5 +132,6 @@ test('each answer in words, with the system\'s own place on macOS, Windows and L
 
 test('Settings › Notifications shows this row inside the desktop app and the Web Push row elsewhere', () => {
   const source = fs.readFileSync(path.join(import.meta.dir, '../../src/components/settings/Notifications.tsx'), 'utf8')
-  expect(source).toContain('{isDesktop() ? <DesktopNotifications /> : <PushNotifications />}')
+  // (a free-roam demo shows neither: no push in the demo)
+  expect(source).toContain('{freeRoam ? null : isDesktop() ? <DesktopNotifications /> : <PushNotifications />}')
 })

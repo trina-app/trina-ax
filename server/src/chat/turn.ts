@@ -120,7 +120,8 @@ import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
-import { isManaged } from '../app-config'
+import { isFreeRoam, isManaged } from '../app-config'
+import { demoRestError, freeRoamTurnError } from '../demo/free-roam'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -931,8 +932,10 @@ export class TurnExec {
     // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
     const guestTurn = isGuestUser(rt.db, spec.userId)
     const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
-    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
-    const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
+    // a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): no web search and no sub-agents either
+    const freeRoam = isFreeRoam(rt.ctx.config)
+    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn && !freeRoam
+    const subagents = !!claude && !guestTurn && !freeRoam && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -1041,6 +1044,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -1580,7 +1584,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId) && !isFreeRoam(rt.ctx.config)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -1716,6 +1720,7 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
+    else if (ev.type === 'budget' && ev.demoRest) this.proxyError = demoRestError(L)
     else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: b.params } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
@@ -5014,6 +5019,8 @@ export class TurnExec {
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
+    // a free-roam demo: one neutral line for every failure, nothing about the AI account (demo/free-roam.ts)
+    if (this.error && isFreeRoam(this.rt.ctx.config)) this.error = freeRoamTurnError(this.error, this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null

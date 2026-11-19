@@ -16,6 +16,7 @@ import { forgetStarters } from '../lib/starter'
 import { forgetSkillList } from '../lib/skillTitles'
 import { accountRemoved, guestRemoval, type SignedOutReason } from '../lib/signedOut'
 import { meGuest, myUploadMax } from '../lib/guests'
+import { freeRoamNow } from './demo'
 
 export type AuthStatus =
   | { kind: 'loading' }
@@ -445,7 +446,9 @@ export const isAdmin = (me: Me | null) => me?.user.role === 'admin' || me?.user.
 export const isOwner = (me: Me | null) => me?.user.role === 'owner'
 /** may pick the AI engine / model (composer picker, "retry with another model", own default): owner and admins always,
  * others when Admin > AI providers allows them. The server enforces it; an older server without the field: admins only. */
-export const canChooseEngine = (me: Me | null) => !!me && (me.user.canChooseEngine ?? isAdmin(me))
+// a free-roam demo's visitor never picks or sees which AI answers (docs/decisions/20261119-demo-free-roam-web.md): its
+// demo info is read before the app's screens (App.tsx), so this holds from the first one
+export const canChooseEngine = (me: Me | null) => !!me && !freeRoamNow() && (me.user.canChooseEngine ?? isAdmin(me))
 
 /** The largest file whoever is signed in now may upload (lib/guests.ts myUploadMax), for code outside a component (a
  * drop handler, a folder upload's limits). */

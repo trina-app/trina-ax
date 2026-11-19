@@ -13,4 +13,6 @@ declare const __DEMO_LANGS__: { locale: string; base: string }[]
 interface ImportMetaEnv {
   /** the end card's sign-up link (default: the story's) */
   readonly VITE_DEMO_SIGNUP_URL?: string
+  /** "Now try it yourself": the live demo's address (default: the story's) */
+  readonly VITE_DEMO_LIVE_URL?: string
 }

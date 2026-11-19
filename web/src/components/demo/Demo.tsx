@@ -17,18 +17,21 @@ import { errorText } from '../../lib/api'
 import { useChats } from '../../store/chats'
 import { hasSwitched, switchPersona, useDemo } from '../../store/demo'
 import { useMe, useMeStrict } from '../../store/session'
+import { isFreeRoam, mayBeDemoServer } from '../../lib/freeRoam'
 import { Button, Modal } from '../ui'
+import { FreeRoamBar } from './FreeRoam'
 
 const ROLE: Record<DemoPersona['key'], MessageKey> = { newHire: 'demo.persona.newHire', lead: 'demo.persona.lead', ceo: 'demo.persona.ceo' }
 
 /**
- * The demo info once it is loaded. Signed in, only a development server is asked (`me.server.dev`): a normal install
- * never gets the request. `ready`: it is known whether this is a demo (always, off a development server).
+ * The demo info once it is loaded. Signed in, only a server that may be a demo is asked (lib/freeRoam.ts
+ * mayBeDemoServer: a development server, or a free-roam demo, whose `me.server.dev` is false): a normal install never
+ * gets the request. `ready`: it is known whether this is a demo (always, off such a server).
  */
 export function useDemoInfo(): { ready: boolean; info: DemoInfo | null } {
   const me = useMe()
-  // signed out (the sign-in page) every server is asked once; signed in only a development server
-  const ask = !me || me.server.dev
+  // signed out (the sign-in page) every server is asked once; signed in only one that may be a demo
+  const ask = mayBeDemoServer(me)
   const info = useDemo((s) => s.info)
   const loaded = useDemo((s) => s.loaded)
   useEffect(() => {
@@ -49,6 +52,8 @@ export function DemoBar() {
   const { info } = useDemoInfo()
   const [open, setOpen] = useState(false)
   if (!info) return null
+  // a free-roam demo: its own bar (one person, nobody to switch to)
+  if (isFreeRoam(info)) return <FreeRoamBar info={info} />
   const me = info.current ? info.personas.find((p) => p.key === info.current) : undefined
   return (
     <>

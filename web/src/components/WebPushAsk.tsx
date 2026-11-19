@@ -16,6 +16,7 @@ import { noteWebPushAskPath, prepareWebPushAsk, turnOnWebPush, useWebPushAsk, we
 import { useRealPath } from '../lib/realPath'
 import { hidesTabs } from '../lib/tabs'
 import { isAdmin, useMe } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { toast } from '../store/ui'
 import { pushFailureText } from './settings/PushNotifications'
 import { Button } from './ui'
@@ -34,13 +35,15 @@ export function WebPushAsk({ at }: { at: 'top' | 'bottom' }) {
   const path = useRealPath()
   const { show, revealed, busy, failure } = useWebPushAsk()
   const line = useRef<HTMLDivElement>(null)
-  const key = me && !me.user.mustChangePassword ? `${me.user.id}:${me.session.id}` : null
+  // a free-roam demo: never asked (server/src/demo/guard.ts refuses web push)
+  const freeRoam = useFreeRoam()
+  const key = me && !me.user.mustChangePassword && !freeRoam ? `${me.user.id}:${me.session.id}` : null
   // one of the two places prepares and follows the pages (the store keeps one answer per session)
   useEffect(() => { if (at === 'top') void prepareWebPushAsk(key) }, [at, key])
   useEffect(() => { if (at === 'top') noteWebPushAskPath(path) }, [at, path, show])
   // the browser may have been answered elsewhere (Settings, another tab); not while this line's own turn-on runs (the
   // answer comes before the subscription), and a reason stays until [나중에]
-  if (!show || !revealed || (!busy && !failure && notificationPermission() !== 'default')) return null
+  if (freeRoam || !show || !revealed || (!busy && !failure && notificationPermission() !== 'default')) return null
   if (path.startsWith('/settings/notifications') || (at === 'bottom' && hidesTabs(path))) return null
   const holdsFocus = () => !!line.current?.contains(document.activeElement)
   const turnOn = async () => {
