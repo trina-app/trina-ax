@@ -34,8 +34,9 @@ const base0: SrtSystem = {
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     const r: FakeRun = { spec, settings: JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')), state: 'active', resolve }
     runs.set(spec.runId, r)
-    // "echo X": prints X and ends at once (a bridge-wait start of the command is skipped); anything else runs on
-    const m = /(?:^|; )echo (.*)$/.exec(spec.command)
+    // "echo X": prints X and ends at once (a bridge-wait start and the entry-guard first line, srt/mounts.ts, are
+    // skipped); anything else runs on
+    const m = /(?:^|; )echo (.*)$/.exec(spec.command.split('\n').pop()!)
     if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); end(r, 0) })
     return { pid: 999_999, exited }
   },
@@ -101,7 +102,12 @@ beforeAll(async () => {
   h.ctx.db.query('INSERT INTO folders (id, path, limited) VALUES (?, ?, 1)').run(fid, `${P.folderPath}/secret`)
   h.ctx.db.query("INSERT INTO folder_rules (id, folder_id, subject_type, subject_id, access) VALUES (?, ?, 'user', 'alice', 'write')").run(crypto.randomUUID(), fid)
 })
-afterAll(async () => { for (const s of Object.values(ws)) s.close(); setSrtSystem(null); delete process.env.MYCEL_DEV_ENV; await h.close(); fs.rmSync(base, { recursive: true, force: true }) })
+afterAll(async () => {
+  // the last test's runs end too: their folder holds (srt/placeholders.ts) must not outlive this file
+  for (const r of runs.values()) end(r, null)
+  await pollSrt(h.ctx)
+  await new Promise((r) => setTimeout(r, 50))
+  for (const s of Object.values(ws)) s.close(); setSrtSystem(null); delete process.env.MYCEL_DEV_ENV; await h.close(); fs.rmSync(base, { recursive: true, force: true }) })
 beforeEach(async () => {
   for (const r of runs.values()) end(r, null)
   runs.clear(); stops.length = 0; forwards.length = 0; bridges.length = 0; macPorts.clear(); _active().clear()
@@ -117,8 +123,12 @@ describe('jobs in a shared project chat (QA TC-4989)', () => {
     expect(t).toContain('Started as job build')
     const r = last()
     // the same fence as a command there: the project folder, without what bob cannot open, nothing personal
-    expect(r.settings.filesystem.allowWrite).toContain(abs(P.folderPath))
-    expect(r.settings.filesystem.denyRead).toContain(abs(`${P.folderPath}/secret`))
+    // (the project folder holds a folder bob may not open: given entry by entry, that folder not even by its name, and
+    // the entries are checked inside the sandbox first, as for a command: QA TC-4945, srt/mounts.ts)
+    const fsx = r.settings.filesystem as { allowRead: string[]; allowWrite: string[]; denyRead: string[]; denyWrite?: string[] }
+    expect(fsx.allowWrite).not.toContain(abs(P.folderPath))
+    expect([...fsx.allowRead, ...fsx.allowWrite, ...fsx.denyRead, ...(fsx.denyWrite ?? [])].some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
+    expect(r.spec.command.split('\n')[0]).toMatch(/^\/usr\/bin\/xargs -0 \/usr\/bin\/stat -c %d:%i -- < '.+'.*exit 97/)
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
     expect(readable(r)).not.toContain(personLogs(base, 'alice'))
     expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
