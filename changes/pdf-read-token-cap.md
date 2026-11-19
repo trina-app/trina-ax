@@ -1,0 +1,1 @@
+- A PDF read by pages no longer goes past the AI's tool output limit. Dense text (Korean, for example) was cut without a word, so the AI did not see all the pages it read; now it reads the rest in another call.

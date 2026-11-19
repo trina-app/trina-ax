@@ -279,6 +279,39 @@ describe('PDF pages (Claude Code Read contract)', () => {
     } finally { page.mockRestore() }
   })
 
+  // QA AP-004: page text counted only in characters (200,000): 18 dense Korean pages are about 34,000 tokens, and
+  // Claude Code cut the result past 25,000 without a word. Text pages that would pass the limit wait for the next call
+  // (the text layers are given: a generated PDF holds only what fits on its page)
+  const dense = (n: number) => Array.from({ length: n }, (_, i) => `밀집 페이지 ${i + 1} 시작.\n${'한국어 문서의 촘촘한 본문 내용입니다. '.repeat(90)}`)
+  const pdfText = (r: { content: any[] }) => r.content.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
+  test('page text that would pass the tool output limit waits for the next call, which reads it', async () => {
+    const layers = dense(18) // about 1,900 tokens a page, 34,000 in all; 37,000 characters, far under the old cap
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const doc = { label: `${ALICE}/korean.pdf`, bytes: new Uint8Array(), layers }
+    const all = Array.from({ length: 18 }, (_, i) => i + 1)
+    const first = await A.ctx.files.pdfPagesForModel(ctx, doc, all)
+    const firstText = pdfText(first) + '\n' + first.notes.join('\n')
+    expect(textTokens(firstText)).toBeLessThanOrEqual(READ_OUTPUT_TOKENS)
+    const m = /Not shown in this read: pages (\d+)-18 .*pages: "(\d+)-18"/.exec(firstText)
+    expect(m).not.toBeNull()
+    const next = Number(m![1])
+    expect(next).toBeGreaterThan(5)
+    expect(firstText).toContain(`밀집 페이지 ${next - 1} 시작.`)
+    expect(firstText).not.toContain(`밀집 페이지 ${next} 시작.`)
+    const rest = await A.ctx.files.pdfPagesForModel(ctx, doc, all.slice(next - 1))
+    expect(pdfText(rest)).toContain(`밀집 페이지 ${next} 시작.`)
+    expect(pdfText(rest)).toContain('밀집 페이지 18 시작.')
+    expect(rest.notes.join('\n')).not.toContain('Not shown in this read')
+  })
+
+  test('one page alone over the tool output limit: its text is cut to fit and says how to read the rest', async () => {
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const r = await A.ctx.files.pdfPagesForModel(ctx, { label: `${ALICE}/huge.pdf`, bytes: new Uint8Array(), layers: ['한국어 계약서 조항. '.repeat(5000)] }, [1])
+    expect(textTokens(pdfText(r))).toBeLessThanOrEqual(READ_OUTPUT_TOKENS)
+    expect(pdfText(r)).toContain('page text cut: the page alone passes the tool output limit')
+    expect(r.notes).toEqual([])
+  })
+
   test.skipIf(!pageRenderer)('line reads name the scanned pages to read as images', async () => {
     const r = await handler('alice', A.turn('alice', A.chat('alice'))).call('read', { file_path: `${ALICE}/mixed.pdf`, offset: 1 })
     expect(texts(r)).toContain('Pages without a text layer (scans or pictures): 2.')
