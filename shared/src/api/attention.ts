@@ -64,16 +64,22 @@ export function roomCounts(r: CountedRoomFields): RoomCounts {
   return { bold: true, mention, number, quiet, counts: !quiet && (mention || number > 0) }
 }
 
-/** Does this room want me (docs/DECISIONS.md "Session markers"): something unread there is for me by my switches: an
- * @mention, a reply in a thread I follow ("내가 참여한 스레드의 답글" on), or any message of a room at 모든 메시지 (by
- * default: DMs and group chats). Nothing from a room at 끄기. Plain unread messages in a room at 멘션만 (a team room or
- * the everyone room at its default) only make the row bold, as in Slack. Counted once in the one count n, and what
- * the desktop app's notice of a room message waits for. A followed reply wants me although the row does not show it
- * (roomCounts): it is a notice of mine (Activity), as Slack's threads are. */
-export function roomWantsMe(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>, threadReplies = true): boolean {
+/** Does this room want me (docs/DECISIONS.md "Session markers"): the same rule as its row (roomCounts `counts`,
+ * docs/decisions/20261119-room-unread-after-read.md): an @mention (in a thread I follow too), or a message of the
+ * timeline in a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기 or one I hid; plain
+ * unread messages in a room at 멘션만 only make the row bold, and a followed thread's reply without a mention adds to no
+ * number (it is in 멘션·스레드 and under its root), as in Slack. Counted once in the one count n (the tab title, the
+ * Dock, the phone icon), so the icon never shows a number with nothing marked in the list. */
+export function roomWantsMe(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>): boolean {
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
-  if (r.hidden || levelOf(r) === 'off' || roomUnread(r) <= 0) return false
-  return !!r.mentioned || (threadReplies && (r.threadsUnread ?? 0) > 0) || (levelOf(r) === 'all' && r.unreadCount > 0)
+  return !r.hidden && roomCounts(r).counts
+}
+
+/** Is a new message of this room still worth the desktop app's notice: it wants me (roomWantsMe), or it is a reply in a
+ * thread I follow with "내가 참여한 스레드의 답글" on (`threadReplies`), still unread. Notices only: no number. */
+export function roomNoticeWanted(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>, threadReplies = true): boolean {
+  if (roomWantsMe(r)) return true
+  return !r.hidden && levelOf(r) !== 'off' && threadReplies && (r.threadsUnread ?? 0) > 0
 }
 
 /** The room has unread messages (or followed replies) and I neither hid it nor turned it off (끄기: its own level, or my
@@ -85,14 +91,12 @@ export function roomLightsDot(r: CountedRoomFields & Partial<Pick<Room, 'hidden'
 type CountedChat = MarkedChat & Pick<Chat, 'id'>
 type CountedRoom = Parameters<typeof roomWantsMe>[0]
 /** The one count n: the AI chats showing "?" or a dot, and the rooms that want me (roomWantsMe: unread messages for me by my
- * level for the room: by default a DM or group chat message, an @mention, a reply
- * in a thread I follow), each once. Chats and rooms, not events: a chat that ended twice counts once. `ask`: any of
+ * level for the room: by default a DM or group chat message, an @mention, in a thread too), each once. Chats and rooms, not events: a chat that ended twice counts once. `ask`: any of
  * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
- * screen in a visible window; `cards`: the chats with a card open in this window; `threadReplies`: my "replies in
- * threads I follow" switch (the rooms list's alerts). */
-export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string>; threadReplies?: boolean } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
+ * screen in a visible window; `cards`: the chats with a card open in this window. */
+export function attentionCount(chats: readonly CountedChat[], rooms: readonly CountedRoom[], o: { here?: string | null; cards?: ReadonlySet<string> } = {}): { n: number; ask: boolean; chats: number; chatAsk: boolean; unread: boolean } {
   let chatsN = 0, chatAsk = false
   for (const c of chats) {
     const m = markerOf(c, { here: c.id === o.here, card: o.cards?.has(c.id) })
@@ -102,7 +106,7 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
   }
   let n = chatsN, unread = false
   for (const r of rooms) {
-    if (roomWantsMe(r, o.threadReplies ?? true)) n++
+    if (roomWantsMe(r)) n++
     else if (roomLightsDot(r)) unread = true
   }
   return { n, ask: chatAsk, chats: chatsN, chatAsk, unread }

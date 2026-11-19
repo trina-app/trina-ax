@@ -19,9 +19,16 @@
   go by the room's own timeline (`unreadCount`), as Slack's channels do. A followed thread's new replies show where
   Slack shows them: the root's dot, the room header's thread mark, and **Mentions & threads** (their notices). One
   exception stays on the row: an unread followed reply that mentions me shows "@" (and bold) until it is read.
-- **Unchanged:** the one count n (tab title, Dock, phone icon) and the desktop app's notice still count a followed
-  reply while "Replies in threads I follow" is on (`roomWantsMe`, now written without `roomCounts`, same answers), the
-  Dock's dot for unread rooms, the server's numbers (`Room.threadsUnread`, `nextThreadId`), and reading a thread.
-- **Tests:** web/test/unit/room-counts.test.tsx (the rule, every surface that adds up, the one count),
+- **The numbers follow the rows** (review of #51): the one count n (the tab title, the Mac Dock, an installed web app's
+  icon, the phone app's icon and the server's push badge, server/src/notifications/push-badge.ts) counts a room exactly
+  when its row counts (`roomWantsMe` = not hidden and `roomCounts(..).counts`): a room's own unread messages that want
+  me by my level, and an unread @mention, one inside a followed thread included. A followed thread's reply without a
+  mention adds to no number, so the icon never shows "1" with nothing marked in the list; it is in Mentions & threads
+  (its own mark) and under its root, and the Dock's dot for unread rooms (`roomLightsDot`) still lights for it. The
+  "Replies in threads I follow" switch now only decides notices: the server's push and Inbox row (unchanged) and the
+  desktop app's notice of a room message (`roomNoticeWanted`: wants me, or a followed reply while the switch is on).
+- **Unchanged:** the server's numbers (`Room.threadsUnread`, `nextThreadId`), the notices, and reading a thread.
+- **Tests:** web/test/unit/room-counts.test.tsx (the rule, every surface that adds up, the one count agreeing with the
+  rows, the desktop notice), tests/unit/push-badge.test.ts (a followed reply: 0; one that mentions me: 1),
   web/test/e2e/room-read-not-bold.spec.ts (1440 and 390: read the channel, switch away, not bold, after a reload too).
 - **Version impact:** patch.

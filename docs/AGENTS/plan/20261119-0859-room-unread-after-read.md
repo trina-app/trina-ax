@@ -20,8 +20,9 @@ never reads a thread. Server state after the read: `unreadCount 0, threadsUnread
 
 In: the row's marks (bold name, number, "@") and the totals that add them up go by the room's own timeline, as in Slack.
 A followed thread's new replies show in the room (the root's dot, the header's thread mark), in Activity and as
-notices; on the row only when one mentions me ("@"). The one count n (tab title, Dock, phone icon) and the desktop
-notice for a followed reply stay as they are (roomWantsMe), and so does the Dock's dot.
+notices; on the row only when one mentions me ("@"). After review: the one count n (tab title, Dock, phone icon,
+push badge) follows the rows too (roomWantsMe = the row counts); the desktop notice for a followed reply stays
+(roomNoticeWanted), and so does the Dock's dot.
 Out: a Threads view.
 
 ## Steps

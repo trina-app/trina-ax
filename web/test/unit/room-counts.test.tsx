@@ -4,7 +4,7 @@
 // count n (the tab title, the Dock, the phone icon) and its dot.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Room } from '@mycel/shared/api'
-import { attentionCount, roomCounts, roomLightsDot, roomWantsMe } from '@mycel/shared/api'
+import { attentionCount, roomCounts, roomLightsDot, roomNoticeWanted, roomWantsMe } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { roomBadge, totalUnread } from '../../src/lib/rooms'
 import { chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
@@ -43,11 +43,21 @@ describe('roomCounts', () => {
     expect(roomCounts(quietChannel({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toEqual({ bold: true, mention: true, number: 0, quiet: false, counts: true })
     expect(roomBadge(dmAll({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toBe('@')
   })
-  test('a followed reply still wants me (the one count n, the desktop notice) while its switch is on, and lights the dot', () => {
-    expect(roomWantsMe(dmAll({ unreadCount: 0, threadsUnread: 1 }))).toBe(true)
-    expect(roomWantsMe(dmAll({ unreadCount: 0, threadsUnread: 1 }), false)).toBe(false)
-    expect(roomWantsMe(muted({ unreadCount: 0, threadsUnread: 1 }))).toBe(false)
+  test('a followed reply adds to no number (the one count n: tab title, Dock, phone icon) but still gets the desktop notice while its switch is on, and the dot', () => {
+    expect(roomWantsMe(dmAll({ unreadCount: 0, threadsUnread: 1 }))).toBe(false)
+    expect(attentionCount([], [dmAll({ unreadCount: 0, threadsUnread: 1 })])).toMatchObject({ n: 0, unread: true })
+    // one that mentions me counts, as its "@" shows on the row
+    expect(roomWantsMe(quietChannel({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toBe(true)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1 }))).toBe(true)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1 }), false)).toBe(false)
+    expect(roomNoticeWanted(muted({ unreadCount: 0, threadsUnread: 1 }))).toBe(false)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1, hidden: true }))).toBe(false)
     expect(roomLightsDot(quietChannel({ unreadCount: 0, threadsUnread: 1 }))).toBe(true)
+  })
+  test('the one count n and the rows agree: a room wants me exactly when it counts on its row', () => {
+    for (const r of [quietChannel(), quietChannel({ mentioned: true }), quietChannel({ unreadCount: 0, threadsUnread: 2 }), dmAll(), dmAll({ unreadCount: 0, threadsUnread: 1 }), dmAll({ unreadCount: 0, threadsUnread: 1, mentioned: true }), muted(), muted({ mentioned: true })]) {
+      expect(roomWantsMe(r)).toBe(roomCounts(r).counts)
+    }
   })
   test('a team room at its default level is mentions only; DMs and group chats are all messages (an older server too)', () => {
     expect(roomCounts(room({ unreadCount: 3, notify: level('mentions', false) })).counts).toBe(false)

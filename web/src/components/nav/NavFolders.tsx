@@ -255,7 +255,8 @@ export function useDropTarget(kind: NavFolderKind, onDrop: (id: string) => void)
 export const DROP_OVER = 'rounded-lg bg-accent-soft ring-2 ring-accent ring-inset'
 
 /** A folded room folder's (or 대화 section's) one pill: the strongest of its rooms, "@" (an unread mention) › how many of its rooms
- * count (shared roomCounts, as the 대화 count: muted rooms left out, a room at 멘션만 only with a mention or a followed reply). */
+ * count (shared roomCounts, as the 대화 count: muted rooms left out, a room at 멘션만 only with a mention; a followed thread's
+ * reply without a mention adds nothing: docs/decisions/20261119-room-unread-after-read.md). */
 export type RoomFolderPill = { kind: 'mention' } | { kind: 'unread'; n: number }
 export function roomFolderPill(rooms: CountedRoomFields[]): RoomFolderPill | null {
   const loud = rooms.map(roomCounts).filter((c) => c.counts)
