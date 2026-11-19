@@ -32,7 +32,7 @@ import { ROOM_FILE_MAX } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { ext, extractText, looksScanned } from '../files/extract'
-import { appendText, isVisionImage, layerText, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
+import { appendText, isVisionImage, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
 import { mediaKind } from '@mycel/shared'
 import { copyRegular, readRegular } from '../files/store'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -336,6 +336,16 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   }
 }
 
+/** A PDF's text layers as one text, each page after its mark "[p.N]" on a line of its own (exported for tests). */
+export const pagedText = (layers: readonly string[]) => layers.map((p, i) => `[p.${i + 1}]\n${p}`).join('\n')
+/** The page whose mark is the last one before character `at` of pagedText's text (1 when there is none). */
+export function lastPageMark(all: string, at: number): number {
+  const re = /^\[p\.(\d+)\]$/gm
+  let page = 1
+  for (let m = re.exec(all); m && m.index < at; m = re.exec(all)) page = Number(m[1])
+  return page
+}
+
 /**
  * A PDF sent in a room as a team-folder read gives it (files/service.ts pdfPagesForModel, docs/DECISIONS.md "AI sees
  * images and PDF pages"): without `pages` a PDF of up to 10 pages whole, each page's text layer as text and a page
@@ -351,18 +361,22 @@ async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomF
   const name = file.name.replace(/[\r\n"<>]+/g, ' ').slice(0, 200)
   const tctx = r.toolCtx()
   if (a.pages === undefined && (a.offset !== undefined || (n > PDF_PAGES_WITHOUT_RANGE && !a.as_images))) {
-    const all = layerText(layers)
+    // each page starts with its mark ([p.N], as grep and read name PDF places): a question about "page 47" finds it
+    // in this text, and a cut says which pages it reached (QA AP-054: form feeds alone gave no page numbers)
+    const all = pagedText(layers)
     const from = Math.min(a.offset ?? 0, all.length)
     const part = all.slice(from, from + ROOM_FILE_CHARS)
     const cut = from + part.length < all.length
     const scanned = files.scannedNote(tctx, layers)
+    const upTo = cut ? lastPageMark(all, from + part.length) : n
     return {
       ...text([
         head,
         `<room_file name="${name}"${from ? ` from_character="${from}"` : ''}>`,
         neutralizeTags(part),
         '</room_file>',
-        cut ? `(Cut at character ${from + part.length} of ${all.length}: read on with offset=${from + part.length}.)` : '',
+        `This PDF has ${n} page${n === 1 ? '' : 's'}; each starts with its mark [p.N] in the text above. For a page the user names, read it with pages (for example pages: "${Math.min(n, PDF_PAGES_WITHOUT_RANGE + 1)}"; at most ${PDF_PAGES_PER_READ} pages per call) and refer to it as that page.`,
+        cut ? `(Cut at character ${from + part.length} of ${all.length}, inside page ${upTo}: read on with offset=${from + part.length}, or read the pages you need with pages.)` : '',
         scanned?.text ?? '',
       ].filter(Boolean).join('\n')),
       summary: `room_file -> PDF text ${part.length} characters${cut ? ' (cut)' : ''}${scanned ? `, ${scanned.pages.length} page${scanned.pages.length === 1 ? '' : 's'} without text` : ''}`,
