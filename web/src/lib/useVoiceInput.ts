@@ -12,8 +12,7 @@
 // the server's way, the bar says how far the model is); Intel, older macOS, a language the Mac lacks or a helper that
 // failed use the server. The iPhone app (1.0.10) offers the same bridge with the phone's own recognizer (lib/mobile.ts
 // phoneDictation); its notes say "this phone". The Android app's (1.0.10) recognizer holds the microphone itself (the
-// page records nothing then, the wave follows its level), and one that is not on the phone (`shared`) is used only for
-// a team whose voice may go outside, never in a confidential chat.
+// page records nothing then, the wave follows its level); only a recognizer on the phone is used.
 // The host renders components/VoiceBar.tsx (the bar, the mic, the live region) with what this returns and calls
 // onKeyDown from the box's own key handler after its "/", "#" or "@" list had its turn.
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
@@ -38,12 +37,6 @@ import { useJobs, waitForJob } from '../store/jobs'
 /** a recording the Mac or the phone transcribes: the box's text before its first words, the text it last put there
  * (several words can come before the box renders again), and the Android app's level feed for the wave */
 type MacRec = { run: OnDeviceRun; before: string | null; shown: string | null; offLevel: (() => void) | null }
-
-/** the team lets voice input go to an outside service (Me.team.voiceInputOutside) */
-const outsideAllowed = () => {
-  const st = useSession.getState().status
-  return st.kind === 'signed-in' && st.me.team?.voiceInputOutside === true
-}
 
 /** this browser has held Space to talk once: the hint in a clicked recording stops */
 export const HOLD_USED_KEY = 'mycel.voice.holdUsed'
@@ -353,8 +346,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
           const m = macHere()
           if (m) {
             const r = await checkMac(m.language, m.bridge)
-            // (a phone recognizer that is not on the phone: only for a team whose voice may go outside)
-            if (r.kind === 'ready' && (!r.shared || (outsideAllowed() && !opts.current.blocked)) && (await startOnMac(m.bridge, m.language))) return
+            if (r.kind === 'ready' && (await startOnMac(m.bridge, m.language))) return
             // the first tap: Apple's model comes down now, and this recording goes the server's way
             if (r.kind === 'model') prepareMac(m.language, m.bridge)
           }
@@ -507,9 +499,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
         blocked: () => {
           if (!opts.current.blocked) return false
           const m = macHere()
-          const r = m ? macReadiness(m.language) : null
-          // (a phone recognizer that is not on the phone never takes a confidential chat)
-          return !r || r.kind !== 'ready' || r.shared === true
+          return !m || macReadiness(m.language).kind !== 'ready'
         },
         canStart: () => !elsewhere(),
         granted: () => permission.current === 'granted',

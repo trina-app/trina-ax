@@ -62,10 +62,9 @@ export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
  * The Android app (1.0.10, docs/decisions/20261119-android-dictation.md) offers the same with two additions an older page
  * ignores. Only a page that says `appMic: true` in its `dictation-check` gets it (any other is told unsupported, so a
  * page that knows only the iPhone's way records as before); the reply then says `dictationMic: 'app'` (the phone's recognizer opens the microphone itself:
- * the page records nothing and sends no `dictation-push`) and `dictationOnDevice: false` when the recognizer is not on
- * the phone (the default one, asked to stay offline, may send the sound to its maker: the page uses it only where the
- * team's voice may go outside, never in a confidential chat); its recordings also send `level` events (0-1) for the
- * page's wave. */
+ * the page records nothing and sends no `dictation-push`) and `dictationOnDevice` (true: the phone's on-device
+ * recognizer; the app no longer offers any other, and a page treats anything but true as unsupported: the team server);
+ * its recordings also send `level` events (0-1) for the page's wave. */
 export const DICTATION_CAPABILITY = 'dictation-v1'
 /** One `dictation-push`: at most 1.5 s of sound (the page sends about 0.1 s at a time). */
 export const MAX_DICTATION_BYTES = 48_000
