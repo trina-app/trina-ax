@@ -302,7 +302,7 @@ export async function whisperFile(cfg: TranscribeConfig, model: string, work: st
   o: { language?: string; signal?: AbortSignal; timeoutMs: number; onProgress?: (fraction: number) => void; noFallback?: boolean
     /** whisper.cpp's own guess of the language and how sure it is (0-1): its log line, so -np (no prints) is left out */
     onLanguage?: (language: string, p: number) => void
-    /** -ojf: each token's probability, for how sure whisper was (WhisperResult.sure; voice input and meeting pieces) */
+    /** -ojf: each token's probability, for how sure whisper was (WhisperResult.sure; voice input pieces) */
     tokens?: boolean }): Promise<WhisperResult> {
   if (!cfg.whisperBin) throw MISSING_WHISPER()
   const lang = o.language && /^[a-z]{2}$/.test(o.language) ? o.language : 'auto'

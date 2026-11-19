@@ -112,7 +112,7 @@ const noSpeechLine = (s: OrSegment) => (num(s?.no_speech_prob) ?? 0) > NO_SPEECH
 
 /** OpenRouter's JSON -> TranscribeResult (language, duration, segments are optional there). The language as whisper's
  * code: Groq answers "Korean" where DeepInfra answers "ko". Every line is kept (a file read's transcript as before);
- * voice input and meeting pieces drop the no-speech ones (openRouterSpeech). */
+ * voice input pieces drop the no-speech ones (openRouterSpeech). */
 export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null; durationSec: number | null }): NoSpeechAnswer {
   const text = typeof j.text === 'string' ? j.text.replace(/\s+/g, ' ').trim() : ''
   const duration = typeof j.duration === 'number' && Number.isFinite(j.duration) && j.duration >= 0 ? j.duration : fallback.durationSec
@@ -136,7 +136,7 @@ export function parseOpenRouter(j: OrAnswer, fallback: { language: string | null
 /** whisper was unsure of an OpenRouter answer: every line likely without speech, or words it was unsure of */
 export const openRouterUnsure = (r: NoSpeechAnswer): boolean =>
   (r.noSpeech !== undefined && r.noSpeech > UNSURE_NO_SPEECH) || (!!r.scored && confidence(r.scored) < UNSURE_LOGPROB)
-/** An answer for voice input or a meeting piece without what whisper wrote for no speech: the lines its own rule calls
+/** An answer for a voice input piece without what whisper wrote for no speech: the lines its own rule calls
  * no speech, then jobs/no-speech.ts keepSpeech. */
 export function openRouterSpeech<T extends NoSpeechAnswer>(r: T, sound: Sound | null): T {
   const { noSpeechLines: flags, ...rest } = r

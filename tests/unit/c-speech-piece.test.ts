@@ -1,6 +1,7 @@
-// Meeting notes (docs/AGENTS/plan/20261116-1903-live-meeting-notes.md): POST /api/meetings/piece turns one piece of a
-// meeting's sound into lines with the team's voice input setting, GET /api/meetings/status says whether a meeting can
-// start. OpenRouter is a fake here (never the real one); the piece is deleted whatever happens.
+// The piece runner under voice input (server/src/jobs/meeting-piece.ts, POST /api/transcribe/piece): the parts the
+// voice input tests (c-voice-piece.test.ts) do not cover: a provider failure, two pieces at once, the app's WAV header,
+// and whisper.cpp on this server. (These tests came from the desktop meeting notes, removed 2026-11-19.) OpenRouter is
+// a fake here (never the real one); the piece is deleted whatever happens.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,8 +9,8 @@ import { componentC } from '../../server/src/team-files/component'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { MeetingSpeed, meetingPiece, meetingStatus, MEETING_LOCAL_MAX_SEC_PER_SEC, MEETING_SPEED_WINDOW_MS, pieceSeconds, type MeetingDeps } from '../../server/src/jobs/meeting-piece'
-import { pieceWav } from '../../desktop/src/common/meeting/chunker'
+import { pieceSeconds, resetPieceLimitsForTests, speechPiece, type MeetingDeps } from '../../server/src/jobs/meeting-piece'
+import { pieceWav } from '@mycel/shared/speech-pieces'
 import { makeCApp, type CApp } from '../lib/c-app'
 import { isolation } from '../../server/src/tools/isolate'
 
@@ -22,7 +23,7 @@ const fake = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) { hits
 let saved: { url: string; whisper: string | null }
 
 beforeAll(async () => {
-  A = await makeCApp('c-meeting')
+  A = await makeCApp('c-speech-piece')
   const t = C().transcribe
   saved = { url: t.openRouterUrl, whisper: t.whisperBin }
   t.openRouterUrl = `http://127.0.0.1:${fake.port}/api/v1/audio/transcriptions`
@@ -37,6 +38,7 @@ afterAll(async () => {
 })
 beforeEach(() => {
   hits.length = 0
+  resetPieceLimitsForTests()
   delete process.env.MYCEL_SAFE_OPS_1A
   updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter' })
   writeSpeechKey(credentialsOf(A.ctx), KEY)
@@ -47,7 +49,7 @@ async function send(bytes: Uint8Array, fields: Record<string, string> = {}) {
   const fd = new FormData()
   for (const [k, v] of Object.entries(fields)) fd.set(k, v)
   fd.set('file', new File([new Uint8Array(bytes)], 'piece.wav'))
-  return A.json('/api/meetings/piece', { method: 'POST', body: fd, as: 'alice' })
+  return A.json('/api/transcribe/piece', { method: 'POST', body: fd, as: 'alice' })
 }
 /** spooled pieces left behind in the server's folders (there must be none) */
 const leftovers = () => {
@@ -59,38 +61,6 @@ const leftovers = () => {
 }
 
 describe('a piece through OpenRouter', () => {
-  test('the WAV goes as it is, the lines come back, the mark for no words is dropped, nothing is left', async () => {
-    const r = await send(piece(2), { language: 'en' })
-    expect(r.status).toBe(200)
-    expect(r.body.lines).toEqual([{ start: 0.2, end: 1.8, text: 'hello there' }])
-    expect(hits).toHaveLength(1)
-    expect(hits[0].input_audio.format).toBe('wav')
-    expect(hits[0].language).toBe('en')
-    expect(hits[0].provider.zdr).toBe(true)
-    expect(Buffer.from(hits[0].input_audio.data, 'base64').subarray(0, 4).toString('latin1')).toBe('RIFF')
-    expect(leftovers()).toEqual([])
-  })
-  test('no language: whisper guesses (none is sent)', async () => {
-    await send(piece(1))
-    expect(hits[0].language).toBeUndefined()
-  })
-  test('voice input off: 409 with its reason (the app ends the meeting), nothing sent', async () => {
-    updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
-    const r = await send(piece(1))
-    expect(r.status).toBe(409)
-    expect(r.body.error.params).toEqual({ reason: 'off' })
-    expect(hits).toEqual([])
-    expect(leftovers()).toEqual([])
-  })
-  test('Safe operations 1A: sound never leaves the server, so OpenRouter is refused', async () => {
-    process.env.MYCEL_SAFE_OPS_1A = '1'
-    const r = await send(piece(1))
-    expect(r.status).toBe(403)
-    expect(r.body.error.params).toEqual({ reason: 'confidential' })
-    expect(hits).toEqual([])
-    const s = await A.json('/api/meetings/status', { as: 'alice' })
-    expect(s.body.state).toBe('confidential')
-  })
   test('not the app\'s WAV, or longer than 15.5 s: refused, nothing sent', async () => {
     const bad = piece(1); bad[22] = 2 // two channels
     expect((await send(bad)).status).toBe(400)
@@ -128,68 +98,29 @@ describe('a piece through OpenRouter', () => {
     } finally { t.openRouterUrl = url; slow.stop(true) }
     expect(leftovers()).toEqual([])
   })
-  test('status: ready with a key, off without', async () => {
-    expect((await A.json('/api/meetings/status', { as: 'alice' })).body).toEqual({ state: 'ready' })
-    writeSpeechKey(credentialsOf(A.ctx), null)
-    expect((await A.json('/api/meetings/status', { as: 'alice' })).body.state).toBe('off')
-  })
 })
 
 describe('a piece on this server', () => {
   const deps = (o: Partial<MeetingDeps> = {}): MeetingDeps => ({
     stt: { ...C().transcribe, whisperBin: '/nonexistent/whisper-cli', modelDir: path.join(A.data, 'meet-models'), modelOverride: { file: 'm.bin', size: 1000, sha256: '0'.repeat(64) }, baseUrl: 'http://127.0.0.1:9/' },
-    provider: () => 'local', openRouter: () => null, confidential: () => false, speed: new MeetingSpeed(), ...o,
+    provider: () => 'local', openRouter: () => null, confidential: () => false, ...o,
   })
-  test('no whisper-cli: off', async () => {
+  /** the piece as the route hands it over: a server-owned file */
+  const pieceFile = (name: string, wav: Uint8Array) => { const f = path.join(A.data, name); fs.writeFileSync(f, wav); return f }
+  test('no whisper-cli: off (final), the piece removed', async () => {
     const d = deps()
     d.stt.whisperBin = null
-    expect((await meetingStatus(d)).state).toBe('off')
+    const f = pieceFile('piece-off.wav', piece(1))
+    await expect(speechPiece(d, 'alice', f, { locale: 'en' })).rejects.toMatchObject({ reason: 'off' })
+    expect(fs.existsSync(f)).toBe(false)
   })
-  test('the model not there yet: getting ready, with its size', async () => {
-    const s = await meetingStatus(deps())
-    expect(s.state).toBe('getting_ready')
-    expect(s.progress).toBe(0)
-  })
-  test('the model there: ready; too slow once measured over the limit', async () => {
-    const d = deps()
-    fs.mkdirSync(d.stt.modelDir, { recursive: true })
-    fs.writeFileSync(path.join(d.stt.modelDir, 'm.bin'), Buffer.alloc(1000))
-    expect((await meetingStatus(d)).state).toBe('ready')
-    // a fast Mac: a second for a 15 s piece
-    for (let i = 0; i < 5; i++) d.speed.record(1000, 15)
-    expect((await meetingStatus(d)).state).toBe('ready')
-    // a 2-vCPU box: 20 s for a 15 s piece
-    for (let i = 0; i < 10; i++) d.speed.record(20_000, 15)
-    expect(d.speed.secPerSec()!).toBeGreaterThan(MEETING_LOCAL_MAX_SEC_PER_SEC)
-    expect((await meetingStatus(d)).state).toBe('too_slow')
-  })
-  test('the speed counts only after a few pieces; the first (the model loading) is not counted', () => {
-    let now = 1_000_000
-    const s = new MeetingSpeed(() => now)
-    s.record(60_000, 10)
-    s.record(500, 10); s.record(500, 10)
-    expect(s.secPerSec()).toBeNull()
-    s.record(500, 10)
-    expect(s.secPerSec()).toBeCloseTo(0.05, 3)
-  })
-  test('a busy spell is forgotten: too slow becomes ready again after the window', () => {
-    let now = 1_000_000
-    const s = new MeetingSpeed(() => now)
-    for (let i = 0; i < 6; i++) { s.record(20_000, 15); now += 1000 }
-    expect(s.tooSlow()).toBe(true)
-    now += MEETING_SPEED_WINDOW_MS + 1
-    expect(s.tooSlow()).toBe(false)
-    expect(s.secPerSec()).toBeNull()
-  })
-  test('sum over sum: a short piece does not count as a whole window', () => {
-    let now = 1_000_000
-    const s = new MeetingSpeed(() => now)
-    s.record(0, 1)
-    s.record(1000, 0.5); s.record(1000, 14.5); s.record(1000, 15)
-    expect(s.secPerSec()).toBeCloseTo(3 / 30, 3)
+  test('the model not there yet: not_ready (sent again later), the piece removed', async () => {
+    const f = pieceFile('piece-model.wav', piece(1))
+    await expect(speechPiece(deps(), 'alice', f, { locale: 'en' })).rejects.toMatchObject({ reason: 'not_ready' })
+    expect(fs.existsSync(f)).toBe(false)
   })
   // a script needs its shell, which the isolation (macOS sandbox, bwrap) does not let it run: only without isolation
-  // (MYCEL_ISOLATION=none bun test tests/unit/c-meeting-piece.test.ts)
+  // (MYCEL_ISOLATION=none bun test tests/unit/c-speech-piece.test.ts)
   test.skipIf(isolation() !== 'none')('a fake whisper-cli: lines come back on piece time, without the fallback, nothing left behind', async () => {
     const d = deps()
     const bin = path.join(A.data, 'fake-whisper-cli')
@@ -203,7 +134,7 @@ describe('a piece on this server', () => {
     fs.writeFileSync(f, piece(2))
     fs.mkdirSync(d.stt.workBase, { recursive: true })
     const work = fs.readdirSync(d.stt.workBase).length
-    const r = await meetingPiece(d, 'alice', f, { locale: 'en' })
+    const r = await speechPiece(d, 'alice', f, { locale: 'en' })
     expect(r.lines[0]).toEqual({ start: 0.1, end: 1.5, text: 'hi there' })
     expect(r.lines).toHaveLength(2)
     // the end is kept within the piece (2 s), and no temperature fallback (-nf)
@@ -228,7 +159,7 @@ describe('a piece on this server', () => {
       fs.rmSync(bin + '.ran', { force: true })
       const f = path.join(A.data, 'piece-ojf.wav')
       fs.writeFileSync(f, wav)
-      return meetingPiece(d, 'alice', f, { locale: 'en' })
+      return speechPiece(d, 'alice', f, { locale: 'en' })
     }
     const tone = pieceWav(Float32Array.from({ length: 16000 }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 1000 * i / 16000)))
     expect((await run(answer('you', 0.14), tone)).lines).toEqual([])
