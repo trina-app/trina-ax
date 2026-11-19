@@ -450,6 +450,18 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect(await admin.call('PATCH', '/api/admin/credential-settings', { memberOwn: true })).toMatchObject({ memberOwn: true })
   })
   const PUBLIC = 'https://93.184.216.34/v1' // a literal public address: no DNS lookup in the test
+  // the settings page asks the model's server whether it takes pictures (engine/api-vision.ts, since #1338), up to 5 s per
+  // address and model: the literal public addresses of these tests answer "not found" at once, as a server that does not
+  // say would (a real host there is never reached; every other address goes through as before)
+  const realFetch = globalThis.fetch
+  beforeAll(() => {
+    globalThis.fetch = Object.assign((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (/^https?:\/\/(93\.184\.216\.\d+|[a-z-]+\.example)(:\d+)?\//.test(url)) return Promise.resolve(new Response('', { status: 404 }))
+      return realFetch(input, init)
+    }, realFetch)
+  })
+  afterAll(() => { globalThis.fetch = realFetch })
   test('an admin edits the API engine settings with their own password; the owner is told (host and model, never the key); the owner\'s own edit tells nobody', async () => {
     told.length = 0
     const keyText = 'engine-key-' + 'q'.repeat(24)
@@ -459,7 +471,7 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
     expect((await admin.try('PUT', '/api/admin/engines/api-config', { ...body, password: OWNER_PW })).status).toBe(403)
     expect(mine()).toHaveLength(0)
     const r = await admin.call('PUT', '/api/admin/engines/api-config', { ...body, password: adminPw })
-    expect(r).toEqual({ baseUrl: body.baseUrl, model: 'team-model', label: 'Team API', hasKey: true })
+    expect(r).toEqual({ baseUrl: body.baseUrl, model: 'team-model', label: 'Team API', hasKey: true, vision: { choice: null, detected: null } })
     expect(await admin.call('GET', '/api/admin/engines/api-config')).toEqual(r)
     expect(mine()).toHaveLength(1)
     expect(mine()[0]!.to).toEqual([ownerId])
@@ -661,7 +673,9 @@ describe('admins change the team\'s AI like the owner; the owner is told, but no
       await owner.call('PUT', '/api/admin/engines/api-config', { baseUrl: B, model: 'm', label: 'x', key: 'new-key-' + 'n'.repeat(20), password: OWNER_PW })
       await admin.call('POST', '/api/admin/engines/api/check')
       expect(seen.length).toBeGreaterThan(0)
-      expect(seen.every((x) => x.auth === 'Bearer new-key-' + 'n'.repeat(20))).toBe(true)
+      // (the picture probe, engine/api-vision.ts, asks the server's own info paths with no key at all)
+      expect(seen.filter((x) => x.auth !== null).length).toBeGreaterThan(0)
+      expect(seen.every((x) => x.auth === null || x.auth === 'Bearer new-key-' + 'n'.repeat(20))).toBe(true)
       expect(JSON.stringify(seen)).not.toContain(OLD)
       // or with the key removed: nothing is sent
       seen.length = 0

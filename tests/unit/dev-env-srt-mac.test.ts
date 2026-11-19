@@ -142,6 +142,50 @@ describe('srt-mac.mjs', () => {
     expect(m.portOf(undefined)).toBe(null)
     expect(m.portOf('47901')).toBe(47901)
   })
+  // QA TC-4990 (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): a later command reaches the chat's own
+  // dev server (connect only), nothing else on localhost
+  test('reach ports: connect only, after srt\'s rules; never bind or accept; bad lists fail closed', async () => {
+    const { dir, mod } = loadSrtMac()
+    const m = await mod, quote = await quoteOf(dir)
+    const wrapped = quote(['env', '/usr/bin/sandbox-exec', '-p', PROFILE, '/bin/bash', '-c', 'curl localhost:47902'])
+    const p = m.words(m.patch(wrapped, 47903, [47902, 47905]))[3]!
+    expect(p.indexOf('(allow network-outbound (remote ip "localhost:47902"))')).toBeGreaterThan(p.indexOf('; Network'))
+    expect(p).toContain('(allow network-outbound (remote ip "localhost:47905"))')
+    expect(p).not.toContain('(local ip "*:47902")')
+    expect(p).not.toContain('(local ip "*:47905")')
+    expect(p).not.toContain('localhost:*')
+    // the run's own port only once, as before
+    expect(p.match(/localhost:47903/g)).toHaveLength(1)
+    expect(m.reachPortsOf(undefined, 47903)).toEqual([])
+    expect(m.reachPortsOf('', 47903)).toEqual([])
+    expect(m.reachPortsOf('47902,47905', 47903)).toEqual([47902, 47905])
+    for (const v of ['47903', '80', '47902,47902', '47902;47905', '47902, 47905', '*', '1024,1025,1026,1027,1028,1029,1030,1031,1032']) expect(() => m.reachPortsOf(v, 47903)).toThrow()
+    expect(() => m.extraRules(47903, [47903])).toThrow()
+    expect(() => m.extraRules(47903, [80])).toThrow()
+  })
+  test.skipIf(process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec'))('Seatbelt: a reach port is reachable, the server\'s port next to it is not, and it cannot be bound (real sandbox-exec)', async () => {
+    const { mod } = loadSrtMac()
+    const m = await mod
+    const free = () => new Promise<number>((r) => { const s = net.createServer().listen(0, '127.0.0.1', () => { const p = (s.address() as net.AddressInfo).port; s.close(() => r(p)) }) })
+    const own = await free(), dev = await free(), other = await free()
+    let reachedOther = 0
+    const devServer = net.createServer((c) => c.end('dev')).listen(dev, '127.0.0.1')
+    const server = net.createServer((c) => { reachedOther++; c.end('server') }).listen(other, '127.0.0.1')
+    await Promise.all([new Promise((r) => devServer.once('listening', r)), new Promise((r) => server.once('listening', r))])
+    try {
+      const profile = `(version 1)\n(allow default)\n(deny network*)\n(allow network* (remote unix-socket))\n${m.extraRules(own, [dev])}`
+      const js = `const net=require('net');const out=[];const done=()=>{console.log(out.join(' '));process.exit(0)};
+        const c=net.connect(${dev},'127.0.0.1');c.on('data',d=>out.push('dev:'+d));c.on('error',e=>out.push('dev:'+e.code));c.on('close',()=>{
+          const d=net.connect(${other},'127.0.0.1');d.on('data',x=>out.push('other:'+x));d.on('error',e=>out.push('other:'+e.code));d.on('close',()=>{
+            const b=net.createServer().listen(${dev});b.on('error',e=>{out.push('bind:'+e.code);done()});b.on('listening',()=>{out.push('bind:ok');done()})})})`
+      const p = spawn('/usr/bin/sandbox-exec', ['-p', profile, process.execPath, '-e', js], { stdio: ['ignore', 'pipe', 'pipe'] })
+      let stdout = ''
+      p.stdout!.on('data', (d) => { stdout += d })
+      await new Promise((r) => p.on('exit', r))
+      expect(stdout.trim()).toMatch(/^dev:dev other:(EPERM|ECONNREFUSED) bind:(EPERM|EADDRINUSE)$/)
+      expect(reachedOther).toBe(0)
+    } finally { server.close(); devServer.close() }
+  })
   test.skipIf(process.platform !== 'darwin' || !fs.existsSync('/usr/bin/sandbox-exec'))('Seatbelt: a run binds and reaches its own port only (real sandbox-exec)', async () => {
     const { mod } = loadSrtMac()
     const m = await mod
@@ -372,6 +416,77 @@ describe('the macOS SrtSystem (fake Mac)', () => {
     await sys.spawn(spec(base, 'bbbbbbbbbbbbbbbb'))
     expect(f.spawned[1]!.slice(0, 4)).toEqual([SRT_PATHS.sudo, '-n', '-u', '_axdev2'])
     // no slot left
+    await expect(Promise.resolve(sys.spawn(spec(base, 'cccccccccccccccc')))).rejects.toThrow('every dev slot account is in use')
+  })
+  // re-review of #1336: a leftover busy slot is stopped first (an await); a second run that took and released another
+  // slot meanwhile must not leave that slot looking free to the first
+  test('two runs at once with a leftover busy slot and slow stops get different slots', async () => {
+    for (const [first, second] of [[10, 200], [200, 10]] as const) {
+      const base = macBase()
+      const procs: MacProc[] = [{ uid: 451, pid: 9, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'left behind' }]
+      const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452, _axdev3: 453 }, procs })
+      let stops = 0
+      const run = f.host.run
+      f.host.run = async (argv, t) => { if (argv.includes('stop')) await Bun.sleep(stops++ === 0 ? first : second); return run(argv, t) }
+      const sys = macSystem({ base, slots: ['_axdev1', '_axdev2', '_axdev3'], portBase: 47900, poolMiB: 4096, pidsMax: 384, acl: ACL }, f.host)
+      // the leftover stays (its stop does nothing in this fake): both picks await a stop of _axdev1
+      const spawnA = Promise.resolve(sys.spawn(spec(base, 'aaaaaaaaaaaaaaaa'))).then((x) => { procs.push({ uid: 452, pid: 10, rssKiB: 1, cpuSec: 0, ageSec: 1, command: 'a' }); return x })
+      const spawnB = Promise.resolve(sys.spawn(spec(base, 'bbbbbbbbbbbbbbbb')))
+      await Promise.all([spawnA, spawnB])
+      const got = f.spawned.map((a) => a[3])
+      expect(new Set(got).size).toBe(2)
+      expect(got).not.toContain('_axdev1')
+    }
+  })
+  // QA TC-4990: the reach ports go to srt-mac.mjs, and a slot a living run may reach is never given to another run
+  test('reach: TRINA_REACH_PORTS names only other slots\' ports; a reached slot is not given out while the run that reaches it lives', async () => {
+    const base = macBase()
+    const procs: MacProc[] = []
+    const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452, _axdev3: 453 }, procs })
+    const sys = macSystem({ base, slots: ['_axdev1', '_axdev2', '_axdev3'], portBase: 47900, poolMiB: 4096, pidsMax: 384, acl: ACL }, f.host)
+    // the dev server: slot 1 (47901)
+    await sys.spawn(spec(base, 'aaaaaaaaaaaaaaaa'))
+    procs.push({ uid: 451, pid: 1, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'node dev' })
+    // a later command of the chat reaches 47901; its own port, a port the named run does not have and a run with no slot
+    // are dropped
+    await sys.spawn({ ...spec(base, 'bbbbbbbbbbbbbbbb'), reach: [{ runId: 'aaaaaaaaaaaaaaaa', port: 47901 }, { runId: 'aaaaaaaaaaaaaaaa', port: 47902 }, { runId: 'aaaaaaaaaaaaaaaa', port: 8080 }, { runId: 'zzzzzzzzzzzzzzzz', port: 47903 }] })
+    const argv = f.spawned[1]!
+    expect(argv.slice(0, 4)).toEqual([SRT_PATHS.sudo, '-n', '-u', '_axdev2'])
+    expect(argv).toContain('TRINA_REACH_PORTS=47901')
+    expect(f.spawned[0]!.some((a) => a.startsWith('TRINA_REACH_PORTS='))).toBe(false)
+    procs.push({ uid: 452, pid: 2, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'curl' })
+    // the dev server ends (no process, its state older than a minute): its slot would be given up when all are taken,
+    // but the command that may reach 47901 still lives, so a new run gets slot 3, and then none
+    procs.splice(0, 1)
+    const st = path.join(devenvPaths(base).run, 'aaaaaaaaaaaaaaaa.slot')
+    fs.writeFileSync(st, JSON.stringify({ ...JSON.parse(fs.readFileSync(st, 'utf8')), at: Date.now() - 120_000 }))
+    await sys.spawn(spec(base, 'cccccccccccccccc'))
+    expect(f.spawned[2]!.slice(0, 4)).toEqual([SRT_PATHS.sudo, '-n', '-u', '_axdev3'])
+    procs.push({ uid: 453, pid: 3, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'x' })
+    await expect(Promise.resolve(sys.spawn(spec(base, 'dddddddddddddddd')))).rejects.toThrow('every dev slot account is in use')
+    // the command that reached it ended (no process, its state older than a minute): slot 1 is free again
+    procs.splice(procs.findIndex((p) => p.uid === 452), 1)
+    const sb = path.join(devenvPaths(base).run, 'bbbbbbbbbbbbbbbb.slot')
+    fs.writeFileSync(sb, JSON.stringify({ ...JSON.parse(fs.readFileSync(sb, 'utf8')), at: Date.now() - 120_000 }))
+    await sys.spawn(spec(base, 'dddddddddddddddd'))
+    expect(f.spawned[3]!.slice(0, 4)).toEqual([SRT_PATHS.sudo, '-n', '-u', '_axdev1'])
+    // the dev server's slot went to another run (dddd): a command that names the old run gets no reach to that port
+    procs.push({ uid: 451, pid: 4, rssKiB: 10, cpuSec: 0, ageSec: 5, command: 'other' })
+    procs.splice(procs.findIndex((p) => p.uid === 453), 1)
+    const sc = path.join(devenvPaths(base).run, 'cccccccccccccccc.slot')
+    fs.writeFileSync(sc, JSON.stringify({ ...JSON.parse(fs.readFileSync(sc, 'utf8')), at: Date.now() - 120_000 }))
+    await sys.spawn({ ...spec(base, 'eeeeeeeeeeeeeeee'), reach: [{ runId: 'aaaaaaaaaaaaaaaa', port: 47901 }] })
+    expect(f.spawned[4]!.some((a) => a.startsWith('TRINA_REACH_PORTS='))).toBe(false)
+  })
+  // security review of #1336: pick() then the awaited ACL grant gave the same slot to two runs started at once
+  test('two runs started at once get different slots', async () => {
+    const base = macBase()
+    const f = fakeMac({ uids: { _axdev1: 451, _axdev2: 452 } })
+    const sys = macSystem({ base, slots: ['_axdev1', '_axdev2'], portBase: 47900, poolMiB: 4096, pidsMax: 384, acl: ACL }, f.host)
+    await Promise.all([sys.spawn(spec(base, 'aaaaaaaaaaaaaaaa')), sys.spawn(spec(base, 'bbbbbbbbbbbbbbbb'))])
+    expect(f.spawned.map((a) => a[3]).sort()).toEqual(['_axdev1', '_axdev2'])
+    expect(sys.slotOf('aaaaaaaaaaaaaaaa')!.port).not.toBe(sys.slotOf('bbbbbbbbbbbbbbbb')!.port)
+    // a third at once with both taken: refused, and nothing stays reserved after a refusal or a start
     await expect(Promise.resolve(sys.spawn(spec(base, 'cccccccccccccccc')))).rejects.toThrow('every dev slot account is in use')
   })
   test('a slot with processes and no run (a crash) is stopped and skipped; a stop goes to the run\'s slot', async () => {

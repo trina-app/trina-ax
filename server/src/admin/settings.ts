@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
    * OpenRouter (getTeamSettings) */
   speechProvider: 'off',
   speechModel: DEFAULT_SPEECH_MODEL,
-  /** not chosen: the default follows the speech provider (shared mediaTranscriptsDefault) */
+  /** not chosen: the default follows the speech provider and the server (shared mediaTranscriptsDefault) */
   aiMediaTranscripts: null,
 }
 
@@ -78,7 +78,8 @@ export function setSetting(db: Database, key: string, value: unknown): void {
 }
 
 /** This server transcribes on its own with nothing to install (jobs/transcribe.ts localSpeechReady: an Apple silicon Mac
- * with whisper-cli): set once at start (main.ts). Tests and every other server leave it false. */
+ * with whisper-cli, or a server with whisper-cli and ffmpeg and 4 cores and 8 GB): set once at start (main.ts). Tests
+ * and every other server leave it false. */
 let localSpeechDefault = false
 export function setLocalSpeechReady(ready: boolean) { localSpeechDefault = ready }
 
@@ -101,8 +102,8 @@ export function getTeamSettings(db: Database): TeamSettingsT {
   // not chosen: voice input goes through OpenRouter once there is a key for it, the hosting service's (a hosted team, its plan's
   // free hours a month) or the team's own (a team's own server: saving the key turns it on, removing it turns it off).
   // Nothing is stored for it, and an admin's choice, "off" too, always wins
-  // Without a key, an Apple silicon Mac that has what 'local' needs (setLocalSpeechReady) reads 'local': the sound stays
-  // on the Mac. A saved key stays what turned voice input on (a team that saved one before keeps OpenRouter after the
+  // Without a key, a server that has what 'local' needs (setLocalSpeechReady: an Apple silicon Mac, or a Linux kit or
+  // Docker server with 4 cores and 8 GB) reads 'local': the sound stays on the server. A saved key stays what turned voice input on (a team that saved one before keeps OpenRouter after the
   // update, with no surprise model download; docs/decisions/20261116-mac-local-speech.md)
   if (!rows.some((r) => r.key === 'speechProvider')) {
     if (db.query('SELECT 1 FROM settings WHERE key IN (?, ?)').get(HOSTED_SPEECH_KEY_SETTING, SPEECH_KEY_SETTING)) out.speechProvider = 'openrouter'

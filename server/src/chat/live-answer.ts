@@ -22,7 +22,7 @@
 // out. A check that fails gives nobody (fails closed).
 import type { MessageStatus, Step } from '@mycel/shared/api'
 import { personLocale } from '../files/media-text'
-import { formRunLength, type Redactor } from '../integrations/connections/redact'
+import { formChars, type Redactor } from '../integrations/connections/redact'
 import type { ChatRuntime } from './runtime'
 import { Audiences, isSharedRow, messageFor, messageView } from './shared'
 import { AnswerSight } from './shared-answers'
@@ -38,7 +38,7 @@ export interface LiveViewer { id: string; view: MessageView }
 
 /**
  * The asker's answer text as the others may get it while it runs: up to the last character no written form of a stored
- * secret of the asker's is made of (redact.ts formRunLength: no length cap, unlike the asker's own stream), each part
+ * secret of the asker's is made of (redact.ts formChars: no length cap, unlike the asker's own stream), each part
  * redacted whole. A form never crosses that point (it is made only of those characters), so the parts may be redacted
  * one after the other. Built again from the start when the text before the point changes (a refused attempt's text
  * dropped) or the redactor changes (a token refreshed). Closed for good when the held run passes OTHERS_HOLD_MAX, or
@@ -49,6 +49,13 @@ export class OthersText {
   private safe = ''
   private by: Redactor | null = null
   private closed = false
+  /** the characters a written form of the redactor's values is made of (formChars) */
+  private chars: ReadonlySet<string> = new Set()
+  /** how much of the text was scanned, and where the run of form characters at its end starts (QA TC-4970: each piece
+   * scans only what is new; scanning the whole held run again for every piece was quadratic, about 770 ms of CPU for a
+   * 64 KB run in 7-character pieces) */
+  private seen = 0
+  private runAt = 0
   constructor(private redactor: () => Redactor) {}
 
   of(content: string): string {
@@ -56,11 +63,17 @@ export class OthersText {
     let r: Redactor
     try { r = this.redactor() } catch { this.closed = true; return this.safe }
     if (r.withheld) { this.closed = true; return this.safe }
-    if (r !== this.by || !content.startsWith(this.raw)) { this.raw = ''; this.safe = ''; this.by = r }
-    if (!r.res.length) { this.raw = content; this.safe = content; return content }
-    const tail = formRunLength(content, r.values)
-    if (tail > OTHERS_HOLD_MAX) { this.closed = true; return this.safe }
-    const cut = content.length - tail
+    // a new redactor, text dropped (a refused attempt's: the text is shorter than what was scanned) or changed before the
+    // point let out: from the start
+    if (r !== this.by || content.length < this.seen || !content.startsWith(this.raw)) {
+      this.raw = ''; this.safe = ''; this.by = r; this.seen = 0; this.runAt = 0
+      this.chars = r.res.length ? formChars(r.values) : new Set()
+    }
+    if (!r.res.length) { this.raw = content; this.safe = content; this.seen = content.length; return content }
+    for (let i = this.seen; i < content.length; i++) if (!this.chars.has(content[i]!)) this.runAt = i + 1
+    this.seen = content.length
+    if (content.length - this.runAt > OTHERS_HOLD_MAX) { this.closed = true; return this.safe }
+    const cut = this.runAt
     if (cut > this.raw.length) {
       this.safe += r.hide(content.slice(this.raw.length, cut))
       this.raw = content.slice(0, cut)

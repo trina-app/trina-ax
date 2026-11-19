@@ -13,12 +13,12 @@ export const VISION_TEXT = {
     zh: '这个团队不把图片发送给 AI，所以没有显示图片。管理员可以在“团队设置”中开启“把图片、PDF 页面和视频截图发送给 AI”。',
   },
   engine: {
-    ko: '이 대화의 AI 엔진(API 엔진)은 글자만 읽을 수 있어 이미지를 보여 줄 수 없어요. 이미지를 보려면 Claude나 Codex를 사용하세요.',
-    en: 'The AI engine of this chat (the API engine) reads text only, so the image cannot be shown. Use Claude or Codex to look at images.',
-    id: 'Mesin AI percakapan ini (mesin API) hanya membaca teks, jadi gambar tidak dapat ditampilkan. Gunakan Claude atau Codex untuk melihat gambar.',
-    ja: 'このチャットの AI エンジン（API エンジン）はテキストのみを読み取るため、画像を表示できません。画像を見るには Claude または Codex を使用してください。',
-    es: 'El motor de IA de este chat (el motor API) solo lee texto, por lo que la imagen no se puede mostrar. Use Claude o Codex para ver imágenes.',
-    zh: '这个对话的 AI 引擎（API 引擎）只能读文字，所以无法显示图片。要查看图片，请使用 Claude 或 Codex。',
+    ko: '이 대화의 AI 모델은 글자만 읽어서 이미지를 보여 줄 수 없어요. 이미지를 보려면 Claude, Codex 또는 이미지를 읽는 모델을 사용하세요. 이 모델이 이미지를 읽는다면 관리자가 AI 제공사에서 켤 수 있어요.',
+    en: 'The AI model of this chat reads text only, so the image cannot be shown to it. To look at images, use Claude, Codex or a model that reads images. If this model does read images, an admin can turn that on in AI providers.',
+    id: 'Model AI percakapan ini hanya membaca teks, jadi gambar tidak dapat ditampilkan kepadanya. Untuk melihat gambar, gunakan Claude, Codex, atau model yang membaca gambar. Jika model ini memang membaca gambar, admin dapat mengaktifkannya di Penyedia AI.',
+    ja: 'このチャットの AI モデルはテキストのみを読み取るため、画像を表示できません。画像を見るには Claude、Codex、または画像を読み取れるモデルを使用してください。このモデルが画像を読み取れる場合は、管理者が「AIプロバイダー」でオンにできます。',
+    es: 'El modelo de IA de este chat solo lee texto, por lo que no se le puede mostrar la imagen. Para ver imágenes, use Claude, Codex o un modelo que lea imágenes. Si este modelo sí lee imágenes, un administrador puede activarlo en Proveedores de IA.',
+    zh: '这个对话的 AI 模型只能读文字，所以无法向它显示图片。要查看图片，请使用 Claude、Codex 或能读图片的模型。如果这个模型能读图片，管理员可以在“AI 提供商”中开启。',
   },
   connection: {
     ko: '이 연결로는 글자만 보낼 수 있어 이미지를 보여 줄 수 없어요.',

@@ -10,10 +10,20 @@
 // in the same tick cannot both run. Voice input jobs are one at a time already (jobs/service.ts SINGLE 'transcribe')
 // and video reads too (files/media.ts mediaSlot), so at most one of each waits here. OpenRouter uses no CPU here and
 // takes no turn.
+// Since 2026-11-19 (docs/decisions/20261119-speech-defaults-no-cap.md) a bigger server runs more than one video piece at
+// once (pieceSlots: its cores over whisper.cpp's threads, and 2 GB of memory each), for reads side by side and the
+// background transcription of the rest of a recording; voice input still stops them all and runs alone.
+import { cpuBudget, memoryBudget, whisperThreads } from '../system/limits'
 
 let dictations = 0
 let dictating = false
-let piece: AbortController | null = null
+/** the video pieces running now */
+const pieces = new Set<AbortController>()
+let slotsOverride: number | null = null
+/** video pieces at once: the cores over whisper.cpp's threads, at most one per 2 GB of memory, at least 1 */
+export const pieceSlots = (): number => slotsOverride ?? Math.max(1, Math.min(Math.floor(cpuBudget() / Math.max(1, whisperThreads())), Math.floor(memoryBudget() / (2 * 1024 ** 3))))
+/** tests: this many video pieces at once (null: pieceSlots as measured) */
+export function setPieceSlotsForTests(n: number | null) { slotsOverride = n }
 const waiters = new Set<() => void>()
 const wake = () => { for (const w of [...waiters]) w() }
 
@@ -44,22 +54,24 @@ function acquire(free: () => boolean, take: () => void, signal: AbortSignal | un
 export async function dictationTurn<T>(f: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   dictations++
   try {
-    piece?.abort(new Error('voice input goes first'))
-    await acquire(() => piece === null && !dictating, () => { dictating = true }, signal, Infinity)
+    for (const p of pieces) p.abort(new Error('voice input goes first'))
+    await acquire(() => pieces.size === 0 && !dictating, () => { dictating = true }, signal, Infinity)
     try { return await f() } finally { dictating = false; wake() }
   } finally { dictations--; wake() }
 }
 
-export type PieceTurn<T> = { ok: true; value: T } | { ok: false; why: 'busy' | 'yielded' }
+/** 'busy': voice input kept whisper.cpp; 'full': other video pieces kept every slot */
+export type PieceTurn<T> = { ok: true; value: T } | { ok: false; why: 'busy' | 'full' | 'yielded' }
 
 /**
- * A video read's whisper.cpp piece: waits while voice input waits or runs (at most `waitMs`, then 'busy'), and `run`
+ * A video read's whisper.cpp piece: waits while voice input waits or runs, or every slot runs a piece (at most
+ * `waitMs`, then 'busy', or 'full' when only other pieces kept it), and `run`
  * gets a signal that fires when voice input comes meanwhile ('yielded' when `run` then fails, or before it starts:
  * start it again later). A run that finished keeps its answer. Stop (`signal`) throws.
  */
 export async function pieceTurn<T>(run: (yieldSignal: AbortSignal) => Promise<T>, o: { signal?: AbortSignal; waitMs: number }): Promise<PieceTurn<T>> {
   const ac = new AbortController()
-  if (!(await acquire(() => dictations === 0 && piece === null && !dictating, () => { piece = ac }, o.signal, o.waitMs))) return { ok: false, why: 'busy' }
+  if (!(await acquire(() => dictations === 0 && !dictating && pieces.size < pieceSlots(), () => { pieces.add(ac) }, o.signal, o.waitMs))) return { ok: false, why: dictations > 0 || dictating ? 'busy' : 'full' }
   try {
     // voice input came between taking the turn and starting
     if (ac.signal.aborted) return { ok: false, why: 'yielded' }
@@ -68,10 +80,10 @@ export async function pieceTurn<T>(run: (yieldSignal: AbortSignal) => Promise<T>
     if (ac.signal.aborted && !o.signal?.aborted) return { ok: false, why: 'yielded' }
     throw e
   } finally {
-    if (piece === ac) piece = null
+    pieces.delete(ac)
     wake()
   }
 }
 
 /** voice input waiting or running, and whether a video piece runs (tests, diagnostics) */
-export const whisperTurns = () => ({ dictations, dictating, piece: piece !== null })
+export const whisperTurns = () => ({ dictations, dictating, piece: pieces.size > 0 })

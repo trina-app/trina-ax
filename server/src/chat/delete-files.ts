@@ -1,16 +1,20 @@
 // delete_files (docs/DECISIONS.md "AI가 휴지통으로 옮기기"): the AI moves files and folders to the team trash, exactly as
 // the Files screen's delete does (TeamFiles.remove, never FileService.deleteFile), after the person's yes on the
 // server's own card. Only in the person's own chat with the person there: refused up front, before any card, in a
-// scheduled run, an approved template run, a shared project chat, a chat other people wrote in or one that has
-// read rooms (chat/read-rooms.ts: a room read, a side chat, a quoted message) or a Slack thread, a confidential chat, a
-// draft or judge chat, and for a sub-agent. The card shows
+// scheduled run, an approved template run, a shared project chat, a chat other people wrote in or a Slack thread, a
+// confidential chat, a draft or judge chat, and for a sub-agent. A chat that has read rooms (chat/read-rooms.ts: a room
+// read, a side chat, a quoted message) or a file someone shared asks on the card, the room line first; the person's own
+// "Always allow" for deletes is final there too, as for members and folder access (the owner, 2026-11-11; docs/decisions/
+// 20261118-api-images-connector-cap-delete-cards.md). The card shows
 // exactly what goes: every path in full, the files in each folder, the other people whose files these are (as the file
 // history names them), how many people lose them and how many of those cannot restore them (that number only for the
 // owner and admins: it says how many people can write them; others read the rule), and the purge date of the team's
 // trash setting. The yes is bound to the plan (TeamFiles.planAiTrash: every entry on disk, who reads and writes
 // it, the trash setting), checked again around the move itself. No earlier answer, room grant or "always allow" covers
-// it; at most two such cards per answer, none after a "no", one card open at a time. One audit row per call.
-import { grantOnly, SHARED_FILE_SOURCE } from './grant-reads'
+// it; no count per answer (Claude Code asks every time), none after a "no", one card open at a time. One audit row per
+// call.
+import { grantOnly, seenWhy, SHARED_FILE_SOURCE } from './grant-reads'
+import { tr } from './i18n'
 import { placeWords } from './place-words'
 import { DeleteFilesInput, uuidv7 } from '@mycel/shared'
 import type { Locale, TurnRequest } from '@mycel/shared/api'
@@ -31,11 +35,9 @@ import type { TurnExec } from './turn'
 import { alwaysHere, withAlways } from './always-allow'
 
 export const DELETE_FILES_TOOL = 'delete_files'
-/** delete cards one answer may show (card fatigue: a third ask is a new message) */
-export const MAX_DELETE_CARDS = 2
 
 export const DELETE_FILES_DESCRIPTION = 'Move files or folders of the team drive to the team trash, only when the user asked you to delete them. ' +
-  'Give their full paths. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
+  'Give their full paths, all of them in one call when several go: one card lists them all. The user confirms on a card that lists every item, how many files each folder holds, whose files they are, ' +
   'who loses them and until when they can be restored. Nothing is deleted for good: the trash keeps them for the team\'s set number of days. ' +
   'Not for top-level folders, group, project or rule folders, skill folders, other people\'s folders or chat attachments; at most 200 files and folders per call, counted inside folders.'
 
@@ -76,14 +78,13 @@ export const DELETE_REFUSAL = {
   template: `${NONE}: an approved scheduled template only reads its folder and writes reports. Tell the user ${SCREEN}.`,
   shared: `${NONE}: the AI does not delete files in a shared project chat (everyone in the project writes and reads it). Tell the user to ask in their own AI chat, or that ${SCREEN}.`,
   others: `${NONE}: other people's messages are in this chat, and one of them could ask for the delete. Tell the user to ask in a new chat of their own, or that ${SCREEN}.`,
-  roomsSeen: `${NONE}: this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words), and one of them could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
-  sharedFile: `${NONE}: this chat read ${SHARED_FILE_SOURCE}, and its text could ask for the delete. Tell the user to ask in a new chat, or that ${SCREEN}.`,
+  roomsSeen: `${NONE}: this is a scheduled run, and this chat holds messages from the user's team chat rooms or quotes another person's message (other people's words): a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
+  sharedFile: `${NONE}: this is a scheduled run, and this chat read ${SHARED_FILE_SOURCE}: a delete then needs the user's yes on its card, which a scheduled run cannot show. Tell the user to ask in a chat, or that ${SCREEN}.`,
   slack: `${NONE}: the AI does not delete files in a chat asked from Slack. Tell the user to ask in the app's AI chat, or that ${SCREEN}.`,
   confidential: `${NONE}: the AI does not delete files in a confidential chat. Tell the user ${SCREEN}.`,
   restricted: `${NONE}: this chat has no file tools.`,
   subagent: `${NONE}: only the main assistant deletes, after the user confirms on a card. Put what should be deleted in your report; the assistant asks the user.`,
   declined: `${NONE}: the user said no to a delete earlier in this answer, so no more deletes are asked in it. Do not delete these another way (no move into another folder, no overwrite with empty content); ask the user what they want.`,
-  tooMany: `${NONE}: at most ${MAX_DELETE_CARDS} delete cards are asked in one answer. Tell the user what is left to delete; they can ask again in a new message, or ${SCREEN}.`,
   busy: `${NONE}: another card is waiting for the user's answer, and a delete card is asked only when nothing else is open. Wait for that answer, then ask again with one call.`,
 } as const
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
@@ -99,16 +100,19 @@ export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'r
   if (exec.spec.clientKind === 'schedule' && alwaysHere(exec.alwaysPlace?.(), 'delete_files') !== 'on') return 'scheduled'
   if (exec.shared) return 'shared'
   if (confidentialChat(exec.rt.db, exec.spec.chatId)) return 'confidential'
+  // kept (the one part that protects other people's data): in a chat other people write in, anyone there could ask for
+  // a delete of files only the asker may delete, and the asker's yes would answer someone else's request
   if (exec.otherAuthors) return 'others'
   if (exec.fromSlack) return 'slack'
-  // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts)
+  // has read rooms: a room read, a ✦ side chat, or another person's message quoted on this branch (chat/read-rooms.ts):
+  // the card every time (deleteFilesTool), so only a scheduled run, which shows no card, is refused here
   // (words only: a mark that came from a file shared with the person alone says so, chat/grant-reads.ts)
-  if (readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
+  if (exec.spec.clientKind === 'schedule' && readRooms(exec)) return grantOnly(exec) ? 'sharedFile' : 'roomsSeen'
   return null
 }
 
-/** The cards of one answer: how many delete cards it showed, whether one was declined, whether one is open now. */
-interface CardState { shown: number; declined: boolean; open: boolean }
+/** The cards of one answer: whether one was declined, whether one is open now. */
+interface CardState { declined: boolean; open: boolean }
 const cardStates = new WeakMap<object, CardState>()
 
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
@@ -166,7 +170,7 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
   const { rt, spec } = exec
   // a guest (credentials/guest-ai.ts): the card, the result and the refusals say what a guest can reach
   const guest = isGuestUser(rt.db, spec.userId)
-  const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { shown: 0, declined: false, open: false }); return s }
+  const state = (): CardState => { let s = cardStates.get(exec); if (!s) cardStates.set(exec, s = { declined: false, open: false }); return s }
   // one audit row per call, whatever ends it
   type Audit = (detail: Record<string, unknown>, target: string | null) => void
   const auditor = (): Audit => {
@@ -219,9 +223,10 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (mode) return refused(mode, paths)
     const s = state()
     if (s.declined) return refused('declined', paths)
-    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card and no card limit
-    const always = alwaysHere(exec.alwaysPlace?.(), 'delete_files')
-    if (always !== 'on' && s.shown >= MAX_DELETE_CARDS) return refused('tooMany', paths)
+    // "Always allow" for deletes (chat/always-allow.ts; the owner, 2026-11-13): no card, also after a room read or a
+    // shared file (the person's choice is final, docs/decisions/20261116-always-allow-final-rule-a.md); a card that does
+    // show there leads with the room line
+    const roomsRead = readRooms(exec)
     if (s.open || exec.openRequests().length) return refused('busy', paths)
     let user
     try { user = exec.livePrincipal() } catch {
@@ -243,17 +248,20 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     const plan = planned.plan
     const L = spec.locale
     const card = deleteCard(plan, L, teamTimeZone(rt.db), Date.now(), (p) => placeWords(rt.db, p, L, spec.userId), guest ? spec.userId : null)
+    // after a room read the card says why it asks, first (the members and folder access cards' line)
+    const question = roomsRead ? `${tr(seenWhy(exec, 'roomsSeenWhy'), L)}\n\n${card.question}` : card.question
     const requestId = uuidv7()
-    // counted and marked open before the card goes out: a second call while it waits is refused (busy), not queued
-    if (always !== 'on') s.shown++
+    // marked open before the card goes out: a second call while it waits is refused (busy), not queued
     s.open = true
     let answer: unknown
+    const options = [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }]
+    const ask = (opts: typeof options, more: Record<string, unknown> = {}) => exec.waitForPerson({
+      kind: 'ask_user', origin: 'server', requestId, question, multiple: false, allowText: false,
+      options: opts, details: card.details, ...more,
+      expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true })
     try {
-      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', [{ label: DELETE_TEXT.yes[L], value: 'trash' }, { label: DELETE_TEXT.no[L], value: 'skip' }], 'trash', (options, more) => exec.waitForPerson({
-        kind: 'ask_user', origin: 'server', requestId, question: card.question, multiple: false, allowText: false,
-        options, details: card.details, ...more,
-        expiresAt: new Date(Date.now() + rt.askUserTimeoutMs()).toISOString(),
-      } as TurnRequest, { timeoutMs: rt.askUserTimeoutMs(), exclusive: true }))
+      answer = await withAlways(exec.alwaysPlace?.(), 'delete_files', options, 'trash', ask)
     } finally { s.open = false }
     const picked = Array.isArray(answer) && answer.length === 1 ? answer[0] : answer
     const base = { paths: plan.items.map((i) => i.rel), entries: plan.entries, lost: plan.lost, noRestore: plan.noRestore, retentionDays: plan.retentionDays, others: plan.others.length, requestId }

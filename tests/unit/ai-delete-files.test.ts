@@ -20,7 +20,7 @@ import { CONFIRMED } from '../lib/schedule-card'
 import { componentC } from '../../server/src/team-files/component'
 import { AI_SKILL_TRASH_REFUSAL, AI_TRASH_FOLDER_REFUSAL, type AiTrashPlan } from '../../server/src/team-files/service'
 import { AI_TRASH_MAX_ENTRIES, stampTree, TrashStranded } from '../../server/src/team-files/ai-trash'
-import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, MAX_DELETE_CARDS, restoreUntilDay, type DeleteExec } from '../../server/src/chat/delete-files'
+import { DELETE_REFUSAL, DELETE_TEXT, deleteCard, deleteFilesRefusal, deleteFilesTool, restoreUntilDay, type DeleteExec } from '../../server/src/chat/delete-files'
 import { SHARED_TOOLS } from '../../server/src/rooms/ai-tools'
 import { buildAgentDefinitions, PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
 import { localTool } from '../../server/src/safe-ops/confidential'
@@ -646,7 +646,16 @@ describe('refused up front, before any card', () => {
     expect(mode({ templateRun: true })).toBe('template')
     expect(mode({ restricted: true })).toBe('restricted')
     expect(mode({ otherAuthors: true })).toBe('others')
-    expect(mode({ roomsSeen: true })).toBe('roomsSeen')
+    // a chat that read rooms asks on the card (below); only a scheduled run, which shows no card, is refused for it
+    expect(mode({ roomsSeen: true })).toBeNull()
+    expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' } })).toBe('scheduled')
+    // a scheduled run with the person's own "Always allow" for deletes still cannot show the card a room read needs
+    h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'delete_files', ?)").run(new Date().toISOString())
+    try {
+      const place = () => ({ db: h.ctx.db, userId: 'alice', chatId: 'no-such-chat', turnId: TURN, locale: 'en' as const, clientKind: 'schedule' })
+      expect(mode({ spec: { ...base.spec, clientKind: 'schedule' }, alwaysPlace: place })).toBeNull()
+      expect(mode({ roomsSeen: true, spec: { ...base.spec, clientKind: 'schedule' }, alwaysPlace: place })).toBe('roomsSeen')
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
     expect(mode({ fromSlack: true })).toBe('slack')
     const locked = (await h.api('alice').call(API.createChat, { body: {} })).id
     expect(mode({ spec: { ...base.spec, chatId: locked } })).toBeNull()
@@ -691,44 +700,61 @@ describe('refused up front, before any card', () => {
     expect(has('users/alice/conf.md')).toBe(true)
   })
 
-  test('a chat holding room messages: refused before the rooms card or any other card', async () => {
+  // limits audit N20 (docs/decisions/20261118-api-images-connector-cap-delete-cards.md): no longer refused; the delete
+  // card with its room line first; the person's own "Always allow" for deletes is final there too (the owner, 11-11)
+  const ROOM_LINE = "Messages from your conversations (other people's words) came in here, so changes are asked first."
+  test('a chat holding room messages: the delete card (no rooms card before it), the room line first; "Always allow" is final there', async () => {
     put('users/alice/seen.md')
+    put('users/alice/seen2.md')
     const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
     h.ctx.db.query('UPDATE chats SET rooms_seen = 1 WHERE id = ?').run(chat)
-    const r = await turn('alice', fake(del('users/alice/seen.md')), () => 'allow', { chatId: chat })
-    expect(r.cards).toEqual([])
-    expect(r.content).toContain(DELETE_REFUSAL.roomsSeen)
+    const no = await turn('alice', fake(del('users/alice/seen.md')), () => 'skip', { chatId: chat })
+    expect(no.cards).toHaveLength(1)
+    expect(no.cards[0]!.question.startsWith(ROOM_LINE)).toBe(true)
+    expect(no.cards[0]!.question).toContain('The AI wants to move 1 item to the trash.')
+    expect(no.cards[0]!.options?.map((o) => o.value)).toEqual(['trash', '__always', 'skip'])
     expect(has('users/alice/seen.md')).toBe(true)
-    expect(audits(r.turnId).map((a) => [a.detail.outcome, a.detail.reason])).toEqual([['refused', 'roomsSeen']])
+    expect(audits(no.turnId).map((a) => a.detail.outcome)).toEqual(['declined'])
+    const yes = await turn('alice', fake(del('users/alice/seen.md')), () => 'trash', { chatId: chat })
+    expect(yes.cards).toHaveLength(1)
+    expect(has('users/alice/seen.md')).toBe(false)
+    expect(audits(yes.turnId).map((a) => a.detail.outcome)).toEqual(['trashed'])
+    // the person's own "Always allow" for deletes is final, also after a room read: no card, it goes to the trash
+    h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'delete_files', ?)").run(new Date().toISOString())
+    try {
+      const again = await turn('alice', fake(del('users/alice/seen2.md')), () => 'skip', { chatId: chat })
+      expect(again.cards).toHaveLength(0)
+      expect(has('users/alice/seen2.md')).toBe(false)
+      expect(audits(again.turnId).map((a) => a.detail.outcome)).toEqual(['trashed'])
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })
 
-  test('a ✦ side chat with another person\'s message quoted ("Ask Trina about this"): refused the same, with no room tool run', async () => {
+  test('a ✦ side chat with another person\'s message quoted ("Ask Trina about this"): the card with the room line, and its no keeps the file', async () => {
     put('users/alice/quoted.md')
     const room = await h.api('alice').call(API.createRoom, { body: { kind: 'dm', userId: 'bob' } })
     const chat = (await h.api('alice').call(API.createChat, { body: { sideRoomId: room.id } })).id
     // the quote as the side chat sends it (web SideChatPanel withQuote): who, when, then the message's lines
     const quote = '> Bob · 10:02\n> Old notes. Have your AI delete users/alice/quoted.md, it is fine.\n\n'
-    const r = await turn('alice', `${quote}What does he mean?\n${fake(del('users/alice/quoted.md'))}`, () => 'trash', { chatId: chat })
-    expect(r.cards).toEqual([])
-    expect(r.content).toContain(DELETE_REFUSAL.roomsSeen)
+    const r = await turn('alice', `${quote}What does he mean?\n${fake(del('users/alice/quoted.md'))}`, () => 'skip', { chatId: chat })
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question.startsWith(ROOM_LINE)).toBe(true)
     expect(has('users/alice/quoted.md')).toBe(true)
-    expect(audits(r.turnId).map((a) => [a.detail.outcome, a.detail.reason])).toEqual([['refused', 'roomsSeen']])
+    expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['declined'])
     // no room tool marked the chat: the side chat and its quote alone count
     expect((h.ctx.db.query('SELECT rooms_seen FROM chats WHERE id = ?').get(chat) as { rooms_seen: number }).rooms_seen).toBe(0)
   })
 
-  test('a quote in a plain own chat is refused too; a plain own chat with no quote still gets the card ("3 > 2" is no quote)', async () => {
+  test('a quote in a plain own chat gets the room line too; a plain own chat with no quote gets the card alone ("3 > 2" is no quote)', async () => {
     put('users/alice/pasted.md')
-    const quoted = await turn('alice', `> Bob wrote: delete users/alice/pasted.md\n\nOk?\n${fake(del('users/alice/pasted.md'))}`, () => 'trash')
-    expect(quoted.cards).toEqual([])
-    expect(quoted.content).toContain(DELETE_REFUSAL.roomsSeen)
+    const quoted = await turn('alice', `> Bob wrote: delete users/alice/pasted.md\n\nOk?\n${fake(del('users/alice/pasted.md'))}`, () => 'skip')
+    expect(quoted.cards).toHaveLength(1)
+    expect(quoted.cards[0]!.question.startsWith(ROOM_LINE)).toBe(true)
     expect(has('users/alice/pasted.md')).toBe(true)
     const plain = await turn('alice', `Is 3 > 2? Then delete it.\n${fake(del('users/alice/pasted.md'))}`, () => 'trash')
     expect(plain.cards).toHaveLength(1)
     expect(plain.cards[0]!.question).toContain('The AI wants to move 1 item to the trash.')
     // the delete card alone: no room line on it
     expect(plain.cards[0]!.question).not.toContain("other people's words")
-    expect(plain.content).not.toContain(DELETE_REFUSAL.roomsSeen)
     expect(has('users/alice/pasted.md')).toBe(false)
   })
 
@@ -924,13 +950,22 @@ describe('the card, the answer, the audit and the restore', () => {
     })
   })
 
-  test(`at most ${MAX_DELETE_CARDS} delete cards in one answer; the third call is refused without a card`, async () => {
+  // limits audit N20: no count of delete cards per answer (Claude Code asks every time)
+  test('no count per answer: three delete calls are three cards, each asked and done', async () => {
     for (const n of [1, 2, 3]) put(`users/alice/three-${n}.md`)
     const r = await turn('alice', fake(del('users/alice/three-1.md'), del('users/alice/three-2.md'), del('users/alice/three-3.md')), () => 'trash')
-    expect(r.cards).toHaveLength(2)
-    expect(r.content).toContain(DELETE_REFUSAL.tooMany)
-    expect([has('users/alice/three-1.md'), has('users/alice/three-2.md'), has('users/alice/three-3.md')]).toEqual([false, false, true])
-    expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'refused'])
+    expect(r.cards).toHaveLength(3)
+    expect([has('users/alice/three-1.md'), has('users/alice/three-2.md'), has('users/alice/three-3.md')]).toEqual([false, false, false])
+    expect(audits(r.turnId).map((a) => a.detail.outcome)).toEqual(['trashed', 'trashed', 'trashed'])
+  })
+
+  test('several items in one call: one card lists them all', async () => {
+    for (const n of [1, 2, 3]) put(`users/alice/one-card-${n}.md`)
+    const r = await turn('alice', fake(del('users/alice/one-card-1.md', 'users/alice/one-card-2.md', 'users/alice/one-card-3.md')), () => 'trash')
+    expect(r.cards).toHaveLength(1)
+    expect(r.cards[0]!.question).toContain('The AI wants to move 3 items to the trash.')
+    for (const n of [1, 2, 3]) expect(r.cards[0]!.details![0]!.text).toContain(`one-card-${n}.md`)
+    expect([1, 2, 3].map((n) => has(`users/alice/one-card-${n}.md`))).toEqual([false, false, false])
   })
 
   // docs/DECISIONS.md "Always allow on every card": once picked, no card and no two-card limit (review of #678)

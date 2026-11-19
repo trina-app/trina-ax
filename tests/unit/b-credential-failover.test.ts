@@ -55,6 +55,18 @@ const reset = () => { modes = {}; hits.length = 0; h.ctx.db.query("UPDATE engine
 const newChat = () => h.api('alice').call(API.createChat, { body: { engine: 'claude-code' } })
 
 describe('switching connections inside a turn', () => {
+  test('a switch after a full-conversation start: the new session\'s note has what the answer wrote since (limits audit 2 #13)', async () => {
+    reset()
+    modes[K(1)] = '429'
+    const { done } = await ask(h, alice, 'alice', (await newChat()).id, fake({ say: 'Part one.' }, { contextFullOnce: true }, { say: 'Second part.' }, { modelAny: 'hi' }, { echo: 'message' }), { ms: 30_000 })
+    expect(done.status).toBe('done')
+    expect(done.content).toContain('answer by KEY2')
+    expect(done.steps.some((s) => s.tool === 'context')).toBe(true)
+    expect(done.steps.some((s) => s.tool === 'engine')).toBe(true)
+    // the note of the session after the switch: built then, with the text written after the first fresh start
+    const notes = done.content.split('<answer_so_far>').slice(1)
+    expect(notes.at(-1)).toContain('Second part.')
+  })
   test('the first connection at its limit: the next one answers, with a step, a notice and an audit entry', async () => {
     reset()
     modes[K(1)] = '429'

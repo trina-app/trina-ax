@@ -200,14 +200,15 @@ export const PATH_ARGS: readonly string[] = ['file_path', 'path', 'source', 'out
  * in red a name not in the person's own messages (chat/project-members.ts): no room card before any of them. A connection's read that the service marks read-only, whose
  * arguments carry no address or random-looking part, goes on too (chat/turn.ts confirmRoomChange; not api_request's
  * GET), and the tools with a card of their own ask there alone (ROOMS_SEEN_OWN_CARD_TOOLS, a connection's write).
- * delete_files, and skill_files into a skill folder, refuse there (chat/delete-files.ts, chat/skill-files.ts). Every
+ * delete_files asks on its own card every time, which leads with the room line (chat/delete-files.ts); skill_files into
+ * a skill folder refuses there (chat/skill-files.ts). Every
  * other tool (writes, the browser's clicks and pages, box_shell, forget, tools added later) waits for the person's yes on
  * the room card for the rest of that chat (fails closed), but a new file in the person's own folder, and a new team file
  * the person allowed for the answer or the room (chat/turn.ts confirmRoomChange; docs/DECISIONS.md "대화방을 읽은 뒤 카드
  * 줄이기").
  */
 export const ROOMS_SEEN_READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
+  ...ROOM_READ_ONLY_TOOLS, 'rooms', 'room_read', 'room_file', 'set_title', 'remember', 'post_to_room', 'share_with_person', 'stop_sharing', 'share_folder', 'change_project_members', 'change_folder_access', 'delete_files', 'who_can_open', 'find_tools', 'schedule_list', 'drive_search', 'drive_list', 'drive_read',
   // they list names only and change nothing (chat/shared-with-me-tool.ts, chat/looking-at.ts)
   'shared_with_me', 'looking_at',
   // the comments under answers in this chat, read like a room (chat/answer-comments.ts): it changes nothing

@@ -17,7 +17,7 @@
 // The template is untrusted, so this runs only in the office worker (office-worker.ts), never in the server process.
 import { ToolError } from '../policy/errors'
 import { UNSAFE_FIELDS } from './office-rules'
-import { attrNS, dropElements, fieldCodes, isUtf16, relationshipsOf, REL_NS, scanWordFields } from './office-xml'
+import { attrNS, dropElements, fieldCodes, relationshipsOf, REL_NS, scanWordFields, wideTextProblem } from './office-xml'
 import { checkZip, isZip } from './zip-guard'
 import { readZip, writeZip, type ZipEntry } from './zip-write'
 
@@ -73,9 +73,9 @@ export function checkOfficeTemplate(kind: 'docx' | 'pptx', bytes: Uint8Array): U
     }
   }
   // Word fields in every XML part, wherever it is (shared with the finished-file check, office-xml.ts scanWordFields);
-  // UTF-16 parts are refused for either kind
+  // UTF-16 and UTF-32 parts are refused for either kind
   if (kind === 'docx') scanWordFields(entries, fail, fail)
-  else for (const e of entries) if (isUtf16(e.data)) bad(what, `${e.name} is UTF-16 text, which Office does not write in these files`)
+  else for (const e of entries) { const wide = wideTextProblem(e.name, e.data); if (wide) bad(what, `${e.name} ${wide}`) }
   if (!stripOwners.size) return bytes
   const dec = new TextDecoder()
   const enc = new TextEncoder()

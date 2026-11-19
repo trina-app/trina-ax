@@ -26,6 +26,14 @@
   now cut long runs the same way: questions in an AI chat and the side chat (`UserText`), waiting messages
   (`QueuedMessages`), a room message being sent (`PendingRow`), replies in a shared chat's answer thread
   (`ChatThreadPanel`), the plain fallback before the formatting code loads (`LazyMarkdown`) and for heavy messages.
+- **Review follow-ups (fix/message-blank-lines-nits, QA TC-4967):** a link definition (`[r]: https://…`) shows nothing,
+  so it is no neighbour: the blank lines on its two sides are one run (the longer), and none come before the first shown
+  block or after the last (a definition at the end left an empty line under the words). Around a spacer the blocks have
+  no margin of their own (`[&_[data-blank-lines]+*]:mt-0`, and `mb-0` on the block before it through `:has`), so the
+  gap before a code block, table, heading, rule or quote is the lines typed, as between paragraphs. A line of only
+  spaces, tabs, U+3000 or NBSP is a blank line (`lib/blankLines.ts isBlankLine`): `capBlankLines` cuts runs of them, a
+  paragraph of only such lines counts as its lines in the spacer, and a run of them inside a paragraph is cut at
+  `MAX_BLANK_LINES` (they looked empty but escaped the cap).
 - **Unchanged:** AI answers (ordinary Markdown spacing, another component). One-line previews (Activity, notifications,
   a quote's excerpt) join lines as before. The desktop and phone apps show the web app, so they follow.
 - **Cost:** one pass over the tree's neighbours, counting at most 6 line breaks per gap; the fuzz test (no message of up

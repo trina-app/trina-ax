@@ -2,7 +2,8 @@
 export const MARK: string
 export const OPEN_LOCALHOST: string
 export const END_RULES: string
-export function extraRules(port: number | null): string
+export function extraRules(port: number | null, reach?: readonly number[]): string
 export function portOf(v: string | undefined): number | null
+export function reachPortsOf(v: string | undefined, own: number | null): number[]
 export function words(s: string): string[]
-export function patch(wrapped: string, port: number | null): string
+export function patch(wrapped: string, port: number | null, reach?: readonly number[]): string

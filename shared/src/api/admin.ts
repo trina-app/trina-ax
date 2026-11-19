@@ -470,12 +470,17 @@ export type FolderEditPreview = z.infer<typeof FolderEditPreview>
 
 // ---------------- engines ----------------
 /** The team's API engine (server/src/engine/api-agent.ts): any OpenAI-compatible Chat Completions API. */
-export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean() })
+export const ApiEngineConfig = z.object({ baseUrl: z.string().nullable(), model: z.string().nullable(), label: z.string().nullable(), hasKey: z.boolean(),
+  /** whether the model takes pictures (server engine/api-vision.ts): `detected` what its server says (null: it does not
+   * say), `choice` the admin's "Reads pictures" (used only while `detected` is null). Absent: an older server */
+  vision: z.object({ detected: z.boolean().nullable(), choice: z.enum(['on', 'off']).nullable() }).optional() })
 export const ApiEngineBody = z.object({
   baseUrl: z.string().url().max(300).refine((u) => /^https?:\/\//.test(u), 'http(s) only'),
   model: z.string().min(1).max(200),
   label: z.string().max(40).optional(),
   key: z.string().max(500).nullable().optional(),
+  /** "Reads pictures" while the model's server does not say: on, off, null to clear, absent to keep */
+  vision: z.enum(['on', 'off']).nullable().optional(),
   /** the caller's own password again (admin-reauth) */
   password: z.string().min(1).max(256),
 })
@@ -603,8 +608,13 @@ export const SpeechHost = z.object({
   localPieceSec: z.number().int().positive(),
   /** measured on this server: seconds of whisper.cpp work per second of sound (null = not measured yet) */
   localSecPerSec: z.number().nonnegative().nullable(),
-  /** a hosted server: the most new sound one read turns into text here, in seconds (null = no such cap) */
-  hostedNewSec: z.number().int().positive().nullable(),
+  /** a hosted server (a plan): "Turn video sound into text" is on by default. Absent: an older server */
+  hosted: z.boolean().optional(),
+  /** at least 4 CPU cores and 8 GB (localSpeechBigEnough): this server turns sound into text itself by default. Absent:
+   * an older server */
+  bigEnough: z.boolean().optional(),
+  /** the server's memory in whole GB (the settings page says why the default is off on a small server). Absent: an older server */
+  memoryGb: z.number().int().nonnegative().optional(),
 })
 export type SpeechHost = z.infer<typeof SpeechHost>
 /** sealed in the browser (purpose 'speech.key'); null removes the key. The password again, like AI connections. */

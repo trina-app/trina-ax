@@ -136,6 +136,7 @@ export const TEXT = {
   engineOffDefault: STEP_TEXT.engineOffDefault,
   engineNoConnection: STEP_TEXT.engineNoConnection,
   limitFallback: STEP_TEXT.limitFallback,
+  contextRecover: STEP_TEXT.contextRecover,
   credentialSwitchLimit: STEP_TEXT.credentialSwitchLimit,
   credentialSwitchInvalid: STEP_TEXT.credentialSwitchInvalid,
   attachChanged: STEP_TEXT.attachChanged,

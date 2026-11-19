@@ -27,6 +27,7 @@ import { readOutput, runIsolated } from '../tools/isolate'
 import { OPENROUTER_MAX_BYTES, wavData } from '../jobs/openrouter-stt'
 import { saysOtherLanguage, writingSystem } from '../jobs/speech-language'
 import { withoutSoundTags } from '../jobs/no-speech'
+import { cpuBudget, memoryBudget } from '../system/limits'
 import { macSound, macToWavFile, macWavPiece, macWavSeconds, type MacAudioTools, type MacSource } from '../jobs/mac-audio'
 
 export { saysOtherLanguage, writingSystem }
@@ -55,11 +56,21 @@ export const API_ENGINE_TEXT_MAX = 28_000
 /** transcripts are made and cached in fixed pieces from 0:00. OpenRouter: 10 minutes (one request, 19.2 MB of 16 kHz WAV
  * under its 25 MB). Local whisper.cpp: 30 seconds, whisper's own window (QA 2026-11-01: a 2 vCPU box needed 180-300 s
  * for a 2-minute piece and never finished one inside a read, so nothing was ever cached); every finished piece is kept,
- * and a piece shorter than the window costs about a whole one. On a hosted server (a plan) at most
- * HOSTED_LOCAL_NEW_SEC of new sound a read (founder Q8) */
+ * and a piece shorter than the window costs about a whole one. No cap on the new sound of a read (the hosted 2 minutes
+ * of founder Q8 went on 2026-11-19): what a read has no time for goes on in the background (FileService fills), and
+ * the only limit is the plan's speech-to-text hours (credentials/hosted-speech.ts) */
 export const TRANSCRIPT_PIECE_SEC = 600
 export const LOCAL_PIECE_SEC = 30
-export const HOSTED_LOCAL_NEW_SEC = 120
+/** the background transcription of the rest of a recording (docs/decisions/20261119-speech-defaults-no-cap.md): the time
+ * each piece may take (a read's own deadline is not there), the pause before it tries again after voice input or other
+ * pieces kept whisper.cpp, and how many tries in a row without a new piece it makes before it ends */
+export const FILL_PIECE_MS = 10 * 60_000
+export const FILL_RETRY_MS = 5_000
+export const FILL_TRIES = 12
+/** the sound one turn of a background transcription makes in the media slot before it lets others in */
+export const FILL_CHUNK_SEC = 300
+/** background transcriptions one person may have running at once (security review of #1335) */
+export const FILLS_PER_PERSON = 2
 /** the clock of a read's time and of whisper.cpp's speed (tests move it on to stand for slow converters) */
 let readClock = () => Date.now()
 export const now = () => readClock()
@@ -455,10 +466,17 @@ export function frameTimes(start: number, end: number, n: number): number[] {
 }
 
 // ---------------- the media slot ----------------
-/** one media read at a time on this server (ffmpeg on a 4 GB box, and the transcription of reads: its own slot, so a
- * person's mic dictation never waits behind a video); each person may have a few waiting, so parallel sub-agents queue
- * instead of failing "busy" */
-export const MEDIA_PARALLEL = 1
+/** media reads at once on this server: one per 2 cores and per 2 GB of memory, 1 to MEDIA_PARALLEL_MAX (one on a 2 vCPU
+ * / 4 GB box, as before: ffmpeg there; 2026-11-19 it grew with the server); the transcription of voice input has its
+ * own slot, so a person's mic dictation never waits behind a video. Each person may have a few waiting, so parallel
+ * sub-agents queue instead of failing "busy". The background transcriptions of recordings count the same number. */
+export const MEDIA_PARALLEL_MAX = 8
+export const mediaParallelFor = (cores: number, memoryBytes: number): number =>
+  Math.max(1, Math.min(MEDIA_PARALLEL_MAX, Math.floor(cores / 2), Math.floor(memoryBytes / (2 * 1024 ** 3))))
+let parallelOverride: number | null = null
+export const mediaParallel = (): number => parallelOverride ?? mediaParallelFor(cpuBudget(), memoryBudget())
+/** tests: this many media reads at once (null: mediaParallel as measured) */
+export function setMediaParallelForTests(n: number | null) { parallelOverride = n }
 export const MEDIA_QUEUE_MAX = 8
 export const MEDIA_PER_PERSON = 4
 export const MEDIA_WAIT_MS = 5 * 60_000
@@ -470,10 +488,10 @@ const waiting: { owner: string; go: () => void }[] = []
 export async function mediaSlot<T>(owner: string, f: () => Promise<T>, signal?: AbortSignal, waitMs = MEDIA_WAIT_MS): Promise<T> {
   signal?.throwIfAborted()
   if ((owners.get(owner) ?? 0) >= MEDIA_PER_PERSON) throw new ToolError('too many media reads of this person', 'media_busy')
-  if (running >= MEDIA_PARALLEL && waiting.length >= MEDIA_QUEUE_MAX) throw new ToolError('too many media reads', 'media_busy')
+  if (running >= mediaParallel() && waiting.length >= MEDIA_QUEUE_MAX) throw new ToolError('too many media reads', 'media_busy')
   owners.set(owner, (owners.get(owner) ?? 0) + 1)
   try {
-    if (running >= MEDIA_PARALLEL) {
+    if (running >= mediaParallel()) {
       await new Promise<void>((resolve, reject) => {
         const w = { owner, go: () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); resolve() } }
         const drop = () => { const i = waiting.indexOf(w); if (i >= 0) waiting.splice(i, 1) }
@@ -493,6 +511,17 @@ export async function mediaSlot<T>(owner: string, f: () => Promise<T>, signal?: 
     if (n > 0) owners.set(owner, n)
     else owners.delete(owner)
   }
+}
+/** true once `p` settles, false after `ms` (the time a read has for it); rejects with the reason when `signal` fires */
+export function waitFor(p: Promise<unknown>, ms: number, signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted()
+  return new Promise<boolean>((resolve, reject) => {
+    const done = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort) }
+    const onAbort = () => { done(); reject(signal!.reason) }
+    const timer = setTimeout(() => { done(); resolve(false) }, Math.max(0, Math.min(ms, 2 ** 31 - 1)))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    p.then(() => { done(); resolve(true) }, () => { done(); resolve(true) })
+  })
 }
 /** media reads running and waiting (tests, diagnostics) */
 export const mediaStats = () => ({ running, waiting: waiting.length })

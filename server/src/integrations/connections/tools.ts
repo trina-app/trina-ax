@@ -35,7 +35,7 @@ import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
 import { say } from './text'
-import { cardLines, fieldWord, methodWord, toolTitle } from './card-lines'
+import { cardLines, fieldWord, methodWord, toolTitle, type CardLine } from './card-lines'
 import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -49,7 +49,7 @@ import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOL
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
-import { offlineWords, turnWindow, type LocalVia } from './local'
+import { localSpecOf, offlineWords, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
 export const MAX_RESULT_CHARS = 40_000
@@ -260,7 +260,7 @@ const GUEST_HERE = (name: string) => refusal({
  * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
  * in the person's language (card-lines.ts), `exact` when those lines show all of `text`, which then sits behind "보내는
  * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean
+interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: CardLine[]; exact: boolean }; request?: boolean
   /** the service's tool name (an MCP tool's call; none for api_request) */
   tool?: string
   /** the team files this call attaches, by their team paths (team-attach.ts) */
@@ -270,25 +270,40 @@ interface Sent { text: string; fields: { name: string; value: string }[]; dest?:
   via?: 'card' | 'chat' }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
- * cannot show all of it (cardLines null: the JSON stays open). */
-function argLines(args: unknown, L: Locale): { fields: { name: string; value: string }[]; exact: boolean } {
-  const all = cardLines(args, L, (k) => RECIPIENT.test(k))
+ * cannot show all of it (cardLines null: the JSON stays open). `code`: the argument that is a script (a declared CLI's
+ * stdin), shown as a code block exactly as sent. */
+function argLines(args: unknown, L: Locale, code?: string): { fields: CardLine[]; exact: boolean } {
+  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code)
   return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L)).join(' › '), value: f.value })), exact: false }
 }
 
-/** more than this cannot be checked on a card: such a write is refused, never shown cut */
-export const MAX_CARD_PAYLOAD = 100_000
+/** The argument of an app on the person's computer that its program reads as a script on stdin (a declared CLI tool:
+ * ego lite's run_script), for the card's code block; none for any other connection or tool. */
+function scriptArg(row: Pick<Row, 'local_app'> | null, tool: string): string | undefined {
+  const spec = row?.local_app ? localSpecOf(row) : null
+  return spec?.adapter === 'cli' ? spec.tools.find((x) => x.name === tool)?.stdin : undefined
+}
+
+/** more than this is refused (Claude Code has no cap; this keeps one call's card within memory). A card carries the
+ * start of a longer text and the rest on request (chat/card-fold.ts), so every character can still be checked; it is
+ * never cut (docs/decisions/20261118-api-images-connector-cap-delete-cards.md) */
+export const MAX_CARD_PAYLOAD = 10_000_000
+/** above this a call's card names only the recipients as lines and shows the call's text (folded): every value as a
+ * labelled line would repeat the whole text */
+export const CARD_LINES_MAX = 100_000
+/** a recipient, address or other value that says where a call goes, at most: the card shows each one whole */
+export const MAX_RECIPIENT_CHARS = 10_000
 /** argument names that say where something goes or who sees it */
 export const RECIPIENT = /^(to|cc|bcc|recipients?|emails?|email_?address(es)?|channels?|channel_?(id|name)|chat_?id|conversation(_?id)?|thread(_?id)?|repo(sitory)?|owner|org(anization)?|project(_?(id|key))?|space(_?key)?|team(_?id)?|workspace|url|link|webhook(_?url)?|endpoint|address|domain|host|users?(_?(id|name)s?)?|assignees?|share_?with|visibility|public|parent(_?id)?|folder(_?id)?|page_?id|database_?id|list_?id|board_?id)$/i
 
 /** Recipient-like arguments (two levels deep), for the top of the card. */
-export function recipientFields(args: unknown): { name: string; value: string }[] {
+export function recipientFields(args: unknown, max = 2000): { name: string; value: string }[] {
   const out: { name: string; value: string }[] = []
   const walk = (v: unknown, prefix: string, depth: number) => {
     if (!v || typeof v !== 'object' || Array.isArray(v) || depth > 1) return
     for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
       if (out.length >= 20) return
-      if (RECIPIENT.test(k) && x !== undefined && x !== null) out.push({ name: prefix + k, value: clip(typeof x === 'string' ? x : JSON.stringify(x), 2000) })
+      if (RECIPIENT.test(k) && x !== undefined && x !== null) out.push({ name: prefix + k, value: clip(typeof x === 'string' ? x : JSON.stringify(x), max) })
       else walk(x, `${prefix}${k}.`, depth + 1)
     }
   }
@@ -586,7 +601,12 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   // watch from their own app; a new recipient, an address or another tool asks
   // the address (an api_request query can be long) counts as well: everything the card shows
   const size = sent.text.length + sent.fields.reduce((n, f) => n + f.name.length + f.value.length, 0)
-  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} the user can check on a card, so nothing was sent. Send less at a time.`, 'refused (too large to confirm)')
+  if (size > MAX_CARD_PAYLOAD) throw new CallError(`what this would send is ${size} characters, more than the ${MAX_CARD_PAYLOAD} one call may send, so nothing was sent. Send it in parts.`, 'refused (too large to confirm)')
+  // where it goes is shown whole on the card's lines (never folded: security review of #1338, L2), so none of it may be long
+  // (the recipient lines as the gate keeps them are cut at 2,000 characters: measured whole, from the call itself)
+  const whole = recipientFields(sent.raw ?? {}, Infinity)
+  const longWhere = [...sent.fields, ...whole].find((f) => f.value.length > MAX_RECIPIENT_CHARS)
+  if (longWhere) throw new CallError(`'${longWhere.name.slice(0, 80)}' (where this goes) is ${longWhere.value.length} characters, more than the ${MAX_RECIPIENT_CHARS} a card shows whole, so nothing was sent. Put long content in the message's text, not in an address, recipient or query.`, 'refused (too large to confirm)')
   if (!sharedMode && live && !!person.cardApprovals?.() && !sent.request && sent.tool && !sent.attach?.length && approvedWrite(ctx, row, sent, b)) { sent.via = 'chat'; return true }
   const L = person.locale
   // why it asks, unless the room line says it already (after a room read): only where outside content still asks
@@ -594,7 +614,9 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
   const question = `${lead}${say(sent.request ? 'confirmRequest' : 'confirm', L, { name: row.name, what: what(L) })}\n\n${say('checkBelow', L)}\n\n${say('ask', L)}`
   // every value as a labelled line and the exact text one click away when the lines show all of it; else the text open
   // with the recipients first, as before. Long random-looking parts (they can carry data) are highlighted in both
-  const shown = sent.lines?.(L) ?? { fields: sent.fields, exact: false }
+  const full = new Map(whole.map((f) => [f.name, f.value]))
+  // a big call: the recipients as lines, each whole (at most MAX_RECIPIENT_CHARS, above), the text folded
+  const shown = size > CARD_LINES_MAX ? { fields: sent.fields.map((f) => ({ ...f, value: full.get(f.name) ?? f.value })), exact: false } : sent.lines?.(L) ?? { fields: sent.fields, exact: false }
   const text = sent.text.trim() ? sent.text : say('nothing', L)
   const marks = opaqueParts([text, ...shown.fields.map((f) => f.value)].join('\n'))
   const details = [{ label: say('sendsLabel', L), text, ...(shown.fields.length ? { fields: shown.fields } : {}), ...(marks.length ? { marks } : {}), ...(shown.exact && sent.text.trim() ? { exact: true as const } : {}) }]
@@ -883,7 +905,7 @@ async function modelImages(ctx: AppContext, tc: TurnToolContext, kept: Kept[]): 
     if (!k.meta.kind || !KINDS[k.meta.kind].image || k.bytes.length > VISION_INPUT_MAX) continue
     let jpeg: Buffer
     try { jpeg = await normalizeForModel(k.bytes, ctx.files.visionTools(), tc.signal) } catch { continue }
-    if (turn.imageCount >= caps.images || b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
+    if (turn.carriedImages + turn.imageCount >= caps.images || turn.carriedBytes + b64Len(turn.imageBytes + jpeg.length) > caps.bytes) break
     turn.imageCount++
     turn.imageBytes += jpeg.length
     out.push({ type: 'image', mimeType: 'image/jpeg', data: jpeg.toString('base64') })
@@ -985,8 +1007,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
-          const withFiles = (L: Locale, l: { fields: { name: string; value: string }[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
+          const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
           const answer = await gate(ctx, current, () => toolTitle(t), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)

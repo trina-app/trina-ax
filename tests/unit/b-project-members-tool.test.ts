@@ -8,7 +8,7 @@
 // `private`, docs/DECISIONS.md "Team project chats shared by default")
 // - where it runs: refused (refusal()) in a scheduled run, a room, a shared chat, a confidential chat, a chat other
 //   people wrote in, a Slack thread's chat, a limited run, and for a sub-agent; never in the room or shared allowlists,
-//   FILE_TOOLS or the remote connector; at most two cards, none after a no, one at a time;
+//   FILE_TOOLS or the remote connector; no count of cards per answer, none after a no, one at a time;
 // - read rooms (M1): rooms_seen, a side chat and a quoting message lead the ONE card with the room line; a name planted
 //   there is marked red "내 메시지에 없는 이름이에요" (M5), and so is a project other than the chat's;
 // - the plan (M4): an older folder without the floor rule, or without the creator's rule, is refused and sent to the
@@ -340,11 +340,13 @@ describe('the card and the change', () => {
     expect(k.question).not.toContain(MEMBERS_TEXT.removed.ko)
   })
 
-  test('at most two cards per answer, none after a no; the creator is never removed; one who is not a member is one message', async () => {
+  test('no count of cards per answer (limits audit N20), none after a no; the creator is never removed; one who is not a member is one message', async () => {
     const p = await project('alice', 'Twice', [user('erin')])
-    const two = await turn('alice', `Bob Lee, Erin Yoo\n${call({ add: [{ name: 'Bob Lee' }] })}\n${call({ remove: [{ name: 'Erin Yoo' }] })}\n${call({ add: [{ name: 'Jun Park' }] })}`, { projectId: p.id, answer: 'change' })
-    expect(two.cards).toHaveLength(2)
-    expect(two.content).toContain('at most 2 members cards in one answer')
+    const three = await turn('alice', `Bob Lee, Erin Yoo, Jun Park\n${call({ add: [{ name: 'Bob Lee' }] })}\n${call({ remove: [{ name: 'Erin Yoo' }] })}\n${call({ add: [{ name: 'Jun Park' }] })}`, { projectId: p.id, answer: 'change' })
+    expect(three.cards).toHaveLength(3)
+    expect(three.content).not.toContain('members cards in one answer')
+    expect(members(p.folderPath)).toEqual(['alice', 'bob', 'jun'])
+    await turn('alice', `Jun Park 빼줘\n${call({ remove: [{ name: 'Jun Park' }] })}`, { projectId: p.id, answer: 'change' })
     expect(members(p.folderPath)).toEqual(['alice', 'bob'])
     const no = await turn('alice', `Jun Park\n${call({ add: [{ name: 'Jun Park' }] })}\n${call({ add: [{ name: 'Jun Park' }] })}`, { projectId: p.id, answer: 'skip' })
     expect(no.cards).toHaveLength(1)
@@ -368,7 +370,7 @@ describe('"Always allow" (docs/DECISIONS.md "Always allow on every card", review
       expect(members(p.folderPath)).toEqual(['alice', 'bob', 'erin'])
       const three = await turn('alice', `Erin Yoo, Jun Park, Bob Lee\n${call({ remove: [{ name: 'Erin Yoo' }] })}\n${call({ add: [{ name: 'Jun Park' }] })}\n${call({ remove: [{ name: 'Bob Lee' }] })}`, { projectId: p.id, answer: 'skip' })
       expect(three.cards).toEqual([])
-      expect(three.content).not.toContain('at most 2 members cards')
+      expect(three.content).not.toContain('members cards in one answer')
       expect(members(p.folderPath)).toEqual(['alice', 'jun'])
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
   })

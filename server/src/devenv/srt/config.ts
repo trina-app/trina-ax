@@ -86,7 +86,10 @@ export const chatHome = (base: string, chatId: string) => path.join(devenvPaths(
 /** the output files of a shared chat's commands */
 export const chatLogs = (base: string, chatId: string) => path.join(devenvPaths(base).chatLogs, safeId(chatId))
 /** the home of a run: the shared chat's, else the person's */
-export interface RunOwnerPaths { userId: string; sharedChat?: string | null; runId?: string; projectFolder?: string | null }
+export interface RunOwnerPaths { userId: string; sharedChat?: string | null; runId?: string; projectFolder?: string | null
+  /** a shared chat's run: the key of who sees the chat and what all of them may read (srt/runner.ts sharedLogKey), the
+   * name of its logs folder */
+  logKey?: string | null }
 /** The home of a person's runs that start in a team folder (a project folder; `folder` team-relative): its own, never
  * the home of the person's other chats (QA TC-4939). Code of the project folder runs there on purpose (npm, make,
  * python, written by any member), so what it leaves in the home (an npx or pip cache, a startup file) must not reach
@@ -110,8 +113,15 @@ export const SUN_PATH_MAX = 107
 export const srtSocketPaths = (tmp: string) => ['claude-http-', 'claude-socks-'].map((p) => path.join(tmp, `${p}${'0'.repeat(16)}.sock`))
 /** srt's sockets in `tmp` that would not fit a unix socket path */
 export const srtSocketProblems = (tmp: string): string[] => srtSocketPaths(tmp).filter((sp) => Buffer.byteLength(sp) > SUN_PATH_MAX).map((sp) => `srt's socket path is too long (${Buffer.byteLength(sp)} bytes, at most ${SUN_PATH_MAX}): ${sp}`)
-/** the logs of a run: in a shared chat one folder per command (chat-logs/<chat>/<run>), else the person's */
-export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? path.join(chatLogs(base, o.sharedChat), sharedRunId(o)) : personLogs(base, o.userId))
+/** the logs of a run: in a shared chat the folder of its people and their view (chat-logs/<chat>/<key>: the logs of the
+ * chat's jobs and dev servers, which a later command of the same people reads; another audience, another empty folder),
+ * else the person's */
+export const runLogs = (base: string, o: RunOwnerPaths) => (o.sharedChat ? sharedLogs(base, o.sharedChat, o.logKey) : personLogs(base, o.userId))
+/** the logs folder of a shared chat's runs for one key (sharedLogKey); a run of a shared chat with no key is refused */
+export const sharedLogs = (base: string, chatId: string, key: string | null | undefined) => {
+  if (!key || !/^[0-9a-f]{32}$/.test(key)) throw new Error('a run of a shared chat needs the key of its people')
+  return path.join(chatLogs(base, chatId), key)
+}
 /** The work folder of a shared chat with no project, for one audience (`audienceKey`, sharedWorkKey): a chat's private
  * work folder (chatWork) is never mounted in a shared run (it may hold copies of the person's own files), and a new
  * audience gets an empty folder (nothing an earlier, smaller audience's run copied there reaches someone new). */
@@ -215,6 +225,8 @@ export interface SettingsInput {
   runId?: string
   /** a run of the person's own chat that starts in a team folder: its home is projectHome */
   projectFolder?: string | null
+  /** a shared chat's run: the key of its logs folder (sharedLogs) */
+  logKey?: string | null
   network: 'open' | 'offline'
   /** the team's extra domains (devEnv.team) */
   extraDomains: readonly string[]
@@ -404,7 +416,7 @@ export function resolveRunCwd(root: string, rel: string): string | null {
   } catch { return null }
 }
 
-export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string; projectFolder?: string | null }
+export interface EnvInput { base: string; userId: string; teamRoot: string; work: string | null; nodeBin?: string; platform?: DevPlatform; sharedChat?: string | null; runId?: string; projectFolder?: string | null; logKey?: string | null }
 
 /** The whole environment of a run. Nothing comes from the server's own environment (srt passes its caller's
  * environment to the command). srt adds its proxy variables. */

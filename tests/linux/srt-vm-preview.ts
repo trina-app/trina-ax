@@ -11,6 +11,8 @@
 //   P4: the run stops: the link answers 403, the forwarder and its socket are gone;
 //   P5: a dev server with a second background port, started 3 times;
 //   P6: a run writes a file in the person's own folder (users/<id>); the Files API lists it and the server reads it;
+//   P8 (QA TC-4990): a later command of the same chat reaches the chat's dev server (mycel-sandbox port-bridge);
+//       another chat's command does not;
 //   P7 (A23): a job writes past the disk floor; the tracker stops it with "disk" and its unit ends. The free space comes
 //       from a stand-in statfs (a 1 GiB disk minus the job's real file), so the VM's own disk never fills.
 // Results: <base>/data/preview-results.json and one "preview <id> ..." line per check.
@@ -210,6 +212,24 @@ for (let i = 1; i <= 3; i++) {
   say('P7', r?.state === 'ended' && r.end_reason === 'disk' && u?.state !== 'active', 'A23: a job past the disk floor stops with "disk"; its unit ends', { row: r, unit: u, writtenMiB: Math.round(size() / 2 ** 20), tool: t.slice(0, 200) })
   configureStorageGuard(null)
   try { fs.rmSync(file, { force: true }) } catch {}
+}
+
+// ---- P8 (QA TC-4990): a later command of the same chat reaches the chat's dev server through mycel-sandbox
+// port-bridge; a command of another chat does not; the bridge has no capabilities and ends with its command ----
+{
+  const chat = (await h.api('alice').call(API.createChat, { body: {} })).id
+  const other = (await h.api('alice').call(API.createChat, { body: {} })).id
+  const t = await shell('alice', chat, { command: server('MARK-P8', [3000]), background: true, port: 3000, log_name: 'p8' })
+  await Bun.sleep(2500)
+  let caps = ''
+  const watch = (async () => { for (let i = 0; i < 40 && !caps; i++) { const r = await sh(['pgrep', '-f', 'port-bridge-inner']); const pid = Number(r.out.split('\n').filter(Boolean)[0] ?? 0); if (pid) caps = `${procLine(pid, 'CapEff')}/${procLine(pid, 'NoNewPrivs')}`; await Bun.sleep(250) } })()
+  const same = await shell('alice', chat, { command: 'curl -s -m 5 http://localhost:3000/; sleep 3' })
+  await watch
+  const elsewhere = await shell('alice', other, { command: 'curl -s -m 5 http://localhost:3000/ || echo NOTHING-HERE' })
+  const left = await waitFor(async () => (await sh(['pgrep', '-f', 'port-bridge-inner'])).out.trim() === '', 10_000)
+  say('P8', /localhost:3000/.test(t) && same.includes('MARK-P8') && !elsewhere.includes('MARK-P8') && /^0+\/1$/.test(caps) && left, 'a later command of the chat reaches its dev server (port-bridge, no capabilities); another chat\'s does not; the bridge ends with the command', { tool: t.slice(0, 200), same: same.slice(0, 300), elsewhere: elsewhere.slice(0, 200), caps, left })
+  const r = rowOf('alice')
+  await h.api('alice').call(API.stopMyDevEnvRun, { params: { runId: r.id } }).catch(() => {})
 }
 
 say('END', null, 'done', { serverPid: process.pid })

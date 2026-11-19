@@ -44,6 +44,7 @@ import { listSkillManagers, setSkillManager } from '../skills/managers'
 import { auditSight } from '../admin/audit-sight'
 import { listSkillChanges } from '../skills/changes'
 import { addressOf, hasStoredApiKey, readApiEngine, writeApiEngine } from '../engine/api-agent'
+import { apiVisionOf } from '../engine/api-vision'
 import { getChatRuntime } from '../chat/runtime'
 import { registerCredentialRoutes } from './credentials'
 import { registerTeamLinkRoutes } from './team-links'
@@ -234,9 +235,11 @@ export const adminRoutes: RouteModule = {
     kit.handle(API.engines, ({ c }) => enginesResponse(ctx, engineCache, c.get('locale')))
 
     // ---------------- the team's API engine (engine/api-agent.ts) ----------------
-    const apiConfigOut = () => {
+    const apiConfigOut = async () => {
       const conf = readApiEngine(ctx.config.dataDir)
-      return { baseUrl: conf?.baseUrl ?? null, model: conf?.model ?? null, label: conf?.label ?? null, hasKey: !!conf?.key }
+      // whether the model takes pictures, as its server says (engine/api-vision.ts; cached), and the admin's choice
+      const detected = conf ? (await apiVisionOf(conf).catch(() => ({ images: null }))).images : null
+      return { baseUrl: conf?.baseUrl ?? null, model: conf?.model ?? null, label: conf?.label ?? null, hasKey: !!conf?.key, vision: { detected, choice: conf?.vision ?? null } }
     }
     kit.handle(API.getApiEngine, () => apiConfigOut())
     kit.handle(API.putApiEngine, async ({ c, body, auth }) => {
@@ -280,9 +283,10 @@ export const adminRoutes: RouteModule = {
       // saves it next; only an owner who sets a NEW address makes it theirs
       const setBy: 'owner' | 'admin' = sameAddress ? (old!.setBy === 'admin' ? 'admin' : 'owner') : role === 'owner' ? 'owner' : 'admin'
       const nothingChanged = sameAddress && old!.model === body.model && (body.label === undefined || (body.label.trim() || body.model) === old!.label) && setBy === (old!.setBy ?? 'owner')
+        && (body.vision === undefined || body.vision === (old!.vision ?? null))
         && (body.key === undefined || (body.key === null && !hasStoredApiKey(ctx.config.dataDir)))
-      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, setBy, ...(body.key !== undefined ? { key: body.key } : {}) })
-      audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed' } })
+      writeApiEngine(ctx.config.dataDir, { baseUrl: body.baseUrl, model: body.model, label: body.label, setBy, ...(body.key !== undefined ? { key: body.key } : {}), ...(body.vision !== undefined ? { vision: body.vision } : {}) })
+      audit(ctx.db, { actor: auth.user.id, action: 'engines.api', target: 'api', detail: { baseUrl: body.baseUrl, model: body.model, key: body.key === undefined ? 'kept' : body.key ? 'set' : 'removed', ...(body.vision !== undefined ? { vision: body.vision } : {}) } })
       engineCache.forget('api')
       // an admin's change is told to the owner(s): who and the model, never the key (credentials/store.ts noticeOwners)
       if (!nothingChanged) noticeOwners(credentialsOf(ctx), auth.user.id, 'engine', `${hostOf(body.baseUrl)}, ${body.model}`, { model: body.model, host: hostOf(body.baseUrl) })

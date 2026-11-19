@@ -332,6 +332,17 @@ async function turn(content: string, chat?: string, parentId?: null) {
 const marks = (chatId: string) => db().query('SELECT rooms_seen AS r, others_words AS o FROM chats WHERE id = ?').get(chatId) as { r: number; o: number }
 const shareRow = (p: string) => db().query("SELECT 1 FROM file_shares WHERE path = ? AND kind != 'folder'").get(p)
 /** what the words read from a chat (chat/grant-reads.ts): its id, this turn's reads not yet noted, whose chat */
+/** deleteFilesRefusal as a scheduled run with the person's own "Always allow" for deletes would ask it: since #1338 a chat
+ * that read rooms or a shared file asks on the card, so only such a run, which shows no card, is refused for it */
+function scheduledDelete(x: unknown, who: string, db: import('bun:sqlite').Database) {
+  const e = x as { spec: Record<string, unknown> }
+  db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES (?, 'delete_files', ?)").run(who, new Date().toISOString())
+  try {
+    const place = () => ({ db, userId: who, chatId: 'no-such-chat', turnId: 'scheduled-delete', locale: 'en' as const, clientKind: 'schedule' })
+    return deleteFilesRefusal({ ...e, spec: { ...e.spec, clientKind: 'schedule' }, alwaysPlace: place } as never)
+  } finally { db.query("DELETE FROM card_always_allow WHERE user_id = ? AND kind = 'delete_files'").run(who) }
+}
+
 const gexec = (chatId: string, readPaths: string[] = [], who = 'bob') => ({ rt: h.rt(), spec: { userId: who, chatId, assistantId: '' }, roomsSeen: false, files: { readPaths: new Set(readPaths) } }) as never
 /** one of the person's team chat rooms */
 const roomOf = (who: string) => (db().query("SELECT r.id FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? LIMIT 1").get(who) as { id: string }).id
@@ -397,8 +408,9 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(later.cards).toHaveLength(1)
     expect(fs.existsSync(abs('shared/after-folder-list.md'))).toBe(false)
     wr('users/bob/keep-me.md', 'keep')
+    // (since #1338 the delete asks on its card; left unanswered, nothing goes)
     const del = await turn(`go on\n${fake({ tool: 'delete_files', args: { paths: ['users/bob/keep-me.md'] }, sayResult: true })}`, first.chatId)
-    expect(del.content).toContain(DELETE_REFUSAL.sharedFile)
+    expect(del.cards).toHaveLength(1)
     expect(fs.existsSync(abs('users/bob/keep-me.md'))).toBe(true)
   })
 
@@ -417,8 +429,10 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     expect(seenWhy(gexec(first.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
     wr('users/bob/keep-listed.md', 'keep')
     const del = await turn(`go on\n${fake({ tool: 'delete_files', args: { paths: ['users/bob/keep-listed.md'] }, sayResult: true })}`, first.chatId)
-    expect(del.content).toContain(DELETE_REFUSAL.sharedFile)
+    expect(del.cards).toHaveLength(1)
+    expect(del.cards[0]!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
     expect(del.content).not.toContain('team chat rooms')
+    expect(scheduledDelete({ ...(gexec(first.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('sharedFile')
     expect(fs.existsSync(abs('users/bob/keep-listed.md'))).toBe(true)
     // a change whose card nobody answers: the card's sentence and the refusal name the shared file
     const w = await turn(`go on\n${fake({ tool: 'write', args: { file_path: 'shared/after-listed.md', content: 'x' }, sayResult: true })}`, first.chatId)
@@ -436,14 +450,16 @@ describe('the mark (T13): names and contents in a shared folder are the sharer\'
     bucket()
     const read = await turn(`read it\n${fake({ tool: 'read', args: { file_path: `/f/${id}/report.md` } })}`)
     expect(seenWhy(gexec(read.chatId), 'roomsSeenWhy')).toBe('sharedFileSeenWhy')
-    expect(deleteFilesRefusal({ ...(gexec(read.chatId) as object), roomsSeen: true } as never)).toBe('sharedFile')
+    expect(deleteFilesRefusal({ ...(gexec(read.chatId) as object), roomsSeen: true } as never)).toBeNull()
+    expect(scheduledDelete({ ...(gexec(read.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('sharedFile')
     // mixed: the listing and a room's messages in the same chat: the room words, as #1175 keeps them
     bucket()
     const mixed = await turn(`look\n${fake({ tool: 'list', args: { path: `/f/${id}` } })}`)
     addSources(db(), mixed.chatId, [{ type: 'room', id: roomOf('bob') }])
     expect(seenWhy(gexec(mixed.chatId), 'roomsSeenWhy')).toBe('roomsSeenWhy')
     expect(othersSource(gexec(mixed.chatId), 'ROOM')).toBe('ROOM')
-    expect(deleteFilesRefusal({ ...(gexec(mixed.chatId) as object), roomsSeen: true } as never)).toBe('roomsSeen')
+    expect(deleteFilesRefusal({ ...(gexec(mixed.chatId) as object), roomsSeen: true } as never)).toBeNull()
+    expect(scheduledDelete({ ...(gexec(mixed.chatId) as object), roomsSeen: true }, 'bob', db())).toBe('roomsSeen')
     // a room read alone: the room words
     const room = (await h.api('bob').call(API.createChat, { body: {} })).id
     addSources(db(), room, [{ type: 'room', id: roomOf('bob') }])
