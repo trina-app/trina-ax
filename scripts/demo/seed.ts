@@ -49,6 +49,8 @@ export interface DemoCompany {
   /** files from elsewhere in the repository: team path and source file (e.g. a skill pack's SKILL.md) */
   extraFiles?: { rel: string; source: string }[]
   project?: { name: string; folderPath: string; instructions: string }
+  /** more team projects (a demo content's `projects`), each made by `by` (default: the owner) with its members */
+  projects?: { name: string; folderPath: string; instructions: string; by?: string; members: ({ group: string } | { user: string })[] }[]
   /** the company profile (회사 소개), saved by the owner as the admin screen does */
   profile?: CompanyProfileInput
   /** team settings the owner sets (Admin › 팀 설정) */
@@ -195,6 +197,13 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     }
     result.people.push({ username: p.username, role: p.role, created: !existing })
   }
+  // the owner in a group too (a demo content's owner.group: the CEO in #Marketing)
+  if (first.group) {
+    const me = (await owner.call(API.me)).user
+    // (the owner's own account is not changed with updateUser: the group's members are)
+    const g = (await owner.call(API.listGroups)).items.find((x) => x.id === groupId(first.group!))!
+    if (!g.memberIds.includes(me.id)) await owner.call(API.updateGroup, { params: { id: g.id }, body: { memberIds: [...g.memberIds, me.id] } })
+  }
   const ruleOf = (r: DemoRule): FolderRuleInput => {
     if ('group' in r) return { subjectType: 'group', subjectId: groupId(r.group), access: r.access }
     if ('user' in r) {
@@ -217,13 +226,28 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
       log(`project ${co.project.name} created`)
     }
   }
+  // a demo content's projects, each made by its person (it shows as theirs) with its members
+  if (co.projects?.length) {
+    const have = new Set((await owner.call(API.listProjects, { query: { manage: '1' } })).items.map((p) => p.name))
+    for (const p of co.projects) {
+      if (have.has(p.name)) continue
+      const by = p.by && tokens.has(p.by) ? as(tokens.get(p.by)!) : owner
+      const creator = p.by ?? first.username
+      const participants = p.members
+        .filter((m) => !('user' in m && m.user === creator))
+        .map((m) => ruleOf({ ...m, access: 'write' })).map((r) => ({ subjectType: r.subjectType as 'group' | 'user', subjectId: r.subjectId! }))
+      await by.call(API.createProject, { body: { name: p.name, folderPath: p.folderPath, instructions: p.instructions, participants } })
+      log(`project ${p.name} created by ${creator}`)
+    }
+  }
 
   // 5. folder rules beyond the group folders. A folder that has rules already gets the ones it misses, the rest it keeps.
   // A project's folder is left alone: its members were set when the project was made (step 4), and Admin › Folder
   // permissions does not change a project's folder (docs/DECISIONS.md "Project contents only for members").
   const folders = new Map((await owner.call(API.listFolders)).items.map((f) => [f.path, f]))
   const same = (a: { subjectType: string; subjectId: string | null }, b: { subjectType: string; subjectId: string | null }) => a.subjectType === b.subjectType && a.subjectId === b.subjectId
-  for (const r of co.rules.filter((x) => !(co.project && x.path === co.project.folderPath))) {
+  const projectFolders = new Set([...(co.project ? [co.project.folderPath] : []), ...(co.projects ?? []).map((p) => p.folderPath)])
+  for (const r of co.rules.filter((x) => !projectFolders.has(x.path))) {
     const f = folders.get(r.path)
     const rules = r.rules.map(ruleOf)
     if (!f) {

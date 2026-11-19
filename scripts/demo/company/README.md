@@ -85,3 +85,45 @@ MYCEL_DEMO_CONTENT=<dir> bun test tests/unit/demo-company-seed.test.ts tests/uni
 
 With `MYCEL_DEMO_CONTENT` the same tests also seed that content and check its promises and recordings (each recorded
 line in the team's language, for `ko` and `en`).
+
+## The state a story ends in (free-roam demo)
+
+A content folder may also say what the people did before the visitor came. All of it is optional (Acme has none);
+[`story-state.ts`](story-state.ts) seeds it after the team, and the free-roam snapshot builder
+([`../free-roam/build-snapshot.ts`](../free-roam/build-snapshot.ts)) runs both. The example is
+[`../steepling`](../steepling/README.md).
+
+| Field | What |
+|---|---|
+| `owner.group` | a group the owner is in too (a CEO who owns the team and is in #Marketing) |
+| `projects` | `{ name, instructions, by?, members: [{ group } \| { user }] }`: a team project `projects/<name>` made by `by` (default the owner); its files may be in `files/projects/<name>/` |
+| `rooms` | `{ slug, kind: all \| team \| dm \| group, group?, people?, name?, messages }`; a message is `{ from, text, minutesAgo, files?, reactions?, shareChat? }`, oldest first. In `text`, `{project:<name>}` is a link to the project, `{file:<team path>}` the file's address, `@<a person's name>` a mention; `shareChat` sends that chat's last answer to the room ("Send to room") with `text` as the note |
+| `chats` | `{ slug, username, project?, sideRoom?, private?, title, turns: [{ ask, answer, minutesAgo }] }`: past AI chats as plain finished messages (no AI runs); in a project they are shared with its members, `sideRoom` makes the room's ✦ side chat |
+| `connections` | `{ service: gmail \| google-drive \| higgsfield, username?, account: { name, email } }`: a person's own Gmail or Drive, the team's Higgsfield, with made-up secrets |
+| `welcome` | `{ username, inviter, asked? }`: who invited a person (their welcome card), and whether they asked what they can do |
+| `freeRoam` | `{ suggestions: [{ label, prompt }] (1–3), signupUrl? }`: the free-roam bar's chips and where "Start free" goes |
+| `avatars/<username>.jpg` | profile photos (png, webp too), each set by its person |
+| `fakes/` | the fake Gmail, Drive and Higgsfield pictures (format: [`../steepling/README.md`](../steepling/README.md)) |
+
+Every address in company.json and fakes/ must be a reserved `.example` one. The writes the public API cannot make
+(times in the past, the inviter, connection rows, finished answers without the AI) go through the builder's routes
+`/api/demo/builder/*` (`server/src/demo/builder.ts`): the owner only, and only on a server whose demo file says
+`builder: true`; 404 everywhere else, and never in a snapshot.
+
+## The free-roam snapshot
+
+```bash
+bun scripts/demo/free-roam/build-snapshot.ts --content steepling|<dir> --locale en|ko --out <snapshots dir> [--name <n>] [--no-verify]
+bun scripts/demo/free-roam/canary.ts --sealed <file> --snapshot <dir> [--instance <base dir>]…
+```
+
+The builder seeds a fresh development server on a whole base folder (no AI needed), stops it, deletes the setup token,
+any owner password and every session and sign-in token, folds the WAL into the database, writes the free-roam demo
+file (one person, `kind: "freeRoam"`, the fakes' folder) and a server.json with `engine.authMode: "managed"` and the
+file list off. The result is `<snapshots dir>/<locale>/<name>/` with `manifest.json` (`codeVersion`, `locale`,
+`createdAt`, `config`, `demoFile`, the content's id and hash, the git commit, the checks) and `base/`, the layout
+`demo-gate/src/pool.ts` reads. Before it is moved there it is checked on a clone: it boots as the gate starts it, Mina
+signs in through the persona switch, her files, skills, rooms and chats are there, nothing the AI did is counted, the
+builder's routes are gone. The canary greps a snapshot or an instance's folder for the strings of a sealed file (the
+real AI account's); it reports file and string number, never the string. Its leak prompts are a stub list, to be asked
+on a clone only, never on a snapshot's base.

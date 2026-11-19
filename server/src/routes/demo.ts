@@ -19,6 +19,7 @@ import { verifyPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { getUserByUsername } from '../auth/users'
 import type { RouteModule } from './module'
+import { registerDemoBuilder } from '../demo/builder'
 
 /** the demo file, only on a development server that was started with it */
 export function demoOf(ctx: AppContext): DemoFile | null {
@@ -37,7 +38,7 @@ function info(ctx: AppContext, demo: DemoFile, username: string | null): DemoInf
   })
   const host = ctx.config.listen.host
   const network = !(host === 'localhost' || isLoopback(host)) || !!ctx.config.tls
-  return { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas }
+  return { company: demo.company, sameQuestion: demo.sameQuestion ?? null, current, network, personas, ...(demo.freeRoam ? { freeRoam: { suggestions: demo.freeRoam.suggestions } } : {}) }
 }
 
 export const demoRoutes: RouteModule = {
@@ -64,5 +65,8 @@ export const demoRoutes: RouteModule = {
       if (auth && auth.session.id !== r.me.session.id) authOf(ctx).revokeSession(auth.session.id, 'logout')
       return { ok: true as const }
     })
+
+    // the free-roam snapshot builder's routes (demo file `builder: true`, the owner only; 404 otherwise)
+    registerDemoBuilder(kit, ctx)
   },
 }
