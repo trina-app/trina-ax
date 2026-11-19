@@ -155,7 +155,10 @@ export function createPublic(d: PublicDeps) {
   const page = (res: http.ServerResponse, status: number, kind: PageKind, locale: Locale, extra: Record<string, string | string[]> = {}) => {
     res.writeHead(status, {
       'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': PAGE_CSP,
-      'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-robots-tag': 'noindex', ...extra,
+      'x-content-type-options': 'nosniff',
+      // same-origin, never no-referrer: with no-referrer browsers send `Origin: null` on the Start and Continue forms,
+      // and start()/resume() refuse that (403). Other sites still get no referrer.
+      'referrer-policy': 'same-origin', 'x-robots-tag': 'noindex', ...extra,
     })
     res.end(renderPage(kind, locale, { siteKey: cfg.turnstile.siteKey, links: cfg.links }))
   }

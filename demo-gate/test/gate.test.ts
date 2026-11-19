@@ -50,6 +50,8 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(html).toContain('<html lang="en">')
     expect(html).toContain('cf-turnstile')
     expect(en.headers.get('content-security-policy')).toContain('challenges.cloudflare.com')
+    // no-referrer would make browsers send `Origin: null` on the Start form, which start() refuses
+    expect(en.headers.get('referrer-policy')).toBe('same-origin')
     const ko = await get(g, visitor(), '/?lang=ko', { headers: { 'accept-language': 'en-US' } })
     expect(await ko.text()).toContain('<html lang="ko">')
     const byBrowser = await get(g, visitor(), '/', { headers: { 'accept-language': 'ko-KR,ko;q=0.9' } })
