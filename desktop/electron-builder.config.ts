@@ -9,6 +9,8 @@ import { winSignOptions } from './scripts/win-sign'
 import { DESKTOP_APP_ID } from './src/common/app-id'
 
 const A = PRODUCT.artifactBase
+/** Linux: the program's name, its AppArmor profile (/etc/apparmor.d/<it>) and its menu entry (<it>.desktop) */
+export const LINUX_EXECUTABLE = A.toLowerCase()
 
 export default {
   // the shortcuts carry it as their AppUserModelID; main.ts gives the running app the same one (src/common/app-id.ts),
@@ -16,7 +18,10 @@ export default {
   appId: DESKTOP_APP_ID,
   productName: PRODUCT.displayName,
   // the packaged package.json carries the name too (Electron's app name before main.ts sets it)
-  extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app` },
+  // desktopName: on Linux Electron registers the link handler (setAsDefaultProtocolClient, every packaged start) under
+  // this menu entry's name, and the window's WM_CLASS matches it; without it the handler would point at
+  // "<productName>.desktop", a file the .deb does not install (docs/decisions/20261119-linux-desktop-app.md "Names")
+  extraMetadata: { productName: PRODUCT.displayName, description: `${PRODUCT.displayName} desktop app`, desktopName: `${LINUX_EXECUTABLE}.desktop` },
   copyright: 'Copyright © 2026 TreeSoop. AGPL-3.0-only.',
   directories: { output: 'release', buildResources: 'build-resources' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
@@ -106,5 +111,29 @@ export default {
     include: 'installer.nsh',
     artifactName: `${A}-Setup-\${version}-win-\${arch}.\${ext}`,
   },
+  // Linux (docs/decisions/20261119-linux-desktop-app.md): the .deb for Ubuntu and Debian, the AppImage for every other
+  // distribution, x64 and arm64 (dist:linux). The .deb keeps electron-builder's default dependencies (the libraries the
+  // app needs; `deb` below sets only the package name), and its after-install script loads the AppArmor profile that lets
+  // Chromium's sandbox use user namespaces on Ubuntu 24.04. The menu entry carries MimeType=x-scheme-handler/<scheme>
+  // from `protocols` above. File names: <A>-<v>-linux-amd64.deb, -arm64.deb, -x86_64.AppImage, -arm64.AppImage
+  // (electron-builder's arch names per format).
+  linux: {
+    target: [{ target: 'deb', arch: ['x64', 'arm64'] }, { target: 'AppImage', arch: ['x64', 'arm64'] }],
+    category: 'Office',
+    executableName: LINUX_EXECUTABLE,
+    // the menu entry's file name (and its StartupWMClass) follows extraMetadata.desktopName, as Electron's app_id does
+    syncDesktopName: true,
+    artifactName: `${A}-\${version}-linux-\${arch}.\${ext}`,
+    icon: 'build-resources/icon.png',
+    synopsis: `${PRODUCT.displayName} desktop app`,
+    maintainer: 'TreeSoop <contact@trina.app>',
+  },
+  // only the package's name (apt install/remove <it>, dpkg-query): the default would be the product name, which has a
+  // space and capitals. No `depends`: it would replace the default list of libraries.
+  deb: { packageName: LINUX_EXECUTABLE },
+  // electron-builder's default for the AppImage's own menu entry is `AppRun --no-sandbox %U` (used by AppImageLauncher,
+  // Gear Lever, appimaged): the app refuses that start, so the entry passes nothing (AppRun still adds the flag by itself
+  // only where the sandbox cannot run, and then the app says to install the .deb)
+  appImage: { executableArgs: [] },
   publish: [{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }],
 }

@@ -3628,6 +3628,7 @@ export const es: Record<MessageKey, string> = {
   "localApps.error.command": "Escriba un programa y lo que le sigue. No se pueden usar caracteres como |, & y ;.",
   "localApps.error.settings": "Escriba cada ajuste en su propia línea, como NOMBRE=valor.",
   "localApps.settingsNotKept": "Este ordenador no pudo guardar los ajustes de forma segura, así que no se guardaron.",
+  "localApps.settingsNotKeptLinux": "Este ordenador no pudo guardar los ajustes de forma segura, así que no se guardaron. En Linux se necesita GNOME Keyring o KWallet.",
   "localApps.whereHere": "Solo funciona cuando escribe desde esta aplicación de escritorio en este ordenador. El programa se ejecuta aquí, con su acceso.",
   "localApps.whereElsewhere": "Solo funciona desde la aplicación de escritorio de {product} en el ordenador donde se añadió. Desde aquí, la IA no puede usarla.",
   "localApps.runs": "Ejecuta",

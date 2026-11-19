@@ -3673,6 +3673,7 @@ export const en: Record<MessageKey, string> = {
   "localApps.error.command": "Type one program and what follows it. Characters such as |, & and ; cannot be used.",
   "localApps.error.settings": "Write each setting on its own line, as NAME=value.",
   "localApps.settingsNotKept": "This computer could not keep the settings safely, so they were not saved.",
+  "localApps.settingsNotKeptLinux": "This computer could not keep the settings safely, so they were not saved. On Linux this needs GNOME Keyring or KWallet.",
   "localApps.whereHere": "Works only when you write from this desktop app on this computer. The program runs here, with your access.",
   "localApps.whereElsewhere": "Works only from the {product} desktop app on the computer where it was added. From here, the AI cannot use it.",
   "localApps.runs": "Runs",
