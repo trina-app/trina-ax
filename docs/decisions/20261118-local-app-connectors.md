@@ -90,6 +90,24 @@
    commands and the tests are macOS first). Linux: [20261119-linux-desktop-app.md](20261119-linux-desktop-app.md)
    ("Apps on your computer": the AppImage's environment left out, `/snap/bin`, the keyring check).
 
+## Aside and ego lite as their own connectors (2026-11-19)
+
+- **The owner:** "이정도면 그냥 어사이드 에고 라이트를 슬랙처럼 공식 커넥터로 만들자 아이콘 넣고", then "컴퓨터 앱 연결은 커스텀 커넥터로
+  넣으면 될듯". So Settings › Connectors › Discover has an **Aside** card and an **ego lite** card (their logos, one line, an
+  install hint; `web/src/lib/localApps.ts`), and the generic "An app on your computer" card is gone. Their + (or Connect on
+  their page) adds the preset command at once; the desktop app's one-time confirm follows as before. On the web or the
+  phone the card says "Works in the desktop app" in grey.
+- **Any other program** is a choice in **Add custom connector**: "Where does it run? On the internet / On this computer".
+  A member, who adds no server by its address, gets the button in the desktop app with only "On this computer".
+- **Aside's account (the owner hit it on 2026-11-19).** `aside mcp` picks one of Aside's accounts when it starts. When no
+  open Aside Browser profile uses it, `browser_profiles` lists none and its tools say "none of its profiles use account
+  u1 … rerun with --account u2". For the listed Aside command only (exactly `aside mcp`, never a typed command), the
+  desktop app then starts the same program again with `--account <uN>` (from Aside's message, else the first account with
+  profiles in `aside account list --json`, signed-in first) and runs the call once more. The program and the confirmed
+  command do not change, so nothing is asked again. With no such account the AI tells the person: "Aside Browser isn't
+  signed in. Open Aside and sign in, then ask again." No terminal steps (the owner: "이게 뭔데?").
+- The rules above stay: the person adds it, the one-time confirm, personal only, no shell.
+
 ## Open questions
 
 - **Keeping the known tools list up to date.** Who checks a tool's command shape, and how a new version reaches desktop
