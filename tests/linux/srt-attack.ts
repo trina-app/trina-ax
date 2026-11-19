@@ -12,6 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { sweepHooks, sweepRoots } from '../../server/src/devenv/srt/hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
@@ -232,6 +233,10 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
+  // as the runner (spawnRun): every file git could run as a hook in the folders the run may write loses its exec bit
+  // before the run, and again after it (QA TC-5348, hook-sweep.ts)
+  const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(BASE, owner), runTmp(BASE, owner)])
+  await sweepHooks(swept, { linkRoots: [TEAM] })
   const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder, logKey }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
@@ -239,6 +244,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   await p.exited; clearTimeout(t)
   const code = fs.existsSync(exitFile) ? Number(fs.readFileSync(exitFile, 'utf8').trim()) : null
   release(); dropGuard()
+  await sweepHooks(swept, { linkRoots: [TEAM] })
   fs.rmSync(settingsFile, { force: true }); fs.rmSync(exitFile, { force: true })
   return { code, out: a + b }
 }
@@ -269,6 +275,11 @@ const GMARK = `${GITP}/PLANTED-RAN`
 /** a git call refused by the wrapper, and nothing planted ran */
 const gitRefused = (r: { code: number | null; out: string }) => (!r.out.includes('git was refused') ? `git was not refused: ${r.out.slice(0, 300)}` : fs.existsSync(GMARK) ? 'a planted program ran' : null)
 const PROJECT_HOME = projectHome(BASE, ME, 'projects/gitp')
+const GID = '-c user.name=a -c user.email=a@example.com'
+/** no hook of erin's ran: no line of it in the output, no mark in the project folder */
+const hookNotRun: Check = (r) => (r.out.split('\n').some((l) => l.trim() === 'HOOK-RAN') ? `a hook ran: ${r.out.slice(0, 300)}` : fs.existsSync(GMARK) ? 'a planted hook left its mark' : null)
+/** a file on the disk has no exec bit */
+const noExec = (f: string) => { try { return fs.statSync(f).mode & 0o111 ? `${path.relative(TEAM, f)} is executable on the disk` : null } catch { return `${path.relative(TEAM, f)} is not there` } }
 const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null; before?: () => void }[] = [
   { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
@@ -344,8 +355,8 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   // ---- git between members (QA TC-4939): a run that makes a repository can write its hooks and config (srt protects
   // them only when .git is there as the run starts); another member's git must not run them ----
   { id: 'G1', what: 'erin makes a repository in the project folder and plants a pre-commit hook', o: { who: ERIN, start: 'projects/gitp' },
-    cmd: `git init -q && printf '#!/bin/sh\\necho HOOK-RAN; touch "$HOME/.hook-was-here"; touch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo PLANTED`,
-    check: both(ok, has('PLANTED')) },
+    cmd: `git init -q && printf '#!/bin/sh\\necho HOOK-RAN; touch "$HOME/.hook-was-here"; touch ${HOOK_MARK}; touch ${GMARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo PLANTED`,
+    check: both(ok, has('PLANTED')), after: () => noExec(`${GITP}/.git/hooks/pre-commit`) },
   { id: 'G2', what: 'alice commits there: the hook does not run, nothing lands in her home', o: { start: 'projects/gitp' },
     cmd: 'git -c user.name=a -c user.email=a@example.com commit -q --allow-empty -m x && echo COMMITTED; git config core.hooksPath',
     check: both(ok, has('COMMITTED'), has('/dev/null'), (r) => (r.out.includes('HOOK-RAN') ? 'the hook ran' : null)),
@@ -380,6 +391,42 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'G11', what: 'a filter written by another member\'s job after the command started: the next git call is refused', o: { start: 'projects/gitp', cwd: 'g11', during: () => fs.appendFileSync(`${GITP}/g11/.git/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`) },
     before: () => hostGit(`${GITP}/g11`, 'init', '-q'),
     cmd: 'git status >/dev/null && echo FIRST-OK; sleep 4; git status; echo CODE=$?', check: both(has('FIRST-OK'), gitRefused) },
+  // ---- the command line wins over core.hooksPath=/dev/null (QA TC-5348): erin's hooks (G1 and below) must not run in
+  // alice's command whatever it sets. The guard is the exec bit on the disk (hook-sweep.ts), so /usr/bin/git (no wrapper) ----
+  { id: 'G12', what: 'alice: git -c core.hooksPath=.git/hooks commit (the repro), with the wrapper and with /usr/bin/git', o: { start: 'projects/gitp' },
+    cmd: `git ${GID} -c core.hooksPath=.git/hooks commit -q --allow-empty -m g12; /usr/bin/git ${GID} -c core.hooksPath=.git/hooks commit -q --allow-empty -m g12b && echo COMMITTED`,
+    check: both(has('COMMITTED'), hookNotRun), after: () => (fs.existsSync(HOOK_MARK) ? 'the hook wrote alice\'s home' : null) },
+  { id: 'G13', what: 'alice: GIT_CONFIG_COUNT/KEY/VALUE set by the command replace the run\'s settings', o: { start: 'projects/gitp' },
+    cmd: `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=.git/hooks /usr/bin/git ${GID} commit -q --allow-empty -m g13 && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G14', what: 'alice: -c include.path naming a file of her own that sets core.hooksPath', o: { start: 'projects/gitp' },
+    cmd: `printf '[core]\\n\\thooksPath = %s\\n' "$PWD/.git/hooks" > "$TMPDIR/inc" && /usr/bin/git -c include.path="$TMPDIR/inc" ${GID} commit -q --allow-empty -m g14 && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G15', what: 'alice: --config-env=core.hooksPath=<variable>', o: { start: 'projects/gitp' },
+    cmd: `HP=.git/hooks /usr/bin/git --config-env=core.hooksPath=HP ${GID} commit -q --allow-empty -m g15 && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G16a', what: 'erin: a hooks folder in a sub-folder (tools/hooks), an ordinary script, a repository in other/, a bare repository, a link hook', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `set -e; mk() { mkdir -p "$(dirname "$1")"; printf '#!/bin/sh\\necho HOOK-RAN; touch ${GMARK}\\n' > "$1"; chmod +x "$1"; }
+mk tools/hooks/pre-commit; printf '#!/bin/sh\\necho BUILD-OK\\n' > build.sh; chmod +x build.sh
+mkdir other && git -C other init -q && mk other/.git/hooks/pre-commit
+git init -q --bare b.git && mk b.git/hooks/pre-receive && mk b.git/hooks/update && mk b.git/hooks/post-receive
+mk scripts/run.sh && mkdir -p lnk && ln -s ../scripts/run.sh lnk/pre-commit
+mk deep/a/b/c/d/e/f/g/h/i/j/COMMIT-MSG
+ls -l tools/hooks/pre-commit build.sh && echo PLANTED`,
+    check: both(ok, has('PLANTED')),
+    // the hooks erin wrote in this command have no exec bit on the disk once it ended; her build.sh keeps it
+    after: () => ['tools/hooks/pre-commit', 'other/.git/hooks/pre-commit', 'b.git/hooks/pre-receive', 'b.git/hooks/update', 'b.git/hooks/post-receive', 'scripts/run.sh', 'deep/a/b/c/d/e/f/g/h/i/j/COMMIT-MSG'].map((f) => noExec(`${GITP}/${f}`)).find((x) => x) ?? (fs.statSync(`${GITP}/build.sh`).mode & 0o100 ? null : 'an ordinary script lost its exec bit') },
+  { id: 'G16', what: 'alice: core.hooksPath naming erin\'s sub-folder (tools/hooks) and a folder ten down by another letter case', o: { start: 'projects/gitp' },
+    cmd: `/usr/bin/git -c core.hooksPath=tools/hooks ${GID} commit -q --allow-empty -m g16 && /usr/bin/git -c core.hooksPath=deep/a/b/c/d/e/f/g/h/i/j ${GID} commit -q --allow-empty -m g16b && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G17', what: 'alice: git -C into erin\'s other repository with its hooks', o: { start: 'projects/gitp' },
+    cmd: `/usr/bin/git -C other -c core.hooksPath=.git/hooks ${GID} commit -q --allow-empty -m g17 && GIT_CONFIG_COUNT=0 /usr/bin/git -C other ${GID} commit -q --allow-empty -m g17b && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G18', what: 'alice: a push into erin\'s bare repository (pre-receive, update, post-receive), the run\'s settings dropped', o: { start: 'projects/gitp' },
+    cmd: `cd "$TMPDIR" && rm -rf a18 && /usr/bin/git init -q a18 && cd a18 && /usr/bin/git ${GID} commit -q --allow-empty -m g18 && GIT_CONFIG_COUNT=0 /usr/bin/git push -q ${GITP}/b.git HEAD:refs/heads/main 2>&1; /usr/bin/git -c core.hooksPath=${GITP}/b.git/hooks push -q ${GITP}/b.git HEAD:refs/heads/two 2>&1; echo PUSHED`,
+    check: both(has('PUSHED'), hookNotRun) },
+  { id: 'G19', what: 'alice: --git-dir naming erin\'s bare repository with core.hooksPath at its hooks', o: { start: 'projects/gitp' },
+    cmd: `/usr/bin/git --git-dir=b.git --work-tree=. -c core.hooksPath=b.git/hooks ${GID} commit -q --allow-empty -m g19 2>&1; echo DONE`, check: both(has('DONE'), hookNotRun) },
+  { id: 'G20', what: 'alice: a hook that is a link to erin\'s executable script', o: { start: 'projects/gitp' },
+    cmd: `/usr/bin/git -c core.hooksPath=lnk ${GID} commit -q --allow-empty -m g20 && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'G21', what: 'legitimate work: erin\'s ordinary script runs, and a hook alice writes in her own command runs there', o: { start: 'projects/gitp' },
+    cmd: `./build.sh && mkdir own21 && cd own21 && /usr/bin/git init -q && printf '#!/bin/sh\\necho OWN-HOOK-RAN\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && /usr/bin/git -c core.hooksPath=.git/hooks ${GID} commit -q --allow-empty -m own`,
+    check: both(ok, has('BUILD-OK'), has('OWN-HOOK-RAN'), hookNotRun) },
   // the home of a project folder's runs is not the home of her own chats (review of #1297)
   { id: 'H1', what: 'alice\'s run in the project folder leaves a file in its home', o: { start: 'projects/gitp' },
     cmd: 'echo HOME=$HOME; touch $HOME/PLANTED-IN-PROJECT-HOME && echo PLANTED', check: both(ok, has(`HOME=${PROJECT_HOME}`), has('PLANTED')) },

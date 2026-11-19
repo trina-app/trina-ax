@@ -38,7 +38,7 @@ line controls:
 
 1. hook-sweep.ts + runner.ts (spawnRun) + unit tests with real git for every bypass.
 2. srt-attack.ts: the harness sweeps as the runner does; attacks G12-G21.
-3. Decision `docs/decisions/20261119-devenv-hooks-not-executable.md`, `changes/git-hooks-bypass-shared.md`.
+3. Decision `docs/decisions/20261119-git-hooks-bypass-shared.md`, `changes/git-hooks-bypass-shared.md`.
 
 ## Checks
 

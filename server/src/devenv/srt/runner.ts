@@ -50,6 +50,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
 import { gitWrapperSource } from './git-guard'
+import { sweepHooks, sweepRoots } from './hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
@@ -622,6 +623,15 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // a shared chat: a cwd in a folder the run does not show (a sub-folder some of its people may not open) is refused
     // with the same words as one that is not there (QA TC-4945)
     if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
+    // git hooks (QA TC-5348): every file that git could run as a hook in the folders this run may write loses its exec
+    // bit, now and when the run ends, so a hook another person's run left there never runs here, whatever the command
+    // line sets (hook-sweep.ts). The run does not start when the folders cannot be checked
+    const own = runOwner(s.space, s.runId, ctx.files.fx.root)
+    const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(c.base, own), runTmp(c.base, own)])
+    const linkRoots = [ctx.files.fx.root]
+    const sweptNow = await sweepHooks(swept, { linkRoots }).catch((e: Error) => { throw new Error(`${e.message}; the command did not run`) })
+    if (sweptNow.length) ctx.log?.info?.('devenv: git hooks lost their exec bit before a run', { count: sweptNow.length })
+    const sweepAfter = () => { void sweepHooks(swept, { linkRoots }).then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit after a run', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message })) }
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
@@ -634,7 +644,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop() }), hash, net }
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop(); sweepAfter() }), hash, net }
   } catch (e) { release(); releaseSkills(); dropGuard(); throw e }
 }
 

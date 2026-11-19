@@ -17,12 +17,14 @@ setDefaultTimeout(40_000)
 const PLAN2: DevEnvPlan = { format: 1, plan: 'team', maxRunning: 3, cpus: 1, memoryMiB: 1024, pids: 256, diskGiB: 4, network: 'open' }
 interface FakeRun { spec: SpawnSpec; state: 'active' | 'gone'; resolve: (v: { code: number | null; signal: string | null }) => void }
 const runs = new Map<string, FakeRun>()
+let onSpawn: ((spec: SpawnSpec) => void) | null = null
 const stops: string[] = []
 const fake: SrtSystem = {
   spawn(spec) {
     let resolve!: FakeRun['resolve']
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     runs.set(spec.runId, { spec, state: 'active', resolve })
+    onSpawn?.(spec)
     const m = /^echo (.*)$/.exec(spec.command.split('\n').pop()!)
     if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); runs.get(spec.runId)!.state = 'gone'; resolve({ code: 0, signal: null }) })
     return { pid: 999_999, exited }
@@ -106,5 +108,32 @@ describe('git and the home in the project folder', () => {
     // her project chat's run: a home for this project folder, not the home of her own chats
     expect(spec.env.HOME).toBe(projectHome(base, 'alice', P.folderPath))
     expect(spec.env.HOME).not.toBe(personHome(base, 'alice'))
+  })
+})
+
+// QA TC-5348: a hook another person's run left in the project folder has no exec bit when the next run starts, and a
+// hook a run writes loses its exec bit when it ends (srt/hook-sweep.ts), whatever the command line sets
+describe('git hooks in the project folder', () => {
+  test('the exec bit of every hook-named file is taken before the run starts and after it ends', async () => {
+    const dir = path.join(h.ctx.files.fx.root, P.folderPath)
+    const hook = path.join(dir, 'repo', '.git', 'hooks', 'pre-commit'), other = path.join(dir, 'tools', 'Post-Checkout'), script = path.join(dir, 'build.sh')
+    for (const f of [hook, other, script]) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, '#!/bin/sh\ntrue\n', { mode: 0o755 }) }
+    let atStart: number[] = []
+    const later = path.join(dir, 'later', 'hooks', 'pre-push')
+    onSpawn = () => {
+      atStart = [hook, other].map((f) => fs.statSync(f).mode & 0o111)
+      // the run itself writes a hook: it stays executable while the run lives
+      fs.mkdirSync(path.dirname(later), { recursive: true }); fs.writeFileSync(later, '#!/bin/sh\ntrue\n', { mode: 0o755 })
+    }
+    try {
+      expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi')
+    } finally { onSpawn = null }
+    expect(atStart).toEqual([0, 0])
+    // an ordinary script keeps its exec bit
+    expect(fs.statSync(script).mode & 0o111).toBe(0o111)
+    // after the run: its own hook too (the sweep after a run does not hold up the answer)
+    for (let i = 0; i < 50 && fs.statSync(later).mode & 0o111; i++) await Bun.sleep(20)
+    expect(fs.statSync(later).mode & 0o111).toBe(0)
+    expect(fs.statSync(hook).mode & 0o666).toBe(0o644)
   })
 })
