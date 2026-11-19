@@ -251,6 +251,13 @@ export const Project = z.object({
    * admins for a team project, and its creator while they are one of its members. Absent: no, or an older server (there:
    * the owner and admins). */
   canRestore: z.literal(true).optional(),
+  /** the private channel linked to this team project (docs/decisions/20261119-channel-project-link.md): its name, how
+   * many are in it, whether I am. Only for someone who reads the project, never with `member: false`, never for a guest
+   * who is not in it. Absent: none, or an older server. */
+  channel: z.object({ roomId: Uuid7, name: z.string(), memberCount: z.number().int().nonnegative(), inIt: z.boolean(), /** I may unlink it (in it, not a guest, write on the project) */ canUnlink: z.literal(true).optional() }).optional(),
+  /** I may link a channel to it or create one (a non-guest who reads and writes it, a team project in projects/<name>,
+   * no active channel). Absent: no. */
+  canLinkChannel: z.literal(true).optional(),
 })
 export type Project = z.infer<typeof Project>
 

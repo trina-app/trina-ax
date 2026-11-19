@@ -1,24 +1,24 @@
-// An app on the person's own computer as a connector (docs/decisions/20261118-local-app-connectors.md): the dialog that
-// adds one (Settings › Connectors › Discover › "An app on your computer", only in the desktop app) and the part of its
-// page that is its own (where it works, what runs, Running and Stop, the settings kept on this computer). The person
-// picks a known tool (Aside, ego lite) or types a program and its arguments; nothing here is a shell. The desktop app
-// asks once in its own window before the program runs, so this page never confirms anything itself. Setting values go
-// to the desktop app only (DesktopBridge.localApps.setSettings); the team server gets their names.
-import { useEffect, useState } from 'react'
-import { LOCAL_APP_PRESETS, localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
+// An app on the person's own computer as a connector (docs/decisions/20261118-local-app-connectors.md). Aside and ego lite
+// have cards of their own in Settings › Connectors (lib/localApps.ts, pages/Connectors.tsx), which connect their preset
+// command with no picker; any other program is added through "Add custom connector" › "On this computer"
+// (IntegrationDialog.tsx), whose fields are here (useLocalProgram): the program and its arguments, a name, and settings.
+// Nothing here is a shell. The desktop app asks once in its own window before the program runs, so this page never
+// confirms anything itself. Setting values go to the desktop app only (DesktopBridge.localApps.setSettings); the team
+// server gets their names. Also here: the part of such a connection's page that is its own (where it works, what runs,
+// Running and Stop, the settings kept on this computer).
+import { useEffect, useState, type ReactNode } from 'react'
+import { localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { desktop, settingsNotKeptKey } from '../../lib/desktop'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, Field, Modal, inputCls } from '../ui'
-import { Choices } from './IntegrationDialog'
 import { Note } from './GoogleAppConnector'
 import { Detail } from './AppDetail'
 
 /** The desktop app's part for apps on this computer, when this window is a desktop app new enough to have it. */
 export const localAppsBridge = () => desktop()?.localApps ?? null
 
-type Pick = 'aside' | 'ego-lite' | 'other'
 const NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 
 /** "NAME=value" lines as the settings: names for the server, values for this computer. null: a line that is not one. */
@@ -35,88 +35,60 @@ export function settingLines(text: string): Record<string, string> | null {
   return out
 }
 
-/** Add an app on this computer. `onSaved`: the new connection (its page opens next). */
-export function LocalAppDialog({ onClose, onSaved }: { onClose: () => void; onSaved: (i: Integration) => void }) {
+/** Add an app on this computer: the desktop app asks in its own window while this waits (the check runs the program
+ * once). */
+export const createLocalApp = (name: string, spec: LocalAppSpec) => api.call(API.createLocalIntegration, { body: { name, spec } })
+
+/** "A program on this computer" in Add custom connector (IntegrationDialog.tsx): its fields and its save. `save` gives
+ * the new connection, or null when a field needs fixing or the server refused (the error shows in `fields`). */
+export function useLocalProgram(): { fields: ReactNode; save: () => Promise<Integration | null>; busy: boolean } {
   const t = useT()
   const locale = useLocale()
-  const [pick, setPick] = useState<Pick>('aside')
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [settings, setSettings] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<{ field: 'command' | 'settings' | 'name' | null; text: string } | null>(null)
-  const preset = LOCAL_APP_PRESETS.find((p) => p.id === pick)
+  const [error, setError] = useState<{ field: 'command' | 'settings' | null; text: string } | null>(null)
 
-  const save = async () => {
+  const save = async (): Promise<Integration | null> => {
+    if (busy) return null
     setError(null)
-    let spec: LocalAppSpec
-    let values: Record<string, string> = {}
-    let label = preset?.name ?? name.trim()
-    if (preset) spec = preset.spec
-    else {
-      const argv = splitCommand(command)
-      if (!argv) return setError({ field: 'command', text: t('localApps.error.command') })
-      const parsed = settingLines(settings)
-      if (!parsed) return setError({ field: 'settings', text: t('localApps.error.settings') })
-      values = parsed
-      label = name.trim() || argv[0]!.split('/').pop()!.slice(0, 60)
-      spec = { adapter: 'mcp', command: argv[0]!, args: argv.slice(1), env: Object.keys(values) }
-    }
+    const argv = splitCommand(command)
+    if (!argv) { setError({ field: 'command', text: t('localApps.error.command') }); return null }
+    const values = settingLines(settings)
+    if (!values) { setError({ field: 'settings', text: t('localApps.error.settings') }); return null }
+    const label = name.trim() || argv[0]!.split('/').pop()!.slice(0, 60)
     setBusy(true)
     try {
-      // the desktop app asks in its own window while this waits (the check runs the program once)
-      let i = await api.call(API.createLocalIntegration, { body: { name: label, spec } })
+      let i = await createLocalApp(label, { adapter: 'mcp', command: argv[0]!, args: argv.slice(1), env: Object.keys(values) })
+      // the values go to this computer only (the desktop app seals them); the server keeps their names
       if (Object.keys(values).length) {
         const kept = await localAppsBridge()?.setSettings(i.id, values)
         if (kept !== 'saved') toast({ level: 'warn', text: t(settingsNotKeptKey(kept)) })
         else i = await api.call(API.refreshIntegration, { params: { id: i.id }, body: {} })
       }
-      onSaved(i)
+      return i
     } catch (e) {
       setError({ field: null, text: errorText(e, locale, t('error.network')) })
+      return null
     } finally { setBusy(false) }
   }
 
-  return (
-    <Modal open title={t('localApps.title')} onClose={onClose} width={520}
-      footer={<>
-        <Button onClick={onClose}>{t('common.cancel')}</Button>
-        <Button variant="primary" busy={busy} onClick={() => void save()} data-testid="local-app-save">{t('localApps.connect')}</Button>
-      </>}>
-      <div className="space-y-4" data-testid="local-app-dialog">
-        <p className="text-sm text-muted">{t('localApps.intro')}</p>
-        <Choices<Pick>
-          legend={t('localApps.which')}
-          value={pick}
-          onChange={(v) => { setPick(v); setError(null) }}
-          options={[
-            { value: 'aside', label: 'Aside', desc: t('localApps.aside'), testId: 'local-app-aside' },
-            { value: 'ego-lite', label: 'ego lite', desc: t('localApps.egoLite'), testId: 'local-app-ego' },
-            { value: 'other', label: t('localApps.other'), desc: t('localApps.otherHint'), testId: 'local-app-other' },
-          ]}
-        />
-        {preset && (
-          <p className="rounded-lg bg-subtle px-3 py-2 font-mono text-xs break-all text-ink" data-testid="local-app-command-preview">
-            {localCommandLines(preset.spec).map((l) => <span key={l} className="block">{l}</span>)}
-          </p>
-        )}
-        {pick === 'other' && (
-          <>
-            <Field label={t('localApps.field.command')} hint={t('localApps.field.commandHint')} error={error?.field === 'command' ? error.text : undefined}>
-              <input className={`${inputCls} font-mono`} value={command} autoComplete="off" spellCheck={false} maxLength={2000} placeholder="npx @playwright/mcp@latest" onChange={(e) => setCommand(e.target.value)} data-testid="local-app-command" />
-            </Field>
-            <Field label={t('localApps.field.name')} error={error?.field === 'name' ? error.text : undefined}>
-              <input className={inputCls} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="local-app-name" />
-            </Field>
-            <Field label={t('localApps.field.settings')} hint={t('localApps.field.settingsHint')} error={error?.field === 'settings' ? error.text : undefined}>
-              <textarea className={`${inputCls} min-h-16 font-mono`} value={settings} spellCheck={false} autoComplete="off" placeholder="API_KEY=…" onChange={(e) => setSettings(e.target.value)} data-testid="local-app-settings" />
-            </Field>
-          </>
-        )}
-        {error && !error.field && <p role="alert" className="text-sm text-danger" data-testid="local-app-error">{error.text}</p>}
-      </div>
-    </Modal>
+  const fields = (
+    <div className="space-y-4" data-testid="local-app-program">
+      <Field label={t('localApps.field.command')} hint={t('localApps.field.commandHint')} error={error?.field === 'command' ? error.text : undefined}>
+        <input className={`${inputCls} font-mono`} value={command} autoComplete="off" spellCheck={false} maxLength={2000} placeholder="npx @playwright/mcp@latest" onChange={(e) => setCommand(e.target.value)} data-autofocus data-testid="local-app-command" />
+      </Field>
+      <Field label={t('localApps.field.name')}>
+        <input className={inputCls} value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="local-app-name" />
+      </Field>
+      <Field label={t('localApps.field.settings')} hint={t('localApps.field.settingsHint')} error={error?.field === 'settings' ? error.text : undefined}>
+        <textarea className={`${inputCls} min-h-16 font-mono`} value={settings} spellCheck={false} autoComplete="off" placeholder="API_KEY=…" onChange={(e) => setSettings(e.target.value)} data-testid="local-app-settings" />
+      </Field>
+      {error && !error.field && <p role="alert" className="text-sm text-danger" data-testid="local-app-error">{error.text}</p>}
+    </div>
   )
+  return { fields, save, busy }
 }
 
 /** On an app on the computer's page, under its name: it works only from the desktop app on the computer it was added on. */

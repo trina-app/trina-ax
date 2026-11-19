@@ -52,7 +52,8 @@ import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
-import { LocalAppDialog, localAppsBridge } from '../components/integrations/LocalApp'
+import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
+import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -97,8 +98,26 @@ function useConnectorsState() {
     replace: (i) => list.setData((d) => (d ? { ...d, items: d.items.map((x) => (x.id === i.id ? i : x)) } : d)),
     reload,
   })
-  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector } | null>(null)
-  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin }
+  const [dialog, setDialog] = useState<{ existing?: Integration; connector?: Connector; local?: 'choice' | 'only' } | null>(null)
+  // Aside or ego lite connecting from its card or its page (the desktop app asks in its own window meanwhile), and why
+  // the last try did not work, for that app's page
+  const navigate = useNavigate()
+  const [localBusy, setLocalBusy] = useState<string | null>(null)
+  const [localError, setLocalError] = useState<{ id: string; text: string } | null>(null)
+  const connectLocal = async (a: LocalAppEntry) => {
+    if (localBusy) return
+    setLocalBusy(a.id)
+    setLocalError(null)
+    try {
+      const i = await createLocalApp(a.name, localAppSpec(a))
+      actions.saved(i, null, true)
+      navigate(connectionHref(i.id))
+    } catch (e) {
+      setLocalError({ id: a.id, text: errorText(e, locale, t('error.network')) })
+    } finally { setLocalBusy(null) }
+  }
+  const local = { busy: localBusy, error: localError, connect: (a: LocalAppEntry) => void connectLocal(a) }
+  return { list, drive, google, asks, requests, reload, actions, dialog, setDialog, admin, local }
 }
 type ConnectorsState = ReturnType<typeof useConnectorsState>
 const Ctx = createContext<ConnectorsState | null>(null)
@@ -139,6 +158,7 @@ function ConnectorsProvider({ children }: { children: ReactNode }) {
           scope={dialog.existing?.scope ?? 'personal'}
           existing={dialog.existing}
           connector={dialog.connector}
+          local={dialog.local}
           onClose={() => setDialog(null)}
           onSaved={(i, next) => {
             setDialog(null)
@@ -168,7 +188,7 @@ function useSetupReturnState() {
 function ConnectorsHome() {
   const t = useT()
   const navigate = useNavigate()
-  const { list, drive, google, asks, requests, actions, setDialog, admin } = useConnectors()
+  const { list, drive, google, asks, requests, actions, setDialog, admin, local } = useConnectors()
   const hosted = useMe()?.server.deployment === 'hosted'
   // a free-roam demo (store/demo.ts): what the demo has connected, read-only; nothing to connect, ask for or set up
   const freeRoam = useFreeRoam()
@@ -176,8 +196,6 @@ function ConnectorsHome() {
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
-  // "An app on your computer" (LocalApp.tsx): only in the desktop app, while the team allows it
-  const [local, setLocal] = useState(false)
   const [params, setParams] = useSearchParams()
   // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
   const inApp = !!mobileApp()
@@ -248,11 +266,16 @@ function ConnectorsHome() {
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
   // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
   // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
-  const localCard: Card[] = list.data?.localAllowed && localAppsBridge() ? [{
-    id: 'local-app', name: t('localApps.title'), line: t('localApps.line'), logo: '/favicon.svg', state: 'available',
-    onOpen: () => setLocal(true), onAdd: () => setLocal(true),
-  }] : []
-  const cards = freeRoam ? [] : [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCard, ...listed, ...askable]
+  // Aside and ego lite (lib/localApps.ts): their own cards while the team allows apps on the computer and people's own
+  // connections; + connects at once in the desktop app (the app asks once in its own window); elsewhere (the web, the
+  // phone) the card says it works in the desktop app, in the same grey words as its connection's row
+  const desk = !!localAppsBridge()
+  const localCards: Card[] = list.data?.localAllowed && personalAllowed ? LISTED_LOCAL_APPS.filter((a) => !mine.some((i) => localAppOf(i)?.id === a.id)).map((a) => ({
+    id: a.id, name: a.name, line: t(a.line), logo: localAppLogo(a), state: desk ? 'available' as const : 'off' as const,
+    ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
+    onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
+  })) : []
+  const cards = freeRoam ? [] : [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -267,8 +290,10 @@ function ConnectorsHome() {
       // added but never signed in: not connected yet, so its line says what its page says ("로그인 필요", QA TC-205),
       // never "Connected" or "Reconnect"
       const c = connectorFor(i.url)
+      // Aside or ego lite: its own logo (any other program on the computer: its first letter)
+      const app = localAppOf(i)
       return { name: i.name, row: (
-        <ConnectorRow key={i.id} id={i.id} catalogId={c?.id} logo={c ? connectorLogo(c) : undefined} name={i.name}
+        <ConnectorRow key={i.id} id={i.id} catalogId={c?.id} logo={c ? connectorLogo(c) : app ? localAppLogo(app) : undefined} name={i.name}
           status={connectionRowStatus(i)} onOpen={() => navigate(connectionHref(i.id))} />
       ) }
     }),
@@ -284,19 +309,24 @@ function ConnectorsHome() {
   // owner who asked why a member's screen had no Add, 2026-11-18: the line was under Discover's last card, out of sight);
   // not with the empty list's own words for members, which say the same
   const custom = freeRoam ? null : customConnectorAction(personalAllowed, admin)
+  // in the desktop app Add custom connector also adds a program on this computer; a member, who adds no server by its
+  // address, gets it for that alone (the dialog says to ask an admin for an address)
+  const localHere = desk && !!list.data?.localAllowed && !!personalAllowed
+  const addCustom = custom === 'add' ? () => setDialog(localHere ? { local: 'choice' } : {})
+    : custom === 'ask' && localHere ? () => setDialog({ local: 'only' }) : null
   const headActions = (
     <>
       <div className="relative w-[calc(100vw-2rem)] min-w-0 sm:w-60">
         <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
       </div>
-      {custom === 'add' && (
-        <Button onClick={() => setDialog({})} data-testid="integration-add">
+      {addCustom && (
+        <Button onClick={addCustom} data-testid="integration-add">
           <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
         </Button>
       )}
       {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
-      {custom === 'ask' && !empty && (
+      {custom === 'ask' && !addCustom && !empty && (
         <p className="text-sm text-muted" data-testid="connector-not-listed">
           {t('integrations.discover.customHint')} <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
         </p>
@@ -357,7 +387,6 @@ function ConnectorsHome() {
         )}
       </div>
       {fromTeam.dialog}
-      {local && <LocalAppDialog onClose={() => setLocal(false)} onSaved={(i) => { setLocal(false); actions.saved(i, null, true); navigate(connectionHref(i.id)) }} />}
     </div>
   )
 }
@@ -377,6 +406,8 @@ function ConnectorPage() {
       : undefined
     return <GoogleAppDetail v={v} g={google} ask={ask} />
   }
+  const app = localAppById(id)
+  if (app) return <LocalListedPage a={app} />
   const c = CONNECTORS.find((x) => x.id === id)
   return c ? <ListedPage c={c} /> : <Navigate to={CONNECTORS_HOME} replace />
 }
@@ -456,6 +487,50 @@ function ListedPage({ c }: { c: Connector }) {
   )
 }
 
+/** Aside's or ego lite's page (/settings/connectors/<id>): once connected, its connection's page; before, what it is,
+ * the install hint, and Connect in the desktop app (elsewhere, in grey, that it works in the desktop app). */
+function LocalListedPage({ a }: { a: LocalAppEntry }) {
+  const t = useT()
+  const { list, local } = useConnectors()
+  if (!list.data) return <PageSkeleton />
+  const have = splitByScope(list.data.items).mine.find((i) => localAppOf(i)?.id === a.id)
+  const help = <LocalAppHelp a={a} />
+  if (have) return <LocalMinePage i={have} a={a} />
+  const desk = !!localAppsBridge()
+  const allowed = !!list.data.localAllowed && !!list.data.personalAllowed
+  const error = local.error?.id === a.id ? local.error.text : null
+  return (
+    <McpShell privacy={false}>
+      <AppDetail embedded inSettings testId="connector-detail" state={desk && allowed ? 'available' : 'elsewhere'} logo={localAppLogo(a)} name={a.name}
+        byLine={t('connectors.byLine', { name: a.name, line: t(a.line) })}
+        actions={desk && allowed ? (
+          <Button variant="primary" busy={local.busy === a.id} onClick={() => local.connect(a)} data-testid="connector-connect">{t('aiApps.connect')}</Button>
+        ) : (
+          <span className="text-xs text-muted" data-testid="connection-status" data-state="elsewhere">{t(allowed ? 'localApps.status.desktopOnly' : 'appConnectors.off')}</span>
+        )}
+        status={<>
+          <Note testId="local-app-install">{t(a.install)}</Note>
+          {error && <Note tone="warn" testId="local-app-error">{error}</Note>}
+          {help}
+        </>}
+        about={t('localApps.about')} canChange asks="ask" developer={a.name}
+        tools={[]} toolsNote={<span data-testid="connector-tools-note">{t('connectors.toolsAfter')}</span>} />
+    </McpShell>
+  )
+}
+
+/** What to do when a listed app on the computer connects and still reaches nothing (Aside: LocalAppEntry.help). */
+function LocalAppHelp({ a }: { a: LocalAppEntry }) {
+  const t = useT()
+  return a.help ? <Note testId="local-app-help">{t(a.help)}</Note> : null
+}
+
+/** A connected Aside or ego lite: its connection's page, with its own About and help. */
+function LocalMinePage({ i, a }: { i: Integration; a: LocalAppEntry }) {
+  const t = useT()
+  return <McpShell privacy={false}><MinePage i={i} about={t('localApps.about')}><LocalAppHelp a={a} /></MinePage></McpShell>
+}
+
 /** /settings/connectors/mcp/:integrationId: one of the person's own connections (added by address, from the list or
  * from a team template), or a team connection they may use (read-only: its state, its tools, "Ask every time"). */
 function CustomConnectorPage() {
@@ -465,6 +540,8 @@ function CustomConnectorPage() {
   if (!list.data) return <PageSkeleton />
   const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to={CONNECTORS_HOME} replace />
+  const app = localAppOf(i)
+  if (app) return <LocalMinePage i={i} a={app} />
   return (
     // an app on the computer keeps no key or sign-in on the server (its settings stay on that computer): no privacy note
     <McpShell privacy={i.kind !== 'local'}>
@@ -476,9 +553,9 @@ function CustomConnectorPage() {
 /** One connection's page in Settings: the person's own with what its row always offered (check, tools, sign in, edit,
  * delete, in ⋯), a team connection read-only, as the team provides it. Deleted: the page it was on shows what is left
  * (the listed service's page, or the list). */
-function MinePage({ i, about }: { i: Integration; about: string }) {
+function MinePage({ i, about, children }: { i: Integration; about: string; children?: ReactNode }) {
   const { actions, setDialog } = useConnectors()
-  return <ConnectionPage inSettings i={i} actions={actions} readOnly={i.scope === 'team'} onEdit={() => setDialog({ existing: i })} about={about} />
+  return <ConnectionPage inSettings i={i} actions={actions} readOnly={i.scope === 'team'} onEdit={() => setDialog({ existing: i })} about={about}>{children}</ConnectionPage>
 }
 
 /** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */

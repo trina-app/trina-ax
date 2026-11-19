@@ -1173,6 +1173,20 @@ cases:
     good: Says plainly how to make a project in the app (or makes it if it can); no invented success.
     checks: []
 
+- id: PRJ-06
+  title: How to give a project its own channel
+  features: [rooms.project-link]
+  lang: ko
+  context: project
+  as: sora
+  prompt: 이 프로젝트 사람들끼리 얘기할 채널 하나 만들고 싶은데, 파일은 프로젝트 폴더에 모이게 할 수 있어?
+  expect:
+    outcome: explain
+    good: "Says it is done on the project's page: the Channel box's Create a channel (the project's people already ticked) or Link a channel, or from a private channel's info, Link to a project; then the channel's Files button opens the project folder and Save to project copies a document there. Says the AI does not make or link the channel itself; no invented steps, no promise that members are synced."
+    checks:
+      - { type: no_file_created, file: "**" }
+  why: docs/decisions/20261119-channel-project-link.md; the side chat's own save into a linked project's folder is covered by tests/unit/b-linked-project-no-card.test.ts (the fixture room is not linked, so other room-side cases keep their save place).
+
 - id: PRJ-05
   title: Commands in a project (dev environment)
   features: [projects.dev-env, projects.dev-env-sites]

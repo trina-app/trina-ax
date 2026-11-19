@@ -6,7 +6,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
+import { answersAgain, asksOutside, certTrouble, desktopPagePath, firstRunLinks, healthVerdict, officeCertPage, offlineRetryDelay, OFFLINE_RETRY_MS, linkFromArgv, LINK_SCHEME, readDesktopLink, retypablePath, startupLinkTarget, hostOf, INSTALL_DOCS, isGatewayDown, isLoopbackHost, isSignInPath, onThisComputer, originOf, parseTeamAddress, teamLabel, TEAM_DOMAIN } from '../../desktop/src/common/address'
 import { resumePage } from '../../desktop/src/common/update-guard'
 import { errorResult, MAX_ITEMS, toBrowserResult } from '../../desktop/src/common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, UI_LOCALES, type UiKey, type UiLocale } from '../../desktop/src/common/i18n'
@@ -269,6 +269,21 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
       `${LINK_SCHEME}://open?url=${enc('https://acme.trina.app')}#x`, `${LINK_SCHEME}://u:p@open?url=${enc('https://acme.trina.app')}`, `${LINK_SCHEME}://open:99?url=${enc('https://acme.trina.app')}`,
       `${LINK_SCHEME}://open/x?url=${enc('https://acme.trina.app')}`, `other://open?url=${enc('https://acme.trina.app')}`, `https://acme.${TEAM_DOMAIN}/join#t=0INpvAqjFG3OhdmwH4CfCuxr-mz7rx3dLOr1tEwbB7E`, 'x'.repeat(5000)])
       expect(readDesktopLink(raw)).toBeNull()
+  })
+  test('a link that starts the closed app opens its page on a known team, else it is left to screen 4', () => {
+    const team = `https://acme.${TEAM_DOMAIN}`
+    const id = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
+    const teams = [{ id: 't1', origin: `https://other.${TEAM_DOMAIN}` }, { id: 't2', origin: team }]
+    const raw = (inner: string) => `${LINK_SCHEME}://open?url=${encodeURIComponent(inner)}`
+    expect(startupLinkTarget(raw(`${team}/c/${id}`), teams)).toEqual({ id: 't2', path: `/c/${id}` })
+    expect(startupLinkTarget(raw(`${team}/rooms/${id}?m=${id}`), teams)).toEqual({ id: 't2', path: `/rooms/${id}?m=${id}` })
+    expect(startupLinkTarget(raw(`https://new.${TEAM_DOMAIN}/c/${id}`), teams)).toBeNull()
+    expect(startupLinkTarget(raw(team), teams)).toBeNull()
+    expect(startupLinkTarget(raw(`${team}/settings`), teams)).toBeNull()
+    expect(startupLinkTarget(null, teams)).toBeNull()
+    expect(startupLinkTarget(raw(`${team}/c/${id}`), [])).toBeNull()
+    // the link as it comes on a command line
+    expect(startupLinkTarget(linkFromArgv(['/opt/app', '--no-sandbox', raw(`${team}/c/${id}`)]), teams)?.id).toBe('t2')
   })
   test('a chat, room or project page inside the link (QA TC-2266): fixed routes with id-shaped parts only', () => {
     const team = `https://acme.${TEAM_DOMAIN}`

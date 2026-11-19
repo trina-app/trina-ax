@@ -89,6 +89,17 @@ export function desktopPagePath(raw: string): { origin: string; path: string } |
   return { origin: p.origin, path: path + query }
 }
 
+/**
+ * A link that started the app (the app was closed): when it is a chat, room or project page of a team the app already
+ * has (exact origin, desktopPagePath), the team and the page to open at the first load. null: the app starts as usual
+ * and the link goes to screen ④ (AppWindow.offerLink).
+ */
+export function startupLinkTarget(raw: string | null, teams: readonly { id: string; origin: string }[]): { id: string; path: string } | null {
+  const page = raw ? desktopPagePath(raw) : null
+  const known = page ? teams.find((x) => x.origin === page.origin) : undefined
+  return page && known ? { id: known.id, path: page.path } : null
+}
+
 /** The link in a command line: Windows and Linux start the app (or its second instance) with the link as an argument.
  * Anything else on the command line (Chromium switches, the app's path) is ignored. */
 export function linkFromArgv(argv: readonly string[], scheme = LINK_SCHEME): string | null {
