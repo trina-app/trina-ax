@@ -180,13 +180,18 @@ export const EditHwpInput = z.strictObject({
 })
 export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
 
+/** A page a model wrote as text ("1", " 3 ") is the number; "last" stays. The JSON schema stays number or "last". */
+const numericText = (v: unknown) => (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : v)
+const pageNo = (min: number) => z.preprocess(numericText, z.union([z.number().int().min(min).max(100_000), z.literal('last')]))
+/** A page list: a bare number (3) is the list "3". */
+const pdfPages = z.preprocess((v) => (typeof v === 'number' && Number.isInteger(v) ? String(v) : v), z.string().min(1).max(500))
 /** stamp_pdf: an image (a seal, a signature, a logo) put on one page of an existing PDF, saved as a new file
  * (server/src/tools/stamp-pdf.ts, server/src/files/pdf-stamp.ts). */
 export const STAMP_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'] as const
 export const StampPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to put the image on'),
   image: relPath.describe('The image to put on it: a PNG (transparent parts stay see-through) or a JPG in the team folder'),
-  page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
+  page: pageNo(1).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
   position: z.union([
     z.enum(STAMP_POSITIONS),
     z.strictObject({
@@ -200,7 +205,6 @@ export const StampPdfInput = z.strictObject({
 })
 /** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
  * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
-const pdfPages = z.string().min(1).max(500)
 const TEXT_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'center'] as const
 const textPosition = z.union([z.enum(TEXT_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })])
 const textColor = z.enum(['black', 'gray', 'red', 'blue'])
@@ -212,11 +216,11 @@ export const EditPdfOperation = z.union([
   z.strictObject({ insert_pdf: z.strictObject({
     file: relPath.describe('Another PDF in the team folder'),
     pages: pdfPages.optional().describe('Its pages to insert (default all)'),
-    after: z.union([z.number().int().min(0).max(100_000), z.literal('last')]).describe('Insert after this page; 0 = before the first page'),
+    after: pageNo(0).describe('Insert after this page; 0 = before the first page'),
   }) }),
   z.strictObject({ stamp_image: z.strictObject({
     image: relPath.describe('A PNG or JPG (a seal, signature or logo)'),
-    page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('Default "last"'),
+    page: pageNo(1).optional().describe('Default "last"'),
     position: z.union([z.enum(STAMP_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })]).optional().describe('A corner, "center", or the image\'s top-left in mm from the page\'s top-left (default "bottom-right")'),
     width_mm: z.number().min(3).max(1000).optional().describe('Default 30'),
     margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre (default 15)'),
@@ -256,7 +260,7 @@ export const MergePdfsInput = z.strictObject({
 export const SplitPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to split'),
   parts: z.array(pdfPages).min(1).max(50).optional().describe('One page list per new file, e.g. ["1-3", "4-last"]'),
-  every: z.number().int().min(1).max(10_000).optional().describe('Or: a new file every this many pages'),
+  every: z.preprocess(numericText, z.number().int().min(1).max(10_000)).optional().describe('Or: a new file every this many pages'),
   output_folder: optRelPath.describe('Where the parts go (default: next to the original); named "<name> (part 1).pdf" …'),
 }).refine((v) => (v.parts === undefined) !== (v.every === undefined), { message: 'give exactly one of parts or every' })
 // Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)

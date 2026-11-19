@@ -1,7 +1,7 @@
 // A paste past what an AI chat message holds (lib/longPaste.ts): measured against the box's text and selection, never
 // cut (docs/decisions/20261118-audit2-web-limits.md).
 import { expect, test } from 'bun:test'
-import { EditMessageBody, MESSAGE_TEXT_MAX, SendMessageBody } from '@mycel/shared/api'
+import { EditMessageBody, MESSAGE_TEXT_MAX, ROOM_MESSAGE_MAX, SendMessageBody, SendRoomMessageBody } from '@mycel/shared/api'
 import { pastedTextFile, pasteOverLimit, textOverLimit } from '../../src/lib/longPaste'
 import { QUEUE_CONTENT_MAX } from '../../src/lib/sendQueue'
 
@@ -36,4 +36,18 @@ test('the text check and the pasted file', async () => {
   expect(f.type).toContain('text/plain')
   // every character, none cut
   expect(await f.text()).toBe(text)
+})
+
+test('a room box: its limit is what the server takes (10,000); a paste over it is measured the same way and never cut (TC-5089)', async () => {
+  expect(ROOM_MESSAGE_MAX).toBe(10_000)
+  expect(SendRoomMessageBody.shape.body.safeParse('a'.repeat(ROOM_MESSAGE_MAX)).success).toBe(true)
+  expect(SendRoomMessageBody.shape.body.safeParse('a'.repeat(ROOM_MESSAGE_MAX + 1)).success).toBe(false)
+  const box = (value: string, start: number | null = value.length, end = start) => ({ value, selectionStart: start, selectionEnd: end })
+  expect(pasteOverLimit(box(''), 'a'.repeat(ROOM_MESSAGE_MAX), ROOM_MESSAGE_MAX)).toBe(false)
+  expect(pasteOverLimit(box(''), 'a'.repeat(60_000), ROOM_MESSAGE_MAX)).toBe(true)
+  expect(pasteOverLimit(box('hello'), 'a'.repeat(ROOM_MESSAGE_MAX - 4), ROOM_MESSAGE_MAX)).toBe(true)
+  expect(pasteOverLimit(box('hello', 0, 5), 'a'.repeat(ROOM_MESSAGE_MAX), ROOM_MESSAGE_MAX)).toBe(false)
+  // the file holds every character
+  const text = '가'.repeat(60_000)
+  expect(await pastedTextFile(text, 'Pasted text').text()).toBe(text)
 })

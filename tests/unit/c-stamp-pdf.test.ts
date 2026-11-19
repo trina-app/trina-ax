@@ -147,6 +147,22 @@ describe('stamping', () => {
     }
   })
 
+  test('page given as text ("1", " 2 ") is the number; "last" and nonsense behave as before (TC-5088)', async () => {
+    const rel = 'groups/marketing/quotes/quote-text-page.pdf'
+    put(rel, bluePdf(3))
+    const call = turn('alice')
+    const one = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: '1', output: 'groups/marketing/quotes/text-page-1' })
+    expect(one.isError, one.text).toBe(false)
+    expect(one.text).toContain('on page 1 of 3')
+    const two = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: ' 2 ', output: 'groups/marketing/quotes/text-page-2' })
+    expect(two.isError, two.text).toBe(false)
+    expect(two.text).toContain('on page 2 of 3')
+    const last = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: 'last', output: 'groups/marketing/quotes/text-page-last' })
+    expect(last.text).toContain('on page 3 of 3')
+    const bad = await call('stamp_pdf', { file_path: rel, image: 'groups/marketing/seal.png', page: 'first', output: 'groups/marketing/quotes/text-page-bad' })
+    expect(bad.isError).toBe(true)
+  })
+
   test('a turned page and a page that leaves its coordinates changed: the seal still lands bottom right as shown', async () => {
     put('groups/marketing/quotes/turned.pdf', bluePdf(1, { extra: '/Rotate 90' }))
     // a page that flips its coordinates and never puts them back (no q … Q), as some generators write

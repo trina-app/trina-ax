@@ -1,7 +1,7 @@
-// A paste that would take an AI chat's message box over what a message holds (MESSAGE_TEXT_MAX), for both boxes (the
-// full chat's, components/chat/Composer.tsx, and the side chat's, components/rooms/SideChatPanel.tsx; both through
-// components/chat/ComposerFiles.tsx onPaste). Never cut: the pasted text goes in as a text file where the box takes
-// files, or the paste is refused with a message (docs/decisions/20261118-audit2-web-limits.md).
+// A paste that would take a message box over what a message holds: an AI chat's (MESSAGE_TEXT_MAX; the full chat's,
+// components/chat/Composer.tsx, and the side chat's, components/rooms/SideChatPanel.tsx; both through
+// components/chat/ComposerFiles.tsx onPaste) or a room's own box (ROOM_MESSAGE_MAX,
+// components/rooms/RoomComposer.tsx). Never cut: the pasted text goes in as a text file where the box takes files, or the paste is refused with a message (docs/decisions/20261118-audit2-web-limits.md).
 import { MESSAGE_TEXT_MAX } from '@mycel/shared/api'
 
 /** The box's text and selection when the paste lands. */

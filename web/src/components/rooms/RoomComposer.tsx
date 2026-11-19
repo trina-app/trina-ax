@@ -45,6 +45,7 @@ import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, tea
 import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
+import { pastedTextFile, pasteOverLimit } from '../../lib/longPaste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { currentLocale, translate, useLocale, useT } from '../../i18n'
@@ -501,12 +502,28 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       onBlur={() => typing.stop()}
       onPaste={(e) => {
         // an edit takes words only
-        if (editing) return
-        const pasted = pastedFiles(e.clipboardData)
-        if (pasted.length) {
-          e.preventDefault()
-          void addFiles(pasted)
+        if (!editing) {
+          const pasted = pastedFiles(e.clipboardData)
+          if (pasted.length) {
+            e.preventDefault()
+            void addFiles(pasted)
+            return
+          }
         }
+        // text that would take the box over what a message holds is never cut (lib/longPaste.ts; the box's maxLength
+        // would drop the rest without a word): it goes in as a text file, or, in an edit or with every file place
+        // taken, the paste is refused with the reason
+        const box = e.currentTarget
+        const pastedText = e.clipboardData?.getData?.('text/plain') ?? ''
+        if (!pasteOverLimit({ value: box.value, selectionStart: box.selectionStart, selectionEnd: box.selectionEnd }, pastedText, ROOM_MESSAGE_MAX)) return
+        e.preventDefault()
+        const max = ROOM_MESSAGE_MAX.toLocaleString(locale)
+        if (editing || files.length >= ROOM_FILES_MAX) {
+          toast({ level: 'warn', text: t('composer.textTooLong', { max }) })
+          return
+        }
+        void addFiles([pastedTextFile(pastedText, t('composer.pastedTextName'))])
+        toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
       }}
       onKeyDown={(e) => {
         if (mention.onKeyDown(e)) return
