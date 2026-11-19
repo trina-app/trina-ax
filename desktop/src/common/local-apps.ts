@@ -27,8 +27,9 @@ import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, 
 export const LOCAL_MAX_ANSWER = 15 * 1024 * 1024
 /** what is kept of the program's error output for the reason a start failed */
 const STDERR_KEEP = 4000
-/** a CLI tool's output kept for the AI (the server cuts again) */
-const CLI_OUTPUT_MAX = 2 * 1024 * 1024
+/** a CLI tool's output kept for the AI, stdout and stderr together, in characters (the server cuts again): even with
+ * every character escaped in JSON it stays under LOCAL_MAX_ANSWER */
+export const CLI_OUTPUT_MAX = 2 * 1024 * 1024
 /** a program that does not stop on SIGTERM is killed after this long */
 const KILL_AFTER_MS = 2000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
@@ -104,6 +105,28 @@ export function cliArgv(tool: LocalCliTool, input: unknown): { args: string[]; s
     if (v !== null) args.push(v)
   }
   return { args, stdin: tool.stdin ? text(tool.stdin) : null }
+}
+
+/** A declared CLI tool's run: what was kept of each stream, how many characters each wrote in all, its exit code. */
+export interface CliRun { stdout: string; stderr: string; outChars: number; errChars: number; code: number }
+
+/**
+ * What the AI gets from a CLI run: stdout, then stderr, also on success (some CLIs print their whole result on stderr:
+ * ego lite's `ego-browser nodejs` writes the script's console.log there and exits 0). Both together are at most `max`
+ * characters, so the answer stays one WebSocket frame (LOCAL_MAX_ANSWER): stdout first, stderr cut to what stdout
+ * leaves. A cut stream ends with a note that says so and how much is missing.
+ */
+export function cliOutputText(r: Pick<CliRun, 'stdout' | 'stderr' | 'outChars' | 'errChars'>, max = CLI_OUTPUT_MAX): string {
+  const out = r.stdout.slice(0, max)
+  const outAll = Math.max(r.outChars, r.stdout.length)
+  const parts: string[] = []
+  if (out) parts.push(out)
+  if (outAll > out.length) parts.push(`[output cut: the program wrote ${outAll} characters, only the first ${out.length} are shown]`)
+  const err = r.stderr.slice(0, Math.max(0, max - out.length))
+  const errAll = Math.max(r.errChars, r.stderr.length)
+  if (err) parts.push(err)
+  if (errAll > err.length) parts.push(`[error output (stderr) cut: the program wrote ${errAll} characters there, only the first ${err.length} are shown]`)
+  return parts.join('\n').trim() || '(no output)'
 }
 
 /** The tools/list a CLI's declared tools make: one input property per slot. */
@@ -359,16 +382,13 @@ export class LocalApps {
         try { argv = cliArgv(tool, p.arguments) } catch (e) { return ok({ content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }], isError: true }) }
         const run = await this.runCli(team, call, spec, argv, signal)
         if ('failure' in run) return run
-        // both streams, also on success: some CLIs print their whole result on stderr (ego lite's `ego-browser nodejs`
-        // writes the script's console.log there and exits 0)
-        const text = [run.stdout, run.stderr].filter(Boolean).join('\n').trim() || '(no output)'
-        return ok({ content: [{ type: 'text', text }], isError: run.code !== 0 })
+        return ok({ content: [{ type: 'text', text: cliOutputText(run) }], isError: run.code !== 0 })
       }
       default: return { message: rpcError(id, -32601, 'not offered') }
     }
   }
 
-  private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<{ stdout: string; stderr: string; code: number } | { failure: LocalFailure; error: string }> {
+  private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<CliRun | { failure: LocalFailure; error: string }> {
     const dirs = (this.d.searchPath ?? defaultSearchPath)()
     const program = resolveProgram(spec.command, dirs)
     if (!program) return Promise.resolve({ failure: 'start_failed', error: `${spec.command} was not found on this computer` })
@@ -383,8 +403,8 @@ export class LocalApps {
       const prev = this.running.get(ck)
       this.running.set(`${ck}\u0000${call.callId}`, r)
       this.d.onChange?.(team, call.connectionId, true)
-      let stdout = '', stderr = '', settled = false
-      const finish = (v: { stdout: string; stderr: string; code: number } | { failure: LocalFailure; error: string }) => {
+      let stdout = '', stderr = '', outChars = 0, errChars = 0, settled = false
+      const finish = (v: CliRun | { failure: LocalFailure; error: string }) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
@@ -399,11 +419,12 @@ export class LocalApps {
       signal.addEventListener('abort', onAbort, { once: true })
       child.stdout.setEncoding('utf8')
       child.stderr.setEncoding('utf8')
-      child.stdout.on('data', (c: string) => { if (stdout.length < CLI_OUTPUT_MAX) stdout += c })
+      // each stream kept up to the whole budget (cliOutputText shares it out), and counted past it for the note
+      child.stdout.on('data', (c: string) => { outChars += c.length; if (stdout.length < CLI_OUTPUT_MAX) stdout += c })
       // kept like stdout (the AI reads it: a CLI may print its result there), not only a short tail for errors
-      child.stderr.on('data', (c: string) => { if (stderr.length < CLI_OUTPUT_MAX) stderr += c })
+      child.stderr.on('data', (c: string) => { errChars += c.length; if (stderr.length < CLI_OUTPUT_MAX) stderr += c })
       child.on('error', (e) => finish({ failure: 'start_failed', error: e.message }))
-      child.on('exit', (code) => finish({ stdout: stdout.slice(0, CLI_OUTPUT_MAX), stderr, code: code ?? 1 }))
+      child.on('exit', (code) => finish({ stdout, stderr, outChars, errChars, code: code ?? 1 }))
       child.stdin.on('error', () => {})
       if (argv.stdin !== null) child.stdin.write(argv.stdin)
       child.stdin.end()

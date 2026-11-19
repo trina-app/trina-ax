@@ -9,7 +9,7 @@ import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { spawn } from 'node:child_process'
 import path from 'node:path'
 import type { LocalAppSpec, LocalCall } from '@mycel/shared/api'
-import { cliArgv, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -191,6 +191,40 @@ describe('adapter (b): a declared CLI', () => {
     expect(h.spawned.every((s) => s.shell === false)).toBe(true)
     expect(h.asked).toHaveLength(1)
     // nothing keeps running between calls
+    expect(h.apps.runningIds(TEAM)).toEqual([])
+  })
+
+  test('cliOutputText: stdout and stderr share one size cap, stderr cut to what stdout leaves, each cut said', () => {
+    expect(cliOutputText({ stdout: 'out', stderr: 'err', outChars: 3, errChars: 3 }, 10)).toBe('out\nerr')
+    expect(cliOutputText({ stdout: '', stderr: '', outChars: 0, errChars: 0 }, 10)).toBe('(no output)')
+    // stdout fits, stderr gets the rest of the budget
+    const a = cliOutputText({ stdout: 'oooooo', stderr: 'eeeeee', outChars: 6, errChars: 6 }, 10)
+    expect(a).toBe('oooooo\neeee\n[error output (stderr) cut: the program wrote 6 characters there, only the first 4 are shown]')
+    // stdout alone fills it: no stderr at all, both cuts said
+    const b = cliOutputText({ stdout: 'o'.repeat(12), stderr: 'eee', outChars: 20, errChars: 3 }, 10)
+    expect(b).toBe(`${'o'.repeat(10)}\n[output cut: the program wrote 20 characters, only the first 10 are shown]\n[error output (stderr) cut: the program wrote 3 characters there, only the first 0 are shown]`)
+    // only stderr (ego lite): all of the budget is its
+    expect(cliOutputText({ stdout: '', stderr: 'e'.repeat(15), outChars: 0, errChars: 15 }, 10)).toStartWith(`${'e'.repeat(10)}\n[error output (stderr) cut: the program wrote 15 characters there, only the first 10 are shown]`)
+  })
+
+  test('a large stdout and a large stderr together stay within one cap (one WebSocket frame), with the cut said', async () => {
+    const h = harness()
+    all.push(h.apps)
+    const c = { spec: cliSpec() }
+    expect(await h.init('i1', c)).toMatchObject({ ok: true })
+    const both = await h.tool('run_script', { script: `BIG ${CLI_OUTPUT_MAX - 1000} ${CLI_OUTPUT_MAX}` }, c)
+    expect(both.ok).toBe(true)
+    const text = h.text(both)!
+    expect(text.length).toBeLessThan(CLI_OUTPUT_MAX + 300)
+    expect(text.startsWith('o'.repeat(CLI_OUTPUT_MAX - 1000) + '\n' + 'e'.repeat(999))).toBe(true)
+    expect(text).toContain(`[error output (stderr) cut: the program wrote ${CLI_OUTPUT_MAX} characters there, only the first 1000 are shown]`)
+    expect(text).not.toContain('[output cut')
+    // both far past the cap: stdout cut, stderr has no room left
+    const over = h.text(await h.tool('run_script', { script: `BIG ${CLI_OUTPUT_MAX + 500_000} ${CLI_OUTPUT_MAX + 500_000}` }, c))!
+    expect(over.length).toBeLessThan(CLI_OUTPUT_MAX + 300)
+    expect(over).toContain(`[output cut: the program wrote ${CLI_OUTPUT_MAX + 500_000} characters, only the first ${CLI_OUTPUT_MAX} are shown]`)
+    expect(over).toContain(`only the first 0 are shown]`)
+    expect(over).not.toContain('e'.repeat(10))
     expect(h.apps.runningIds(TEAM)).toEqual([])
   })
 })
