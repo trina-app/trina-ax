@@ -1,2 +1,3 @@
 - An answer that fails straight away (for example because the AI usage has run out) now shows its error at once. It could stay on "Thinking…" with the Stop button until the page was reloaded.
 - When the AI usage has run out for longer than an hour, the answer says until when it is back. The owner and admins are told to connect another AI account in Admin › AI providers; members are told to ask an admin for more AI usage. It used to say "for now, try again a bit later".
+- While the AI usage has run out until a known time, the "No AI is connected yet" banner and the "connect an AI" card no longer show: an AI is connected, and the answer itself says until when.

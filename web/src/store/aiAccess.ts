@@ -14,6 +14,9 @@ interface State {
   /** "Trina isn't ready yet": this member already told an admin within the hour (GET /api/me/ai-access `notReadyTold`,
    * the server's own limit record), so [Tell an admin] reads "Told" after a reload too */
   notReadyTold: boolean
+  /** connected, but used up until this time (GET /api/me/ai-access `limitedUntil`): `usable` stays true for the
+   * screens, so no "connect an AI" banner or card contradicts the answer's own "used up until …" line */
+  limitedUntil: string | null
   sending: boolean
   failed: boolean
   load: (force?: boolean) => Promise<void>
@@ -41,16 +44,19 @@ async function readAccess(get: () => State, set: (s: Partial<State>) => void): P
     if (g !== generation) return
     readAt = Date.now()
     // a press that went through while this answer was on its way stays "Told"
-    set({ loaded: true, answered: true, usable: r.usable, action: r.action, requested: r.requested, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
+    // used up until a known time is not "no AI": an AI is connected, and every failed answer says until when (one
+    // message on screen, not that and "No AI is connected yet"; owner review 2026-11-19, QA TC-5192)
+    const limitedUntil = !r.usable && r.limitedUntil ? r.limitedUntil : null
+    set({ loaded: true, answered: true, usable: r.usable || !!limitedUntil, limitedUntil, action: r.action, requested: r.requested, notReadyTold: (r.notReadyTold ?? false) || get().notReadyTold })
   } catch {
     if (g !== generation) return
     // a failed check is not "no AI": nothing shows
-    set({ loaded: true, answered: false, usable: true })
+    set({ loaded: true, answered: false, usable: true, limitedUntil: null })
   }
 }
 
 export const useAiAccess = create<State>((set, get) => ({
-  loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, notReadyTold: false, sending: false, failed: false,
+  loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, notReadyTold: false, limitedUntil: null, sending: false, failed: false,
   load(force) {
     if (get().loaded && !force) return Promise.resolve()
     // a forced read wants an answer from after now: it shares only another forced one
@@ -66,7 +72,7 @@ export const useAiAccess = create<State>((set, get) => ({
     if (get().loaded && Date.now() - readAt < RECENT_MS) return Promise.resolve()
     return get().load(true)
   },
-  reset() { generation++; reading = null; readAt = 0; set({ loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, notReadyTold: false, sending: false, failed: false }) },
+  reset() { generation++; reading = null; readAt = 0; set({ loaded: false, usable: true, answered: false, action: 'ask_owner', requested: false, notReadyTold: false, limitedUntil: null, sending: false, failed: false }) },
   markNotReadyTold() { set({ notReadyTold: true }) },
   async ask() {
     if (get().sending || get().requested) return

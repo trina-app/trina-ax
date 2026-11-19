@@ -29,8 +29,10 @@ limit longer than an hour (credentials/resolve.ts SOON_MS) becomes reason `usage
 code `rate_limited` (the "answer with another AI" fallback still follows). The web app says until when; the owner and
 admins read "connect another AI account in Admin › AI providers", a member "ask your admin to add more AI usage". No
 plain Retry while the limit lasts ("retry with another model" stays).
-Out: the composer's "No AI is connected yet" banner while an AI is connected but used up (needs the until time in
-`GET /api/me/ai-access`); a follow-up QA row.
+Also in (review, QA TC-5192): `GET /api/me/ai-access` gives `limitedUntil` when nothing answers the person only
+because their AI accounts are at a limit that ends by itself (credentials/access.ts `aiBackAt`, the same time Admin ›
+Members shows). The web app then treats AI as usable for its banners and cards, so "No AI is connected yet" / "connect
+an AI" never stands beside the answer's "used up until …": one message on screen.
 
 ## Steps
 
