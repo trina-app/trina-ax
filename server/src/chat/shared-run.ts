@@ -4,7 +4,7 @@
 // connected service, and writes files only in the task's save folder or the maker's own folder. When every user message
 // on the run's branch is the maker's own, nobody else could have steered it, and it runs like any of their runs.
 import type { Database } from 'bun:sqlite'
-import { isSharedRow } from './shared'
+import { isSharedRow } from './chat-audience'
 import { quotesOnBranch } from './read-rooms'
 
 /** A scheduled run in a shared chat whose branch holds a message someone other than its maker wrote (by the run's

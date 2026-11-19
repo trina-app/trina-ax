@@ -28,21 +28,15 @@ import { redactorFor } from '../integrations/connections/redact'
 import { OthersText } from './live-answer'
 import { withheldFrom } from './shared-answers'
 import { mayUploadShared } from '../uploads/shared-chat'
-import { inPeopleAudience, isPeopleRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
+import { inPeopleAudience, isPeopleRow, isSharedChat, isSharedRow, peopleAudience, hiddenByMe, wasInPeopleChat } from './chat-audience'
 import { isGuest } from '../auth/guests'
 
-/** A chat row that is a shared project chat (made shared and still in a project) or a chat outside projects shared with
- * chosen people and groups (chat/chat-audience.ts): seen by more people than its creator, each turn its sender's. */
-export const isSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'>): boolean => (!!r.shared_at && !!r.project_id) || isPeopleRow(r)
+// isSharedRow and isSharedChat live in chat-audience.ts (no imports there): always-allow.ts and shared-run.ts need them
+// without importing this module, which would close an import cycle through turn.ts and post-to-room.ts
+export { isSharedChat, isSharedRow } from './chat-audience'
 
 /** A shared project chat (not a people-shared one). */
 export const isProjectSharedRow = (r: Pick<ChatRow, 'shared_at' | 'project_id'>): boolean => !!r.shared_at && !!r.project_id
-
-/** Is this chat a shared chat of either kind? (one read) */
-export function isSharedChat(db: Database, chatId: string): boolean {
-  const r = db.query('SELECT shared_at, project_id, people_shared_at FROM chats WHERE id = ?').get(chatId) as Pick<ChatRow, 'shared_at' | 'project_id' | 'people_shared_at'> | null
-  return !!r && isSharedRow(r)
-}
 
 /** May this project share its chats at all: a team project (never a personal one). */
 export const projectCanShare = (p: Pick<ProjectRow, 'folder_path'>): boolean => !isPersonalFolder(p.folder_path)

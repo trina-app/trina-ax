@@ -23,7 +23,7 @@ export const teamAllowsAlways = (db: Database): boolean => getTeamSettings(db).r
 
 /** Where a card is raised: the turn's own person, their app, the chat. */
 import { steerableRun } from './shared-run'
-import { isSharedChat } from './shared'
+import { isSharedChat } from './chat-audience'
 
 export interface AlwaysPlace {
   db: Database
