@@ -360,7 +360,7 @@ function Setup({ current, onDone, onBack, onSame }: { current: string | null; on
         {!ask.hosted && <Text style={[s.askText, { color: c.ink }]}>{t.outsideBody}</Text>}
         {ask.kind === 'switch' && current && <Text style={[s.askText, { color: c.muted }]}>{fill(t.switchBody, { old: hostOf(current) })}</Text>}
         <View style={s.askRow}>
-          <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={() => setAsk(null)} disabled={busy} testID="setup-ask-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
+          <Pressable ref={cancelRef} style={[s.secondary, s.askButton, busy && s.off]} onPress={() => setAsk(null)} disabled={busy} testID="setup-ask-cancel" accessibilityRole="button" accessibilityState={{ disabled: busy }}><Text style={[s.secondaryText, s.askButtonText, { color: c.ink, borderColor: c.field }]}>{t.cancel}</Text></Pressable>
           <Pressable style={[s.button, s.askButton]} onPress={() => void yes(ask)} disabled={busy} testID="setup-ask-yes" accessibilityRole="button">
             {busy ? <ActivityIndicator color={accentInk(product.accent)} /> : <Text style={s.buttonText}>{ask.kind === 'switch' ? t.switchYes : t.outsideConnect}</Text>}</Pressable>
         </View>
@@ -769,5 +769,8 @@ const s = StyleSheet.create({
   ask: { marginTop: 16, borderWidth: 1, borderRadius: 12, padding: 16 }, askTitle: { fontSize: 16, fontWeight: '600', lineHeight: 22, marginBottom: 6 },
   askHost: { fontSize: 15, fontWeight: '600', marginBottom: 6 }, askText: { fontSize: 15, lineHeight: 21, marginBottom: 6 },
   askRow: { flexDirection: 'row', gap: 10, marginTop: 8 }, askButton: { flex: 1, minWidth: 0, marginTop: 0 },
+  // two buttons side by side in the card: the outlined one's 160 pt minimum made the row 330 pt in a 311 pt card on a
+  // 393 pt iPhone, so Cancel went past the card's border (QA AP-078)
+  askButtonText: { minWidth: 0 },
   footerHost: { fontSize: 13, paddingHorizontal: 16 }, linkCard: { width: '100%', maxWidth: 480 }, off: { opacity: 0.5 },
 })
