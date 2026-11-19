@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 07:10
 - Branch: `qa/1119-project`
-- Status: in progress
+- Status: done
 - Where: server/src/chat/room-tools.ts. Why: the room file reader is core chat code (docs/REPOSITORY-RULES.md).
 - Version impact: patch, the AI's view of a room PDF's text gets page marks; no API or data change.
 
@@ -35,4 +35,6 @@ page-aware `pages` read already existed (DECISIONS.md "room_file reads a scanned
 
 ## Result
 
-(filled in at the end)
+Browser runs on a local instance (owner + member, real Claude engine): AP-052, AP-053 and AP-060 passed with no change;
+AP-054 passed through the side chat with `pages: "47"`. Fix 913efcf0e: `[p.N]` marks, page count and the cut's page in
+the text path; checked live (chapter start pages of an 80-page PDF, all ten right) and in room-file-pdf.test.ts.
