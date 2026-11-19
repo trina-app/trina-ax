@@ -561,7 +561,9 @@ function buildMenu() {
         { role: 'minimize', label: tr('menu.minimize') },
         ...(process.platform === 'darwin'
           ? [{ role: 'zoom' as const, label: tr('menu.zoom') }, { type: 'separator' as const }, { role: 'front' as const, label: tr('menu.front') }]
-          : [{ role: 'close' as const, label: tr('menu.close') }]),
+          : [{ role: 'close' as const, label: tr('menu.close') },
+              // no tray: closing the last window quits, and Linux had no other way to say Quit (Windows: Alt+F4)
+              ...(process.platform === 'linux' ? [{ type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit'), accelerator: 'Ctrl+Q' }] : [])]),
       ],
     },
   ]
@@ -607,7 +609,7 @@ async function createWindow() {
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else await win.openLast(resume?.page ?? null)
+  else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
   if (launchLink) {
     const link = launchLink
     launchLink = null
