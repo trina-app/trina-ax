@@ -14,7 +14,7 @@ import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harne
 import { estimateTokens, historyBlock, historyTrimmed, HISTORY_MAX_TOKENS, summaryWithin } from '../../server/src/chat/prompt'
 import { summaryTarget, uncovered, setSummaryAiForTests, resetSummaryStateForTests } from '../../server/src/chat/history-summary'
 import { ANSWER_ROOM_MIN, historyFit, toolBudgetFor } from '../../server/src/chat/history-fit'
-import { apiContextSize, cloudGuess, OLLAMA_DEFAULT_TOKENS, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
+import { apiContextSize, blindGuess, OLLAMA_DEFAULT_TOKENS, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
 import { API_GROUNDING_RULES, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
 
 setDefaultTimeout(60_000)
@@ -130,6 +130,41 @@ describe('the context size', () => {
     expect((await apiContextSize(conf('http://127.0.0.1:11434/v1', 'tiny'), { fetchFn: e.fetchFn }))?.tokens).toBe(1024)
   })
 
+  test('an unloaded Ollama model is loaded by the look-up and its real size read (a large OLLAMA_CONTEXT_LENGTH)', async () => {
+    let loaded = false
+    const seen: string[] = []
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      seen.push(u.pathname)
+      if (u.pathname === '/api/ps') return Response.json({ models: loaded ? [{ name: 'qwen3:4b', context_length: 65536 }] : [] })
+      if (u.pathname === '/api/show') return Response.json({ parameters: '', model_info: { 'qwen3.context_length': 262144 } })
+      if (u.pathname === '/api/generate') {
+        const b = JSON.parse(String(init?.body)) as { model: string; keep_alive?: string; prompt?: string }
+        expect(b).toMatchObject({ model: 'qwen3:4b', keep_alive: '5m' })
+        expect(b.prompt).toBeUndefined()
+        await Bun.sleep(300)
+        loaded = true
+        return Response.json({ model: 'qwen3:4b', done: true, done_reason: 'load' })
+      }
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'qwen3:4b'), { fetchFn })).toEqual({ tokens: 65536, exact: true, source: 'ollama' })
+    expect(seen).toEqual(['/api/ps', '/api/show', '/api/generate', '/api/ps'])
+  })
+
+  test('a load that does not finish within the look-up\'s 5 s: the default guess', async () => {
+    const fetchFn = (async (input: string | URL | Request, init?: RequestInit) => {
+      const u = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      if (u.pathname === '/api/ps') return Response.json({ models: [] })
+      if (u.pathname === '/api/show') return Response.json({ parameters: '' })
+      if (u.pathname === '/api/generate') return await new Promise<Response>((_, no) => init?.signal?.addEventListener('abort', () => no(new Error('aborted'))))
+      return new Response('not found', { status: 404 })
+    }) as typeof fetch
+    const t0 = Date.now()
+    expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'big'), { fetchFn })).toEqual({ tokens: OLLAMA_DEFAULT_TOKENS, exact: false, source: 'ollama' })
+    expect(Date.now() - t0).toBeLessThan(6_500)
+  })
+
   test('a guess is looked at again after a minute: the loaded model then says its real size', async () => {
     const routes: Record<string, unknown> = { '/api/ps': { models: [] }, '/api/show': { parameters: '' } }
     const a = server(routes)
@@ -141,12 +176,15 @@ describe('the context size', () => {
     expect(await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 + 61_000 })).toEqual({ tokens: 16384, exact: true, source: 'ollama' })
   })
 
-  test('a guess cuts the tool list only for a local address', () => {
+  test('only Ollama\'s and LM Studio\'s own guess cuts the tool list; a cloud or local-proxy guess is blind', () => {
     const g = { tokens: 4096, exact: false, source: 'ollama' as const }
-    expect(cloudGuess(g, 'http://127.0.0.1:11434/v1')).toBe(false)
-    expect(cloudGuess(g, 'https://llm.example.com/v1')).toBe(true)
-    expect(cloudGuess({ ...g, exact: true }, 'https://llm.example.com/v1')).toBe(false)
-    expect(cloudGuess({ ...g, source: 'refusal' }, 'https://llm.example.com/v1')).toBe(false)
+    expect(blindGuess(g, 'http://127.0.0.1:11434/v1')).toBe(false)
+    expect(blindGuess({ ...g, source: 'lmstudio' }, 'http://localhost:1234/v1')).toBe(false)
+    // a LiteLLM proxy that states no size (it may stand for a 200k model)
+    expect(blindGuess({ tokens: LOCAL_GUESS_TOKENS, exact: false, source: 'local-guess' }, 'http://litellm:4000')).toBe(true)
+    expect(blindGuess(g, 'https://llm.example.com/v1')).toBe(true)
+    expect(blindGuess({ ...g, exact: true }, 'https://llm.example.com/v1')).toBe(false)
+    expect(blindGuess({ ...g, source: 'refusal' }, 'https://llm.example.com/v1')).toBe(false)
   })
 
   test('LM Studio: the loaded context length', async () => {
@@ -380,14 +418,16 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     expect(one.done.error?.params?.reason).toBe('context')
   })
 
-  test('a local address that says nothing (32k guess): the tool list is cut too, so the request fits the guess', async () => {
+  test('a local address that states no size (a LiteLLM proxy, 32k guess): the whole tool list, and a guess the tools alone fill is ignored', async () => {
     silent = true
     const chat = await chatWithHistory()
     requests.length = 0
     const { done } = await ask(h, alice, 'alice', chat.id, 'hello')
     const r = requests.at(-1)!
-    expect(JSON.stringify(r.tools)).not.toContain('intro_deck')
-    expect(estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools))).toBeLessThan(LOCAL_GUESS_TOKENS - ANSWER_ROOM_MIN)
+    expect(JSON.stringify(r.tools)).toContain('intro_deck')
+    // nothing is known: the default window keeps the whole history
+    expect(r.system).toContain('ALPHA')
+    expect(done.historyTrimmed).toBeUndefined()
     expect(done.status).toBe('done')
   })
 

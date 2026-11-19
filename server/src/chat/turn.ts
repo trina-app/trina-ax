@@ -100,7 +100,7 @@ import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
-import { apiContextSize, cloudGuess, noteContextRefusal } from '../engine/api-context'
+import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
 import { fitApiTools, toolsLeftOutNote } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
 import { HISTORY_MAX_TOKENS } from './prompt'
@@ -1136,10 +1136,10 @@ export class TurnExec {
       if (this.stopReason) return
       if (size) {
         // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it. Not on a
-        // guess for a cloud address (a proxy in front of a large model); a local server's guess (a model not loaded
-        // yet) cuts it, or Ollama cuts the prompt (QA TC-5087). A wrong refusal number is forgotten with the next
+        // guess that says nothing about the model (a cloud address, a local proxy: engine/api-context.ts blindGuess);
+        // Ollama's or LM Studio's own guess (a model not loaded yet) cuts it, or Ollama cuts the prompt (QA TC-5087). A wrong refusal number is forgotten with the next
         // answer that used more tokens (engine/api-context.ts)
-        const guess = cloudGuess(size, api.baseUrl)
+        const guess = blindGuess(size, api.baseUrl)
         if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
         if (fit.overflows && size.exact) {
@@ -1147,8 +1147,8 @@ export class TurnExec {
           this.error = engineError('model_too_small', spec.locale)
           return
         }
-        // a cloud address's guess that the instructions and the whole tool list alone overflow tells nothing (a proxy
-        // in front of a large model): the default window, as for an unknown model
+        // a blind guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front
+        // of a large model): the default window, as for an unknown model
         if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
         else if (fit.limited) {
           historyBudget = fit.budget

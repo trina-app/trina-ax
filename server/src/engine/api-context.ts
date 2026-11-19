@@ -27,6 +27,8 @@ export const LOCAL_GUESS_TOKENS = 32_000
 export const OLLAMA_DEFAULT_TOKENS = 4_096
 export const OLLAMA_OLD_DEFAULT_TOKENS = 2_048
 export const LMSTUDIO_DEFAULT_TOKENS = 4_096
+/** how long a model loaded by the look-up stays loaded (Ollama's own default; the turn's request follows at once) */
+const OLLAMA_KEEP_ALIVE = '5m'
 /** a guess (a model not loaded yet) is looked at again this soon: once loaded, its server says the real size */
 const GUESS_CACHE_MS = 60_000
 /** a probe's answer is kept this long (a model loaded with another size is seen at most this late) */
@@ -126,7 +128,8 @@ export function noteContextUsage(conf: Pick<ApiEngineConf, 'baseUrl' | 'model'>,
   if (r && typeof promptTokens === 'number' && promptTokens > r.tokens) refused.delete(k)
 }
 
-type Get = (url: string, init?: RequestInit) => Promise<unknown | null>
+/** `long`: may take until the look-up's own limit (PROBES_TIMEOUT_MS), not only PROBE_TIMEOUT_MS (loading a model) */
+type Get = (url: string, init?: RequestInit, o?: { long?: boolean }) => Promise<unknown | null>
 
 /** The size a model entry of an OpenAI-compatible /models list (or one model's own entry) states. */
 function fromModelEntry(m: any): number | null {
@@ -153,6 +156,15 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
     const show = await get(`${origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model }) }) as any
     const param = typeof show?.parameters === 'string' ? /(?:^|\n)\s*num_ctx\s+(\d+)/.exec(show.parameters) : null
     if (param && num(param[1])) return { tokens: num(param[1])!, exact: true, source: 'ollama' }
+    // no num_ctx: load the model now (an empty generate, kept loaded for the turn that follows) and read the size it
+    // loaded with, so a server with a large OLLAMA_CONTEXT_LENGTH is not taken for a 4096 one. A load that does not
+    // finish within the look-up's limit leaves the guess below
+    const warm = await get(`${origin}/api/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model, keep_alive: OLLAMA_KEEP_ALIVE, stream: false }) }, { long: true })
+    if (warm) {
+      const after = await get(`${origin}/api/ps`) as any
+      const now = Array.isArray(after?.models) ? after.models.find((m: any) => same(m?.name) || same(m?.model)) : null
+      if (num(now?.context_length)) return { tokens: num(now.context_length)!, exact: true, source: 'ollama' }
+    }
     const trained = show?.model_info && typeof show.model_info === 'object' ? Object.entries(show.model_info).find(([k]) => k.endsWith('.context_length'))?.[1] : null
     const version = await get(`${origin}/api/version`) as any
     const old = typeof version?.version === 'string' && /^0\.[0-5]\./.test(version.version)
@@ -202,9 +214,9 @@ export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof 
     if (!p) {
       const f = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: conf.setBy === 'admin' })
       const all = AbortSignal.timeout(PROBES_TIMEOUT_MS)
-      const get: Get = async (url, init) => {
+      const get: Get = async (url, init, g) => {
         try {
-          const r = await f(url, { ...init, signal: AbortSignal.any([all, AbortSignal.timeout(PROBE_TIMEOUT_MS)]) })
+          const r = await f(url, { ...init, signal: g?.long ? all : AbortSignal.any([all, AbortSignal.timeout(PROBE_TIMEOUT_MS)]) })
           if (!r.ok || !r.body) return null
           return await boundedJson(r)
         } catch { return null }
@@ -241,11 +253,13 @@ async function boundedJson(r: Response): Promise<unknown | null> {
   try { return JSON.parse(new TextDecoder().decode(Buffer.concat(parts))) } catch { return null }
 }
 
-/** A guessed size for an address that is not local: it may be a proxy in front of a large model, so it neither cuts
- * the tool list nor shrinks the history when the tools alone fill it (chat/turn.ts). A local server's guess (a model
- * not loaded yet) does both, or Ollama cuts the prompt's start (QA TC-5087). */
-export function cloudGuess(size: ContextSize, baseUrl: string): boolean {
-  return !size.exact && size.source !== 'refusal' && !isLocalApiAddress(baseUrl)
+/** A guess that says nothing about the model: a cloud address, or a local one that is not Ollama or LM Studio (a
+ * LiteLLM proxy at http://litellm:4000 in front of a 200k model). It neither cuts the tool list nor shrinks the
+ * history when the tools alone fill it (chat/turn.ts). Ollama's and LM Studio's own guess (a model not loaded yet:
+ * their default load size) does both, or Ollama cuts the prompt's start (QA TC-5087). */
+export function blindGuess(size: ContextSize, baseUrl: string): boolean {
+  if (size.exact || size.source === 'refusal') return false
+  return !(isLocalApiAddress(baseUrl) && (size.source === 'ollama' || size.source === 'lmstudio'))
 }
 
 /** tests: forget what was learned */
