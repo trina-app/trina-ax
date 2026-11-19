@@ -208,6 +208,7 @@ export const id: Strings = {
     explore: 'Lihat-lihat dulu',
     tryLive: 'Sekarang coba sendiri',
     liveBusy: 'Demo langsung sedang penuh saat ini',
+    liveRetry: 'Coba lagi',
     popupTitle: 'Itulah hari pertama Mina 🎉',
     popupLine: 'Kampanye peluncuran selesai dalam {time}. Biasanya sekitar 2 hari.',
     recap: ['Membaca 2 file tim', 'Memakai skill tim Panduan brand', 'Membuat 4 aset dengan Higgsfield', 'Disetujui CEO', 'Email ke agensi'],

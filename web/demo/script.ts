@@ -279,7 +279,7 @@ export interface DemoEnd {
   /** "Now try it yourself": the live demo (demo-gate; the build's VITE_DEMO_LIVE_URL replaces `url` when set), the
    * primary button next to the sign-up link while its status (`<origin>/__demo/status`) says it can take a visitor;
    * else `busy` in its place (web/demo/live.ts) */
-  live?: { label: string; busy: string; url: string }
+  live?: { label: string; busy: string; url: string; retry?: string }
   /** the end popup (the app's own Modal; the owner's one exception to "no demo cards"), shown with the end line:
    * its title, one line ({time}: the real time), a short recap, and "Look around" (closes it; the end line stays) */
   popup?: { title: string; line: string; recap?: string[]; close: string }
