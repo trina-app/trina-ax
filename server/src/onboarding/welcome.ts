@@ -297,6 +297,30 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
 }
 
 /**
+ * The team was just made (POST /api/setup, auth/accounts.ts setup): the owner's welcome steps start here, so every
+ * device resumes them (docs/decisions/20261119-welcome-steps-in-app.md). Before, the row was made only when /welcome
+ * opened once, and an owner who went on in the desktop app (/open-app) never had one: Home's landing and the setup row
+ * read none and showed nothing. `site`: the setup link's company website, normalized (anything else is dropped), for the
+ * company profile step. A row already there (a restored backup, a second call) is kept as it is: only a site it lacks is
+ * added. Never throws: the team exists whatever happens here, and /welcome still starts the row on its first visit.
+ */
+export function startWelcomeAtSetup(ctx: Pick<AppContext, 'db' | 'log'>, site: string | null | undefined): void {
+  try {
+    const s = stored(ctx)
+    if (s.row && !s.raw) return
+    const clean = site ? normalizeWebsite(site) : null
+    if (s.raw && (!clean || typeof s.raw.site === 'string')) return
+    const now = new Date().toISOString()
+    const raw = s.raw ? { ...s.raw } : fresh(now)
+    if (clean) raw.site = clean
+    raw.updatedAt = now
+    setSetting(ctx.db, WELCOME_SETTING, raw)
+  } catch (err) {
+    ctx.log.warn('the welcome steps were not started at setup', { err })
+  }
+}
+
+/**
  * How long a hidden setup row (✕) must stay hidden before it counts as the end of the steps for what waited for them
  * (docs/DECISIONS.md "W5": the merges into team skills). The row's undo toast lasts seconds; ✕ then undo inside this
  * starts nothing in the middle of the steps.

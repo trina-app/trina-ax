@@ -17,7 +17,7 @@
 // like the folders row: the title with the progress and the days left, which opens the next step and its button in
 // place (never [다시 보내기] on phones); reached: "달성했어요 · names" and the way to hide it. From 768px a card.
 import clsx from 'clsx'
-import { Check, CheckCircle2, ChevronDown, Copy, Plus, Target, UserPlus, X } from 'lucide-react'
+import { Check, CheckCircle2, ChevronDown, Copy, Plus, Target, UserPlus } from 'lucide-react'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GENERAL_DECK_SKILL, skillLabel, type TeamGoal, type TeamLinkResponse } from '@mycel/shared/api'
@@ -30,16 +30,17 @@ import { showResume } from '../../lib/welcome'
 import { translate, useLocale, useT, type MessageKey, type Params } from '../../i18n'
 import { isOwner, useMe, useMeStrict } from '../../store/session'
 import { useWelcome } from '../../store/welcome'
-import { Button, IconButton, Modal, useCopy, useMediaQuery } from '../ui'
+import { Button, Modal, useCopy, useMediaQuery } from '../ui'
 import { InviteStep } from './InviteStep'
 import { useMessageWords } from './TeamLinkPanel'
 import { useTeamPrepared } from './TeamPrepared'
+import { CardHide, useCardHidden } from './CardHide'
 
 /** The router state of the [팀원 초대] that goes to the welcome steps while they are unfinished: /welcome opens on its
  * invite step (pages/Welcome.tsx reads it), not where the steps would resume. */
 export const INVITE_STEP_STATE = { step: 'invite' } as const
 
-/** "달성했어요" dismissed in this browser, per team (its start) */
+/** "달성했어요" dismissed in this browser by an earlier version, per team (its start): still read, never written */
 const doneKey = (startedAt: string) => `mycel.teamGoalDone.${startedAt}`
 const readDone = (startedAt: string) => { try { return localStorage.getItem(doneKey(startedAt)) === '1' } catch { return false } }
 
@@ -53,7 +54,6 @@ export function HomeGoal({ onShown }: { onShown?: (shown: boolean) => void } = {
   const me = useMeStrict()
   const [goal, setGoal] = useState<TeamGoal | null>(null)
   const [read, setRead] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
   // the connection failed the last read: it reads again until one works
   const [failed, setFailed] = useState(false)
   const live = useRef(false)
@@ -67,20 +67,20 @@ export function HomeGoal({ onShown }: { onShown?: (shown: boolean) => void } = {
     return () => { live.current = false }
   }, [load, me.user.id])
   useAutoRetry(failed, load)
-  const hidden = !goal || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))
+  // the open goal's "Hide" (owner 2026-11-20): kept on the server, the same in the app and the browser
+  const card = useCardHidden('goalCard')
+  const hidden = !goal || card.hidden || (goal.state === 'reached' && readDone(goal.startedAt))
   useEffect(() => { if (read) onShown?.(!hidden) }, [read, hidden, onShown])
   if (hidden) return null
-  const dismiss = () => {
-    try { localStorage.setItem(doneKey(goal.startedAt), '1') } catch { /* this tab only */ }
-    setDismissed(true)
-  }
-  return <GoalCard goal={goal} onDismiss={dismiss} />
+  // "달성했어요" hidden: the same server-kept hide as the open card's (a browser that hid it before keeps it hidden)
+  const dismiss = () => card.hide()
+  return <GoalCard goal={goal} onDismiss={dismiss} onHide={card.hide} />
 }
 
 /** The card itself, without loading the goal (tests render it as it is). `link`: the team invite link when known
  * (undefined: the card reads it). `hasSkills`: whether the team has a team skill, when known (undefined: the card reads
  * it; until it knows, and when the read fails, it shows what it shows with skills). */
-export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills }: { goal: TeamGoal; onDismiss: () => void; link?: TeamLinkResponse | null; hasSkills?: boolean }) {
+export function GoalCard({ goal, onDismiss, onHide, link: given, hasSkills: givenSkills }: { goal: TeamGoal; onDismiss: () => void; onHide?: () => void; link?: TeamLinkResponse | null; hasSkills?: boolean }) {
   const t = useT()
   const locale = useLocale()
   const me = useMe()
@@ -118,7 +118,7 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
             <span className={phone ? 'font-medium' : 'font-semibold'}>{t('goal.reachedTitle')}</span>
             {skill && <span className="text-muted" data-testid="team-goal-names"> · {runnerNames(skill.people, skill.runners)}</span>}
           </h2>
-          <IconButton label={t('common.hide')} onClick={onDismiss} className="touch-hit" data-testid="team-goal-dismiss"><X size={15} aria-hidden /></IconButton>
+          <CardHide onClick={onDismiss} label={t('homeCards.hideGoal')} testId="team-goal-dismiss" className={phone ? 'mr-1' : undefined} />
         </div>
       </section>
     )
@@ -178,6 +178,8 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
   const nextLine = <p className={clsx('text-sm text-muted text-pretty', !phone && 'mt-1')} data-testid="team-goal-next" data-next={noSkills ? 'noSkills' : next.kind}>{noSkills ? noSkillsText(t, next) : goalNextText(t, locale, next, named?.name ?? null)}</p>
   // phones never get [다시 보내기]
   const phoneAction = next.kind !== 'waiting' && action
+  // the quiet "Hide" of every Home onboarding card (CardHide.tsx, as the member welcome card's)
+  const hide = onHide && <CardHide onClick={onHide} label={t('homeCards.hideGoal')} testId="team-goal-hide" />
   return (
     <section className={frame} aria-labelledby="team-goal-title" data-testid="team-goal" data-state="open">
       {phone ? (
@@ -193,12 +195,15 @@ export function GoalCard({ goal, onDismiss, link: given, hasSkills: givenSkills 
           {/* in line with the title's text (12px padding, the 16px icon and its 10px gap) */}
           <div id={nextId} hidden={!shown} className="pr-3 pb-2 pl-[38px]">
             {nextLine}
-            {(addSkills || phoneAction) && <div className="mt-3 flex flex-wrap gap-2">{addSkills}{phoneAction}</div>}
+            {(addSkills || phoneAction || hide) && <div className="mt-3 flex flex-wrap items-center gap-2">{addSkills}{phoneAction}{hide && <span className="ml-auto">{hide}</span>}</div>}
           </div>
         </>
       ) : (
         <>
-          <h2 id="team-goal-title" className="text-sm">{title}{counts}</h2>
+          <div className="flex items-start gap-3">
+            <h2 id="team-goal-title" className="min-w-0 flex-1 text-sm">{title}{counts}</h2>
+            {hide}
+          </div>
           {nextLine}
           <div className="mt-3 flex min-h-8 flex-wrap gap-2">{addSkills}{action}</div>
         </>
