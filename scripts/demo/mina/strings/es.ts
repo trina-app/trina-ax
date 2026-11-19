@@ -206,6 +206,8 @@ export const es: Strings = {
     usually: 'normalmente ~2 días',
     signup: 'Ver planes',
     explore: 'Echar un vistazo',
+    tryLive: 'Ahora pruébelo usted mismo',
+    liveBusy: 'La demo en vivo está llena en este momento',
     popupTitle: 'Así fue el primer día de Mina 🎉',
     popupLine: 'Campaña de lanzamiento lista en {time}. Normalmente lleva unos 2 días.',
     recap: ['Leyó 2 archivos del equipo', 'Usó la habilidad Guía de marca', 'Creó 4 piezas con Higgsfield', 'Aprobación del CEO', 'Correo a la agencia'],

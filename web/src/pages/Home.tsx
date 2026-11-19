@@ -211,7 +211,8 @@ function HomePage() {
           </div>
           {!phone && dock}
           <div className="md:contents" data-testid="home-tail">
-            {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
+            {/* a free-roam demo's suggestions are in its bar at the top (components/demo/FreeRoam.tsx), not here too */}
+            {demo && !projectId && demo.info.kind !== 'freeRoam' && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
             {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && preparedHere && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}

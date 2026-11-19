@@ -18,6 +18,7 @@ import { lookingConnected, setLookingOut } from '../lib/lookingAt'
 import { t } from '../i18n'
 import { useChats } from './chats'
 import { useDeckBuilds } from './deckBuilds'
+import { demoAnswerEnded } from './demo'
 import { useChatThreads } from './chatThreads'
 import { useAiAccess } from './aiAccess'
 import { useEngines } from './engines'
@@ -90,6 +91,8 @@ export function serverHello(serverVersion: string) {
 /** replay: the server sent it again after a reconnect (lib/realtime.ts); it is applied, but nothing rings for it */
 export function dispatch(ev: ServerEvent, meta: { replay: boolean } = { replay: false }) {
   if (ev.type === 'message.step' || ev.type === 'message.done') chatActivity.emit(ev.data.chatId)
+  // a free-roam demo's meter and limit (store/demo.ts): read again after each answer, at once when one hit the limit
+  if (ev.type === 'message.done' && ev.data.message.role === 'assistant' && !meta.replay) demoAnswerEnded(ev.data.message.error)
   switch (ev.type) {
     case 'queue.position':
       useChats.getState().handleEvent(ev)

@@ -32,6 +32,7 @@ import { WebPushAsk } from './WebPushAsk'
 import { useRoomsSync } from './rooms/useRoomsSync'
 import { ChunkErrorBoundary } from './ChunkErrorBoundary'
 import { DemoBar, useDemoInfo } from './demo/Demo'
+import { DemoLimitDialog } from './demo/FreeRoam'
 import { Spinner, useMediaQuery } from './ui'
 import SidePanelFrame from './SidePanelFrame'
 import { RailColumns } from './rail/RailColumns'
@@ -206,6 +207,8 @@ export default function Layout() {
       <SearchDialog />
       {/* "Invite people" from the team menu or ⌘K (TeamMenu.tsx): one dialog for the window */}
       <TeamInviteDialog />
+      {/* a free-roam demo at its limit (components/demo/FreeRoam.tsx): one dialog for the window */}
+      <DemoLimitDialog />
       <UpdateWatcher />
       <AttentionTitle />
     </div>

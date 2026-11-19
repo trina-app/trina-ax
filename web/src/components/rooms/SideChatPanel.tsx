@@ -96,6 +96,8 @@ import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
 import { appChip } from '../../lib/roomApps'
 import { MicBlockedNotice } from '../MicBlockedNotice'
+import { DemoLimitNotice } from '../demo/FreeRoam'
+import { useDemoOut } from '../../store/demo'
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server */
 export async function newestSideChat(roomId: string): Promise<Chat | null> {
@@ -524,7 +526,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
   // (while an answer runs the box's message waits for it: queueing)
-  const canSend = chatId !== undefined && !voice.busy && (question ? !!draft.trim() : (!busy || queueing) && !files.uploading && (!!draft.trim() || files.ready.length > 0))
+  // a free-roam demo whose AI is used up (store/demo.ts): ✦ stops like every AI message box; the room's own box goes on
+  const demoOut = useDemoOut()
+  const canSend = !demoOut && chatId !== undefined && !voice.busy && (question ? !!draft.trim() : (!busy || queueing) && !files.uploading && (!!draft.trim() || files.ready.length > 0))
   const sendLabel = question ? t('sideChat.answer') : busy && queueing ? t('outbox.sendLater') : t('sideChat.send')
   // an answer to the AI's question typed here goes to the AI: as under the full chat's box, the "no passwords" line and
   // a key-looking answer held for "Send anyway" (the question's card leaves typing to this box: AskCard BoxAnswers)
@@ -928,7 +932,8 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             </>
           )}
         </div>
-        {limit && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
+        {demoOut && <DemoLimitNotice className="mt-2" testId="side-chat-demo-out" />}
+        {limit && !demoOut && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
         {voiceError && voice.blockedFor === voiceError && (
           <MicBlockedNotice className="mt-2" text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="side-chat-voice-error" />

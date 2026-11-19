@@ -1,0 +1,62 @@
+// The story's end, its ways on (overlay.tsx): "Now try it yourself" (the live demo, web/demo/live.ts) as the primary
+// button while the gate can take a visitor, the plans link next to it; while it cannot (busy, paused, down, slow), one
+// line that the live demo is busy and the plans link alone, as before. In the guide line's end line and in the end popup.
+import { Button } from '../src/components/ui'
+import type { LiveState } from './live'
+
+export interface EndLinks {
+  signup: { label: string; url: string }
+  /** the story's live demo, if it has one */
+  live?: { label: string; busy: string; url: string }
+  state: LiveState
+}
+
+const offered = (e: EndLinks) => !!e.live && e.state !== 'busy'
+
+/** the end line's links (demo.css .demo-end-line) */
+export function EndLineLinks(e: EndLinks) {
+  if (offered(e)) {
+    return (
+      <span className="demo-end-links">
+        {e.state === 'available'
+          ? <a className="demo-next" href={e.live!.url} data-testid="demo-try-live">{e.live!.label} →</a>
+          : <span className="demo-next demo-wait" aria-busy="true" data-testid="demo-try-live-checking">{e.live!.label}</span>}
+        <a className="demo-plans" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
+      </span>
+    )
+  }
+  return (
+    <>
+      {e.live && <span className="demo-live-busy" role="status" data-testid="demo-live-busy">{e.live.busy}</span>}
+      <a className="demo-next" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
+    </>
+  )
+}
+
+/** the end popup's buttons (the app's Modal footer): Look around, the plans, and the live demo first when offered */
+export function EndPopupButtons(e: EndLinks & { close: string; restart: string; onClose: () => void; onRestart: () => void; go?: (url: string) => void; open?: (url: string) => void }) {
+  const go = e.go ?? ((url: string) => location.assign(url))
+  const open = e.open ?? ((url: string) => void window.open(url, '_blank', 'noopener'))
+  if (offered(e)) {
+    return (
+      <>
+        <Button onClick={e.onClose} data-testid="demo-popup-close">{e.close}</Button>
+        <Button onClick={() => open(e.signup.url)} data-testid="demo-popup-signup">{e.signup.label}</Button>
+        <Button variant="primary" busy={e.state === 'checking'} disabled={e.state !== 'available'} onClick={() => go(e.live!.url)} data-testid="demo-popup-try-live">{e.live!.label}</Button>
+      </>
+    )
+  }
+  return (
+    <>
+      <Button onClick={e.onRestart} data-testid="demo-popup-restart">{e.restart}</Button>
+      <Button onClick={e.onClose} data-testid="demo-popup-close">{e.close}</Button>
+      <Button variant="primary" onClick={() => open(e.signup.url)} data-testid="demo-popup-signup">{e.signup.label}</Button>
+    </>
+  )
+}
+
+/** the popup's line while the live demo cannot take a visitor (under the recap) */
+export function EndPopupBusy(e: EndLinks) {
+  if (!e.live || e.state !== 'busy') return null
+  return <p className="mt-2 text-sm text-muted" role="status" data-testid="demo-popup-live-busy">{e.live.busy}</p>
+}

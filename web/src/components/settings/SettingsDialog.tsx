@@ -52,6 +52,7 @@ import { PhoneListGroup, PhoneListRow } from '../phone/PhoneList'
 import { PhonePageBar } from '../phone/PhonePageBar'
 import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
+import { useFreeRoam } from '../../store/demo'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
@@ -116,7 +117,9 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   useEffect(() => { if (me.user.webAllowAll) setWebOn(true) }, [me.user.webAllowAll])
   // a guest whose AI is off: no usage or AI accounts either (components/GuestView.tsx)
   const guestAiOff = useGuestAiOff()
-  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff)
+  // a free-roam demo (store/demo.ts): no AI account, usage or developer pages
+  const freeRoam = useFreeRoam()
+  const tabs = settingsTabs(browserTabShown(Boolean(browserSettingsBridge()), me.team.webAllowAll, webOn), Boolean(own), Boolean(sites), isGuestMe(me), guestAiOff, freeRoam)
   const [query, setQuery] = useState('')
   const searchRef = useRef<HTMLInputElement>(null)
   const q = query.trim().toLowerCase()

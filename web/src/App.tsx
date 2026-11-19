@@ -5,7 +5,7 @@ import { ShareChatHost } from './components/chat/ShareChat'
 import { ChatShareHost } from './components/chat/ChatShareDialog'
 import { FileShareHost } from './components/FileShareDialog'
 import { WideningDraftHost } from './components/WideningDraftHost'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, Route, Routes, unstable_HistoryRouter as HistoryRouter, useLocation, useNavigate, useNavigationType, useParams, type Location } from 'react-router-dom'
 import { PRODUCT } from '@mycel/shared'
 import { Loader2 } from 'lucide-react'
@@ -43,6 +43,9 @@ import { forgetKept, forgetRoomUploads, restoreRoomUploads } from './store/roomU
 import { clearLocalData } from './lib/localData'
 import { forgetStepsSeen } from './lib/welcome'
 import Layout from './components/Layout'
+import { useDemoInfo } from './components/demo/Demo'
+import { FreeRoamUnavailable } from './components/demo/FreeRoam'
+import { useFreeRoam } from './store/demo'
 import { screenHistory } from './lib/screenHistory'
 import { ChunkErrorBoundary } from './components/ChunkErrorBoundary'
 import { AnnounceProvider, Button, DialogHost, Spinner, Toaster } from './components/ui'
@@ -303,6 +306,9 @@ function Gate() {
   }, [load])
 
   useSessionLifecycle()
+  // a demo server (components/demo/Demo.tsx): known before the app's screens, so a free-roam demo never shows a
+  // screen it hides (the AI's accounts, the engine choice) for a moment first. Only a server that may be one is asked
+  const demo = useDemoInfo()
   // the phone app's swipe and Back follow the screens (nav-v1, lib/appNav.ts)
   useAppNav(status.kind === 'signed-in' ? status.me.user.id : '')
 
@@ -364,6 +370,7 @@ function Gate() {
       </Routes>
     )
   }
+  if (!demo.ready) return <Splash />
   return (
     // a lazy route that is gone after a server update: reload once instead of a blank page (lib/chunk-reload.ts)
     <ChunkErrorBoundary>
@@ -400,12 +407,12 @@ function Gate() {
           <Route path="projects" element={<NotForRoomGuests><ProjectList /></NotForRoomGuests>} />
           <Route path="projects/:projectId" element={<ProjectHome />} />
           <Route path="projects/:projectId/files" element={<ProjectFiles />} />
-          <Route path="admin" element={<NotForGuests><AdminLayout /></NotForGuests>} />
-          <Route path="admin/:section" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
+          <Route path="admin/:section" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           {/* a group of Team settings, its own page on a phone (pages/admin/teamSettingsGroups.ts) */}
-          <Route path="admin/:section/:sub" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section/:sub" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           {/* a team connection's page in Admin › Connectors (/admin/connectors/mcp/<id>) */}
-          <Route path="admin/:section/:sub/:item" element={<NotForGuests><AdminLayout /></NotForGuests>} />
+          <Route path="admin/:section/:sub/:item" element={<NotForGuests><NotInFreeRoam><AdminLayout /></NotInFreeRoam></NotForGuests>} />
           <Route path="trash" element={<Trash />} />
           {/* my own files in conversations ("Files you sent"), guests too: no menu item */}
           <Route path="sent-files" element={<SentFiles />} />
@@ -559,4 +566,13 @@ function AfterSignIn() {
   if (next) return <Navigate to={next} replace />
   if (guest) return <GuestLanding />
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
+}
+
+/** A free-roam demo's visitor never uses the team's admin pages (server/src/demo/guard.ts refuses them): one line
+ * instead, the dev environment's in its own words. */
+function NotInFreeRoam({ children }: { children: ReactNode }) {
+  const freeRoam = useFreeRoam()
+  const { pathname } = useLocation()
+  if (!freeRoam) return <>{children}</>
+  return <FreeRoamUnavailable what={pathname.includes('dev-env') ? 'demo.free.devEnv' : 'demo.free.fenced'} />
 }

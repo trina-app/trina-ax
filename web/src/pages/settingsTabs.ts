@@ -16,6 +16,7 @@
 import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { FREE_ROAM_HIDDEN_SETTINGS } from '../lib/freeRoam'
 
 export interface SettingsTab {
   id: string
@@ -49,11 +50,12 @@ const TABS: SettingsTab[] = [
   { id: 'about', label: 'settings.about', find: 'settings.find.about', icon: Info, group: 'app' },
 ]
 
-/** The tabs to show: "browser" when browserTabShown says so,
+/** The tabs to show: "browser" when browserTabShown says so, none of a free-roam demo's hidden ones (lib/freeRoam.ts:
+ * which AI account answers, its usage, the AI apps' page, the dev environment),
  * "providers" only when the member may have their own AI accounts (or still has one), "dev-env-sites" only when the dev
  * environment on srt is on for the person (GET /api/dev-env/sites state is not 'off'). */
-export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false, guest = false, guestAiOff = false): SettingsTab[] {
-  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites) && !(guest && GUEST_HIDDEN.has(x.id)) && !(guestAiOff && GUEST_AI_OFF_HIDDEN.has(x.id)))
+export function settingsTabs(withBrowser: boolean, withCredentials = false, withDevEnvSites = false, guest = false, guestAiOff = false, freeRoam = false): SettingsTab[] {
+  return TABS.filter((x) => (x.id !== 'browser' || withBrowser) && (x.id !== 'providers' || withCredentials) && (x.id !== 'dev-env-sites' || withDevEnvSites) && !(guest && GUEST_HIDDEN.has(x.id)) && !(guestAiOff && GUEST_AI_OFF_HIDDEN.has(x.id)) && !(freeRoam && FREE_ROAM_HIDDEN_SETTINGS.has(x.id)))
 }
 
 /** A guest's Settings (lib/guests.ts): only their own account, AI sign-in and the app. What the team shares with its
