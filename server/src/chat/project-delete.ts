@@ -15,6 +15,8 @@ import { audit } from '../admin/audit'
 import { forgetPurgedChats } from './forget'
 import { dropChatPins } from './pins'
 import { dropChatFolderItems } from './nav-folders'
+import { dropLinksInTx } from '../rooms/project-link'
+import { roomsOf } from '../rooms/service'
 
 const isPersonalPath = (folder: string) => folder === 'users' || folder.startsWith('users/')
 
@@ -40,7 +42,11 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
   if (item) mapErrors(locale, () => componentC(ctx).files.purgeTrash(item.id, actorId, { manager: true }), 'params.id')
   for (const x of shared) rt.stopChat(x.id)
   const now = new Date().toISOString()
+  let unlinked: string[] = []
   ctx.db.transaction(() => {
+    // its linked channel (rooms/project-link.ts) stays a plain private channel: the link goes here, explicitly (the
+    // cascade would take it too), audited by the project only
+    unlinked = dropLinksInTx(ctx.db, { projectId: r.id })
     for (const x of purged) rt.purgeChat(x.id)
     // one already in the trash keeps its time there (and who put it there)
     for (const x of kept) ctx.db.query('UPDATE chats SET shared_at = NULL, project_id = NULL, deleted_at = COALESCE(deleted_at, ?), deleted_by = CASE WHEN deleted_at IS NULL THEN ? ELSE deleted_by END WHERE id = ?').run(now, actorId, x.id)
@@ -63,5 +69,7 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
     for (const uid of audience) if (uid !== x.user_id) gone(x.id, uid)
   }
   for (const x of purged) for (const uid of audience) gone(x.id, uid)
+  // the channel's members lose its Files button and Save to project now (each gets the room as they see it)
+  if (unlinked.length) roomsOf(ctx).projectsChanged([], unlinked)
   if (purged.length) void forgetPurgedChats(ctx, purged.map((x) => x.id))
 }

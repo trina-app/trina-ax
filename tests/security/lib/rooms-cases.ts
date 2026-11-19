@@ -264,4 +264,34 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (status === 503 && r.json?.error?.params?.reason !== 'unsupported') throw new Error(`${who}: expected unsupported, got ${r.text.slice(0, 200)}`)
     },
   },
+  // a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md): the group chat (a
+  // private channel of alice, erin and frank) and Team plan (alice and erin write). Its two members who read and write
+  // the project link and unlink; the owner and the admin (outside both), bob (outside both) and frank are refused, and a
+  // refused body never names the project or the channel
+  linkRoomProject: {
+    build: (c, w) => c.req('PUT', `/api/rooms/${w.ids.groupRoom}/project`, { projectId: w.ids.projTeam }), scope: 'room-group',
+    check: (r, _w, who) => {
+      if (r.status === 200) { if (r.json?.project?.name !== 'Team plan') throw new Error(`${who}: linked without the project: ${r.text.slice(0, 200)}`); return }
+      // (Team plan may have its own channel already: createProjectChannel)
+      if (r.status === 409 && r.json?.error?.params?.reason === 'project_has_channel') return
+      if (who === 'memberIn' || who === 'other') throw new Error(`${who}: linkRoomProject answered ${r.status} ${r.text.slice(0, 200)}`)
+      if (r.text.includes('Team plan') || r.text.includes(C.groupName)) throw new Error(`${who}: a refusal names the project or the channel: ${r.text.slice(0, 200)}`)
+    },
+  },
+  unlinkRoomProject: {
+    build: (c, w) => c.del(`/api/rooms/${w.ids.groupRoom}/project`), scope: 'room-group',
+    check: (r, _w, who) => {
+      if (r.status >= 400 && (r.text.includes('Team plan') || r.text.includes(C.groupName))) throw new Error(`${who}: a refusal names the project or the channel: ${r.text.slice(0, 200)}`)
+    },
+  },
+  // a channel made from Team plan: its members pass the checks (201, or 409 project_has_channel once it has one);
+  // everyone else is refused without the project's name
+  createProjectChannel: {
+    build: (c, w) => c.post(`/api/projects/${w.ids.projTeam}/channel`, { name: 'Plan talk', userIds: ['erin', 'alice'] }), scope: 'team-chat',
+    check: (r, _w, who) => {
+      if (r.status === 201 || (r.status === 409 && r.json?.error?.params?.reason === 'project_has_channel')) return
+      if (who === 'memberIn' || who === 'other') throw new Error(`${who}: createProjectChannel answered ${r.status} ${r.text.slice(0, 200)}`)
+      if (r.text.includes('Team plan')) throw new Error(`${who}: a refusal names the project: ${r.text.slice(0, 200)}`)
+    },
+  },
 }

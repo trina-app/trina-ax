@@ -20,7 +20,10 @@
 // answers fast and works with the AI off.
 import fs from 'node:fs'
 import path from 'node:path'
-import { SMALL_UPLOAD_MAX, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, SMALL_UPLOAD_MAX, type Locale, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
+import { isProjectPlainName } from '@mycel/shared'
+import { tr } from '../chat/i18n'
+import { activeProjectOf } from './project-link'
 import type { AppContext } from '../context'
 import { HttpError, fail } from '../http/errors'
 import { isGuest } from '../auth/guests'
@@ -224,8 +227,12 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
   return out
 }
 
-/** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it. */
-export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string): Promise<RoomSaveResult> {
+/** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it.
+ * `oneClick` (Save to project in a linked channel, docs/decisions/20261119-channel-project-link.md): without the sheet, so
+ * only into the top of the channel's active linked project folder and only documents and media by name
+ * (shared/src/files/plain-kinds.ts) that do not look personal; anything else is 409 needs_sheet and nothing is saved, so
+ * an older or changed client cannot skip the sheet for code or config. */
+export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, oneClick = false, locale: Locale = DEFAULT_LOCALE): Promise<RoomSaveResult> {
   noGuests(ctx, userId)
   const files = componentC(ctx).files
   const rooms = roomFilesOf(ctx)
@@ -234,6 +241,19 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
   const found = ids.map((id) => lookup(ctx, userId, roomId, id))
   const user0 = files.principal(userId)
   const at = writableFolder(files, user0, files.rules(), folder)
+  if (oneClick) {
+    const needsSheet = () => fail('conflict', tr('roomSaveNeedsSheet', locale), { params: { reason: 'needs_sheet' } })
+    const linked = activeProjectOf(ctx.db, roomId)
+    if (!linked || linked.folder_path !== at) needsSheet()
+    for (const f of found) {
+      if (!isProjectPlainName(f.file.name) || instructionLike(`${at}/${f.file.name}`)) needsSheet()
+      const sniff = () => {
+        if (f.file.size > SNIFF_MAX) return null
+        try { return readRegular(rooms.open(userId, roomId, f.file.id, false).abs, SNIFF_MAX).bytes } catch { return null }
+      }
+      if (looksSensitive(f.file.name, contextWords(ctx, f), sniff)) needsSheet()
+    }
+  }
   for (const f of found) {
     if (ctx.files.quarantine.hasHash(f.file.sha256)) throw new HttpError('unavailable', 'This file is held by the team\'s safety check.', { params: { reason: 'quarantined' } })
     if (f.file.size > SMALL_UPLOAD_MAX) throw new HttpError('payload_too_large', 'Larger than 50 MB: download it and upload it on the Files screen.', { params: { reason: 'too_large' } })

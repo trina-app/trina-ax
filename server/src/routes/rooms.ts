@@ -72,6 +72,10 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMembers, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.members(auth.user.id, params.id) } })
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
+    // a private channel linked to a team project (rooms/project-link.ts; docs/decisions/20261119-channel-project-link.md)
+    kit.handle(API.linkRoomProject, ({ c, auth, params, body }) => rooms.linkProject(auth.user.id, params.id, body.projectId, body.via ?? 'channel', c.get('locale')))
+    kit.handle(API.unlinkRoomProject, ({ c, auth, params, query }) => rooms.unlinkProject(auth.user.id, params.id, query.via ?? 'channel', c.get('locale')))
+    kit.handle(API.createProjectChannel, ({ c, auth, params, body }) => rooms.createProjectChannel(auth.user.id, params.id, body.name, body.userIds, c.get('locale')))
     kit.handle(API.inviteRoomMembers, ({ c, auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds, c.get('locale')))
     kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
     kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
@@ -112,7 +116,7 @@ export const roomsRoutes: RouteModule = {
     // room_file's read checks and, for the copy, the AI's byte save (write access again, never an overwrite)
     kit.handle(API.roomSavedFiles, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return savedFiles(ctx, auth.user.id, params.id) })
     kit.handle(API.roomSavePlan, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => savePlan(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
-    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder), 'body.folder'))
+    kit.handle(API.saveRoomFilesToTeam, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => saveToTeam(ctx, auth.user.id, params.id, body.fileIds, body.folder, !!body.oneClick, c.get('locale')), 'body.folder'))
     kit.handle(API.roomFile, ({ c, auth, params, query }) => {
       const f = files.open(auth.user.id, params.id, params.fileId, !!query.thumb)
       // a file on the safety check's download-only list (docs/SAFE-OPS-1A.md) goes only as a download (download=1): no

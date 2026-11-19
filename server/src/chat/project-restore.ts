@@ -15,6 +15,13 @@ import { Audiences } from './shared'
 
 export function projectsRestored(ctx: AppContext, projectIds: readonly string[], o: { by: string; trashedAt: string | null }): void {
   if (!projectIds.length) return
+  // a linked channel's Files button and Save to project come back (rooms/project-link.ts: active again when its folder is
+  // in projects/<name>); required lazily, as below
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { roomsOf } = require('../rooms/service') as typeof import('../rooms/service')
+    roomsOf(ctx).projectsChanged(projectIds)
+  } catch (e) { ctx.log.warn('linked channels not told of a restore', { err: e }) }
   try {
     // required lazily: admin/guests reaches admin/users, which imports the chat runtime
     // eslint-disable-next-line @typescript-eslint/no-require-imports

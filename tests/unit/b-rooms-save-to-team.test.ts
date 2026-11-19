@@ -361,3 +361,53 @@ describe('QA 11-17', () => {
     expect((await planOf('erin', rooms.marketing, both)).suggestion).toBeNull()
   })
 })
+
+// Save to project in a linked channel (docs/decisions/20261119-channel-project-link.md D6): oneClick takes only document
+// and media names (shared/src/files/plain-kinds.ts, any case, after NFKC; the last extension decides) into the top of the
+// channel's linked project folder; anything else is 409 needs_sheet and nothing is saved.
+describe('oneClick (Save to project)', () => {
+  test('documents and media go to the project root in one click; code, config, dotfiles and other folders need the sheet', async () => {
+    const project = await h.api('alice').call(API.createProject, { body: { name: 'Launch', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' } })
+    const channel = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: 'Launch talk' } }) as Room
+    const r = await h.req('alice', `/api/rooms/${channel.id}/project`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: project.id }) })
+    expect(r.status).toBe(200)
+    const root = ((await r.json()) as Room).project!.folderPath
+    const one = (fileIds: string[], folder = root) => h.req('erin', `/api/rooms/${channel.id}/save-to-team`, json({ fileIds, folder, oneClick: true }))
+    const reason = async (res: Response) => ((await res.json()) as { error: { params?: { reason?: string } } }).error.params?.reason
+    // a PDF (upper case), a Hangul file, a full-width extension that NFKC folds: one click, into the root
+    for (const name of ['Quote-V2.PDF', '회의록.hwpx', 'photo.ｐｎｇ']) {
+      const { fileId } = await sendFile('alice', channel.id, name, `bytes of ${name}`)
+      const res = await one([fileId])
+      expect(res.status).toBe(200)
+      const out = (await res.json()) as RoomSaveResult
+      expect(out.saved[0]!.path.startsWith(root + '/')).toBe(true)
+      expect(out.saved[0]!.path.slice(root.length + 1).includes('/')).toBe(false)
+      expect(out.saved[0]!.existed).toBe(false)
+    }
+    // code, config, a double extension, a dotfile, an instruction name: the sheet
+    for (const name of ['deploy.sh', 'package.json', 'Makefile', 'conftest.py', 'x.pdf.sh', '.env', 'CLAUDE.md']) {
+      const { fileId } = await sendFile('alice', channel.id, name, `bytes of ${name}`)
+      const res = await one([fileId])
+      expect(res.status).toBe(409)
+      expect(await reason(res)).toBe('needs_sheet')
+      expect(fs.existsSync(team(`${root}/${name}`))).toBe(false)
+    }
+    // a message whose files are not all one-click files: none saved
+    const a = await upload('alice', channel.id, 'notes.md', 'notes')
+    const b = await upload('alice', channel.id, 'run.sh', 'echo')
+    await h.api('alice').call(API.sendRoomMessage, { params: { id: channel.id }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds: [a, b] } })
+    const mixed = await one([a, b])
+    expect(mixed.status).toBe(409)
+    expect(fs.existsSync(team(`${root}/notes.md`))).toBe(false)
+    // another folder than the linked project's root: the sheet (the same files through the sheet still save there)
+    const { fileId: pdf } = await sendFile('alice', channel.id, 'brief.pdf', 'brief')
+    fs.mkdirSync(team(`${root}/sub`), { recursive: true })
+    expect(await reason(await one([pdf], `${root}/sub`))).toBe('needs_sheet')
+    expect(await reason(await one([pdf], 'shared'))).toBe('needs_sheet')
+    expect((await save('erin', channel.id, [pdf], `${root}/sub`)).status).toBe(200)
+    // a channel with no link: the sheet
+    const plain = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: 'No project' } }) as Room
+    const { fileId: doc } = await sendFile('alice', plain.id, 'doc.docx', 'doc')
+    expect(await reason(await h.req('erin', `/api/rooms/${plain.id}/save-to-team`, json({ fileIds: [doc], folder: root, oneClick: true })))).toBe('needs_sheet')
+  })
+})

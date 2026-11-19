@@ -48,6 +48,8 @@ import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
+import { activeProjectOf } from '../rooms/project-link'
+import { isProjectPlainName } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
@@ -2921,6 +2923,18 @@ export class TurnExec {
     // file the same people could read anyway; an existing file, a skill or instruction file still asks
     // (not kept for the turn: the same call once the file exists asks)
     if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) return null
+    // a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md D7, the coordinator's
+    // narrow rule): in that channel's own side chat, a NEW document or media file in the linked project's folder that the
+    // person's own message asked to save needs no room card. The wider-audience card is kept: when people outside the
+    // channel can open the place, that card asks (with its counts); its yes is this call's
+    if (!o.noCover && this.askedToSave() && this.linkedProjectPlain(tool, input, o.widen)) {
+      if (need) {
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
+        if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
+        this.roomAllowed.add(key)
+      }
+      return null
+    }
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -3106,6 +3120,47 @@ export class TurnExec {
     if (!m || m.auto_sent) return false
     const said = withoutQuoteLines(m.content ?? '')
     return SAVE_ASK.test(said) && !SAVE_NOT.test(said)
+  }
+
+  /**
+   * The linked project's rule (docs/decisions/20261119-channel-project-link.md D7): this turn is the side chat of a
+   * private channel with an active link to a team project the person can open and write (judged now), and the call
+   * makes a NEW file whose name is a document or media kind (shared/src/files/plain-kinds.ts) inside that project's
+   * folder, as the file layer resolves it for the person: no hidden segment, skill, instruction file or managed folder, not
+   * a path an AI turn put in the trash, and a target folder whose readers are no wider than the project folder's own (a
+   * subfolder with an extra share or rule asks). Never a confidential chat, a scheduled run, safe operations, save_url, an
+   * edit, a move or a copy (writeTargetOf's tools only, or a save_room_file / save_chat_file target). The caller checked
+   * the person's own message asked to save. Fails closed.
+   */
+  private linkedProjectPlain(tool: string, input: unknown, widen?: WidenOf): boolean {
+    try {
+      if (!widen || this.spec.clientKind === 'schedule' || safeOpsEnabled() || confidentialChat(this.rt.db, this.spec.chatId)) return false
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
+      if (!side || side.kind !== 'group') return false
+      const p = activeProjectOf(this.rt.db, side.id)
+      if (!p) return false
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      if (!t?.mayBeNew) return false
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const project = p.folder_path.split('/')
+      if (!rules.canList(me, project) || !atLeast(rules.access(me, project), 'write')) return false
+      const r = authorize(fx, rules, me, t.path, 'write', { createDirs: true })
+      if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
+      const segs = r.segs, folder = segs.slice(0, -1)
+      const fold = (x: string) => { const n = x.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      if (folder.length < project.length || project.some((x, i) => fold(x) !== fold(folder[i]!))) return false
+      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return false
+      if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return false
+      if (!isProjectPlainName(segs.at(-1)!)) return false
+      // another project's folder inside this one: never (one project per folder; a nested one would be its own)
+      if (this.rt.db.query('SELECT folder_path AS f FROM projects WHERE id <> ?').all(p.id).some((x) => { const f = fold((x as { f: string }).f); const k = fold(r.rel); return k === f || k.startsWith(f + '/') })) return false
+      // the target folder's readers no wider than the project folder's own (the same reader as widening())
+      if (folder.length > project.length) {
+        const base = new Set(readersOf(this.rt.db, rules, project))
+        if (readersOf(this.rt.db, rules, folder).some((id) => !base.has(id))) return false
+      }
+      return true
+    } catch { return false }
   }
 
   /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an

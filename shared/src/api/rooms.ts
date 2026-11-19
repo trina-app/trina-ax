@@ -352,6 +352,11 @@ export const RoomEventLine = z.discriminatedUnion('type', [
   z.object({ type: z.literal('removed'), user: UserRef.nullable() }),
   /** the author joined the team (an invite, the team link or an admin's "Add directly"): the everyone room's line, nobody notified */
   z.object({ type: z.literal('joined') }),
+  /** the author linked this private channel to a team project, or unlinked it (docs/decisions/
+   * 20261119-channel-project-link.md): `project` only for a viewer who can open that project now, else null (the line
+   * says "a project") */
+  z.object({ type: z.literal('project_linked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
+  z.object({ type: z.literal('project_unlinked'), project: z.object({ id: Uuid7, name: z.string() }).nullable() }),
   /** a line this build cannot read (a newer build's, or a damaged one): said neutrally, without who did it */
   z.object({ type: z.literal('unknown') }),
 ])
@@ -579,6 +584,14 @@ export const Room = z.object({
    * folder and I can open it (the folder rules, as the Files page judges them). Absent for the other kinds, a group
    * without a folder, someone the rules keep out, and older servers. */
   groupFolder: z.string().min(1).optional(),
+  /** a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md), for a viewer who can
+   * open that project now: the header's Files button opens `folderPath`; `canSave`: Save to project (not a guest, and
+   * write on the folder). Absent: not linked, a link that is not active (the project in the trash, outside projects/),
+   * a viewer who cannot open the project, and older servers. */
+  project: z.object({ id: Uuid7, name: z.string(), folderPath: z.string().min(1), canSave: z.boolean() }).optional(),
+  /** I may link this private channel to a project (a non-guest member, a private channel, no active link I cannot see):
+   * the room info's Project row offers Link to a project. Absent: no. */
+  canLinkProject: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
@@ -833,7 +846,16 @@ export const RoomSavePlan = z.object({
   folder: SaveFolder.optional(),
 })
 export type RoomSavePlan = z.infer<typeof RoomSavePlan>
-export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
+/** `oneClick`: Save to project in a linked channel, without the sheet: every file must be a document or media kind by its
+ * name (shared/src/files/plain-kinds.ts), else 409 needs_sheet and nothing is saved */
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath, oneClick: z.literal(true).optional() }).strict()
+/** link this private channel to a team project (PUT /api/rooms/:id/project; also the project page's Link a channel) */
+export const LinkRoomProjectBody = z.object({ projectId: Uuid7, /** where it was linked from (the audit row's via; default the channel) */ via: z.enum(['channel', 'project']).optional() }).strict()
+/** DELETE /api/rooms/:id/project?via=project: unlinked from the project page (the audit row's via; default the channel) */
+export const UnlinkRoomProjectQuery = z.object({ via: z.enum(['channel', 'project']).optional() })
+/** a private channel for a project (POST /api/projects/:id/channel): its name and the people to add (the client
+ * pre-fills the project's people; never a sync) */
+export const CreateProjectChannelBody = z.object({ name: RoomName.refine((s) => s.length > 0, { message: 'required' }), userIds: z.array(UserId).min(1).max(ROOM_GROUP_MAX - 1) }).strict()
 /** each file's team path; `existed`: the same bytes were there already; `nextTo`: a different file had the name, so the
  * copy is beside it */
 export const RoomSaveResult = z.object({ saved: z.array(z.object({ fileId: Uuid7, path: RelPath, existed: z.boolean(), nextTo: RelPath.optional() })) })
@@ -930,6 +952,9 @@ export const ROOMS = {
   roomSavedFiles: endpoint({ method: 'GET', path: '/api/rooms/:id/saved-files', auth: 'user', owner: 'B', response: RoomSavedFiles, summary: 'Files of a room I am in that were saved to the team folder and that I can open there now: the place still holds the same bytes and my access allows reading it. Not for guests.' }),
   roomSavePlan: endpoint({ method: 'POST', path: '/api/rooms/:id/save-plan', auth: 'user', owner: 'B', body: RoomSavePlanBody, response: RoomSavePlan, summary: 'What the "Save to team folder" sheet shows for files of a room I can see: each file (where it is saved already, whether it looks like a personal document, whether it is the same bytes as an earlier one), one folder I can write to pre-select for the files that look ordinary (matched by name, no AI, only when it fits every one of them; else a recent folder; none when every file looks personal) or, with folder, that folder checked; how many people outside the conversation can see it (a count). Rate limited like the Move picker\'s suggestions. Not for guests.' }),
   saveRoomFilesToTeam: endpoint({ method: 'POST', path: '/api/rooms/:id/save-to-team', auth: 'user', owner: 'B', body: RoomSaveBody, response: RoomSaveResult, summary: 'Copy files of a room I can see into a team folder I may write, byte for byte (each ≤ 50 MB, not on the download-only list, never into skills/ or as an instruction file). Never overwrites: the same bytes there already (from this file or any room file with those bytes, an identical file of the same save included) count as saved; a different file of that name stays and the copy goes next to it. Recorded in the file history. Not for guests.' }),
+  linkRoomProject: endpoint({ method: 'PUT', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', body: LinkRoomProjectBody, response: Room, summary: 'Link a private channel I am in to a team project in projects/<name> that I read and may write (one project per channel, one channel per project). The same project again: unchanged. Errors in this order, each revealing nothing the caller could not see: guest 403 forbidden; room not mine 404; not a private channel 409 not_private_channel; project missing, unreadable or in the trash 404; personal or older project 409 project_not_linkable; no write 403 project_write_needed; the channel linked to another project 409 channel_linked; the project has a channel 409 project_has_channel (never naming it). An event line in the channel; audited by the project only.' }),
+  unlinkRoomProject: endpoint({ method: 'DELETE', path: '/api/rooms/:id/project', auth: 'user', owner: 'B', status: 204, query: UnlinkRoomProjectQuery, response: empty, summary: 'Unlink a private channel from its project: a non-guest member who reads and writes the project. No active link: 204 (nothing to do). Saved files stay in the project; files sent in the channel stay there. An event line; audited by the project only.' }),
+  createProjectChannel: endpoint({ method: 'POST', path: '/api/projects/:id/channel', auth: 'user', owner: 'B', status: 201, body: CreateProjectChannelBody, response: Room, summary: 'Make a private channel for a team project I read and write, with the people I picked, linked to it in the same step (a copy of who is in it at creation, never a sync). The project\'s errors as for linking; rate limited like any new channel.' }),
   roomFileHwpPreview: endpoint({ method: 'GET', path: '/api/rooms/:id/files/:fileId/hwp-preview', auth: 'user', owner: 'B', query: HwpPreviewQuery, response: HwpPreviewPage, summary: 'One page of a Hangul file (HWP, HWPX) sent in a room I am in, as a PNG from the HWP Preview plugin: the team file preview\'s renderer, limits and cache. Checked on every request as reading the file inline is: a member, the message visible to me and not deleted (404 otherwise), not on the download-only list (503 quarantined). The plugin off or not usable here: 503 unavailable with params.reason disabled, as for a team file. Pages are 1-based.' }),
 } as const
 
