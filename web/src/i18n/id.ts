@@ -341,6 +341,10 @@ export const id: Record<MessageKey, string> = {
   'setup.name': 'Nama Anda',
   'setup.passwordHint': 'Minimal 8 karakter',
   'setup.create': 'Buat tim dan mulai',
+  'setup.titleHosted': "Buat akun Anda",
+  'setup.subHosted': "Tim Anda sudah siap. Buat akun owner untuk mulai.",
+  'setup.fixedHint': "Dipilih saat mendaftar. Anda bisa mengubahnya nanti di Pengaturan tim.",
+  'setup.createHosted': "Buat akun dan mulai",
 
   'invite.title': 'Undangan',
 

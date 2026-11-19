@@ -4,6 +4,8 @@
 // the token, it leaves the address bar as soon as the page has read it (history.replaceState), so it is not in the
 // history or a shared screenshot. `site` (the company website, e.g. from the sign-up email's domain) is kept for this
 // tab once the team exists, so the company profile step (components/onboarding/ProfileStep.tsx) can start from it.
+// `team` and `lang` come only from the hosted service, which already asked for them at sign-up: the setup page shows
+// them as set, not as fields to type again (owner 2026-11-20; the team name changes later in Settings > Team).
 import { asLocale, normalizeWebsite, type Locale } from '@mycel/shared/api'
 
 export interface SetupLink {
@@ -50,12 +52,37 @@ export function setupSite(): string | null {
 }
 
 const TOKEN_KEY = 'mycel.setupToken'
+const TEAM_KEY = 'mycel.setupTeam'
+
+/** The team name and language the hosted service chose at sign-up (the setup link's `team` and `lang`). */
+export interface SetupTeam { team: string; lang: Locale | null }
 
 /** Keep the setup link's token for this tab, so a reload of /setup (the token is gone from the address by then) still
  * opens the setup page through the relay, which says setup is needed only to a visitor with the token
  * (store/session.ts). sessionStorage: this tab only, gone when it closes; forgotten once the team is made. */
-export function rememberSetupToken(token: string | null): void {
-  try { if (token) sessionStorage.setItem(TOKEN_KEY, token) } catch { /* storage blocked: a reload asks for the token */ }
+export function rememberSetupToken(token: string | null, team?: SetupTeam | null): void {
+  try {
+    if (!token) return
+    sessionStorage.setItem(TOKEN_KEY, token)
+    // a new link replaces what an earlier one left: its team, or none (an installer link asks for the name)
+    if (team) sessionStorage.setItem(TEAM_KEY, JSON.stringify(team))
+    else sessionStorage.removeItem(TEAM_KEY)
+  } catch { /* storage blocked: a reload asks for the token */ }
+}
+
+/** The team name and language this tab's setup link carried (kept for a reload, like the token), or null. */
+export function keptSetupTeam(): SetupTeam | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(TEAM_KEY) ?? 'null') as { team?: unknown; lang?: unknown } | null
+    const team = typeof v?.team === 'string' ? clip(v.team, 100) : null
+    return team ? { team, lang: asLocale(typeof v?.lang === 'string' ? v.lang : '') ?? null } : null
+  } catch { return null }
+}
+
+/** The link's own team when it carried one, else the one kept for this tab (only beside a kept token). */
+export function setupTeamOf(link: SetupLink): SetupTeam | null {
+  if (link.team) return { team: link.team, lang: link.lang }
+  return link.token ? null : keptSetupTeam()
 }
 
 /** The setup token this tab's setup link carried, or null. */
@@ -64,5 +91,5 @@ export function keptSetupToken(): string | null {
 }
 
 export function forgetSetupToken(): void {
-  try { sessionStorage.removeItem(TOKEN_KEY) } catch { /* nothing kept */ }
+  try { sessionStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem(TEAM_KEY) } catch { /* nothing kept */ }
 }
