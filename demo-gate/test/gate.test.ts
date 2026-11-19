@@ -2,13 +2,17 @@
 // Turnstile. Pages, start, cookie routing, WebSocket piping, deny paths, the instance's config and env, the pool
 // (busy, expiry, orphans, code version), IP limits, and the model upstream (path secrets, credential modes, header
 // allowlist, error rewrite, prompt-too-long, weighted counting, daily cap, PAUSE, stream limit).
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
   DUMMY_CREDENTIAL, FAKE_CREDENTIAL, NODE, SSE, fakeTurnstile, fakeUpstream, get, startGate, startVisit, until, visitor, warm, wsEcho,
   type Gate,
 } from './harness.ts'
+
+// each test starts real gate and instance processes (clone, config, health and fence checks): 5 s is too short on a
+// loaded machine
+setDefaultTimeout(30_000)
 
 const BUSY = 'The demo is busy, try again in a bit.'
 const skip = !NODE
