@@ -42,6 +42,14 @@ A rollback restores the app, not the database or files. Back up before every upd
 
 Office updates run nightly while the user is logged in.
 
+## Desktop apps
+
+The Windows app and the signed Mac app (the `.dmg`) update from the team server, not from the feed. After an update the
+server puts the new installer in `/downloads/` (`latest.yml`, and `latest-mac.yml` for the Mac). The app checks there
+every 4 hours, downloads in the background and checks the file against the signed release. It installs when the app
+quits, or by itself when the computer is idle and nothing would be lost. There is no restart question. A Mac app still
+running from the `.dmg` cannot update: it offers **Move to Applications**. Store builds are updated by their store.
+
 ## Hosted teams
 
 Trina installs updates during the maintenance window. There is nothing to run.

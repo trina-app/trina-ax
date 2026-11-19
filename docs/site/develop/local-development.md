@@ -65,7 +65,7 @@ The e2e tests run the web app against the mock server in `web/test/mock/`, so mo
 | `bun run build:native` | Build the Go helpers |
 | `bun run build:web` | Build the web app |
 | `bun run typecheck` | Type-check server, web and desktop |
-| `bun run check:i18n` | Check strings in all five languages |
+| `bun run check:i18n` | Check strings in all six languages |
 | `bun run check:docs` | Check the entry docs and this site's links |
 | `bun run docs:build` | Build this documentation site |
 | `bun run docs:reshoot` | Refresh the docs screenshots, in English and Chinese, from fresh made-up data |

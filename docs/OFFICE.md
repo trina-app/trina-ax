@@ -36,7 +36,7 @@
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
 > `bun run build:office`; control: `~/TeamAX/teamax`. The latest release is on GitHub Releases and on the Trina update feed
 > (`https://updates.trina.app`, live since 2026-10-29). The Mac checks `<feed>/office/<channel>.json` nightly;
-> `teamax update now` installs at once (section 6). There is no Mac desktop DMG yet.
+> `teamax update now` installs at once (section 6). The Mac desktop app is the signed DMG on GitHub Releases (since 0.5.5).
 
 ## 1. 준비물
 
@@ -284,7 +284,7 @@ bash ./TrinaAX-office-VERSION/office-install.sh
 ```
 
 설치기는 기존 데이터·팀 폴더·설정을 유지하며 앱을 교체합니다. 인증서가 바뀐 경우 데스크 카드를 다시 확인하세요.
-Mac 데스크톱 DMG는 배포하지 않습니다. Windows 설치 파일은 GitHub Releases에서 별도로 받습니다.
+Mac 데스크톱 앱(서명·공증된 DMG, 0.5.5부터)과 Windows 설치 파일은 GitHub Releases에서 따로 받습니다.
 
 ### 피드 업데이트의 동작
 
@@ -680,7 +680,7 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 
 ## 부록 C. 윈도우 데스크톱 앱 (키트)
 
-공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 미배포이며 직접 빌드한 파일이 있는 경우에만 아래 DMG 단계를 따릅니다.
+공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 0.5.5부터 릴리스에 서명·공증된 `Trina-AX-<버전>-mac-universal.dmg`로 들어 있고, 아래 DMG 단계는 그 파일에도 같습니다.
 
 데스크 대부분은 Edge 앱이면 됩니다. AI가 웹사이트를 직접 열어 읽고 클릭해야 하는 자리만 데스크톱 앱을 씁니다(앱 안
 브라우저 창, 사이트마다 묻기). 그 팀용 설치 파일은 개발 맥에서 만듭니다(맥에서 윈도우용으로 빌드됨, wine 필요 없음):
