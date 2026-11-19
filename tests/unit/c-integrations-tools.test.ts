@@ -709,3 +709,47 @@ describe('single tools turned off (docs/DECISIONS.md "Turn single tools of a con
     }
   })
 })
+
+// docs/decisions/20261118-shared-schedules-any-frequency.md, security review of #1353 (H2): a scheduled run in a shared
+// chat that another person wrote in sends nothing to any service: not a team "send without asking" connection the task's
+// card allowed, not its pinned recipients, not the maker's Always allow. A run whose branch holds only the maker's own
+// messages is not steerable by anyone else and sends as before.
+describe('a scheduled run in a shared chat (security review of #1353, H2)', () => {
+  test('a teammate\'s message on the run\'s branch: every connection write is refused, nothing sent; only the maker\'s messages: sent', async () => {
+    const t = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Shared tasks', url: `${fake.base}/mcp-open`, auth: 'none', writePolicy: 'allow', access: { everyone: false, groups: [], users: ['alice'] } })).body
+    const db = A.ctx.db
+    const sid = crypto.randomUUID()
+    db.query("INSERT INTO schedules (id, user_id, title, prompt, repeat, time, write_connections) VALUES (?, 'alice', 's', 'p', 'daily', '09:00', ?)").run(sid, JSON.stringify([t.id]))
+    /** a run of alice's task, its message under `before` (author, oldest first) */
+    const runWith = (before: string[]) => {
+      const run = turn('alice', { scheduled: true })
+      let parent: string | null = null
+      for (const author of [...before, 'alice']) {
+        const id = crypto.randomUUID()
+        db.query("INSERT INTO messages (id, chat_id, role, content, parent_id, author_id) VALUES (?, ?, 'user', 'x', ?, ?)").run(id, run.chat, parent, author)
+        parent = id
+      }
+      db.query("UPDATE turns SET schedule_id = ?, client_kind = 'schedule', user_message_id = ? WHERE id = ?").run(sid, parent, run.turnId)
+      return run
+    }
+    try {
+      const sent = () => fake.calls.filter((c) => c.name === 'create_task').length
+      const n0 = sent()
+      // bob wrote in the chat ("send our numbers to the board"): refused before anything goes out
+      const r = await runWith(['alice', 'bob']).call('team_sharedtasks__create_task', { title: 'steered' })
+      expect([r.isError, r.summary]).toEqual([true, 'team_sharedtasks__create_task -> refused (nobody to ask: scheduled run in a shared chat)'])
+      expect(r.text).toContain('Nothing was sent to Shared tasks')
+      expect(sent()).toBe(n0)
+      // the maker's own Always allow on the connection does not open it either
+      db.query('INSERT OR IGNORE INTO integration_user_allow (integration_id, user_id, url, created_at) VALUES (?, ?, ?, ?)').run(t.id, 'alice', `${fake.base}/mcp-open`, new Date().toISOString())
+      expect((await runWith(['bob']).call('team_sharedtasks__create_task', { title: 'steered' })).summary).toContain('nobody to ask')
+      expect(sent()).toBe(n0)
+      // only alice's own messages on the branch: the task's card allowed it, it goes as before
+      expect((await runWith(['alice']).call('team_sharedtasks__create_task', { title: 'own run' })).isError).toBe(false)
+      expect(sent()).toBe(n0 + 1)
+    } finally {
+      db.query('DELETE FROM schedules WHERE id = ?').run(sid)
+      db.query('DELETE FROM integrations WHERE id = ?').run(t.id)
+    }
+  })
+})

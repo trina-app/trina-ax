@@ -131,6 +131,7 @@ function field(src: string, lo: number, hi: number, name: string, names?: string
     let a: number, b: number
     if (range === '*' || range === '?') { a = lo; b = hi }
     else if (range.includes('-')) {
+      if (range.split('-').length !== 2) throw new CronError(`${name}: "${range}" is not a range (a range is two values, as 1-5)`)
       const [x, y] = range.split('-') as [string, string]
       a = num(x); b = num(y)
     } else { a = num(range); b = stepText === undefined ? a : hi }
@@ -139,7 +140,8 @@ function field(src: string, lo: number, hi: number, name: string, names?: string
     if (a < lo || b > top || a > b) throw new CronError(`${name}: "${part}" is outside ${lo}–${top}`)
     for (let v = a; v <= b; v += step) values.add(name === 'day of the week' && v === 7 ? 0 : v)
   }
-  return { values, any: src === '*' || src === '?', last }
+  // "*/1" is every value, as "*" (it matters for the day of the month and of the week: an unrestricted field)
+  return { values, any: src === '*' || src === '?' || src === '*/1' || src === '?/1', last }
 }
 
 /** A cron expression as five fields (or a macro like "@hourly"); CronError says what is wrong. */
@@ -184,7 +186,9 @@ function cronNext(c: Cron, after: Date, tz: string): Date | null {
       if (i === 0 && h < start.h - 1) continue
       for (const mi of c.minutes) {
         const t = zonedToUtc(y, m, d, h, mi, tz)
-        // a wall-clock time a clock change skips maps outside its hour: not that time, so not a run
+        // a wall-clock time a clock change skips maps outside its hour: not that time, so not a run. (The other kinds,
+        // the last-day kind included, run at the shifted time instead, as the five first kinds always did: a cron "L"
+        // task and a last-day task differ only on such a day, when 02:30 does not exist; documented in the decision)
         const back = zonedParts(t, tz)
         if (back.h !== h || back.min !== mi) continue
         if (t > after) return t

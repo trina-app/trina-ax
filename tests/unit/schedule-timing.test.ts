@@ -67,6 +67,9 @@ describe('the kinds the old columns could not hold', () => {
     expect(() => parseCron('0 9 * *')).toThrow(CronError)
     expect(() => parseCron('61 * * * *')).toThrow('minute: "61" is outside 0–59')
     expect(() => parseCron('*/0 * * * *')).toThrow('the step')
+    // security review of #1353: a range has two values; "*/1" is the whole field (Fridays only, not "every day or Friday")
+    expect(() => parseCron('1-2-3 * * * *')).toThrow('is not a range')
+    expect(runs(t({ repeat: 'cron', cron: '0 9 */1 * 5' }), new Date('2026-10-21T03:00:00Z'), 2)).toEqual(['2026-10-23T00:00:00.000Z', '2026-10-30T00:00:00.000Z'])
     const base = { title: 'T', prompt: 'do the task' }
     expect(ScheduleInput.safeParse({ ...base, repeat: 'cron', cron: '0 25 * * *' }).error?.issues[0]?.message).toBe('hour: "25" is outside 0–23')
     expect(ScheduleInput.safeParse({ ...base, repeat: 'cron', cron: '0 9 * * 1-5' }).success).toBe(true)

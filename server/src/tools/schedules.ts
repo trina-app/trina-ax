@@ -251,12 +251,12 @@ export const TEXT = {
   cron: { ko: '반복 일정(cron) {cron}', en: 'on the cron schedule {cron}', id: 'dengan jadwal cron {cron}', ja: 'cronスケジュール {cron}', es: 'con el horario cron {cron}', zh: '按 cron 计划 {cron}' } satisfies L5,
   /** a task made in a shared chat: its runs post there (docs/decisions/20261118-shared-schedules-any-frequency.md) */
   sharedChat: {
-    ko: '실행 결과는 이 공유 채팅에 올라가요. 지금 {n}명이 이 채팅을 볼 수 있어요. 실행은 내 권한으로 하고, 이 채팅의 일부 사람이 열 수 없는 곳은 읽지 않아요.',
-    en: 'Each run posts its result in this shared chat, which {n} people can see now. Runs work with your access and skip places some people here cannot open.',
-    id: 'Setiap kali berjalan, hasilnya diposting di obrolan bersama ini, yang sekarang dapat dilihat {n} orang. Tugas berjalan dengan akses Anda dan melewati tempat yang tidak bisa dibuka sebagian orang di sini.',
-    ja: '実行結果はこの共有チャットに投稿されます。今{n}人がこのチャットを見られます。実行はあなたの権限で行われ、ここにいる一部の人が開けない場所は読みません。',
-    es: 'Cada ejecución publica su resultado en este chat compartido, que ahora pueden ver {n} personas. Las ejecuciones usan su acceso y omiten los lugares que algunas personas de aquí no pueden abrir.',
-    zh: '每次运行的结果会发到这个共享对话中，现在有{n}人能看到它。运行使用你的权限，并跳过这里有些人打不开的地方。',
+    ko: '실행할 때마다 예약 작업의 지시문과 결과가 이 공유 채팅에 올라가요. 지금 {n}명이 이 채팅을 볼 수 있어요. 실행은 내 권한으로 하고, 이 채팅의 일부 사람이 열 수 없는 곳은 읽지 않아요.',
+    en: 'Each run posts the task\'s instruction and its result in this shared chat, which {n} people can see now. Runs work with your access and skip places some people here cannot open.',
+    id: 'Setiap kali berjalan, instruksi tugas dan hasilnya diposting di obrolan bersama ini, yang sekarang dapat dilihat {n} orang. Tugas berjalan dengan akses Anda dan melewati tempat yang tidak bisa dibuka sebagian orang di sini.',
+    ja: '実行のたびに、タスクの指示と結果がこの共有チャットに投稿されます。今{n}人がこのチャットを見られます。実行はあなたの権限で行われ、ここにいる一部の人が開けない場所は読みません。',
+    es: 'Cada ejecución publica la instrucción de la tarea y su resultado en este chat compartido, que ahora pueden ver {n} personas. Las ejecuciones usan su acceso y omiten los lugares que algunas personas de aquí no pueden abrir.',
+    zh: '每次运行都会把任务的指令和结果发到这个共享对话中，现在有{n}人能看到它。运行使用你的权限，并跳过这里有些人打不开的地方。',
   } satisfies L5,
 } as const
 
@@ -594,7 +594,10 @@ export function registerScheduleTools(ctx: AppContext, reg: ToolRegistry) {
     input: z.object({ id: z.string().min(1).max(64) }),
     describe: (a) => `schedule_delete ${a.id}`,
     run(a, t) {
-      const here = turnInfo(ctx, t).sharedChat
+      const info = turnInfo(ctx, t)
+      // a run deletes no task (a task that removes itself or another one; security review of #1353, L2)
+      if (info.scheduled) throw new ToolError('a scheduled run cannot delete scheduled tasks; the user deletes them on the Scheduled page or in a chat')
+      const here = info.sharedChat
       const s = rt.schedules.get(t.user.id, a.id)
       // in a shared chat only a task made there (the same answer as for one that is not there)
       if (!s || !visibleIn(here)(s) || !rt.schedules.delete(t.user.id, a.id)) throw new ToolError(`no scheduled task ${a.id} of this user${here ? ' made in this shared chat (other tasks are deleted on the Scheduled page or in a chat only they see)' : ''}`)

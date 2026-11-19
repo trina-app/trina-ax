@@ -56,7 +56,7 @@ import { getTeamSettings } from '../admin/settings'
 import { everyoneMayUse, invokedSkill, isGroupSkill, listSkills, mayNotUse, ownPersonalSkill, projectOfFolder, projectSkillSections, sameSkillName, skillAlias, skillFolder, skillTier, widerSkillsNamed, type ChatProject, type SkillScope } from './skills'
 import { buildSkillList, chatSkillOrder, descriptionOrder, hintSkills, listedFor, recordListed, skillChanges, skillChangesText, usageScores } from './skill-list'
 import { skillPlaceholderTitle } from './title'
-import { describeSchedule, scheduledRunBlock, type ScheduleRow } from './schedules'
+import { describeSchedule, scheduledRunBlock, SHARED_RUN_ALLOWANCE, type ScheduleRow } from './schedules'
 import { callKey, COVER_TOOLS, runAllowance, ScheduleCover } from './schedule-cover'
 import { safeModel, type EngineConfs } from './engines'
 import { aiCalled, engineError, stepLabel, tr, turnLimitError } from './i18n'
@@ -1057,7 +1057,7 @@ export class TurnExec {
       // by this turn's own task (a shared chat may hold the runs of several tasks: migration 426)
       const s = rt.db.query('SELECT s.* FROM schedules s JOIN turns t ON t.schedule_id = s.id WHERE t.id = ?').get(spec.turnId) as ScheduleRow | null
       // what its card let it do without a card (a save folder, sends), instead of "everything is declined"
-      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task', s ? runAllowance(rt.ctx, s) : null, !!this.shared) + '\n\n'
+      scheduled = scheduledRunBlock(s?.title ?? chat.title, s ? describeSchedule(s) : 'a scheduled task', s ? (this.shared ? SHARED_RUN_ALLOWANCE : runAllowance(rt.ctx, s)) : null, !!this.shared) + '\n\n'
     }
     // the previous answer paused at a per-answer limit: the AI learns that with this message, so "continue" (or anything
     // else) is read knowing the work was cut off there (the session or the history has what it did)

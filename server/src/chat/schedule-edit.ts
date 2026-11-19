@@ -20,6 +20,7 @@ import { tr } from './i18n'
 import type { ChatRuntime } from './runtime'
 import { inputTiming, needsReview, nextRun, ScheduleInput, scheduleList, type ScheduleRow } from './schedules'
 import { isOnce, storedTiming } from './schedule-timing'
+import { Audiences, chatFor } from './shared'
 import { templatePrompt, templateTitle, validateTemplateFolders } from './schedule-templates'
 import { egressOf } from '../tools/egress'
 import { cardScope, scheduleCard, scheduleOptions, scopeBinding, taskConnections, taskScope, writableConnections } from '../tools/schedules'
@@ -32,6 +33,12 @@ function own(rt: ChatRuntime, userId: string, id: string): ScheduleRow {
   const s = rt.schedules.get(userId, id)
   if (!s) throw new HttpError('not_found')
   return s
+}
+
+/** How many people see the shared chat a task posts in, while its owner may still open it; null: it posts in no shared chat. */
+function sharedAudienceOf(ctx: AppContext, rt: ChatRuntime, s: ScheduleRow): number | null {
+  if (!s.chat_id) return null
+  try { return new Audiences(ctx.db, ctx.files).ofChat(chatFor(rt, s.user_id, s.chat_id, 'view').row).length } catch { return null }
 }
 
 /** The edit as schedule_create would take it, or a refusal with the fields to look at (in the person's language). */
@@ -74,13 +81,16 @@ function checked(ctx: AppContext, rt: ChatRuntime, userId: string, s: ScheduleRo
   }
   if (scope.badKeep) throw new HttpError('validation', tr('scheduleSaveSources', L), { fields: { 'body.saveSources': tr('scheduleSaveSources', L) } })
   // what a run can open on this server now (tools/egress.ts): the card promises nothing it cannot keep
-  const card = scheduleCard({ ...input, ...timing }, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends) })
+  // a task made in a shared chat: the card says its runs post there, and to how many people now
+  const sharedWith = sharedAudienceOf(ctx, rt, s)
+  const card = scheduleCard({ ...input, ...timing }, writable.map((r) => r.name), L, 'edit', { urlsOpen: egressOf(ctx).known, project: project?.name ?? null, scope: cardScope(ctx.db, userId, L, scope.save, scope.sources, scope.sends),
+    ...(sharedWith !== null ? { sharedWith } : {}) })
   const options = scheduleOptions(L, writable.length > 0 || scope.sends.length > 0, 'edit')
   // what the answer approves: the task as it will be, the connections offered, the save folder, its places and the pinned
   // own connections (not the wording)
   const requestId = 'schedule-edit-' + crypto.createHash('sha256').update(JSON.stringify({
     id: s.id, title: input.title, prompt: input.prompt, repeat: stored.repeat, time: stored.time, weekday: stored.weekday, day: stored.day, date: stored.date, rule: stored.rule,
-    project: project?.id ?? null, urls: card.urls, connections: writable.map((r) => `${r.id}:${r.version}`).sort(), options: options.map((o) => o.value), scope: scopeBinding(scope),
+    project: project?.id ?? null, sharedWith, urls: card.urls, connections: writable.map((r) => `${r.id}:${r.version}`).sort(), options: options.map((o) => o.value), scope: scopeBinding(scope),
   })).digest('hex').slice(0, 48)
   return { input, stored, project, next, writable, card, options, requestId, scope }
 }

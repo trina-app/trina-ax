@@ -22,6 +22,8 @@ export const LIVE_CLIENTS: ReadonlySet<string> = new Set(['web', 'desktop', 'mob
 export const teamAllowsAlways = (db: Database): boolean => getTeamSettings(db).roomAlwaysAllow !== false
 
 /** Where a card is raised: the turn's own person, their app, the chat. */
+import { steerableRun } from './shared-run'
+
 export interface AlwaysPlace {
   db: Database
   userId: string
@@ -50,6 +52,9 @@ export function alwaysHere(p: AlwaysPlace | null | undefined, kind: CardAlwaysKi
   const scheduled = p.clientKind === 'schedule'
   if (!scheduled && !LIVE_CLIENTS.has(p.clientKind ?? '')) return null
   if (!teamAllowsAlways(p.db) || isConfidentialChat(p.db, p.chatId)) return null
+  // a run in a shared chat whose branch holds another person's message: none of the maker's standing yeses (they could
+  // steer it; security review of #1353, H1: the shared read card skipped after a teammate's message)
+  if (scheduled && steerableRun(p.db, p.turnId)) return null
   return alwaysOn(p.db, p.userId, kind) ? 'on' : scheduled ? null : 'offer'
 }
 

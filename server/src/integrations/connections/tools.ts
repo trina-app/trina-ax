@@ -12,6 +12,7 @@
 // something at the service (writePolicy), wraps the answer as external data and adds where it came from to the chat's
 // read scope (so saving it somewhere more people can see asks first). Every result leaves through `hiding`, which hides
 // the stored secrets of the connections the call used, in case the service echoed them (hide.ts).
+import { steerableRun } from '../../chat/shared-run'
 import { teamAllowsAlways } from '../../chat/always-allow'
 import crypto from 'node:crypto'
 import { z } from 'zod'
@@ -441,6 +442,16 @@ async function gate(ctx: AppContext, row: Row, what: (L: Locale) => string, sent
       why: { kind: 'permission', what: `${row.name} is set to refuse changes from the AI`, grant: [row.scope === 'team' ? 'an admin' : 'the user themselves'], how: connectionSettings(row, tc.locale) },
       next: 'tell the user; once the setting allows it, ask again', names: [row.name],
     }), 'refused (write policy deny)')
+  }
+  // a scheduled run in a shared chat that another person wrote in (chat/shared-run.ts; security review of #1353, H2):
+  // their words could steer it, and nobody watches it, so no change at any service: not a team connection set to send
+  // without asking, not the task's pinned recipients, not anyone's Always allow
+  if (b.scheduled && steerableRun(ctx.db, b.turnId)) {
+    throw new CallError(refusal({
+      done: `Nothing was sent to ${row.name}.`, why: cardReason('unattended'),
+      also: `this scheduled run is in a shared chat where other people wrote, so it sends nothing to a connected service`,
+      next: 'say so in the summary; the user can do it in a chat, where they answer the card', names: [row.name],
+    }), 'refused (nobody to ask: scheduled run in a shared chat)')
   }
   const roomsSeen = !!tc.files.person?.roomsSeen
   if (b.scheduled && row.write_policy === 'allow' && row.scope === 'team' && !roomsSeen) {

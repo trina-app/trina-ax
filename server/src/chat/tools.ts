@@ -53,7 +53,8 @@ import { recordSent } from '../tools/connection-urls'
 import { BOX_SHELL_TOOL, boxShellTool, callerOf } from '../devenv/tool'
 import { connectService } from './connect-service'
 import { DRAFT_FILE_REFUSAL, draftToolRefusal, draftUrlRefusal } from '../onboarding/draft'
-import { SEARCH_TOOLS, SHARED_TOOLS } from '../rooms/ai-tools'
+import { namedPaths, SEARCH_TOOLS, SHARED_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { steerableWriteRefusal } from './shared-run'
 import { SKILL_DRAFT_FILE_REFUSAL } from '../onboarding/skill-draft'
 import { roomReadTools } from './room-tools'
 import { hintsHere, roomHint } from './room-hint'
@@ -157,6 +158,11 @@ function boxShellQueueStep(exec: TurnExec): (run: NonNullable<Step['devEnvRun']>
     })
   }
 }
+
+/** What steerableWriteRefusal weighs (chat/shared-run.ts): the write targets of each tool, and the tools that change in
+ * place the files they name (Office edits, Word comments; save_promo_video's save_as) */
+const RUN_WRITES = { writeArgs: { ...WRITE_TARGET_ARGS, edit_hwp: ['output'], save_promo_video: ['save_as'], generate_video: ['save_as'] }, named: namedPaths,
+  inPlace: new Set(['edit_office', 'comment_docx', 'edit_hwp', 'edit_files']) } as const
 
 export function buildToolSet(exec: TurnExec): ChatToolSet {
   const confidential=confidentialChat(exec.rt.db,exec.spec.chatId)
@@ -344,6 +350,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (draftNo) return { ...text(draftNo, true), summary: `${name} -> refused: company profile draft (${draftNo.slice(0, 80)})` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { ...text(refusal, true), summary: 'scheduled template scope refused' }
+      // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
+      const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
+      if (runWrite) return { ...text(runWrite, true), summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
       if (writesHangul(name, args) && !hwpWritingOn(exec.rt.ctx)) {
         // Hangul writing comes with the HWP plugin (tools/hwp-writing.ts): make_file .hwpx while it is off, or edit_hwp
         // after it was turned off during this turn, is refused before anyone is asked anything (the tool refuses it too)
@@ -475,6 +484,9 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
       if (exec.shareMerge && !mergeAllows(exec, name, args)) return { refusal: SHARE_MERGE_REFUSAL, summary: `${name} -> refused: skill share merge (only its team skills)` }
       const refusal = templateToolRefusal(exec.rt.ctx, exec.spec.userId, exec.id, name, args, templateWrites)
       if (refusal) return { refusal, summary: 'scheduled template scope refused' }
+      // a scheduled run in a shared chat others wrote in: writes only in its save folder or the maker's own folder
+      const runWrite = steerableWriteRefusal(exec.rt.db, exec.spec.turnId, name, args, RUN_WRITES)
+      if (runWrite) return { refusal: runWrite, summary: `${name} -> refused: scheduled run in a shared chat writes only in its own places` }
       // a shared project chat: grep and glob without a path look in the project folder (the call's own arguments are
       // changed: the file tool reads these); what the call would read that some of the chat's people cannot read waits
       // for the person's yes (chat/turn.ts confirmSharedRead)

@@ -36,6 +36,23 @@
   - A chat already shared with people stays changeable after a run posted in it: its runs had the chat's gates, like any
     turn there. A private chat a run made or ran in is still never shared (`chatShareScheduled`).
   - Guests: unchanged. None of these tools are guest tools (`chat/guest-tools.ts`).
+- **Security review of #1353 (applied before merge).** A run in a shared chat whose branch holds a message someone
+  other than the maker wrote (`chat/shared-run.ts steerableRun`, from the run's own message up through its parents)
+  could be steered by that person, and nobody watches it. Such a run:
+  - gets none of the maker's standing yeses (`alwaysHere` null for every kind): the shared read card is never skipped,
+    so a place some people there cannot open is not read (H1);
+  - sends nothing to any connected service: not a team "send without asking" connection the task's card allowed, not
+    its pinned recipients, not anyone's Always allow ("nobody to ask"; H2);
+  - writes files only in the task's save folder (while it has not lapsed) and the maker's own folder; a move or rename
+    also counts where its sources are (M1).
+  When every user message on the branch is the maker's own, nobody else could have steered it, and it runs like any of
+  their runs. Also: a teammate's message sent while a run goes waits in the shared chat's queue (409 `shared_chat_busy`,
+  the queued sends of #1280); a private task that runs more often than hourly keeps one chat for its runs, one under
+  the other; a person has at most 2 scheduled runs queued or running at once (the next occurrence is retried, Run now
+  says why: `schedule_too_many`); whether the maker may still continue the shared chat, the allowed addresses and that
+  cap are decided inside the turn's admission transaction (L1); a run deletes no task, and a run in a shared chat is not
+  told its save folder, places or pinned recipients (L2); the create and edit cards say that each run posts the task's
+  instruction and its result in the shared chat, where N people can see it (L3). No shortest interval (the owner's rule).
 - **Ask (E):** a task repeated only once, daily, on weekdays, weekly on one day or monthly on day 1–28: no "every hour",
   no "Mon and Thu", no "last day of the month". Claude Code's scheduled jobs take any 5-field cron expression.
 - **Rule (E)** (`server/src/chat/schedule-timing.ts`):
@@ -46,8 +63,11 @@
   - No working-hours or shortest-interval limit, as Claude Code. Each run still passes the team's AI budget
     (`budgetBlock`), runs of one task never overlap (a run that is still going makes the next occurrence wait), and a
     full queue retries the occurrence later, as before.
-  - A wall-clock time a clock change skips has no cron run that day (it is not that time anywhere). An interval counts
-    real minutes from its start.
+  - A wall-clock time a clock change skips has no cron run that day (it is not that time anywhere). The other kinds,
+    the last-day kind included, keep what the first five kinds always did: they run at the shifted time. So a cron
+    "L" task and a last-day task differ only when the last day of a month is a clock-change day and the time falls in
+    the skipped hour. An interval counts real minutes from its start. `*/1` is the whole field (as `*`), and a range
+    has two values (`1-2-3` is refused).
   - Storage: the `repeat` CHECK of migration 203 is not changed (a table rebuild of `schedules` would touch its foreign
     keys). A timing the old columns cannot hold is kept in `schedules.rule` (JSON, migration 426), and the old columns of
     that row hold a one-time task on 2000-01-01. An older build after a rollback runs such a task at most once more (its

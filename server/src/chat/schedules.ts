@@ -35,7 +35,7 @@ import { checkLapse, scopeColumns, type PersonalSend, type SaveFolder, type Scop
 import { inZone } from '../policy/zone'
 import { volumeKey } from '../policy/names'
 import { canRead, membersOnlyNow } from './projects'
-import { chatFor } from './shared'
+import { chatFor, isSharedRow } from './shared'
 import type { ChatRow } from './store'
 import { updateWaitingFor } from '../system/update-wait'
 import { CronError, describeTiming, isOnce, MAX_EVERY_MINUTES, nextOf, parseCron, REPEATS, storedTiming, timingOf, type LegacyRepeat, type Timing, type TimingSource } from './schedule-timing'
@@ -50,6 +50,15 @@ export const templateSignsIn = (db: Database, templateId: string) =>
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
 export const SCHEDULES_PER_PERSON = 20
+/** Scheduled runs of one person queued or running at once (security review of #1353, M2): the next waits for one */
+export const RUNS_AT_ONCE = 2
+
+/** Does this task run again within the hour after this occurrence (every N minutes, a cron schedule by the minute)? */
+export function isFrequent(s: TimingSource, dueAt: string, tz: string): boolean {
+  const due = new Date(dueAt)
+  const next = nextRun(s, due, tz)
+  return !!next && next.getTime() - due.getTime() < 3_600_000
+}
 /** a run refused because the queue was full is tried again this much later */
 export const QUEUE_FULL_RETRY_MS = 60_000
 const TICK_MS = 30_000
@@ -141,6 +150,10 @@ export function describeSchedule(s: TimingSource): string {
 export function inputTiming(input: ScheduleInput, now: Date, tz: string): Timing {
   return timingOf({ ...input, time: input.time ?? '00:00', date: input.repeat === 'interval' ? input.date ?? zonedDay(now, tz) : input.date ?? null })
 }
+
+/** What a run in a shared chat is told of its card's allowances: not the save folder, the places or the pinned
+ * recipients themselves (everyone in the chat reads the transcript; security review of #1353, L2) */
+export const SHARED_RUN_ALLOWANCE = '- The rest of what the user allowed on the task\'s card goes on without a card; its details are not shown here because other people see this chat. Save files in the user\'s own folder unless the instruction names a place.'
 
 /** The block in front of a scheduled run's message (the AI must not wait for anyone). `allows`: what this task's card
  * let its runs do without a card (chat/schedule-cover.ts runAllowance), said instead of "everything is declined". */
@@ -548,17 +561,25 @@ export class Schedules {
     // turn in that chat as its owner, with every gate of that chat (chat/turn.ts: a read some of its people cannot open
     // needs the owner's card, and nobody answers one in a run). While its owner cannot continue that chat (taken out of
     // it, the chat deleted, its project gone) the run is a new chat of theirs, as for any task
-    const into = this.postsInto(s)
-    if (into) rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed')
+    // a task that runs more often than hourly, made outside a shared chat, keeps one chat of its own for its runs (one
+    // under the other) instead of a new chat at every run (security review of #1353, M2)
+    const frequent = !s.chat_id && isFrequent(s, originalDue, this.rt.timeZone)
     const turn = this.rt.createTurn({
-      chat: into ?? (() => {
+      // decided inside the admission transaction (security review of #1353, L1): at most RUNS_AT_ONCE runs of this
+      // person at a time (the next waits for one to end), whether its owner may still continue the shared chat, and
+      // the addresses its card allowed, all with the turn row
+      chat: () => {
+        const runs = (this.db.query("SELECT count(*) AS n FROM turns WHERE user_id = ? AND client_kind = 'schedule' AND status IN ('queued','running')").get(s.user_id) as { n: number }).n
+        if (runs >= RUNS_AT_ONCE) throw new HttpError('conflict', tr('scheduleTooMany', locale), { params: { reason: 'schedule_too_many' } })
+        const into = this.postsInto(s) ?? (frequent ? this.ownRunChat(s) : null)
+        if (into) { rememberUrls(this.db, into.id, scheduleList(s.allowed_urls), 'allowed'); return into }
         this.db.query("INSERT INTO chats(id,user_id,project_id,title,title_source,engine,model,created_at,updated_at) VALUES(?,?,?,?,'schedule',?,?,?,?)")
           .run(id, s.user_id, project ? s.project_id : null, `${s.title} · ${date}`, fresh.engine, fresh.model, ts, ts)
         // the run's message is the AI's text (auto_sent): only the addresses the person saw on the schedule's card open
         // without asking (docs/DECISIONS.md "Outbound web channels")
         rememberUrls(this.db, id, scheduleList(s.allowed_urls), 'allowed')
         return this.rt.store.chatRow(id)!
-      }),
+      },
       userId: s.user_id, locale, windowId: null, clientKind: 'schedule', engine: te.engine, model: te.model, ...(te.substitutedFrom ? { substitutedFrom: te.substitutedFrom } : {}),
       scheduled: { id: s.id, dueAt: originalDue, commit: (chatId) => {
         commit(chatId)
@@ -566,9 +587,20 @@ export class Schedules {
           .run(s.template_source_path, s.template_output_path, s.id, originalDue)
       } },
       // Keep the client contract <=64 chars; uniqueness is the durable two-column occurrence key.
-      user: { parentId: into?.active_leaf_id ?? null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
+      user: { parentId: (chat) => chat.active_leaf_id ?? null, content: s.prompt, attachments: [], clientMessageId: `${how === 'manual' ? 'n' : 's'}-${s.id}-${Date.parse(originalDue)}` },
     })
     return turn.assistantMessage.chatId
+  }
+
+  /** The chat of this task's last run, for a task that runs more often than hourly: its owner's own run chat of this
+   * task, still there and private, under its newest answer; else null (a new chat). */
+  private ownRunChat(s: Pick<ScheduleRow, 'id' | 'user_id' | 'last_chat_id' | 'project_id'>): ChatRow | null {
+    if (!s.last_chat_id) return null
+    const row = this.rt.store.chatRow(s.last_chat_id)
+    if (!row || row.deleted_at || row.user_id !== s.user_id || row.title_source !== 'schedule' || row.room_id || isSharedRow(row) || (row.project_id ?? null) !== (s.project_id ?? null)) return null
+    if (!this.db.query('SELECT 1 FROM turns WHERE chat_id = ? AND schedule_id = ? LIMIT 1').get(row.id, s.id)) return null
+    const leaf = row.active_leaf_id ? this.rt.store.messageRow(row.active_leaf_id) : null
+    return leaf && leaf.role !== 'assistant' ? { ...row, active_leaf_id: leaf.parent_id } : row
   }
 
   /** The shared chat a task's runs post in: the one it was made in, while its owner may still continue it (chatFor
