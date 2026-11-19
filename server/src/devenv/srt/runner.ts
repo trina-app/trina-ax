@@ -50,6 +50,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
 import { gitWrapperSource } from './git-guard'
+import { othersLive, sweepHooks, sweepRoots, visibleOf } from './hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
@@ -171,7 +172,10 @@ const idleSince = new Map<string, { usec: number; at: number; since: number | nu
 const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
 /** the time of the last preview request of a run (a previewed dev server is not idle) */
 const lastPreview = new Map<string, number>()
-function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
+/** The folders each live run may write, by run id (hook-sweep.ts othersLive): kept until its sweep after it ended. */
+const liveSweeps = new Map<string, { userId: string; roots: string[]; rowId?: string }>()
+
+function reset() { liveSweeps.clear(); for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
@@ -607,6 +611,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   let dropGuard = () => {}
+  let unsweep = () => {}
   try {
     const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
     // the pinned entries and the folders to lock, in the run's own guard folder (made new, read-only in the run, removed
@@ -622,6 +627,20 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     // a shared chat: a cwd in a folder the run does not show (a sub-folder some of its people may not open) is refused
     // with the same words as one that is not there (QA TC-4945)
     if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
+    // git hooks (QA TC-5348): every file that git could run as a hook in the folders this run may write loses its exec
+    // bit, now and when the run ends, so a hook another person's run left there never runs here, whatever the command
+    // line sets (hook-sweep.ts). Also now: the folders other people's live runs may write that this run may read (a
+    // hook written there after that run's last sweep). The run does not start when the folders cannot be checked
+    const own = runOwner(s.space, s.runId, ctx.files.fx.root)
+    const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(c.base, own), runTmp(c.base, own)])
+    const visible = visibleOf(settings.filesystem, ctx.files.fx.root)
+    pruneLive(ctx)
+    const before = [...new Set([...swept, ...othersLive(liveSweeps.values(), s.space.userId, visible)])]
+    const sweptNow = await sweepHooks(before, { visible }).catch((e: Error) => { throw new Error(`${e.message}; the command did not run`) })
+    if (sweptNow.length) ctx.log?.info?.('devenv: git hooks lost their exec bit before a run', { count: sweptNow.length })
+    liveSweeps.set(s.runId, { userId: s.space.userId, roots: swept })
+    const sweepAfter = () => { void sweepHooks(swept, { visible }).then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit after a run', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message })).finally(() => liveSweeps.delete(s.runId)) }
+    unsweep = () => liveSweeps.delete(s.runId)
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
@@ -634,8 +653,8 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop() }), hash, net }
-  } catch (e) { release(); releaseSkills(); dropGuard(); throw e }
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop(); sweepAfter() }), hash, net }
+  } catch (e) { release(); releaseSkills(); dropGuard(); unsweep(); throw e }
 }
 
 // ---------------- a chat's own dev servers on localhost ----------------
@@ -1288,6 +1307,30 @@ export async function reconcile(ctx: AppContext): Promise<void> {
     await c.system.stop(runId)
     await c.system.forget(runId)
   }
+  // git hooks (QA TC-5348) after a restart: the runs that live on are tracked again as other people's live runs, and the
+  // whole team folder is checked once (a run that was live then never had its sweep after it ended). Not awaited
+  for (const r of openRuns(ctx.db, 'running')) { const id = runIdOf(r.unit); if (id && !liveSweeps.has(id)) liveSweeps.set(id, { userId: r.user_id, roots: rowRoots(ctx, r), rowId: r.id }) }
+  const root = ctx.files.fx.root
+  // links are not followed here (no person's view: a link's target might be a file its maker may not open)
+  void sweepHooks([root], { timeoutMs: 15 * 60_000, visible: { read: [] } })
+    .then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit at start', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked at start', { error: e.message }))
+}
+
+/** The folders a run of this row may write: its folder (a project folder or the chat's work folder) and the person's own
+ * folder (Q0 (b)). */
+const rowRoots = (ctx: AppContext, r: Pick<RunRow, 'root' | 'user_id'>) => [r.root, path.join(ctx.files.fx.root, 'users', r.user_id)]
+
+/** The live runs tracked again after a restart (a row id) whose row has ended since: their sweep after the run, then
+ * they are no longer live. */
+function pruneLive(ctx: AppContext) {
+  for (const [id, l] of liveSweeps) {
+    if (!l.rowId) continue
+    const open = ctx.db.query('SELECT 1 FROM dev_env_runs WHERE id = ? AND ended_at IS NULL').get(l.rowId)
+    if (open) continue
+    liveSweeps.delete(id)
+    // a link's target only inside its own folders (no view of that run is kept)
+    void sweepHooks(l.roots, { visible: { read: l.roots } }).catch((e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message }))
+  }
 }
 
 /** What runs and what waits: of a project's chats (the project page), or of one person (every chat). The queue
@@ -1443,3 +1486,4 @@ export function busyOwners(ctx: AppContext): { users: Set<string>; chats: Set<st
 /** tests */
 export function _active() { return active }
 export function _forwarders() { return forwarders }
+export function _liveSweeps() { return liveSweeps }
