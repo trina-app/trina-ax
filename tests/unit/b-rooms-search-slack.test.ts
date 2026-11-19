@@ -262,6 +262,17 @@ describe('near matches', () => {
   })
 })
 
+// the size of the full-text index's tables: dbstat where this SQLite has it (the Linux Bun build of CI does not: "no such
+// table: dbstat"), else the bytes of the shadow tables' blobs and text
+function ftsBytes(db: { query: (sql: string) => { get: () => unknown; all: () => unknown } }): number {
+  try {
+    return ((db.query("SELECT SUM(pgsize) n FROM dbstat WHERE name LIKE 'room_messages_fts%'").get() as { n: number | null }).n) ?? 0
+  } catch {
+    const one = (sql: string) => { try { return ((db.query(sql).get() as { n: number | null }).n) ?? 0 } catch { return 0 } }
+    return one('SELECT SUM(length(block)) n FROM room_messages_fts_data') + one('SELECT SUM(length(term) + 8) n FROM room_messages_fts_idx') + one('SELECT SUM(length(sz)) n FROM room_messages_fts_docsize')
+  }
+}
+
 describe('on 100,000 messages', () => {
   test('fast enough on a small server: words, particles, filters, best match, near; the index size', async () => {
     const room = await teamRoom(['alice', 'erin', 'bob'])
@@ -270,7 +281,7 @@ describe('on 100,000 messages', () => {
     const db = h.ctx.db
     const ins = db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'user', ?, 'room', ?, '[]', ?)`)
     const start = (db.query('SELECT last_seq FROM rooms WHERE id = ?').get(room) as { last_seq: number }).last_seq
-    const before = (db.query("SELECT SUM(pgsize) n FROM dbstat WHERE name LIKE 'room_messages_fts%'").get() as { n: number | null }).n ?? 0
+    const before = ftsBytes(db)
     const N = 100_000
     const t0 = performance.now()
     db.transaction(() => {
@@ -284,7 +295,7 @@ describe('on 100,000 messages', () => {
       db.query('UPDATE rooms SET last_seq = ? WHERE id = ?').run(start + N, room)
     })()
     const inserted = performance.now() - t0
-    const after = (db.query("SELECT SUM(pgsize) n FROM dbstat WHERE name LIKE 'room_messages_fts%'").get() as { n: number }).n
+    const after = ftsBytes(db)
     const text = (db.query('SELECT SUM(length(CAST(body AS BLOB))) n FROM room_messages WHERE room_id = ?').get(room) as { n: number }).n
     const times: Record<string, number> = {}
     const qs: [string, 'relevant' | 'recent'][] = [
