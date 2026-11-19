@@ -23127,7 +23127,7 @@ changes them.
 - **The updater.** electron-updater's auto-download, install-on-quit and web installer are off. The app downloads
   itself, never while a download is being checked, and re-hashes the file right before installing (restart and quit).
   A contradicted download is deleted, logged and not downloaded again in that run; the person sees once: "This update
-  couldn't be checked, so it wasn't installed." (5 languages). Nothing readable at all (server down, no internet) keeps
+  didn't pass its safety check, so it wasn't installed." (5 langs). Nothing readable at all (server down, no internet) keeps
   the download for the next check. Unpacked dev runs may skip (`MYCEL_DESKTOP_UPDATE_UNVERIFIED=1` or no keys); a
   packaged app always checks.
 - Tests: `office-update-desktop.test.ts` (good signature, wrong key, tampered payload, broken signature, hash mismatch,

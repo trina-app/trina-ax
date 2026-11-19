@@ -168,7 +168,7 @@ describe('the Windows updater installs only a download the signed release names'
     await settle()
     expect(u.ready).toBeNull()
     expect(fs.existsSync(file)).toBe(false)
-    expect(dialogs).toEqual(["This update couldn't be checked, so it wasn't installed."])
+    expect(dialogs).toEqual(["This update didn't pass its safety check, so it wasn't installed."])
     expect(quitHandlers).toEqual([])
     u.restartNow()
     expect(fake.installs).toEqual([])

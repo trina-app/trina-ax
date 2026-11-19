@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { CSRF_HEADER, Health, Me } from '@mycel/shared/api'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -632,11 +632,21 @@ export class AppWindow {
   }
 
   /** `resume`: the page the app showed before it restarted by itself to update (./update-launch.ts takeResume) */
-  async openLast(resume: Resume['page'] = null) {
-    if (resume && findTeam(this.teams, resume.teamId)) return this.openTeam(resume.teamId, resume.path, { startup: true })
+  async openLast(resume: Resume['page'] = null, link: string | null = null): Promise<boolean> {
+    // a chat link that started the app opens its page at the first load (a message sent to a page still loading is lost)
+    const target = startupLinkTarget(link, this.teams.teams)
+    if (target) {
+      await this.openTeam(target.id, target.path, { startup: true })
+      return true
+    }
+    if (resume && findTeam(this.teams, resume.teamId)) {
+      await this.openTeam(resume.teamId, resume.path, { startup: true })
+      return false
+    }
     const last = findTeam(this.teams, this.teams.lastTeamId) ?? this.teamList()[0]
     if (last) await this.openTeam(last.id, '/', { startup: true })
     else this.showWelcome()
+    return false
   }
 
   /** What an update restart would lose now (DesktopUpdater.idleRestart): whether the team page says a reload would lose
