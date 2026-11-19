@@ -38,7 +38,7 @@ export function insideAppDir(p: string, appDir: string | undefined): boolean {
 }
 
 /** The environment a program started from the app gets, without the AppImage's own variables and without the mount's
- * entries in LD_LIBRARY_PATH (otherwise `npx` or `python` would load the app's libraries). Nothing changes when the app
+ * entries in LD_LIBRARY_PATH, XDG_DATA_DIRS and GSETTINGS_SCHEMA_DIR (otherwise `npx` or `python` would load the app's libraries). Nothing changes when the app
  * does not run from an AppImage. */
 export function withoutAppImage(env: Record<string, string | undefined>): Record<string, string | undefined> {
   const appDir = env.APPDIR
@@ -48,10 +48,12 @@ export function withoutAppImage(env: Record<string, string | undefined>): Record
     if (APPIMAGE_VARS.has(k)) continue
     out[k] = v
   }
-  if (appDir && out.LD_LIBRARY_PATH !== undefined) {
-    const kept = out.LD_LIBRARY_PATH.split(':').filter((d) => d && !insideAppDir(d, appDir))
-    if (kept.length) out.LD_LIBRARY_PATH = kept.join(':')
-    else delete out.LD_LIBRARY_PATH
+  // AppRun also puts the mount in front of the data and GSettings schema folders
+  for (const k of ['LD_LIBRARY_PATH', 'XDG_DATA_DIRS', 'GSETTINGS_SCHEMA_DIR']) {
+    if (!appDir || out[k] === undefined) continue
+    const kept = out[k]!.split(':').filter((d) => d && !insideAppDir(d, appDir))
+    if (kept.length) out[k] = kept.join(':')
+    else delete out[k]
   }
   return out
 }

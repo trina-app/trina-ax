@@ -68,11 +68,13 @@ export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = o
 
 /** Setting values may be sealed: the system keeps a key for this app. On Linux without a Secret Service (GNOME Keyring,
  * KWallet) Electron falls back to `basic_text`, a key built into every Chromium: that is not sealed, so it counts as
- * unavailable (the page says the settings were not kept). */
+ * unavailable (so does any backend that is not a known keyring) (the page says the settings were not kept). */
+/** the Secret Service backends Electron reports on Linux (never basic_text or unknown) */
+const LINUX_KEYRINGS = new Set(['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'])
 export function sealable(platform: string, available: () => boolean, backend: () => string): boolean {
   if (!available()) return false
   if (platform !== 'linux') return true
-  try { return backend() !== 'basic_text' } catch { return false }
+  try { return LINUX_KEYRINGS.has(backend()) } catch { return false }
 }
 
 /** The program to start: a full path as it is (`~/` is the home folder), a bare name found in `dirs`. null: not found. */

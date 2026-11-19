@@ -14,7 +14,7 @@ import { settingsNotKeptKey as notKeptKey } from '../../web/src/lib/desktop'
 
 const ROOT = path.join(import.meta.dir, '..', '..')
 type Linux = { target: { target: string; arch: string[] }[]; category: string; executableName: string; syncDesktopName: boolean; artifactName: string; icon: string; synopsis: string; maintainer: string }
-const cfg = builderConfig as unknown as { linux: Linux; extraMetadata: Record<string, string>; protocols: { schemes: string[] }[]; deb?: unknown; directories: { buildResources: string } }
+const cfg = builderConfig as unknown as { linux: Linux; extraMetadata: Record<string, string>; protocols: { schemes: string[] }[]; deb?: unknown; appImage?: { executableArgs?: string[] }; directories: { buildResources: string } }
 
 describe('Linux packages: electron-builder settings', () => {
   test('a .deb and an AppImage, each for x64 and arm64', () => {
@@ -49,6 +49,9 @@ describe('Linux packages: electron-builder settings', () => {
 })
 
 describe('Linux: the AppImage', () => {
+  test("its own menu entry starts the app without --no-sandbox (electron-builder's default adds it)", () => {
+    expect(cfg.appImage?.executableArgs).toEqual([])
+  })
   const env = { APPIMAGE: '/home/u/Trina-AX.AppImage', APPDIR: '/tmp/.mount_TrinaX' }
   test('started without the sandbox: refused; with it: runs', () => {
     expect(refusesUnsandboxed({ platform: 'linux', packaged: true, env, noSandbox: true })).toBe(true)
@@ -91,6 +94,7 @@ describe('Linux: what a program started from the app gets', () => {
     const out = withoutAppImage({ APPIMAGE: '/home/u/a.AppImage', APPDIR: appDir, ARGV0: 'a', OWD: '/home/u', HOME: '/home/u', LD_LIBRARY_PATH: `${appDir}/usr/lib:/opt/mine/lib:${appDir}/lib` })
     expect(out).toEqual({ HOME: '/home/u', LD_LIBRARY_PATH: '/opt/mine/lib' })
     expect(withoutAppImage({ APPDIR: appDir, LD_LIBRARY_PATH: `${appDir}/usr/lib` })).toEqual({})
+    expect(withoutAppImage({ APPDIR: appDir, XDG_DATA_DIRS: `${appDir}/usr/share:/usr/share`, GSETTINGS_SCHEMA_DIR: `${appDir}/usr/share/glib-2.0/schemas` })).toEqual({ XDG_DATA_DIRS: '/usr/share' })
   })
   test('outside an AppImage nothing changes', () => {
     expect(withoutAppImage({ HOME: '/h', LD_LIBRARY_PATH: '/opt/lib', PATH: '/usr/bin' })).toEqual({ HOME: '/h', LD_LIBRARY_PATH: '/opt/lib', PATH: '/usr/bin' })
@@ -117,6 +121,8 @@ describe('Linux: setting values are sealed only with a keyring', () => {
     expect(sealable('linux', () => true, () => 'kwallet6')).toBe(true)
     expect(sealable('linux', () => false, () => 'gnome_libsecret')).toBe(false)
     expect(sealable('linux', () => true, () => { throw new Error('no backend') })).toBe(false)
+    expect(sealable('linux', () => true, () => 'unknown')).toBe(false)
+    expect(sealable('linux', () => true, () => 'kwallet5')).toBe(true)
   })
   test('the Mac and Windows ask only whether encryption is there (no backend to read)', () => {
     expect(sealable('darwin', () => true, () => { throw new Error('Linux only') })).toBe(true)

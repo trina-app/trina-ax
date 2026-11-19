@@ -50,14 +50,17 @@ start_app() {
     fi
     echo "window: $(xdotool search --onlyvisible --class "^$2\$" getwindowname 2> /dev/null | head -n 1)"
     sleep 3
-    pids=$(pgrep -f -- "$0" || true)
+    # the processes of the app by program name (never this shell, whose text names the flags it looks for)
+    pids=$(pgrep -x "$2" || true)
     [ -n "$pids" ] || { echo "the app is not running"; exit 4; }
     for p in $pids; do
       if tr "\0" " " < "/proc/$p/cmdline" | grep -q -- "--no-sandbox"; then echo "runs without the sandbox: $(tr "\0" " " < "/proc/$p/cmdline")"; kill "$pid"; exit 5; fi
     done
+    echo "app processes: $(echo $pids | wc -w)"
     main_ns=$(readlink "/proc/$pid/ns/user")
     own=0
-    for p in $(pgrep -f -- "--type=renderer" || true); do
+    for p in $pids; do
+      tr "\0" " " < "/proc/$p/cmdline" 2> /dev/null | grep -q -- "--type=renderer" || continue
       [ "$(readlink "/proc/$p/ns/user" 2> /dev/null)" != "$main_ns" ] && own=$((own + 1))
     done
     echo "renderers in their own user namespace: $own"

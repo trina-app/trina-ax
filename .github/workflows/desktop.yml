@@ -406,11 +406,18 @@ jobs:
           export KEYRING_CHECK="$RUNNER_TEMP/keyring-check.cjs"
           xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash -c '
             set -e
+            # an unlocked "login" keyring with an empty password, named as the default one (otherwise the first write
+            # asks, through a prompt nobody answers, to create a keyring)
+            mkdir -p ~/.local/share/keyrings
+            printf login > ~/.local/share/keyrings/default
             echo -n "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null
             # the keyring answers on the session bus, and Electron picks it (never basic_text)
-            echo -n probe | secret-tool store --label=probe ci probe
-            [ "$(secret-tool lookup ci probe)" = probe ] && echo "secret service: ok"
-            bunx electron "$KEYRING_CHECK" 2>&1 | grep "safeStorage:"
+            echo -n probe | timeout 20 secret-tool store --label=probe ci probe || { echo "::error::the secret service did not store a value"; exit 1; }
+            [ "$(timeout 20 secret-tool lookup ci probe)" = probe ] || { echo "::error::the secret service does not answer"; exit 1; }
+            echo "secret service: ok"
+            out=$(timeout 60 bunx electron "$KEYRING_CHECK" 2>&1 || true)
+            echo "$out" | grep "safeStorage:" || true
+            echo "$out" | grep -q "backend gnome_libsecret, available true" || { echo "::error::Electron did not pick the keyring"; echo "$out" | tail -20; exit 1; }
             bunx playwright test -c e2e/linux.config.ts'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()

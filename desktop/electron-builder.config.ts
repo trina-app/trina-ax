@@ -131,5 +131,9 @@ export default {
   // only the package's name (apt install/remove <it>, dpkg-query): the default would be the product name, which has a
   // space and capitals. No `depends`: it would replace the default list of libraries.
   deb: { packageName: LINUX_EXECUTABLE },
+  // electron-builder's default for the AppImage's own menu entry is `AppRun --no-sandbox %U` (used by AppImageLauncher,
+  // Gear Lever, appimaged): the app refuses that start, so the entry passes nothing (AppRun still adds the flag by itself
+  // only where the sandbox cannot run, and then the app says to install the .deb)
+  appImage: { executableArgs: [] },
   publish: [{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }],
 }
