@@ -20,7 +20,7 @@ import { APP_NAMES, APP_SLUGS, placeholderUrl } from '../integrations/google-app
 import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { DRIVE_SCOPE } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
-import { demoOf } from '../routes/demo'
+import { demoOf } from './demo'
 
 /** the made-up secrets start with this, so a scan of a snapshot can tell them from a real one */
 export const FAKE_SECRET_PREFIX = 'demo-fake-'

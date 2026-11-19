@@ -2,8 +2,8 @@
 
 - Date (UTC): 2026-11-19 15:38
 - Branch: `feat/demo-free-roam-c`
-- Status: in progress
-- Where: `scripts/demo/` (content, builder, canary), `shared/src/api/demo.ts` (format), `server/src/demo/builder.ts`
+- Status: done
+- Where: `scripts/demo/` (content, builder, canary), `shared/src/api/demo.ts` (format), `server/src/routes/demo-builder.ts`
   (builder-only routes). Why: the demo content and its tools are scripts; the server only gets the few writes the public
   API cannot make, behind the demo file's `builder: true` (see docs/REPOSITORY-RULES.md)
 - Version impact: none (development and demo tooling; no user-visible change in a normal server)
@@ -36,7 +36,7 @@ Out: the freeRoam run kind and fences (PR A), the fakes themselves (PR B), the g
 ## Steps
 
 1. Format in `shared/src/api/demo.ts` (separate block), checks in `scripts/demo/company/content.ts`.
-2. Builder routes in `server/src/demo/builder.ts`, registered from `routes/demo.ts` in one line.
+2. Builder routes in `server/src/routes/demo-builder.ts`, registered from `routes/demo.ts` in one line.
 3. `scripts/demo/company/story-state.ts`: seeds rooms, chats, connections, welcome and reads after `seedDemo`.
 4. Steepling generator, strings en/ko, README with the fakes format.
 5. Snapshot builder and canary.
@@ -62,4 +62,15 @@ routes are the demo mode's, development servers only.
 
 ## Result
 
-(to fill in)
+Built as planned, with what PR A, B and the gate settled meanwhile:
+- Snapshot layout is the gate's (`demo-gate/src/pool.ts`): `<out>/<locale>/<name>/{manifest.json, base/}`, manifest
+  `codeVersion, locale, createdAt, config: config/server.json, demoFile: demo.json` (+ content id/hash, git, checks).
+  server.json keeps `dataDir`/`teamRoot` relative to config/, `engine.authMode: managed`, `fileList.enabled: false`.
+- The snapshot's demo file is PR A's `kind: "freeRoam"` with the one persona (Mina), `signupUrl`, and
+  `freeRoam.suggestions` (also in GET /api/demo as `freeRoam`); `fakes: { content: "fakes" }` (PR B), relative to the
+  instance's folder, where the gate and the builder start it. DemoFile here carries PR A's and PR B's fields verbatim,
+  so their merge conflicts are textual only.
+- Fakes follow PR B's shapes (`gmail.json` `{ me, messages }`, `drive.json` `{ me, files }`, `higgsfield/` pictures);
+  Drive gets a made-up Google client in secrets/ before the server starts; Higgsfield is a team connection with auth
+  none. Hygiene also refuses recorded proxy turns (PR A's limit counts them).
+- The builder's routes live in `server/src/routes/demo-builder.ts` (route enumeration only reads routes/).

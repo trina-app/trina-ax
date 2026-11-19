@@ -11,7 +11,7 @@
 //
 // Everything a person can do goes through the public REST API as that person. What nobody can do in the product
 // (a message sent yesterday, an inviter, a connection without signing in, a finished answer without the AI) goes
-// through the snapshot builder's routes (/api/demo/builder/*, server/src/demo/builder.ts): the owner only, and only on a
+// through the snapshot builder's routes (/api/demo/builder/*, server/src/routes/demo-builder.ts): the owner only, and only on a
 // server whose demo file says `builder: true`.
 import crypto from 'node:crypto'
 import fs from 'node:fs'

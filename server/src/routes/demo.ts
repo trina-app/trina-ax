@@ -19,7 +19,7 @@ import { verifyPassword } from '../auth/passwords'
 import { authOf } from '../auth/service'
 import { getUserByUsername } from '../auth/users'
 import type { RouteModule } from './module'
-import { registerDemoBuilder } from '../demo/builder'
+import { registerDemoBuilder } from './demo-builder'
 
 /** the demo file, only on a development server that was started with it */
 export function demoOf(ctx: AppContext): DemoFile | null {

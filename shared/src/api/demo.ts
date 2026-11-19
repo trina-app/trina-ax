@@ -294,7 +294,7 @@ export type DemoInfo = z.infer<typeof DemoInfo>
 
 export const DemoSwitchBody = z.object({ key: DemoPersonaKey }).strict()
 
-// ---- the snapshot builder's routes (server/src/demo/builder.ts): the owner only, and only while the demo file says
+// ---- the snapshot builder's routes (server/src/routes/demo-builder.ts): the owner only, and only while the demo file says
 // `builder: true` (404 otherwise, like a route that is not there). What the public API cannot do: times in the past,
 // who invited a person, connection rows with made-up secrets, the finished turns of a seeded chat ----
 const BuilderAt = z.string().datetime()

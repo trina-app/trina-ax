@@ -107,7 +107,7 @@ A content folder may also say what the people did before the visitor came. All o
 
 Every address in company.json and fakes/ must be a reserved `.example` one. The writes the public API cannot make
 (times in the past, the inviter, connection rows, finished answers without the AI) go through the builder's routes
-`/api/demo/builder/*` (`server/src/demo/builder.ts`): the owner only, and only on a server whose demo file says
+`/api/demo/builder/*` (`server/src/routes/demo-builder.ts`): the owner only, and only on a server whose demo file says
 `builder: true`; 404 everywhere else, and never in a snapshot.
 
 ## The free-roam snapshot
