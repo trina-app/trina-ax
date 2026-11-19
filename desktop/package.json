@@ -17,6 +17,7 @@
     "dist:mac:release": "NODE_ENV=production bun build.ts && electron-builder --config electron-builder.devid.config.ts --mac dmg zip --universal --publish never",
     "dist:mac:arm64": "NODE_ENV=production bun build.ts && electron-builder --config electron-builder.config.ts --mac dmg --arm64 --publish never",
     "dist:mac:x64": "NODE_ENV=production bun build.ts && electron-builder --config electron-builder.config.ts --mac dmg --x64 --publish never",
+    "dist:linux": "NODE_ENV=production bun build.ts && electron-builder --config electron-builder.config.ts --linux deb AppImage --x64 --arm64 --publish never",
     "dist:win": "NODE_ENV=production bun build.ts && electron-builder --config electron-builder.config.ts --win nsis --x64 --publish never"
   },
   "devDependencies": {

@@ -7,7 +7,8 @@
 <b>The AI your whole team shares.</b><br>
 Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them,<br>and every file it opens is checked as the person who asked.
 
-<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a><br>
+<sub>Linux: .deb and AppImage (x64, arm64) on the <a href="https://ax.trina.app/download">download page</a></sub>
 
 [Website](https://ax.trina.app) · [Docs](docs/README.md) · [Pricing](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
@@ -82,12 +83,12 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
-- **Every device.** Mac, Windows, iPhone, Android and any browser, in six languages.
+- **Every device.** Mac, Windows, Linux, iPhone, Android and any browser, in six languages.
 
 ## Get started
 
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
-- **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
+- **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Self-host with Docker</b> (Linux, or a Mac with OrbStack)

@@ -3701,6 +3701,7 @@ export const ko = {
   "localApps.error.command": "프로그램 하나와 그 뒤에 오는 내용만 적어 주세요. |, &, ; 같은 문자는 쓸 수 없어요.",
   "localApps.error.settings": "설정은 한 줄에 하나씩 NAME=값으로 적어 주세요.",
   "localApps.settingsNotKept": "이 컴퓨터가 설정을 안전하게 보관하지 못해서 저장하지 않았어요.",
+  "localApps.settingsNotKeptLinux": "이 컴퓨터가 설정을 안전하게 보관하지 못해서 저장하지 않았어요. Linux에서는 GNOME Keyring이나 KWallet이 있어야 해요.",
   "localApps.whereHere": "이 컴퓨터의 이 데스크톱 앱에서 메시지를 보낼 때만 쓰여요. 프로그램은 내 권한으로 이 컴퓨터에서 실행돼요.",
   "localApps.whereElsewhere": "추가한 컴퓨터의 {product} 데스크톱 앱에서만 쓰여요. 여기서는 AI가 쓸 수 없어요.",
   "localApps.runs": "실행하는 것",

@@ -82,8 +82,9 @@ git push origin v0.3.0-beta.1
 | 2→3 | build-office | 사무실 zip(macos-15, 또는 `mac_runner` 입력·레포 변수 `RELEASE_MAC_RUNNER`, self-hosted 릴리스 맥은 13장; 두 맥 프로세서 universal, `bun run build:office -- --whisper …`). build-mac-whisper를 기다려 그 whisper-cli를 `app/bin/darwin-arm64/`에 넣는다 | 없음 |
 | 2 | build-windows | 윈도우 설치 파일 + `latest.yml`(windows-2025, `desktop dist:win`, 버전은 태그 것). 레포 변수 `WINDOWS_SIGNING_*`가 있으면 Microsoft Artifact Signing으로 서명하고 `signtool verify /pa`로 확인한다(11장), 없으면 서명 없이 | Azure 로그인(OIDC, 저장된 비밀번호 없음; 비밀값은 id 둘뿐) |
 | 2 | build-mac-app | 맥 앱(`mac-app.yml`, build-office와 같은 러너): dmg + 업데이트 zip + `latest-mac.yml`. Developer ID로 서명, hardened runtime, Apple 공증, staple, Gatekeeper 확인(아래 "Mac app") | 맥 서명 비밀값 5개 |
-| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
-| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
+| 2 | build-linux-desktop | 리눅스 데스크톱 앱(ubuntu-24.04, `desktop dist:linux`, 버전은 태그 것): x64·arm64의 `.deb`와 AppImage, `latest-linux.yml`·`latest-linux-arm64.yml`. 서명 없음. office_only에서도 돈다. 실패해도 릴리스를 막지 않는다(`docs/decisions/20261119-linux-desktop-app.md`) | 없음 |
+| 3 | publish | 리눅스 묶음 서명(manifest.sig) → 사무실 피드(`publish.ts`, 맥 앱이 있으면 `--mac`, 리눅스 데스크톱 앱이 있으면 `--linux`) → 서버 피드(`publish-server.ts`) → `SHA256SUMS` + `.sig` | 키 + Cloudflare 토큰 |
+| 4 | github-release | 태그 이름으로 Release. 자산: 리눅스 kit 2개, 사무실 zip, 윈도우 설치 파일, 맥 dmg, 리눅스 `.deb`·AppImage 4개, `SHA256SUMS`, `SHA256SUMS.sig`. beta는 prerelease | 없음(`contents: write`만) |
 | 5 | build-ami | stable만, publish와 github-release 뒤: 새 팀 서버 이미지(AMI)를 만드는 `team-image.yml`을 그 태그로 시작한다(10장). 레포 변수 `AWS_ROLE_ARN`이 없으면 notice만 남기고 끝난다. 실패해도 릴리스는 실패로 치지 않는다 | 없음(`actions: write`만) |
 
 2의 job은 동시에 돈다(build-office만 build-mac-whisper 뒤). publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
@@ -95,8 +96,8 @@ git push origin v0.3.0-beta.1
 
 | 경로 | 무엇 | 캐시 |
 |---|---|---|
-| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`) | 안 함 |
-| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml` | 영구 |
+| `<officeDir>/<channel>.json` | 사무실 맥의 서명된 목록(사무실 zip, 윈도우 설치 파일, 맥 앱 `mac`, 리눅스 데스크톱 앱 `linux`) | 안 함 |
+| `<officeDir>/<version>/…` | 사무실 zip, 윈도우 설치 파일, `latest.yml`, 맥 dmg, 맥 업데이트 zip, `latest-mac.yml`, 리눅스 `.deb`·AppImage(x64·arm64), `latest-linux.yml`, `latest-linux-arm64.yml` | 영구 |
 | `server/<channel>.json` + `.sig` | 리눅스 서버의 채널 머리. 아래 `release.json`과 같은 바이트 | 안 함 |
 | `server/<version>/release.json` + `.sig` | 그 버전의 릴리스 정보(`mycel-ctl update --version`) | 안 함 |
 | `server/<version>/manifest-linux-<arch>.json` + `.sig` | 묶음의 서명된 파일 목록(다음 릴리스가 root 파일 변경을 판단) | 안 함 |
@@ -288,6 +289,7 @@ gh secret set APPLE_API_ISSUER_ID --repo trina-app/trina-ax
 | "Re-run all jobs"나 workflow_dispatch로 다시 | 새로 빌드한 파일은 이미 올라간 것과 내용이 달라 거부된다 | 새 버전으로 태그 |
 | build-office가 맥 러너를 못 받아 데스크톱만 빠짐(2026-11-12 v0.5.2, 11-13 v0.5.3), 그 run을 더는 다시 돌릴 수 없음 | 서버 피드는 나갔고 사무실 피드(윈도우·맥 zip)는 이전 릴리스에 남는다 | Actions → Release → Run workflow, "Use workflow from"과 tag는 그 태그, **office_only** 체크. 테스트·리눅스 빌드·서버 피드는 건너뛰고 사무실 zip과 윈도우 설치 파일만 빌드해 사무실 피드에 올린다(리눅스 파일은 GitHub Release에서 받아 SHA256SUMS에만 넣는다). 맥 러너가 또 없으면 **mac_runner**에 `macos-15-intel`(다른 러너 풀; Go·swiftc가 두 프로세서를 같이 빌드해 같은 universal zip). 기본값은 레포 변수 `RELEASE_MAC_RUNNER`, 없으면 macos-15. 이 입력은 이 변경이 들어간 뒤의 태그부터 있다 |
 | build-mac-app 실패(맥 러너 없음, 공증 거절, 비밀값 없음) | 사무실 피드는 `mac` 없이 나간다. 맥 앱은 이전 버전 그대로 | 로그를 본다: 공증 거절이면 `notarytool log <id>`가 로그에 있다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `mac`을 더한다(`versionManifestAction`) |
+| build-linux-desktop 실패 | 사무실 피드는 `linux` 없이 나가고 GitHub Release의 "Downloads not in this release yet" 줄에 "Linux (desktop app)"가 붙는다. 리눅스 데스크톱 앱은 이전 버전 그대로 | 로그를 본다. 고친 뒤 그 run에서 "Re-run failed jobs": publish가 같은 버전의 목록에 `linux`를 더하고(`versionManifestAction`), 모든 다운로드가 있으면 그 줄을 지운다 |
 | github-release | 피드는 이미 끝남 | "Re-run failed jobs" |
 | 맥 파일이 이미 피드에 올라간 릴리스를 "Re-run all jobs" | 맥 빌드는 할 때마다 다시 서명·공증해서 dmg·zip 바이트가 달라진다. publish.ts가 거부한다 | 이런 릴리스는 **"Re-run failed jobs"만** 쓴다. 맥만 다시 만들어야 하면 새 버전으로 태그 |
 | 잘못된 버전이 나감 | 설치는 뒤로 가지 않는다. stable이면 단계적 배포로 첫날은 약 10%만 받았다 | **먼저 멈춘다: `bun scripts/release/hosting.ts hold stable --reason "…"`** (아래 "배포 멈추기"). 아직 받지 않은 서버·사무실은 지금 버전에 머문다. 그다음 고친 새 버전을 태그 메시지 `Rollout: all`로 낸다(2장 "단계적 배포"). 리눅스 서버는 새 버전이 켜지지 않으면 이전 버전으로 스스로 돌아가고 7일간 다시 시도하지 않는다. 사무실 맥도 되돌린다(`docs/OFFICE.md`). |
@@ -544,7 +546,7 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
 (`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
-`scripts/ci/windows-install-check.ps1`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 세 job이 돈다. 비밀값은 쓰지 않는다
+`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
 (서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
 결정: `docs/decisions/20261116-desktop-checks.md`.
 
@@ -553,6 +555,9 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 | Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
 | Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
+| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb는 `desktop-linux-arm64-deb` |
+| Linux package (arm64: install and start) | ubuntu-24.04-arm | 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
+| Desktop e2e (Linux, subset) | ubuntu-24.04 | `desktop/e2e/linux.config.ts`: smoke, desktop, quit, settings, language, offline, update, local-apps. 맥 e2e처럼 가짜 팀 이름, web 빌드, rhwp. xvfb + `dbus-run-session` + 비밀번호를 준 `gnome-keyring-daemon --unlock`(빈 비밀번호면 login 모음이 생기지 않는다; local-apps.spec이 설정을 봉인한다), `XDG_CURRENT_DESKTOP=GNOME`. node_modules의 Electron에는 AppArmor 프로필이 없어 이 run만 `kernel.apparmor_restrict_unprivileged_userns=0`, `--no-sandbox`는 쓰지 않는다. dev push에도 돈다 | `desktop-e2e-linux` |
 
 - **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고
   취소됐다("The job was not acquired by Runner of type hosted even after multiple attempts", "Due to capacity constraints, jobs
@@ -567,6 +572,10 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 - **윈도우 검사는 실제 PC를 쓰지 않는다.** 순서: 깨끗한 runner 프로필 확인 → `/S` 설치(제거 항목·파일·바로가기, 서명 상태
   NotSigned/Valid 보고) → 버린 데이터 폴더(`MYCEL_DESKTOP_USER_DATA`)로 앱 실행, `trina-ax://` 처리기 확인 → 업데이터와 같은
   `--updated /S --force-run`으로 덮어 설치(새 버전, 처리기 유지, 앱 재시작) → 조용한 제거(항목·파일·바로가기·처리기 삭제, 데이터는 남음).
+- **리눅스 검사는 Ubuntu 24.04의 샌드박스 규칙을 직접 켠다.** 스크립트가 `kernel.apparmor_restrict_unprivileged_userns=1`을 설정한다:
+  러너 이미지가 바뀌어도 .deb는 제 AppArmor 프로필로 샌드박스를 쓰고, AppImage는 AppRun이 `--no-sandbox`를 붙여 앱이 거절해야 한다.
+  AppImage의 자체 업데이트(받기, 서명된 릴리스와 대조, 끝날 때 교체)는 업데이터 설정과 `verifyInstaller`의 단위 테스트와 QA 행이
+  맡는다(살아 있는 업데이트 시험에는 서명된 가짜 피드가 필요하다). 결정: `docs/decisions/20261119-linux-desktop-app.md`.
 - **Electron이 안 끝나도 job은 멈추지 않는다.** 단독 fixture는 `desktop/e2e/fixture-run.ts`로 돌린다: 결과 줄이 나오면 SIGKILL로 끝낸다
   (#1015). 로그는 `desktop/e2e/.work/logs/`.
 - **비용**: 공개 레포라 hosted runner는 무료. 경로 필터, PR마다 `cancel-in-progress`, bun 저장소와 Electron·electron-builder 내려받기 캐시.
@@ -574,7 +583,9 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 - **실패했을 때**: e2e는 artifact의 html 리포트와 fixture 로그를 본다. dmg는 step summary의 `FAIL` 줄이 설정의 어느 값과 다른지 말한다
   (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
 - 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
-  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`.
+  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`; 리눅스(Ubuntu 24.04, sudo):
+  `bun run --cwd desktop dist:linux && scripts/ci/linux-install-check.sh full <old.deb> <new.deb> <new.AppImage>`
+  (환경 변수는 desktop.yml의 linux-packages job).
 
 ## 13. 릴리스용 맥 러너 (self-hosted, 사무실 맥)
 

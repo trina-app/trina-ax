@@ -16,6 +16,11 @@
 // Squirrel.Mac, which also takes only an app signed by the same Developer ID team. A team server that offers no
 // latest-mac.yml yet (older than 0.5.5) keeps the old notice: /downloads/index.json read with the team page's own
 // cookies, a newer Mac item announced once per version, with a link to Settings > Apps.
+// Linux (docs/decisions/20261119-linux-desktop-app.md): the AppImage (APPIMAGE set) like Windows, electron-updater's
+// AppImage updater on <team address>/downloads/latest-linux.yml (latest-linux-arm64.yml) and the AppImage it names,
+// checked against the signed release before it replaces the AppImage on quit. The .deb updates through no updater (a
+// dpkg install would ask for an admin password): it reads the team's signed /downloads/<channel>.json and says once per
+// version that a newer one is out, with the download page (./update-verify.ts linuxNotice).
 // Store build (Mac App Store: process.mas; Microsoft Store: process.windowsStore, true inside an MSIX package): nothing;
 // the store updates it, and a store does not allow pointing to another download (editions/trina/mac-app-store,
 // editions/trina/microsoft-store). Settings > Apps of such a build lists no installer either, for the Mac or Windows
@@ -35,15 +40,17 @@ export function selfUpdatingMac(pkg: unknown): boolean {
   return !!pkg && typeof pkg === 'object' && (pkg as { macSelfUpdate?: unknown }).macSelfUpdate === true
 }
 
-/** what this build does: electron-updater in a packaged Windows app and in the Developer ID signed Mac app (`macSigned`),
- * the notice in any other packaged Mac app (an unsigned dmg: Squirrel.Mac would refuse every update), never in a store
- * build (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
-export function updateMode(platform: string, packaged: boolean, forced?: string, store = false, macSigned = false): UpdateMode {
+/** what this build does: electron-updater in a packaged Windows app, in the Developer ID signed Mac app (`macSigned`)
+ * and in a Linux AppImage (`appImage`: the APPIMAGE path the AppImage runtime sets), the notice in any other packaged
+ * Mac app (an unsigned dmg: Squirrel.Mac would refuse every update) and in a Linux .deb, never in a store build
+ * (MYCEL_DESKTOP_UPDATE_TEST forces a mode in development and tests, not in a store build) */
+export function updateMode(platform: string, packaged: boolean, forced?: string, store = false, macSigned = false, appImage?: string): UpdateMode {
   if (store) return 'off'
   if (forced === 'auto-install' || forced === 'notice' || forced === 'off') return forced
   if (!packaged) return 'off'
   if (platform === 'win32') return 'auto-install'
   if (platform === 'darwin') return macSigned ? 'auto-install' : 'notice'
+  if (platform === 'linux') return appImage ? 'auto-install' : 'notice'
   return 'off'
 }
 

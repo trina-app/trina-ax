@@ -85,8 +85,12 @@ export async function bindWindow(p: Page, origin: string): Promise<Page> {
 
 export async function addTeam(app: ElectronApplication, address: string, origin: string): Promise<Page> {
   const w = await welcome(app)
-  await w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' }).fill(address)
-  await w.getByRole('button', { name: '들어가기' }).click()
+  const field = w.getByRole('textbox', { name: '초대 링크 또는 팀 주소' })
+  await field.fill(address)
+  await expect(w.getByRole('button', { name: '들어가기' })).toBeEnabled()
+  // Enter submits the form as the button does. A click waits for animation frames, which a welcome view behind the team
+  // page never gets on Linux (the second team of a test is added while the first one is on screen).
+  await field.press('Enter')
   return bindWindow(await teamPage(app, origin), origin)
 }
 

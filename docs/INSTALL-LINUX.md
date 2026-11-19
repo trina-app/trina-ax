@@ -55,6 +55,61 @@ owner와 팀은 설정 화면에서 직접 만드세요. 에이전트도 이 문
 - **팀 주소**는 로그인한 사람 누구나 설정 › 앱에서 보고 복사할 수 있어요.
 - **누른 링크**: 앱은 `*.trina.app`의 초대 링크만 바로 열어요(유니버설 링크·앱 링크). 직접 설치한 서버의 주소에서는 링크가 브라우저로 열리고, 가입 화면의 **앱에서 열기**(`trina-ax://open?url=…`)로 데스크톱·휴대폰 앱을 열 수 있어요. 어느 쪽이든 앱은 "{주소}에 연결할까요?"를 먼저 묻고, 답하기 전에는 아무것도 열지 않아요.
 
+## 리눅스 데스크톱 앱
+
+이 절은 서버가 아니라 리눅스 컴퓨터에서 쓰는 팀 데스크톱 앱 이야기다. x64와 arm64용이 있다.
+웹사이트의 다운로드 페이지나 [최신 GitHub Release](https://github.com/trina-app/trina-ax/releases/latest)에서 받고, 시스템에 맞춰 고른다.
+
+| 파일 | 대상 | 업데이트 |
+|---|---|---|
+| `Trina-AX-<v>-linux-amd64.deb`, `Trina-AX-<v>-linux-arm64.deb` | Ubuntu 24.04, Debian 12·13과 그 위에 만든 시스템 | 새 버전이 나오면 앱이 알려 준다. 새 .deb를 그대로 덮어 설치한다 |
+| `Trina-AX-<v>-linux-x86_64.AppImage`, `Trina-AX-<v>-linux-arm64.AppImage` | 그 밖의 배포판(Fedora, Arch …) | 스스로: 팀 서버에서 받아, 서명된 릴리스가 그 파일을 가리킬 때만, 앱이 끝날 때 바꾼다 |
+
+**.deb** (App Center로 열거나 터미널에서):
+
+```sh
+sudo apt install ./Trina-AX-<v>-linux-amd64.deb
+```
+
+앱 목록에 앱을 넣고, `trina-ax://` 링크(웹의 **앱에서 열기**)가 앱을 열게 하고, AppArmor 프로필(`/etc/apparmor.d/trina-ax`)을
+깐다. 그래서 Ubuntu 24.04가 user namespace를 막아도 Chromium 샌드박스가 돈다. `sudo apt remove trina-ax`가 이것을 모두 지운다.
+데이터는 `~/.config/Team AX`에 남는다. 그것까지 지우려면 그 폴더를 지운다.
+
+**AppImage:**
+
+```sh
+chmod +x Trina-AX-<v>-linux-x86_64.AppImage
+./Trina-AX-<v>-linux-x86_64.AppImage
+```
+
+- **FUSE 2:** AppImage는 FUSE 2가 필요하다(Fedora `fuse-libs`, Arch `fuse2`, Ubuntu 24.04 `libfuse2t64`).
+- **샌드박스:** 앱은 Chromium 샌드박스 안에서만 돈다. AppArmor 프로필이 없는 프로그램의 user namespace를 막는 시스템(Ubuntu 24.04
+  이후)에서는 AppImage가 샌드박스를 쓸 수 없어서, 앱이 ".deb를 설치하세요"라고 말하고 끝난다. 거기서는 .deb를 쓴다. AppImage를
+  손으로 `--no-sandbox`와 함께 띄워도 같이 거절한다. .deb의 앱도 `--no-sandbox`로 띄우지 않는다.
+- 메뉴 항목과 링크 처리기를 만들지 않는다. `trina-ax://` 링크가 필요하면 .deb를 쓴다.
+- 스스로 업데이트하려면 쓸 수 있는 폴더(예: `~/Applications`)에 둔다.
+
+**키링:** "내 컴퓨터의 앱"은 설정값(토큰, 키)을 Secret Service를 통해 시스템 키링(GNOME Keyring 또는 KWallet)에 둔다. 세션에
+키링이 없으면(창 관리자만 쓸 때, `gnome-keyring` 없는 Xfce 등) 설정을 저장하지 않고 앱이 그렇게 알려 준다. 연결은 설정 없이도 된다.
+로그인 쿠키도 키링이 있으면 Chrome처럼 그것으로 보호된다. Chromium이 모르는 데스크톱(sway, i3 등)에서는 키링이 떠 있어도 Electron이
+그것을 고르지 않을 수 있다. 거기서는 앱을 `--password-store=gnome-libsecret`(또는 `kwallet6`)로 띄운다.
+
+**받은 파일 확인**(버전의 GitHub Release에 있는 서명된 체크섬으로):
+
+```sh
+V=<version> # 예: 0.5.18
+BASE="https://github.com/trina-app/trina-ax/releases/download/v$V"
+F="Trina-AX-$V-linux-amd64.deb"
+curl -fLO "$BASE/$F" -fLO "$BASE/SHA256SUMS" -fLO "$BASE/SHA256SUMS.sig"
+sha256sum --ignore-missing -c SHA256SUMS
+# SHA256SUMS의 서명: 이 저장소의 릴리스 키로(Bun 필요)
+git clone --depth 1 --branch "v$V" https://github.com/trina-app/trina-ax trina-ax-src
+bun trina-ax-src/scripts/release/release-ci.ts verify-sums SHA256SUMS
+```
+
+`verify-sums`는 그 버전 소스의 릴리스 키로 `SHA256SUMS.sig`를 확인한 뒤, `SHA256SUMS`에 있고 같은 폴더에 있는 파일을 모두 확인한다.
+앱 안의 업데이트는 같은 릴리스 서명을 스스로 확인한다.
+
 ## 2. 요구 사항
 
 | 항목 | 값 |
