@@ -712,7 +712,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
         // fonts that earlier operations (add_text, an earlier replace_text) wrote with are put into the file first, so
         // their words can be read and found too
         await doc.flush()
-        const outcome: Parameters<typeof replaceOnPage>[6] = { replaced: 0, hidden: 0, skipped: [], smaller: 0, overlap: 0, wider: 0, fonts: new Set(), actualText: 0, caveats: { forms: new Set(), annots: new Set(), unmapped: new Set() }, pagesWithout: { images: [], forms: [], noText: [], noMap: [] } }
+        const outcome: Parameters<typeof replaceOnPage>[6] = { replaced: 0, hidden: 0, skipped: [], smaller: 0, overlap: 0, wider: 0, fonts: new Set(), actualText: 0, caveats: { forms: new Set(), annots: new Set(), unmapped: new Set() }, noMatch: new Map(), parsedBytes: 0, pagesWithout: { images: [], forms: [], noText: [], noMap: [] } }
         const changed: number[] = []
         for (const p of pages) {
           const before = outcome.replaced
@@ -720,7 +720,7 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
           if (outcome.replaced > before) changed.push(p)
         }
         if (!outcome.replaced) throw new ToolError(notFound(rt.find, pages, outcome))
-        notes.push(replacedNote(step, rt.find, changed, outcome, wordsElsewhere(doc, rt.find, rt.match_case ?? true)))
+        notes.push(replacedNote(step, rt.find, changed, outcome, wordsElsewhere(doc, rt.find, rt.match_case ?? true, pages.map((x) => x - 1))))
       } else throw new ToolError('an unknown operation')
     } catch (e) {
       if (e instanceof ToolError) throw new ToolError(`${step}: ${e.message.replace(/; nothing was saved$|\. Nothing was saved$/, '')}; nothing was saved`, e.code)

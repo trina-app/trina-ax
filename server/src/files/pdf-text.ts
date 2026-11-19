@@ -242,6 +242,18 @@ interface FontInfo {
 }
 
 /** a ToUnicode CMap: code -> letters */
+/** page content one replace_text reads at most (decoded bytes, all its pages together) */
+export const PARSE_BYTES_MAX = 256 * 1024 * 1024
+
+/** what reading one page found, kept for pages that draw the same content */
+interface PageSummary { forms: boolean; unmapped: boolean; without: 'images' | 'forms' | 'noText' | null; noMap: boolean; formsNoMatch: boolean }
+const ids = new WeakMap<object, number>()
+let nextId = 1
+const objectId = (o: object) => { let i = ids.get(o); if (i === undefined) { i = nextId++; ids.set(o, i) } return i }
+
+/** strokes a page keeps as possible column lines */
+export const RULES_MAX = 5000
+
 /** matches on one page that one replace_text changes; more is refused (a one-letter find on a long page) */
 export const PAGE_MATCHES_MAX = 2000
 
@@ -400,7 +412,9 @@ function loadFont(ctx: PDFContext, dict: PDFDict): FontInfo {
     if ([...l].length === 1 && !encode.has(l) && (width(c) > 0 || l === ' ')) encode.set(l, c)
   }
   // an embedded font draws only the glyphs it holds: its letter map's, or the codes the page draws with it
-  return { unsupported: null, codeLen: 1, width, letters, encode: (l) => encode.get(l), seen, embedded, mapped: !!toUni, style, canDraw: (c) => !embedded || !!toUni?.has(c) || seen.has(c) }
+  // a standard, not embedded font with a standard encoding reads the same everywhere: only an embedded or symbolic font
+  // without ToUnicode may be read otherwise by a viewer
+  return { unsupported: null, codeLen: 1, width, letters, encode: (l) => encode.get(l), seen, embedded, mapped: !!toUni || (!embedded && !symbolic), style, canDraw: (c) => !embedded || !!toUni?.has(c) || seen.has(c) }
 }
 
 // ---------------------------------------------------------------- reading a page
@@ -455,7 +469,8 @@ function readPage(ctx: PDFContext, res: PDFDict | undefined, content: string): P
   let cur: { x: number; y: number } | null = null
   const segment = (x0: number, y0: number, x1: number, y1: number) => {
     const a = apply(st.ctm, x0, y0), b = apply(st.ctm, x1, y1)
-    if (Math.hypot(b.x - a.x, b.y - a.y) > 2) rules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })
+    // upright or level strokes only (a table's lines), at most RULES_MAX a page: a page of hatching is not a table
+    if (rules.length < RULES_MAX && Math.hypot(b.x - a.x, b.y - a.y) > 2 && (Math.abs(b.x - a.x) < 0.5 || Math.abs(b.y - a.y) < 0.5)) rules.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y })
   }
   let st: TextState = { ctm: ID, tc: 0, tw: 0, tz: 100, tl: 0, font: null, fontRaw: '', size: 0, tr: 0, ts: 0 }
   const stack: TextState[] = []
@@ -658,6 +673,10 @@ export interface ReplaceOutcome {
   /** pages read whose other content this tool does not change: drawn blocks (form XObjects), annotations (comments,
    * form fields, links), fonts without a ToUnicode map (a viewer may read their letters otherwise) */
   caveats: { forms: Set<number>; annots: Set<number>; unmapped: Set<number> }
+  /** pages read with no match, by what they draw (see replaceOnPage) */
+  noMatch: Map<string, PageSummary>
+  /** page content read so far, decoded bytes */
+  parsedBytes: number
 }
 
 /** a BDC's operands and operator without the /ActualText entry of its property list */
@@ -677,23 +696,45 @@ export async function replaceOnPage(doc: PDFDocument, pageIndex: number, find: s
   const page = doc.getPage(pageIndex)
   // pdf-lib's own wrap of the page (q … Q), once, before its content is read; new fonts are added to the page later
   page.node.normalize()
-  const content = contentOf(ctx, page)
-  if (content === null) throw new ToolError(`what page ${pageIndex + 1} draws cannot be read (it may be damaged), so its text cannot be changed`, 'pdf_invalid')
   const res = resourcesOf(ctx, page)
-  const p = readPage(ctx, res, content)
-  if (p.forms) out.caveats.forms.add(pageIndex + 1)
-  if (p.unmapped) out.caveats.unmapped.add(pageIndex + 1)
   const annots = ctx.lookup(page.node.get(K('Annots')))
   if (annots instanceof PDFArray && annots.size() > 0) out.caveats.annots.add(pageIndex + 1)
-  if (!p.glyphs.some((g) => g.letters.trim() && !g.hidden)) {
-    if (p.glyphs.some((g) => g.hidden)) { /* the hidden layer is counted below */ } else if (p.images) out.pagesWithout.images.push(pageIndex + 1)
-    else if (p.forms) out.pagesWithout.forms.push(pageIndex + 1)
-    else out.pagesWithout.noText.push(pageIndex + 1)
+  // pages that draw the very same content with the same resources (a template, a scan of the same form) read the same:
+  // one with no match is not read again (review of #1337: 3,000 pages sharing one 28 MB stream)
+  const c = ctx.lookup(page.node.get(K('Contents')))
+  const parts = (c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]).filter((x): x is PDFObject => !!x)
+  const key = [...parts.map(objectId), res ? objectId(res) : 0].join(',')
+  const apply = (sum: PageSummary) => {
+    const n = pageIndex + 1
+    if (sum.forms) out.caveats.forms.add(n)
+    if (sum.unmapped) out.caveats.unmapped.add(n)
+    if (sum.without) out.pagesWithout[sum.without].push(n)
+    if (sum.noMap) out.pagesWithout.noMap.push(n)
+    if (sum.formsNoMatch && !out.pagesWithout.forms.includes(n)) out.pagesWithout.forms.push(n)
   }
-  if (p.glyphs.length && p.glyphs.every((g) => !g.letters)) out.pagesWithout.noMap.push(pageIndex + 1)
+  const known = out.noMatch.get(key)
+  if (known) { apply(known); return 0 }
+  const content = contentOf(ctx, page)
+  if (content === null) throw new ToolError(`what page ${pageIndex + 1} draws cannot be read (it may be damaged), so its text cannot be changed`, 'pdf_invalid')
+  out.parsedBytes += content.length
+  if (out.parsedBytes > PARSE_BYTES_MAX) throw new ToolError(`these pages draw more than ${PARSE_BYTES_MAX / 1024 / 1024} MB of content, too much to read in one replace_text; give fewer pages (pages: "1-50"), one call each`)
+  const p = readPage(ctx, res, content)
+  const visible = p.glyphs.some((g) => g.letters.trim() && !g.hidden)
+  const summary: PageSummary = {
+    forms: p.forms, unmapped: p.unmapped,
+    without: visible || p.glyphs.some((g) => g.hidden) ? null : p.images ? 'images' : p.forms ? 'forms' : 'noText',
+    noMap: p.glyphs.length > 0 && p.glyphs.every((g) => !g.letters),
+    formsNoMatch: false,
+  }
   const matches = findMatches(p, find, matchCase)
   if (matches.length > PAGE_MATCHES_MAX) throw new ToolError(`${JSON.stringify(find.slice(0, 40))} is on page ${pageIndex + 1} more than ${PAGE_MATCHES_MAX.toLocaleString('en')} times; give longer words to find, so that only the places meant are changed`)
-  if (!matches.length) { if (p.forms && !out.pagesWithout.forms.includes(pageIndex + 1)) out.pagesWithout.forms.push(pageIndex + 1); return 0 }
+  if (!matches.length) {
+    summary.formsNoMatch = p.forms
+    out.noMatch.set(key, summary)
+    apply(summary)
+    return 0
+  }
+  apply(summary)
   // first every match that can be changed, so the room for each new text knows all that goes
   const removed = new Set<number>()
   const todo: number[][] = []
@@ -935,18 +976,36 @@ export function dropUnreached(doc: PDFDocument) {
   for (const [ref] of ctx.enumerateIndirectObjects()) if (!live.has(ref)) ctx.delete(ref)
 }
 
+/** what the search for leftover words may read: decoded bytes and time. Past either it says so instead of failing
+ * (review of #1337: 3,000 pages sharing one 28 MB stream were parsed once per page) */
+export const ELSEWHERE_BYTES_MAX = 64 * 1024 * 1024
+export const ELSEWHERE_MS_MAX = 3000
+/** the words for a search that ran out of its budget */
+export const NOT_ALL_CHECKED = 'could not check the whole file (it is large), so the old words may be in more places'
+
 /**
  * Where else in the file the words still are, after replace_text changed the page text: this is not a redaction tool,
  * so the AI is told and tells the person (review of #1337). Read: the document properties (Info) and XMP metadata,
  * bookmark titles, comments and form-field values (annotation /Contents, /V and field /V), accessibility text (/Alt,
- * /ActualText of the structure tree and of marked content, in the page content too), and any other text string.
+ * /ActualText of the structure tree and of marked content), and any other text string. Marked content in the page
+ * content is read only on `pages` (0-based, the pages replace_text read), each content stream once, and parsed only when
+ * its bytes name /ActualText or hold the words. Within a byte and time budget; past it, NOT_ALL_CHECKED is in the list.
  */
-export function wordsElsewhere(doc: PDFDocument, find: string, matchCase: boolean): string[] {
+export function wordsElsewhere(doc: PDFDocument, find: string, matchCase: boolean, pages: number[], budget = { bytes: ELSEWHERE_BYTES_MAX, ms: ELSEWHERE_MS_MAX }): string[] {
   const ctx = doc.context
   const q = fold(find, matchCase).replace(/\s+/g, ' ').trim()
   if (!q) return []
   const has = (t: string) => fold(t, matchCase).replace(/\s+/g, ' ').includes(q)
   const where = new Set<string>()
+  const t0 = Date.now()
+  let bytes = 0, out = false
+  /** charge n bytes; false (and the note) once the budget is gone */
+  const spend = (n: number) => {
+    if (out) return false
+    bytes += n
+    if (bytes > budget.bytes || Date.now() - t0 > budget.ms) { out = true; where.add(NOT_ALL_CHECKED); return false }
+    return true
+  }
   const KIND: Record<string, string> = {
     Title: 'bookmark or document titles', Contents: 'comments or annotation text', V: 'form field values', DV: 'form field values',
     Alt: 'accessibility text (/Alt)', ActualText: 'accessibility text (/ActualText)', E: 'accessibility text', T: 'form field names',
@@ -956,38 +1015,53 @@ export function wordsElsewhere(doc: PDFDocument, find: string, matchCase: boolea
   const textOf = (o: PDFObject | undefined): string | null => (o instanceof PDFString || o instanceof PDFHexString ? o.decodeText() : null)
   const seen = new Set<PDFObject>()
   const walk = (o: PDFObject | undefined, key: string, depth: number, inInfo: boolean) => {
-    if (!o || depth > 40) return
+    if (!o || depth > 40 || out) return
     if (o instanceof PDFRef) { const l = ctx.lookup(o); if (l && !seen.has(l)) { seen.add(l); walk(l, key, depth + 1, l === info) } return }
     const t = textOf(o)
-    if (t !== null) { if (has(t)) where.add(inInfo ? 'document properties' : KIND[key] ?? 'other text in the file'); return }
+    if (t !== null) { if (spend(t.length) && has(t)) where.add(inInfo ? 'document properties' : KIND[key] ?? 'other text in the file'); return }
     if (o instanceof PDFArray) { for (const x of o.asArray()) walk(x, key, depth + 1, inInfo); return }
     const d = o instanceof PDFDict ? o : o instanceof PDFStream ? o.dict : null
-    if (!d) return
+    if (!d || !spend(16)) return
     if (o instanceof PDFStream && (d.get(K('Type')) === K('Metadata') || d.get(K('Subtype')) === K('XML'))) {
-      const x = streamText(o)
-      if (x !== null && has(Buffer.from(x, 'latin1').toString('utf8'))) where.add('XMP metadata')
+      const x = spend(o instanceof PDFRawStream ? o.contents.length : 0) ? streamText(o) : null
+      if (x !== null && spend(x.length) && has(Buffer.from(x, 'latin1').toString('utf8'))) where.add('XMP metadata')
     }
     for (const [k, v] of d.entries()) {
       if (k === K('Parent') || k === K('P') || k === K('Pg')) continue
       walk(v, k.decodeText(), depth + 1, inInfo)
     }
   }
-  for (const [, o] of ctx.enumerateIndirectObjects()) { if (!seen.has(o)) { seen.add(o); walk(o, '', 0, o === info) } }
-  // marked-content property lists written in the page content (BDC <</ActualText (...)>>)
-  doc.getPages().forEach((page, i) => {
-    const content = contentOf(ctx, page)
-    if (!content) return
-    for (const ins of instructions(content)) {
-      if (ins.op !== 'BDC') continue
-      const lx = new Lexer(content.slice(ins.start, ins.end))
-      for (let t = lx.next(); t; t = lx.next()) {
-        const v = t.v
-        if (!(v && typeof v === 'object' && 'str' in v)) continue
-        const be = Buffer.from(v.str.slice(2), 'latin1')
-        const str = v.str.startsWith('\xfe\xff') ? Buffer.from(be.subarray(0, be.length - (be.length % 2))).swap16().toString('utf16le') : v.str
-        if (has(str)) where.add(`marked-content text on page ${i + 1}`)
+  for (const [, o] of ctx.enumerateIndirectObjects()) {
+    if (out) break
+    if (!seen.has(o)) { seen.add(o); walk(o, '', 0, o === info) }
+  }
+  // marked-content property lists written in the page content (BDC <</ActualText (...)>>): the pages read, each stream once
+  const latinFind = /^[\x20-\x7e]+$/.test(find) ? find : null
+  const streams = new Set<PDFObject>()
+  for (const i of pages) {
+    if (out || i < 0 || i >= doc.getPageCount()) continue
+    const c = ctx.lookup(doc.getPage(i).node.get(K('Contents')))
+    for (const s of c instanceof PDFArray ? c.asArray().map((x) => ctx.lookup(x)) : [c]) {
+      if (!s || streams.has(s) || out) continue
+      streams.add(s)
+      if (!spend(s instanceof PDFRawStream ? s.contents.length : 0)) break
+      const content = streamText(s)
+      if (!content || !spend(content.length)) continue
+      // parse only when a marked-content property could hold the words
+      if (!content.includes('BDC') || !(content.includes('ActualText') || (latinFind !== null && content.includes(latinFind)) || content.includes('\xfe\xff'))) continue
+      for (const ins of instructions(content)) {
+        if (ins.op !== 'BDC') continue
+        const lx = new Lexer(content.slice(ins.start, ins.end))
+        for (let t = lx.next(); t; t = lx.next()) {
+          const v = t.v
+          if (!(v && typeof v === 'object' && 'str' in v)) continue
+          const be = Buffer.from(v.str.slice(2), 'latin1')
+          const str = v.str.startsWith('\xfe\xff') ? Buffer.from(be.subarray(0, be.length - (be.length % 2))).swap16().toString('utf16le') : v.str
+          if (has(str)) where.add(`marked-content text on page ${i + 1}`)
+        }
+        if (Date.now() - t0 > budget.ms) { out = true; where.add(NOT_ALL_CHECKED); break }
       }
     }
-  })
+  }
   return [...where]
 }

@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodePDFRawStream, PDFDocument, PDFRawStream } from 'pdf-lib'
 import { decodePagesResult, encodePagesRequest, pdfPagesRequest, type PageOp } from '../../server/src/files/pdf-pages'
-import { findMatches, fmt, FONT_ENTRIES_MAX, PAGE_MATCHES_MAX, pageTextOf, styleOf, withoutActualText } from '../../server/src/files/pdf-text'
+import { findMatches, fmt, FONT_ENTRIES_MAX, NOT_ALL_CHECKED, PAGE_MATCHES_MAX, pageTextOf, styleOf, withoutActualText, wordsElsewhere } from '../../server/src/files/pdf-text'
 import { textFontFile } from '../../server/src/tools/pdf-tools'
 import { ToolError } from '../../server/src/policy/errors'
 import { makeCidPdf, makePdf, writePdf } from '../lib/pdf'
@@ -77,6 +77,8 @@ describe('replace_text: the old words are gone', () => {
     expect(notes).toContain('removed from the page text there, not covered')
     // the page's own font could write it: no other font added
     expect(notes).not.toContain('written in')
+    // a standard font with a standard encoding reads the same everywhere: no letter-map warning
+    expect(notes).not.toContain('letter map')
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1)
   })
 
@@ -277,7 +279,8 @@ describe('review of #1337: what is said, hostile fonts, many matches, numbers', 
       '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> /XObject << /Fm1 11 0 R >> >> /Annots [7 0 R] >>',
       stream('/Span <</ActualText (Client Acme Ltd)>> BDC BT /F1 12 Tf 72 700 Td (Client Acme Ltd) Tj ET EMC /Span <</ActualText (also Acme Ltd here)>> BDC BT /F1 12 Tf 72 680 Td (other line) Tj ET EMC BT /F2 12 Tf 72 660 Td (plain) Tj ET q /Fm1 Do Q'),
       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-      `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 12 0 R >>`,
+      // a symbolic font without a ToUnicode map: a viewer may read it otherwise
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>',
       '<< /Type /Annot /Subtype /Text /Rect [0 0 10 10] /Contents (call Acme Ltd back) >>',
       '<< /Type /Outlines /First 9 0 R /Last 9 0 R /Count 1 >>',
       '<< /Title (Acme Ltd contract) /Parent 8 0 R /Dest [3 0 R /Fit] >>',
@@ -346,5 +349,46 @@ describe('review of #1337: what is said, hostile fonts, many matches, numbers', 
     expect(fmt(100)).toBe('100')
     expect(fmt(-4158.8484)).toBe('-4158.848')
     for (const v of [1e21, 1e-7, 123456789012]) expect(fmt(v)).not.toMatch(/e/i)
+  })
+})
+
+describe('re-review of #1337: many pages sharing one big stream', () => {
+  /** `n` pages that all draw one shared content stream of about `mb` MB (marked content with /ActualText, no "Acme"), and
+   * a first page of its own that says "Client Acme Ltd" */
+  function sharedPdf(n: number, mb: number): Uint8Array {
+    const unit = '/Span <</ActualText (row text)>> BDC BT /F1 6 Tf 10 10 Td (filler row text here) Tj ET EMC\n'
+    const big = unit.repeat(Math.ceil((mb * 1024 * 1024) / unit.length))
+    const kids = Array.from({ length: n }, (_, i) => `${i + 6} 0 R`).join(' ')
+    const objs: string[] = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      `<< /Type /Pages /Kids [5 0 R ${kids}] /Count ${n + 1} >>`,
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+      stream(big),
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents ' + (n + 6) + ' 0 R /Resources << /Font << /F1 3 0 R >> >> >>',
+    ]
+    for (let i = 0; i < n; i++) objs.push('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources 7000000 0 R >>'.replace('7000000 0 R', `${n + 7} 0 R`))
+    objs.push(stream('BT /F1 12 Tf 72 700 Td (Client Acme Ltd) Tj ET'))
+    objs.push('<< /Font << /F1 3 0 R >> >>')
+    return writePdf(objs)
+  }
+
+  test('3,000 pages on one 2 MB stream: read once, the search for leftovers reads it once too', async () => {
+    const pdf = sharedPdf(3000, 2)
+    const t0 = Date.now()
+    const { notes } = await run(pdf, [replaceOp('Acme Ltd', 'Beta')])
+    expect(notes).toContain('changed 1 place of "Acme Ltd" on page 1')
+    expect(notes).not.toContain('could not check')
+    expect(Date.now() - t0).toBeLessThan(20_000)
+  })
+
+  test('the search for leftovers stops at its budget and says so, it does not fail', async () => {
+    const doc = await PDFDocument.load(sharedPdf(50, 1))
+    const all = doc.getPageIndices()
+    // the shared stream holds the words in an /ActualText; a budget too small for it, or no time left
+    expect(wordsElsewhere(doc, 'row text', true, all)).toContain('marked-content text on page 2')
+    expect(wordsElsewhere(doc, 'row text', true, all, { bytes: 100_000, ms: 10_000 })).toContain(NOT_ALL_CHECKED)
+    expect(wordsElsewhere(doc, 'row text', true, all, { bytes: 1e9, ms: 0 })).toContain(NOT_ALL_CHECKED)
+    // pages not read are not searched
+    expect(wordsElsewhere(doc, 'row text', true, [0])).toEqual([])
   })
 })

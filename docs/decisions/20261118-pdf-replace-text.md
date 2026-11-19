@@ -27,10 +27,17 @@ Plan: docs/AGENTS/plan/20261118-2140-pdf-replace-text-xlsx-hyperlink.md.
     layer), and pages that were not named. After each replace_text the whole file is searched for the words in those
     places and the AI is told where they still are and to tell the person; it also names the pages with form XObjects,
     annotations or fonts without a ToUnicode map (a viewer may read those letters otherwise, so a match there can be
-    missed). The result says "removed from the page text", never "from the file".
+    missed; only embedded or symbolic fonts count, a standard font reads the same everywhere). The result says "removed
+    from the page text", never "from the file". The search for leftovers reads marked content only on the pages the
+    operation read, each content stream once, and parses one only when its bytes name /ActualText or hold the words; the
+    whole search (objects, XMP, content) has a budget of 64 MB and 3 s, past which it says it "could not check the whole
+    file" instead of failing (re-review of #1337).
   - Hostile input is bounded: a font's letter map and width list take codes 0 to 0xFFFF only, at most 65,536 entries
     each; one replace_text changes at most 2,000 places on a page (more is refused plainly); glyphs are indexed once and
-    the new content is built in one pass; numbers are written without exponents, clamped to ±1e9.
+    the new content is built in one pass; numbers are written without exponents, clamped to ±1e9. Pages that draw the
+    same content with the same resources are read once when that content has no match (3,000 pages sharing one stream);
+    one replace_text reads at most 256 MB of page content, then asks for fewer pages; a page keeps at most 5,000 upright
+    or level strokes as possible column lines.
   - The new words are written at the first old glyph, inside the same text object: same colour, size, position, turn.
     In the PDF's own font when it holds a glyph for every new letter (an embedded subset holds only the letters it lists
     or draws); else the closest standard font (sans, serif, mono; bold, italic), with its widths written so every viewer
