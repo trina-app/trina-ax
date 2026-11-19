@@ -343,7 +343,7 @@ export const en: Record<MessageKey, string> = {
   'setup.create': 'Create team and start',
   'setup.titleHosted': "Create your account",
   'setup.subHosted': "Your team is ready. Create the owner account to start.",
-  'setup.fixedHint': "Set when you signed up. You can change this later in Team settings.",
+  'setup.fixedHint': "Set when you signed up. You can change these later in Team settings.",
   'setup.createHosted': "Create account and start",
 
   'invite.title': 'Invitation',

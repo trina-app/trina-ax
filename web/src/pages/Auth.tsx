@@ -472,7 +472,8 @@ export function Setup() {
       // desktop app (pages/OpenApp.tsx; lib/open-app.ts): set before the session switch re-renders /setup (App.tsx AfterSetup)
       const next = afterSetupPath({ platform: platform(), client: clientKind(), origin: pageOrigin() })
       setAfterSetup(next)
-      signedIn(r.me)
+      // with the team language set at sign-up, a language picked under the card is this owner's own (not the team's)
+      signedIn(r.me, fixedLang ? { adoptPick: true } : undefined)
       navigate(next, { replace: true })
     })
   }

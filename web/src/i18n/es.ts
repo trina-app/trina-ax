@@ -338,7 +338,7 @@ export const es: Record<MessageKey, string> = {
   'setup.create': "Crear equipo y empezar",
   'setup.titleHosted': "Cree su cuenta",
   'setup.subHosted': "Su equipo está listo. Cree la cuenta del propietario para empezar.",
-  'setup.fixedHint': "Se eligió al registrarse. Puede cambiarlo después en Configuración del equipo.",
+  'setup.fixedHint': "Se eligió al registrarse. Puede cambiarlos después en Configuración del equipo.",
   'setup.createHosted': "Crear cuenta y empezar",
   'invite.title': "Invitación",
   'invite.signedInTitle': "Ya inició sesión",
