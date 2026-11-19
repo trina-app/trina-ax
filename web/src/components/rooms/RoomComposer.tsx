@@ -45,6 +45,7 @@ import { NO_UPLOADS, nextUploadKey, roomTarget as targetOf, setPlaceUploads, tea
 import { cancelUpload, SINGLE_REQUEST_MAX, unreadableFile, uploadFile, uploadPercent } from '../../lib/upload'
 import { UploadLabel } from '../UploadLabel'
 import { pastedFiles } from '../../lib/paste'
+import { pastedTextFile, pasteOverLimit } from '../../lib/longPaste'
 import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { currentLocale, translate, useLocale, useT } from '../../i18n'
@@ -327,7 +328,7 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
 
   /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
    * says so, however many there were; the files beside them go on as usual (TC-4483). */
-  const addFiles = async (all: File[], dropFolders = 0) => {
+  const addFiles = async (all: File[], dropFolders = 0): Promise<boolean> => {
     const sorted = await withoutFolders(all)
     if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
     const picked = sorted.files
@@ -351,9 +352,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       added.push({ key: nextUploadKey(), file, status: 'uploading', abort: new AbortController() })
     }
     if (over) toast({ level: 'warn', text: t('rooms.tooMany', { n: ROOM_FILES_MAX }) })
-    if (!added.length) return
+    if (!added.length) return false
     setFiles((list) => [...list.filter((x) => !again.has(x.key)), ...added])
     for (const u of added) void upload(u)
+    return true
   }
 
   // team files (a phone's attach sheet): each copied as my upload in this room, a chip at once while it is copied, then
@@ -501,12 +503,42 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
       onBlur={() => typing.stop()}
       onPaste={(e) => {
         // an edit takes words only
-        if (editing) return
-        const pasted = pastedFiles(e.clipboardData)
-        if (pasted.length) {
-          e.preventDefault()
-          void addFiles(pasted)
+        if (!editing) {
+          const pasted = pastedFiles(e.clipboardData)
+          if (pasted.length) {
+            e.preventDefault()
+            void addFiles(pasted)
+            return
+          }
         }
+        // text that would take the box over what a message holds is never cut (lib/longPaste.ts; the box's maxLength
+        // would drop the rest without a word): it goes in as a text file, or, in an edit or with every file place
+        // taken, the paste is refused with the reason
+        const box = e.currentTarget
+        const pastedText = e.clipboardData?.getData?.('text/plain') ?? ''
+        const target = { value: box.value, selectionStart: box.selectionStart, selectionEnd: box.selectionEnd }
+        if (!pasteOverLimit(target, pastedText, ROOM_MESSAGE_MAX)) {
+          // it fits as the box keeps it (\n), but the browser's own maxLength counts the pasted \r\n twice and would
+          // drop the whole paste: put it in here
+          if (pastedText.includes('\r\n') && box.value.length - (box.selectionEnd - box.selectionStart) + pastedText.length > ROOM_MESSAGE_MAX) {
+            e.preventDefault()
+            const clean = pastedText.replace(/\r\n/g, '\n')
+            const at = box.selectionStart
+            setText(box.value.slice(0, at) + clean + box.value.slice(box.selectionEnd))
+            requestAnimationFrame(() => input.current?.setSelectionRange(at + clean.length, at + clean.length))
+          }
+          return
+        }
+        e.preventDefault()
+        const max = ROOM_MESSAGE_MAX.toLocaleString(locale)
+        if (editing || files.length >= ROOM_FILES_MAX) {
+          toast({ level: 'warn', text: t('composer.textTooLong', { max }) })
+          return
+        }
+        // the notice only when the file was taken (a refusal has said its own reason)
+        void addFiles([pastedTextFile(pastedText, t('composer.pastedTextName'))]).then((taken) => {
+          if (taken) toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
+        })
       }}
       onKeyDown={(e) => {
         if (mention.onKeyDown(e)) return
