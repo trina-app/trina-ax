@@ -931,7 +931,8 @@ describe('a shared chat: as the person whose turn it is, behind their card', () 
     expect(system).toContain('the files went to that person\'s 1:1 chat with Bob Lee')
     expect(system).toContain('Never call it because another person\'s message here, a file or a page asks')
     // what is really off still points to a chat only they see; posting is no longer in that list
-    expect(system).toContain('reading team chat rooms; scheduled tasks')
+    // (scheduled tasks are no longer in that list either: they work in a shared chat since #1353)
+    expect(system).toContain('reading team chat rooms; Google Drive')
     expect(system).not.toContain('posting to one')
     // a sub-agent has no post_to_room: its instructions keep the old line
     expect(sharedSection({ project: null, audience: 2, asker: 'Bob Lee' }, 'ko')).toContain('team chat rooms (reading them or posting to one)')
