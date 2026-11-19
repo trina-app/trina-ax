@@ -6,7 +6,9 @@
 //   process reports the system's idle time every 30 s: the Trina window may be behind other apps or minimized);
 // - or a window in use (a browser tab: visible and within 10 minutes of its own input; nothing silent for over a
 //   minute), or one closed while in use within the grace.
-// A locked screen is away (the phone rings), and so are an idle computer and no app or window at all. Nothing waits and nothing catches up later. Settings ›
+// The person's own "away" pick (the dot the team sees) does not count either way: Slack's mobile push too follows desktop
+// activity, not the status (QA TC-5205). A locked screen is away (the phone rings), and so are an idle computer and no
+// app or window at all. Nothing waits and nothing catches up later. Settings ›
 // Notifications › "Phone notifications only when I'm away": 'away' (default) or 'always' (at once, as before). The
 // owner's locked password check is never cancelled (a security warning).
 import type { AppContext } from '../context'
