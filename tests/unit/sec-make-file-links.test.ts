@@ -320,7 +320,11 @@ describe.skipIf(!pandoc)('make_file', () => {
     expect(r.text).not.toContain('plain text')
     const rs = allRels(out)
     for (const t of ['https://example.com/a?b=1', 'mailto:someone@example.com', 'https://example.org', 'https://docs.example.com']) expect(rs).toContain(`Target="${t}"`)
-    expect(parts(out).get('word/document.xml')).toContain('w:anchor="_top"')
+    // the in-document link to "Top" is kept: pandoc 3.12 names the bookmark "_top", pandoc 3.9 (Linux CI) "top"
+    const doc = parts(out).get('word/document.xml')!
+    const anchor = /<w:hyperlink w:anchor="(_?top)"/.exec(doc)?.[1]
+    expect(anchor, doc.slice(0, 2000)).toBeDefined()
+    expect(doc).toContain(`w:name="${anchor}"`)
   })
   test('Word with colours and a page header (the finished file is checked too)', async () => {
     const out = 'users/alice/links/finished.docx'
