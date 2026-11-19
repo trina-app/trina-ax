@@ -322,21 +322,24 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
   afterAll(async () => { setSummaryAiForTests(null); alice?.close(); await h.close(); mock.stop(true) })
   beforeEach(() => { resetApiContextForTests(); resetSummaryStateForTests(); setSummaryAiForTests(() => null); refuse = null; requests.length = 0; promptTokens = 1; silent = false; unloaded = null })
 
-  const chatWithHistory = async () => {
+  const chatWithHistory = async (words = 3_000) => {
     const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' } })
-    // three messages of about 3,750 tokens each, each with its own marker
-    for (const w of ['ALPHA', 'BRAVO', 'CHARLIE']) await ask(h, alice, 'alice', chat.id, `${w} ${'word '.repeat(3_000)}`)
+    // three messages of about 3,750 tokens each (3,000 words), each with its own marker
+    for (const w of ['ALPHA', 'BRAVO', 'CHARLIE']) await ask(h, alice, 'alice', chat.id, `${w} ${'word '.repeat(words)}`)
     return chat
   }
 
   test('the request fits the model: instructions, tools and history, with room for the answer; the chat says why', async () => {
     ctx = 32_768
-    const chat = await chatWithHistory()
+    // messages of about 2,000 tokens: when the tool list fills its whole share (35%, as on Linux CI, where tools were
+    // left out), a 32k model has about 3,500 tokens for history, so the newest one still fits and all three do not
+    const chat = await chatWithHistory(1_600)
     requests.length = 0
     const { done } = await ask(h, alice, 'alice', chat.id, 'what was the first word?')
     const r = requests.at(-1)!
     const sent = estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools)) + estimateTokens('what was the first word?')
-    // the old window (40,000 tokens) sent all 11,000 tokens of history: more than the model can take with the rest
+    // the old window (40,000 tokens) sent all of the history; the small model's window keeps what fits beside the
+    // instructions, the tools and the room for the answer
     expect(sent).toBeLessThan(ctx - ANSWER_ROOM_MIN)
     expect(r.system).toContain('CHARLIE')
     expect(r.system).not.toContain('ALPHA')
