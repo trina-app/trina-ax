@@ -1,7 +1,7 @@
 # Apps on your own computer as connectors
 
 - Date: 2026-11-18
-- Status: accepted (built in 0.5.17, macOS first; Windows and Linux later; plan [20261118-1731-local-app-connectors](../AGENTS/plan/20261118-1731-local-app-connectors.md))
+- Status: accepted (built for 0.5.17 (not released yet on 2026-11-19), macOS first; Windows and Linux later; plan [20261118-1731-local-app-connectors](../AGENTS/plan/20261118-1731-local-app-connectors.md))
 - Supersedes: none
 - Branch: feat/local-app-connectors (the owner approved the approach on 2026-11-18 and said go on 2026-11-19)
 

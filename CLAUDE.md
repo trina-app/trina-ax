@@ -40,9 +40,8 @@ Instructions for coding agents that work in this repository.
   with one number stop the server.
 - After a merge into `dev`, CI (`.github/workflows/dev-build.yml`) builds the server bundle (about 5 minutes) and the
   QA server installs it: https://qa.trina.app (fictional QA team). Test there, with test data only.
-  potenlab.trina.app is a real team on the stable channel, not a test server.
-- If the new build fails its health check, the dev server goes back to the last good build by itself. Status:
-  `/var/lib/trina-dev-update/status.json` on the dev server.
+- If the new build fails its health check, the QA server goes back to the last good build by itself. Status:
+  `/var/lib/trina-dev-update/status.json` on the QA server.
 - `main` and releases: only through a PR `dev -> main` with full CI green. Only the release owner merges it and cuts
   a release.
 - Never deploy a dev build to potanlab.trina.app or any customer server. Never use the release key for dev builds.
