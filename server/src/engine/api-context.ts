@@ -57,6 +57,19 @@ export function isLocalApiAddress(baseUrl: string): boolean {
   return !host.includes('.')
 }
 
+/** The address of a model that may take long to start answering, so its first answer is waited for (engine/api-agent.ts
+ * HEADERS_TIMEOUT_MS): this computer or a private network, and the same kind of address reached over Tailscale. An IP
+ * literal counts only when it is not public (loopback, 10/8, 172.16/12, 192.168/16, link-local, fc00::/7, CGNAT
+ * 100.64/10); the server's own subnet does not matter here (on EC2 it can hold a public IPv6 /64). Names: localhost,
+ * .local / .lan / .internal / .home.arpa, one label, and *.ts.net (Tailscale). */
+export function isPatientApiAddress(baseUrl: string): boolean {
+  let host: string
+  try { host = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') } catch { return false }
+  if (host === 'localhost' || host.endsWith('.localhost') || /\.(local|lan|internal|home\.arpa|ts\.net)$/.test(host)) return true
+  if (/^[\d.]+$/.test(host) || host.includes(':')) return !isPublicAddress(host)
+  return !host.includes('.')
+}
+
 /** The provider's own words in a refusal: the error object's message (OpenAI-style JSON, possibly cut off), else the
  * text; anything quoted inside it ("…", `…`) and any JSON inside it ({…}, […]) is left out, as a provider repeats the
  * request's own text there (tool arguments, the person's words). */

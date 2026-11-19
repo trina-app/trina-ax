@@ -18,7 +18,7 @@ import { LinkGuard } from './api-links'
 import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
 import { VISION_TEXT } from '../files/vision-text'
 import { fitApiTools, toolsLeftOutNote, type ApiTool } from './api-tools-fit'
-import { isLocalApiAddress, noteContextUsage } from './api-context'
+import { isPatientApiAddress, noteContextUsage } from './api-context'
 import { TOOL_OUTPUT_MAX } from './api-output'
 
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
@@ -187,7 +187,7 @@ export function usageEvent(model: string, u: any, requestId: string | undefined)
 }
 
 /** How long a provider may take to start answering (response headers); the stream itself has no limit here.
- * Not for an address on this computer or the local network (Ollama, LM Studio …): a small model on a busy CPU can
+ * Not for an address on this computer, the private network or Tailscale (Ollama, LM Studio …; isPatientApiAddress): a small model on a busy CPU can
  * read a long prompt for minutes, and the server is alive the whole time. That wait ends only at Stop, a refused
  * connection, or the turn's stall guard (chat/turn.ts STALL_TIMEOUT_MS), as Claude Code does not cut local work. */
 export const HEADERS_TIMEOUT_MS = 90_000
@@ -212,7 +212,7 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
   const body = JSON.stringify({ model: conf.model, messages, tools: tools.length ? tools : undefined, stream: true, stream_options: { include_usage: true }, ...(openrouter ? { usage: { include: true } } : {}) })
   // an address that never answers fails after headersTimeoutMs instead of at the turn's stall guard
   const hdr = new AbortController()
-  const timer = isLocalApiAddress(conf.baseUrl) ? null : setTimeout(() => hdr.abort(new Error(`no answer within ${Math.round(headersTimeoutMs / 1000)} s`)), headersTimeoutMs)
+  const timer = isPatientApiAddress(conf.baseUrl) ? null : setTimeout(() => hdr.abort(new Error(`no answer within ${Math.round(headersTimeoutMs / 1000)} s`)), headersTimeoutMs)
   let res: Response
   try {
     res = await fetchFn(`${conf.baseUrl}/chat/completions`, {
