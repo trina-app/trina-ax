@@ -5,6 +5,20 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
+## 0.5.21 — 2026-11-20
+
+- Link a private channel to a team project: the channel's Files button opens the project folder, files posted there save to the project in one click (documents and media), and the AI in that channel saves new documents there when asked. A project without a channel can create one from its page. On the project's page, **Create a channel** makes a private channel with the project's people already ticked, and **Link a channel** links one you have (or **Link to a project** from the channel's info); **Save to project** has **Undo**. Only people who can open the project see its name; the others see that the channel was linked to a project. Members of the channel and of the project stay separate.
+- With no AI connected yet, Trina home shows one line under the greeting with Connect Claude (other ways in a menu); members can ask their admins. It replaces the box with three buttons at the top of the page. Members see "You have no AI to use yet." with **Ask an admin to connect one**. A message typed before an AI is connected now stays in the box with a note under it, instead of opening a chat that fails.
+- **Aside and ego lite are now their own connectors** in Settings › Connectors, with their logos and one-click connect (the desktop app then asks once in its own window). Any other program on your computer is added under **Add custom connector** › On this computer; the general "An app on your computer" card is gone. On the web and the phone these cards say they work in the desktop app.
+- If Aside picks an account that isn't signed in to Aside Browser, Trina switches to a signed-in account by itself and tries again. With no signed-in account, the AI says Aside Browser isn't signed in.
+- **ego lite opens by itself.** When the AI uses ego lite and the ego lite app is closed, the desktop app opens it in the background once, waits for it and tries again. If ego lite isn't installed or doesn't answer, the AI says so in plain words ("ego lite isn't open. Open ego lite, then ask again."), and the same for Aside when its app isn't open.
+- **Connecting an app on your computer.** When the desktop app's "Connect this program?" window is left open, the connector now says "Waiting for you to confirm in the desktop app. Press Connect there." instead of "The service didn't answer in time", and pressing Connect later checks it again by itself. A chat now waits up to 5 minutes for that answer (it was 3).
+- **Team export as a normal ZIP** (hosted service): the owner's export can download as a ZIP that opens with a double-click on Mac and Windows: the team's folders (personal folders by name), every channel, direct message and AI chat as text files and as JSON, and a README.txt that says what is where. No passphrase or terminal is needed. The encrypted file for restoring stays behind a small "Encrypted backup" link; its passphrase is now eight groups of five letters and digits with nothing to mix up (no 0/O or 1/l). The ZIP option shows once the hosted console is updated too; that update ships separately from this release.
+- Self-hosted: `trina_admin archive --zip --out team.zip` writes the same ZIP.
+- Desktop app: a refused app update now says "This update didn't pass its safety check, so it wasn't installed." It used to say it couldn't be checked.
+- Desktop app: on Linux and Windows, "Open in the app" on a chat link now opens that chat when the app was closed, not the team's Home.
+- Desktop app: the Linux app has a Quit item in the Window menu (Ctrl+Q).
+
 ## 0.5.20 — 2026-11-19
 
 - 0.5.19 was not published (its tag exists, but its release run did not start because of a workflow permission, and nothing was published). Everything that was going to be in 0.5.19 is in 0.5.20 and listed here.
