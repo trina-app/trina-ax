@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 02:15
 - Branch: `fix/voice-input-latency`
-- Status: in progress
+- Status: done
 - Where: trina-ax `web/src/lib/liveDictation.ts`, `shared/src/speech-pieces.ts` (cutter options only),
   `server/src/jobs/no-speech.ts`. Why: the owner, 2026-11-19, on the chat microphone: "받아쓰기가 되긴 하는데, 오래 동안 말을
   안해야만 이전게 적혀" and "뒤에 소음이 있어도 괜찮나?".
@@ -86,7 +86,7 @@ after a device check of Korean. Each is more than 2 days, so this PR stops at th
 
 ## Risks
 
-- Cost: OpenRouter bills by the second, so more, shorter pieces cost the same seconds; about 2× the requests (8-12 a
+- Cost: OpenRouter bills by the second, so more, shorter pieces cost the same seconds; about 2× the requests (about 10 a
   minute of talk), inside the server's 40 pieces and 120 s of sound a minute and two at once.
 - Accuracy: shorter pieces give whisper less context: about one point more word errors on average (below).
 - No migration, no permission, no UI text.
@@ -99,4 +99,6 @@ is described in the decision file.
 
 ## Result
 
-(filled in at the end)
+Same runs after the change: word → screen 3.7-4.2 s mean (was 5.7-7.2), p90 4.9-5.2 s (was 8.9-11.3); about one
+point more errors (19.6% vs 18.6% over 10 mixes); noise alone wrote no text (was 4 one-letter loops). Numbers and the
+settings tried in docs/decisions/20261119-voice-input-latency.md. The on-device work above is the next step.

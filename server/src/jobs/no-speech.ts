@@ -200,6 +200,14 @@ export function learnedLine(text: string): boolean {
   return !!t && (HALLUCINATIONS.has(t) || CREDIT.test(t))
 }
 
+/** One letter over and over ("ლლლლლ", a Sinhala letter 120 times): what whisper writes for a fan or a room's hum
+ * (measured 2026-11-19, whisper.cpp small on real fan and office noise at 5-10 dB below speech; the sound moved enough to
+ * pass as speech-like). Nobody says it. Hangul jamo are left alone: "ㅋㅋㅋㅋㅋ" is something a person dictates. */
+export function letterLoop(text: string): boolean {
+  const t = [...normalize(text)]
+  return t.length >= 5 && new Set(t).size === 1 && !/[\u3131-\u318E\u1100-\u11FF]/u.test(t[0]!)
+}
+
 type Line = { start: number; end: number; text: string }
 export type Heard = TranscribeResult & { segments?: Line[] }
 
@@ -213,7 +221,7 @@ export function keepSpeech<T extends Heard>(r0: T, sound: Sound | null, unsure: 
   // "[Coughing] Please send …": the tag goes, the words stay (TC-4674); a line that was only tags is dropped below
   const r = stripSoundTags(r0)
   const lines = (r.segments?.length ? r.segments : r.text.trim() ? [{ start: 0, end: r.durationSec ?? 0, text: r.text }] : [])
-    .filter((l) => l.text.trim() && !NOT_WORDS.test(l.text))
+    .filter((l) => l.text.trim() && !NOT_WORDS.test(l.text) && !letterLoop(l.text))
   const none = { ...r, text: '', segments: [] }
   if (!lines.length || silent(sound)) return none
   if (weak(sound) && unsure) return none

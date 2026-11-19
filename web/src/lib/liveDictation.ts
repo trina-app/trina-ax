@@ -13,11 +13,19 @@ import { MeetingSession, type MeetingLine, type PieceAnswer } from '@mycel/share
 export const LIVE_RATE = 16_000
 /** the first piece of a recording ends at the first short pause (FIRST_PAUSE_MS) after FIRST_MIN_MS of speech, or by
  * FIRST_PIECE_MS at the quietest moment of its last second (talking without a pause: 1.6-2.5 s), so the first words
- * show in about 3-4 s (measured on OpenRouter: a 4 s cut gave 5.4-5.9 s, the answer taking 1.3-1.6 s); later pieces go
- * up to the cutter's 15 s at its usual 1 s pause */
+ * show in about 3-4 s (measured on OpenRouter: a 4 s cut gave 5.4-5.9 s, the answer taking 1.3-1.6 s); later pieces:
+ * LATER_PIECE_MS */
 export const FIRST_PIECE_MS = 2_500
 export const FIRST_MIN_MS = 1_500
 export const FIRST_PAUSE_MS = 300
+/** the pieces after the first: cut at 7 s at the quietest moment of their last 1.5 s, and ended by a 0.6 s pause.
+ * Each word waits for its piece to close, so with the cutter's own 15 s and 1 s an average word showed 5.7-7.2 s after
+ * it was said (measured 2026-11-19 against a local server, quiet and with café, fan and music noise); with these
+ * 3.2-3.5 s of cutting plus the answer, for about one point more word errors on whisper small
+ * (docs/decisions/20261119-voice-input-latency.md) */
+export const LATER_PIECE_MS = 7_000
+export const LATER_SEARCH_MS = 1_500
+export const PAUSE_MS = 600
 /** clearly spoken sound a piece needs before it is sent: lower than meeting notes' 300 ms, since a person dictating
  * means it, and a short quiet "yes" must not be dropped */
 export const MIN_CLEAR_MS = 200
@@ -68,7 +76,7 @@ export class LiveDictation {
         this.refusal = message
         d.onRefused(message)
       },
-      chunker: { firstMaxMs: FIRST_PIECE_MS, firstMinMs: FIRST_MIN_MS, firstPauseMs: FIRST_PAUSE_MS, minClearMs: MIN_CLEAR_MS },
+      chunker: { firstMaxMs: FIRST_PIECE_MS, firstMinMs: FIRST_MIN_MS, firstPauseMs: FIRST_PAUSE_MS, minClearMs: MIN_CLEAR_MS, maxMs: LATER_PIECE_MS, searchMs: LATER_SEARCH_MS, pauseMs: PAUSE_MS },
       ...(d.sleep ? { sleep: d.sleep } : {}),
     })
   }
