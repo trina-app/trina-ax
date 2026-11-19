@@ -179,6 +179,9 @@ export default function Composer({
   const [chosen, setChosen] = useState(skill ?? null)
   const skillMenu = useSkillMenu(text, setText, projectId)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // the text box's last height as drawn: the text held on top while recording starts at it, so the box does not move
+  // when a recording starts (it grows from there with a live recording's words)
+  const heldHeight = useRef<number | undefined>(undefined)
   // a confidential chat keeps to its local tools: no room is read there, so "#" lists none (closed while not known);
   // nor while the box answers the AI's question (that answer is plain text, it carries no room)
   const roomMenu = useRoomRefMenu({ text, setText, input: taRef, initial: initial.picked, enabled: confidential === false && !answering })
@@ -280,6 +283,7 @@ export default function Composer({
     const was = ta.style.height
     ta.style.height = 'auto'
     ta.style.height = ta.scrollHeight ? Math.min(ta.scrollHeight, 240) + 'px' : was
+    if (ta.offsetHeight) heldHeight.current = ta.offsetHeight
     // (and again when the box comes back after a recording: the bar stood in its place)
   }, [text, hint, textSize, voice.recording, behindPanel])
   // back after a recording: the newest words in sight, as they were while recording
@@ -676,7 +680,7 @@ export default function Composer({
             // the text on top (it cannot be typed in while recording), growing with a live recording's words as it does
             // while typing; the bar in the tools' row, ✕ and ✓ where + and send were
             <>
-              <VoiceHeld text={text || hint} className={clsx(heldMax, fieldPad, text ? 'text-ink' : 'text-faint')} testId="composer-text-held" />
+              <VoiceHeld text={text || hint} style={{ minHeight: heldHeight.current }} className={clsx(heldMax, fieldPad, text ? 'text-ink' : 'text-faint')} testId="composer-text-held" />
               {/* as tall as the tools' row, with ✓ 40 px below 640 px (VoiceBar): 4 px less padding there */}
               <VoiceBar voice={voice} className="box-content min-h-9 px-3 pt-1 pb-2.5 max-sm:pt-0.5 max-sm:pb-2" />
             </>

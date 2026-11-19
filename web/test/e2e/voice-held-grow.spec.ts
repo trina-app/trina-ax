@@ -93,7 +93,8 @@ test.describe('a phone (390 px)', () => {
     await expect(page.getByTestId('voice-bar')).toHaveCount(0)
     await expect(page.getByTestId('composer-input')).toHaveValue(new RegExp(`^my draft ${WORDS.replace(/[.?]/g, '\\$&')}`))
     const input = page.getByTestId('composer-input')
-    expect(Math.abs((await input.boundingBox())!.height - tall)).toBeLessThan(26)
+    // (the last piece may still be on its way: once it is in)
+    await expect.poll(async () => Math.abs((await input.boundingBox())!.height - tall)).toBeLessThan(26)
     // its newest words in sight, as they were
     await expect.poll(() => input.evaluate((ta) => ta.scrollHeight - ta.clientHeight - ta.scrollTop)).toBeLessThanOrEqual(1)
   })
