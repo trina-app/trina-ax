@@ -768,3 +768,77 @@ jobs:
       # exercised for real (install-linux.sh step 4). The test builds its own kits (--no-whisper) and fake engine.
       - name: Install, units, firewall, turns, plan, updates, roll-back, uninstall, purge (T2)
         run: sudo env "PATH=$PATH" bun tests/install/g-linux-install.ts
+
+  # The Linux jobs run on a push to dev only (not in a pull request, not in the merge queue), so a red one blocks nobody
+  # until a release; on 2026-11-18/19 T1 stayed red about 4 hours unnoticed and held up 0.5.17. This job keeps ONE open
+  # issue "T1 attack suite red on dev" (commit, the FAIL lines of the job log, run link) while T1 is red on a dev push,
+  # and closes it when T1 passes on a later dev push. Only the default token: issues write, actions read (job logs).
+  # A cancelled run (a newer push to dev) says nothing, so the job skips it. Not on main, not in a release's call.
+  t1-alert:
+    name: T1 alert (issue "T1 attack suite red on dev")
+    needs: [linux-docker]
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/dev' && !inputs.ref && (needs.linux-docker.result == 'failure' || needs.linux-docker.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          RESULT: ${{ needs.linux-docker.result }}
+        run: |
+          set -u
+          title="T1 attack suite red on dev"
+          short="${SHA:0:8}"
+          number=$(gh issue list -R "$REPO" --state open --search "\"$title\" in:title" --json number,title \
+            --jq "[.[] | select(.title == \"$title\")][0].number // empty")
+
+          if [ "$RESULT" = success ]; then
+            if [ -n "$number" ]; then
+              gh issue close "$number" -R "$REPO" --comment "T1 is green again on dev at \`$short\` ($RUN_URL). Closing."
+              echo "closed #$number"
+            else
+              echo "T1 passed; no open issue"
+            fi
+            exit 0
+          fi
+
+          # the failed T1 legs (amd64, arm64) and their FAIL lines (job logs are readable once a job has finished)
+          body=$(mktemp)
+          {
+            echo "T1 (Linux attack suite) failed on a push to dev."
+            echo
+            echo "- Commit: \`$SHA\`"
+            echo "- Run: $RUN_URL"
+            echo "- Releases wait for this: the release test run calls the same jobs."
+          } > "$body"
+          gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=100" --paginate \
+            --jq '.jobs[] | select(.name | startswith("Linux attack suite")) | select(.conclusion == "failure" or .conclusion == "timed_out") | [.id, .name, ([.steps[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name][0] // "")] | @tsv' |
+          while IFS=$'\t' read -r id name step; do
+            {
+              echo
+              echo "### $name"
+              [ -n "$step" ] && echo "Failed step: $step"
+              echo
+              echo '```'
+              gh api "repos/$REPO/actions/jobs/$id/logs" 2>/dev/null | sed 's/^[0-9T:.Z-]* //; s/```//g' | grep -a 'FAIL' | head -30 || true
+              echo '```'
+              echo "Job log: https://github.com/$REPO/actions/runs/$RUN_ID/job/$id"
+            } >> "$body"
+          done
+
+          if [ -n "$number" ]; then
+            gh issue comment "$number" -R "$REPO" --body-file "$body"
+            echo "commented on #$number"
+          else
+            gh issue create -R "$REPO" --title "$title" --body-file "$body"
+          fi
+          echo "::error title=T1 attack suite is red on dev::$RUN_URL"
+          exit 1

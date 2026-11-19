@@ -90,6 +90,8 @@ git push origin v0.3.0-beta.1
 2의 job은 동시에 돈다(build-office만 build-mac-whisper 뒤). publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
 - **맥 데스크톱 앱(dmg)은 0.5.6부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
+- **dev에서 T1이 빨개지면 이슈가 열린다.** 리눅스 job(T1·L19·T2)은 dev에 push할 때만 돌아서(PR·머지 큐에는 없음) 빨간 채로 아무도 모르고 릴리스를 막은 적이 있다(2026-11-18/19, 약 4시간, 0.5.17). `ci.yml`의 `t1-alert` job이 dev push에서 T1이 실패하면 `T1 attack suite red on dev` 이슈 하나를 열거나(이미 열려 있으면 댓글), 커밋·실패한 FAIL 줄·실행 링크를 적고 job도 빨갛게 만든다. 뒤의 dev push에서 T1이 통과하면 그 이슈를 스스로 닫는다. 기본 토큰만 쓴다(`issues: write`, 로그를 읽는 `actions: read`). 취소된 실행(더 새 push)은 건너뛴다.
+  Why: T1 is not in the merge queue or PRs, so a red T1 on dev is invisible until a release; the issue (opened/commented on red, closed on the next green dev push) is the alarm. It uses no secret; the Discord webhook of `ci-notify.yml` is main-only and optional.
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
