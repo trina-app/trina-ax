@@ -22,7 +22,7 @@ import { authorize } from '../policy/authorize'
 import { freeName } from '../team-files/place'
 import { assetDir, BRAND_PAGE_TEXT_MAX, pageLines, stagedAssets, type BrandAssetRow } from './brand-assets'
 import { readCompanyProfile } from './profile'
-import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead } from './welcome'
+import { BRAND_AT, BRAND_OWN_FILES, BRAND_TRIED_AT, brandDone, brandFoldersOf, brandOwnFiles, markBrand, readWelcome, setupWelcomeTeam, wantsBrandOnRead, welcomeOpened } from './welcome'
 
 const TEXT = {
   intro: { ko: '회사 소개.md', en: 'Company intro.md', id: 'Profil perusahaan.md', ja: '会社紹介.md', es: 'Presentación de la empresa.md', zh: '公司介绍.md' },
@@ -258,7 +258,7 @@ export function brandOnRead(ctx: AppContext): void {
 export function ensureBrand(ctx: AppContext, userId: string): boolean {
   try {
     if (brandDone(ctx)) return true
-    if (!readWelcome(ctx)) return false
+    if (!readWelcome(ctx) || !welcomeOpened(ctx)) return false
     placeBrand(ctx, userId, teamDefaultLocale(ctx.db), { files: [] })
     return true
   } catch (err) {

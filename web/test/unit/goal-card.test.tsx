@@ -379,11 +379,27 @@ describe('the card: a title, one line, one button', () => {
       useSession.setState({ status: { kind: 'signed-in', me: me() } } as never)
     }
   })
+  test('open: the quiet "숨기기" of every Home onboarding card (CardHide, as the member welcome card) hides it; none without onHide', async () => {
+    let hidden = 0
+    let m = await mount(<MemoryRouter><GoalCard goal={goal({ joined: 0 })} onDismiss={() => {}} onHide={() => hidden++} link={LINK} /></MemoryRouter>)
+    try {
+      const hide = m.get('team-goal-hide')
+      expect(hide.textContent).toBe('숨기기')
+      expect(hide.getAttribute('aria-label')).toBe('팀 목표 숨기기')
+      // the same words and look as the member welcome card's
+      expect(hide.className).toContain('text-xs text-muted')
+      await m.click('team-goal-hide')
+      expect(hidden).toBe(1)
+    } finally { await m.unmount() }
+    m = await mount(<MemoryRouter><GoalCard goal={goal({ joined: 0 })} onDismiss={() => {}} link={LINK} /></MemoryRouter>)
+    try { expect(m.find('team-goal-hide')).toBeNull() } finally { await m.unmount() }
+  })
   test('reached: "달성했어요 · names" and only a way to hide it', async () => {
     let hidden = 0
     const m = await mount(<MemoryRouter><GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => hidden++} link={null} /></MemoryRouter>)
     try {
-      expect(m.get('team-goal').textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal').querySelector('h2')!.textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal-dismiss').textContent).toBe('숨기기')
       expect(m.html()).not.toContain('일 남음')
       expect(buttons(m.html())).toBe(1)
       await m.click('team-goal-dismiss')
@@ -426,7 +442,8 @@ describe('the card: a title, one line, one button', () => {
       } finally { await m.unmount() }
       m = await mount(<MemoryRouter><GoalCard goal={goal({ state: 'reached', reachedAt: '2026-11-04T00:00:00.000Z', skill: { path: AD, name: '광고 문구', runners: 3, people: ['민지', '지훈', 'Olga'] } })} onDismiss={() => {}} link={null} /></MemoryRouter>)
       try {
-        expect(m.get('team-goal').textContent).toBe('달성했어요 · 민지·지훈·Olga')
+        expect(m.get('team-goal').querySelector('h2')!.textContent).toBe('달성했어요 · 민지·지훈·Olga')
+      expect(m.get('team-goal-dismiss').textContent).toBe('숨기기')
         expect(m.get('team-goal').className).not.toContain('border')
       } finally { await m.unmount() }
     } finally { globalThis.matchMedia = media }

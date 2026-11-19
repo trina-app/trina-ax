@@ -49,6 +49,11 @@ export const UserPrefs = z.object({
   /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
    * Notifications › "Ask before notifying everyone" turns it back on). One choice for every room; absent = ask. */
   mentionAllAsk: z.literal('off').optional().catch(undefined),
+  /** 'hidden': the person hid the 7-day team goal card on Home (its "Hide"); Admin › Home's "Show the team goal again"
+   * clears it. On every device (owner 2026-11-20: every Home onboarding card can be closed) */
+  goalCard: z.literal('hidden').optional().catch(undefined),
+  /** 'hidden': the person hid "Ready in your team" on Home (its "Hide"); Settings › Profile's "Show it again" clears it */
+  preparedCard: z.literal('hidden').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 

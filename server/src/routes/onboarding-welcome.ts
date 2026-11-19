@@ -5,7 +5,7 @@
 import { API } from '@mycel/shared/api'
 import { fail, HttpError } from '../http/errors'
 import { dismissSuggestion, resultSuggestion } from '../onboarding/suggestions'
-import { readWelcome, setupWelcomeTeam, updateWelcome, welcomeOut } from '../onboarding/welcome'
+import { markWelcomeOpened, readWelcome, setupWelcomeTeam, updateWelcome, welcomeOut } from '../onboarding/welcome'
 import { brandOnRead, placeBrand } from '../onboarding/welcome-result'
 import { getChatRuntime } from '../chat/runtime'
 import type { AppContext } from '../context'
@@ -42,6 +42,7 @@ export const onboardingWelcomeRoutes: RouteModule = {
     kit.handle(API.welcomeBrand, ({ auth, c, body }) => {
       // the pictures and 회사 소개.md are written as the owner through the file layer (their folder rules)
       try { ctx.files.principal(auth.user.id) } catch { return fail('forbidden') }
+      markWelcomeOpened(ctx)
       const r = logged(ctx, 'the brand action', auth.user.id, () => placeBrand(ctx, auth.user.id, c.get('locale'), body))
       return { ...r, progress: welcomeOut(ctx, readWelcome(ctx))! }
     })

@@ -2656,6 +2656,11 @@ export class MockServer {
       if (typeof c.body.timeZone === 'string') this.settings.timeZone = c.body.timeZone
       const u = this.addUser({ id: c.body.owner.username.toLowerCase().replace(/[^a-z0-9_-]/g, ''), username: c.body.owner.username, name: c.body.owner.name, role: 'owner', groupIds: [] }, c.body.owner.password)
       this.files.set('users', { type: 'folder', mtime: now() })
+      // like the server (onboarding/welcome.ts startWelcomeAtSetup): the owner's welcome steps start now, with the link's
+      // website, so the desktop app resumes them
+      const at = now()
+      const site = typeof c.body.site === 'string' ? normalizeWebsite(c.body.site) : null
+      this.welcome ??= this.welcomeSaved({ startedAt: at, updatedAt: at, teamType: null, steps: { profile: null, result: null, skills: null, files: null, tools: null, invite: null }, resultChatId: null, inviteShownAt: null, site, dismissedAt: null, finishedAt: null }, at)
       return { status: 201, cookie: this.startSession(u), body: { me: this.me(u, '') } }
     },
     login: (c) => {

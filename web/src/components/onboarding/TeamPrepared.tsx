@@ -38,6 +38,7 @@ import { useLocale, useT } from '../../i18n'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../../store/live'
 import { isAdmin, useMeStrict } from '../../store/session'
 import { quietLink } from './SkillShareReview'
+import { CardHide, useCardHidden } from './CardHide'
 import { SkillExampleViewer } from '../skills/SkillExampleViewer'
 import { SkillFormDialog } from '../skills/SkillForm'
 import { Button, useMediaQuery } from '../ui'
@@ -138,11 +139,14 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
   const [running, setRunning] = useState<PreparedSkill | null>(null)
   const [viewing, setViewing] = useState<PreparedSkill | null>(null)
   const exampleButtons = useRef(new Map<string, HTMLButtonElement>())
-  const shown = data ? preparedView(data, { firstTime, admin, readOnly, chats }).shown : failed ? false : null
+  // its "Hide" (owner 2026-11-20: every Home onboarding card can be closed), kept on the server
+  const card = useCardHidden('preparedCard')
+  const shown = card.hidden ? false : data ? preparedView(data, { firstTime, admin, readOnly, chats }).shown : failed ? false : null
   useEffect(() => {
     if (shown !== null) onShown?.(shown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown])
+  if (card.hidden) return null
   if (failed && !data) {
     // the calm notice (the connection: it reads again by itself, and the block shows when a read works); never red
     // under the box, and never the empty state
@@ -189,7 +193,10 @@ export function TeamPrepared({ firstTime, chats = 0, onCompose, readOnly = false
       data-primary={v.primary ?? undefined}
     >
       {/* phones: a small heading over the one row */}
-      <h2 id={`${ids}-title`} className="mb-1 text-list-head font-semibold text-list-head-ink max-md:mb-0 max-md:pb-1.5">{heading}</h2>
+      <div className="mb-1 flex items-center justify-between gap-3 max-md:mb-0 max-md:pb-1.5">
+        <h2 id={`${ids}-title`} className="min-w-0 text-list-head font-semibold text-list-head-ink">{heading}</h2>
+        <CardHide onClick={card.hide} label={t('homeCards.hidePrepared', { title: heading })} testId="team-prepared-hide" className="max-md:-my-3" />
+      </div>
       {phone && (v.rows.length > 0 || v.files) && (
         <SuggestionRow testId="team-prepared-rows">
           {v.rows.map((s, i) => {

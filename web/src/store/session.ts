@@ -39,7 +39,7 @@ interface SessionState {
   pickLocale: (l: Locale) => void
   /** engine / model null = back to the team default. Shown at once; throws when refused (the screen is back to what the
    * account has); false: a newer pick replaced this one (its answer decides; nothing to say) */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away' | 'mentionAllAsk'> & { engine?: UserPrefs['engine'] | null; model?: string | null; mentionAllAsk?: 'off' | null }) => Promise<boolean>
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away' | 'mentionAllAsk' | 'goalCard' | 'preparedCard'> & { engine?: UserPrefs['engine'] | null; model?: string | null; mentionAllAsk?: 'off' | null; goalCard?: 'hidden' | null; preparedCard?: 'hidden' | null }) => Promise<boolean>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>
@@ -402,8 +402,9 @@ async function readMe(get: Get, set: Set): Promise<void> {
         // the setup link's token, if this tab was opened with one (kept for a reload: lib/setupLink.ts): through the
         // relay the server says setup is still needed only to a visitor who has it (server/src/auth/accounts.ts
         // setupStatusFor)
-        const linked = typeof location === 'undefined' ? null : readSetupLink(location).token
-        rememberSetupToken(linked)
+        const link = typeof location === 'undefined' ? null : readSetupLink(location)
+        const linked = link?.token ?? null
+        rememberSetupToken(linked, link?.team ? { team: link.team, lang: link.lang } : null)
         const token = linked ?? keptSetupToken()
         const s = await api.call(API.setupStatus, token ? { headers: { [SETUP_TOKEN_HEADER]: token } } : {})
         // a kept token the server did not take (spent, or wrong) is not sent again: each try counts toward the
