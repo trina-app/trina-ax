@@ -16,7 +16,7 @@ import { clientKind, desktop } from '../lib/desktop'
 import { mobileApp } from '../lib/mobile'
 import { isTextField } from '../lib/viewport'
 import { clearLocalData } from '../lib/localData'
-import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite } from '../lib/setupLink'
+import { forgetSetupToken, keptSetupToken, readSetupLink, rememberSetupSite, setupTeamOf } from '../lib/setupLink'
 import { setAfterSetup } from '../lib/welcome'
 import { afterSetupPath, pageOrigin } from '../lib/open-app'
 import { landingPath } from '../lib/tabs'
@@ -332,6 +332,30 @@ function FormSection({ title, children, testId }: { title: string; children: Rea
   )
 }
 
+/** The team name (and language) the hosted service set at sign-up, as plain text: nothing to type or change here.
+ * The owner renames the team later in Settings > Team, and anyone can pick their own language there. */
+function FixedTeam({ name, lang }: { name: string; lang: Locale | null }) {
+  const t = useT()
+  const label = lang ? LOCALES.find((l) => l.id === lang)?.label ?? lang : null
+  return (
+    <div data-testid="setup-team-fixed">
+      <dl className="divide-y divide-line rounded-lg border border-line text-sm">
+        <div className="flex items-baseline justify-between gap-4 px-3 py-2.5">
+          <dt className="shrink-0 text-muted">{t('setup.teamName')}</dt>
+          <dd className="min-w-0 truncate text-right font-medium text-ink" data-testid="setup-team-name" title={name}>{name}</dd>
+        </div>
+        {label && (
+          <div className="flex items-baseline justify-between gap-4 px-3 py-2.5">
+            <dt className="shrink-0 text-muted">{t('setup.teamLocale')}</dt>
+            <dd className="min-w-0 truncate text-right font-medium text-ink" data-testid="setup-team-lang" lang={lang ?? undefined}>{label}</dd>
+          </div>
+        )}
+      </dl>
+      <p className="mt-1.5 text-xs text-muted">{t('setup.fixedHint')}</p>
+    </div>
+  )
+}
+
 export function Login() {
   const t = useT()
   const signedIn = useSession((s) => s.signedIn)
@@ -407,7 +431,11 @@ export function Setup() {
   const [link] = useState(() => readSetupLink(window.location))
   // after a reload the token is no longer in the address: the one this tab's link carried (lib/setupLink.ts)
   const [linkToken] = useState(() => link.token ?? keptSetupToken())
-  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: link.team ?? '', name: '', username: '', password: '' })
+  // the hosted service named the team (and its language) at sign-up: shown as set, never asked or changed again here
+  // (owner 2026-11-20). An installer link, or no link, asks for them as before.
+  const [fixed] = useState(() => (linkToken ? setupTeamOf(link) : null))
+  const fixedLang = fixed?.lang ?? null
+  const [form, setForm] = useState({ setupToken: linkToken ?? '', teamName: fixed?.team ?? '', name: '', username: '', password: '' })
   const reveal = usePasswordReveal()
   const passwordHintId = useId()
   const { busy, error, run, setError } = useSubmit()
@@ -415,7 +443,8 @@ export function Setup() {
     // the token leaves the address bar (history, screenshots) as soon as it is in the form
     if (link.cleanUrl) window.history.replaceState(window.history.state, '', link.cleanUrl)
     // the language the team signed up with; else, with none picked in this browser yet, the browser's own
-    if (link.lang && !storedLocale()) { if (link.lang !== locale) setLocale(link.lang); return }
+    const startLang = link.lang ?? fixedLang
+    if (startLang && !storedLocale()) { if (startLang !== locale) setLocale(startLang); return }
     if (storedLocale()) return
     const l = browserLocale(typeof navigator === 'undefined' ? [] : navigator.languages?.length ? navigator.languages : [navigator.language])
     if (l && l !== locale) setLocale(l)
@@ -423,7 +452,7 @@ export function Setup() {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const { errorOf, check } = useFieldChecks({
     setupToken: linkToken ? null : requiredCheck(form.setupToken),
-    teamName: requiredCheck(form.teamName),
+    teamName: fixed ? null : requiredCheck(form.teamName),
     name: requiredCheck(form.name),
     username: usernameCheck(form.username),
     password: form.password ? null : 'auth.required',
@@ -435,7 +464,7 @@ export function Setup() {
     void run(async () => {
       // the team's time zone starts as this browser's (Admin > Settings changes it)
       const timeZone = browserTimeZone()
-      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: form.teamName.trim(), locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
+      const r = await api.call(API.setup, { body: { setupToken: form.setupToken.trim(), teamName: (fixed?.team ?? form.teamName).trim(), locale: fixedLang ?? locale, ...(timeZone ? { timeZone } : {}), owner: { username: form.username.trim(), name: form.name.trim(), password: form.password } } })
       // the company website from the link: the company profile step starts from it (components/onboarding)
       rememberSetupSite(link.site)
       forgetSetupToken()
@@ -448,9 +477,10 @@ export function Setup() {
     })
   }
   return (
-    // the "Team language" field below is this screen's language switcher too (one picker, not two). Two groups under
-    // quiet headings, so it is plain where the team ends and the owner's own account begins.
-    <AuthFrame title={t('setup.title')} sub={t('setup.sub')} switcher={false}>
+    // the "Team language" field below is this screen's language switcher too (one picker, not two); with the language
+    // set at sign-up, the usual switcher under the card changes only this screen. Two groups under quiet headings, so it
+    // is plain where the team ends and the owner's own account begins.
+    <AuthFrame title={t(fixed ? 'setup.titleHosted' : 'setup.title')} sub={t(fixed ? 'setup.subHosted' : 'setup.sub')} switcher={!!fixedLang}>
       <form onSubmit={submit} noValidate className="space-y-6">
         <FormSection title={t('setup.section.team')} testId="setup-section-team">
           {!linkToken && (
@@ -458,13 +488,19 @@ export function Setup() {
               <input className={inputCls} name="setupToken" value={form.setupToken} onChange={set('setupToken')} required autoComplete="off" />
             </Field>
           )}
-          <Field label={t('setup.teamName')} error={errorOf('teamName')}>
-            <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
-          </Field>
-          <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
-            {/* the team language is the language on screen: picking one here switches this page too */}
-            <LanguageSelect value={locale} testId="setup-locale" onChange={(l) => { storeLocale(l); setLocale(l) }} />
-          </Field>
+          {fixed ? (
+            <FixedTeam name={fixed.team} lang={fixedLang} />
+          ) : (
+            <Field label={t('setup.teamName')} error={errorOf('teamName')}>
+              <input className={inputCls} name="teamName" value={form.teamName} onChange={set('teamName')} required maxLength={100} data-testid="setup-team" />
+            </Field>
+          )}
+          {!fixedLang && (
+            <Field label={t('setup.teamLocale')} hint={t('setup.teamLocaleHint')}>
+              {/* the team language is the language on screen: picking one here switches this page too */}
+              <LanguageSelect value={locale} testId="setup-locale" onChange={(l) => { storeLocale(l); setLocale(l) }} />
+            </Field>
+          )}
         </FormSection>
         <FormSection title={t('setup.section.owner')} testId="setup-section-owner">
           <Field label={t('setup.name')} error={errorOf('name')}>
@@ -486,7 +522,7 @@ export function Setup() {
             </p>
           )}
           <Button type="submit" variant="primary" className="w-full" busy={busy} data-testid="setup-submit">
-            {t('setup.create')}
+            {t(fixed ? 'setup.createHosted' : 'setup.create')}
           </Button>
         </SubmitBar>
       </form>
