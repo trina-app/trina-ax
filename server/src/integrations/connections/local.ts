@@ -13,9 +13,10 @@ import { NetError, TIMEOUT_MS, type NetRequest, type NetResponse } from './net'
 import type { LocalRelay } from '../../realtime/local-relay'
 import type { Row } from './store'
 
-/** how long a client's initialize waits: the desktop app may be asking the person first (a check's own deadline, 90 s,
- * still ends it sooner) */
-export const CONFIRM_WAIT_MS = 3 * 60_000
+/** how long a turn's first message (initialize) waits: the desktop app may be asking the person first, who may be away
+ * from the screen for a while. A check from Settings keeps its own 90 s: the confirm stays open after it, and a Connect
+ * pressed later checks again by itself (the desktop app tells the page). */
+export const CONFIRM_WAIT_MS = 5 * 60_000
 
 /** a local connection's `url`: a placeholder under the reserved .invalid name (RFC 6761), never used to connect */
 export const LOCAL_URL_ORIGIN = 'https://local-app.invalid'
@@ -48,8 +49,8 @@ export function turnWindow(db: Database, turnId: string): string | null {
 export class LocalError extends Error {
   name = 'LocalError'
   constructor(readonly failure: LocalFailure | 'offline', message: string) { super(message) }
-  get reason(): 'local_offline' | 'local_declined' | 'local_failed' {
-    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : 'local_failed'
+  get reason(): 'local_offline' | 'local_declined' | 'local_confirm' | 'local_failed' {
+    return this.failure === 'offline' || this.failure === 'not_desktop' ? 'local_offline' : this.failure === 'declined' ? 'local_declined' : this.failure === 'unconfirmed' ? 'local_confirm' : 'local_failed'
   }
 }
 
@@ -63,6 +64,7 @@ function errorOf(name: string, r: LocalResult): LocalError {
   switch (r.failure) {
     case 'not_desktop': return new LocalError('not_desktop', offlineWords(name))
     case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)
+    case 'unconfirmed': return new LocalError('unconfirmed', `${desktop} on the user's computer is asking them whether to connect ${name} ("Connect this program?"), and they have not pressed Connect yet, so nothing ran. Tell them to press Connect in that window on their computer, then ask again.`)
     case 'root': return new LocalError('root', `${desktop} on the user's computer runs with administrator (root) rights, and it never starts ${name} then. Nothing ran.`)
     case 'too_old': return new LocalError('too_old', `${desktop} on the user's computer is too old for apps on the computer. Ask them to update it; nothing ran.`)
     case 'start_failed': return new LocalError('start_failed', `${name} could not start on the user's computer${detail ? `: ${detail}` : ''}. The user can check it in Settings › Connectors › ${name}.`)

@@ -581,6 +581,8 @@ async function createWindow() {
     teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
     // Settings shows whether the program runs now: told to the open team's page
     onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+    // Connect pressed after the check stopped waiting: the open team's page checks the connection again
+    onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
   })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))

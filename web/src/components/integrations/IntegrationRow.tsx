@@ -264,7 +264,7 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
       toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
     }
   }
-  const refresh = async (i: Integration) => {
+  const refresh = async (i: Pick<Integration, 'id'>) => {
     setChecking(i.id)
     try {
       const r = await api.call(API.refreshIntegration, { params: { id: i.id }, body: {} })
@@ -310,6 +310,11 @@ export function useIntegrationActions({ add, replace, reload }: { add: (i: Integ
     else if (i.status === 'needs_auth') toast({ level: 'info', text: t('integrations.savedNeedsSignIn') })
     else toast({ level: 'success', text: created ? t('integrations.connected') : t('common.saved') })
   }
+  // an app on this computer whose check stopped waiting for the desktop app's "Connect this program?": Connect pressed
+  // there later checks it again here, without Check again (DesktopBridge.localApps.onConfirmed)
+  const refreshRef = useRef(refresh)
+  refreshRef.current = refresh
+  useEffect(() => desktop()?.localApps?.onConfirmed?.((c) => { if (c && typeof c.id === 'string') void refreshRef.current({ id: c.id }) }), [])
   return { checking, refresh, remove, signIn, saved, setTool, askAgain }
 }
 
