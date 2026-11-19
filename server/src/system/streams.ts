@@ -71,6 +71,11 @@ export function gzipCompress(src: Bytes, level = 9): Bytes {
   return through(src, zlib.createGzip({ level }))
 }
 
+/** raw deflate (no header): the bytes of one zip entry (system/zip-out.ts) */
+export function deflateRaw(src: Bytes, level = 6): Bytes {
+  return through(src, zlib.createDeflateRaw({ level }))
+}
+
 function toWebStream(src: Bytes): ReadableStream<Uint8Array> {
   const it = src[Symbol.asyncIterator]()
   return new ReadableStream<Uint8Array>({

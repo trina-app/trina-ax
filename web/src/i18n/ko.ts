@@ -4905,6 +4905,13 @@ export const ko = {
   "welcome.ai.keys": "API 키로 연결",
   "welcome.ai.recommended": "추천",
   "welcome.ai.other": "다른 방법",
+  // Home without AI: one line under the greeting (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447)
+  "home.noAi.connect": "AI를 연결하면 바로 시작할 수 있어요.",
+  "home.noAi.claude": "Claude 연결하기",
+  "home.noAi.member": "아직 쓸 수 있는 AI가 없어요.",
+  "home.noAi.ask": "팀장·관리자에게 연결 요청하기",
+  "home.noAi.typed": "AI를 연결해야 보낼 수 있어요. 쓴 글은 그대로 둘게요.",
+  "home.noAi.typedMember": "AI가 연결되면 보낼 수 있어요. 쓴 글은 그대로 둘게요.",
   "welcome.ai.notYet": "연결은 저장했지만 아직 AI가 답할 수 없어요. 연결 상태를 확인하거나 다른 방법으로 연결해 주세요.",
   // AI 연결 wherever no AI answers (components/onboarding/ConnectAi.tsx; docs/DECISIONS.md "W2")
   "aiConnect.dialogTitle": "AI 연결",

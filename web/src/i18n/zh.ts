@@ -4847,6 +4847,13 @@ export const zh: Record<MessageKey, string> = {
   "welcome.ai.keys": "使用 API 密钥连接",
   "welcome.ai.recommended": "推荐",
   "welcome.ai.other": "其他方式",
+  // Home without AI: one line under the greeting (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447)
+  "home.noAi.connect": "连接 AI 后即可开始。",
+  "home.noAi.claude": "连接 Claude",
+  "home.noAi.member": "你还没有可用的 AI。",
+  "home.noAi.ask": "请管理员连接 AI",
+  "home.noAi.typed": "先连接 AI 才能发送。你写的内容会保留在这里。",
+  "home.noAi.typedMember": "连接 AI 后即可发送。你写的内容会保留在这里。",
   "welcome.ai.notYet": "连接已保存，但 AI 还无法回答。请检查连接，或换一种方式连接。",
   "aiConnect.dialogTitle": "连接 AI",
   "aiConnect.terms": "我已确认服务商的条款允许以这种方式使用该账号和套餐。{product}无法授予这项许可。",

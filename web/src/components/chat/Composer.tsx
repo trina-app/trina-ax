@@ -105,6 +105,7 @@ export default function Composer({
   sharedUploads,
   projectId,
   waitsFor,
+  blocked,
   card,
   tools,
 }: {
@@ -158,6 +159,9 @@ export default function Composer({
   /** the box was filled with a request that needs the person's own text after it (자연스러운 글's "/humanizer 아래 글을
    * …:"): while the box holds only `text` (and no file), nothing is sent and `hint` shows under the box */
   waitsFor?: { text: string; hint: string }
+  /** nothing can answer yet (Home without AI, QA TC-5447): the text stays unsent, and once something is typed this line
+   * under the box says why */
+  blocked?: string
   /** phones: one card (Home's new chat, QA TC-391), the text on top and a row under it inside the box with + · the
    * engine picker · mic · send; no row under the box. Computers and the other boxes keep their layout */
   card?: boolean
@@ -350,13 +354,15 @@ export default function Composer({
   // the request alone, nothing of the person's own after it yet (a file attached is their text: it can go, but not one
   // whose upload failed, which is not sent)
   const waiting = !!waitsFor && !answering && !ready.length && text.trim() === waitsFor.text.trim()
+  // typed (or attached) while nothing can answer: held, with its line under the box
+  const held = !!blocked && !answering && (text.trim().length > 0 || ready.length > 0)
   // also while an answer runs: the chat keeps the message waiting and sends it when the answer is done. An answer to
   // the AI's question is the text alone (an upload in progress does not hold it up).
   // a free-roam demo whose AI is used up (store/demo.ts): nothing goes to the AI any more; one line under the box says so
   const demoOut = useDemoOut()
   const canSend = demoOut ? false : answering
     ? !sending && !voice.busy && text.trim().length > 0
-    : !hold && !waiting && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
+    : !hold && !blocked && !waiting && !sending && !uploading && !voice.busy && (text.trim().length > 0 || ready.length > 0 || !!chosen)
 
   // onClick hands submit the click event: "Send anyway" goes through send(true)
   const submit = () => send(false)
@@ -786,9 +792,11 @@ export default function Composer({
       </div>
       {/* under the box, on a computer only: the note (the chat's "AI can make mistakes", who sees it, what a request
           still waits for), as under Claude's box. Attach and the engine are inside the box (ComposerToolbar). */}
-      {!phone && (waiting || footer || who) && (
+      {!phone && (held || waiting || footer || who) && (
       <div className="flex items-center justify-center px-1 pt-1.5" data-testid="composer-controls">
-        {waiting ? (
+        {held ? (
+          <p role="status" className="min-w-0 text-center text-micro break-keep text-muted" data-testid="composer-blocked">{blocked}</p>
+        ) : waiting ? (
           <p role="status" className="min-w-0 text-center text-micro break-keep text-muted" data-testid="composer-waits">{waitsFor?.hint}</p>
         ) : (
           <p className="min-w-0 text-center text-micro break-keep text-faint" data-testid="composer-footer">
@@ -800,7 +808,11 @@ export default function Composer({
       </div>
       )}
       {/* phones: of the note a computer has in the row above, who sees the chat (one line; the bottom is for the box) */}
-      {phone && waiting ? (
+      {phone && held ? (
+        <p role="status" className="px-2 pt-1.5 text-center text-micro break-keep text-muted" data-testid="composer-blocked">
+          {blocked}
+        </p>
+      ) : phone && waiting ? (
         <p role="status" className="px-2 pt-1.5 text-center text-micro break-keep text-muted" data-testid="composer-waits">
           {waitsFor?.hint}
         </p>

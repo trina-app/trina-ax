@@ -11,6 +11,7 @@ A local backup is on the same disk. Keep an encrypted off-host copy and test rec
 | Admin → System → Backups → Restore | Database: accounts, chats, settings; applied at next server start | Team files are unchanged, and so are folder permissions (who may open which folder stays as it is now) |
 | `restore-team --backup ID --to NEWDIR` | Team files reconstructed from the full/incremental chain into a new folder | Does not replace the live team or database |
 | `archive` / `restore-archive` | Database + team files (including file history present there), extracted to `db/app.sqlite` and `team/` | OS accounts, services, config, CA keys, provider secret keys and data-directory session state |
+| `archive --zip --out FILE.zip` | Nothing: a plain ZIP for people (folders by person name, every channel, direct message and AI chat as text and JSON, a README.txt), not encrypted | Not read by any restore command; use `archive` for restoring |
 | Office `teamax restore-archive` | Stops the app and swaps the recovered DB/team into the office installation | Does not reconstruct missing deployment settings or external accounts |
 
 Files sent in chat rooms (대화방) are kept in the team folder under `.system/rooms/`, a folder no person can open through the app (the owner and admins included) and that the owner's export leaves out, so every team-folder backup, archive, off-site copy and restore above includes them. When the team folder is on a network share or another disk, room files live there too. At every start the server compares them with the database without deleting anything on a guess: after a DB-only restore, room files the restored database does not know are moved to `.system/rooms-orphans/<time>/` and deleted after 30 days (so going back to the newer database stays possible within that time); a database row whose file is missing is kept and only counted in the log (its file answers "not found"); and when `.system/rooms/` is missing or cannot be read (a share not mounted yet) the check is skipped. / 대화방에서 보낸 파일은 팀 폴더의 `.system/rooms/`에 있어 팀 폴더 백업·보관·복원에 함께 들어가요(팀 폴더가 네트워크 공유에 있으면 대화방 파일도 거기 있어요). 서버가 시작할 때 DB와 비교하지만 짐작으로 지우지 않아요. DB만 복원하면 그 DB가 모르는 대화방 파일은 `.system/rooms-orphans/`로 옮겨 30일 뒤에 지워요.
@@ -46,6 +47,21 @@ trina_admin archive --out /var/lib/mycel/data/off-host.tar.zst.age --password-st
 `--password-stdin` requires at least eight characters. Use a private terminal with echo disabled or pipe from your password manager; never put a real password in shell history or an argument. It reads until EOF. The JSON result must say `encrypted: true`. Copy the mode-600 archive to protected off-host storage and compare its SHA-256 at both ends. Do not leave this extra archive indefinitely in the data directory.
 
 Role-account Mac uses the same `admin.js` commands as `_axserver`, with `MYCEL_CONFIG="/Library/Application Support/mycel/config/server.json"` and the executable paths under `/Library/Application Support/mycel/app/current/`. Check your installation ID and paths first; do not substitute Linux paths blindly.
+
+## Team export on the hosted service
+
+The owner's "Export the whole team" in the Trina Cloud console gives two files from one moment
+([decision](decisions/20261120-team-export-zip.md)):
+
+- **Download ZIP**: a normal ZIP that opens with a double-click on any computer (the layout of `archive --zip`). It is
+  encrypted in storage to a one-time key of the hosting service and decrypted only while the signed-in owner downloads
+  it. Nobody needs a passphrase or a terminal for it.
+- **Encrypted backup (for restoring)**: the `archive` file (`.tar.zst.age`) with a passphrase shown once, eight groups
+  of five letters and digits joined by dashes (the dashes are part of it). Restore it with
+  `trina_admin restore-archive --in <file> --to <new folder> --password-stdin`, or open it by hand with
+  `age -d -o team.tar.zst <file>` (age needs `-o`: it does not print binary to a terminal), then `tar --zstd -xf team.tar.zst`.
+
+Both links work 7 days. Every member is told once, when the owner first downloads or reveals.
 
 ## DB-only and file restore
 

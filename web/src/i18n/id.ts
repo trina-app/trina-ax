@@ -4906,6 +4906,13 @@ export const id: Record<MessageKey, string> = {
   "welcome.ai.keys": "Hubungkan dengan kunci API",
   "welcome.ai.recommended": "Disarankan",
   "welcome.ai.other": "Cara lain",
+  // Home without AI: one line under the greeting (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447)
+  "home.noAi.connect": "Hubungkan AI untuk mulai.",
+  "home.noAi.claude": "Hubungkan Claude",
+  "home.noAi.member": "Anda belum punya AI untuk dipakai.",
+  "home.noAi.ask": "Minta admin menghubungkannya",
+  "home.noAi.typed": "Hubungkan AI dulu untuk mengirim ini. Teks Anda tetap di sini.",
+  "home.noAi.typedMember": "Anda bisa mengirim ini setelah AI terhubung. Teks Anda tetap di sini.",
   "welcome.ai.notYet": "Koneksi tersimpan, tetapi AI belum bisa menjawab. Periksa koneksinya atau hubungkan dengan cara lain.",
   "aiConnect.dialogTitle": "Hubungkan AI",
   "aiConnect.terms": "Saya sudah memastikan ketentuan penyedia mengizinkan akun dan paket ini dipakai dengan cara ini. {product} tidak dapat memberi izin tersebut.",
