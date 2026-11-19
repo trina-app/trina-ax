@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>같은 Claude, 같은 부탁, 다른 결과. 97초 이야기예요.</sub><br>오픈소스(AGPL-3.0) · 직접 설치는 무료, 인원 제한 없음<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ko.png" height="44" alt="GitHub에서 트리나 AX에 별 눌러 주기"></a><br><sub>버튼을 누른 뒤 페이지 맨 위의 ☆ Star를 눌러 주세요. 별 하나가 더 많은 팀이 트리나 AX를 찾게 도와줘요.</sub></p>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 한 번 설정하면, 팀 전체가 써요
 
 **AI 계정 하나로 팀 모두가 써요.** Claude나 OpenAI API 키 하나(또는 약관이 허용하는 요금제)를 연결하면 팀 전체가 그걸로 물어요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.
@@ -48,6 +52,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 </tr>
 </table>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 모두가 이걸로 하는 일
 
 **어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
@@ -70,11 +78,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>게스트.</b> 바깥 사람을 그룹 대화나 프로젝트에 부르고, AI를 쓰게 할지 정해요.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="외부 대행사 게스트 Morgan Reyes가 있는 Launch email 그룹 대화: 제목 후보, @멘션, 트리나의 답"></td>
 </tr>
 <tr>
-<td width="50%"><b>사용량과 한도.</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.<br><br><img src="docs/site/images/usage/team.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
+<td width="50%"><b>사용량과 한도.</b> 사람별 답변 수, 토큰, 예상 비용을 봐요. 토큰 한도는 사람, 그룹, 팀 단위로 걸어요.<br><br><img src="docs/images/readme/v4/usage.webp" alt="관리자 사용량 화면: 사람별 토큰, 답변 수, 예상 비용"></td>
 <td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
 <tr>
-<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 어느 대화에서든 옆에 나만 보는 채팅을 열어 트리나에게 물어봐요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널로 보낸 답변, 오른쪽에 열린 스레드"></td>
+<td colspan="2"><b>슬랙 같은 팀 채팅에 트리나 AI까지.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 어느 대화에서든 옆에 나만 보는 채팅을 열어 트리나에게 물어봐요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널로 보낸 답변, 오른쪽에 열린 스레드"></td>
 </tr>
 </table>
 
@@ -85,6 +93,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **업무 파일 찾기.** 데스크톱 앱이 내 컴퓨터의 최근 업무 파일을 찾아 주고, 고른 것만 올려요.
 - **문서.** 한글(HWP/HWPX) 글을 읽고, PDF와 PPT를 미리 봐요.
 - **어느 기기에서든.** 맥, Windows, Linux, 아이폰, 안드로이드, 어떤 브라우저에서든. 6개 언어로요.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## 시작하기
 
@@ -111,6 +123,10 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니에요. [자세한 안내](docs/QUICKSTART.ko.md)
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 작동 방식
 
 서버 하나에서 Claude Code와 Codex가 엔진으로 돌아요. 사람이든 그 사람의 AI든, 파일을 열 때마다 서버에서 권한 확인 하나를 지나요. 리눅스 서버에서는 엔진이 전용 계정으로 bubblewrap, Landlock, seccomp 샌드박스 안에서 돌아요. 엔진의 셸과 내장 파일 도구는 꺼져 있어서, 파일은 트리나 도구로만 열어요. [보안과 권한](docs/security-and-permissions.ko.md)
@@ -133,6 +149,10 @@ Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니�
 
 </details>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 커뮤니티
 
 트리나 AX가 팀에 도움이 됐다면 ⭐를 눌러 주세요. 다른 팀이 트리나 AX를 찾는 데 도움이 돼요.
@@ -140,6 +160,10 @@ Bun 1.3.12와 Go 1.27 이상이 필요해요. 실제 운영용 설치는 아니�
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [릴리스](https://github.com/trina-app/trina-ax/releases/latest) · [변경 기록](CHANGELOG.md) · [도움 받기](SUPPORT.md) · [기여하기](CONTRIBUTING.md) · [보안 신고](SECURITY.md) · [개발](docs/DEVELOPMENT.md) · [설정](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
 앱은 영어, 한국어, 인도네시아어, 일본어, 스페인어, 중국어(간체)로 쓸 수 있어요. 모든 그림 속 회사와 사람은 가상이에요.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## 라이선스
 

@@ -81,3 +81,7 @@ Out:
   team skills in the skills picture; the star button links to `?tab=readme-ov-file` (a link to the page itself keeps
   a signed-in visitor where they are, and `/stargazers` is 404 when signed out since GitHub closed stargazer lists) and
   says to press Star at the top of the page.
+- Follow-up (founder, 11/19 afternoon): a thin divider with the Trina mark before every section (light and dark, no
+  text, so one pair serves five languages); five team skills instead of eight, shot narrow so the text reads in a
+  half-width cell; the usage picture without the admin side menu (`v4/usage.webp`, from the Acme demo); the team chat
+  title says "like Slack, but with Trina AI".
