@@ -7047,7 +7047,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.save.openSaved": "Buka",
   "rooms.save.undo": "Urungkan",
   "rooms.save.undone": "Dikeluarkan dari {project}",
-  "rooms.save.undoChanged": "File sudah diubah, jadi tetap di {project}",
+  "rooms.save.undoChanged": "Sekarang tidak bisa diurungkan, jadi tetap di {project}",
   "rooms.save.undoFailed": "Penyimpanan tidak bisa diurungkan. Salinannya masih ada di folder proyek.",
   "rooms.save.inProject": "Di proyek · {name}",
   "projects.channel.title": "Saluran",

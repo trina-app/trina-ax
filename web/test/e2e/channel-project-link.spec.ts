@@ -87,8 +87,9 @@ async function start(page: Page, o: { linked?: boolean } = {}): Promise<State> {
     if (m === 'POST' && what === 'save-to-team') {
       const b = req.postDataJSON() as { fileIds: string[]; folder: string; oneClick?: boolean }
       s.saves.push(b)
-      return route.fulfill(json({ saved: b.fileIds.map((f) => ({ fileId: f, path: `${b.folder}/${[PDF, SH].find((x) => x.id === f)!.name}`, existed: false })) }))
+      return route.fulfill(json({ saved: b.fileIds.map((f) => ({ fileId: f, path: `${b.folder}/${[PDF, SH].find((x) => x.id === f)!.name}`, existed: false, ...(b.oneClick ? { undo: `undo-token-${f}` } : {}) })) }))
     }
+    if (m === 'POST' && what === 'save-undo') return route.fulfill(json({ removed: true }))
     return route.fulfill(json({ error: { code: 'not_found', message: 'not in this mock' } }, 404))
   })
   await page.route(/\/api\/projects(\/|\?|$)/, async (route) => {

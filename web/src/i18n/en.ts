@@ -7050,7 +7050,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.save.openSaved": "Open",
   "rooms.save.undo": "Undo",
   "rooms.save.undone": "Taken out of {project}",
-  "rooms.save.undoChanged": "It was changed, so it stays in {project}",
+  "rooms.save.undoChanged": "It can't be taken back now, so it stays in {project}",
   "rooms.save.undoFailed": "Couldn't undo the save. The copy is still in the project folder.",
   "rooms.save.inProject": "In project · {name}",
   "projects.channel.title": "Channel",

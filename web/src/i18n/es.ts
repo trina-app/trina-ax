@@ -7003,7 +7003,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.save.openSaved": "Abrir",
   "rooms.save.undo": "Deshacer",
   "rooms.save.undone": "Quitado de {project}",
-  "rooms.save.undoChanged": "Se modificó, así que se queda en {project}",
+  "rooms.save.undoChanged": "Ya no se puede deshacer, así que se queda en {project}",
   "rooms.save.undoFailed": "No se pudo deshacer el guardado. La copia sigue en la carpeta del proyecto.",
   "rooms.save.inProject": "En el proyecto · {name}",
   "projects.channel.title": "Canal",

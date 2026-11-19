@@ -13,7 +13,7 @@ import path from 'node:path'
 import { API, uuidv7, type Room, type RoomMessage, type RoomSavePlan, type RoomSaveResult } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
-import { looksSensitive } from '../../server/src/rooms/save-to-team'
+import { looksSensitive, undoSave, UNDO_TTL_MS } from '../../server/src/rooms/save-to-team'
 import { recordRoomFileSave } from '../../server/src/rooms/file-saves'
 
 setDefaultTimeout(60_000)
@@ -411,30 +411,72 @@ describe('oneClick (Save to project)', () => {
     expect(await reason(await h.req('erin', `/api/rooms/${plain.id}/save-to-team`, json({ fileIds: [doc], folder: root, oneClick: true })))).toBe('needs_sheet')
   })
 
-  test('Undo (save-undo): the copy goes only while it has the room file\'s own bytes; a changed one stays; only a recorded place', async () => {
+  test('Undo (save-undo) takes only the save\'s own token: same person, once, the same copy on disk with the room file\'s bytes; every refusal is one 404', async () => {
     const project = await h.api('alice').call(API.createProject, { body: { name: 'Undo', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' } })
     const channel = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: 'Undo talk' } }) as Room
     const r = await h.req('alice', `/api/rooms/${channel.id}/project`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: project.id }) })
     const root = ((await r.json()) as Room).project!.folderPath
-    const undo = (fileId: string, p: string) => h.req('erin', `/api/rooms/${channel.id}/save-undo`, json({ fileId, path: p }))
+    const undo = (who: string, token: unknown) => h.req(who, `/api/rooms/${channel.id}/save-undo`, json({ token }))
+    const saveOne = async (who: string, fileId: string) => ((await (await h.req(who, `/api/rooms/${channel.id}/save-to-team`, json({ fileIds: [fileId], folder: root, oneClick: true }))).json()) as RoomSaveResult).saved[0]!
+    const body404 = async (res: Response): Promise<unknown> => { expect(res.status).toBe(404); const b = (await res.json()) as { error: Record<string, unknown> }; return { ...b.error, requestId: undefined } }
+    // the 404 of a token nobody was given, per person (each in their own language)
+    const nopes: Record<string, unknown> = {}
+    for (const u of ['alice', 'erin']) nopes[u] = await body404(await undo(u, 'x'.repeat(32)))
+    const nope = nopes.erin
+
+    // the happy path: erin's own copy, at once; then the same token again is spent
     const { fileId } = await sendFile('alice', channel.id, 'brief.pdf', 'brief bytes')
-    const saved = (await (await h.req('erin', `/api/rooms/${channel.id}/save-to-team`, json({ fileIds: [fileId], folder: root, oneClick: true }))).json()) as RoomSaveResult
-    const p = saved.saved[0]!.path
-    const u1 = await undo(fileId, p)
-    expect(u1.status).toBe(200)
-    expect(await u1.json()).toEqual({ removed: true })
-    expect(fs.existsSync(team(p))).toBe(false)
-    // saved again, then changed by someone: it stays
-    const again = (await (await h.req('erin', `/api/rooms/${channel.id}/save-to-team`, json({ fileIds: [fileId], folder: root, oneClick: true }))).json()) as RoomSaveResult
-    const p2 = again.saved[0]!.path
-    fs.writeFileSync(team(p2), 'brief bytez')
-    expect(await (await undo(fileId, p2)).json()).toEqual({ removed: false })
-    expect(fs.existsSync(team(p2))).toBe(true)
-    // a place this save never recorded: 404, nothing touched
-    fs.writeFileSync(team(`${root}/other.pdf`), 'brief bytes')
-    expect((await undo(fileId, `${root}/other.pdf`)).status).toBe(404)
-    expect(fs.existsSync(team(`${root}/other.pdf`))).toBe(true)
-    // someone outside the room: 404
-    expect((await h.req('bob', `/api/rooms/${channel.id}/save-undo`, json({ fileId, path: p2 }))).status).toBe(404)
+    const s0 = await saveOne('erin', fileId)
+    expect(s0.existed).toBe(false)
+    expect(typeof s0.undo).toBe('string')
+    const u0 = await undo('erin', s0.undo)
+    expect(u0.status).toBe(200)
+    expect(await u0.json()).toEqual({ removed: true })
+    expect(fs.existsSync(team(s0.path))).toBe(false)
+    expect(await body404(await undo('erin', s0.undo))).toEqual(nope)
+
+    // U1: alice's own file with the same bytes was there (existed true): no token, nothing to undo
+    fs.writeFileSync(team(`${root}/plan.pdf`), 'plan bytes')
+    const { fileId: f1 } = await sendFile('alice', channel.id, 'plan.pdf', 'plan bytes')
+    const s1 = await saveOne('erin', f1)
+    expect(s1.existed).toBe(true)
+    expect(s1.undo).toBeUndefined()
+    expect(fs.existsSync(team(`${root}/plan.pdf`))).toBe(true)
+
+    // U2: alice's save, erin tries alice's token: 404, the copy stays
+    const { fileId: f2 } = await sendFile('alice', channel.id, 'memo.pdf', 'memo bytes')
+    const s2 = await saveOne('alice', f2)
+    expect(await body404(await undo('erin', s2.undo))).toEqual(nope)
+    expect(fs.existsSync(team(s2.path))).toBe(true)
+
+    // U3: the copy replaced by another file with the same bytes: not the same file on disk, 404, it stays
+    const { fileId: f3 } = await sendFile('alice', channel.id, 'spec.pdf', 'spec bytes')
+    const s3 = await saveOne('alice', f3)
+    fs.rmSync(team(s3.path)); fs.writeFileSync(team(s3.path), 'spec bytes')
+    expect(await body404(await undo('alice', s3.undo))).toEqual(nopes.alice)
+    expect(fs.existsSync(team(s3.path))).toBe(true)
+
+    // changed bytes: 404, it stays
+    const { fileId: f5 } = await sendFile('alice', channel.id, 'note.pdf', 'note bytes')
+    const s5 = await saveOne('alice', f5)
+    fs.writeFileSync(team(s5.path), 'note bytez')
+    expect(await body404(await undo('alice', s5.undo))).toEqual(nopes.alice)
+
+    // U4: a place the token never named (another person's file, a path that is not there): the body has no field to
+    // pass one, and a made-up token is the same 404
+    expect((await h.req('erin', `/api/rooms/${channel.id}/save-undo`, json({ fileId: f2, path: 'users/alice/secret.pdf' }))).status).toBe(400)
+    expect(await body404(await undo('erin', 'y'.repeat(40)))).toEqual(nope)
+
+    // expired (past UNDO_TTL_MS): 404 for the same person, the copy stays
+    const { fileId: f6 } = await sendFile('alice', channel.id, 'late.pdf', 'late bytes')
+    const s6 = await saveOne('alice', f6)
+    expect(() => undoSave(h.ctx, 'alice', channel.id, s6.undo!, Date.now() + UNDO_TTL_MS + 1)).toThrow()
+    expect(fs.existsSync(team(s6.path))).toBe(true)
+    // ... and in another room: 404
+    expect(await body404(await h.req('alice', `/api/rooms/${rooms.all}/save-undo`, json({ token: s6.undo })))).toEqual(nopes.alice)
+    // a save through the sheet (not one click) gives no token
+    const { fileId: f7 } = await sendFile('alice', channel.id, 'sheet.pdf', 'sheet bytes')
+    expect(((await (await save('alice', channel.id, [f7], root)).json()) as RoomSaveResult).saved[0]!.undo).toBeUndefined()
   })
+
 })

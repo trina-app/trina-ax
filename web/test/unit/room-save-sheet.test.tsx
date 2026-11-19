@@ -187,7 +187,7 @@ describe('Save to project', () => {
 
   test('a PDF: one save with oneClick to the project root, the toast with Open and Undo, no outside line', async () => {
     plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
-    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false }] })
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false, undo: 'tok-aaaaaaaaaaaaaaaa' }] })
     await saveToProject(ROOM, PROJECT, [F1], words)
     const save = calls.find((c) => c.url.endsWith('/save-to-team'))!
     expect(save.body).toEqual({ fileIds: [F1], folder: 'projects/Launch site', oneClick: true })
@@ -221,30 +221,35 @@ describe('Save to project', () => {
     expect(useRoomSaves.getState().sheet?.folder).toBe('projects/Launch site')
   })
 
-  test('Undo asks the server to take back each copy this save made; "changed" only when the server says so', async () => {
+  test('Undo sends the save\'s token for each copy it made; a 404 says it stays; no token, no Undo', async () => {
     plan = { files: [{ id: F1, name: 'quote.pdf', size: 10 }], suggestion: null, sensitive: false }
-    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false }] })
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: false, undo: 'tok-aaaaaaaaaaaaaaaa' }] })
     await saveToProject(ROOM, PROJECT, [F1], words)
-    // clicked at once: nothing is read first, so there is nothing "unknown" to call changed
+    // clicked at once: nothing is read first
     useUi.getState().toasts.at(-1)!.action!.run()
     for (let i = 0; i < 20 && useUi.getState().toasts.at(-1)!.text !== 'Taken out of Launch site'; i++) await tick()
     expect(useUi.getState().toasts.at(-1)!.text).toBe('Taken out of Launch site')
-    expect(calls.find((c) => c.url === `/api/rooms/${ROOM}/save-undo`)?.body).toEqual({ fileId: F1, path: 'projects/Launch site/quote.pdf' })
+    expect(calls.find((c) => c.url === `/api/rooms/${ROOM}/save-undo`)?.body).toEqual({ token: 'tok-aaaaaaaaaaaaaaaa' })
     expect(useRoomSaves.getState().byRoom[ROOM]?.[F1]).toBeUndefined()
 
-    // the server found other bytes there: it stays
+    // the server says no (changed, expired, used: one 404): it stays
     await saveToProject(ROOM, PROJECT, [F1], words)
-    undoAnswer = () => json({ removed: false })
+    undoAnswer = () => json({ error: { code: 'not_found', message: 'x' } }, 404)
     useUi.getState().toasts.at(-1)!.action!.run()
-    for (let i = 0; i < 20 && !useUi.getState().toasts.at(-1)!.text.startsWith('It was changed'); i++) await tick()
-    expect(useUi.getState().toasts.at(-1)!.text).toBe('It was changed, so it stays in Launch site')
+    for (let i = 0; i < 20 && !useUi.getState().toasts.at(-1)!.text.startsWith("It can't be taken back"); i++) await tick()
+    expect(useUi.getState().toasts.at(-1)!.text).toBe("It can't be taken back now, so it stays in Launch site")
 
-    // the call failed: not "changed", a plain failure
+    // the call failed: a plain failure
     await saveToProject(ROOM, PROJECT, [F1], words)
     undoAnswer = () => json({ error: { code: 'internal', message: 'x' } }, 500)
     useUi.getState().toasts.at(-1)!.action!.run()
     for (let i = 0; i < 20 && useUi.getState().toasts.at(-1)!.level !== 'error'; i++) await tick()
     expect(useUi.getState().toasts.at(-1)!.text).toBe("Couldn't undo the save. The copy is still in the project folder.")
+
+    // the same bytes were there already (existed: true, no token): no Undo on the toast
+    saveAnswer = () => json({ saved: [{ fileId: F1, path: 'projects/Launch site/quote.pdf', existed: true }] })
+    await saveToProject(ROOM, PROJECT, [F1], words)
+    expect(useUi.getState().toasts.at(-1)!.action).toBeUndefined()
   })
 
   test('a 404 (the link or folder gone meanwhile): the room is read again', async () => {

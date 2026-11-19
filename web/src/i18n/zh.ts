@@ -6975,7 +6975,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.save.openSaved": "打开",
   "rooms.save.undo": "撤销",
   "rooms.save.undone": "已从「{project}」中移除",
-  "rooms.save.undoChanged": "文件已被修改，所以保留在「{project}」中",
+  "rooms.save.undoChanged": "现在无法撤销，所以保留在「{project}」中",
   "rooms.save.undoFailed": "无法撤销保存。副本仍在项目文件夹中。",
   "rooms.save.inProject": "在项目中 · {name}",
   "projects.channel.title": "频道",

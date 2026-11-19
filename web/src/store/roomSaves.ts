@@ -113,18 +113,17 @@ export async function saveToProject(roomId: string, project: NonNullable<Room['p
   }
 }
 
-async function undoSave(roomId: string, project: NonNullable<Room['project']>, copies: { fileId: string; path: string }[], w: SaveWords) {
+async function undoSave(roomId: string, project: NonNullable<Room['project']>, copies: { path: string; token: string }[], w: SaveWords) {
   const t = w.t
-  // one call per copy: the server moves it to the trash only while it still has the room file's own bytes, in one step
-  // (POST /api/rooms/:id/save-undo); "changed" only when the server said so, never for a failure to ask
-  let changed = 0, failed = 0
+  // one call per copy, with the token its save gave: the server takes it back only for me, while it is the same copy with
+  // the same bytes, once (POST /api/rooms/:id/save-undo); anything else is one plain 404: "it stays", never a guess
+  let kept = 0, failed = 0
   const gone = new Set<string>()
   for (const c of copies) {
     try {
-      const r = await api.call(API.undoRoomSave, { params: { id: roomId }, body: c })
-      if (r.removed) gone.add(c.path)
-      else changed++
-    } catch { failed++ }
+      await api.call(API.undoRoomSave, { params: { id: roomId }, body: { token: c.token } })
+      gone.add(c.path)
+    } catch (e) { if (isApiError(e, 'not_found')) kept++; else failed++ }
   }
   // the chips say "saved" no more for what went
   if (gone.size) useRoomSaves.setState((s) => {
@@ -133,5 +132,5 @@ async function undoSave(roomId: string, project: NonNullable<Room['project']>, c
     return { byRoom: { ...s.byRoom, [roomId]: room } }
   })
   if (failed) toast({ level: 'error', text: t('rooms.save.undoFailed') })
-  else toast(changed ? { level: 'info', text: t('rooms.save.undoChanged', { project: project.name }) } : { level: 'success', text: t('rooms.save.undone', { project: project.name }) })
+  else toast(kept ? { level: 'info', text: t('rooms.save.undoChanged', { project: project.name }) } : { level: 'success', text: t('rooms.save.undone', { project: project.name }) })
 }

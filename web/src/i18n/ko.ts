@@ -7047,7 +7047,7 @@ export const ko = {
   "rooms.save.openSaved": "열기",
   "rooms.save.undo": "되돌리기",
   "rooms.save.undone": "{project}에서 뺐어요",
-  "rooms.save.undoChanged": "파일이 바뀌어서 {project}에 그대로 두었어요",
+  "rooms.save.undoChanged": "지금은 되돌릴 수 없어서 {project}에 그대로 두었어요",
   "rooms.save.undoFailed": "저장을 되돌리지 못했어요. 사본은 프로젝트 폴더에 그대로 있어요.",
   "rooms.save.inProject": "프로젝트에 있음 · {name}",
   "projects.channel.title": "채널",

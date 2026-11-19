@@ -27,6 +27,10 @@
   - **Save to project** is one click for documents and media by name (`shared/src/files/plain-kinds.ts`), into the top of
     the project folder; anything else, and personal-looking files, go through the save sheet. The server checks the
     list for a one-click save (`oneClick`, 409 `needs_sheet`): a guard on the one-click path only: the same person may still save any file there through the sheet (the ordinary save, with their own write access), which is the person's own choice, not a bypass.
+  - **Undo** takes back only a copy that one-click save made (`existed: false`): the save returns a token kept on the
+    server for about 30 seconds, for that person, that place and that copy on disk (`statKey`); `save-undo` takes only
+    the token, checks the same person, the same file on disk and the room file's own sha256, moves it to the trash and
+    spends the token. Every other case is one 404 and nothing changes.
   - The channel's side chat saves new documents in the project folder by default (the guest check first). In that side
     chat, when the person's own message asked to save (`askedToSave`), a new document or media file in the project's
     folder needs no room card (`chat/turn.ts linkedProjectPlain`); the wider-audience card still asks when people
