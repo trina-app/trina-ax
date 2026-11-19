@@ -218,6 +218,6 @@ sign in or paste the key into the card. The key never reaches the AI.
 ## The other direction
 
 Your own Claude (Claude Code, Claude Desktop or claude.ai) can connect **to** Trina AX and use your files with your
-permissions. [Read about the Team AX MCP connector](../agents/mcp-connector.md).
+permissions. [Read about the Trina AX MCP connector](../agents/mcp-connector.md).
 
 Full details for developers: [Integrations](../../INTEGRATIONS.md).

@@ -148,7 +148,7 @@ Once the files are in, the same window asks **Share any of these with your team?
 - **Not now** shares nothing. Afterwards, **Share with your team** in the same window brings the step back, and you can
   always share a file later from its **⋯ › Share** on the Files page, or take someone's access away there.
 
-The step doesn't appear when your team has turned off **Members can share files they own** (Admin › Team settings).
+The step doesn't appear when your team has turned off **Members can share files and folders they own** (Admin › Team settings).
 
 ## Undo
 
