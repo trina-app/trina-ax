@@ -14,7 +14,7 @@ Si creó el equipo en un navegador de un ordenador Mac o Windows, la página sig
 Conecte una suscripción de Claude o ChatGPT, o una clave de API. Sin IA no se puede leer el perfil de la empresa, por eso este paso va primero. **Hacerlo más tarde** sale de los pasos; la fila de configuración muestra entonces **Conectar IA**.
 
 #### Perfil de la empresa
-Escriba el sitio web de la empresa. La IA lo lee y escribe una línea sobre la empresa ("Esto es lo que entendimos: … · Editar"). Con **Añadir un archivo de presentación si lo tiene** puede añadir un archivo de presentación o una presentación de la empresa. Mientras la IA lee, no hay nada que pulsar. Si tarda más de 90 segundos, **No esperar, continuar** pasa al paso siguiente y la lectura sigue; vuelva a abrir el perfil de la empresa más tarde para verlo.
+Escriba el sitio web de la empresa. La IA lo lee y escribe una línea sobre la empresa ("Esto es lo que entendimos: … · Editar"). Con **Añadir un archivo de presentación si lo tiene** puede añadir un archivo de presentación o una presentación de la empresa. Mientras la IA lee, no hay nada que pulsar. Si tarda más de 90 segundos, **No esperar, continuar** pasa al paso siguiente y la lectura sigue; vuelva a este paso en la misma ventana para verlo.
 
 **Guardar y seguir** guarda el perfil. También pone las fotos del sitio web y un archivo de presentación de la empresa en la carpeta de marca del equipo; la línea bajo el botón lo indica. No empieza nada más por sí solo.
 

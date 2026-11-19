@@ -15,7 +15,7 @@
     went on to `/welcome` or `/open-app` anyway. It never fails the setup (a failure is logged; `/welcome` still starts
     the row on its first visit). A row already there is kept as it is, only a missing website is added (idempotent).
   - The setup page sends the link's website (`SetupBody.site`, optional, at most 300 characters). The server keeps it
-    normalized (http(s) only, `normalizeWebsite`; anything else is dropped, not an error) in the row's existing `site`
+    normalized (http(s) only, `normalizeWebsite`; anything else, a too long one too, is dropped, not an error) in the row's existing `site`
     field, which owners and admins read and members cannot (403), as before. The company profile step reads it there,
     on any device. The tab's sessionStorage copy stays as a fallback for an older server.
   - `/app-signin` → Continue is unchanged: it lands on Home with the landing state, which now finds the row and opens
@@ -31,11 +31,13 @@
     `PATCH /api/me`), so it holds in the app and the browser alike. A toast offers Undo; Settings › Profile shows one
     "Show … on Home again" row per hidden card, and Admin › Home shows the goal's (beside the owner checklist).
     "Continue setup" already had ✕ (Admin › Home "Show setup again" brings it back); the member welcome card has its
-    own Hide. The reached goal's per-browser localStorage dismissal is still read, never written.
+    own Hide. The reached goal's per-browser localStorage dismissal (an earlier version's) is still read, never written,
+    and "Show the team goal on Home again" clears it.
   - Company profile while it reads (the welcome steps only): no "Do this later" while the AI works. After 90 seconds
     (counted from the reading's start, kept with the reading across a reload) one quiet "Don't wait, go on" puts the step
     off and goes on. The reading keeps running on the server; the step's kept reading (sessionStorage of that window)
-    picks up its draft and saves it when Company profile opens again ("Still to do" row). A failed reading opens the
+    picks up its draft and saves it when the step opens again in that window ("Still to do" row); another window or
+    device does not see it (the draft chat is not saved on the server by itself), and the hint says so. A failed reading opens the
     fallback with its controls as before. Admin › Team settings keeps its Cancel throughout.
 - **Tests:** tests/unit/b-welcome-at-setup.test.ts, tests/unit/b-onboarding-welcome.test.ts, web/test/unit/goal-card.test.tsx,
   web/test/unit/profile-step.test.tsx, web/test/e2e/open-app.spec.ts, web/test/e2e/home-card-hide.spec.ts,

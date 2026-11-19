@@ -32,12 +32,22 @@ export function useCardHidden(card: HomeCard): { hidden: boolean; hide: () => vo
   const set = (v: 'hidden' | null) => useSession.getState().updatePrefs({ [card]: v })
   const hide = () => void set('hidden').then(
     (ok) => {
-      if (!ok) return toast({ level: 'error', text: t('error.network') })
+      // false: signed out meanwhile, or a newer pick took its place (nothing to say)
+      if (!ok) return
       toast({ level: 'info', text: t(HIDDEN[card]), action: { label: t('common.undo'), run: () => void set(null).catch(() => toast({ level: 'error', text: t('error.network') })) } })
     },
     () => toast({ level: 'error', text: t('error.network') }),
   )
   return { hidden, hide }
+}
+
+function forgetOldGoalDismissals() {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i)
+      if (k?.startsWith('mycel.teamGoalDone.')) localStorage.removeItem(k)
+    }
+  } catch { /* storage blocked: nothing kept there */ }
 }
 
 /** One quiet row per hidden Home card that brings it back ("Show the team goal on Home again"); nothing when none is
@@ -50,8 +60,10 @@ export function HomeCardsShowAgain({ cards, testId = 'home-cards-show', classNam
   if (!hidden.length) return null
   const show = (c: HomeCard) => {
     setBusy(true)
+    // the reached goal hidden in this browser by an earlier version (GoalCard.tsx readDone) comes back too
+    if (c === 'goalCard') forgetOldGoalDismissals()
     void useSession.getState().updatePrefs({ [c]: null }).then(
-      (ok) => toast(ok ? { level: 'success', text: t('homeCards.back') } : { level: 'error', text: t('error.network') }),
+      (ok) => { if (ok) toast({ level: 'success', text: t('homeCards.back') }) },
       () => toast({ level: 'error', text: t('error.network') }),
     ).finally(() => setBusy(false))
   }

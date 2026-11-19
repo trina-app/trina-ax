@@ -3983,7 +3983,7 @@ export const es: Record<MessageKey, string> = {
   "onboarding.profile.activity.answers": "Escribiendo una presentación de una línea con sus respuestas",
   "onboarding.profile.skipToReview": "Omitir y revisar mis respuestas",
   "onboarding.profile.skipWaiting": "No esperar, continuar",
-  "onboarding.profile.skipWaitingHint": "Sigue leyendo. Vuelva a abrir el perfil de la empresa más tarde para verlo.",
+  "onboarding.profile.skipWaitingHint": "Sigue leyendo. Vuelva a este paso en esta ventana para verlo.",
   "onboarding.profile.activity.why.off_site": "fuera de este sitio, omitida",
   "onboarding.profile.activity.why.limit": "solo {max} páginas, omitida",
   "onboarding.profile.activity.why.not_linked": "no enlazada desde una página, omitida",

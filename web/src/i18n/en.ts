@@ -4028,7 +4028,7 @@ export const en: Record<MessageKey, string> = {
   "onboarding.profile.activity.answers": "Writing a one-line intro from your answers",
   "onboarding.profile.skipToReview": "Skip, check my answers",
   "onboarding.profile.skipWaiting": "Don't wait, go on",
-  "onboarding.profile.skipWaitingHint": "It keeps reading. Open Company profile again later to see it.",
+  "onboarding.profile.skipWaitingHint": "It keeps reading. Come back to this step in this window to see it.",
   "onboarding.profile.activity.why.off_site": "outside this site, skipped",
   "onboarding.profile.activity.why.limit": "only {max} pages, skipped",
   "onboarding.profile.activity.why.not_linked": "not linked from a page, skipped",

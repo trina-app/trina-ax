@@ -3974,7 +3974,7 @@ export const zh: Record<MessageKey, string> = {
   "onboarding.profile.activity.answers": "正在根据你的回答写一句话介绍",
   "onboarding.profile.skipToReview": "跳过，查看我的回答",
   "onboarding.profile.skipWaiting": "不等了，继续",
-  "onboarding.profile.skipWaitingHint": "仍在读取。稍后再次打开公司简介即可查看。",
+  "onboarding.profile.skipWaitingHint": "仍在读取。在此窗口中回到这一步即可查看。",
   "onboarding.profile.activity.why.off_site": "不在此网站内，已跳过",
   "onboarding.profile.activity.why.limit": "仅限{max}个页面，已跳过",
   "onboarding.profile.activity.why.not_linked": "没有页面链接到它，已跳过",

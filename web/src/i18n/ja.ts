@@ -3983,7 +3983,7 @@ export const ja: Record<MessageKey, string> = {
   "onboarding.profile.activity.answers": "回答からひとことの紹介を書いています",
   "onboarding.profile.skipToReview": "スキップして回答を確認",
   "onboarding.profile.skipWaiting": "待たずに次へ",
-  "onboarding.profile.skipWaitingHint": "読み取りは続いています。あとで会社紹介をもう一度開くと確認できます。",
+  "onboarding.profile.skipWaitingHint": "読み取りは続いています。このウィンドウでこの手順に戻ると確認できます。",
   "onboarding.profile.activity.why.off_site": "このサイトの外なので省略",
   "onboarding.profile.activity.why.limit": "{max}ページまでなので省略",
   "onboarding.profile.activity.why.not_linked": "ページにないアドレスなので省略",

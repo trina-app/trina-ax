@@ -4027,7 +4027,7 @@ export const id: Record<MessageKey, string> = {
   "onboarding.profile.activity.answers": "Menulis perkenalan satu kalimat dari jawaban Anda",
   "onboarding.profile.skipToReview": "Lewati, periksa jawaban saya",
   "onboarding.profile.skipWaiting": "Jangan tunggu, lanjutkan",
-  "onboarding.profile.skipWaitingHint": "Pembacaan tetap berjalan. Buka lagi Profil perusahaan nanti untuk melihatnya.",
+  "onboarding.profile.skipWaitingHint": "Pembacaan tetap berjalan. Kembali ke langkah ini di jendela ini untuk melihatnya.",
   "onboarding.profile.activity.why.off_site": "di luar situs ini, dilewati",
   "onboarding.profile.activity.why.limit": "hanya {max} halaman, dilewati",
   "onboarding.profile.activity.why.not_linked": "tidak ditautkan dari halaman, dilewati",

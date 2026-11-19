@@ -14,7 +14,7 @@ Jika Anda membuat tim di browser pada komputer Mac atau Windows, halaman berikut
 Hubungkan langganan Claude atau ChatGPT, atau kunci API. Tanpa AI, profil perusahaan tidak bisa dibaca, jadi langkah ini datang lebih dulu. **Nanti saja** keluar dari langkah-langkah ini; baris penyiapan lalu bertuliskan **Hubungkan AI**.
 
 #### Profil perusahaan
-Ketik alamat situs web perusahaan. AI membacanya dan menulis satu baris tentang perusahaan ("Ini yang kami pahami: … · Ubah"). Anda bisa menambahkan file perkenalan atau deck perusahaan dengan **Tambahkan berkas profil jika ada**. Selama AI membaca, tidak ada yang perlu ditekan. Jika lebih dari 90 detik, **Jangan tunggu, lanjutkan** pindah ke langkah berikutnya dan pembacaan tetap berjalan; buka lagi profil perusahaan nanti untuk melihatnya.
+Ketik alamat situs web perusahaan. AI membacanya dan menulis satu baris tentang perusahaan ("Ini yang kami pahami: … · Ubah"). Anda bisa menambahkan file perkenalan atau deck perusahaan dengan **Tambahkan berkas profil jika ada**. Selama AI membaca, tidak ada yang perlu ditekan. Jika lebih dari 90 detik, **Jangan tunggu, lanjutkan** pindah ke langkah berikutnya dan pembacaan tetap berjalan; kembali ke langkah ini di jendela yang sama untuk melihatnya.
 
 **Simpan dan lanjut** menyimpan profil. Tombol ini juga memasukkan foto situs web dan berkas profil perusahaan ke folder merek tim; baris di bawah tombol menyebutkannya. Tidak ada hal lain yang mulai dengan sendirinya.
 

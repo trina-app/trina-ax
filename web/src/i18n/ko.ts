@@ -4026,7 +4026,7 @@ export const ko = {
   "onboarding.profile.activity.answers": "답한 내용으로 한 줄 소개를 쓰는 중",
   "onboarding.profile.skipToReview": "건너뛰고 답한 내용 확인하기",
   "onboarding.profile.skipWaiting": "기다리지 말고 다음으로",
-  "onboarding.profile.skipWaitingHint": "계속 읽고 있어요. 나중에 회사 소개를 다시 열면 볼 수 있어요.",
+  "onboarding.profile.skipWaitingHint": "계속 읽고 있어요. 이 창에서 이 단계로 다시 오면 볼 수 있어요.",
   "onboarding.profile.activity.why.off_site": "이 사이트 밖이라 건너뜀",
   "onboarding.profile.activity.why.limit": "{max}개까지만 읽어서 건너뜀",
   "onboarding.profile.activity.why.not_linked": "페이지에 없는 주소라 건너뜀",

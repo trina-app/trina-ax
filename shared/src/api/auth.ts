@@ -216,8 +216,9 @@ export const SetupBody = z.object({
   timeZone: z.string().min(1).max(64).optional(),
   owner: z.object({ username: Username, name: PersonName, password: Password, email: z.email().optional() }),
   /** the company website the setup link carried (#site=…): kept with the welcome steps' progress, so the company profile
-   * step starts from it on any device, the desktop app too. Not an http(s) address: dropped, never an error */
-  site: z.string().max(300).optional(),
+   * step starts from it on any device, the desktop app too. Not an http(s) address, or too long: dropped, never an
+   * error (a setup never fails over it) */
+  site: z.string().max(300).optional().catch(undefined),
 })
 
 /** One-time reset link (admin-issued, 24 h; or owner recovery from the server Mac). Web page: /reset-password/<token>. */

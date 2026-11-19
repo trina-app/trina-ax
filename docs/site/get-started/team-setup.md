@@ -14,7 +14,7 @@ If you made the team in a browser on a Mac or Windows computer, the next page of
 Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Do this later** leaves the steps; the setup row then says **Connect AI**.
 
 #### Company profile
-Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**. While the AI reads, there is nothing to press. If it takes more than 90 seconds, **Don't wait, go on** moves to the next step and the reading carries on; open the company profile again later to see it.
+Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**. While the AI reads, there is nothing to press. If it takes more than 90 seconds, **Don't wait, go on** moves to the next step and the reading carries on; come back to this step in the same window to see it.
 
 **Save and continue** saves the profile. It also puts the website's photos and a company intro file into the team's brand folder; the line under the button says so. Nothing else starts by itself.
 

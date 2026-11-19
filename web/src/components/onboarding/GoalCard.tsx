@@ -54,7 +54,6 @@ export function HomeGoal({ onShown }: { onShown?: (shown: boolean) => void } = {
   const me = useMeStrict()
   const [goal, setGoal] = useState<TeamGoal | null>(null)
   const [read, setRead] = useState(false)
-  const [dismissed, setDismissed] = useState(false)
   // the connection failed the last read: it reads again until one works
   const [failed, setFailed] = useState(false)
   const live = useRef(false)
@@ -70,11 +69,11 @@ export function HomeGoal({ onShown }: { onShown?: (shown: boolean) => void } = {
   useAutoRetry(failed, load)
   // the open goal's "Hide" (owner 2026-11-20): kept on the server, the same in the app and the browser
   const card = useCardHidden('goalCard')
-  const hidden = !goal || card.hidden || (goal.state === 'reached' && (dismissed || readDone(goal.startedAt)))
+  const hidden = !goal || card.hidden || (goal.state === 'reached' && readDone(goal.startedAt))
   useEffect(() => { if (read) onShown?.(!hidden) }, [read, hidden, onShown])
   if (hidden) return null
   // "달성했어요" hidden: the same server-kept hide as the open card's (a browser that hid it before keeps it hidden)
-  const dismiss = () => { setDismissed(true); card.hide() }
+  const dismiss = () => card.hide()
   return <GoalCard goal={goal} onDismiss={dismiss} onHide={card.hide} />
 }
 

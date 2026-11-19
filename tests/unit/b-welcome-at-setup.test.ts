@@ -44,12 +44,14 @@ test('no website, or one that is not http(s): the steps start without one; setup
   h = await harness('b-welcome-at-setup-3')
   const c = await setupWith()
   expect((await c.call('GET', '/api/onboarding/welcome')).progress.site).toBeNull()
-  // too long is a refused request (the field's limit), like every other field of the setup
-  await h.close()
-  h = await harness('b-welcome-at-setup-4')
-  const r = await h.client().try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', locale: 'en', owner, site: `https://${'a'.repeat(400)}.example` })
-  expect(r.status).toBe(400)
-  expect(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).toBeUndefined()
+  // too long, or not text: dropped too, the team is made all the same
+  for (const [i, site] of [`https://${'a'.repeat(400)}.example`, 42].entries()) {
+    await h.close()
+    h = await harness(`b-welcome-at-setup-4${i}`)
+    const r = await h.client().try('POST', '/api/setup', { setupToken: SETUP_TOKEN, teamName: 'Acme', locale: 'en', owner, site })
+    expect(r.status).toBe(201)
+    expect(WelcomeProgress.parse(getSetting<unknown>(h.ctx.db, WELCOME_SETTING)).site).toBeNull()
+  }
 })
 
 test('a refused setup (wrong token) starts nothing; members and admins are not given steps of their own', async () => {
