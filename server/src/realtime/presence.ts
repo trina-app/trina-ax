@@ -53,6 +53,12 @@ export interface ComputerReport {
   locked: boolean
 }
 
+/** what a computer report says for the phone rule */
+export type ComputerState = 'in use' | 'idle' | 'locked'
+export function computerState(r: ComputerReport): ComputerState {
+  return r.locked ? 'locked' : r.idleMs < PRESENCE_COMPUTER_IDLE_MS ? 'in use' : 'idle'
+}
+
 export interface PresenceClock {
   now(): number
   setTimeout(fn: () => void, ms: number): unknown
@@ -170,11 +176,16 @@ export class Presence {
 
   /** The desktop app reports the computer it runs on (POST /api/me/computer): how long it has had no input, whether
    * its screen is locked. Kept for PRESENCE_COMPUTER_FRESH_MS, for inUse only. */
-  computer(userId: string, sessionId: string, r: ComputerReport): void {
-    if (this.stopped || !Number.isFinite(r.idleMs) || r.idleMs < 0) return
+  computer(userId: string, sessionId: string, r: ComputerReport): ComputerState | null {
+    if (this.stopped || !Number.isFinite(r.idleMs) || r.idleMs < 0) return null
     let mine = this.computers.get(userId)
     if (!mine) this.computers.set(userId, (mine = new Map()))
-    mine.set(sessionId, { idleMs: r.idleMs, locked: r.locked, at: this.clock.now() })
+    const now = this.clock.now(), before = mine.get(sessionId)
+    mine.set(sessionId, { idleMs: r.idleMs, locked: r.locked, at: now })
+    // what changed, for the server log (routes/people.ts): the first report of this sign-in (or the first after an old
+    // one) and every change between in use, idle and locked; null while it stays the same (every 30 s)
+    const state = computerState(r)
+    return !before || now - before.at > PRESENCE_COMPUTER_FRESH_MS || computerState(before) !== state ? state : null
   }
 
   /** Is the person at Trina now, for their phone's pushes (notifications/away.ts; docs/decisions/20261116-away-os-idle.md)?
@@ -188,34 +199,52 @@ export class Presence {
    * Not when they set themselves away. Only this server's memory; nothing of it is shown to anyone. Right after a
    * start windows are still reconnecting: ask warmingUntil first. */
   inUse(userId: string): boolean {
-    if (this.stopped) return false
+    return this.phoneUse(userId).inUse
+  }
+
+  /** inUse with why, for the server log of each phone decision (notifications/away.ts): a few words such as
+   * "computer idle 12m; no window open" or "browser or app window active". Only states and rounded times: never a
+   * device, a window id or anything the person wrote. */
+  phoneUse(userId: string): { inUse: boolean; why: string } {
+    if (this.stopped) return { inUse: false, why: 'presence stopped' }
     const now = this.clock.now()
     const p = this.people.get(userId)
-    if (p?.away) return false
+    if (p?.away) return { inUse: false, why: 'set themselves away' }
     // sign-ins whose computer is locked or idle now: their windows do not count
     const notUsed = new Set<string>()
+    const computer: string[] = []
     const mine = this.computers.get(userId)
     if (mine) {
       for (const [sid, c] of mine) {
-        if (now - c.at > PRESENCE_COMPUTER_FRESH_MS) { mine.delete(sid); continue }
-        if (!c.locked && c.idleMs + (now - c.at) < PRESENCE_COMPUTER_IDLE_MS) {
-          if (p || this.manualAwayOf(userId) === false) return true
-        } else notUsed.add(sid)
+        const age = now - c.at
+        if (age > PRESENCE_COMPUTER_FRESH_MS) { mine.delete(sid); computer.push(`computer report old (${span(age)})`); continue }
+        const idle = c.idleMs + age
+        if (!c.locked && idle < PRESENCE_COMPUTER_IDLE_MS) {
+          if (p || this.manualAwayOf(userId) === false) return { inUse: true, why: `computer in use (input ${span(idle)} ago)` }
+          computer.push('computer in use, not an active account')
+        } else {
+          notUsed.add(sid)
+          computer.push(c.locked ? 'computer locked' : `computer idle ${span(idle)}`)
+        }
       }
       if (!mine.size) this.computers.delete(userId)
     }
-    if (!p) return false
+    const head = computer.length ? computer.join(', ') : 'no computer report'
+    if (!p || !p.windows.size && !p.closedInUse.size) return { inUse: false, why: `${head}; no window open` }
+    const windows = new Set<string>()
     for (const [w, state] of p.windows) {
-      if (state !== 'active' || now - (p.seen.get(w) ?? 0) > PRESENCE_SILENT_MS) continue
+      const quiet = now - (p.seen.get(w) ?? 0)
+      if (state !== 'active') { windows.add('window idle'); continue }
+      if (quiet > PRESENCE_SILENT_MS) { windows.add(`window silent ${span(quiet)}`); continue }
       const sid = notUsed.size ? this.o.sessionOf?.(userId, w) : undefined
-      if (sid && notUsed.has(sid)) continue
-      return true
+      if (sid && notUsed.has(sid)) { windows.add('window on that computer'); continue }
+      return { inUse: true, why: 'browser or app window active' }
     }
     for (const [w, until] of p.closedInUse) {
-      if (until > now) return true
+      if (until > now) return { inUse: true, why: 'window closed while in use (grace)' }
       p.closedInUse.delete(w)
     }
-    return false
+    return { inUse: false, why: `${head}; ${windows.size ? [...windows].join(', ') : 'no window open'}` }
   }
 
   /** Until when (clock ms) windows are still reconnecting after a start (the warm-up); null once it is over. inUse
@@ -366,6 +395,14 @@ const stateOf = (p: Person): PresenceState => {
   if (p.away) return 'away'
   for (const w of p.windows.values()) if (w === 'active') return 'online'
   return 'away'
+}
+
+/** a time for the phone decision's log line, rounded down: 12s, 4m, 3h */
+export function span(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  return `${Math.floor(s / 3600)}h`
 }
 
 const started = new WeakMap<AppContext, Presence>()

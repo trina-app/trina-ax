@@ -26,13 +26,13 @@ import { readPushConfig, pushConfigKey, type PushConfig } from './push-config'
 import { bounded, createPushTransport, pushFailure, validatePushSubscription, type PushSubscription, type PushTransport } from './push-transport'
 import { pushBadge } from './push-badge'
 import { readNativePushConfig } from './push-gateway-setting'
-import { phoneDecision, type PhoneDecision } from './away'
+import { decidePhone, type PhoneDecision } from './away'
 import { createNativeTransport, nativeConfigKey, validNativeDevice, type NativeDevice, type NativePushConfig, type NativeTransport } from './push-native'
 /** config: Web Push (VAPID); native: the push gateway for the phone app. Either may be off; both share one queue.
  * badge: the recipient's count for the phone app's icon at send time (push-badge.ts; null: none sent). */
 export interface PushOptions {config:()=>PushConfig|null;transport:PushTransport;native:()=>NativePushConfig|null;nativeTransport:NativeTransport;now:()=>number;requestTimeoutMs?:number;badge:(userId:string)=>number|null
 /** away.ts: a push to this person's phone app now goes, is cancelled (they are at Trina) or waits for the warm-up */
-phoneDecision:(userId:string)=>PhoneDecision}
+phoneDecision:(userId:string)=>PhoneDecision&{reason?:string}}
 /** kind 'native': a phone app device token (migration 243), delivered through the push gateway, not Web Push. */
 type Subscription={id:string;user_id:string;session_id:string;secret_enc:string;key_version:number;config_key:string;created_at:string;endpoint_hash:string;kind:'web'|'native'}
 type Delivery={notification_id:string;subscription_id:string;attempts:number;expires_at:string;config_key:string}
@@ -91,7 +91,7 @@ export class PushService {
   /** label requests with the right key per device this minute (in memory: a restart forgets it) */
   private labelUse=new Map<string,{since:number;n:number}>()
   constructor(readonly ctx:AppContext,options:Partial<PushOptions>={}){
-    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>phoneDecision(ctx,userId),...options}
+    this.o={config:()=>readPushConfig(ctx),transport:createPushTransport(),native:()=>readNativePushConfig(ctx),nativeTransport:createNativeTransport({dataDir:ctx.config.dataDir}),now:Date.now,badge:userId=>pushBadge(ctx,userId),phoneDecision:userId=>{const d=decidePhone(ctx,userId);return {...d.decision,reason:d.reason}},...options}
     this.secrets=path.join(ctx.config.dataDir,'secrets','push');this.vault=new Vault(this.secrets)
     this.unlisten=onPushCancellation(ctx,scope=>{
       const f=this.flight
@@ -304,10 +304,12 @@ export class PushService {
       // after a start it waits once for the windows to reconnect. Never the owner's locked password check.
       if(row.kind==='native'&&row.attempts===0&&allowed.event!=='owner.reauth_locked'){
         const d=this.o.phoneDecision(row.user_id)
+        // one line per phone push decided (owner 2026-11-19: "why did my phone ring at the Mac?" must be answerable from
+        // the log): the notice kind, send / cancel / wait and what the server knew; never what the notice says
+        this.ctx.log.info('phone push decision',{event:allowed.event,decision:d.kind,reason:d.reason??'n/a',user:row.user_id,device:row.subscription_id.slice(-6)})
         if(d.kind==='wait'){this.ctx.db.query(`UPDATE ${src.deliveries} SET next_at=? WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(this.iso(d.until),row.notification_id,row.subscription_id);continue}
         if(d.kind==='cancel'){
           this.ctx.db.query(`UPDATE ${src.deliveries} SET state='cancelled',lease_until=NULL WHERE notification_id=? AND subscription_id=? AND state='pending'`).run(row.notification_id,row.subscription_id)
-          this.ctx.log.debug('push delivery cancelled',{kind:'native',reason:'at_trina'})
           continue
         }
       }
