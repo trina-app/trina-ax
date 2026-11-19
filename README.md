@@ -16,7 +16,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 </div>
 
-https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
+https://github.com/user-attachments/assets/2d0b9459-eae5-4e14-9486-ea81b0fd056c
 
 <p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>Then press ☆ Star at the top of the page. A star helps more teams find Trina AX.</sub></p>
 

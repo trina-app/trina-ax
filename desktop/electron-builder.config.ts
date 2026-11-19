@@ -61,6 +61,12 @@ export default {
       NSDownloadsFolderUsageDescription: 'Looks for work files here. File contents stay on this Mac until you choose to add them.',
       CFBundleLocalizations: ['en', 'ko', 'zh-Hans', 'ja', 'es', 'id'],
     },
+    // voice input's on-device helper (desktop/native/dictation/build.sh, run by the dist:mac* scripts) next to the app's
+    // own program in Contents/MacOS; electron-builder signs it with the app (hardened runtime, the inherit
+    // entitlements). It reads sound from the app, never the microphone, so it needs no permission of its own.
+    extraFiles: [{ from: 'native-build/dictation', to: 'MacOS/dictation' }],
+    // it is universal already, so the arm64 and x64 apps hold the same file: @electron/universal takes it as it is
+    x64ArchFiles: 'Contents/MacOS/dictation',
     extraResources: Object.entries({ en: 'en', ko: 'ko', 'zh-Hans': 'zh-Hans', zh_CN: 'zh-Hans', ja: 'ja', es: 'es', es_419: 'es', id: 'id' })
       .map(([folder, lang]) => ({ from: `build-resources/mac-infoplist/${lang}.strings`, to: `${folder}.lproj/InfoPlist.strings` })),
   },

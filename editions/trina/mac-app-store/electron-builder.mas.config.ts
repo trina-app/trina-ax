@@ -36,6 +36,8 @@ export default {
   mac: {
     ...base.mac,
     target: [{ target: 'mas', arch: ['universal'] }],
+    // no on-device voice input helper in the store build (its sandbox): the team server transcribes there
+    extraFiles: [],
     extendInfo: { ...base.mac.extendInfo, ElectronTeamID: TEAM_ID, ITSAppUsesNonExemptEncryption: false },
   },
   mas: {

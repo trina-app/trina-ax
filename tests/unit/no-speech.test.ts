@@ -7,7 +7,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { pieceWav } from '@mycel/shared/speech-pieces'
-import { keepSpeech, learnedLine, NOT_WORDS, silent, soundOf, stripSoundTags, withoutSoundTags } from '../../server/src/jobs/no-speech'
+import { keepSpeech, learnedLine, letterLoop, NOT_WORDS, silent, soundOf, stripSoundTags, withoutSoundTags } from '../../server/src/jobs/no-speech'
 import { parseWhisperJson, whisperUnsure } from '../../server/src/jobs/transcribe'
 import { openRouterUnsure, parseOpenRouter, openRouterSpeech } from '../../server/src/jobs/openrouter-stt'
 import { pieceOf, saysOtherLanguage } from '../../server/src/files/media'
@@ -176,7 +176,9 @@ describe('keepSpeech', () => {
   })
   test('weak sound and an unsure whisper: nothing (letters in a loop over a hum); a sure answer stays', () => {
     expect(keepSpeech(said('ḍ ḍ ḍ ḍ ḍ ḍ'), soundOf(noise(3, -50)), true).text).toBe('')
-    expect(keepSpeech(said('ḍ ḍ ḍ ḍ ḍ ḍ'), soundOf(noise(3, -50)), false).text).toBe('ḍ ḍ ḍ ḍ ḍ ḍ')
+    expect(keepSpeech(said('Okay'), soundOf(noise(3, -50)), false).text).toBe('Okay')
+    // a loop of one letter goes even when whisper was sure of it (2026-11-19: real fan and office noise)
+    expect(keepSpeech(said('ḍ ḍ ḍ ḍ ḍ ḍ'), soundOf(noise(3, -50)), false).text).toBe('')
     // no sound to look at (a format the server did not decode): learned lines only when whisper was unsure
     expect(keepSpeech(said('Thank you.'), null, false).text).toBe('Thank you.')
     expect(keepSpeech(said('Thank you.'), null, true).text).toBe('')
@@ -295,5 +297,20 @@ describe("whisper's own signals", () => {
     expect(openRouterSpeech(u, soundOf(noise())).text).toBe('')
     // a provider without the fields: nothing changes
     expect(openRouterUnsure(parseOpenRouter({ text: 'hi' }, { language: null, durationSec: 1 }))).toBe(false)
+  })
+})
+
+describe('one letter over and over', () => {
+  // measured 2026-11-19: whisper.cpp small wrote these for a fan and an office's hum at 5-10 dB below speech
+  test('a loop of one letter is no speech, whatever the sound; a person saying it stays', () => {
+    for (const t of ['ლლლლლ', 'වවවවවවවවවවවවවවවවවවවව', 'ⴰⴰⴰⴰⴰⴰ']) {
+      expect(letterLoop(t)).toBe(true)
+      expect(keepSpeech(said(t), null, false).text).toBe('')
+    }
+    // Korean laughter, short words and repeated punctuation are not loops
+    for (const t of ['ㅋㅋㅋㅋㅋ', '네', 'aaaa', '...........', 'Thank you.']) expect(letterLoop(t)).toBe(false)
+    // only the loop line goes; the words around it stay
+    const two = { ...said('hello there'), segments: [{ start: 0, end: 1, text: 'hello there' }, { start: 1, end: 2, text: 'ლლლლლლლ' }] }
+    expect(keepSpeech(two, null, false).text).toBe('hello there')
   })
 })
