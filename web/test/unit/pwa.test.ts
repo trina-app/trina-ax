@@ -36,6 +36,8 @@ describe('install guide', () => {
     expect(platformOf(UA.linux, 'Linux aarch64', 5)).toBe('other')
     // never ChromeOS: the Linux desktop app does not run there
     expect(platformOf(UA.chromebook, 'Linux x86_64', 0)).toBe('other')
+    // other Unix desktops have no Linux app
+    expect(platformOf('Mozilla/5.0 (X11; FreeBSD amd64; rv:140.0) Gecko/20100101 Firefox/140.0', 'FreeBSD amd64', 0)).toBe('other')
     expect(platformOf('', '', 0)).toBe('other')
   })
   test('installed: display-mode standalone or iOS navigator.standalone', () => {

@@ -46,16 +46,17 @@ export const standaloneOf = (displayStandalone: boolean, navStandalone: unknown)
 export const isStandalone = () => typeof window !== 'undefined' && standaloneOf(!!window.matchMedia?.('(display-mode: standalone)').matches, (navigator as { standalone?: boolean }).standalone)
 export type Platform = 'ios' | 'android' | 'mac' | 'windows' | 'linux' | 'other'
 /** iPadOS Safari says "Macintosh", so a Mac with touch points is an iPad. Linux: a Linux desktop's browser (X11 or
- * Wayland, "Linux" in the user agent), never Android (its user agent says Linux too), ChromeOS ("CrOS": the Linux
+ * Wayland, "Linux" in the user agent; not FreeBSD and the like, whose "X11" user agent names no Linux), never Android (its user agent says Linux too), ChromeOS ("CrOS": the Linux
  * desktop app does not run there) or an Android tablet asking for the desktop site (Chrome then sends a Linux desktop
- * user agent, but the device has touch points and an ARM processor in navigator.platform). */
+ * user agent, but the device has touch points and an ARM processor in navigator.platform; an ARM Linux laptop with a
+ * touchscreen is missed that way and gets no app link, the price of never offering a Linux app to a tablet). */
 export function platformOf(ua: string, navPlatform = '', maxTouchPoints = 0): Platform {
   if (/iPad|iPhone|iPod/.test(ua) || (navPlatform === 'MacIntel' && maxTouchPoints > 1)) return 'ios'
   if (/Android/i.test(ua)) return 'android'
   if (/Macintosh|Mac OS X/i.test(ua)) return 'mac'
   if (/Windows/i.test(ua)) return 'windows'
   if (/CrOS/.test(ua)) return 'other'
-  if (/Linux|X11/.test(ua)) return maxTouchPoints > 0 && /arm|aarch64/i.test(navPlatform) ? 'other' : 'linux'
+  if (/Linux/.test(ua)) return maxTouchPoints > 0 && /arm|aarch64/i.test(navPlatform) ? 'other' : 'linux'
   return 'other'
 }
 /** The computers the desktop app is made for (macOS, Windows, Linux): their browsers get its `<scheme>://` links. */

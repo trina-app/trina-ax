@@ -127,7 +127,9 @@ if [ "$mode" = start ]; then
   start_app start "$(installed_program)"
   check_handler
   done_step
-  XX
+  step "remove"
+  sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "the remove did not finish"; }
+  [ ! -e "/usr/bin/$EXE" ] && [ ! -f "$DESKTOP_FILE" ] && [ ! -f "$PROFILE" ] || fail "files left after remove"
   done_step
   echo "arm64 .deb: installed, started sandboxed, removed"
   exit 0
