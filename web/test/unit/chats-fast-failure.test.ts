@@ -1,5 +1,5 @@
 // An answer that failed at once (the team's AI usage used up: the server ended the turn ~100 ms after it began) stayed
-// on "Thinking…" with Stop showing until the page was reloaded (owner report 2026-11-19, potenlab). The chat's messages
+// on "Thinking…" with Stop showing until the page was reloaded (owner report 2026-11-19). The chat's messages
 // were being read when the events came: the answer's "created" copy (still running) waited for the read and was
 // applied after its end, which had already come; the end was taken back and, since the page knew the answer had
 // ended, nothing read it again. An older running copy never replaces a finished answer.

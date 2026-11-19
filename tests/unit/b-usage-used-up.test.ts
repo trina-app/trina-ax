@@ -1,4 +1,4 @@
-// The AI accounts at their provider's limit (owner report 2026-11-19, potenlab: every team Claude account at its weekly
+// The AI accounts at their provider's limit (owner report 2026-11-19: every team Claude account at its weekly
 // limit for two more days). The answer ended at once, as it should, but said "the AI usage limit was reached for now,
 // try again a bit later". A wait of up to an hour keeps those words; a longer one says the usage has run out, with
 // when it starts again (params.until) for the web app's words by role. Both stay rate_limited (the "answer with another
