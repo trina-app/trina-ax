@@ -50,6 +50,8 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(html).toContain('<html lang="en">')
     expect(html).toContain('cf-turnstile')
     expect(en.headers.get('content-security-policy')).toContain('challenges.cloudflare.com')
+    // no-referrer would make browsers send `Origin: null` on the Start form, which start() refuses
+    expect(en.headers.get('referrer-policy')).toBe('same-origin')
     const ko = await get(g, visitor(), '/?lang=ko', { headers: { 'accept-language': 'en-US' } })
     expect(await ko.text()).toContain('<html lang="ko">')
     const byBrowser = await get(g, visitor(), '/', { headers: { 'accept-language': 'ko-KR,ko;q=0.9' } })
@@ -139,6 +141,9 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(JSON.stringify(e.config)).not.toContain(FAKE_CREDENTIAL)
     const mode = fs.statSync(path.join(e.dir, 'config', 'server.json')).mode & 0o777
     expect(mode).toBe(0o600)
+    // the snapshot's group-readable files are the instance user's alone in the clone (the server refuses a shared key)
+    expect(fs.statSync(path.join(e.dir, 'secrets', 'credentials.key')).mode & 0o077).toBe(0)
+    expect(fs.statSync(e.dir).mode & 0o077).toBe(0)
   })
 
   test('deny paths never reach the instance; WebSocket and HTTP denials alike', async () => {

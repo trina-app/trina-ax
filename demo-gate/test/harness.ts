@@ -94,6 +94,9 @@ function writeSnapshot(dir: string, locale: string, version: string, name = 'sna
   fs.mkdirSync(path.join(s, 'base', 'config'), { recursive: true })
   fs.mkdirSync(path.join(s, 'base', 'data'), { recursive: true })
   fs.mkdirSync(path.join(s, 'base', 'secrets'), { recursive: true })
+  // as hosting leaves a snapshot: group-readable, so the instance user can clone it (demo-gate/README.md)
+  fs.writeFileSync(path.join(s, 'base', 'secrets', 'credentials.key'), 'k'.repeat(32))
+  fs.chmodSync(path.join(s, 'base', 'secrets', 'credentials.key'), 0o640)
   fs.writeFileSync(path.join(s, 'manifest.json'), JSON.stringify({ codeVersion: version, locale, createdAt, config: 'config/server.json', ...(o.noDemoFile ? {} : { demoFile: 'demo.json' }) }))
   for (const [k, v] of Object.entries(o.files ?? {})) fs.writeFileSync(path.join(s, 'base', k), v)
   fs.writeFileSync(path.join(s, 'base', 'config', 'server.json'), JSON.stringify({
