@@ -19,7 +19,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
@@ -46,6 +46,7 @@ import { DesktopUpdater } from './updater'
 import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
 import { LocalAppsHost } from './local-apps'
+import { DictationHost } from './dictation'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -157,6 +158,11 @@ let win: AppWindow | undefined
 const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
 /** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
 let localApps: LocalAppsHost | undefined
+// voice input transcribed on this Mac (main/dictation.ts): the page that started the recording gets its words
+let dictationPage: WebContents | null = null
+const dictation = new DictationHost({
+  send: (ev) => { if (dictationPage && !dictationPage.isDestroyed()) dictationPage.send('bridge:dictation-event', ev) },
+})
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -296,8 +302,34 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION, dictation: process.mas ? 0 : dictation.version() } : null
   })
+  // voice input on this Mac (main/dictation.ts): the team page's top frame only; the sound comes in as samples, the
+  // words go back to that page alone, and a reload or another page ends its recording
+  const dictationLanguage = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '')
+  ipcMain.handle('bridge:dictation-check', (e, lang: unknown) => (fromApp(e) && !process.mas ? dictation.check(dictationLanguage(lang)) : { state: 'unavailable' }))
+  ipcMain.handle('bridge:dictation-install', (e, lang: unknown) => {
+    if (!fromApp(e) || process.mas) return 'failed'
+    const language = dictationLanguage(lang)
+    const page = e.sender
+    return dictation.install(language, (percent) => { if (!page.isDestroyed()) page.send('bridge:dictation-progress', { language, percent }) })
+  })
+  ipcMain.handle('bridge:dictation-start', async (e, lang: unknown) => {
+    if (!fromApp(e) || process.mas) return null
+    const page = e.sender
+    if (dictationPage !== page) {
+      dictationPage = page
+      const end = () => { if (dictationPage === page) { dictation.stopAll(); dictationPage = null } }
+      page.once('destroyed', end)
+      page.once('did-navigate', end)
+    }
+    return dictation.start(dictationLanguage(lang))
+  })
+  // a refused microphone is turned on again in System Settings (a fixed address; the page names nothing)
+  ipcMain.on('bridge:mic-settings', (e) => { if (fromApp(e) && process.platform === 'darwin') void shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone').catch(() => {}) })
+  ipcMain.on('bridge:dictation-push', (e, id: unknown, samples: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && samples instanceof Float32Array && dictation.push(id, samples))
+  ipcMain.on('bridge:dictation-stop', (e, id: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && dictation.stop(id))
+  ipcMain.on('bridge:dictation-cancel', (e, id: unknown) => fromApp(e) && e.sender === dictationPage && typeof id === 'number' && dictation.cancel(id))
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
     const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
@@ -576,7 +608,7 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll() })
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll(); dictation.stopAll() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
     // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),

@@ -7,8 +7,8 @@ import type { RecorderErrorCode } from './recorder'
 /** Where the microphone was blocked, and so where it is allowed again: the browser's site settings (app: null), or the
  * phone's Settings for this app (iPhone and iPad: Settings › {product} › Microphone; Android: Apps › {product} ›
  * Permissions). The app's bridge says which phone it is (lib/mobile.ts mobileApp), not the user agent. */
-export function micDeniedKey(app: Pick<MobileConfig, 'platform'> | null): 'voice.denied' | 'voice.deniedIos' | 'voice.deniedAndroid' {
-  if (!app) return 'voice.denied'
+export function micDeniedKey(app: Pick<MobileConfig, 'platform'> | null, mac = false): 'voice.denied' | 'voice.deniedIos' | 'voice.deniedAndroid' | 'voice.deniedMac' {
+  if (!app) return mac ? 'voice.deniedMac' : 'voice.denied'
   return app.platform === 'ios' ? 'voice.deniedIos' : 'voice.deniedAndroid'
 }
 
@@ -32,15 +32,16 @@ export function androidAppWithoutMic(app: Pick<MobileConfig, 'platform' | 'appVe
  * - no microphone (a computer without one) or one that did not start: never "blocked". Inside the phone app the phone
  *   always has one, so both are "could not start" there; the Android app 1.0.8 and older is told to update (it lacked a
  *   permission the WebView needs, QA TC-4740), any other app version to try again. */
-export function micErrorKey(code: RecorderErrorCode, o: { app: Pick<MobileConfig, 'platform' | 'appVersion'> | null; permission: PermissionState | null; refusedBefore?: boolean }): MicErrorKey {
+export function micErrorKey(code: RecorderErrorCode, o: { app: Pick<MobileConfig, 'platform' | 'appVersion'> | null; mac?: boolean; permission: PermissionState | null; refusedBefore?: boolean }): MicErrorKey {
   if (code === 'unsupported') return 'voice.unsupported'
-  if (code === 'denied') return !o.app && o.permission === 'prompt' && !o.refusedBefore ? 'voice.notAllowed' : micDeniedKey(o.app)
+  // the Mac app: macOS asked (once) and the answer is in System Settings, as on a phone
+  if (code === 'denied') return !o.app && !o.mac && o.permission === 'prompt' && !o.refusedBefore ? 'voice.notAllowed' : micDeniedKey(o.app, o.mac === true)
   if (o.app) return androidAppWithoutMic(o.app) ? 'voice.micFailedApp' : 'voice.micFailedPhone'
   return code === 'missing' ? 'voice.noMic' : 'voice.micFailed'
 }
 
 /** Whether that wording is "blocked", so the phone app shows its Open Settings beside it. */
-export const micBlocked = (key: MicErrorKey) => key === 'voice.denied' || key === 'voice.deniedIos' || key === 'voice.deniedAndroid'
+export const micBlocked = (key: MicErrorKey) => key === 'voice.denied' || key === 'voice.deniedIos' || key === 'voice.deniedAndroid' || key === 'voice.deniedMac'
 
 /** Settings › Notifications › "Show message preview": the Android app's pushes carry no text and the app does not ask
  * its team for the first line yet (the iPhone app's notification extension does, docs/DECISIONS.md "아이폰 알림의
