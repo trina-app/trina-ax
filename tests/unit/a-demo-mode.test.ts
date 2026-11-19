@@ -105,7 +105,7 @@ describe('with MYCEL_DEMO on a development server', () => {
     const anon = h.client()
     const info = await anon.call('GET', API.demoInfo.path)
     expect(info).toEqual({
-      company: 'Acme', sameQuestion: '이번 분기 예산 요약해 줘', current: null, network: false,
+      company: 'Acme', sameQuestion: '이번 분기 예산 요약해 줘', current: null, network: false, kind: 'scripted',
       personas: [
         { key: 'newHire', name: 'NEWBIE', team: '마케팅팀', intro: '오늘 입사한 신입이에요', questions: ['휴가 규정 알려줘'] },
         { key: 'lead', name: 'LEAD', team: null, intro: '팀장이에요', questions: ['이번 분기 예산 요약해 줘'] },

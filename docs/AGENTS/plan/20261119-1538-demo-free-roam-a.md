@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 15:38
 - Branch: `feat/demo-free-roam-a`
-- Status: in progress
+- Status: done
 - Where: server/ and shared/ (demo mode). Why: the per-visitor demo instance is an ordinary server; everything it
   must refuse is decided on the server, whoever asks (see docs/REPOSITORY-RULES.md).
 - Version impact: none (a demo-only switch; no change for any installed server)
@@ -46,4 +46,4 @@ docs/decisions/20261119-demo-free-roam-a.md
 
 ## Result
 
-(filled in at the end)
+Built as planned, plus the coordinator's ask: demo-gate's 403 budget_exceeded ends a turn as a budget stop ("The live demo is resting"), and every other failed answer reads "The demo is busy, try again in a bit.". Tests: tests/unit/a-demo-free-roam.test.ts.

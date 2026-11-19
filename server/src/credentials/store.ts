@@ -60,7 +60,7 @@ export interface CredCtx {
   db: Database
   vault: Vault
   sealer: Sealer
-  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'>
+  config: Pick<AppConfig, 'engine' | 'mode' | 'dataDir'> & Partial<Pick<AppConfig, 'demo'>>
   /** the kinds this server allows, and its Anthropic-compatible gateway (app-config allowedCredentialKinds) */
   allowedKinds: Set<CredentialKind> & { gateway: string | null }
   upstreams: ModelUpstreams

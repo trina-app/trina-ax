@@ -333,7 +333,9 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
 
   const port = env[P + 'PORT'] !== undefined ? Number(env[P + 'PORT']) : f.listen.port
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new ConfigError(`${P}PORT must be a port number`)
-  const level = (env[P + 'LOG_LEVEL'] ?? f.logLevel ?? (mode === 'dev' ? 'debug' : 'info')) as AppConfig['logLevel']
+  // a free-roam demo instance (readDemoFile below) logs like an installed server: a visitor's words stay out of debug lines
+  const freeRoamFile = demoKindHint(env[P + 'DEMO'], cwd) === 'freeRoam'
+  const level = (env[P + 'LOG_LEVEL'] ?? f.logLevel ?? (mode === 'dev' && !freeRoamFile ? 'debug' : 'info')) as AppConfig['logLevel']
   if (!['debug', 'info', 'warn', 'error'].includes(level)) throw new ConfigError(`${P}LOG_LEVEL must be debug, info, warn or error`)
   const origins = env[P + 'PUBLIC_ORIGINS'] !== undefined ? env[P + 'PUBLIC_ORIGINS']!.split(',').map((s) => s.trim()).filter(Boolean) : f.publicOrigins
   const logDirRaw = env[P + 'LOG_DIR'] ?? (f.logDir === undefined ? def.logDir : f.logDir)
@@ -346,7 +348,13 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
   // two answers to "where do Claude requests go" is a mistake; a local-login engine never uses the proxy
   if (f.engine.anthropicGateway && (f.engine.modelUpstreams?.anthropic || f.engine.modelUpstream)) throw new ConfigError(`config file ${file}: engine.anthropicGateway and engine.modelUpstreams.anthropic (or modelUpstream) cannot both be set`)
   if (f.engine.anthropicGateway && normalizeAuthMode(f.engine.authMode) !== 'managed') throw new ConfigError(`config file ${file}: engine.anthropicGateway needs engine.authMode "managed"`)
-  const demo = readDemoFile(env[P + 'DEMO'], { mode, deployment, office: !!f.office }, cwd)
+  const relayUrl = env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url
+  const demo = readDemoFile(env[P + 'DEMO'], {
+    mode, deployment, office: !!f.office,
+    authMode: normalizeAuthMode(f.engine.authMode), host: env[P + 'HOST'] ?? f.listen.host, relayUrl,
+    outside: !!(f.tls || f.tunnel || f.tailnet), modelUpstream: f.engine.modelUpstreams?.anthropic ?? f.engine.modelUpstream ?? null,
+    gateway: !!f.engine.anthropicGateway, devEnv: env[P + 'DEV_ENV'] === '1', logLevel: level,
+  }, cwd)
   const obsolete = Object.keys(OBSOLETE_KEYS).filter((k) => (f as Record<string, unknown>)[k] !== undefined)
   const pushGateway = resolvePushGateway(env[P + 'PUSH_GATEWAY'], f.push?.gatewayUrl, mode === 'prod' || f.office ? SERVICE_HOSTS.pushGatewayUrl : '')
   if (pushGateway !== null && !/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(pushGateway) && !/^http:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d{1,5}$/.test(pushGateway)) throw new ConfigError(`push gateway must be https://<host> or http://127.0.0.1:<port> (${P}PUSH_GATEWAY or push.gatewayUrl)`)
@@ -382,7 +390,7 @@ export function loadAppConfig(o: LoadOptions = {}): AppConfig {
       ...(f.engine.anthropicGateway ? { anthropicGateway: f.engine.anthropicGateway } : {}),
     },
     relay: {
-      url: env[P + 'RELAY_URL'] !== undefined ? (env[P + 'RELAY_URL'] || null) : f.relay.url,
+      url: relayUrl,
       teamName: env[P + 'RELAY_TEAM'] ?? f.relay.teamName,
       officialAvailable: env[P + 'RELAY_OFFICIAL'] !== undefined ? env[P + 'RELAY_OFFICIAL'] === '1' : f.relay.officialAvailable,
     },
@@ -417,7 +425,39 @@ export function resolvePushGateway(envValue: string | undefined, fileValue: stri
   return editionDefault || null
 }
 
-export function readDemoFile(value: string | undefined, where: { mode: 'dev' | 'prod'; deployment?: 'self' | 'hosted'; office: boolean }, cwd = process.cwd()): DemoFile | null {
+/** Where a demo server runs, for readDemoFile's checks. The free-roam fields are given by loadAppConfig; a caller that
+ * leaves them out (an older test) gets a scripted demo only: a free-roam file is refused without them. */
+export interface DemoWhere {
+  mode: 'dev' | 'prod'; deployment?: 'self' | 'hosted'; office: boolean
+  authMode?: 'local-login' | 'managed'
+  /** the listener's host */
+  host?: string
+  relayUrl?: string | null
+  /** a TLS listener, a public tunnel or a Tailscale address */
+  outside?: boolean
+  /** engine.modelUpstreams.anthropic (or modelUpstream) */
+  modelUpstream?: string | null
+  /** engine.anthropicGateway is set */
+  gateway?: boolean
+  /** MYCEL_DEV_ENV=1 (the dev environment) */
+  devEnv?: boolean
+  logLevel?: AppConfig['logLevel']
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]'])
+/** an http(s) address on this machine's loopback (a path is allowed: demo-gate's per-instance /i/<id>.<secret>) */
+export function loopbackUrl(u: string | null | undefined): boolean {
+  if (!u) return false
+  try { const x = new URL(u); return (x.protocol === 'http:' || x.protocol === 'https:') && LOOPBACK_HOSTS.has(x.hostname) && !x.username && !x.password } catch { return false }
+}
+
+/** the demo file's kind, read without checking it (the log level is picked before readDemoFile runs) */
+function demoKindHint(value: string | undefined, cwd: string): string | null {
+  if (!value) return null
+  try { const k = (JSON.parse(fs.readFileSync(path.resolve(cwd, value), 'utf8')) as { kind?: unknown }).kind; return typeof k === 'string' ? k : null } catch { return null }
+}
+
+export function readDemoFile(value: string | undefined, where: DemoWhere, cwd = process.cwd()): DemoFile | null {
   if (value === undefined || value === '') return null
   const P = PRODUCT.envPrefix
   if (where.mode !== 'dev' || where.deployment === 'hosted' || where.office) {
@@ -428,8 +468,26 @@ export function readDemoFile(value: string | undefined, where: { mode: 'dev' | '
   try { raw = JSON.parse(fs.readFileSync(file, 'utf8')) } catch (e) { throw new ConfigError(`${P}DEMO: cannot read the demo file ${file}: ${(e as Error).message}`) }
   const parsed = DemoFile.safeParse(raw)
   if (!parsed.success) throw new ConfigError(`${P}DEMO: ${file} is not a demo file: ${parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+  if (parsed.data.kind === 'freeRoam') {
+    // one visitor's own instance behind demo-gate (docs/decisions/20261119-demo-free-roam-a.md): only reachable through
+    // the gate, its AI only through the gate, nothing of this machine's own
+    const why = [
+      where.authMode !== 'managed' ? 'engine.authMode must be "managed"' : '',
+      !where.host || !LOOPBACK_HOSTS.has(where.host) ? 'listen.host must be 127.0.0.1 (the gate is the only way in)' : '',
+      where.relayUrl ? 'the relay must be off (relay.url null, MYCEL_RELAY_URL empty)' : '',
+      where.outside ? 'no tls, tunnel or tailnet' : '',
+      where.gateway ? 'no engine.anthropicGateway' : '',
+      !loopbackUrl(where.modelUpstream) ? 'engine.modelUpstreams.anthropic must be the gate on 127.0.0.1' : '',
+      where.devEnv ? `${P}DEV_ENV must be off` : '',
+      where.logLevel === 'debug' ? 'no debug log level' : '',
+    ].filter(Boolean)
+    if (why.length) throw new ConfigError(`${P}DEMO: ${file} is a free-roam demo, which needs: ${why.join('; ')}.`)
+  }
   return parsed.data
 }
+
+/** A free-roam demo instance (DemoFile.kind "freeRoam", readDemoFile): one visitor, behind demo-gate. */
+export const isFreeRoam = (cfg: { demo?: DemoFile | null }): boolean => cfg.demo?.kind === 'freeRoam'
 
 /** The AI connection kinds this server allows: engine.credentialKinds, else the deployment's default — all four on a
  * self-installed server or office Mac and on the hosted service (shared/src/cloud-protocol
