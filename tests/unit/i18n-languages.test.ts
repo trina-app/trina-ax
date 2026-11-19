@@ -124,6 +124,8 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/api/errors.ts': { why: 'error messages (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored errors', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/step-labels.ts': { why: 'step words (ko next to en/id/ja/es); the older wordings (합니다체, and every language before the plain-words pass) kept only to match stored steps', also: /^\s*\w+: '[^']*니다[^']*',$|^\s*\w+: \[.*\],$/ },
   'shared/src/secrets.ts': { why: 'Korean words that announce a password or token in pasted text (not screen text)', also: /비밀번호\|비번\|패스워드/ },
+  'shared/src/search-text.ts': { why: 'the Korean particles a room message search leaves off a word ("회의를" is searched as "회의") and the Hangul syllable range (grammar, not screen text)', also: /^const (PARTICLES|HANGUL_WORD)\b/ },
+  'server/src/rooms/search.ts': { why: 'from:나 (Korean for from:me) and the Hangul syllable range a search ranks with (not screen text)', also: /v === '나'|^const HANGUL = / },
   'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'shared/src/service-catalog.ts': { why: 'the Korean and Japanese names people type for a listed service (노션, 피그마), matched when someone asks for it (not screen text)', also: /aliases: \[/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
