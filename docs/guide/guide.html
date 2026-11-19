@@ -150,7 +150,7 @@ dl.kv dd{ color:var(--ink-2);}
   <div class="smile"></div>
   <div class="who"><span>팀원</span><span>팀장·관리자</span><span>웹 · 맥 앱 · 휴대폰</span></div>
   <div class="meta">
-    <div><b>Trina AX · 최신 릴리스 기준</b> · 2026년 10월</div>
+    <div><b>Trina AX · 최신 릴리스 기준</b> · 2026년 11월</div>
     <div>화면은 실제 앱(데모 팀)에서 찍었어요.</div>
   </div>
 </div>
@@ -190,7 +190,7 @@ dl.kv dd{ color:var(--ink-2);}
 <!-- ============================================================ 1 -->
 <section class="chap" id="c1">
   <div class="chap-head"><span class="no">01</span><h2>Trina AX가 뭔가요</h2></div>
-  <p class="lead">Trina AX는 우리 팀이 함께 쓰는 AI 작업 공간이에요. ChatGPT나 Claude처럼 대화하면서, <b>팀 폴더에 있는 회의록·엑셀·PDF를 AI가 직접 읽고 정리</b>해 줘요. 사무실 맥 한 대(팀 서버)에서 돌아가고, 팀 파일과 대화는 그 맥에 저장돼요.</p>
+  <p class="lead">Trina AX는 우리 팀이 함께 쓰는 AI 작업 공간이에요. ChatGPT나 Claude처럼 대화하면서, <b>팀 폴더에 있는 회의록·엑셀·PDF를 AI가 직접 읽고 정리</b>해 줘요. 팀 서버(트리나 호스팅, 회사의 리눅스 서버나 사무실 맥)에서 돌아가고, 팀 파일과 대화는 그 서버에 저장돼요.</p>
 
   <h3>가장 중요한 한 가지: 각자 볼 수 있는 만큼만</h3>
   <p>내 AI는 <b>내가 볼 수 있는 폴더만</b> 읽고 쓸 수 있어요. 재무팀 폴더를 못 보는 사람이 AI에게 “급여 파일 보여 줘”라고 해도, AI는 그런 파일이 없는 것처럼 대답해요.</p>
@@ -199,7 +199,7 @@ dl.kv dd{ color:var(--ink-2);}
   <div class="folders">
     <div class="fd"><div class="k">공용</div><div class="p">shared</div><div class="w">팀 모두가 보고 고치는 곳. 회의록, 회사 소개서처럼 다 같이 쓰는 자료.</div></div>
     <div class="fd"><div class="k">그룹</div><div class="p">groups/마케팅</div><div class="w">그 그룹 사람만 봐요. 그룹을 만들면 폴더가 같이 생겨요.</div></div>
-    <div class="fd"><div class="k">프로젝트</div><div class="p">projects/신제품-출시</div><div class="w">프로젝트마다 누가 보고 누가 고칠지 따로 정해요.</div></div>
+    <div class="fd"><div class="k">프로젝트</div><div class="p">projects/신제품-출시</div><div class="w">그 프로젝트의 멤버만 봐요. 멤버는 프로젝트에서 정해요.</div></div>
     <div class="fd me"><div class="k">내 폴더</div><div class="p">users/내 아이디</div><div class="w">앱에서는 <b>나만</b> 봐요. 팀장·관리자 화면에도 안 나와요. 내가 첨부한 파일도 여기 들어가요.</div></div>
   </div>
   <p class="small">이 밖에 ‘skills’(팀 규칙) 폴더에는 모두가 따르는 답변 규칙(예: 금액은 “1,500만 원”처럼 쓰기)이 있어요. 모두 읽을 수 있고, AI가 대답할 때마다 참고해요.</p>
@@ -211,11 +211,11 @@ dl.kv dd{ color:var(--ink-2);}
     <tr><td>groups/마케팅</td><td class="c yes">고칠 수 있음</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td></tr>
     <tr><td>groups/재무</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td><td class="c yes">고칠 수 있음</td></tr>
     <tr><td>groups/재무/급여</td><td class="c no">안 보임</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td></tr>
-    <tr><td>projects/신제품-출시</td><td class="c yes">고칠 수 있음</td><td class="c ro">볼 수만 있음</td><td class="c yes">고칠 수 있음</td></tr>
+    <tr><td>projects/신제품-출시</td><td class="c yes">고칠 수 있음</td><td class="c no">안 보임</td><td class="c yes">고칠 수 있음</td></tr>
     <tr><td>users/alice (Alice의 폴더)</td><td class="c yes">고칠 수 있음</td><td class="c no">안 보임</td><td class="c no">안 보임</td></tr>
   </table>
   <p class="small" style="margin-top:-2mm">급여 폴더는 재무 그룹이라도 따로 막아 두었어요. 이렇게 하위 폴더마다 다르게 정할 수 있어요.</p>
-  <figure class="shot center" style="width:72%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Alice가 새 채팅을 열면 보이는 카드. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. Bob의 카드에는 groups/마케팅 대신 groups/재무가 있고, 신제품-출시는 자물쇠(읽기 전용)로 보여요.</figcaption></figure>
+  <figure class="shot center" style="width:72%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>Alice가 새 채팅을 열면 보이는 카드. 연필은 쓰기 가능, 자물쇠는 읽기 전용이에요. Bob의 카드에는 groups/마케팅 대신 groups/재무가 있고, 신제품-출시는 없어요(프로젝트 멤버가 아니에요).</figcaption></figure>
   <div class="note"><b>AI는 두 종류가 있어요</b><p>Claude(기본)와 Codex예요. 대부분은 기본 그대로 쓰면 돼요. 답을 만들 때 질문과 AI가 읽은 내용은 그 AI 회사(Claude는 Anthropic, Codex는 OpenAI)로 보내져요(10장 참고).</p></div>
 </section>
 
@@ -225,35 +225,35 @@ dl.kv dd{ color:var(--ink-2);}
   <p class="lead">어디로 들어와도 같은 계정, 같은 채팅, 같은 파일이에요. <b>팀 주소</b>는 팀장이 알려 줘요.</p>
   <ul>
     <li><b>웹 브라우저</b> — 설치 없이 크롬·엣지·사파리에서 팀 주소를 열어요. 가장 간단해요.</li>
-    <li><b>데스크톱 앱</b>(맥) — AI에게 웹사이트 일을 맡기고 싶을 때(7장) Mac App Store에서 받아요.</li>
-    <li><b>휴대폰</b> — 휴대폰 브라우저로 팀 주소를 열고 홈 화면에 추가해요.</li>
+    <li><b>데스크톱 앱</b>(맥·윈도우) — AI에게 웹사이트 일을 맡기고 싶을 때(7장) 받아요.</li>
+    <li><b>휴대폰</b> — App Store·Google Play의 Trina AX 앱, 또는 휴대폰 브라우저로 팀 주소를 열어요.</li>
   </ul>
   <p class="small">팀 설정에 따라 팀 주소가 사무실 안에서만 열릴 수도 있어요. 밖이나 휴대폰에서 안 열리면 팀장에게 물어보세요.</p>
 
   <h3>휴대폰</h3>
   <div class="row">
     <div class="side">
-      <p>휴대폰 브라우저에서 팀 주소를 열고 로그인해요. 앱처럼 쓰려면 홈 화면에 추가하세요.</p>
+      <p>아이폰은 <a href="https://apps.apple.com/app/id6829192435">App Store</a>, 안드로이드는 <a href="https://play.google.com/store/apps/details?id=app.trina.ax">Google Play</a>에서 Trina AX 앱을 받아 팀 주소를 넣어요. 앱 없이 휴대폰 브라우저로 팀 주소를 열어도 돼요. 브라우저에서 앱처럼 쓰려면 홈 화면에 추가하세요.</p>
       <ul>
         <li><b>아이폰</b>: 사파리 아래 공유 버튼 → <b>홈 화면에 추가</b>. 추가한 아이콘으로 열면 한 번 더 로그인해요.</li>
         <li><b>안드로이드</b>: 크롬 메뉴(⋮) → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b>.</li>
       </ul>
-      <p>휴대폰에서는 아래쪽 탭 <b>트리나 · 대화 · 파일 · 나</b>로 옮겨 다녀요. 설정과 로그아웃은 <b>나</b>에 있어요.</p>
+      <p>휴대폰에서는 아래쪽 탭 <b>트리나 · 대화 · 프로젝트 · 파일 · 나</b>로 옮겨 다녀요. 설정과 로그아웃은 <b>나</b>에 있어요.</p>
       <p>입력창에는 <b>사진 찍기</b> 버튼이 더 있어서, 영수증이나 화이트보드를 찍어 바로 물어볼 수 있어요.</p>
       <p class="small">컴퓨터에서도 크롬·엣지 주소창 오른쪽의 설치 아이콘을 누르면 웹 화면을 앱처럼 띄울 수 있어요.</p>
     </div>
     <figure class="shot" style="flex:.6"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>휴대폰에서 본 채팅.</figcaption></figure>
   </div>
   <h3>데스크톱 앱 설치 — 맥</h3>
-  <p>맥 앱은 <b>Mac App Store</b>에서 받아요. 경고 창이 나오지 않고, 새 버전도 저절로 받아요.</p>
+  <p>맥 앱은 <a href="https://ax.trina.app/download">ax.trina.app/download</a>나 팀의 설정 › 앱에서 받아요. 애플이 확인한 앱이라 경고 창이 나오지 않고, 새 버전도 저절로 받아요.</p>
   <div class="row">
     <div class="side">
       <ol class="steps">
-        <li><span class="n">1</span>맥에서 <a href="https://apps.apple.com/app/trina-ax/id6829192435?platform=mac">Mac App Store의 Trina AX</a>를 열고 <span class="ui">받기</span>를 눌러요. App Store 앱에서 “Trina AX”를 검색해도 돼요. 팀의 설정 › 앱 화면에도 같은 링크가 있어요.</li>
-        <li><span class="n">2</span>설치가 끝나면 Launchpad나 응용 프로그램 폴더에서 Trina AX를 열어요.</li>
+        <li><span class="n">1</span>내려받은 .dmg를 열고 Trina AX를 응용 프로그램 폴더로 끌어 놓아요.</li>
+        <li><span class="n">2</span>Launchpad나 응용 프로그램 폴더에서 Trina AX를 열어요.</li>
         <li><span class="n">3</span>첫 화면에 팀장에게 받은 초대 링크나 팀 주소를 넣고 <span class="ui">들어가기</span>를 눌러요. 다음부터는 바로 열려요.</li>
       </ol>
-      <p class="small">App Store에서 받은 앱은 업데이트도 App Store에서 저절로 받아요.</p>
+      <p class="small">새 버전은 앱이 팀 서버에서 받아 두었다가 앱을 끌 때 설치해요. 응용 프로그램 폴더 밖(내려받은 .dmg 안)에서 연 앱은 업데이트할 수 없어요.</p>
     </div>
     <figure class="shot" style="flex:.85"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>데스크톱 앱 첫 화면. 초대 링크나 팀 주소를 넣어요. (그림의 주소는 데모용이에요)</figcaption></figure>
   </div>
@@ -283,7 +283,7 @@ dl.kv dd{ color:var(--ink-2);}
   <div class="row">
     <div class="side">
       <h3>로그인</h3>
-      <p>팀 주소를 열고 아이디와 비밀번호를 넣어요. 화면 아래에서 언어(한국어, English, Bahasa Indonesia, 日本語, Español)도 고를 수 있어요.</p>
+      <p>팀 주소를 열고 아이디와 비밀번호를 넣어요. 화면 아래에서 언어(한국어, English, Bahasa Indonesia, 日本語, Español, 简体中文)도 고를 수 있어요.</p>
       <p>팀장이 직접 계정을 만들어 준 경우에는 <b>임시 비밀번호</b>(예: <code>tiger4271</code>)를 받아요. 처음 로그인하면 새 비밀번호를 정하는 화면이 먼저 나와요. 새 비밀번호만 두 번 넣으면 돼요(8자 이상, 임시 비밀번호는 다시 묻지 않아요). 잘못된 계정으로 들어왔다면 <span class="ui">다른 계정으로 로그인</span>을 눌러요. 임시 비밀번호는 7일이 지나면 쓸 수 없어요.</p>
     </div>
     <figure class="shot" style="flex:.5;margin-top:5mm"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>로그인 화면.</figcaption></figure>
@@ -341,7 +341,7 @@ dl.kv dd{ color:var(--ink-2);}
   <p>팀 폴더에 이미 있는 파일은 첨부하지 않아도 돼요. “<span class="path">shared/회의록</span>의 주간 회의록 요약해 줘”처럼 위치나 이름을 말하면 AI가 찾아서 읽어요. 엑셀·워드(DOCX)·파워포인트(PPTX)·PDF의 글자를 읽을 수 있어요. 사진·화면 캡처·스캔한 PDF 페이지는 AI가 이미지로 직접 봐요. HWP/HWPX 글자 읽기·원본 다운로드는 어느 팀이든 돼요. 시각 미리보기와, AI가 한글 문서를 HWPX로 새로 만들고 이미 있는 HWP·HWPX 양식의 빈칸을 채우는 기능(6장)은 선택 플러그인 ‘한글 문서 미리보기’를 관리자가 <span class="ui">관리자 › 플러그인</span>에서 설치하고 켜야 써요. Debian 12는 서버 지원 대상이지만 이 플러그인은 설치할 수 없어요. 새 HWP 파일은 만들 수 없어요.</p>
 
   <h3>팀 파일 첨부하기</h3>
-  <p>맥 미니(팀 서버)에 있는 파일도 바로 첨부할 수 있어요. 클립을 누르고 <span class="ui">팀 파일에서 추가</span>를 고르면 팀 폴더가 열려요. 내 컴퓨터의 파일은 <span class="ui">내 컴퓨터에서 올리기</span>(휴대폰에서는 <span class="ui">기기에서 올리기</span>)로 올려요.</p>
+  <p>팀 서버에 있는 파일도 바로 첨부할 수 있어요. 클립을 누르고 <span class="ui">팀 파일에서 추가</span>를 고르면 팀 폴더가 열려요. 내 컴퓨터의 파일은 <span class="ui">내 컴퓨터에서 올리기</span>(휴대폰에서는 <span class="ui">기기에서 올리기</span>)로 올려요.</p>
   <figure class="shot center" style="width:54%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div><figcaption>팀 파일에서 추가 — 최근 파일이나 폴더에서 고르거나 이름으로 찾아요. 체크한 뒤 <span class="ui">첨부</span>를 누르면 입력창 위에 폴더 아이콘이 붙은 칩으로 들어가요.</figcaption></figure>
   <ul>
     <li><b>내가 열 수 있는 파일만 보여요.</b> 다른 팀의 폴더나 남의 개인 폴더는 목록에도, 검색에도 나오지 않아요. 메시지 하나에 20개까지 첨부할 수 있어요.</li>
@@ -619,8 +619,8 @@ dl.kv dd{ color:var(--ink-2);}
     <div class="side">
       <ol class="steps">
         <li><span class="n">1</span><span class="ui">팀 스킬</span> 화면의 “고칠 수 있는 사람” 줄에서 <span class="ui">바꾸기</span>를 눌러요.</li>
-        <li><span class="n">2</span><span class="ui">사람이나 그룹 추가</span>에서 이름으로 찾아 골라요. 경고를 읽어 주세요.</li>
-        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. 이 설정은 <span class="ui">폴더 권한</span>에서 “고칠 수 있음 · 팀 스킬 관리”로도 보여요. <span class="ui">빼기</span>를 누르면 고칠 수 있는 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 창 아래의 <span class="ui">폴더별로 맡기려면 폴더 권한에서</span>로 가서 그 폴더를 “고칠 수 있음”으로 정해요.</li>
+        <li><span class="n">2</span><span class="ui">사람이나 부서 추가</span>에서 이름으로 찾아 골라요. 경고를 읽어 주세요.</li>
+        <li><span class="n">3</span><span class="ui">팀 스킬 관리 켜기</span>. <span class="path">skills</span> 전체를 고칠 수 있게 돼요. <span class="ui">빼기</span>를 누르면 고칠 수 있는 권한만 빠지고 만든 스킬은 남아요. <span class="path">skills/재무</span> 같은 하위 폴더만 맡기려면 파일 화면에서 그 폴더의 ⋯ › <span class="ui">공유</span>로 그 사람을 <span class="ui">편집자</span>로 추가해요.</li>
       </ol>
       <p class="small">누가 바꾸든(AI 포함) 팀장·관리자에게 “팀 스킬이 바뀌었어요” 알림이 가요. <span class="ui">버전 기록 보기</span>를 누르면 그 파일의 예전 버전으로 되돌릴 수 있어요. 지난 변경은 트리나 목록의 <span class="ui">팀 스킬</span> › <span class="ui">최근 변경</span>에 있어요.</p>
     </div>
@@ -643,26 +643,14 @@ dl.kv dd{ color:var(--ink-2);}
   <figure class="shot"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div></figure>
   <p><span class="ui">팀 설정</span> › <span class="ui">사용 한도</span> › <span class="ui">한도 추가</span>에서 사람·그룹·팀 단위로 하루·한 달 한도를 정해요. 넘으면 <b>경고만</b> 하거나 <b>사용을 막을</b> 수 있어요. 기본은 한도 없음이에요. 같은 화면의 <b>동시 실행 수</b>(기본 3)는 팀 전체가 한 번에 받을 수 있는 답변 수예요.</p>
 
-  <h3>폴더 권한 — 바꾸기 전에 “누가 무엇을 보나” 미리보기</h3>
-  <div class="row">
-    <div class="side">
-      <p><span class="ui">폴더 권한</span>에서 폴더마다 <b>누가</b>(모두·역할·그룹·사람) <b>무엇을</b>(열 수 없음 / 볼 수 있음 / 고칠 수 있음) 할지 정해요. 규칙이 없는 하위 폴더는 위 폴더의 규칙을 따라요.</p>
-      <ol class="steps">
-        <li><span class="n">1</span>폴더 옆 <span class="ui">수정</span>(새 폴더는 <span class="ui">폴더 추가</span>)을 누르고 규칙을 바꿔요.</li>
-        <li><span class="n">2</span><span class="ui">누가 무엇을 보나</span>를 누르면 저장하기 전에 사람별로 어떻게 바뀌는지 보여요.</li>
-        <li><span class="n">3</span><b>권한을 잃는 사람</b>이 빨간 상자로 따로 보여요. 확인한 뒤 <span class="ui">저장</span>.</li>
-      </ol>
-      <p class="small">저장하면 권한을 잃은 사람의 화면에 “폴더 권한이 바뀌었어요” 알림이 떠요. 그 사람의 AI는 그 폴더를 다시 읽지 못하지만, 이미 답변에 나온 내용은 그 사람의 채팅에 남아요.</p>
-    </div>
-    <figure class="shot" data-crop="359,139,1081,762" style="flex:1.25">
-      <div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p>
-        <i data-box="376,268,1024,347" data-pin="1"></i>
-        <i data-box="853,713,1002,746" data-pin="2" data-pos="l"></i>
-        <i data-box="376,616,1064,682" data-pin="3"></i>
-      </div>
-      <figcaption>예: 신제품 출시 폴더에서 재무 그룹을 “열 수 없음”으로 바꾸면 Bob이 권한을 잃어요. (미리보기만 하고 저장하지 않았어요)</figcaption>
-    </figure>
-  </div>
+  <h3>폴더 권한 — 구글 드라이브처럼 공유</h3>
+  <p>누가 어떤 폴더를 여는지는 폴더마다 <span class="ui">공유</span> 창에서 정해요. 파일 화면에서 폴더의 ⋯ › <span class="ui">공유</span>를 누르거나, <span class="ui">관리자</span> › <span class="ui">폴더 권한</span>에서 <span class="ui">공유</span>를 눌러요.</p>
+  <ol class="steps">
+    <li><span class="n">1</span><span class="ui">사람이나 부서 추가</span>에서 골라 <span class="ui">뷰어</span>(보기만) 또는 <span class="ui">편집자</span>(고치기)로 정해요. 따로 정하지 않은 하위 폴더는 위 폴더를 따라요.</li>
+    <li><span class="n">2</span>팀 전체가 열지, <span class="ui">제한됨</span>(추가한 사람만)으로 둘지 골라요. 팀장·관리자는 늘 열 수 있어요.</li>
+    <li><span class="n">3</span><span class="ui">관리자</span> › <span class="ui">폴더 권한</span>의 <span class="ui">폴더</span> 탭에는 위 폴더와 다르게 공유된 폴더만 보이고, <span class="ui">사람이 열 수 있는 것</span> 탭에서는 한 사람이 열 수 있는 곳과 그 까닭이 보여요.</li>
+  </ol>
+  <p class="small">권한을 잃은 사람의 화면에는 “폴더 권한이 바뀌었어요” 알림이 떠요. 그 사람의 AI는 그 폴더를 다시 읽지 못하지만, 이미 답변에 나온 내용은 그 사람의 채팅에 남아요. 프로젝트 폴더는 프로젝트 멤버를 따라요.</p>
 
   <h3>사용량</h3>
   <figure class="shot center" style="width:88%"><div class="frame"><p class="small">이전 화면 캡처는 공개 소스에 포함되어 있지 않습니다. 현재 화면은 앱에서 확인하세요.</p></div></figure>
@@ -700,15 +688,15 @@ description: 허용된 회의록의 결정과 할 일을 정리합니다.
 <section class="chap flow" id="c10">
   <div class="chap-head"><span class="no">10</span><h2>자주 묻는 질문</h2></div>
 
-  <div class="faq"><div class="q">AI가 내 개인 폴더를 다른 사람에게 보여 주나요?</div><div class="a"><p>아니요. 앱에서 <span class="path">users/내 아이디</span> 폴더는 나만 볼 수 있어요. 팀장·관리자 화면에도 나오지 않고, 다른 사람의 AI도 읽을 수 없어요. 내가 채팅에 첨부한 파일도 이 폴더에 저장돼요.</p><p>다만 두 가지는 알아 두세요. 계정이 삭제되면 내 폴더는 팀장에게 넘어가요. 그리고 팀 서버 맥을 직접 관리하는 사람은 그 맥의 디스크와 백업에 접근할 수 있어요.</p></div></div>
+  <div class="faq"><div class="q">AI가 내 개인 폴더를 다른 사람에게 보여 주나요?</div><div class="a"><p>아니요. 앱에서 <span class="path">users/내 아이디</span> 폴더는 나만 볼 수 있어요. 팀장·관리자 화면에도 나오지 않고, 다른 사람의 AI도 읽을 수 없어요. 내가 채팅에 첨부한 파일도 이 폴더에 저장돼요.</p><p>다만 두 가지는 알아 두세요. 계정이 삭제되면 내 폴더는 팀장에게 넘어가요. 그리고 팀 서버를 직접 관리하는 사람은 그 서버의 디스크와 백업에 접근할 수 있어요.</p></div></div>
 
-  <div class="faq"><div class="q">관리자가 내 대화를 보나요?</div><div class="a"><p>앱에는 다른 사람의 대화나 메모리를 여는 화면이 없어요. 팀장도 마찬가지예요. 다만 대화는 팀 서버(사무실 맥)와 그 백업에 저장되니, 서버 맥을 직접 다루는 사람은 기술적으로 꺼내 볼 수 있어요.</p><p>관리자 화면의 <b>활동 로그</b>에는 대화 내용은 없지만, AI가 읽고 쓴 팀 파일 위치, AI가 연 웹 페이지 주소, 권한이 없어 막힌 시도(위치 포함), 로그인 기록이 남아요. <b>사용량</b>에는 사람별 답변 수와 사용량이 나와요.</p></div></div>
+  <div class="faq"><div class="q">관리자가 내 대화를 보나요?</div><div class="a"><p>앱에는 다른 사람의 대화나 메모리를 여는 화면이 없어요. 팀장도 마찬가지예요. 다만 대화는 팀 서버와 그 백업에 저장되니, 서버를 직접 다루는 사람(호스팅이면 트리나 운영자도)은 기술적으로 꺼내 볼 수 있어요.</p><p>관리자 화면의 <b>활동 로그</b>에는 대화 내용은 없지만, AI가 읽고 쓴 팀 파일 위치, AI가 연 웹 페이지 주소, 권한이 없어 막힌 시도(위치 포함), 로그인 기록이 남아요. <b>사용량</b>에는 사람별 답변 수와 사용량이 나와요.</p></div></div>
 
   <div class="faq"><div class="q">AI 회사로는 무엇이 가나요?</div><div class="a"><p>답을 만들려고 내 질문, 첨부한 파일, AI가 읽은 팀 파일 내용, 메모리, 그 채팅의 이전 대화가 AI 회사로 보내져요(Claude는 Anthropic, Codex는 OpenAI). 팀이 연결한 AI 계정으로 처리돼요. 회사 밖으로 나가면 안 되는 자료는 AI에게 읽히지 마세요.</p></div></div>
 
   <div class="faq"><div class="q">내가 볼 수 없는 폴더의 내용을 AI에게 물어보면요?</div><div class="a"><p>AI도 그 폴더를 볼 수 없어서 “찾지 못했다”고 답해요. 파일이 있는지 없는지도 알려 주지 않아요. 프로젝트 안에서 물어봐도 마찬가지예요. 다만 그 폴더를 볼 수 있는 사람이 내용을 공용 폴더로 옮기면, 공용 폴더를 보는 사람은 모두 볼 수 있어요.</p></div></div>
 
-  <div class="faq"><div class="q">AI가 파일을 지우거나 밖으로 보내나요?</div><div class="a"><p>AI에게는 파일을 지우는 기능이 없고, 메일을 직접 보내는 기능도 없어요. 파일을 고치면 바뀌기 전 내용이 버전 기록에 남아요. 인터넷 검색과 웹 페이지 읽기는 할 수 있어요. 데스크톱 앱 브라우저에서는 <b>내가 허용한 사이트</b>에서 클릭·입력을 할 수 있어서, 그 사이트에 글을 올리거나 양식을 보낼 수도 있어요. 허용은 신중하게 해 주세요.</p></div></div>
+  <div class="faq"><div class="q">AI가 파일을 지우거나 밖으로 보내나요?</div><div class="a"><p>AI는 파일을 휴지통으로 옮길 수 있지만, 그 전에 꼭 확인 카드로 물어봐요. 휴지통에서 30일 안에 되돌릴 수 있어요. 메일은 Gmail이 연결돼 있을 때만 보낼 수 있어요. 파일을 고치면 바뀌기 전 내용이 버전 기록에 남아요. 인터넷 검색과 웹 페이지 읽기는 할 수 있어요. 데스크톱 앱 브라우저에서는 <b>내가 허용한 사이트</b>에서 클릭·입력을 할 수 있어서, 그 사이트에 글을 올리거나 양식을 보낼 수도 있어요. 허용은 신중하게 해 주세요.</p></div></div>
 
   <div class="faq"><div class="q">AI가 더 많은 사람이 보는 폴더에 저장해 버리면요?</div><div class="a"><p>내가 읽은 자료보다 더 많은 사람이 보는 폴더에 AI가 쓰려고 하면, 저장하기 전에 “팀 서버의 안전 확인” 카드로 먼저 물어봐요. 거절하면 저장하지 않아요. 허용하면 그 폴더를 보는 사람은 모두 볼 수 있으니 잘 보고 고르세요.</p></div></div>
 
