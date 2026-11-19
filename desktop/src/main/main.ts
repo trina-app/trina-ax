@@ -319,7 +319,12 @@ function registerIpc() {
     const page = e.sender
     if (dictationPage !== page) {
       dictationPage = page
-      const end = () => { if (dictationPage === page) { dictation.stopAll(); dictationPage = null } }
+      // both go once either fires (a page reloaded ten times keeps no stale listeners)
+      const end = () => {
+        page.off('destroyed', end)
+        page.off('did-navigate', end)
+        if (dictationPage === page) { dictation.stopAll(); dictationPage = null }
+      }
       page.once('destroyed', end)
       page.once('did-navigate', end)
     }

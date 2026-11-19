@@ -6,7 +6,7 @@
 // three."), the rest final at the end of stdin, then `done`. FAKE_DICTATION (comma list) changes it:
 //   unavailable, unsupported (probe and the rest say so); no-model (probe says installed false until install ran:
 //   FAKE_DICTATION_DIR keeps that); install-fail; crash (listen exits after its first guess, without done);
-//   hang (listen never says done); slow-ready (ready after 300 ms).
+//   hang (listen never says done); slow-ready (ready after 300 ms); no-ready (listen never says ready).
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -53,6 +53,7 @@ async function main() {
   }
   if (command !== 'listen') return fail('usage')
   if (!installed()) return fail('assets')
+  if (mode.has('no-ready')) await new Promise(() => {})
   if (mode.has('slow-ready')) await Bun.sleep(300)
   out({ event: 'ready', locale })
   let bytes = 0

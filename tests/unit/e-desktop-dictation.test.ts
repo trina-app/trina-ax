@@ -20,13 +20,13 @@ afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
 })
 
-function host(mode = '') {
+function host(mode = '', o: { readyTimeoutMs?: number } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dictation-'))
   dirs.push(dir)
   process.env.FAKE_DICTATION = mode
   process.env.FAKE_DICTATION_DIR = dir
   const events: DesktopDictationEvent[] = []
-  const h = new DictationHost({ helper: () => FAKE, send: (e) => events.push(e) })
+  const h = new DictationHost({ helper: () => FAKE, send: (e) => events.push(e), ...o })
   hosts.push(h)
   const ran = () => fs.readdirSync(dir).filter((f) => f.startsWith('ran-')).map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as string[])
   return { h, events, dir, ran }
@@ -166,6 +166,33 @@ describe('a recording', () => {
     expect(events.at(-1)).toEqual({ id, event: 'error', code: 'helper' })
     expect(await h.start('en')).toBeNull()
     expect(await h.check('en')).toEqual({ state: 'unavailable' })
+  })
+  test('a helper that never says ready: start answers null after the wait (the page uses the server)', async () => {
+    const { h } = host('no-ready', { readyTimeoutMs: 300 })
+    const t = Date.now()
+    expect(await h.start('en')).toBeNull()
+    expect(Date.now() - t).toBeLessThan(3000)
+  })
+  test('cancel, a second start or the page going while a start waits: the waiting start answers null', async () => {
+    const { h } = host('slow-ready')
+    const first = h.start('en')
+    const second = h.start('en')
+    expect(await first).toBeNull()
+    expect(typeof (await second)).toBe('number')
+    const third = h.start('en')
+    h.stopAll()
+    expect(await third).toBeNull()
+  })
+  test('the last words and done are read even when the helper exits right after them', async () => {
+    for (let i = 0; i < 5; i++) {
+      const { h, events } = host()
+      const id = (await h.start('en'))!
+      feed(h, id, 0.5)
+      h.stop(id)
+      await until(() => events.some((e) => e.event !== 'text'))
+      expect(events.at(-1)).toEqual({ id, event: 'done' })
+      expect(events.filter((e) => e.event === 'text' && e.final).map((e) => (e as { text: string }).text)).toEqual(['One.'])
+    }
   })
   test('a model that went missing: the recording does not start (the page uses the server)', async () => {
     const { h } = host('no-model')

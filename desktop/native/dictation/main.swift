@@ -176,7 +176,7 @@ func listen() async {
 }
 
 // the app stops a recording that is cancelled with SIGTERM: nothing to save, just go
-signal(SIGTERM) { _ in exit(0) }
+signal(SIGTERM) { _ in _exit(0) }
 signal(SIGPIPE, SIG_IGN)
 
 Task.detached {

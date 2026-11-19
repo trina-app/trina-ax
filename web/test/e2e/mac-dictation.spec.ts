@@ -14,7 +14,7 @@ const MIC = '음성 입력 (Space 길게)'
 
 /** Before the app's scripts: a desktop bridge whose dictation answers like the app's main process with its helper:
  * a guess every 400 ms of sound ("하나", "하나 둘" …), final every three words, the rest final after Stop. */
-async function fakeMac(page: Page, o: { state?: 'ready' | 'needs-model'; failAfter?: number; denied?: boolean } = {}) {
+async function fakeMac(page: Page, o: { state?: 'ready' | 'needs-model'; failAfter?: number; denied?: boolean; noStart?: boolean } = {}) {
   await page.addInitScript((opts) => {
     const noop = () => {}
     const W = ['하나', '둘', '셋', '넷', '다섯', '여섯', '일곱', '여덟', '아홉', '열']
@@ -48,7 +48,7 @@ async function fakeMac(page: Page, o: { state?: 'ready' | 'needs-model'; failAft
           return new Promise((r) => { d.gate = r })
         },
         start: async () => {
-          if (d.state !== 'ready') return null
+          if (d.state !== 'ready' || opts.noStart) return null
           d.starts++
           run = { id: d.starts, samples: 0, words: [], next: 0, shown: 0, ended: false }
           return run.id
@@ -129,6 +129,18 @@ test('a confidential chat with voice input through OpenRouter records on this Ma
   await page.getByRole('button', { name: '녹음 끝내기' }).click()
   await expect(page.getByTestId('composer-input')).toHaveValue(WORDS)
   await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(await serverLog(page)).toEqual([])
+})
+
+test('a confidential chat whose Mac cannot start the recording: the note says why, nothing goes to the outside service', async ({ page }) => {
+  await fakeMac(page, { noStart: true })
+  await reset(page)
+  expect((await page.request.post('/__test/confidential', { data: { all: true } })).ok()).toBeTruthy()
+  await speech(page, 'openrouter', true)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  await expect(page.getByRole('alert')).toContainText('기밀 대화에서는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서')
+  await expect(page.getByRole('group', { name: '녹음 중' })).toHaveCount(0)
   expect(await serverLog(page)).toEqual([])
 })
 

@@ -16,6 +16,8 @@ export const DICTATION_LANGUAGE = /^[a-z]{2,3}$/
 export const PROBE_TIMEOUT_MS = 10_000
 /** Apple's model download (ko 20 s, en 11 s on this office's line): given up after this */
 export const INSTALL_TIMEOUT_MS = 10 * 60_000
+/** a helper that says nothing (no `ready`) for this long did not start: the page uses the team server */
+export const READY_TIMEOUT_MS = 15_000
 /** after stop(), the last words and `done` within this, else an error */
 export const FINISH_TIMEOUT_MS = 20_000
 /** the longest recording (the page caps at 5 minutes; this is the app's own end) */
@@ -76,9 +78,11 @@ export interface DictationHostDeps {
   helper?: () => string | null
   /** events of a recording, to the page that started it */
   send(e: DesktopDictationEvent): void
+  /** tests: READY_TIMEOUT_MS */
+  readyTimeoutMs?: number
 }
 
-interface Listening { id: number; child: ChildProcess; ended: boolean; finishTimer?: NodeJS.Timeout; maxTimer?: NodeJS.Timeout }
+interface Listening { id: number; child: ChildProcess; ended: boolean; timers: NodeJS.Timeout[]; end(e: DesktopDictationEvent | null): void }
 
 export class DictationHost {
   private seq = 0
@@ -125,7 +129,8 @@ export class DictationHost {
         else answer = { state: l.installed === true ? 'ready' : 'needs-model', locale: String(l.locale).slice(0, 35) }
       })
       child.on('error', () => { clearTimeout(timer); resolve({ state: 'unavailable' }) })
-      child.on('exit', () => { clearTimeout(timer); resolve(answer) })
+      // 'close', not 'exit': stdout is read to its end first (the answer is its last line)
+      child.on('close', () => { clearTimeout(timer); resolve(answer) })
     })
   }
 
@@ -163,7 +168,7 @@ export class DictationHost {
         resolve(result)
       }
       child.on('error', end)
-      child.on('exit', end)
+      child.on('close', end)
     })
     this.installs.set(language, entry)
     return entry.done
@@ -182,45 +187,57 @@ export class DictationHost {
     } catch {
       return Promise.resolve(null)
     }
-    const run: Listening = { id, child, ended: false }
+    let ready = false
+    let resolveStart: (id: number | null) => void = () => {}
+    const timers: NodeJS.Timeout[] = []
+    const run: Listening = {
+      id,
+      child,
+      ended: false,
+      timers,
+      // once: the timers go, the helper goes, a start still waiting gets null, `e` goes to the page
+      end: (e) => {
+        if (run.ended) return
+        run.ended = true
+        for (const t of timers) clearTimeout(t)
+        if (this.run === run) this.run = null
+        child.stdin?.end()
+        stopChild(child)
+        if (!ready) return resolveStart(null)
+        if (e) this.d.send(e)
+      },
+    }
     this.run = run
     // ending stdin of a helper that is gone already gives EPIPE
     child.stdin?.on('error', () => {})
-    return new Promise((resolve) => {
-      let ready = false
-      const end = (e: DesktopDictationEvent | null) => {
-        if (run.ended) return
-        run.ended = true
-        clearTimeout(run.finishTimer)
-        clearTimeout(run.maxTimer)
-        if (this.run === run) this.run = null
-        stopChild(child)
-        if (!ready) return resolve(null)
-        if (e) this.d.send(e)
+    const started = new Promise<number | null>((resolve) => { resolveStart = resolve })
+    // a helper stuck before `ready` (the Speech framework not answering) did not start
+    timers.push(setTimeout(() => run.end(null), this.d.readyTimeoutMs ?? READY_TIMEOUT_MS))
+    lines(child, (l) => {
+      if (run.ended) return
+      if (l.event === 'ready') {
+        ready = true
+        clearTimeout(timers[0])
+        timers.push(setTimeout(() => run.end({ id, event: 'error', code: 'too_long' }), LISTEN_MAX_MS))
+        resolveStart(id)
+      } else if (l.event === 'text' && typeof l.text === 'string') {
+        this.d.send({ id, event: 'text', final: l.final === true, text: l.text.slice(0, 20_000) })
+      } else if (l.event === 'done') {
+        run.end({ id, event: 'done' })
+      } else if (l.event === 'error') {
+        // a model that went missing is fetched again by the next check
+        this.checks.delete(language)
+        run.end({ id, event: 'error', code: typeof l.code === 'string' ? l.code.slice(0, 40) : 'helper' })
       }
-      lines(child, (l) => {
-        if (run.ended) return
-        if (l.event === 'ready') {
-          ready = true
-          run.maxTimer = setTimeout(() => end({ id, event: 'error', code: 'too_long' }), LISTEN_MAX_MS)
-          resolve(id)
-        } else if (l.event === 'text' && typeof l.text === 'string') {
-          this.d.send({ id, event: 'text', final: l.final === true, text: l.text.slice(0, 20_000) })
-        } else if (l.event === 'done') {
-          end({ id, event: 'done' })
-        } else if (l.event === 'error') {
-          // a model that went missing is fetched again by the next check
-          this.checks.delete(language)
-          end({ id, event: 'error', code: typeof l.code === 'string' ? l.code.slice(0, 40) : 'helper' })
-        }
-      })
-      child.on('error', () => { this.broken = ready; end({ id, event: 'error', code: 'helper' }) })
-      child.on('exit', () => {
-        // gone without done: it crashed (the server transcribes the next recordings)
-        if (!run.ended && ready) this.broken = true
-        end({ id, event: 'error', code: 'helper' })
-      })
     })
+    child.on('error', () => { if (!run.ended && ready) this.broken = true; run.end({ id, event: 'error', code: 'helper' }) })
+    // 'close', not 'exit': every line it wrote (the last words, done) is read first
+    child.on('close', () => {
+      // gone without done: it crashed (the server transcribes the next recordings)
+      if (!run.ended && ready) this.broken = true
+      run.end({ id, event: 'error', code: 'helper' })
+    })
+    return started
   }
 
   push(id: number, samples: Float32Array) {
@@ -230,30 +247,18 @@ export class DictationHost {
     r.child.stdin?.write(pcm16(s))
   }
 
-  /** the sound ended: the helper writes its last words and `done` */
+  /** the sound ended: the helper writes its last words and `done` (else an error after FINISH_TIMEOUT_MS) */
   stop(id: number) {
     const r = this.run
     if (!r || r.id !== id || r.ended) return
     r.child.stdin?.end()
-    r.finishTimer = setTimeout(() => {
-      if (r.ended) return
-      r.ended = true
-      if (this.run === r) this.run = null
-      stopChild(r.child)
-      this.d.send({ id, event: 'error', code: 'timeout' })
-    }, FINISH_TIMEOUT_MS)
+    r.timers.push(setTimeout(() => r.end({ id, event: 'error', code: 'timeout' }), FINISH_TIMEOUT_MS))
   }
 
-  /** nothing more comes from this recording */
+  /** nothing more comes from this recording (a start still waiting answers null) */
   cancel(id: number) {
     const r = this.run
-    if (!r || r.id !== id) return
-    r.ended = true
-    clearTimeout(r.finishTimer)
-    clearTimeout(r.maxTimer)
-    this.run = null
-    r.child.stdin?.end()
-    stopChild(r.child)
+    if (r && r.id === id) r.end(null)
   }
 
   /** the page went (reload, another team, the window closed): its recording goes too */

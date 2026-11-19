@@ -189,6 +189,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
     const language = macLanguage(words.current.locale)
     return bridge && language ? { bridge, language } : null
   }
+  const confidentialText = () => words.current.t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
   const noteText = (n: VoiceNote): string => {
     const { t, locale } = words.current
     preparingNote.current = false
@@ -285,8 +286,14 @@ export function useVoiceInput(o: VoiceInputOptions) {
     }
     await rec.current.start({ onSamples: (samples) => m.run.push(samples) }).then(
       (r) => {
-        // the browser would not run the sound (it keeps it paused): the whole recording goes to the server
-        if (!r.live && mac.current === m) dropMac(false)
+        if (r.live || mac.current !== m) return
+        dropMac(false)
+        // the browser would not run the sound (it keeps it paused): the whole recording goes to the server, unless this
+        // is a confidential chat that only the Mac may take
+        if (opts.current.blocked) {
+          rec.current.cancel()
+          throw new Error(confidentialText())
+        }
       },
       (e) => {
         if (mac.current === m) dropMac(false)
@@ -328,6 +335,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
             // the first tap: Apple's model comes down now, and this recording goes the server's way
             if (r.kind === 'model') prepareMac(m.language, m.bridge)
           }
+          // a confidential chat let through for the Mac whose Mac could not take it: never the outside service
+          if (opts.current.blocked) throw new Error(confidentialText())
           const st = useSession.getState().status
           // a team whose voice input goes to OpenRouter: the words show while recording
           if (st.kind !== 'signed-in' || st.me.team?.voiceInputOutside !== true) return rec.current.start().then(() => {})
