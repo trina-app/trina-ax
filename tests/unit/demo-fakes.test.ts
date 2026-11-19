@@ -44,11 +44,15 @@ setDefaultTimeout(60_000)
 const reached: string[] = []
 const loop = (h: unknown) => typeof h === 'string' && (h === 'localhost' || h === '::1' || h.startsWith('127.'))
 const saved: { obj: any; key: string; orig: any }[] = []
+// a loopback name lookup through the promise API is answered here, not by the layer below: in one process with the whole
+// tests/unit run another file may have left its own throwing dns/promises lookup in place (b-safety-cards-wait does)
+const loopAnswer = (h: string, o: any) => { const a = { address: h === '::1' ? '::1' : '127.0.0.1', family: h === '::1' ? 6 : 4 }; return Promise.resolve(o && typeof o === 'object' && o.all ? [a] : a) }
 function stub(obj: any, key: string, host: (args: any[]) => unknown) {
   const orig = obj[key]
   saved.push({ obj, key, orig })
   obj[key] = (...args: any[]) => {
     const h = host(args)
+    if (obj === dnsp && key === 'lookup' && loop(h)) return loopAnswer(h as string, args[1])
     if (h === null || loop(h)) return orig.apply(obj, args)
     reached.push(`${key}:${String(h)}`)
     throw new Error(`STUB REACHED ${key} ${String(h)}`)
