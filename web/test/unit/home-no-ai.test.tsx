@@ -178,6 +178,23 @@ describe('Home without AI', () => {
       useAiAccess.getState().reset()
     }
   })
+
+  test('connected but used up until a known time (QA TC-5192): no "connect an AI" card for anyone; the answer itself says until when', async () => {
+    for (const [role, action] of [['owner', 'connect_team'], ['member', 'ask_owner'], ['member', 'connect_own']] as const) {
+      signIn(role)
+      access = { usable: false, action, requested: false, limitedUntil: '2026-11-21T07:00:00.000Z' } as typeof access
+      const m = await home()
+      try {
+        await m.until(() => useAiAccess.getState().loaded, 'the access read')
+        await m.until(() => m.find('home-box') ?? m.find('chat-input') ?? document.querySelector('textarea'), 'the box')
+        expect(useAiAccess.getState()).toMatchObject({ usable: true, limitedUntil: '2026-11-21T07:00:00.000Z' })
+        expect(m.find('no-ai-card')).toBeNull()
+        expect(m.find('ai-access-banner')).toBeNull()
+      } finally { await m.unmount() }
+      calls = []
+      useAiAccess.getState().reset()
+    }
+  })
 })
 
 describe('"팀에 준비된 것" without AI (docs/DECISIONS.md "W6.3")', () => {

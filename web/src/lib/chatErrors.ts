@@ -37,7 +37,15 @@ export function adminPath(t: (key: MessageKey) => string, where: Where): string 
  * sees it), else the words everyone reads. `where`: the place that fills {path} (adminPath), or null when the words name
  * none.
  */
-export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean): { key: MessageKey; where: Where | null } {
+export function chatErrorText(reason: ChatErrorReason, role: Role, noAi: boolean, until = false): { key: MessageKey; where: Where | null } {
+  // the AI usage ran out for longer than an hour (params.until: when it starts again, which `until` says is known):
+  // everyone reads until when; the owner and admins read that another AI account in Admin › AI providers goes on now,
+  // a member to ask an admin for more (owner report 2026-11-19: it read "for now, try again a bit later")
+  if (reason === 'usage_used_up') {
+    const admin = role === 'owner' || role === 'admin'
+    if (admin) return { key: until ? 'chat.error.admin.usage_used_up_until' : 'chat.error.admin.usage_used_up', where: 'providers' }
+    return { key: until ? 'chat.error.usage_used_up_until' : 'chat.error.usage_used_up', where: null }
+  }
   const noAiKey = noAiErrorKey(reason, role, noAi)
   if (noAiKey) return { key: noAiKey, where: reason === 'credential_unusable' ? 'providers' : null }
   // the AI cannot start (owner decision 2026-11-11): "Trina isn't ready yet" for a member with [Tell an admin], the

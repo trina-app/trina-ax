@@ -19,7 +19,7 @@ permisos de carpetas, invitar a su equipo, preparar una habilidad del equipo, ha
 | Grupo | Páginas |
 |---|---|
 | **Personas** | Miembros e invitaciones, Grupos, Permisos de carpetas |
-| **Conexiones** | Proveedores de IA, Apps conectadas (apps de Google, otros servicios como Notion y, solo para el propietario, [Slack](slack.md)), Trina AX MCP, Complementos |
+| **Conexiones** | Proveedores de IA, Apps conectadas (apps de Google, [Slack](slack.md) y otros servicios como Notion), Trina AX MCP, Complementos |
 | **Actividad** | Uso, Registro de actividad |
 | **Equipo** | Configuración del equipo, Sistema |
 

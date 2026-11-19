@@ -241,6 +241,15 @@ describe('the copy counts as the chat\'s only when it is this chat\'s untouched 
     expect(await readCard('bob', chat, { file_path: 'users/bob/memo.txt' })).toBe(1)
   })
 
+  test('TC-5059 query_data on the untouched copy asks nothing; once someone changed it, the card asks', async () => {
+    const { chat, file } = await sent('sales.csv', 'region,amount\nnorth,10\nsouth,20\n')
+    await run('bob', chat, `${fake({ tool: 'save_chat_file', args: { file, save_as: 'users/bob/data/' }, sayResult: true })}`)
+    const q = async () => (await run('bob', chat, `${fake({ tool: 'query_data', args: { paths: ['users/bob/data/sales.csv'], sql: 'SELECT COUNT(*) AS n FROM sales' }, sayResult: true })}`)).cards.length
+    expect(await q()).toBe(0)
+    fs.appendFileSync(path.join(h.team, 'users/bob/data/sales.csv'), 'east,30\n')
+    expect(await q()).toBe(1)
+  })
+
   test("another chat's copy, and a copy of an upload not sent yet, still ask", async () => {
     const a = await sent('a-file.txt', 'QA A FILE')
     const b = await sent('b-file.txt', 'QA B FILE')

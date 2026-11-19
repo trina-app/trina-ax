@@ -38,7 +38,7 @@ AI 读取照片、截图或扫描的 PDF 页面时，看到的是图片本身，
 
 更新前，请阅读[最新发布](https://github.com/trina-app/trina-ax/releases/latest)，包括默认设置的变化，并做好备份。Linux 和办公室 Mac 使用 Trina 更新源。应用回滚不等于数据库或文件回滚。Linux 服务器会保留当前版本和上一个版本（用于回滚），更早的版本会自动删除，所以应用大约占用 1–1.5 GB 磁盘空间（[保留的版本](INSTALL-LINUX.en.md#kept-versions)（英文））。[配置](CONFIGURATION.md)（英文）· [故障排查](TROUBLESHOOTING.md)（英文）。
 
-可以使用浏览器和手机网页，也有 Windows 安装程序。Mac 服务器 ZIP 不是桌面版 DMG。这份源码包含英语、韩语、印尼语、日语、西班牙语和简体中文。HWP 可视化预览来自可选的 HWP Preview 插件（管理 > 插件）；Debian 12 上无法使用，默认安装包也不包含它的运行组件。安装已发布的安装包之前，请先查看发布说明。[支持](../SUPPORT.md)。
+可以使用浏览器和手机网页、Mac 应用（已签名的 DMG）、Windows 安装程序以及 iPhone 和 Android 应用；桌面应用会从团队服务器自动更新。Mac 服务器 ZIP 是另外的服务器安装包，不是桌面应用。这份源码包含英语、韩语、印尼语、日语、西班牙语和简体中文。HWP 可视化预览来自可选的 HWP Preview 插件（管理 > 插件）；Debian 12 上无法使用，默认安装包也不包含它的运行组件。安装已发布的安装包之前，请先查看发布说明。[支持](../SUPPORT.md)。
 
 在 Linux 服务器上，AI 生成的 PDF 会用每个版本自带的 Noto Sans CJK 字体显示韩文、日文和中文，不需要另外安装。办公室 Mac 使用系统自带的字体（Apple SD Gothic Neo、Hiragino Sans、PingFang）。每个 PDF 会按它所用的语言排版：日文文档优先使用日文字形，中文文档使用中文字形（同一个字在不同语言里的写法不同），不含韩文、日文或中文的文档则跟随团队语言。
 

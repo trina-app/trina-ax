@@ -133,7 +133,7 @@ Measured with the WCAG 2 formula on the values above.
 | `line-strong` on `surface` | Dashed link chip (3:1) | 3.73 | 3.26 |
 | `line` on `surface` | Card edge, choice box at rest (decorative) | 1.28 | 1.24 |
 | `line` on `canvas` | Hairline divider (decorative, no floor) | 1.23 | 1.32 |
-| Trina's star `#FFB060` / `#FF7A1A` on `hover` | @트리나's face in rooms (decorative beside its name, no floor; 1.74 / 2.52 on `canvas` in light) | 1.48 / 2.14 | 8.83 / 6.11 |
+| Trina's star `#FFB060` / `#FF7A1A` on `hover` | The AI's face in rooms and the ✦ side chat (decorative beside its name, no floor; 1.74 / 2.52 on `canvas` in light) | 1.48 / 2.14 | 8.83 / 6.11 |
 
 No pair in use is below its floor. `web/test/unit/design-contrast.test.ts` (with `field-contrast.test.ts`) checks the text, control-edge, switch and danger pairs in all four looks (core and edition, light and dark) and that the components use them. `--c-line` (1.23–1.32:1) only decorates: it never is the one thing that marks a control. A choice box (theme, language, engine mode, an answer option, a radio card) keeps the hairline at rest because its text names it, and the selected one gets a `--c-accent` edge (at least 3:1) and the c-accent-soft fill.
 

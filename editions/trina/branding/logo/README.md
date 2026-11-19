@@ -30,8 +30,10 @@ launch screen in light and dark) and the Microsoft Store tiles. The web app's PN
   only on a dark background (dark theme, a dark photo, a dark slide). Never put the light mark on dark or the dark mark
   on light.
 - **App icon = the light tile** (paper `#FBF9F4` → `#EFE9DE` from top to bottom, the light mark at 0.78 of the tile).
-  The slight tone keeps it visible on a white home screen and in a store's grey list. The notification icon stays a
-  white silhouette and the Mac menu bar helper uses system symbols.
+  The slight tone keeps it visible on a white home screen and in a store's grey list. There is no dark app icon: the
+  iPhone's dark and tinted icon slots get the same light tile (else iOS darkens it into a black tile in notifications
+  and the Dark home screen), and web push shows it too. The Android status bar icon stays a white silhouette and the
+  Mac menu bar helper uses system symbols.
 - **Clear space:** keep free space around the mark of at least a quarter of its height (8 units of its 32-unit box);
   around the wordmark, at least the mark's half-height.
 - **Minimum size:** mark 16 px on screen (tab icons), wordmark 80 px wide; below that use the mark alone.

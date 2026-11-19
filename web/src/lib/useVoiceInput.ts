@@ -156,7 +156,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const noRestore = useRef(false)
   /** the live recording's words went into the box */
   const [heard, setHeard] = useState(false)
-  /** the "mic blocked" note while the phone app can open its Settings page (the host shows the button beside it) */
+  /** the "mic blocked" note (a state the person can change, so the host shows it calm, not red) */
+  const [blockedFor, setBlockedFor] = useState<string | null>(null)
+  /** the "mic blocked" note while the phone app can open its Settings page (the host shows the way there in it) */
   const [settingsFor, setSettingsFor] = useState<string | null>(null)
   const holdCapable = useMatch(HOLD_QUERY)
   const self = useRef<VoiceInput | null>(null)
@@ -330,8 +332,11 @@ export function useVoiceInput(o: VoiceInputOptions) {
           if (n?.kind === 'error' && n.error instanceof RecorderError && n.error.code === 'denied') refusals.current++
           else if (n?.kind === 'error') refusals.current = 0
           const text = n ? noteText(n) : null
-          // the phone app can open its own page in the phone's Settings: the box shows a button beside this note
-          setSettingsFor(n?.kind === 'error' && n.error instanceof RecorderError && micBlocked(micKey(n.error)) && canOpenAppSettings() ? text : null)
+          // a blocked mic: the box shows this note calm; the phone app can open its own page in the phone's Settings,
+          // so there the note has the way there too
+          const isBlocked = n?.kind === 'error' && n.error instanceof RecorderError && micBlocked(micKey(n.error))
+          setBlockedFor(isBlocked ? text : null)
+          setSettingsFor(isBlocked && canOpenAppSettings() ? text : null)
           opts.current.onError(text)
         },
         blocked: () => opts.current.blocked,
@@ -480,8 +485,10 @@ export function useVoiceInput(o: VoiceInputOptions) {
     hint,
     /** the hint is the "no sound yet" line, and it stands where the wave was */
     silent,
-    /** the note text that gets an "Open Settings" button (inside the phone app, a blocked mic), else null: the host
-     * shows the button only while its note still says this */
+    /** the note text that says the mic is blocked, else null: the host shows that note calm (components/MicBlockedNotice.tsx)
+     * only while its note still says this */
+    blockedFor,
+    /** the note text that gets "Open Settings" (inside the phone app, a blocked mic), else null */
     settingsFor,
     openSettings: () => void openAppSettings().catch(() => {}),
     holdCapable,

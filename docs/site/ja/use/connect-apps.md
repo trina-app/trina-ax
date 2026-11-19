@@ -25,7 +25,7 @@ Trina AX がつなぐものは 2 種類あります。
 | Slack から Trina AX に質問する | 管理者が 1 回、そのあと各自が 1 回 | **管理 › 連携サービス › Slack** | [Slack](slack.md) |
 | AI に Notion、Linear、Atlassian、Figma、GitHub などのアプリを使わせる | 自分用はあなた、チーム用は管理者 | **設定 › コネクター** または **管理 › 連携サービス** | [Notion、Linear などのアプリ](mcp.md) |
 | AI に会社独自のシステム（API）や、NAVER WORKS のように独自のログインアプリが必要なサービスを使わせる | 管理者 | **管理 › 連携サービス** › **アドレスで追加** | [会社の API](api-connections.md) |
-| Claude や ChatGPT から Trina AX のファイルを使う | あなた | **設定 › Trina AX MCP** | [Team AX MCP コネクター](../../agents/mcp-connector.md)（英語） |
+| Claude や ChatGPT から Trina AX のファイルを使う | あなた | **設定 › Trina AX MCP** | [Trina AX MCP コネクター](../../agents/mcp-connector.md)（英語） |
 
 **設定** を開くには、左のバーの下にある自分の写真を選び、**設定** を選びます（スマートフォンでは **自分** タブ）。オーナーと管理者には、同じメニューに **管理** もあります。
 

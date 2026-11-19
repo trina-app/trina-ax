@@ -7,7 +7,7 @@
 import { useEffect, useState } from 'react'
 import { LOCAL_APP_PRESETS, localCommandLines, splitCommand, type Integration, type LocalAppSpec } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
-import { desktop } from '../../lib/desktop'
+import { desktop, settingsNotKeptKey } from '../../lib/desktop'
 import { useLocale, useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { Button, Field, Modal, inputCls } from '../ui'
@@ -68,7 +68,7 @@ export function LocalAppDialog({ onClose, onSaved }: { onClose: () => void; onSa
       let i = await api.call(API.createLocalIntegration, { body: { name: label, spec } })
       if (Object.keys(values).length) {
         const kept = await localAppsBridge()?.setSettings(i.id, values)
-        if (kept !== 'saved') toast({ level: 'warn', text: t('localApps.settingsNotKept') })
+        if (kept !== 'saved') toast({ level: 'warn', text: t(settingsNotKeptKey(kept)) })
         else i = await api.call(API.refreshIntegration, { params: { id: i.id }, body: {} })
       }
       onSaved(i)
@@ -187,7 +187,7 @@ function SettingsDialog({ i, names, onClose, onSaved }: { i: Integration; names:
     setBusy(true)
     try {
       const r = await bridge.setSettings(i.id, Object.fromEntries(Object.entries(values).filter(([, v]) => v)))
-      if (r !== 'saved') return toast({ level: 'warn', text: t('localApps.settingsNotKept') })
+      if (r !== 'saved') return toast({ level: 'warn', text: t(settingsNotKeptKey(r)) })
       onSaved(await bridge.settingNames(i.id))
     } finally { setBusy(false) }
   }

@@ -3,8 +3,8 @@
 // product's push service (the default; the store app gets them), Off, or Custom: an address of the team's own push
 // service, for their own build of the phone app (the store app can't get those). Default and Off save at once; Custom
 // saves with its button, and the server saves it only when the address answers as a push service, else the reason
-// shows under the field. Set in the server's own settings (MYCEL_PUSH_GATEWAY, server.json): the value and where it is
-// set, nothing to change.
+// shows under the field. Set in the server's own settings (MYCEL_PUSH_GATEWAY, server.json): the value and a plain
+// line that the team server's settings decide it, nothing to change (no file or key names: the reader is no developer).
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { PUSH_GATEWAY_PROBLEMS, type PushGatewayChoice, type PushGatewayProblem, type PushGatewaySetting } from '@mycel/shared/api'
@@ -68,13 +68,13 @@ export function PhoneGatewayRow() {
   // what is in use now: a Custom not yet saved (or refused) is not, so the line keeps the saved choice's words
   const desc = t(`pushGateway.desc.${setting.choice}`)
 
-  // set in the server's own settings: the value and where, nothing to pick
+  // set in the server's own settings: the value and that plain line, nothing to pick
   if (setting.lockedBy) {
     return <PrefRow id="np-phone-gateway" title={title} desc={desc} testId="phone-gateway" attrs={{ 'data-locked': '' }}
       control={<span className="text-sm text-muted" data-testid="phone-gateway-value">{label(setting.choice)}</span>}
       below={<>
         {setting.url && <p className={clsx('mt-2 break-all', settingDesc)} data-testid="phone-gateway-url">{setting.url}</p>}
-        <p className={clsx('mt-2', settingDesc)} data-testid="phone-gateway-locked">{t('pushGateway.locked', { where: setting.lockedBy })}</p>
+        <p className={clsx('mt-2', settingDesc)} data-testid="phone-gateway-locked">{t('pushGateway.locked')}</p>
       </>} />
   }
 

@@ -9,6 +9,7 @@ import type { Database } from 'bun:sqlite'
 import type { AppContext } from '../context'
 import { getChatRuntime } from '../chat/runtime'
 import { Audiences, isSharedRow } from '../chat/shared'
+import { turnQuestionOpen } from '../chat/open-questions'
 import { isInternalChat } from '../chat/internal-chats'
 import { notificationsOf } from './service'
 
@@ -45,8 +46,10 @@ export function chatAnswerWanted(ctx: AppContext, notificationId: string): boole
     // the card is still open, in every window (a card one desktop window shows alone is that window's)
     let rt: ReturnType<typeof getChatRuntime>
     try { rt = getChatRuntime(ctx) } catch { return false }
-    const exec = rt.execFor(n.source_id.replace(/\.ask$/, ''))
-    return !!exec && exec.spec.userId === n.user_id && exec.openRequests().some((r) => !r.window)
+    const turnId = n.source_id.replace(/\.ask$/, '')
+    const exec = rt.execFor(turnId)
+    // or the AI's question that waits after its answer ended (chat/open-questions.ts)
+    return (!!exec && exec.spec.userId === n.user_id && exec.openRequests().some((r) => !r.window)) || turnQuestionOpen(ctx.db, turnId, n.user_id)
   }
   // the chat's seen mark is its creator's (a shared chat keeps one): for another asker it cannot tell, and it is sent
   const c = chatRow(ctx.db, n.chat_id)!

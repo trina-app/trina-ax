@@ -34,18 +34,18 @@ kill "$(cat /tmp/bench-pid)"; rm -rf "$D" /tmp/bench-pw /tmp/bench-pid   # only 
 ```
 
 `--db` reads the turn's own `started_at/dispatched_at` to `ended_at` and `turns.input_tokens/output_tokens` (cache reads
-and writes included, the same number the dev server reports). Use `--skip-upload` to rerun on documents already there
+and writes included, the same number the server reports). Use `--skip-upload` to rerun on documents already there
 (the first run leaves them with `--keep-docs`).
 
-## Run on the dev server (potenlab.trina.app)
+## Run on a test server (the QA server)
 
 No `--db` (no file access): time is wall clock from send to done (polled every 300 ms, so up to 0.3 s coarse) and
 tokens are `Message.usage` from the API. Use an owner or admin test account that may pick the engine; put its password
 in a file outside the repo. Documents land in `shared/bench/` of that team and are removed at the end. Test data only,
-and the dev server needs a fresh OK from the owner for anything beyond this.
+and the QA server needs a fresh OK from the owner for anything beyond this.
 
 ```bash
-bun scripts/bench/run.ts --server https://potenlab.trina.app --engine claude-code --password-file <file> --label dev
+bun scripts/bench/run.ts --server https://qa.trina.app --engine claude-code --password-file <file> --label dev
 ```
 
 Compare local to local, and dev to dev: the two time sources differ by queue and polling time.

@@ -22,6 +22,15 @@ export interface ContextSize { tokens: number; exact: boolean; source: 'ollama' 
 
 /** A local address that told nothing: what #1284's prompt budget assumes for it too (most local models run 8k-32k). */
 export const LOCAL_GUESS_TOKENS = 32_000
+/** the context an Ollama model loads with when neither its num_ctx nor OLLAMA_CONTEXT_LENGTH says otherwise (2048
+ * before Ollama 0.6), and LM Studio's default load size */
+export const OLLAMA_DEFAULT_TOKENS = 4_096
+export const OLLAMA_OLD_DEFAULT_TOKENS = 2_048
+export const LMSTUDIO_DEFAULT_TOKENS = 4_096
+/** how long a model loaded by the look-up stays loaded (Ollama's own default; the turn's request follows at once) */
+const OLLAMA_KEEP_ALIVE = '5m'
+/** a guess (a model not loaded yet) is looked at again this soon: once loaded, its server says the real size */
+const GUESS_CACHE_MS = 60_000
 /** a probe's answer is kept this long (a model loaded with another size is seen at most this late) */
 export const CONTEXT_CACHE_MS = 10 * 60_000
 /** a probe that learned nothing is not repeated for this long: a local server (just started, model loading) soon, a
@@ -54,6 +63,19 @@ export function isLocalApiAddress(baseUrl: string): boolean {
   try { host = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '') } catch { return false }
   if (host === 'localhost' || host.endsWith('.localhost') || /\.(local|lan|internal|home\.arpa)$/.test(host)) return true
   if (/^[\d.]+$/.test(host) || host.includes(':')) return !isPublicAddress(host) || isLocalAddress(host)
+  return !host.includes('.')
+}
+
+/** The address of a model that may take long to start answering, so its first answer is waited for (engine/api-agent.ts
+ * HEADERS_TIMEOUT_MS): this computer or a private network, and the same kind of address reached over Tailscale. An IP
+ * literal counts only when it is not public (loopback, 10/8, 172.16/12, 192.168/16, link-local, fc00::/7, CGNAT
+ * 100.64/10); the server's own subnet does not matter here (on EC2 it can hold a public IPv6 /64). Names: localhost,
+ * .local / .lan / .internal / .home.arpa, one label, and *.ts.net (Tailscale). */
+export function isPatientApiAddress(baseUrl: string): boolean {
+  let host: string
+  try { host = new URL(baseUrl).hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '') } catch { return false }
+  if (host === 'localhost' || host.endsWith('.localhost') || /\.(local|lan|internal|home\.arpa|ts\.net)$/.test(host)) return true
+  if (/^[\d.]+$/.test(host) || host.includes(':')) return !isPublicAddress(host)
   return !host.includes('.')
 }
 
@@ -119,7 +141,8 @@ export function noteContextUsage(conf: Pick<ApiEngineConf, 'baseUrl' | 'model'>,
   if (r && typeof promptTokens === 'number' && promptTokens > r.tokens) refused.delete(k)
 }
 
-type Get = (url: string, init?: RequestInit) => Promise<unknown | null>
+/** `long`: may take until the look-up's own limit (PROBES_TIMEOUT_MS), not only PROBE_TIMEOUT_MS (loading a model) */
+type Get = (url: string, init?: RequestInit, o?: { long?: boolean }) => Promise<unknown | null>
 
 /** The size a model entry of an OpenAI-compatible /models list (or one model's own entry) states. */
 function fromModelEntry(m: any): number | null {
@@ -134,8 +157,11 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
   try { origin = new URL(conf.baseUrl).origin } catch { return null }
   const local = isLocalApiAddress(conf.baseUrl)
   const same = (a: unknown) => typeof a === 'string' && (a === conf.model || a.replace(/:latest$/, '') === conf.model.replace(/:latest$/, ''))
-  // Ollama: a loaded model says the size it runs with (/api/ps context_length); else its num_ctx parameter. Its
-  // trained length is not what it runs with (Ollama starts it smaller unless told), so it is a guess only.
+  // Ollama: a loaded model says the size it runs with (/api/ps context_length); else its num_ctx parameter (in
+  // /api/show also before it is loaded). Without num_ctx a model loads with the server's default
+  // (OLLAMA_CONTEXT_LENGTH, which no API shows): 4096 when not set, 2048 before 0.6. That default, at most the
+  // trained length, is the guess (QA TC-5087: a 32k guess let Ollama cut every prompt of a 16k server until the
+  // model was loaded). Once loaded, /api/ps says the real size (a guess is cached only GUESS_CACHE_MS).
   const ps = await get(`${origin}/api/ps`) as any
   const loaded = Array.isArray(ps?.models) ? ps.models.find((m: any) => same(m?.name) || same(m?.model)) : null
   if (num(loaded?.context_length)) return { tokens: num(loaded.context_length)!, exact: true, source: 'ollama' }
@@ -143,15 +169,27 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
     const show = await get(`${origin}/api/show`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model }) }) as any
     const param = typeof show?.parameters === 'string' ? /(?:^|\n)\s*num_ctx\s+(\d+)/.exec(show.parameters) : null
     if (param && num(param[1])) return { tokens: num(param[1])!, exact: true, source: 'ollama' }
+    // no num_ctx: load the model now (an empty generate, kept loaded for the turn that follows) and read the size it
+    // loaded with, so a server with a large OLLAMA_CONTEXT_LENGTH is not taken for a 4096 one. A load that does not
+    // finish within the look-up's limit leaves the guess below
+    const warm = await get(`${origin}/api/generate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: conf.model, keep_alive: OLLAMA_KEEP_ALIVE, stream: false }) }, { long: true })
+    if (warm) {
+      const after = await get(`${origin}/api/ps`) as any
+      const now = Array.isArray(after?.models) ? after.models.find((m: any) => same(m?.name) || same(m?.model)) : null
+      if (num(now?.context_length)) return { tokens: num(now.context_length)!, exact: true, source: 'ollama' }
+    }
     const trained = show?.model_info && typeof show.model_info === 'object' ? Object.entries(show.model_info).find(([k]) => k.endsWith('.context_length'))?.[1] : null
-    return { tokens: Math.min(num(trained) ?? LOCAL_GUESS_TOKENS, LOCAL_GUESS_TOKENS), exact: false, source: 'ollama' }
+    const version = await get(`${origin}/api/version`) as any
+    const old = typeof version?.version === 'string' && /^0\.[0-5]\./.test(version.version)
+    const fallback = old ? OLLAMA_OLD_DEFAULT_TOKENS : OLLAMA_DEFAULT_TOKENS
+    return { tokens: Math.min(num(trained) ?? fallback, fallback), exact: false, source: 'ollama' }
   }
-  // LM Studio: the loaded size, else the most the model can take (it loads with a smaller one unless told: a guess)
+  // LM Studio: the loaded size, else what it loads a model with unless told (4096), at most the model's own most
   const lms = await get(`${origin}/api/v0/models/${encodeURIComponent(conf.model)}`) as any
   if (lms && typeof lms === 'object' && (lms.loaded_context_length !== undefined || lms.max_context_length !== undefined)) {
     if (lms.state === 'loaded' && num(lms.loaded_context_length)) return { tokens: num(lms.loaded_context_length)!, exact: true, source: 'lmstudio' }
     const most = num(lms.max_context_length)
-    if (most) return { tokens: Math.min(most, LOCAL_GUESS_TOKENS), exact: false, source: 'lmstudio' }
+    if (most) return { tokens: Math.min(most, LMSTUDIO_DEFAULT_TOKENS), exact: false, source: 'lmstudio' }
   }
   // llama.cpp's server: the size each request may use
   if (local) {
@@ -183,22 +221,22 @@ export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof 
   let size: ContextSize | null
   const hit = probed.get(k)
   const missFor = isLocalApiAddress(conf.baseUrl) ? LOCAL_MISS_CACHE_MS : CONTEXT_CACHE_MS
-  if (hit && now - hit.at < (hit.size ? CONTEXT_CACHE_MS : missFor)) size = hit.size
+  if (hit && now - hit.at < (hit.size ? (hit.size.exact ? CONTEXT_CACHE_MS : GUESS_CACHE_MS) : missFor)) size = hit.size
   else {
     let p = inflight.get(k)
     if (!p) {
       const f = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: conf.setBy === 'admin' })
       const all = AbortSignal.timeout(PROBES_TIMEOUT_MS)
-      const get: Get = async (url, init) => {
+      const get: Get = async (url, init, g) => {
         try {
-          const r = await f(url, { ...init, signal: AbortSignal.any([all, AbortSignal.timeout(PROBE_TIMEOUT_MS)]) })
+          const r = await f(url, { ...init, signal: g?.long ? all : AbortSignal.any([all, AbortSignal.timeout(PROBE_TIMEOUT_MS)]) })
           if (!r.ok || !r.body) return null
           return await boundedJson(r)
         } catch { return null }
       }
       p = probe(conf, get).catch(() => null).finally(() => inflight.delete(k))
       // what this look-up learned, for every turn (one that stopped waiting included)
-      p.then((v) => probed.set(k, { size: v, at: Date.now() }))
+      p.then((v) => probed.set(k, { size: v, at: now }))
       inflight.set(k, p)
     }
     // the turn's Stop ends the wait at once (the probe goes on and its answer is kept)
@@ -226,6 +264,15 @@ async function boundedJson(r: Response): Promise<unknown | null> {
     parts.push(value)
   }
   try { return JSON.parse(new TextDecoder().decode(Buffer.concat(parts))) } catch { return null }
+}
+
+/** A guess that says nothing about the model: a cloud address, or a local one that is not Ollama or LM Studio (a
+ * LiteLLM proxy at http://litellm:4000 in front of a 200k model). It neither cuts the tool list nor shrinks the
+ * history when the tools alone fill it (chat/turn.ts). Ollama's and LM Studio's own guess (a model not loaded yet:
+ * their default load size) does both, or Ollama cuts the prompt's start (QA TC-5087). */
+export function blindGuess(size: ContextSize, baseUrl: string): boolean {
+  if (size.exact || size.source === 'refusal') return false
+  return !(isLocalApiAddress(baseUrl) && (size.source === 'ollama' || size.source === 'lmstudio'))
 }
 
 /** tests: forget what was learned */

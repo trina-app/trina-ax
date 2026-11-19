@@ -1,5 +1,7 @@
 # 트리나 Mac App Store 빌드
 
+> 지금 상태(2026-11-19): 릴리스 워크플로는 이 빌드를 만들지 않습니다. 0.5.6부터 맥 앱은 Developer ID로 서명·공증된 dmg이고 팀 서버에서 스스로 업데이트됩니다([RELEASE-CI.md](../../../docs/RELEASE-CI.md) "Mac app"). 설정 › 앱도 Mac App Store를 가리키지 않습니다(`branding/apps.json`의 `mac`이 비어 있음). 이 폴더는 스토어판을 다시 낼 때를 위해 남겨 둡니다.
+
 이 폴더는 데스크톱 앱을 Mac App Store용 `.pkg`로 만드는 설정입니다. 앱 코드는 같고, 배포 설정만 다릅니다.
 
 - [electron-builder.mas.config.ts](electron-builder.mas.config.ts): `desktop/electron-builder.config.ts`를 그대로 쓰고 스토어에 필요한 것만 바꿉니다. 번들 ID `app.trina.ax`, `mas` 대상(universal), 샌드박스 권한, 프로비저닝 프로필, 빌드 번호입니다. 기본 설정의 appId는 바꾸지 않습니다. 윈도우 앱이 그 값으로 설치된 앱을 알아봅니다.

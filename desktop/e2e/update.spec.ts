@@ -10,6 +10,9 @@ stopLeftoverApps()
 const hits = () => fetch(`${ACME}/test/downloads-hits`).then((r) => r.json() as Promise<{ hits: string[] }>).then((j) => j.hits)
 
 test('Mac: a newer Mac app in /downloads/index.json is announced once, with the team session; Download opens Settings > Apps', async () => {
+  // the notice mode reads index.json only on the Mac: on Linux it is the .deb's notice, read from the team's signed
+  // /downloads/<channel>.json (updater.ts checkLinux; unit-tested in tests/unit/office-update-desktop-updater.test.ts)
+  test.skip(process.platform !== 'darwin', 'the Mac notice; Linux reads the signed manifest instead')
   const userData = newUserData('ko')
   const before = (await hits()).length
   const env = { MYCEL_DESKTOP_UPDATE_TEST: 'notice', MYCEL_DESKTOP_UPDATE_FIRST_MS: '7000' }

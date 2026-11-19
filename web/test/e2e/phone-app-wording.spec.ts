@@ -1,6 +1,7 @@
 // QA TC-264: inside the phone app (a WebView with the app's bridge, lib/mobile.ts) a blocked mic points to the phone's
-// Settings with a button that opens them, never to "the browser's settings"; a browser keeps the browser words. A
-// folder's ⋯ menu starts "a chat with this folder", not "this file". On a computer (1440) and a phone (390×844).
+// Settings with a link that opens them (in the calm notice, never red), never to "the browser's settings"; a browser
+// keeps the browser words. A folder's ⋯ menu starts "a chat with this folder", not "this file". On a computer (1440)
+// and a phone (390×844).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
@@ -50,7 +51,9 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
       await micRefused(page)
       await signIn(page)
       await mic(page).click()
-      await expect(page.getByRole('alert').filter({ hasText: '마이크' })).toHaveText(BROWSER_NOTE)
+      // a blocked mic is a setting to change: the calm notice, never red
+      await expect(page.getByTestId('composer-mic-blocked')).toHaveText(BROWSER_NOTE)
+      await expect(page.getByRole('alert').filter({ hasText: '마이크' })).toHaveCount(0)
       await expect(page.getByTestId('voice-open-settings')).toHaveCount(0)
       await page.screenshot({ path: `../../shots/mic-browser-${size.width}.png` })
     })
@@ -90,8 +93,10 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
       await micRefused(page)
       await signIn(page)
       await mic(page).click()
-      const note = page.getByRole('alert').filter({ hasText: '마이크' })
+      // the calm notice (never red), the way to Settings on its own line under the words, never an outlined button
+      const note = page.getByTestId('composer-mic-blocked')
       await expect(note).toContainText(IOS_NOTE)
+      await expect(note).toHaveAttribute('role', 'status')
       await expect(note).not.toContainText('브라우저')
       await page.screenshot({ path: `../../shots/mic-app-${size.width}.png` })
       await note.getByTestId('voice-open-settings').click()
@@ -117,3 +122,44 @@ for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) 
     })
   })
 }
+
+// Settings › Notifications inside the phone app when the phone's Settings turned its notifications off: this device's
+// row ends with the way to the phone's Settings (a link with ›, as a phone's settings show it), never a computer's
+// outlined button under the line.
+test.describe('390×844 notifications off in the phone\'s Settings', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  test("this device's row ends with the way to Settings, which opens them", async ({ page }) => {
+    await reset(page)
+    await page.addInitScript(() => {
+      const w = window as unknown as { mycelMobile: MobileConfig; ReactNativeWebView: { postMessage(raw: string): void }; mobileMessages: MobileMessage[] }
+      w.mycelMobile = { protocol: 1, appVersion: '1.0.9', platform: 'ios', generation: 1, nonce: 'a'.repeat(64), capabilities: ['file-share-v1', 'external-oauth-v1', 'push-token-v1', 'push-permission-v1'] }
+      w.mobileMessages = []
+      w.ReactNativeWebView = { postMessage(raw) {
+        const m = JSON.parse(raw) as MobileMessage
+        w.mobileMessages.push(m)
+        const reply: MobileReply = { v: 1, type: 'mobile-result', id: m.id, nonce: m.nonce, generation: m.generation, for: m.type, ok: true, ...('seq' in m ? { seq: m.seq } : {}) }
+        if (m.type === 'session-reset') { w.mycelMobile = { ...w.mycelMobile, generation: m.generation + 1 }; reply.nextGeneration = m.generation + 1 }
+        // the phone's Settings turned this app's notifications off
+        if (m.type === 'push-permission') reply.permission = 'denied'
+        queueMicrotask(() => window.dispatchEvent(new CustomEvent('mycel:mobile', { detail: reply })))
+      } }
+    })
+    await page.route('**/api/push', (r) => r.request().method() === 'GET'
+      ? r.fulfill({ json: { configured: true, enabled: false, publicKey: null, subscriptionId: null, native: { available: true, deviceId: null } } })
+      : r.continue())
+    await signIn(page)
+    await page.goto('/settings/notifications')
+    const row = page.getByTestId('push-notifications')
+    await expect(row).toHaveAttribute('data-phone', '')
+    await expect(row).toContainText(ko['push.deniedPhone'])
+    const link = row.getByTestId('phone-push-settings')
+    await expect(link).toHaveText(ko['push.openSettings'])
+    // a link at the row's end, on the line's right: not a framed button under it
+    const [linkBox, rowBox] = [await link.boundingBox(), await row.boundingBox()]
+    expect(linkBox!.x + linkBox!.width).toBeGreaterThan(rowBox!.x + rowBox!.width - 8)
+    expect(await link.evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px')
+    expect(linkBox!.height).toBeGreaterThanOrEqual(44)
+    await link.click()
+    await expect.poll(() => sentToApp(page)).toContain('open-settings')
+  })
+})

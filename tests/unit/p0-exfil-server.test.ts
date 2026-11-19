@@ -183,6 +183,16 @@ describe('scheduled tasks (F1, review M4)', () => {
     toolRegistry(h.ctx.files).call('schedule_create', { title: 'digest', prompt, repeat: 'once', time: '09:00', date: day(), ...extra }, { user: h.ctx.files.principal('alice'), turnId, files: new TurnFiles(), ...(p ? { person: p } : {}) })
   const count = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM schedules WHERE user_id = 'alice'").get() as { n: number }).n
   const clear = () => h.ctx.db.query("DELETE FROM schedules WHERE user_id = 'alice'").run()
+  // a test that starts a run waits for it to end: at most RUNS_AT_ONCE scheduled runs of a person run at once
+  // (chat/schedules.ts), so a run still going would hold back the next test's run
+  const runsEnded = async () => {
+    for (let i = 0; i < 400; i++) {
+      const n = (h.ctx.db.query("SELECT COUNT(*) AS n FROM turns WHERE user_id = 'alice' AND client_kind = 'schedule' AND status IN ('queued','running')").get() as { n: number }).n
+      if (n === 0) return
+      await Bun.sleep(25)
+    }
+    throw new Error('a scheduled run of alice did not end')
+  }
 
   test('the card shows the title, the schedule, the whole instruction and its addresses (random-looking parts marked); "no" creates nothing', async () => {
     clear()
@@ -229,6 +239,7 @@ describe('scheduled tasks (F1, review M4)', () => {
     const msg = h.ctx.db.query("SELECT chat_id FROM messages WHERE role = 'user' AND content = ?").get(p2) as { chat_id: string }
     expect(await gateUrl(h.ctx.db, msg.chat_id, secretUrl, null)).toBe('seen')
     await expect(gateUrl(h.ctx.db, msg.chat_id, longUrl, null)).rejects.toThrow(/long query part/)
+     await runsEnded()
   })
 
   test('the long-query line in five languages, on "다시 확인" too, and while the server does not know its address', () => {
@@ -290,6 +301,7 @@ describe('scheduled tasks (F1, review M4)', () => {
     const msg = h.ctx.db.query("SELECT chat_id, auto_sent FROM messages WHERE role = 'user' AND content = ?").get(prompt) as { chat_id: string; auto_sent: number }
     expect(msg.auto_sent).toBe(1)
     expect(await gateUrl(h.ctx.db, msg.chat_id, secretUrl, null)).toBe('seen')
+     await runsEnded()
   })
 
   test('a schedule nobody confirmed (made before the card) does not run: it is paused for its owner\'s review', async () => {
@@ -315,6 +327,7 @@ describe('scheduled tasks (F1, review M4)', () => {
     // deleting the schedule changes nothing: the mark is on the message
     clear()
     expect(gateUrl(h.ctx.db, msg.chat_id, `${secretUrl}/old`, null)).rejects.toThrow(/nobody can confirm/)
+     await runsEnded()
   })
 
   test('a scheduled turn\'s message written without the mark (an older build after a rollback) is not the person\'s words either', async () => {

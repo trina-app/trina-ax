@@ -92,25 +92,6 @@ export type DesktopNotifyTest = 'shown' | 'off' | 'unsupported' | 'limited' | 'u
  * takes an app of version 1 (no add(): its reads are not limited to the files added). */
 export const WORK_FILES_BRIDGE_VERSION = 2
 
-/** The version of DesktopBridge.meeting this page knows (meeting notes, docs/AGENTS/plan/20261116-1903-live-meeting-notes.md).
- * A desktop app with another (or none) gets no entry. */
-export const MEETING_BRIDGE_VERSION = 1
-/** One line of meeting notes: "me" is this computer's microphone, "others" the call apps' sound; times are ms from Start. */
-export interface DesktopMeetingLine { track: 'me' | 'others'; startMs: number; endMs: number; text: string }
-/** The meeting as the app sees it. `problem`: 'no_call_sound' (a call app runs, the microphone hears speech, the call's
- * sound stays silent: macOS's permission was likely refused), 'stopped' (the team server refused: `message` says why),
- * 'helper' (the sound could not be read). `waiting`: pieces still waiting for their words (the page says they come late). */
-export interface DesktopMeetingState {
-  state: 'idle' | 'listening' | 'saving'
-  startedAt?: number
-  microphone?: boolean
-  callSound?: boolean
-  callApps?: string[]
-  waiting?: number
-  problem?: 'no_call_sound' | 'stopped' | 'helper' | 'silence' | 'too_long'
-  message?: string
-}
-
 /** The folders "Find work files on this computer" looks through, in this order (macOS asks for each in turn). Part 5
  * (a wide look, scan({ wide: true })) adds places with a name of their own (`place`): a cloud drive's folder (OneDrive,
  * Google Drive, Dropbox, Box), a work folder in the home folder, a messenger's downloads, files opened lately anywhere in
@@ -356,26 +337,6 @@ export interface DesktopBridge {
     read(id: string, o?: { onCloud?: (cloud: WorkCloudProvider) => void }): Promise<WorkFileRead>
     /** macOS: System Settings › Privacy & Security › Files & Folders, where the person lets the app into a folder again */
     openSettings(): void
-  }
-  /** Meeting notes (MEETING_BRIDGE_VERSION; absent in a browser, the store build, Windows until P3, macOS before 14.4).
-   * start() makes the app show its own dialog (Cancel is the default) every time; nothing listens without that click.
-   * The page gets lines and state, never sound. The meeting belongs to the app: a reload keeps it running. stop()
-   * resolves with every line once the last pieces have their words (at most a minute). */
-  meeting?: {
-    version: number
-    state(): Promise<DesktopMeetingState>
-    start(): Promise<'started' | 'cancelled' | 'busy' | 'unavailable'>
-    stop(): Promise<DesktopMeetingLine[]>
-    /** the lines so far (after a reload) */
-    lines(): Promise<DesktopMeetingLine[]>
-    onLines(cb: (lines: DesktopMeetingLine[]) => void): () => void
-    onState(cb: (s: DesktopMeetingState) => void): () => void
-    /** macOS Settings › Privacy & Security, where the call's sound is allowed */
-    openSoundSettings(): void
-    /** the last meeting's lines when the page has not said they were saved (the window closed, the app quit) */
-    unsaved(): Promise<{ startedAt: number; lines: DesktopMeetingLine[] } | null>
-    /** the note of the meeting that started at `startedAt` is in the person's folder: the app forgets its lines */
-    saved(startedAt: number): void
   }
   /** A connector sign-in at a service that takes only an app on the computer as the place to come back to (Canva,
    * Intercom, Square; RFC 8252): open() gives the port of a one-time return address on 127.0.0.1 that the page passes to

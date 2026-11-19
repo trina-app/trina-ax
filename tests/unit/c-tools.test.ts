@@ -176,7 +176,7 @@ describe('make_file', () => {
 
     for (const [bad, why] of [
       ["=cmd|'/c calc'!A1", 'DDE'], ['=SUM([1]Sheet1!A1)', 'other files'], ['=[1]Sheet1!A1+1', 'other files'], ["='C:\\x\\[b.xlsx]S'!A1", 'other files'],
-      ['=HYPERLINK("https://example.com","x")', 'HYPERLINK'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
+      ['=HYPERLINK("file:///C:/Windows/calc.exe","x")', 'HYPERLINK may point only to a web page'], ['=WEBSERVICE("https://example.com")', 'WEBSERVICE'], ['=SUM(INDIRECT("A1"))', 'INDIRECT'],
     ]) {
       const e = await call('alice', null, 'make_file', { content: `a,b\n1,"${bad!.replace(/"/g, '""')}"\n`, format: 'xlsx', output: 'users/alice/out/bad.xlsx' })
       expect(e.isError, bad).toBe(true)
@@ -192,6 +192,71 @@ describe('make_file', () => {
     expect(formulaOf("'S (1)'!A1+SUM(A1:A2)")).toEqual({ formula: "'S (1)'!A1+SUM(A1:A2)" })
     expect([cellValue('=SUM(A1:A2)'), cellValue("'=x"), cellValue('='), cellValue("'quoted'")]).toEqual([{ formula: 'SUM(A1:A2)' }, '=x', '=', "'quoted'"])
   })
+  test('xlsx formulas: HYPERLINK to the web, mail and this workbook; never a file, a share or a link from a cell (TC-4993)', async () => {
+    const ok = [
+      'HYPERLINK("https://example.com/report?id=3","Report")',
+      'HYPERLINK("http://example.com")',
+      'HYPERLINK("https://example.com/item/"&A2,A2)',
+      'HYPERLINK("mailto:sales@example.com?subject=Hi&cc=a@example.com","Mail us")',
+      'HYPERLINK("#Sheet2!A1","Go")',
+      `HYPERLINK("#'Q3 sales'!B2:C9","Q3")`,
+      'HYPERLINK("#Total")',
+      'IF(A1>0,HYPERLINK("https://example.com","yes"),"no")',
+      'HYPERLINK( "https://example.com" , "x")',
+      'HYPERLINK("https://example.com/"&IF(A1>2,"a","b"),"y")',
+      // a comparison inside parentheses only adds TRUE or FALSE to the address: still a web link
+      'HYPERLINK("https://example.com/"&(A1>2),"y")',
+      'IF(HYPERLINK("https://example.com/"&A2,"x")="x",1,2)',
+    ]
+    for (const f of ok) expect(formulaOf(f), f).toHaveProperty('formula')
+    expect(formulaOf('hyperlink("https://example.com","x")')).toEqual({ formula: 'HYPERLINK("https://example.com","x")' })
+    const refused: [string, string][] = [
+      ['HYPERLINK("file:///C:/Windows/System32/calc.exe","x")', 'HYPERLINK may point only to a web page'],
+      ['HYPERLINK("\\\\server\\share\\a.xlsx","x")', 'Windows sign-in'],
+      ['HYPERLINK("//server/share/a.xlsx")', 'This link is "//server/share/a.xlsx"'],
+      ['HYPERLINK("..\\x.exe")', 'backslashes'],
+      ['HYPERLINK("report.xlsx")', 'This link is "report.xlsx"'],
+      ['HYPERLINK("javascript:alert(1)")', 'HYPERLINK may point only'],
+      ['HYPERLINK("ms-word:ofe|u|https://example.com/a.docx")', 'HYPERLINK may point only'],
+      ['HYPERLINK("search-ms:query=x")', 'HYPERLINK may point only'],
+      ['HYPERLINK(A2,"x")', 'in "double quotes"'],
+      ['HYPERLINK(""&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK("file:"&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK("#"&A2)', 'HYPERLINK may point only'],
+      ['HYPERLINK(IF(A1,"https://example.com","file:///x"))', 'in "double quotes"'],
+      ['HYPERLINK("https://exa mple.com")', 'spaces'],
+      ['HYPERLINK("https://")', 'HYPERLINK may point only'],
+      ['HYPERLINK("mailto:a@example.com?attach=C:/x")', 'subject, body, cc, bcc and to'],
+      // review of #1337: a mail link with & could add &attach=...; a comparison makes the link TRUE/FALSE
+      ['HYPERLINK("mailto:"&B2,"Mail")', 'Write a mail link out whole'],
+      ['HYPERLINK("mailto:a@example.com?subject=x"&"&attach=C:/x")', 'Write a mail link out whole'],
+      ['HYPERLINK("https://example.com/"&A1="x","y")', 'not with a comparison'],
+      ['HYPERLINK("https://example.com/"&A1<>"","y")', 'not with a comparison'],
+      ['HYPERLINK("#[other.xlsx]Sheet1!A1")', 'place in this workbook'],
+      ['_xludf.HYPERLINK("https://example.com")', 'no prefix'],
+      [`N("")&'x"'!A1&HYPERLINK("http://evil.example/","x")&'y"'!A1`, 'sheet names'],
+    ]
+    for (const [f, why] of refused) {
+      const r = formulaOf(f)
+      expect(r, f).toHaveProperty('error')
+      expect((r as { error: string }).error, f).toContain(why)
+      expect((r as { notFormula?: true }).notFormula, f).toBeUndefined()
+    }
+    // through make_file: the link is a real formula in the saved workbook; a file link saves nothing
+    const r = await call('alice', null, 'make_file', { content: '| Item | Link |\n|---|---|\n| A-1 | =HYPERLINK("https://example.com/item/"&A2,"open") |\n| mail | =HYPERLINK("mailto:sales@example.com","Mail us") |\n', format: 'xlsx', output: 'users/alice/out/links.xlsx' })
+    expect(r.isError, r.text).toBe(false)
+    // a formula Excel calculates on open has no stored value: read with stubs to see it
+    const wb = XLSX.read(fs.readFileSync(path.join(A.team, 'users/alice/out/links.xlsx')), { sheetStubs: true })
+    const ws = wb.Sheets[wb.SheetNames[0]!]!
+    expect(ws.B2.f).toBe('HYPERLINK("https://example.com/item/"&A2,"open")')
+    expect(ws.B3.f).toBe('HYPERLINK("mailto:sales@example.com","Mail us")')
+    const bad = await call('alice', null, 'make_file', { content: '| Link |\n|---|\n| =HYPERLINK("file://fileserver/finance/q3.xlsx","Q3") |\n', format: 'xlsx', output: 'users/alice/out/badlink.xlsx' })
+    expect(bad.isError).toBe(true)
+    expect(bad.text).toContain('Windows sign-in')
+    expect(bad.text).toContain('cell A2')
+    expect(fs.existsSync(path.join(A.team, 'users/alice/out/badlink.xlsx'))).toBe(false)
+  })
+
   test('xlsx formulas: quotes in quoted sheet names do not hide blocked parts (review bypass)', async () => {
     // a '"' inside a 'quoted sheet name' must not open a string literal that hides the code after it
     const bypass = [

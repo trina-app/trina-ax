@@ -39,8 +39,8 @@ export const jobsRoutes: RouteModule = {
       // the recording is on disk already (http/multipart.ts); the job takes the file over, or the kit removes it
       return { jobId: C.startTranscribe(auth.user.id, body.file.path, name, { language: body.fields.language, chatId }) }
     }))
-    // a piece's refusal as the apps read it (desktop meeting notes, web voice input): 429 in_flight / too_fast and 503
-    // busy / not_ready are sent again after retryAfter; 409 (off, no_key, too_slow), 403 confidential and 429 free_used
+    // a piece's refusal as voice input reads it: 429 in_flight / too_fast and 503
+    // busy / not_ready are sent again after retryAfter; 409 (off, no_key), 403 confidential and 429 free_used
     // stop with the sentence
     const pieceError = (locale: Parameters<typeof mapErrors>[0], e: unknown): never => {
       if (e instanceof MeetingInFlight) throw new HttpError('rate_limited', undefined, { params: { reason: 'in_flight' }, retryAfter: 2 })
@@ -52,13 +52,6 @@ export const jobsRoutes: RouteModule = {
       }
       throw e
     }
-    // meeting notes (desktop app): a piece of a meeting's sound, answered at once
-    kit.handle(API.meetingStatus, () => C.meetingStatus())
-    kit.handle(API.meetingPiece, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
-      try {
-        return await C.meetingPiece(auth.user.id, body.file.path, { language: body.fields.language, signal: c.req.raw.signal })
-      } catch (e) { return pieceError(c.get('locale'), e) }
-    }))
     // voice input while recording (web app): the chat is checked as for a whole recording, before the piece is read
     kit.handle(API.transcribePiece, ({ c, body, auth }) => mapErrors(c.get('locale'), async () => {
       const chatId = body.fields.chatId

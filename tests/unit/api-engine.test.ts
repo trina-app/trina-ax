@@ -9,6 +9,7 @@ import path from 'node:path'
 import { API, CHAT_ERROR_MESSAGES, type EngineId } from '@mycel/shared/api'
 import type { EngineEvent } from '@mycel/shared'
 import { errorOf, readApiEngine, redact, runApiAgent, usageEvent, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
+import { isPatientApiAddress } from '../../server/src/engine/api-context'
 import { checkEngine, modelListed, type EngineEnv } from '../../server/src/admin/engines'
 import { usage as usageReport } from '../../server/src/admin/budgets'
 import { setMemberChoice } from '../../server/src/admin/engine-choice'
@@ -135,14 +136,48 @@ describe('agent loop', () => {
     const port = closed.port
     closed.stop(true)
     expect((await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${port}/v1` } })).err?.code).toBe('endpoint_unreachable')
-    // accepts the connection, never answers: stopped after the headers time limit, not at the turn's
+    // a cloud address that accepts the connection and never answers: stopped after the headers time limit, not at the turn's
     const silent = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: () => new Promise<Response>(() => {}) })
     try {
       const t0 = Date.now()
-      const r = await runErr(fetch, { c: { ...conf, baseUrl: `http://127.0.0.1:${silent.port}/v1` }, headersTimeoutMs: 300 })
+      const toSilent = ((_u: string, init: RequestInit) => fetch(`http://127.0.0.1:${silent.port}/v1/chat/completions`, init)) as unknown as typeof fetch
+      const r = await runErr(toSilent, { headersTimeoutMs: 300 })
       expect(r.err?.code).toBe('endpoint_unreachable')
       expect(Date.now() - t0).toBeLessThan(5000)
     } finally { silent.stop(true) }
+  })
+  test('TC-5207: a local address waits for a slow first answer (no headers limit); Stop still cancels it', async () => {
+    // answers after 1.2 s of silence, four times the limit a cloud address gets here
+    const slow = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch: async () => { await Bun.sleep(1200); return new Response(sse({ text: ['late ok'] })) } })
+    try {
+      const local: ApiEngineConf = { ...conf, baseUrl: `http://127.0.0.1:${slow.port}/v1` }
+      const events: EngineEvent[] = []
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => events.push(e), signal: new AbortController().signal, headersTimeoutMs: 300 })
+      expect(events.find((e) => e.type === 'error')).toBeUndefined()
+      expect(events.filter((e) => e.type === 'text').map((e: any) => e.delta).join('')).toContain('late ok')
+      // the same wait, stopped after 200 ms: ends at once, without an error
+      const ac = new AbortController(), ev2: EngineEvent[] = []
+      const t0 = Date.now()
+      setTimeout(() => ac.abort(), 200)
+      await runApiAgent({ conf: local, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => ev2.push(e), signal: ac.signal, headersTimeoutMs: 300 })
+      expect(Date.now() - t0).toBeLessThan(1000)
+      expect(ev2.find((e) => e.type === 'error')).toBeUndefined()
+      // a private-network IP, a .local name, a Tailscale name and a CGNAT address count as local too
+      for (const u of ['http://192.168.1.20:1234/v1', 'http://ollama.local:11434/v1', 'http://localhost:11434/v1', 'http://box.tail1234.ts.net:11434/v1', 'http://100.101.102.103:11434/v1', 'http://[fd7a:115c:a1e0::1]:11434/v1']) {
+        let sawTimer = false
+        const f = (async (_u: string, init: RequestInit) => { await new Promise((r) => setTimeout(r, 400)); sawTimer = !init.signal!.aborted; return new Response(sse({ text: ['ok'] })) }) as unknown as typeof fetch
+        const e3: EngineEvent[] = []
+        await runApiAgent({ conf: { ...conf, baseUrl: u }, systemPrompt: 's', message: 'm', rpc: async () => ({ result: { tools: [] } }), emit: (e) => e3.push(e), signal: new AbortController().signal, fetchFn: f, headersTimeoutMs: 100 })
+        expect(sawTimer).toBe(true)
+        expect(e3.find((e) => e.type === 'error')).toBeUndefined()
+      }
+    } finally { slow.stop(true) }
+  })
+  test('TC-5207: which addresses are waited for: not public IP literals, Tailscale names; public IPs (incl. a public IPv6) are not', () => {
+    for (const u of ['http://127.0.0.1:1/v1', 'http://10.1.2.3/v1', 'http://172.16.5.5/v1', 'http://192.168.0.9/v1', 'http://169.254.1.1/v1', 'http://100.64.0.1/v1', 'http://100.127.255.254/v1', 'http://[::1]/v1', 'http://[fe80::1]/v1', 'http://[fd12:3456::1]/v1', 'https://my-mac.tail9f2.ts.net/v1', 'http://localhost:11434/v1', 'http://ollama.local/v1', 'http://gpu-box:11434/v1'])
+      expect([u, isPatientApiAddress(u)]).toEqual([u, true])
+    for (const u of ['https://api.openai.com/v1', 'https://api.example/v1', 'http://8.8.8.8/v1', 'http://100.63.255.255/v1', 'http://100.128.0.1/v1', 'http://[2600:1f18::1234]/v1', 'http://[2a05:d014:1:2::5]/v1', 'https://ts.net.evil.com/v1', 'https://evil-ts.net/v1'])
+      expect([u, isPatientApiAddress(u)]).toEqual([u, false])
   })
   test('B-API-3: the provider\'s cost and request id, else the list price, else tokens with the cost unknown (never free)', async () => {
     // OpenRouter: usage.cost (USD) and the generation id; usage repeated on two chunks counts once

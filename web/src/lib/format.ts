@@ -43,6 +43,11 @@ export function formatResetDay(iso: string, locale: Locale, timeZone?: string): 
   try { return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', ...(timeZone ? { timeZone } : {}) }).format(new Date(iso)) } catch { return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric' }).format(new Date(iso)) }
 }
 
+/** "Nov 21, 3:00 PM": a day and time in the reader's own clock (when an AI limit starts again) */
+export function formatResetTime(iso: string, locale: Locale): string {
+  return new Intl.DateTimeFormat(TAG[locale], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(iso))
+}
+
 export function formatMonthDay(iso: string | null | undefined, locale: Locale): string {
   if (!iso) return ''
   return new Intl.DateTimeFormat(TAG[locale], { month: 'long', day: 'numeric' }).format(new Date(iso))

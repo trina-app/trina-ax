@@ -36,8 +36,6 @@ export default {
   mac: {
     ...base.mac,
     target: [{ target: 'mas', arch: ['universal'] }],
-    // no meeting notes in the store build (its sandbox; the entry is hidden there): the sound helper stays out
-    extraFiles: [],
     extendInfo: { ...base.mac.extendInfo, ElectronTeamID: TEAM_ID, ITSAppUsesNonExemptEncryption: false },
   },
   mas: {

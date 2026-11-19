@@ -1,7 +1,7 @@
 # Apps on your own computer as connectors
 
 - Date: 2026-11-18
-- Status: accepted (building since 2026-11-19, plan [20261118-1731-local-app-connectors](../AGENTS/plan/20261118-1731-local-app-connectors.md))
+- Status: accepted (built for 0.5.17 (not released yet on 2026-11-19), macOS first; Windows and Linux later; plan [20261118-1731-local-app-connectors](../AGENTS/plan/20261118-1731-local-app-connectors.md))
 - Supersedes: none
 - Branch: feat/local-app-connectors (the owner approved the approach on 2026-11-18 and said go on 2026-11-19)
 
@@ -87,7 +87,8 @@
 2. The desktop app's program manager, the confirm window, adapter (a), tried with real Aside.
 3. Adapter (b) and the web Settings screens.
 4. **Later:** Windows and Linux (the desktop app starts programs the same way, but the confirm, the known tools'
-   commands and the tests are macOS first).
+   commands and the tests are macOS first). Linux: [20261119-linux-desktop-app.md](20261119-linux-desktop-app.md)
+   ("Apps on your computer": the AppImage's environment left out, `/snap/bin`, the keyring check).
 
 ## Open questions
 

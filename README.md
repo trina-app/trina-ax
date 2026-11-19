@@ -7,7 +7,8 @@
 <b>The AI your whole team shares.</b><br>
 Trina AX puts your team's files, skills and tools on one server. Everyone's AI starts from them,<br>and every file it opens is checked as the person who asked.
 
-<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-en.png" height="40" alt="Download for Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-en.png" height="40" alt="Download for Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download on the App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Get it on Google Play"></a><br>
+<sub>Linux: .deb and AppImage (x64, arm64) on the <a href="https://ax.trina.app/download">download page</a></sub>
 
 [Website](https://ax.trina.app) · [Docs](docs/README.md) · [Pricing](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
@@ -73,22 +74,21 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, Trina's answer in the channel, and a thread open on the right"></td>
+<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Ask Trina beside any of them, in a side chat only you see.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, an answer sent to the channel, and a thread open on the right"></td>
 </tr>
 </table>
 
 - **Every change is kept.** By a person or their AI; bring back any version.
 - **In-app browser.** In the desktop app, Trina opens websites in a pane beside your chat, reads them, clicks and fills in forms while you watch; Stop ends it. It asks before a new site unless you allow all websites.
 - **Apps post into rooms.** Sentry, GitHub, Stripe, Jira and HubSpot updates arrive as cards.
-- **Meeting notes.** The Mac app (macOS 14.4+) takes notes from Zoom, Meet and Teams calls.
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
-- **Every device.** Mac, Windows, iPhone, Android and any browser, in six languages.
+- **Every device.** Mac, Windows, Linux, iPhone, Android and any browser, in six languages.
 
 ## Get started
 
 - **Trina hosting:** no server to run. 14-day free trial, then a monthly plan. [Pricing](https://ax.trina.app/pricing)
-- **Apps:** [Mac, iPhone, Android and Windows](https://ax.trina.app/download), or any browser.
+- **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), or any browser.
 - **Self-host:** your own Linux server, Docker or an office Mac. Free. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Office Mac](docs/OFFICE.en.md) · [Install with your AI agent](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Self-host with Docker</b> (Linux, or a Mac with OrbStack)

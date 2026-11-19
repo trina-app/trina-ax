@@ -21,6 +21,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { insideAppDir, withoutAppImage } from './linux'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
  * (Bun's maxPayloadLength); a larger one would close the window's socket and leave the call waiting */
@@ -59,9 +60,22 @@ export const commandHash = (spec: LocalAppSpec) => crypto.createHash('sha256').u
 
 /** where a program named without a path is looked for: PATH, then the places tools install themselves to (an app
  * started from the Dock gets a short PATH on macOS) */
-export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): string[] {
-  const extra = process.platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-  return [...new Set([...(env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extra])]
+export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = os.homedir(), platform: string = process.platform): string[] {
+  // Linux also: Ubuntu's snap programs
+  const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
+  // never the AppImage's own mount (Linux): its programs are the app's, not the person's
+  return [...new Set([...(env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extra])].filter((d) => !insideAppDir(d, env.APPDIR))
+}
+
+/** Setting values may be sealed: the system keeps a key for this app. On Linux without a Secret Service (GNOME Keyring,
+ * KWallet) Electron falls back to `basic_text`, a key built into every Chromium: that is not sealed, so it counts as
+ * unavailable (so does any backend that is not a known keyring) (the page says the settings were not kept). */
+/** the Secret Service backends Electron reports on Linux (never basic_text or unknown) */
+const LINUX_KEYRINGS = new Set(['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'])
+export function sealable(platform: string, available: () => boolean, backend: () => string): boolean {
+  if (!available()) return false
+  if (platform !== 'linux') return true
+  try { return LINUX_KEYRINGS.has(backend()) } catch { return false }
 }
 
 /** The program to start: a full path as it is (`~/` is the home folder), a bare name found in `dirs`. null: not found. */
@@ -156,12 +170,13 @@ export function hideValues(text: string, values: string[]): string {
   return out
 }
 
-/** The environment a program gets: this app's, without what belongs to Electron, a PATH that finds the usual places,
- * and the person's setting values. */
-function envFor(values: Record<string, string>, dirs: string[]): NodeJS.ProcessEnv {
+/** The environment a program gets: this app's, without what belongs to Electron or to the AppImage the app runs from
+ * (its variables, its mount in LD_LIBRARY_PATH and PATH: ./linux.ts), a PATH that finds the usual places, and the
+ * person's setting values. */
+export function envFor(values: Record<string, string>, dirs: string[], base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!/^(ELECTRON_|MYCEL_DESKTOP_)/.test(k)) env[k] = v
-  env.PATH = dirs.join(path.delimiter)
+  for (const [k, v] of Object.entries(withoutAppImage(base))) if (!/^(ELECTRON_|MYCEL_DESKTOP_)/.test(k)) env[k] = v
+  env.PATH = dirs.filter((d) => !insideAppDir(d, base.APPDIR)).join(path.delimiter)
   return { ...env, ...values }
 }
 

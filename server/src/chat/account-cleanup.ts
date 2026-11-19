@@ -26,6 +26,8 @@ export function registerChatAccountCleanup(ctx: AppContext): void {
       'access_requests.requester_id', 'access_request_notices.user_id',
       // what their AI read in chats (chat/carried-reads.ts): paths and hashes of their turns
       'chat_reads.user_id',
+      // the AI's questions waiting for their answer (chat/open-questions.ts)
+      'open_questions.user_id',
       // the summaries of older chat parts made for them (chat/history-summary.ts)
       'chat_summaries.user_id',
     ],

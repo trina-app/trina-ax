@@ -346,6 +346,8 @@ function Health({ rev }: { rev: number }) {
                 <Row label={t('system.queue')}>{t('system.queueLine', { running: d.queue.running, queued: d.queue.queued, max: d.queue.concurrency })}</Row>
                 <Row label={t('system.freeSpace')}>{t('system.freeSpaceValue', { team: d.disk.teamFolderFreeBytes === null ? '—' : formatSize(d.disk.teamFolderFreeBytes, locale), data: d.disk.dataFreeBytes === null ? '—' : formatSize(d.disk.dataFreeBytes, locale) })}</Row>
               </Rows>
+              {/* the operator turned on error reports (system/error-reports.ts): one plain line, the host only */}
+              {d.errorReports && <p className="mt-3 text-xs text-muted" data-testid="error-reports-line">{t('system.errorReports', { host: d.errorReports.host })}</p>}
               <p className="mt-2 text-xs text-faint">{t('system.generatedAt', { date: formatDateTime(d.generatedAt, locale) })}</p>
             </>
           )

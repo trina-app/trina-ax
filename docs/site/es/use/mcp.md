@@ -229,6 +229,6 @@ Usted solo inicia sesión o pega la clave en la tarjeta. La clave nunca llega a 
 ## En la otra dirección
 
 Su propio Claude (Claude Code, Claude Desktop o claude.ai) puede conectarse **a** Trina AX y usar sus archivos con sus
-permisos. [Más información sobre el conector MCP de Team AX](../../agents/mcp-connector.md) (en inglés).
+permisos. [Más información sobre el conector MCP de Trina AX](../../agents/mcp-connector.md) (en inglés).
 
 Todos los detalles para desarrolladores: [Integrations](../../../INTEGRATIONS.md) (en inglés).

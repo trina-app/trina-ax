@@ -1,17 +1,17 @@
 ---
 title: File dan izin
-description: Folder tim, aturan folder, dan cara server memeriksa setiap file yang dibuka AI atas nama orang yang bertanya.
+description: Folder tim, pembagian folder, dan cara server memeriksa setiap file yang dibuka AI atas nama orang yang bertanya.
 ---
 
-Pengetahuan perusahaan berada di satu folder tim di server. Aturan folder menentukan siapa melihat apa. AI tidak pernah melihat lebih dari orang yang bertanya.
+Pengetahuan perusahaan berada di satu folder tim di server. Pembagian setiap folder menentukan siapa melihat apa. AI tidak pernah melihat lebih dari orang yang bertanya.
 
 ## Folder tim
 
 | Folder | Siapa yang melihatnya | Gunakan untuk |
 |---|---|---|
-| `shared/` | Sesuai aturan, biasanya semua orang | Dokumen untuk seluruh perusahaan |
-| `groups/<group>/` | Grup itu, ditambah siapa pun yang ditambahkan aturan | Dokumen tim, misalnya Penjualan atau Keuangan; skill milik grup ada di `skills/` di dalamnya |
-| `projects/<project>/` | Sesuai aturan | Pekerjaan dengan folder dan instruksinya sendiri |
+| `shared/` | Sesuai pembagiannya, biasanya semua orang | Dokumen untuk seluruh perusahaan |
+| `groups/<group>/` | Grup itu, ditambah siapa pun yang diberi akses lewat pembagian | Dokumen tim, misalnya Penjualan atau Keuangan; skill milik grup ada di `skills/` di dalamnya |
+| `projects/<project>/` | Hanya anggota proyek | Pekerjaan dengan folder dan instruksinya sendiri |
 | `skills/` | Semua orang membaca; pengelola skill menulis | Skill tim dan aturan tim |
 | `users/<id>/` | Hanya orang itu | File pribadi dan skill pribadi |
 
@@ -20,7 +20,8 @@ Pengetahuan perusahaan berada di satu folder tim di server. Aturan folder menent
 Satu fungsi izin di server menentukan setiap akses. Sistem operasi mencegah AI melewatinya.
 
 - File yang tidak bisa Anda buka **tidak terlihat**, bukan "ditolak". File, jawaban AI, pencarian, pratinjau, riwayat versi, sampah, dan pembaruan langsung semuanya mengikuti aturan yang sama.
-- Akses seseorang berasal dari **aturan terdekat** di atas file yang menyebut orang itu. Aturan untuk orang didahulukan daripada aturan untuk grup. Jika ada beberapa grup, akses yang paling luas yang berlaku.
+- Akses **bertambah**, seperti di Google Drive: seseorang mendapat apa yang diberikan sebuah folder dan apa yang diberikan setiap folder di atasnya. Akses yang paling luas yang berlaku. Hanya **Batasi akses** pada sebuah folder yang menghentikan akses dari atas.
+- Folder proyek hanya terbuka untuk anggota proyek itu.
 - Perubahan berlaku **seketika**. AI membaca ulang izin pada setiap pemanggilan alat.
 - Mencabut akses tidak menghapus jawaban sebelumnya yang mengutip sebuah file.
 
@@ -81,7 +82,7 @@ Anda bisa membagikan file milik Anda kepada orang tertentu tanpa mengubah siapa 
 - Tanyakan ke Trina **"siapa yang bisa membuka file ini?"** atau **"kenapa Jun tidak bisa membukanya?"**. Ia menjelaskan bagaimana tiap orang bisa masuk (dibagikan dengan nama, lewat grup, lewat folder). Untuk file milik Anda, nama-nama terlihat; untuk file milik orang lain, Anda melihat akses Anda sendiri dan siapa yang perlu ditanya.
 - Setelah Trina memposting ke sebuah ruang, ia memberi tahu kalau ada orang di sana yang tidak bisa membuka file dari postingan itu. **Izinkan melihat** membagikan file Anda persis kepada orang yang disebut di baris itu. Untuk file milik orang lain, tombol dengan nama pemiliknya (seperti **Minta ke Mina**) mengirim permintaan ke pemiliknya di **Aktivitas** ("Alice meminta Anda membagikan Quote.pdf ke Jun") dengan **Bagikan** dan **Tolak**. Untuk folder tim, anggota melihat **Minta ke admin**, yang mengirim pesan dari Anda ke owner dan admin tim.
 
-Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi, dan pemiliknya masih bisa menghentikannya). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
+Owner dan admin bisa membagikan file tim mana pun. Di **Admin › Pengaturan tim**, **Anggota bisa membagikan file dan folder milik mereka** mematikan pembagian untuk anggota (yang sudah dibagikan tetap berfungsi, dan pemiliknya masih bisa menghentikannya). Owner tim bisa **Hapus semua berbagi file** di sana sekaligus.
 
 ### Membagikan folder di File saya
 

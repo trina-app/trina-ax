@@ -16,11 +16,14 @@
  *   MYCEL_DESKTOP_TEST_FILE_CHOOSER  1: answer the team page's file input with the app's own dialog, as the Mac App
  *                              Store build does (common/file-chooser.ts)
  *   MYCEL_DESKTOP_TEST_DOWNLOADS  a folder that stands in for the computer's Downloads folder (main/downloads.ts)
+ *   MYCEL_DESKTOP_TEST_PASSWORD_STORE  Linux: gnome-libsecret | kwallet5 | kwallet6, the keyring Chromium uses (Playwright's
+ *                              Electron loader sets --password-store=basic, Electron's fixed-key fallback, which "Apps on
+ *                              your computer" refuses to seal settings with)
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
-import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { APP_DOWNLOADS, DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
@@ -33,6 +36,7 @@ import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { windowsAppUserModelId } from '../common/app-id'
+import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
@@ -79,6 +83,9 @@ app.setPath('userData', process.env.MYCEL_DESKTOP_USER_DATA || join(app.getPath(
 // Trade-off recorded in docs/DECISIONS.md: origin isolation (opaque origin, CSP) stays; process isolation of
 // sandboxed frames is given up.
 app.commandLine.appendSwitch('disable-features', 'IsolateSandboxedIframes')
+// development and tests only: a Linux keyring instead of the --password-store=basic that a test launcher may have set
+const testStore = dev && process.platform === 'linux' ? process.env.MYCEL_DESKTOP_TEST_PASSWORD_STORE : undefined
+if (testStore && ['gnome-libsecret', 'kwallet5', 'kwallet6'].includes(testStore)) app.commandLine.appendSwitch('password-store', testStore)
 
 const testPublic = new Set(
   dev
@@ -114,8 +121,13 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 // to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
 // to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
 // teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
-let primary = app.requestSingleInstanceLock()
-if (!primary) app.exit(0)
+// A packaged AppImage that its AppRun started without Chromium's sandbox (user namespaces blocked, Ubuntu 24.04): one
+// dialog that points to the .deb, then quit, before anything else is set up (common/linux.ts refusesUnsandboxed)
+const linuxStart = { platform: process.platform, packaged: app.isPackaged, env: process.env }
+const unsandboxed = refusesUnsandboxed({ ...linuxStart, noSandbox: app.commandLine.hasSwitch('no-sandbox') })
+if (unsandboxed) app.whenReady().then(refuseUnsandboxed)
+let primary = !unsandboxed && app.requestSingleInstanceLock()
+if (!primary && !unsandboxed) app.exit(0)
 // an update an earlier run left ready (./update-launch.ts): while ShipIt is still installing this app, this start steps
 // aside at once (ShipIt drops the update when the app is open again; a waiter opens the new version when it is done)
 let updateFailed: string | null = null
@@ -131,7 +143,8 @@ if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !sto
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
-if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+// On Linux only the .deb registers it (its menu entry, extraMetadata.desktopName); an AppImage has no entry to name.
+if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)
 else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
@@ -151,6 +164,21 @@ if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
   onLink(url)
 })
+
+/** "install the .deb" (refusesUnsandboxed above): the language last picked in this app, else English */
+async function refuseUnsandboxed() {
+  console.warn('[desktop] the AppImage was started without the sandbox: not running')
+  let L: UiLocale = DEFAULT_UI_LOCALE
+  try { L = new TeamsStore(app.getPath('userData')).loadLocale() ?? kit.locale ?? DEFAULT_UI_LOCALE } catch {}
+  const buttons = APP_DOWNLOADS.page ? [t(L, 'sandbox.download'), t(L, 'sandbox.quit')] : [t(L, 'sandbox.quit')]
+  try {
+    const r = await dialog.showMessageBox({ type: 'error', title: t(L, 'sandbox.title'), message: t(L, 'sandbox.message', { app: PRODUCT.displayName }), detail: t(L, 'sandbox.detail'), buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true })
+    if (APP_DOWNLOADS.page && r.response === 0) await shell.openExternal(APP_DOWNLOADS.page)
+  } catch (e) {
+    console.warn('[desktop] sandbox dialog', (e as Error).message)
+  }
+  app.exit(0)
+}
 
 let win: AppWindow | undefined
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
@@ -296,7 +324,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -383,17 +411,6 @@ function registerIpc() {
   ipcMain.on('bridge:downloads-ready', (e) => fromApp(e) && win!.downloads.pageReady(e.sender))
   ipcMain.on('bridge:download-show', (e, id: unknown) => fromApp(e) && typeof id === 'number' && Number.isSafeInteger(id) && win!.downloads.show(id))
   ipcMain.handle('bridge:folder-problem', (e, name: unknown) => (fromApp(e) && e.senderFrame ? win!.folderProblem(e.senderFrame.origin, String(name ?? '').slice(0, 1024)) : null))
-
-  // meeting notes (main/meeting-control.ts): the page asks; the app shows its own dialog every time and owns the meeting.
-  // The page gets state and lines, never sound.
-  ipcMain.handle('bridge:meeting-state', (e) => (fromApp(e) ? win!.meeting.state() : { state: 'idle' }))
-  ipcMain.handle('bridge:meeting-lines', (e) => (fromApp(e) ? win!.meeting.lines() : []))
-  ipcMain.handle('bridge:meeting-start', (e) => (fromApp(e) && !process.mas ? win!.meeting.start() : 'unavailable'))
-  ipcMain.handle('bridge:meeting-stop', (e) => (fromApp(e) ? win!.meeting.stop() : []))
-  ipcMain.on('bridge:meeting-sound-settings', (e) => fromApp(e) && win!.meeting.openSoundSettings())
-  // the lines of a meeting the page has not saved yet (the window closed, the app quit) and the page's word that it has
-  ipcMain.handle('bridge:meeting-unsaved', (e) => (fromApp(e) ? win!.meeting.unsaved() : null))
-  ipcMain.on('bridge:meeting-saved', (e, startedAt: unknown) => fromApp(e) && typeof startedAt === 'number' && win!.meeting.saved(startedAt))
 
   // "Find work files on this computer" (main/work-files.ts): the page only asks; the app shows its own dialog, looks in
   // this process and hands out ids, never paths. A read takes an id of the latest look of the asking origin only.

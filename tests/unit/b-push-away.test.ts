@@ -186,3 +186,30 @@ test('at Trina: Web Push still goes, a retry still goes, the owner\'s locked pas
   await p.tick()
   expect(phoneSent.some((s) => s.payload.code === 'owner.reauth_locked')).toBe(true)
 })
+
+test('each phone push decision is in the server log: the notice kind, send or cancel, and why; never the message', async () => {
+  const { nora, mia, dm, send, read, sent, pr } = await setup()
+  const lines: Record<string, unknown>[] = []
+  const info = h.ctx.log.info.bind(h.ctx.log)
+  h.ctx.log.info = (msg, fields) => { if (msg === 'phone push decision') lines.push(fields ?? {}); info(msg, fields) }
+  const device = (h.ctx.db.query("SELECT id FROM push_subscriptions WHERE user_id = ? AND kind = 'native'").get(nora.id) as { id: string }).id.slice(-6)
+  pr.open(nora.id, 'w1')
+  await send(mia.client, dm.id, 'the secret launch date')
+  await p!.tick()
+  pr.activity(nora.id, 'w1', 'idle')
+  await read(nora.client)
+  await send(mia.client, dm.id, 'are you there')
+  await p!.tick()
+  // the desktop app says the computer has had no input for 12 minutes
+  pr.computer(nora.id, 'other-sign-in', { idleMs: 12 * 60_000, locked: false })
+  await read(nora.client)
+  await send(mia.client, dm.id, 'hello?')
+  await p!.tick()
+  expect(sent).toHaveLength(2)
+  expect(lines).toEqual([
+    { event: 'room.dm', decision: 'cancel', reason: 'browser or app window active', user: nora.id, device },
+    { event: 'room.dm', decision: 'send', reason: 'no computer report; window idle', user: nora.id, device },
+    { event: 'room.dm', decision: 'send', reason: 'computer idle 12m; window idle', user: nora.id, device },
+  ])
+  expect(JSON.stringify(lines)).not.toMatch(/secret|are you there|hello/)
+})

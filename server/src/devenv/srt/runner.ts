@@ -42,14 +42,15 @@ import { activePeople } from '../../team-files/service'
 import { ownSharedFolders, shareReaders } from '../../files/share-readers'
 import { startingRun } from './alive'
 import { projectZoneFolders } from '../../policy/zone'
+import { othersSkillRoots } from '../../skills/script-copies'
 import type { Principal } from '../../policy/access'
 import { folderView, runSkillFolders, sharedFolderView, sharedPathAccess, sharedReadable, viewAccess, viewHash, type FolderView, type RunWrites } from './access'
-import { RUN_ID_RE, SRT_PATHS, realGit, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
+import { RUN_ID_RE, SRT_PATHS, realGit, runGuard, chatHome, chatLogs, chatWork, sharedLogs, sharedWork, sharedWorkKey, runTmp, devPlatform, type DevPlatform, devenvPaths, isFull, personLogs, resolveRunCwd, runHome, runLogs, runEnv, runIdOfUnit, settingsProblems, srtSettings, unitName } from './config'
 import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personNet, type NetSnapshot } from '../sites'
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
-import { holdPlaceholders, holdSkillFolders } from './placeholders'
+import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, writePins } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -239,11 +240,15 @@ export async function devEnvDownReason(log?: { warn(m: string, d?: object): void
 /** The person's view, with only the folders that exist now (srt skips what is not there; a folder that appears later
  * changes the hash, and the tracker then stops the person's jobs). With `run`, the view of a run that starts there
  * (access.ts: only the starting folder and the person's own folder are writable). Null: the person cannot be loaded. */
-export function personView(ctx: AppContext, userId: string, run?: RunWrites, shared?: SharedRun, scope?: SharedScopeNow | null): FolderView | null {
+export function personView(ctx: AppContext, userId: string, run?: RunWrites, shared?: SharedRun, scope?: SharedScopeNow | null, o: { hideSkills?: boolean } = {}): FolderView | null {
   let p
   try { p = ctx.files.principal(userId) } catch { return null }
   // a project run reads only folders that everyone who sees the project may read (access.ts, QA TC-095)
   const root = ctx.files.fx.root
+  // every run hides the group and project skills folders (QA TC-4932). The hash a run is checked against is made
+  // without them (hideSkills false, viewForHash): a group skills folder someone makes or removes must not stop other
+  // people's jobs, nor an empty placeholder of a run (placeholders.ts holdSkillFolders, left out of the list)
+  if (run && o.hideSkills !== false) run = { ...run, othersSkills: othersSkillRoots(root, isSkillPlaceholder) }
   const zones = projectZoneFolders(root).map((z) => z.join('/'))
   let v: FolderView
   if (shared) {
@@ -352,7 +357,7 @@ export function accessHash(ctx: AppContext, space: Space): string {
   try { run = runWrites(ctx, srtConfig(), space) } catch { return 'off' }
   const scope = space.shared ? sharedScopeNow(ctx, space.shared) : null
   if (space.shared && !scope) return 'off'
-  const v = personView(ctx, space.userId, run, space.shared, scope)
+  const v = personView(ctx, space.userId, run, space.shared, scope, { hideSkills: false })
   return v ? runHash(v, run, scope) : 'off'
 }
 
@@ -576,7 +581,14 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
     throw new Error(`refused settings: ${problems.join('; ')}`)
   }
-  return { settings, work, pins, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
+  // every run on Linux: srt's places above what is given (the team root, groups/, every folder given entry by entry) and
+  // its masks over hidden folders (users/, the group and project skills folders) are made read-only in the sandbox, so
+  // a file made there fails instead of being lost in silence (mounts.ts lockFolders)
+  const places = runPlatform() === 'linux' ? lockFolders(given, settings.filesystem.denyRead, ctx.files.fx.root) : []
+  // the hash without the hidden skills folders (personView): as accessHash makes it
+  const forHash = personView(ctx, space.userId, run, space.shared, scope, { hideSkills: false })
+  if (!forHash) throw new Error('the person cannot use the dev environment now')
+  return { settings, work, pins, places, hash: runHash(forHash, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
@@ -594,10 +606,16 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   try { skills = runSkillFolders(runWrites(ctx, c, s.space), s.space.userId) } catch { /* settingsFor says why it cannot run */ }
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
+  let dropGuard = () => {}
   try {
-    const { settings, work, pins, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
-    // the pinned entries, in the run's own TMPDIR (a shared chat's run always has one), checked by the command's first line
-    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId)), pins))
+    const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    // the pinned entries and the folders to lock, in the run's own guard folder (made new, read-only in the run, removed
+    // when it ends: never the TMPDIR, which an earlier run of the person can swap for a link), done by the command's
+    // first line
+    const g = runPlatform() === 'linux' ? runGuard(c.base, s.runId) : null
+    if (runPlatform() === 'linux' && !g) throw new Error('a run needs its run id')
+    if (g) dropGuard = makeGuardDir(g)
+    const guard = g ? entryGuard(writePins(g, pins, places)) : ''
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
@@ -616,8 +634,8 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     ...(runPlatform() === 'darwin' && reach.length ? { reach: reach.map((t) => ({ runId: t.runId, port: t.port })) } : {}),
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
-    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); bridges?.stop() }), hash, net }
-  } catch (e) { release(); releaseSkills(); throw e }
+    return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop() }), hash, net }
+  } catch (e) { release(); releaseSkills(); dropGuard(); throw e }
 }
 
 // ---------------- a chat's own dev servers on localhost ----------------

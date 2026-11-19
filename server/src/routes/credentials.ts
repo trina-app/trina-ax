@@ -19,7 +19,7 @@ import {
 } from '../credentials/service'
 import { admins, connectionsChanged, credentialsOf } from '../credentials/store'
 import { ct } from '../credentials/i18n'
-import { aiAccessFor } from '../credentials/access'
+import { aiAccessFor, aiBackAt } from '../credentials/access'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime } from '../chat/runtime'
 
@@ -97,9 +97,11 @@ export function registerCredentialRoutes(kit: RouteKit, ctx: AppContext) {
     return { person, ...aiAccessFor(ctx, person, memberOwnAllowed(ctx.db)) }
   }
   kit.handle(API.getAiAccess, ({ auth }) => {
-    const { usable, action } = accessOf(auth)
+    const { person, usable, action } = accessOf(auth)
     const n = notificationsOf(ctx), member = auth.user.role !== 'owner' && auth.user.role !== 'admin'
-    return { usable, action, requested: n.aiRequested(auth.user.id), notReadyTold: member && n.aiNotReadyTold(auth.user.id) }
+    // connected, but at a usage limit that ends by itself: when (the screens say "used up until", not "connect an AI")
+    const limitedUntil = usable ? null : aiBackAt(ctx, person)
+    return { usable, action, requested: n.aiRequested(auth.user.id), notReadyTold: member && n.aiNotReadyTold(auth.user.id), ...(limitedUntil ? { limitedUntil } : {}) }
   })
   kit.handle(API.requestAiAccess, ({ c, auth }) => {
     const { person, usable } = accessOf(auth)

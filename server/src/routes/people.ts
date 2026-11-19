@@ -8,7 +8,7 @@ import { forgetUserName } from '../chat/runtime'
 import { listPeople, MY_PROFILE_CHANGED, profileChangedFor, profileOf, readAvatar, removeAvatar, saveAvatar, updateProfile } from '../auth/profiles'
 import { clearStatus, countWrite, setStatus, startStatusClock, tellAfterWrite } from '../auth/status-messages'
 import { teamTimeZone } from '../admin/settings'
-import { presenceFor } from '../realtime/presence'
+import { presenceFor, span } from '../realtime/presence'
 import { sharesPlace } from '../auth/guests'
 
 // the photo is an image only, never a document that runs anything (the same headers as the team logo)
@@ -76,8 +76,11 @@ export const peopleRoutes: RouteModule = {
     // the desktop app's word on its computer (docs/decisions/20261116-away-os-idle.md): its main process is not throttled
     // like a window in the back, so a person working in another app still counts as at the computer for the phone rule
     // (notifications/away.ts). Memory only, never told to anyone; a server without the chat runtime just drops it.
-    kit.handle(API.reportMyComputer, ({ auth, body }) => {
-      presenceFor(ctx)?.computer(auth.user.id, auth.session.id, body)
+    kit.handle(API.reportMyComputer, ({ c, auth, body }) => {
+      const changed = presenceFor(ctx)?.computer(auth.user.id, auth.session.id, body)
+      // a sign-in's first report and each change between in use, idle and locked (not every 30 s): with the phone push
+      // decision's line (push-service.ts) the log shows whether the desktop app reported and what it said
+      if (changed) c.get('log').info('computer report', { user: auth.user.id, state: changed, idle: span(body.idleMs) })
     })
 
     // my status message (docs/DECISIONS.md "상태 메시지"): only my own; the team is told only when what it sees changed

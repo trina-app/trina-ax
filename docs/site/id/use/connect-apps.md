@@ -30,7 +30,7 @@ ditampilkan di halaman atau di gambar.
 | Bertanya ke Trina AX dari Slack | Admin sekali, lalu setiap orang sekali | **Admin › Aplikasi terhubung › Slack** | [Slack](slack.md) |
 | Membuat AI bisa memakai Notion, Linear, Atlassian, Figma, GitHub, dan aplikasi lain | Anda untuk diri sendiri, admin untuk tim | **Pengaturan › Konektor** atau **Admin › Aplikasi terhubung** | [Notion, Linear, dan aplikasi lain](mcp.md) |
 | Membuat AI bisa memakai sistem milik perusahaan Anda (sebuah API) atau aplikasi yang memerlukan aplikasi masuk Anda sendiri, seperti NAVER WORKS | Admin | **Admin › Aplikasi terhubung** › **Tambahkan lewat alamatnya** | [API perusahaan Anda](api-connections.md) |
-| Memakai file Trina AX Anda dari Claude atau ChatGPT | Anda | **Pengaturan › Trina AX MCP** | [Konektor Team AX MCP](../../agents/mcp-connector.md) (bahasa Inggris) |
+| Memakai file Trina AX Anda dari Claude atau ChatGPT | Anda | **Pengaturan › Trina AX MCP** | [Konektor Trina AX MCP](../../agents/mcp-connector.md) (bahasa Inggris) |
 
 Untuk membuka **Pengaturan**, pilih foto Anda di bagian bawah bilah kiri, lalu **Pengaturan** (di ponsel, tab **Saya**).
 **Admin** ada di menu yang sama untuk owner dan admin.

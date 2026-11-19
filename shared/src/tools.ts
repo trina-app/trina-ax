@@ -180,13 +180,18 @@ export const EditHwpInput = z.strictObject({
 })
 export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
 
+/** A page a model wrote as text ("1", " 3 ") is the number; "last" stays. The JSON schema stays number or "last". */
+const numericText = (v: unknown) => (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : v)
+const pageNo = (min: number) => z.preprocess(numericText, z.union([z.number().int().min(min).max(100_000), z.literal('last')]))
+/** A page list: a bare number (3) is the list "3". */
+const pdfPages = z.preprocess((v) => (typeof v === 'number' && Number.isInteger(v) ? String(v) : v), z.string().min(1).max(500))
 /** stamp_pdf: an image (a seal, a signature, a logo) put on one page of an existing PDF, saved as a new file
  * (server/src/tools/stamp-pdf.ts, server/src/files/pdf-stamp.ts). */
 export const STAMP_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'] as const
 export const StampPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to put the image on'),
   image: relPath.describe('The image to put on it: a PNG (transparent parts stay see-through) or a JPG in the team folder'),
-  page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
+  page: pageNo(1).optional().describe('The page: a number (1 = the first page) or "last" (default "last")'),
   position: z.union([
     z.enum(STAMP_POSITIONS),
     z.strictObject({
@@ -200,7 +205,6 @@ export const StampPdfInput = z.strictObject({
 })
 /** edit_pdf, merge_pdfs, split_pdf: page work on existing PDFs, saved as new files (server/src/tools/pdf-tools.ts,
  * server/src/files/pdf-pages.ts). Pages are written like "1,3-5,last", "2-last" or "all". */
-const pdfPages = z.string().min(1).max(500)
 const TEXT_POSITIONS = ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right', 'center'] as const
 const textPosition = z.union([z.enum(TEXT_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })])
 const textColor = z.enum(['black', 'gray', 'red', 'blue'])
@@ -212,11 +216,11 @@ export const EditPdfOperation = z.union([
   z.strictObject({ insert_pdf: z.strictObject({
     file: relPath.describe('Another PDF in the team folder'),
     pages: pdfPages.optional().describe('Its pages to insert (default all)'),
-    after: z.union([z.number().int().min(0).max(100_000), z.literal('last')]).describe('Insert after this page; 0 = before the first page'),
+    after: pageNo(0).describe('Insert after this page; 0 = before the first page'),
   }) }),
   z.strictObject({ stamp_image: z.strictObject({
     image: relPath.describe('A PNG or JPG (a seal, signature or logo)'),
-    page: z.union([z.number().int().min(1).max(100_000), z.literal('last')]).optional().describe('Default "last"'),
+    page: pageNo(1).optional().describe('Default "last"'),
     position: z.union([z.enum(STAMP_POSITIONS), z.strictObject({ x_mm: z.number().min(0).max(5000), y_mm: z.number().min(0).max(5000) })]).optional().describe('A corner, "center", or the image\'s top-left in mm from the page\'s top-left (default "bottom-right")'),
     width_mm: z.number().min(3).max(1000).optional().describe('Default 30'),
     margin_mm: z.number().min(0).max(200).optional().describe('For a corner or the centre (default 15)'),
@@ -242,6 +246,12 @@ export const EditPdfOperation = z.union([
     start: z.number().int().min(0).max(100_000).optional().describe('The first number (default 1)'),
     size_pt: z.number().min(4).max(72).optional().describe('Default 10'),
   }) }),
+  z.strictObject({ replace_text: z.strictObject({
+    find: z.string().min(1).max(1000).describe('The words as they are on the page, e.g. "Acme Ltd" (a space also matches a gap or a line break between words)'),
+    replace: z.string().max(1000).describe('The new words, one line ("" removes the old ones)'),
+    pages: pdfPages.optional().describe('Default "all"'),
+    match_case: z.boolean().optional().describe('Default true; false also finds "ACME" for "Acme"'),
+  }) }),
 ])
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
@@ -256,7 +266,7 @@ export const MergePdfsInput = z.strictObject({
 export const SplitPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to split'),
   parts: z.array(pdfPages).min(1).max(50).optional().describe('One page list per new file, e.g. ["1-3", "4-last"]'),
-  every: z.number().int().min(1).max(10_000).optional().describe('Or: a new file every this many pages'),
+  every: z.preprocess(numericText, z.number().int().min(1).max(10_000)).optional().describe('Or: a new file every this many pages'),
   output_folder: optRelPath.describe('Where the parts go (default: next to the original); named "<name> (part 1).pdf" …'),
 }).refine((v) => (v.parts === undefined) !== (v.every === undefined), { message: 'give exactly one of parts or every' })
 // Smaller copies of photos (server/src/tools/resize-images.ts, docs/decisions/20261117-resize-photos.md)
@@ -287,7 +297,8 @@ export const UnzipFileOutput = z.object({ folder: z.string(), paths: z.array(z.s
 // Files and folders into one .zip (server/src/tools/make-zip.ts, docs/decisions/20261118-make-zip-and-mail-attachments.md)
 export const MakeZipInput = z.strictObject({
   paths: z.array(relPath).min(1).max(50).describe('Files and folders to put in the zip (1-50), e.g. ["projects/falcon/contracts", "shared/price-list.xlsx"]; a folder goes in with everything in it the user can open'),
-  output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it)'),
+  output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it); an ending of .tar, .tar.gz or .tgz makes that kind'),
+  format: z.enum(['zip', 'tar', 'tar.gz', 'tgz']).optional().describe('zip (default), tar, or tar.gz / tgz (gzipped tar); only when the user asks for that kind'),
 })
 export const MakeZipOutput = z.object({ path: z.string(), files: z.number(), size: z.number() })
 // Totals, pivots, top-N and splits over data files, without the dev environment (server/src/tools/query-data.ts,
@@ -408,7 +419,18 @@ export const AskUserInput = z.strictObject({
   multiple: z.boolean().optional(),
   allowText: z.boolean().optional(),
 })
-export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) })])
+export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) }), z.object({ asked: z.literal(true), note: z.string() })])
+
+/** todo_write (docs/decisions/20261118-questions-wait-and-todo-card.md): the AI's checklist for this answer, the same
+ * input as Claude Code's TodoWrite. Each call replaces the whole list; the person sees it as one card under the answer. */
+export const TODO_ITEMS_MAX = 50
+export const TodoItem = z.strictObject({
+  content: z.string().min(1).max(300).describe('the task, in the imperative ("Read the March invoices")'),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+  activeForm: z.string().max(300).optional().describe('the task while it is under way ("Reading the March invoices")'),
+})
+export type TodoItem = z.infer<typeof TodoItem>
+export const TodoWriteInput = z.strictObject({ todos: z.array(TodoItem).max(TODO_ITEMS_MAX) })
 
 /** connect_service (docs/INTEGRATIONS.md "Connecting from a chat"): the AI fills in a connection to a service, or
  * Google Drive, and shows the person a card to finish it. The person pastes the key into the card or signs in at the
@@ -642,6 +664,7 @@ export const OTHER_TOOLS = {
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
+  todo_write: { input: TodoWriteInput, output: TextOutput },
   connect_service: { input: ConnectServiceInput, output: ConnectServiceOutput },
   set_title: { input: SetTitleInput, output: SetTitleOutput },
   skill: { input: SkillInput, output: TextOutput },

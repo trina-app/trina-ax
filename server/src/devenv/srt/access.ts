@@ -77,7 +77,14 @@ export interface RunWrites {
   /** the person's own folders that they share with other people (files/share-readers.ts ownSharedFolders): never
    * written in a run */
   shared?: readonly string[]
+  /** the group and project skills folders on disk (groups/<folder>/skills, projects/<name>/skills; srt/runner.ts
+   * othersSkillRoots): hidden in every run (QA TC-4932). Other members wrote what is there, and a command runs with the
+   * person's access and allowed sites, so a script there is never read, copied or run by a command. */
+  othersSkills?: readonly string[]
 }
+
+/** in a group's or project's skills folder that the run hides (RunWrites.othersSkills) */
+const hiddenSkill = (run: RunWrites | undefined, folder: string) => !!run?.othersSkills?.some((f) => isUnder(folder, f))
 
 const holderWord = (s: string | undefined) => { const f = (s ?? '').normalize('NFC').toLowerCase(); return f === 'groups' || f === 'projects' }
 /** The skill folders a run must not write though they are inside what it writes: the person's own skills, and the
@@ -111,6 +118,8 @@ function candidates(rules: Pick<RuleSet, 'boundaryFolders'>, p: Principal, run: 
   // and at the skill folders inside what the run writes, and at the person's shared folders: read-only there (runMayWrite)
   if (run) for (const f of runSkillFolders(run, p.id)) cands.add(f)
   if (run) for (const f of run.shared ?? []) if (isUnder(f, `users/${p.id}`) && !segsOf(f).some((x) => x === '' || x === '.' || x === '..')) cands.add(f)
+  // and at the group and project skills folders: hidden in a run (hiddenSkill)
+  if (run) for (const f of run.othersSkills ?? []) if (f && !segsOf(f).some((x) => x === '' || x === '.' || x === '..')) cands.add(f)
   for (const f of rules.boundaryFolders()) {
     const s = segsOf(f)
     // rules under users/ are ignored by the rules themselves; a temp name never has rules that matter
@@ -138,6 +147,7 @@ export function folderView(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p
   }
   return emitView(sorted, (c) => {
     let a = accessOf(rules, p, c)
+    if (hiddenSkill(run, c)) return 'none'
     if (run && a === 'write' && !runMayWrite(run, p.id, c)) a = 'read'
     if (startAudience && a !== 'none' && !isUnder(c, run!.start!) && !coversStart(c)) a = 'none'
     return a
@@ -234,12 +244,13 @@ function sharedAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Pri
   if (!scope.audience.some((q) => q.id === p.id)) throw new Error('the person no longer sees this chat')
   const others = scope.audience.filter((q) => q.id !== p.id)
   // no shared folders of the person matter: users/ is hidden as a whole here
-  const own: RunWrites = { start: run.start, shared: [] }
+  const own: RunWrites = { start: run.start, shared: [], othersSkills: run.othersSkills ?? [] }
   // a project chat: its sub-folders not everyone in it may open, with everything below them (sharedHiddenFolders)
   const hidden = w !== null ? sharedHiddenFolders(rules, p, scope.audience, w) : []
   const at = (c: string): Access => {
     const s = segsOf(c)
     if (s[0] === 'users' || s[0] === PRODUCT.systemDir) return 'none'
+    if (hiddenSkill(own, c)) return 'none'
     if (w !== null && !isUnder(c, w)) return 'none'
     if (hidden.some((h) => isUnder(c, h))) return 'none'
     let a = rules.access(p, s)

@@ -11,6 +11,7 @@ import fontkit from '@pdf-lib/fontkit'
 import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateStream, PDFName, PDFNull, PDFObjectCopier, PDFPage, PDFPageLeaf, PDFPageTree, PDFRawStream, PDFRef, PDFStream, popGraphicsState, pushGraphicsState, rgb, StandardFonts, type PDFContext, type PDFFont, type PDFObject } from 'pdf-lib'
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
+import { dropUnreached, replaceOnPage, winAnsiCan, wordsElsewhere, writeStandardWidths, type FallbackFont, type FontStyle, type ReplaceOutcome } from './pdf-text'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
 
 export const PDF_PAGES_MODE = 'pdf-pages'
@@ -40,6 +41,7 @@ export type PageOp =
   | { add_text: { text: string; pages?: string; position?: TextPosition; size_pt?: number; color?: TextColor; opacity?: number } }
   | { watermark: { text: string; pages?: string; color?: TextColor; opacity?: number } }
   | { page_numbers: { format?: string; pages?: string; position?: TextPosition; start?: number; size_pt?: number } }
+  | { replace_text: { find: string; replace: string; pages?: string; match_case?: boolean } }
 
 /** The request: which job, the names of the parts (for messages), and the parts' lengths; the body is the parts. */
 export type PagesJob =
@@ -593,6 +595,17 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     if (missing.length) throw new ToolError(`the font here cannot show ${[...new Set(missing)].slice(0, 5).join(' ')} in the text; write those another way. Nothing was saved`, 'pdf_font_glyphs')
     return cjk
   }
+  // replace_text: a standard font close to the PDF's own for Latin letters, else the server's font
+  const standard = new Map<StandardFonts, PDFFont>()
+  const fallback: FallbackFont = async (text: string, style: FontStyle) => {
+    if (!winAnsiCan(text)) return fontFor(text)
+    const name = standardFont(style)
+    let f = standard.get(name)
+    if (!f) { f = await doc.embedFont(name); standard.set(name, f) }
+    return f
+  }
+  /** the page text was rewritten: the old content streams are dropped before saving */
+  let rewrote = false
   for (const [i, op] of job.ops.entries()) {
     const n = doc.getPageCount()
     const step = `operation ${i + 1}`
@@ -696,6 +709,23 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
           const at = toUser(box, r, u, v)
           page.drawText(wm.text, { x: at.x, y: at.y, size, font: f, color: rgb(cr, cg, cb), opacity: wm.opacity ?? 0.2, rotate: degrees(r + (angle * 180) / Math.PI) })
         }
+      } else if ('replace_text' in op) {
+        const rt = op.replace_text
+        if (!rt.find.trim()) throw new ToolError('give the words to find')
+        if (/[\r\n]/.test(rt.replace)) throw new ToolError('the new words are one line; replace each line with its own replace_text')
+        const pages = parsePages(rt.pages ?? 'all', n)
+        // fonts that earlier operations (add_text, an earlier replace_text) wrote with are put into the file first, so
+        // their words can be read and found too
+        await doc.flush()
+        const outcome: Parameters<typeof replaceOnPage>[6] = { replaced: 0, hidden: 0, skipped: [], smaller: 0, overlap: 0, wider: 0, fonts: new Set(), actualText: 0, caveats: { forms: new Set(), annots: new Set(), unmapped: new Set() }, noMatch: new Map(), parsedBytes: 0, pagesWithout: { images: [], forms: [], noText: [], noMap: [] } }
+        const changed: number[] = []
+        for (const p of pages) {
+          const before = outcome.replaced
+          if (await replaceOnPage(doc, p - 1, rt.find, rt.replace, rt.match_case ?? true, fallback, outcome)) rewrote = true
+          if (outcome.replaced > before) changed.push(p)
+        }
+        if (!outcome.replaced) throw new ToolError(notFound(rt.find, pages, outcome))
+        notes.push(replacedNote(step, rt.find, changed, outcome, wordsElsewhere(doc, rt.find, rt.match_case ?? true, pages.map((x) => x - 1))))
       } else throw new ToolError('an unknown operation')
     } catch (e) {
       if (e instanceof ToolError) throw new ToolError(`${step}: ${e.message.replace(/; nothing was saved$|\. Nothing was saved$/, '')}; nothing was saved`, e.code)
@@ -706,6 +736,13 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   // (review of feat/edit-pdf: "remove the salary page" left its text in the result). After a removal the final pages
   // are copied into a new document, and what they do not use is taken out of it (pruneResources before the copy,
   // dropUnreachable after). Its outline, named destinations, attachments and form (AcroForm) are not carried over.
+  if (standard.size) {
+    // the standard fonts get their widths written, so every viewer places the words after them where they were
+    // measured (a viewer that draws Helvetica with its own font otherwise uses that font's widths)
+    await doc.flush()
+    for (const [name, f] of standard) writeStandardWidths(doc.context, f.ref, name)
+  }
+  if (rewrote && !dropped) dropUnreached(doc)
   if (dropped) {
     const fresh = await PDFDocument.create()
     pruneResources(doc, doc.getPageIndices(), leftOut)
@@ -714,4 +751,54 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
     return finish([{ bytes: await save(fresh), pages: fresh.getPageCount() }], signed)
   }
   return finish([{ bytes: await save(doc), pages: doc.getPageCount() }], signed)
+}
+
+// ---------------------------------------------------------------- replace_text's words
+
+/** the standard font closest to a font's look */
+function standardFont(s: FontStyle): StandardFonts {
+  const F = StandardFonts
+  if (s.family === 'serif') return s.bold && s.italic ? F.TimesRomanBoldItalic : s.bold ? F.TimesRomanBold : s.italic ? F.TimesRomanItalic : F.TimesRoman
+  if (s.family === 'mono') return s.bold && s.italic ? F.CourierBoldOblique : s.bold ? F.CourierBold : s.italic ? F.CourierOblique : F.Courier
+  return s.bold && s.italic ? F.HelveticaBoldOblique : s.bold ? F.HelveticaBold : s.italic ? F.HelveticaOblique : F.Helvetica
+}
+const pageList = (ps: number[]) => `page${ps.length === 1 ? '' : 's'} ${ps.join(', ')}`
+const places = (k: number) => `${k} place${k === 1 ? '' : 's'}`
+const quoted = (s: string) => JSON.stringify(s.length > 80 ? s.slice(0, 80) + '…' : s)
+
+/** why nothing was changed, in plain words */
+function notFound(find: string, pages: number[], o: ReplaceOutcome & { pagesWithout: { images: number[]; forms: number[]; noText: number[]; noMap: number[] } }): string {
+  const w = o.pagesWithout
+  const why: string[] = []
+  if (o.hidden) why.push(`${quoted(find)} is only in the hidden text layer of a scanned page (${places(o.hidden)}): the page itself is a picture, so changing that layer would not change what the page shows, and the words in the picture cannot be removed or changed here`)
+  if (w.images.length) why.push(`${pageList(w.images)} ${w.images.length === 1 ? 'is a picture' : 'are pictures'} (a scan or a photo) with no text in ${w.images.length === 1 ? 'it' : 'them'}; words that are part of a picture cannot be removed or changed here`)
+  if (w.noMap.length) why.push(`${pageList(w.noMap)} ${w.noMap.length === 1 ? 'uses' : 'use'} a font that does not say which letters it draws, so its words cannot be found`)
+  if (w.forms.length) why.push(`${pageList(w.forms)} ${w.forms.length === 1 ? 'draws' : 'draw'} part of ${w.forms.length === 1 ? 'its' : 'their'} content as a drawn block, which this tool does not change; the words may be there`)
+  if (o.skipped.length) why.push(`${quoted(find)} was found but left as it is: it is ${[...new Set(o.skipped)].join(', ')}, which this tool cannot change`)
+  if (!why.length) why.push(`${quoted(find)} was not found as text on ${pageList(pages.length > 20 ? [...pages.slice(0, 20)] : pages)}${pages.length > 20 ? ' …' : ''}; read the page to see how the words are written (spelling, spaces, upper and lower case)`)
+  return why.join('. ')
+}
+
+/** what was changed, for the AI */
+function replacedNote(step: string, find: string, changed: number[], o: ReplaceOutcome, elsewhere: string[]): string {
+  const out = [`${step} (replace_text): changed ${places(o.replaced)} of ${quoted(find)} on ${pageList(changed)}; the old words are removed from the page text there, not covered.`]
+  if (o.actualText) out.push(`The accessibility text (/ActualText) around ${o.actualText === 1 ? 'one of them was' : `${o.actualText} of them was`} removed too.`)
+  // not a redaction tool: what it does not change is named, so the AI can say so (review of #1337)
+  const c = o.caveats
+  const parts = [
+    c.forms.size ? `drawn blocks (form XObjects) on ${pageList([...c.forms])}` : '',
+    c.annots.size ? `comments, links or form fields on ${pageList([...c.annots])}` : '',
+    c.unmapped.size ? `text in fonts without a letter map on ${pageList([...c.unmapped])} (a viewer may read those letters differently, so a match there can be missed)` : '',
+  ].filter(Boolean)
+  if (parts.length) out.push(`Not changed by this tool: ${parts.join('; ')}.`)
+  if (elsewhere.length) out.push(`${quoted(find)} is still in the file in: ${elsewhere.join(', ')}. This tool changes only page text; tell the user it is not a redaction tool and these places still hold the old words.`)
+  const other = [...o.fonts].filter((f) => f !== 'the original')
+  if (other.length) out.push(`The PDF's own font has no letters for some of the new words, so those are written in ${other.join(', ')}.`)
+  if (o.fonts.size) out.push('The words after the new ones on the same line moved along with them; other lines did not change.')
+  if (o.smaller) out.push(`${places(o.smaller)} ${o.smaller === 1 ? 'was' : 'were'} written a little smaller so that the line does not reach the next column or the page's edge.`)
+  if (o.overlap) out.push(`${places(o.overlap)} ${o.overlap === 1 ? 'is' : 'are'} too long for ${o.overlap === 1 ? 'its' : 'their'} space and now ${o.overlap === 1 ? 'reaches' : 'reach'} the next column (a table cell's line, the next field) or the page's edge; look at the page, tell the user, and offer shorter words.`)
+  if (o.wider) out.push(`${places(o.wider)} made ${o.wider === 1 ? 'its line' : 'their lines'} longer than the other lines of the text (into the right margin); a paragraph is not re-wrapped. Look at the page and tell the user.`)
+  if (o.hidden) out.push(`${places(o.hidden)} in the hidden text layer of a scanned page ${o.hidden === 1 ? 'was' : 'were'} left as ${o.hidden === 1 ? 'it was' : 'they were'}: the page is a picture, and the words in it cannot be changed here. Tell the user.`)
+  if (o.skipped.length) out.push(`${places(o.skipped.length)} ${o.skipped.length === 1 ? 'was' : 'were'} left as ${o.skipped.length === 1 ? 'it was' : 'they were'} (${[...new Set(o.skipped)].join(', ')}).`)
+  return out.join(' ')
 }

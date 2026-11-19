@@ -95,8 +95,9 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
   have asked for it). So does every change in a chat that read something from outside, a mail included
   ([DECISIONS.md](DECISIONS.md) "Connector write cards: outside content asks"). Scheduled tasks keep the rules of any personal connection: only to recipients the task's card
   pinned, otherwise nothing is sent.
-- In a team chat room, @트리나 may use the asker's own Google apps (only the asker's). What it found goes through the
-  room's private answer: only the asker sees it until they share it.
+- Rooms have no AI of their own (no "@트리나" since 2026-11-09). The ✦ side chat beside a room is a personal chat: it
+  uses the asker's own Google apps like any personal chat, and an answer reaches the room only when the person sends
+  it (**Send to a conversation**).
 - Docs and Sheets read tools say to use `drive_read` for a plain "what does this file say" question, and to use them
   to read a document's structure (paragraphs, cells, ranges) before editing.
 - Gmail attachments are read like a Drive file (PDF text, Hangul, Word, Excel, PowerPoint, pictures through the
@@ -110,7 +111,7 @@ older apps and changes nothing, and a stored `integrations.googleApps.<app>.memb
 ## Shared with the team
 
 An owner or admin can also connect **one Google account per app for the team** (a shared mailbox, a team calendar):
-Admin › Connectors › Gmail (or Calendar, Docs, Sheets) › Team settings › **Shared Google account** › **Connect for the
+Admin › Connected apps › Gmail (or Calendar, Docs, Sheets) › Team settings › **Shared Google account** › **Connect for the
 team**. The dialog signs in at Google, confirms the account, then asks who may use it (everyone, groups or people: the
 same picker as a team connection). Per member stays the default: nothing is shared until an admin connects one and
 saves its people.

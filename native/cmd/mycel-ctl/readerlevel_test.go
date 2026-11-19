@@ -48,8 +48,7 @@ func levelBundle(t *testing.T, v string, priv ed25519.PrivateKey, lvl int) strin
 // publishLevel publishes v with a bundle of reader level lvl; feedLevel is the feed's minReaderRequired (nil: none).
 func (f *feedServer) publishLevel(p, v string, lvl int, feedLevel any) string {
 	t := f.t
-	arch := filepath.Join(t.TempDir(), v+"-linux-"+runtime.GOARCH+".tar.zst")
-	mkArchive(t, levelBundle(t, v, f.priv, lvl), arch, nil)
+	arch := f.archive(v, fmt.Sprint("level ", lvl), func() string { return levelBundle(t, v, f.priv, lvl) })
 	ab, err := os.ReadFile(arch)
 	must(t, err)
 	sum := sha256.Sum256(ab)

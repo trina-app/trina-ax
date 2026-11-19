@@ -35,7 +35,7 @@ Todo lo que contiene es solo para usted; lo que se aplica a todo el equipo está
 | Grupo | Secciones |
 |---|---|
 | **Cuenta** | Perfil, Seguridad y dispositivos, Uso, Memoria, Permisos para Trina (y Navegador, consulte más abajo) |
-| **Conexiones** | Conectores, Proveedores de IA (si el equipo permite que los miembros añadan sus propias cuentas), Trina AX MCP |
+| **Conexiones** | Conectores, Proveedores de IA (si el equipo permite que los miembros añadan sus propias cuentas), Trina AX MCP, Sitios del entorno de desarrollo (si el entorno de desarrollo está activado para usted) |
 | **App** | Notificaciones, Aplicaciones, Acerca de |
 
 Un [invitado](guests.md) solo ve sus propias secciones, como Perfil y Notificaciones. Un invitado que usa su propio inicio de sesión conecta su cuenta de Claude o ChatGPT en **Proveedores de IA**.

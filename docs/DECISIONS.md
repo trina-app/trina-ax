@@ -4,6 +4,12 @@
 > (`<YYYYMMDD>-<topic>.md`); look there for anything decided after that day. Do not add sections or lines here
 > (`bun run check:docs` fails a PR that does); fixing a typo in an old entry is fine.
 > 2026-11-16부터 새 결정은 `docs/decisions/`에 한 파일씩 적는다. 이 파일은 그 전의 기록이다.
+>
+> **Reversed later (checked 2026-11-19), the later entry counts:** the knowledge graph ("K —", "지식 그래프로 더 빠른 답",
+> "뜻으로도 찾는 지식 그래프") was removed by "Knowledge graph removed"; "@트리나" in rooms ("대화방의 트리나" and its follow-ups)
+> by "Trina side chat, PR 2" and "Room @트리나 code removed" (the AI is the ✦ side chat); "Trina history by project" is
+> no longer the default ("Trina history: Group by defaults to None"); "Mac users get the App Store only" and "Mac App
+> Store 먼저" by [20261116-desktop-first-onboarding](decisions/20261116-desktop-first-onboarding.md) (the signed dmg).
 
 설계서 v3(팀 AX 플랫폼 구현 설계서)를 기준으로, 설계서에 없거나 애매한 부분을 구현하면서 정한 것들이다.
 형식: **결정** — 이유. (날짜는 모두 2026-10-21)
@@ -25800,8 +25806,8 @@ default.
 - **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
   no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
   while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
-  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
-  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, an info log line
+  `phone push decision` with why), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
   the computer's own notification are unchanged.
 - **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
   heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
@@ -27566,9 +27572,9 @@ default" above: self-hosted operators may want to change the phone push address,
   most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
   (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
 - **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
-  shows the value, has no control, and one line says where it is set ("Set in the server's settings
-  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
-  set it as `push.setBy`.
+  shows the value, has no control, and one plain line says so ("Set in your team server's settings, so it can't be
+  changed here."; since 2026-11-19 without the variable or file name, which meant nothing to the people reading it). A
+  save is refused (409, reason `locked`). AppConfig carries who set it as `push.setBy`.
 - **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
   the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
   change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):
