@@ -466,6 +466,40 @@ describe('colours and images, clicked', () => {
     } finally { await m.unmount() }
   })
 
+  test('the welcome steps (autoSave) while it reads: nothing to press; past 90 s one quiet "기다리지 말고 다음으로" that puts the step off and keeps the reading (owner 2026-11-20)', async () => {
+    const store = (globalThis as any).sessionStorage as Storage
+    store.clear()
+    calls = []
+    draftState = { status: 'running', website: 'https://acme.example/', draft: null, error: null, steps: [page({ url: 'https://acme.example/', status: 'ok', title: 'Acme' })], writing: false }
+    let skipped = 0
+    // a fresh reading: no button at all
+    let m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={() => { skipped++ }} skipLabel="나중에 하기" initialWebsite="https://acme.example/" autoSave keep /></MemoryRouter>)
+    try {
+      await m.until(() => !m.get('profile-step-site').querySelector('button[type="submit"]')!.hasAttribute('disabled'), 'Read on')
+      await m.click(m.get('profile-step-site').querySelector('button[type="submit"]')!)
+      await m.until(() => m.find('profile-step-reading'), 'reading')
+      expect(m.get('profile-step-reading').querySelectorAll('button').length).toBe(0)
+      expect(m.find('profile-step-reading-exit')).toBeFalsy()
+      expect(m.html()).not.toContain('나중에 하기')
+    } finally { await m.unmount() }
+    // the same reading, kept, started more than 90 s ago (a reload of the tab): the one quiet way on
+    const kept = JSON.parse(store.getItem('mycel.profileDraft.olga')!)
+    expect(kept.phase.kind).toBe('reading')
+    kept.phase.at = Date.now() - 91_000
+    store.setItem('mycel.profileDraft.olga', JSON.stringify(kept))
+    m = await mount(<MemoryRouter><ProfileStep onDone={noop} onSkip={() => { skipped++ }} skipLabel="나중에 하기" autoSave keep /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-skip-waiting'), 'the way on')
+      const reading = m.get('profile-step-reading')
+      expect(reading.querySelectorAll('button').map((b: any) => b.textContent)).toEqual(['기다리지 말고 다음으로'])
+      expect(m.get('profile-step-reading-exit').textContent).toContain('계속 읽고 있어요.')
+      await m.click(m.get('profile-step-skip-waiting'))
+      expect(skipped).toBe(1)
+      // the reading stays kept: opening the step again picks up its draft
+      expect(store.getItem('mycel.profileDraft.olga')).toContain('"reading"')
+    } finally { await m.unmount(); store.clear() }
+  })
+
   test('a kept reading whose chat is gone (not found): no endless reading after a reload; the fallback, and nothing kept', async () => {
     const store = (globalThis as any).sessionStorage as Storage
     store.clear()
