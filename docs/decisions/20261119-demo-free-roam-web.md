@@ -48,7 +48,21 @@
     the same everywhere.
 
 - **Rule: hidden surfaces.**
-  - Settings drops Usage, AI providers, AI apps and Dev environment sites (pages/settingsTabs.ts).
+  - Settings drops Usage, AI providers, AI apps, Dev environment sites, Security & devices and Apps
+    (pages/settingsTabs.ts); the pages under them (account deletion, password, devices) go back to Settings by address
+    too (lib/freeRoam.ts FREE_ROAM_HIDDEN_PAGES).
+  - Profile: name, job title and email are read-only, with one line that they belong to the demo; "Delete my account"
+    is gone. Photo, language and theme still change. (The title is read-only too: it is saved by the same call as the
+    name, which the server refuses.)
+  - Notifications: no phone notifications and no push to this device; the "turn on notifications" line never asks.
+  - Connectors: the connected services as rows to read (no page to open), one line that new ones are not available,
+    no Add, no Discover, no requests, no Slack row, no "ask your admin" empty state.
+  - No Scheduled in the Trina panel, the phone drawer or search (its address shows the one line); no Invite people
+    (team menu, search, the phone's team row) and no guest invite in rooms and projects.
+  - No mic in any message box (lib/voice.ts micState).
+  - At the limit the dialog starts on Start free (Look around when there is no sign-up address), never on ✕ with its
+    tooltip; the AI message boxes become read-only (aria-disabled) and send looks off.
+  - Phones: while more suggestion chips are past the bar's right edge, the edge fades (data-more).
   - Nobody picks the AI, and "answered by" is gone (canChooseEngine is false).
   - The admin pages show one line instead. The dev environment's line is "The dev environment isn't available in the
     demo.". The server refuses all of these anyway.
@@ -61,7 +75,8 @@
     timeout and no credentials (web/demo/live.ts).
   - Only `{ available: true }` in time offers **Now try it yourself** (primary, to `https://demo.trina.app/?lang=<locale>`)
     beside the plans link.
-  - Anything else shows "The live demo is busy right now" and keeps the plans link alone, as before.
+  - Anything else shows "The live demo is busy right now" and keeps the plans link alone, as before, with a small
+    "Try again" that reads the status once more.
   - While it is asked, the button waits (it is never a link that may lead nowhere).
   - The words are in the story's strings in all six languages. The build may replace the address
     (VITE_DEMO_LIVE_URL).

@@ -9,7 +9,8 @@ import { translate, useLocaleStore } from '../../src/i18n'
 import { DemoBar, useDemoInfo } from '../../src/components/demo/Demo'
 import { DemoLimitDialog, DemoLimitNotice, FreeRoamStart } from '../../src/components/demo/FreeRoam'
 import { api, API, ApiError, errorText } from '../../src/lib/api'
-import { demoAnswerKey, demoMeter, demoReason, freeRoamSuggestions, mayBeDemoServer, resumeFreeRoam } from '../../src/lib/freeRoam'
+import { demoAnswerKey, demoMeter, demoReason, FREE_ROAM_HIDDEN_PAGES, freeRoamSuggestions, mayBeDemoServer, resumeFreeRoam } from '../../src/lib/freeRoam'
+import { micState } from '../../src/lib/voice'
 import { settingsTabs } from '../../src/pages/settingsTabs'
 import { demoAnswerEnded, freeRoamNow, useDemo } from '../../src/store/demo'
 import { canChooseEngine, useSession } from '../../src/store/session'
@@ -221,9 +222,33 @@ describe('the limit', () => {
       expect(m.get('free-roam-start-free').getAttribute('href')).toBe('https://example.com/pricing')
     } finally { await m.unmount() }
   })
+
+  test('the dialog starts on its one action: Start free, else Look around (never ✕ and its tooltip)', async () => {
+    demoAnswer = { ...INFO, used: 300_000 }
+    await useDemo.getState().load()
+    let m = await mount(<DemoLimitDialog />)
+    try {
+      expect(m.get('free-roam-start-free').hasAttribute('data-autofocus')).toBe(true)
+      expect(m.get('free-roam-look-around').hasAttribute('data-autofocus')).toBe(false)
+    } finally { await m.unmount() }
+    useDemo.setState({ info: { ...INFO, used: 300_000, signupUrl: undefined }, limitOpen: true })
+    m = await mount(<DemoLimitDialog />)
+    try {
+      expect(m.find('free-roam-start-free')).toBeNull()
+      expect(m.get('free-roam-look-around').hasAttribute('data-autofocus')).toBe(true)
+    } finally { await m.unmount() }
+  })
 })
 
 describe('words and hidden surfaces', () => {
+  test('no mic in any message box once the demo is known (voice is fenced); a normal server keeps its mic', async () => {
+    const m = me({ features: FEATURES_OFF })
+    ;(m.team as { voiceInput?: boolean }).voiceInput = true
+    expect(micState(m)).toBe('on')
+    await useDemo.getState().load()
+    expect(micState(m)).toBe('hidden')
+  })
+
   test('a stopped or failed answer reads the demo\'s plain line', () => {
     expect(demoReason({ params: { reason: 'demo_busy' } })).toBe('demo_busy')
     expect(demoReason({ params: { reason: 'usage_used_up' } })).toBeNull()
@@ -239,10 +264,13 @@ describe('words and hidden surfaces', () => {
     expect(errorText(busy, 'en', 'network')).toBe('The demo is busy, try again in a bit.')
   })
 
-  test('Settings has no usage, AI providers, AI apps or dev environment sections; nobody picks the AI', async () => {
+  test('Settings has no usage, AI providers, AI apps, dev environment, Security & devices or Apps sections; nobody picks the AI', async () => {
     const ids = (freeRoam: boolean) => settingsTabs(false, true, true, false, false, freeRoam).map((x) => x.id)
-    expect(ids(false)).toEqual(expect.arrayContaining(['usage', 'providers', 'ai-apps', 'dev-env-sites']))
-    expect(ids(true).filter((x) => ['usage', 'providers', 'ai-apps', 'dev-env-sites'].includes(x))).toEqual([])
+    const hidden = ['usage', 'providers', 'ai-apps', 'dev-env-sites', 'security', 'apps']
+    expect(ids(false)).toEqual(expect.arrayContaining(hidden))
+    expect(ids(true).filter((x) => hidden.includes(x))).toEqual([])
+    // and the pages under the sections, by address: the account deletion, the password, the devices
+    expect([...FREE_ROAM_HIDDEN_PAGES].sort()).toEqual(['account-delete', 'security-devices', 'security-password'])
     expect(ids(true)).toEqual(expect.arrayContaining(['profile', 'memory', 'connectors', 'notifications', 'about']))
     const chooser = me({ features: FEATURES_OFF }, { canChooseEngine: true })
     expect(canChooseEngine(chooser)).toBe(true)
