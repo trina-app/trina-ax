@@ -27,8 +27,9 @@ for (const vp of [{ name: 'computer', size: { width: 1360, height: 860 } }, { na
     await expect(page.getByTestId('welcome-ai-engines')).toHaveCount(0)
     await expect(page.locator('[data-step="ai"] a[href="/admin/providers"]')).toHaveCount(0)
     await page.goto('/')
-    await expect(page.getByTestId('no-ai-card').getByTestId('welcome-ai-ways')).toBeVisible()
+    await expect(page.getByTestId('no-ai-card').getByRole('button').first()).toBeVisible()
     await expect(page.getByTestId('no-ai-card').getByTestId('welcome-ai-engines')).toHaveCount(0)
+    await expect(page.getByTestId('no-ai-card').locator('a[href="/admin/providers"]')).toHaveCount(0)
     expect(realErrors(errors)).toEqual([])
   })
 }

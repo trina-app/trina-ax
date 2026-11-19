@@ -4844,6 +4844,13 @@ export const es: Record<MessageKey, string> = {
   "welcome.ai.keys": "Clave de API",
   "welcome.ai.recommended": "Recomendado",
   "welcome.ai.other": "Otras formas",
+  // Home without AI: one line under the greeting (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447)
+  "home.noAi.connect": "Conecte una IA para empezar.",
+  "home.noAi.claude": "Conectar Claude",
+  "home.noAi.member": "Todavía no tiene una IA para usar.",
+  "home.noAi.ask": "Pedir a un administrador que conecte una",
+  "home.noAi.typed": "Conecte una IA para enviar esto. Su texto se queda aquí.",
+  "home.noAi.typedMember": "Podrá enviar esto cuando haya una IA conectada. Su texto se queda aquí.",
   "welcome.ai.notYet": "La conexión se guardó, pero la IA aún no puede responder. Revise la conexión o conecte de otra forma.",
   "aiConnect.dialogTitle": "Conectar IA",
   "aiConnect.terms": "Comprobé que los términos del proveedor permiten usar esta cuenta y plan de esta forma. {product} no puede conceder esa autorización.",
