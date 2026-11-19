@@ -1,1 +1,0 @@
-- **Take meeting notes** is gone from the Mac app's My files, with the small card that showed the words during a call. Notes you already saved stay in My files › Meetings. The Mac app no longer asks to record your calls' sound, and its microphone question now names only voice input in chats.
