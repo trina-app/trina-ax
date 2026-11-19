@@ -622,6 +622,7 @@ export const id: Record<MessageKey, string> = {
   "chat.answeredBy": "Dijawab oleh {ai}",
   'chat.inTrash': 'Chat ini sudah dihapus dan akan hilang permanen pada {date}. Pulihkan dulu untuk melanjutkan.',
   "chat.footer": "AI bisa salah. Cek lagi informasi penting. Hanya Anda yang dapat melihat obrolan baru.",
+  "chat.toBottom": "Ke pesan terbaru",
   'chat.reply': 'Balas',
   "outbox.label": "Pesan yang menunggu dikirim",
   "outbox.placeholder": "Dikirim setelah jawaban",

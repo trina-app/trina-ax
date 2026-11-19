@@ -607,6 +607,7 @@ export const es: Record<MessageKey, string> = {
   "chat.answeredBy": "Respondió {ai}",
   'chat.inTrash': "Este chat está eliminado y se borrará definitivamente el {date}. Restáurelo para seguir conversando.",
   "chat.footer": "La IA puede cometer errores. Verifique la información importante. Solo usted puede ver los chats nuevos.",
+  "chat.toBottom": "Ir al mensaje más reciente",
   'chat.reply': 'Responder',
   "outbox.label": "Mensajes en espera de envío",
   "outbox.placeholder": "Se envía tras la respuesta",

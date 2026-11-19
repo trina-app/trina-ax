@@ -621,6 +621,7 @@ export const ko = {
   "chat.answeredBy": "답한 AI: {ai}",
   'chat.inTrash': '삭제한 기록이에요. {date}에 완전히 지워져요. 이어서 대화하려면 먼저 되돌려 주세요.',
   "chat.footer": "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 새 채팅은 나만 볼 수 있어요.",
+  "chat.toBottom": "최신 메시지로 이동",
   'chat.reply': '답장하기',
   "outbox.label": "보낼 메시지",
   "outbox.placeholder": "답이 끝나면 보낼 메시지",
