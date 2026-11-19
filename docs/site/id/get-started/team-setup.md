@@ -5,7 +5,7 @@ description: Langkah pertama owner setelah membuat tim: menghubungkan AI, profil
 
 Setelah Anda membuat tim, aplikasi memandu Anda, sebagai owner, melalui beberapa langkah singkat. Hanya owner yang melihatnya. Setiap langkah bisa ditunda, dan langkah-langkah ini berlanjut dari tempat Anda berhenti, di perangkat mana pun.
 
-Jika Anda membuat tim di browser pada komputer Mac atau Windows, halaman berikutnya menawarkan **Lanjutkan di aplikasi Mac** (atau **Lanjutkan di aplikasi Windows**): aplikasi memasukkan Anda dengan sendirinya, tanpa kata sandi kedua, dan hanya aplikasi yang bisa menemukan file kerja di komputer Anda. **Lanjutkan di browser** meneruskan ke langkah-langkah di sini.
+Jika Anda membuat tim di browser pada komputer Mac atau Windows, halaman berikutnya menawarkan **Lanjutkan di aplikasi Mac** (atau **Lanjutkan di aplikasi Windows**): aplikasi memasukkan Anda dengan sendirinya, tanpa kata sandi kedua, dan hanya aplikasi yang bisa menemukan file kerja di komputer Anda. **Lanjutkan di browser** meneruskan ke langkah-langkah di sini. Langkah-langkah ini ikut bersama Anda: di aplikasi, langkah dibuka di tempat Anda berhenti, dengan situs web perusahaan dari tautan pendaftaran sudah terisi.
 
 ## Langkah-langkahnya
 
@@ -14,7 +14,7 @@ Jika Anda membuat tim di browser pada komputer Mac atau Windows, halaman berikut
 Hubungkan langganan Claude atau ChatGPT, atau kunci API. Tanpa AI, profil perusahaan tidak bisa dibaca, jadi langkah ini datang lebih dulu. **Nanti saja** keluar dari langkah-langkah ini; baris penyiapan lalu bertuliskan **Hubungkan AI**.
 
 #### Profil perusahaan
-Ketik alamat situs web perusahaan. AI membacanya dan menulis satu baris tentang perusahaan ("Ini yang kami pahami: … · Ubah"). Anda bisa menambahkan file perkenalan atau deck perusahaan dengan **Tambahkan berkas profil jika ada**.
+Ketik alamat situs web perusahaan. AI membacanya dan menulis satu baris tentang perusahaan ("Ini yang kami pahami: … · Ubah"). Anda bisa menambahkan file perkenalan atau deck perusahaan dengan **Tambahkan berkas profil jika ada**. Selama AI membaca, tidak ada yang perlu ditekan. Jika lebih dari 90 detik, **Jangan tunggu, lanjutkan** pindah ke langkah berikutnya dan pembacaan tetap berjalan; buka lagi profil perusahaan nanti untuk melihatnya.
 
 **Simpan dan lanjut** menyimpan profil. Tombol ini juga memasukkan foto situs web dan berkas profil perusahaan ke folder merek tim; baris di bawah tombol menyebutkannya. Tidak ada hal lain yang mulai dengan sendirinya.
 
@@ -38,6 +38,7 @@ Di akhir, **Semua siap** menawarkan untuk membuat hasil pertama dengan salah sat
 - **Lanjutkan penyiapan · 2/5** tampil di dekat bagian atas daftar Trina, Obrolan, File, dan Aktivitas di samping bilah kiri sampai semua langkah selesai. Baris ini membuka langkah-langkah di tempat Anda berhenti. Di ponsel, baris ini ada di bagian atas daftar **☰** pada tab **Trina** dan pada tab **File**, dan Beranda menampilkannya sebagai baris tenang di bawah kotak pesan.
 - Membuka aplikasi di Beranda juga membawa Anda kembali ke langkah-langkah ini, satu kali per sesi browser.
 - ✕ menyembunyikan baris itu. **Tampilkan penyiapan lagi** di Admin › Beranda memunculkannya kembali.
+- Kartu target tim dan **Sudah disiapkan tim** di Beranda punya **Sembunyikan**. **Pengaturan › Profil** menampilkannya lagi (target tim juga dari Admin › Beranda).
 
 ## Kapan penyiapan dianggap selesai
 
