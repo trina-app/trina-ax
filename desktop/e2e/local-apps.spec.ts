@@ -44,7 +44,9 @@ test('a program on this computer: asked once in the app\'s own dialog, run witho
     expect(await run(msg('1', 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } }))).toMatchObject({ ok: false, failure: 'declined' })
     expect(await page.evaluate(() => (window as any).mycelDesktop.localApps.running())).toEqual([])
     // a check asks again; Connect: it runs
-    expect(await page.evaluate((v) => (window as any).mycelDesktop.localApps.setSettings('conn-e2e', { FAKE_TOKEN: v }), SECRET)).toBe('saved')
+    // the system's keychain as the app sees it (on Linux the Secret Service: a run without one says so here)
+    const keychain = await app.evaluate(({ safeStorage }) => `${process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : 'keychain'}, available ${safeStorage.isEncryptionAvailable()}`)
+    expect(await page.evaluate((v) => (window as any).mycelDesktop.localApps.setSettings('conn-e2e', { FAKE_TOKEN: v }), SECRET), keychain).toBe('saved')
     expect(await page.evaluate(() => (window as any).mycelDesktop.localApps.settingNames('conn-e2e'))).toEqual(['FAKE_TOKEN'])
     expect(await run(msg('2', 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'e2e', version: '1' } }))).toMatchObject({ ok: true, message: { result: { serverInfo: { name: 'fake' } } } })
     const shown = await boxes(app)
