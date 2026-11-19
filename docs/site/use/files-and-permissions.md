@@ -1,17 +1,17 @@
 ---
 title: Files and permissions
-description: The team folder, folder rules, and how the server checks every file the AI opens as the person asking.
+description: The team folder, folder sharing, and how the server checks every file the AI opens as the person asking.
 ---
 
-Company knowledge lives in one team folder on the server. Folder rules decide who sees what. The AI never sees more than the person asking.
+Company knowledge lives in one team folder on the server. Each folder's sharing decides who sees what. The AI never sees more than the person asking.
 
 ## The team folder
 
 | Folder | Who sees it | Use it for |
 |---|---|---|
-| `shared/` | As the rules say, usually everyone | Company-wide documents |
-| `groups/<group>/` | That group, plus anyone a rule adds | Team documents, such as Sales or Finance; the group's own skills in `skills/` there |
-| `projects/<project>/` | As the rules say | Work with its own folder and instructions |
+| `shared/` | As its sharing says, usually everyone | Company-wide documents |
+| `groups/<group>/` | That group, plus anyone it is shared with | Team documents, such as Sales or Finance; the group's own skills in `skills/` there |
+| `projects/<project>/` | The project's members only | Work with its own folder and instructions |
 | `skills/` | Everyone reads; skill managers write | Team skills and team rules |
 | `users/<id>/` | Only that person | Personal files and personal skills |
 
@@ -20,7 +20,8 @@ Company knowledge lives in one team folder on the server. Folder rules decide wh
 One permission function on the server decides every access. The OS stops the AI from going around it.
 
 - A file you cannot open is **invisible**, not "denied". Files, AI answers, search, previews, version history, trash and live updates all follow the same rule.
-- A person's access comes from the **nearest rule** above the file that names them. Person rules come before group rules. With several groups, the widest access wins.
+- Access **adds up**, as in Google Drive: a person gets what a folder gives them and what every folder above it gives them. The widest access wins. Only **Limit access** on a folder stops what comes from above.
+- A project's folder opens only for the project's members.
 - Changes apply **at once**. The AI reads permissions again on every tool call.
 - Removing access does not erase earlier answers that quoted a file.
 
@@ -99,7 +100,7 @@ You can share a file you own with chosen people, without changing who can open i
   **Activity** ("Alice asked you to share Quote.pdf with Jun") with **Share** and **Decline**. For a team folder, a
   member gets **Ask an admin**, which sends the team's owner and admins a message from you.
 
-Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
+Owners and admins can share any team file. In **Admin › Team settings**, **Members can share files and folders they own** turns sharing off for members (shares already made keep working, and their owner can still stop them). The team owner can **Remove all file shares** there at once.
 
 ### Share a folder in My files
 

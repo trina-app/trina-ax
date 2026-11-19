@@ -123,7 +123,7 @@ tambahkan. **Tidak ada yang dicentang**, dan tidak ada yang dibagikan sampai And
   langkah ini, dan Anda selalu bisa membagikan file nanti lewat **⋯ › Bagikan** di halaman File, atau mencabut akses di
   sana.
 
-Langkah ini tidak muncul jika tim Anda mematikan **Anggota bisa membagikan file milik mereka** (Admin › Pengaturan tim).
+Langkah ini tidak muncul jika tim Anda mematikan **Anggota bisa membagikan file dan folder milik mereka** (Admin › Pengaturan tim).
 
 ## Urungkan
 

@@ -215,6 +215,6 @@ GitHub는 다른 앱이 알아서 로그인하게 해 주지 않아서 개인 �
 ## 반대 방향
 
 내 Claude(Claude Code, Claude Desktop, claude.ai)가 Trina AX**에** 연결해서 내 권한으로 내 파일을 쓸 수도 있어요.
-[Team AX MCP 커넥터 알아보기](../../agents/mcp-connector.md) (영어).
+[Trina AX MCP 커넥터 알아보기](../../agents/mcp-connector.md) (영어).
 
 개발자를 위한 자세한 내용: [Integrations](../../../INTEGRATIONS.md) (영어).

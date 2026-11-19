@@ -19,9 +19,11 @@ The engine's own shell and file tools are turned off. Its only path to the team'
 
 | Kind | Tools |
 |---|---|
-| Files | `list`, `glob`, `grep`, `read`, `write`, `edit`, plus `move_files`, `copy_files`, `rename_file`, `share_file`, and `delete_files` (to the team trash after the person's yes on a card; own chat only) |
+| Files | `list`, `glob`, `grep`, `read`, `write`, `edit`, plus `move_files`, `copy_files`, `rename_file`, `rename_files`, `make_zip`, `unzip_file`, and `delete_files` (to the team trash after the person's yes on a card; own chat only) |
 | Web | `web_fetch`, `save_url` |
-| Documents | `make_file`, `edit_hwp`, `hwp_render`, `artifact` |
+| Documents | `make_file`, `edit_office`, `comment_docx`, `edit_hwp`, `hwp_render`, `edit_pdf`, `merge_pdfs`, `split_pdf`, `stamp_pdf`, `resize_images`, `query_data`, `artifact` |
+| Sharing | `share_file`, `share_with_person`, `share_folder`, `who_can_open` |
+| Conversations | `rooms`, `room_read`, `room_file`, `post_to_room` (posting asks the person first) |
 | Skills and memory | `skill`, `find_skills`, `remember` |
 | People | `ask_user` (a card the person answers) |
 | Schedules | `schedule_create`, `schedule_list`, `schedule_delete` |

@@ -17,7 +17,7 @@ folder, undang anggota tim, siapkan skill tim, buat backup pertama. Langkah yang
 | Grup | Halaman |
 |---|---|
 | **Orang** | Anggota & undangan, Grup, Izin folder |
-| **Koneksi** | Penyedia AI, Aplikasi terhubung (aplikasi Google, layanan lain seperti Notion dan, khusus owner, [Slack](slack.md)), Trina AX MCP, Plugin |
+| **Koneksi** | Penyedia AI, Aplikasi terhubung (aplikasi Google, [Slack](slack.md), dan layanan lain seperti Notion), Trina AX MCP, Plugin |
 | **Aktivitas** | Pemakaian, Log aktivitas |
 | **Tim** | Pengaturan tim, Sistem |
 

@@ -1,6 +1,6 @@
 ---
 title: Habilidades del equipo
-description: Convierta la forma de trabajar de su equipo en instrucciones SKILL.md reutilizables, con las mismas reglas de carpetas que los archivos.
+description: Convierta la forma de trabajar de su equipo en instrucciones SKILL.md reutilizables, con los mismos permisos de carpetas que los archivos.
 ---
 
 Una habilidad es un procedimiento reutilizable en un archivo `SKILL.md`. Le dice a la IA cómo hace su equipo una tarea. No entrena el modelo y nunca da acceso adicional.
@@ -21,10 +21,10 @@ El producto incluye cuatro habilidades ya preparadas, en el idioma del equipo (c
 
 | Carpeta | Habilidades | Cómo se añaden |
 |---|---|---|
-| `skills/general/` | Company profile, Promo cards, Promo video | El propietario las elige en el paso de configuración **Elija las habilidades que usará su equipo**, o un propietario o administrador las añade después en **Habilidades disponibles** |
+| `skills/general/` | Company slide deck, Promo cards, Promo video | El propietario las elige en el paso de configuración **Elija las habilidades que usará su equipo**, o un propietario o administrador las añade después en **Habilidades disponibles** |
 | `skills/work/` | Natural writing | Igual |
 
-- **En los pasos de configuración**, cada habilidad tiene una línea y **Ejemplo**. Company profile, Promo cards y Promo video vienen marcadas si se guardó el perfil de la empresa (se crean a partir de él); Natural writing empieza sin marcar. El botón nombra lo que se añade, por ejemplo **Añadir Company profile·Promo cards·Promo video**.
+- **En los pasos de configuración**, cada habilidad tiene una línea y **Ejemplo**. Company slide deck, Promo cards y Promo video vienen marcadas si se guardó el perfil de la empresa (se crean a partir de él); Natural writing empieza sin marcar. El botón nombra lo que se añade, por ejemplo **Añadir Company profile·Promo cards·Promo video**.
 - **En Habilidades disponibles**, los propietarios y administradores ven una línea plegada bajo la lista, **Habilidades preparadas por Trina AX · 2 más**, con las que el equipo todavía no tiene. Ábrala, marque las que quiera (al principio no hay nada marcado) y pulse **Añadir al equipo**. La línea se oculta mientras busca y desaparece cuando el equipo ya las tiene todas. Una habilidad que llega en una versión posterior solo aumenta el número: no hay ningún aviso.
 - **Ejemplo** muestra lo que crea la habilidad para una empresa inventada, Example Coffee, y de dónde viene la habilidad.
 
@@ -70,7 +70,7 @@ Un proyecto del equipo en `projects/<project>/` puede tener habilidades propias 
 
 :::steps
 #### Cree la carpeta
-Cree `skills/<name>/` en Archivos. El nombre usa `a`–`z`, `0`–`9` y guiones, y coincide con el nombre de la carpeta.
+Cree `skills/<name>/` en Archivos. El nombre usa letras minúsculas (de cualquier idioma), dígitos y guiones sueltos, sin espacios, puntos ni mayúsculas, y coincide con el nombre de la carpeta.
 
 #### Escriba SKILL.md
 Empiece con un encabezado y luego el procedimiento.

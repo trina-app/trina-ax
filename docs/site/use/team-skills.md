@@ -1,6 +1,6 @@
 ---
 title: Team skills
-description: Turn how your team works into reusable SKILL.md instructions, governed by the same folder rules as files.
+description: Turn how your team works into reusable SKILL.md instructions, governed by the same folder permissions as files.
 ---
 
 A skill is a reusable procedure in a `SKILL.md` file. It tells the AI how your team does a task. It does not train the model and never grants extra access.
@@ -70,7 +70,7 @@ A team project in `projects/<project>/` can have skills of its own in its `skill
 
 :::steps
 #### Make the folder
-Create `skills/<name>/` in Files. The name uses `a`–`z`, `0`–`9` and hyphens, and matches the folder name.
+Create `skills/<name>/` in Files. The name uses lowercase letters (in any language), digits and single hyphens, with no spaces, dots or capitals, and matches the folder name.
 
 #### Write SKILL.md
 Start with a header, then the procedure.

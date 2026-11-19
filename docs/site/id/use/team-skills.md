@@ -1,6 +1,6 @@
 ---
 title: Skill tim
-description: Ubah cara kerja tim Anda menjadi instruksi SKILL.md yang bisa dipakai ulang, diatur dengan aturan folder yang sama seperti file.
+description: Ubah cara kerja tim Anda menjadi instruksi SKILL.md yang bisa dipakai ulang, diatur dengan izin folder yang sama seperti file.
 ---
 
 Skill adalah prosedur yang bisa dipakai ulang dalam sebuah file `SKILL.md`. Skill memberi tahu AI cara tim Anda mengerjakan suatu tugas. Skill tidak melatih model dan tidak pernah memberi akses tambahan.
@@ -21,10 +21,10 @@ Empat skill siap pakai disertakan dalam produk, dalam bahasa tim (Korea atau Ing
 
 | Folder | Skill | Cara masuknya |
 |---|---|---|
-| `skills/general/` | Company profile, Promo cards, Promo video | Owner memilihnya di langkah penyiapan **Pilih skill yang akan dipakai tim**, atau owner atau admin menambahkannya nanti di **Skill yang tersedia** |
+| `skills/general/` | Company slide deck, Promo cards, Promo video | Owner memilihnya di langkah penyiapan **Pilih skill yang akan dipakai tim**, atau owner atau admin menambahkannya nanti di **Skill yang tersedia** |
 | `skills/work/` | Natural writing | Sama seperti di atas |
 
-- **Di langkah penyiapan**, setiap skill punya satu baris dan **Contoh**. Company profile, Promo cards, dan Promo video sudah tercentang jika profil perusahaan sudah disimpan (skill itu dibuat dari profil tersebut); Natural writing awalnya tidak tercentang. Tombolnya menyebut apa yang akan masuk, misalnya **Tambahkan Company profile·Promo cards·Promo video**.
+- **Di langkah penyiapan**, setiap skill punya satu baris dan **Contoh**. Company slide deck, Promo cards, dan Promo video sudah tercentang jika profil perusahaan sudah disimpan (skill itu dibuat dari profil tersebut); Natural writing awalnya tidak tercentang. Tombolnya menyebut apa yang akan masuk, misalnya **Tambahkan Company profile·Promo cards·Promo video**.
 - **Di Skill yang tersedia**, owner dan admin melihat satu baris terlipat di bawah daftar, **Skill yang disiapkan Trina AX · 2 lagi**, berisi skill yang belum dimiliki tim. Buka baris itu, centang yang Anda inginkan (awalnya tidak ada yang tercentang), lalu tekan **Tambahkan ke tim**. Baris ini tersembunyi selama Anda mencari dan hilang jika tim sudah memiliki semuanya. Skill yang disertakan di versi berikutnya hanya menambah jumlahnya: tidak ada pemberitahuan.
 - **Contoh** menunjukkan apa yang dibuat skill itu untuk perusahaan rekaan, Example Coffee, dan dari mana skill itu berasal.
 
@@ -70,7 +70,7 @@ Proyek tim di `projects/<project>/` bisa punya skill sendiri di folder `skills/`
 
 :::steps
 #### Buat foldernya
-Buat `skills/<name>/` di File. Namanya memakai `a`–`z`, `0`–`9`, dan tanda hubung, dan harus sama dengan nama folder.
+Buat `skills/<name>/` di File. Namanya memakai huruf kecil (dalam bahasa apa pun), angka, dan tanda hubung tunggal, tanpa spasi, titik, atau huruf kapital, dan harus sama dengan nama folder.
 
 #### Tulis SKILL.md
 Mulai dengan header, lalu prosedurnya.

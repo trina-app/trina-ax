@@ -230,6 +230,6 @@ hanya perlu masuk atau menempelkan kunci ke kartu itu. Kuncinya tidak pernah sam
 ## Arah sebaliknya
 
 Claude Anda sendiri (Claude Code, Claude Desktop, atau claude.ai) bisa terhubung **ke** Trina AX dan memakai file Anda
-dengan izin Anda. [Baca tentang konektor Team AX MCP](../../agents/mcp-connector.md) (bahasa Inggris).
+dengan izin Anda. [Baca tentang konektor Trina AX MCP](../../agents/mcp-connector.md) (bahasa Inggris).
 
 Detail lengkap untuk pengembang: [Integrations](../../../INTEGRATIONS.md) (bahasa Inggris).

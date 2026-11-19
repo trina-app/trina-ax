@@ -1,17 +1,17 @@
 ---
 title: Archivos y permisos
-description: La carpeta del equipo, las reglas de carpetas y cómo el servidor comprueba cada archivo que abre la IA con los permisos de la persona que pregunta.
+description: La carpeta del equipo, el uso compartido de carpetas y cómo el servidor comprueba cada archivo que abre la IA con los permisos de la persona que pregunta.
 ---
 
-El conocimiento de la empresa vive en una sola carpeta del equipo en el servidor. Las reglas de carpetas deciden quién ve qué. La IA nunca ve más que la persona que pregunta.
+El conocimiento de la empresa vive en una sola carpeta del equipo en el servidor. El uso compartido de cada carpeta decide quién ve qué. La IA nunca ve más que la persona que pregunta.
 
 ## La carpeta del equipo
 
 | Carpeta | Quién la ve | Para qué sirve |
 |---|---|---|
-| `shared/` | Lo que digan las reglas; normalmente todos | Documentos de toda la empresa |
-| `groups/<group>/` | Ese grupo, más quien añada una regla | Documentos de un equipo, como Ventas o Finanzas; las habilidades propias del grupo, en su `skills/` |
-| `projects/<project>/` | Lo que digan las reglas | Trabajo con su propia carpeta e instrucciones |
+| `shared/` | Lo que diga su uso compartido; normalmente todos | Documentos de toda la empresa |
+| `groups/<group>/` | Ese grupo, más quien tenga la carpeta compartida | Documentos de un equipo, como Ventas o Finanzas; las habilidades propias del grupo, en su `skills/` |
+| `projects/<project>/` | Solo los miembros del proyecto | Trabajo con su propia carpeta e instrucciones |
 | `skills/` | Todos la leen; los responsables de habilidades escriben | Habilidades del equipo y reglas del equipo |
 | `users/<id>/` | Solo esa persona | Archivos personales y habilidades personales |
 
@@ -20,7 +20,8 @@ El conocimiento de la empresa vive en una sola carpeta del equipo en el servidor
 Una única función de permisos en el servidor decide cada acceso. El sistema operativo impide que la IA la esquive.
 
 - Un archivo que usted no puede abrir es **invisible**, no "denegado". Archivos, las respuestas de la IA, la búsqueda, las vistas previas, el historial de versiones, la papelera y las actualizaciones en directo siguen la misma regla.
-- El acceso de una persona viene de la **regla más cercana** por encima del archivo que la nombra. Las reglas de personas van antes que las de grupos. Con varios grupos, gana el acceso más amplio.
+- El acceso **se suma**, como en Google Drive: una persona obtiene lo que le da una carpeta y lo que le da cada carpeta superior. Gana el acceso más amplio. Solo **Limitar el acceso** en una carpeta detiene lo que viene de arriba.
+- La carpeta de un proyecto solo la abren los miembros del proyecto.
 - Los cambios se aplican **al instante**. La IA vuelve a leer los permisos en cada llamada a una herramienta.
 - Quitar el acceso no borra las respuestas anteriores que citaron un archivo.
 
@@ -81,7 +82,7 @@ Puede compartir un archivo suyo con las personas que elija, sin cambiar quién p
 - Pregunte a Trina **«¿quién puede abrir este archivo?»** o **«¿por qué Jun no puede abrirlo?»**. Le dice cómo entra cada persona (compartido por nombre, por un grupo, por su carpeta). Verá los nombres en sus propios archivos; en el archivo de otra persona verá su propio acceso y a quién preguntar.
 - Después de que Trina publique en una sala, le avisa si algunas personas de allí no pueden abrir un archivo de la publicación. **Permitir que lo vean** comparte su archivo solo con las personas nombradas en esa línea. Si el archivo es de otra persona, el botón con el nombre del propietario (como **Pedir a Mina**) le envía una solicitud en **Actividad** («Alice le pidió que comparta Quote.pdf con Jun») con **Compartir** y **Rechazar**. Para una carpeta del equipo, un miembro ve **Pedir a un administrador**, que envía un mensaje suyo al propietario y a los administradores del equipo.
 
-Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando, y su propietario aún puede dejar de compartirlo). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
+Los propietarios y administradores pueden compartir cualquier archivo del equipo. En **Administración › Ajustes del equipo**, **Los miembros pueden compartir sus propios archivos y carpetas** desactiva el uso compartido para los miembros (lo ya compartido sigue funcionando, y su propietario aún puede dejar de compartirlo). El propietario del equipo puede **Quitar todos los archivos compartidos** allí de una vez.
 
 ### Compartir una carpeta de Mis archivos
 

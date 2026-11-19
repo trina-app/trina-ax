@@ -14,7 +14,7 @@ Trina AX punya beberapa komponen dasar. Semua halaman lain memakai istilah-istil
 | **Anggota** | Chat dengan AI, memakai file dan skill yang boleh mereka buka, serta memiliki folder dan skill pribadi. |
 | **Tamu** | Orang dari luar tim, paling banyak di satu saluran privat atau obrolan grup, dan satu proyek. Tanpa AI, kecuali AI dipilihkan untuk mereka. Tidak memakai kursi. [Baca tentang tamu](../use/guests.md). |
 
-**Grup** adalah sekumpulan orang, misalnya Penjualan atau Keuangan. Aturan folder bisa menyebut grup atau orang.
+**Grup** adalah sekumpulan orang, misalnya Penjualan atau Keuangan. Folder bisa dibagikan ke grup atau orang.
 
 ## Folder tim
 
@@ -22,9 +22,9 @@ Semua pengetahuan perusahaan berada di satu folder tim di server.
 
 | Folder | Siapa yang melihatnya |
 |---|---|
-| `shared/` | Sesuai aturan folder, biasanya seluruh tim. |
-| `groups/<group>/` | Orang di grup itu, kecuali ada aturan yang menambahkan orang lain. |
-| `projects/<project>/` | Sesuai aturan folder. |
+| `shared/` | Sesuai pembagiannya, biasanya seluruh tim. |
+| `groups/<group>/` | Orang di grup itu, ditambah siapa pun yang diberi akses lewat pembagian. |
+| `projects/<project>/` | Hanya anggota proyek. |
 | `skills/` | Semua orang bisa membaca. Pengelola skill yang mengubahnya. |
 | `users/<id>/` | Hanya orang itu sendiri. Owner dan admin pun tidak. |
 
@@ -32,7 +32,7 @@ Folder atau file yang tidak bisa Anda buka tidak terlihat sama sekali: di File, 
 
 ## Chat dan proyek
 
-**Chat** adalah percakapan dengan AI. Hanya orang yang memulainya yang bisa melihatnya, sampai ia membagikannya ke orang atau grup. Chat di proyek tim dilihat oleh anggota proyek tersebut.
+**Chat** adalah percakapan dengan AI. Hanya orang yang memulainya yang bisa melihatnya, sampai ia membagikannya ke orang atau grup. Chat di proyek tim dilihat oleh anggota proyek tersebut, kecuali orang yang memulainya menguncinya.
 
 **Proyek** adalah folder dengan instruksi, untuk pekerjaan yang terus kembali ke file yang sama. Chat di dalam proyek memberi AI folder dan instruksi tersebut. [Baca tentang chat dan proyek](../use/chats-and-projects.md).
 
