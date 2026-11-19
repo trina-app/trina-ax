@@ -127,6 +127,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'shared/src/honorific.ts': { why: 'the honorifics a name may already end with (님, 씨) and the Korean particles after them (grammar, not screen text)', also: /^const (HONORIFICS|RO|PARTICLES)\b/ },
   'shared/src/service-catalog.ts': { why: 'the Korean and Japanese names people type for a listed service (노션, 피그마), matched when someone asks for it (not screen text)', also: /aliases: \[/ },
   'server/src/admin/budgets.ts': { why: 'budget texts (ko next to en/id/ja/es)' },
+  'shared/src/limit-reset.ts': { why: 'the used-up usage limit texts (ko next to en/id/ja/es/zh), shared by the server and the web app' },
   'server/src/files/hwp.ts': { why: 'the HWP term 배포용 in a note to the AI about a distribution document (not screen text)', also: /\(배포용\)/ },
   'server/src/files/hwp-edit.ts': { why: 'the HWP terms 배포용, 개인 정보 보안, 변경 추적 and 문서 연결 in notes to the AI about a document it will not change (not screen text)', also: /\((배포용|개인 정보 보안|변경 추적|문서 연결)\)/ },
   'server/src/files/hwpx-template.ts': { why: 'the style and font names Hangul documents use (바탕글, 개요 1, 함초롬바탕) in the built-in .hwpx template (document content, not screen text)', also: /^\s*(const FACES = |style\(\d+, '(PARA|CHAR)', '|\.\.\.OUTLINE\.map\(\(_, i\) => style\()/ },

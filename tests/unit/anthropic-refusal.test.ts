@@ -92,4 +92,12 @@ describe('classifyError: sign-in errors need the error class or the leading text
     expect(classifyError('API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"bad"},"request_id":"req_011C401abc"}')).toBe('crash')
     expect(classifyError('API Error: 500 {"error":{"type":"api_error"}} request-id: req_401401')).toBe('crash')
   })
+  test('an overloaded provider is busy, not a usage limit (QA AP-071)', async () => {
+    const { classifyError } = await import('../../server/src/engine/claude-parse')
+    for (const m of ['API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CTest2"}', 'Repeated 529 Overloaded errors', '529 overloaded', 'API Error: 529']) expect(classifyError(m)).toBe('provider_busy')
+    // a 529 inside an id or a count is nothing; real limits stay limits
+    expect(classifyError('API Error: 500 {"error":{"type":"api_error"}} request-id: req_529529')).toBe('crash')
+    expect(classifyError('API Error: 429 {"type":"error","error":{"type":"rate_limit_error"}}')).toBe('rate_limit')
+    expect(classifyError('Claude AI usage limit reached|1763600000')).toBe('rate_limit')
+  })
 })

@@ -5,7 +5,7 @@
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
 import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
-import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, MIN_ANSWERS_FOR_AVERAGE, limitResetText } from '@mycel/shared'
+import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, LIMIT_PERIOD_WORDS, MIN_ANSWERS_FOR_AVERAGE, limitResetText, limitUsedUpText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
 import { msg } from '../auth/messages'
@@ -117,8 +117,7 @@ export function checkBudgets(db: Database, userId: string, now = new Date()): { 
   })
 }
 
-type T3 = Record<Locale, string>
-export const PERIOD: Record<Budget['period'], T3> = { day: { ko: '오늘', en: "today's", id: 'hari ini', ja: "今日", es: "de hoy", zh: "今天的" }, month: { ko: '이번 달', en: "this month's", id: 'bulan ini', ja: "今月", es: "de este mes", zh: "本月的" } }
+export const PERIOD: Record<Budget['period'], Record<Locale, string>> = LIMIT_PERIOD_WORDS
 
 /** When the period of a budget starts again (midnight / the 1st in the team's time zone). */
 export function periodEnd(period: Budget['period'], now: Date, tz: string): Date {
@@ -132,42 +131,27 @@ export function periodEnd(period: Budget['period'], now: Date, tz: string): Date
  * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
  * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
  */
-export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string; params: { resetsAt: string; own?: true } } | null {
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string; params: { resetsAt: string; period: Budget['period']; own?: true } } | null {
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)
   const end = periodEnd(hit.budget.period, now, tz)
   // 24-hour time: the limit ends at midnight, which "오전 12:00" / "12:00 AM" can read as noon (QA TC-215)
   const at = limitResetText(end, locale, tz)
-  const p = PERIOD[hit.budget.period][locale] ?? PERIOD[hit.budget.period].en
   // a guest does not know the team's admins: the person who invited them (docs/DECISIONS.md "Guests: only what they
   // were invited to"); the same date
   const guest = !!(db.query('SELECT guest FROM users WHERE id = ?').get(userId) as { guest: number } | null)?.guest
   // a guest's own token limit says its amount, as the web's in-chat notice does ("this month's AI limit (5M tokens)"):
   // the composer, a room's AI side chat and every other place show this text as it is (QA TC-3310)
   const own = guest && hit.budget.subjectType === 'user' && hit.budget.limitTokens !== null && hit.budget.limitTokens > 0 && !(hit.budget.limitUsd > 0)
-  const n = own ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(hit.budget.limitTokens!) : ''
-  const message = own ? {
-    ko: `${p} AI 한도(${n} 토큰)를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
-    en: `You have used up ${p} AI limit (${n} tokens). You can use it again from ${at}. Ask the person who invited you if you need more.`,
-    id: `Batas AI ${p} (${n} token) sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAIの上限（${n}トークン）を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de IA ${p} (${n} tokens). Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
-    zh: `${p}AI额度（${n} token）已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
-  }[locale] : guest ? {
-    ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 초대한 분께 물어봐 주세요.`,
-    en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask the person who invited you if you need more.`,
-    id: `Batas penggunaan AI ${p} sudah habis. Anda bisa memakainya lagi mulai ${at}. Tanyakan ke orang yang mengundang Anda jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は、招待してくれた人に聞いてください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Si necesita más, pregunte a quien le invitó.`,
-    zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请询问邀请你的人。`,
-  }[locale] : {
-    ko: `${p} AI 사용 한도를 다 썼어요. ${at}부터 다시 쓸 수 있어요. 더 필요하면 관리자에게 말해 주세요.`,
-    en: `You have used up ${p} AI usage limit. You can use it again from ${at}. Ask an admin if you need more.`,
-    id: `Batas penggunaan AI ${p} sudah habis. Anda bisa memakainya lagi mulai ${at}. Minta admin jika perlu lebih.`, ja: `${p}のAI使用量上限を使い切りました。${at}から再び使用できます。追加が必要な場合は管理者にご相談ください。`, es: `Agotó el límite de uso de IA ${p}. Podrá volver a usarla a partir de ${at}. Consulte a un administrador si necesita más.`,
-    zh: `${p}AI用量上限已用完。从${at}起可以再次使用。如果需要更多，请联系管理员。`,
-  }[locale]
+  const amount = own ? new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(hit.budget.limitTokens!) : undefined
+  // (shared limitUsedUpText: the web app says a stored one again in the language the person reads it in)
+  const message = limitUsedUpText({ locale, period: hit.budget.period, at, who: guest ? 'guest' : 'member', ...(amount ? { amount } : {}) })
   // resetsAt: when the limit starts again (the start of the next period in the team's time zone), for screens that
   // word it themselves (a guest's "It resets on Dec 1": web components/chat/Messages.tsx)
   // params: what a refused send carries; `own` when it is the person's own limit (a guest's notice then names its amount,
-  // never a team or group limit's)
-  return { budget: hit.budget, message, resetsAt: end.toISOString(), params: { resetsAt: end.toISOString(), ...(hit.budget.subjectType === 'user' ? { own: true as const } : {}) } }
+  // never a team or group limit's); `period`, so the web app can say it again in another language (QA AP-077)
+  return { budget: hit.budget, message, resetsAt: end.toISOString(), params: { resetsAt: end.toISOString(), period: hit.budget.period, ...(hit.budget.subjectType === 'user' ? { own: true as const } : {}) } }
 }
 
 /**

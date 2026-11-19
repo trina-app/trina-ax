@@ -169,6 +169,20 @@ export class RealtimeClient {
   }
 
   /**
+   * The browser says the network is gone (window `offline`: Wi-Fi off, airplane mode). An open socket usually stays
+   * "open" then: no close comes until the ping goes unanswered, up to 30 s of an answer frozen on screen with no word
+   * why (QA AP-070). Drop it now, like a ping timeout: the banner says "reconnecting" at once, and the `online` nudge
+   * resumes from the last event (?epoch&after), so the answer goes on where it stopped.
+   */
+  linkLost() {
+    const ws = this.ws
+    if (this.stopped || !ws || this.state !== 'open') return
+    ws.onclose = null
+    try { ws.close(4000, 'offline') } catch { /* ignore */ }
+    this.onClose(4000)
+  }
+
+  /**
    * Send a client frame; queued while disconnected (browser.result must not get lost). The queue is bounded (a
    * browser.result can carry a screenshot): past OUTBOX_MAX_FRAMES or OUTBOX_MAX_BYTES the oldest frames are dropped —
    * the server has long given up on those calls by then.

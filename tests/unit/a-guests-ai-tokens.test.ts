@@ -59,7 +59,7 @@ test('Team AI stores a token limit, counts every token toward it and blocks at i
   expect((await row()).aiUsedUp).toBe(true)
   const r = await g.client.try('POST', '/api/chats', { message: 'hello' })
   expect(r.body.error.code).toBe('budget_exceeded')
-  expect(r.body.error.params).toEqual({ resetsAt, own: true })
+  expect(r.body.error.params).toEqual({ resetsAt, period: 'month', own: true })
   // last month's tokens do not count
   h.ctx.db.query("DELETE FROM turns WHERE user_id = ?").run(g.id)
   answer(g.id, 50_000, 0, 0, new Date(Date.now() - 40 * 86_400_000))
