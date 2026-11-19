@@ -55,6 +55,10 @@ export const DemoFile = z.object({
   sameQuestion: z.string().min(1).max(200).optional(),
   /** a folder of recorded real answers (DemoRecording JSON files) the demo replays */
   replays: z.string().min(1).max(1000).optional(),
+  /** the demo's fake services (server/src/demo/fakes/): Gmail, Google Drive and Higgsfield answered on this server from
+   * fake data, and every other call to the outside refused. `content`: a folder with gmail.json, drive.json and
+   * higgsfield/ pictures; left out, built-in fictional data */
+  fakes: z.object({ content: z.string().min(1).max(1000).optional() }).strict().optional(),
   personas: z.array(z.object({
     key: DemoPersonaKey,
     username: z.string().min(1).max(64),

@@ -3,6 +3,7 @@
 // kept with the tokens: a client secret stays in its private file, and when the card's Google app changed (another
 // client, "same as Drive" after Drive's changed, or the hosting service's) the old sign-in ends (GrantError: sign in
 // again). A hosted server refreshes through the hosting service with the `app` field.
+import crypto from 'node:crypto'
 import type { GoogleAppId } from '@mycel/shared/api'
 import type { AppContext } from '../../context'
 import { GoogleTransport, GOOGLE_TOKEN, type DriveFetch } from '../google-drive/client'
@@ -11,6 +12,8 @@ import { DriveError } from '../google-drive/store'
 import { NetError } from '../connections/net'
 import { GrantError, type OAuthSecret, type OAuthTokens } from '../connections/oauth'
 import { setupOf } from './config'
+import { demoFakesOf } from '../../demo/fakes'
+import { DEMO_TOKEN_LIFE_S } from '../../demo/fakes/drive'
 
 /** what a Google app connection's sealed secret carries besides the generic OAuth fields */
 export interface GoogleAppSecret extends OAuthSecret { google: { app: GoogleAppId; key: string; mode: 'direct' | 'broker' } }
@@ -31,6 +34,9 @@ export function tokensOf(j: Record<string, any>, now: number, previous?: string 
 
 export async function refreshGoogleApp(ctx: AppContext, secret: OAuthSecret, now: number): Promise<OAuthTokens> {
   if (!isGoogleAppSecret(secret) || !secret.tokens.refreshToken) throw new GrantError('not_google_app')
+  // a demo server with fakes (server/src/demo/fakes/): answered here, for another year, whatever the card's setup is
+  // now (the demo's sign-ins are seeded); nothing is asked of Google
+  if (demoFakesOf(ctx)) return { accessToken: secret.tokens.accessToken || `demo-access-${crypto.randomUUID()}`, refreshToken: secret.tokens.refreshToken, expiresAt: now + DEMO_TOKEN_LIFE_S * 1000 }
   const { app, key } = secret.google
   const setup = setupOf(ctx, app)
   // another Google app now (or none): the sign-in was made with a client this server no longer uses

@@ -25,6 +25,7 @@ import { runIsolated } from './isolate'
 import { zipEntries } from '../file-list/sniff'
 import { readAtOf, RefusedKind, settleKind, sniffDownload } from './sniff'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
+import { DEMO_OFFLINE_TEXT, demoOffline } from '../demo/fakes/offline'
 
 export const FETCH_MAX_BYTES = 5 * 1024 * 1024
 /** a slow site (a big public report page) gets 30 s, as long as Claude Code's own fetch waits (limits audit 1 #14) */
@@ -214,6 +215,8 @@ function checkAddresses(host: string, addrs: { address: string; family: number }
 }
 
 export async function resolveTarget(raw: string, o: ResolveOptions = {}): Promise<Target> {
+  // a demo server with fakes: nothing outside this computer, and no name lookup at all (demo/fakes/offline.ts)
+  if (demoOffline()) throw new ToolError(`${DEMO_OFFLINE_TEXT}: this demo does not reach the internet`)
   const lookup = o.lookup ?? sysLookup
   let url: URL
   try { url = new URL(raw) } catch { throw new ToolError('not a valid URL') }
