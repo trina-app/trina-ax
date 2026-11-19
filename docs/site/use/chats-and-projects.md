@@ -296,6 +296,24 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   people can open it, and a line under it says so. You need write access to the project folder (without it, **+**
   offers team files only); **✕** before sending moves the file to the trash.
 
+### A channel for a project
+
+A team project can have one private channel, so its people talk and keep their files in one place: the project's folder.
+
+- **Create a channel** in the **Channel** box on the project's page makes a private channel with the project's people
+  already ticked (you can untick anyone). **Link a channel** links one of your private channels instead. You can also
+  link from the channel: open its name at the top, then **Link to a project**.
+- In a linked channel, **Files** at the top opens the project's folder. A document or picture sent there gets **Save to
+  project**: one click puts a copy in the project's folder, and **Undo** in the message that follows takes it back. Other
+  kinds of files, and files that look personal, ask where to save them first.
+- Trina in the channel's side chat saves the new documents you ask for in the project's folder. When people outside
+  the channel can open that folder, it asks you first.
+- Only people who can open the project see its name, its **Files** button and **Save to project**. Everyone else in the
+  channel sees only that it was linked to a project. The project's members see the channel's name on the project page.
+- Who is in the channel and who is in the project stay separate: adding someone to one never adds them to the other.
+- **Unlink** is in the channel's info and on the project page. Files saved to the project stay there; files sent in the
+  channel stay in the channel.
+
 ## Find anything
 
 Press ⌘K (Ctrl+K on Windows) or choose **Search** under **Ask Trina** to find chats, messages in your conversations, projects, files, skills, scheduled tasks and MCP connections. [Read about search and settings](settings-and-search.md).

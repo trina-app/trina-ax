@@ -108,6 +108,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_reactions.user_id': 'reactions in shared rooms, as messages',
   'room_ai_turns.user_id': 'usage of the room AI, as turns',
   'rooms.created_by': 'SET NULL; the room stays for its members',
+  'room_project_links.linked_by': 'who linked a channel to a project: never shown or sent; SET NULL when the user row goes, and the row goes with the channel or the project (rooms/project-link.ts)',
   'room_apps.created_by': 'SET NULL; an app belongs to its room and goes on ("Set up by someone who left")',
   'room_app_viewers.user_id': 'ids kept on purpose so people who left stay flagged as knowing an app\'s address until it gets a new one (goes with the app, or at "Get a new address")',
   'skill_shares.created_by': 'a team skill they shared stays for the team',

@@ -7,7 +7,8 @@
 //   setup-status | setup-token-rotate
 //   cloud-backup prepare --kind daily|manual|pre-update|final [--local-id <id>]
 //   cloud-backup upload                      (stdin BackupUploadInput)
-//   archive --passphrase-random --upload     (stdin ExportInput: the whole team, age with a random passphrase)
+//   archive --passphrase-random --upload     (stdin ExportInput: the whole team, age with a random passphrase; with
+//                                            `zip`, also the plain ZIP for people, age to the control plane's key)
 //   restore-artifacts --dir <downloaded, decrypted chain> --to <new folder>
 //   restore-verify --dir <…> --expect '{"files":N,"bytes":N,"schemaVersion":N}'
 import crypto from 'node:crypto'
@@ -28,6 +29,8 @@ import { walkTree } from './manifest'
 import { backupWalk } from './regenerable'
 import { ageEncrypt, ageEncryptTo, readFileChunks, writeAtomic, zstdCompress, zstdDecompress, type Bytes } from './streams'
 import { tarStream, type TarEntryInput } from './tar'
+import { teamExportEntries } from './team-export-zip'
+import { zipOut } from './zip-out'
 
 export class CloudAdminError extends Error { name = 'CloudAdminError' }
 
@@ -219,10 +222,31 @@ export async function cloudBackupUpload(dataDir: string, input: unknown, o: Uplo
 
 // ------------------------------------------------------------------ export (the whole team, for the owner)
 
-/** The `archive` stream of admin.js (DB + team folder, tar.zst), encrypted with a random passphrase and uploaded. */
+/** letters and digits nobody mixes up when reading or typing them (no 0/o, 1/l/i) */
+const PASS_ALPHABET = '23456789abcdefghjkmnpqrstuvwxyz'
+
+/** A passphrase for an encrypted export: 8 groups of 5 (about 198 bits), e.g. "k7m2p-…". The dashes belong to it. */
+export function exportPassphrase(): string {
+  const groups: string[] = []
+  for (let g = 0; g < 8; g++) {
+    let s = ''
+    while (s.length < 5) {
+      const b = crypto.randomBytes(1)[0]!
+      if (b < 248) s += PASS_ALPHABET[b % 31] // 248 = 8 × 31: no bias
+    }
+    groups.push(s)
+  }
+  return groups.join('-')
+}
+
+/**
+ * The `archive` stream of admin.js (DB + team folder, tar.zst), encrypted with a random passphrase and uploaded. With
+ * `zip` in the input, then the plain ZIP for people (system/team-export-zip.ts) from the same database copy and team
+ * folder, encrypted to the control plane's one-time key and uploaded to its own URLs.
+ */
 export async function archiveUpload(o: { dbFile: string; teamRoot: string; dataDir: string }, input: unknown, up: UploadOptions = {}): Promise<ExportResult> {
   const req = ExportInput.parse(input)
-  const passphrase = crypto.randomBytes(32).toString('base64url')
+  const passphrase = exportPassphrase()
   const tmpDb = path.join(o.dataDir, `archive-${process.pid}.sqlite`)
   await vacuumInto(o.dbFile, tmpDb)
   try {
@@ -236,7 +260,9 @@ export async function archiveUpload(o: { dbFile: string; teamRoot: string; dataD
       ...tree.files.map((f) => ({ name: `team/${f.rel}`, type: 'file' as const, source: f.abs })),
     ]
     const r = await uploadParts(ageEncrypt(zstdCompress(tarStream(entries)), passphrase), req.partSize, req.partUrls, up)
-    return { passphrase, size: r.size, sha256: r.sha256, parts: r.parts }
+    if (!req.zip) return { passphrase, size: r.size, sha256: r.sha256, parts: r.parts }
+    const z = await uploadParts(ageEncryptTo(zipOut(teamExportEntries({ dbFile: tmpDb, teamRoot: o.teamRoot })), [req.zip.recipient]), req.zip.partSize, req.zip.partUrls, up)
+    return { passphrase, size: r.size, sha256: r.sha256, parts: r.parts, zip: { size: z.size, sha256: z.sha256, parts: z.parts } }
   } finally {
     await fsp.rm(tmpDb, { force: true })
   }

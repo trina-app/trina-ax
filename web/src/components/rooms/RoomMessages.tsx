@@ -34,12 +34,12 @@
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
 import { Copy, Download, FileText, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
-import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize, intlTag } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, type MessageRun } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey, type MessageRun } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
@@ -83,9 +83,9 @@ import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
 import { navigateTo } from '../../lib/nav'
+import { folderOfPath, inProjectFolder } from '../../lib/roomSave'
 import { useFolderWords } from '../../lib/folderLabels'
-import { folderOfPath } from '../../lib/roomSave'
-import { useRoomSaves } from '../../store/roomSaves'
+import { saveToProject, useRoomSaves } from '../../store/roomSaves'
 import { capBlankLines } from '../../lib/blankLines'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
@@ -305,24 +305,35 @@ const AskFile = createContext<((fileId: string, name: string) => void) | null>(n
  * 링크 복사 (its message), 내려받기, 트리나에게 묻기 where the list asks. */
 function useRoomFileMenu(f: RoomFile, item: ViewerItem, team?: RoomFileSave | null) {
   const ask = useContext(AskFile)
-  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, team: team ? { saved: !!team.saved, run: team.saved ? team.open : team.save } : null, ask: ask ? () => ask(f.id, f.name) : null })
+  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, team: team ? { saved: !!team.saved, run: team.saved ? team.open : team.save, ...(team.project ? { project: { label: team.project.label, run: team.project.save } } : {}) } : null, ask: ask ? () => ask(f.id, f.name) : null })
 }
 
 /** "Save to team folder" of a file under a message (docs/decisions/20261117-room-file-save-btn.md): where it is in the
  * team folder for me (store/roomSaves.ts), opening it there, or the save sheet for the message's files. null for a guest
  * (no team folder to save to; the server refuses them too). */
-type RoomFileSave = { saved: string | undefined; open: () => void; save: () => void }
+/** `project`: a private channel linked to a project I may write (Room.project.canSave; docs/decisions/
+ * 20261119-channel-project-link.md D6): Save to <project> in one click (documents and media; anything else opens the
+ * sheet with the project picked), and `save` is then "Save to another folder…". `inProject`: the saved place is in that
+ * project's folder (the chip says "In project · <name>"). */
+type RoomFileSave = { saved: string | undefined; open: () => void; save: () => void; project?: { name: string; label: string; save: () => void }; inProject?: string }
 function useRoomFileSave(roomId: string, f: RoomFile, siblings: readonly RoomFile[]): RoomFileSave | null {
+  const t = useT()
+  const locale = useLocale()
   // (a partial Me, as some tests give, counts as not a guest; the server decides anyway)
   const guest = useMe()?.user?.role === 'guest'
   const saved = useRoomSaves((s) => s.byRoom[roomId]?.[f.id])
+  const project = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.project)
   useEffect(() => { if (!guest) useRoomSaves.getState().load(roomId) }, [guest, roomId])
   if (guest) return null
+  // the tapped file first, then the message's other files (one sheet for all of them)
+  const ids = [f.id, ...siblings.filter((x) => x.id !== f.id).map((x) => x.id)]
+  const openPath = (p: string) => navigateTo(`/files/view?path=${encodeURIComponent(p)}`)
   return {
     saved,
-    open: () => { if (saved) navigateTo(`/files/view?path=${encodeURIComponent(saved)}`) },
-    // the tapped file first, then the message's other files (one sheet for all of them)
-    save: () => useRoomSaves.getState().open(roomId, [f.id, ...siblings.filter((x) => x.id !== f.id).map((x) => x.id)]),
+    open: () => { if (saved) openPath(saved) },
+    save: () => useRoomSaves.getState().open(roomId, ids),
+    ...(project?.canSave ? { project: { name: project.name, label: t('rooms.save.toProject', { project: project.name }), save: () => void saveToProject(roomId, project, ids, { t: t as (k: string, p?: Record<string, string | number>) => string, locale, open: openPath }) } } : {}),
+    ...(project && saved && inProjectFolder(saved, project.folderPath) ? { inProject: project.name } : {}),
   }
 }
 
@@ -344,9 +355,17 @@ function EventLine({ m }: { m: RoomMessage }) {
   const nameOf = useNameOf()
   if (!m.event) return null
   const text = eventText(m.event, m.author, { t, nameOf: (u) => nameOf(u) ?? t('rooms.goneUser') })
+  // a project link line for someone who can open the project: its name opens the project page
+  const e = m.event
+  const project = (e.type === 'project_linked' || e.type === 'project_unlinked') ? e.project : null
+  let body: ReactNode = text
+  if (project && (e.type === 'project_linked' || e.type === 'project_unlinked')) {
+    const parts = t(projectEventKey(e), { actor: nameOf(m.author) ?? t('rooms.goneUser'), name: '\u0000' }).split('\u0000')
+    body = parts.length === 2 ? <>{parts[0]}<a href={`/projects/${project.id}`} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); navigateTo(`/projects/${project.id}`) }} className="font-medium text-muted underline underline-offset-2 hover:text-ink" data-testid="room-event-project">{project.name}</a>{parts[1]}</> : text
+  }
   return (
     <p id={messageDomId(m.id)} className="px-6 pt-3 pb-1 text-center text-xs break-words text-faint" title={formatDateTime(m.createdAt, locale)} data-testid="room-event">
-      {text}
+      {body}
     </p>
   )
 }
@@ -676,13 +695,13 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
-      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} project={team.inProject} />}
       {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
           place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
           screen it is not there at all (the long-press menu has it) */}
       {team && !team.saved && (
-        <Tooltip label={t('rooms.save.action')}>
-          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
+        <Tooltip label={team.project ? team.project.label : t('rooms.save.action')}>
+          <button type="button" onClick={team.project ? team.project.save : team.save} aria-label={team.project ? t('rooms.save.toProjectFor', { name: f.name, project: team.project.name }) : t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
             <FolderInput size={13} aria-hidden />
           </button>
         </Tooltip>
@@ -698,10 +717,11 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
 
 /** A room file in the team folder where I can open it: its folder's name, the whole place in the tooltip and the
  * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. */
-function InTeamLink({ path, onOpen }: { path: string; onOpen: () => void }) {
+function InTeamLink({ path, onOpen, project }: { path: string; onOpen: () => void; /** saved in the linked project's folder: its name */ project?: string }) {
   const t = useT()
-  const where = folderOfPath(path, useFolderWords())
-  const label = t('rooms.save.inTeam', { folder: where.full })
+  const found = folderOfPath(path, useFolderWords())
+  const where = project ? { short: project, full: project } : found
+  const label = project ? t('rooms.save.inProject', { name: project }) : t('rooms.save.inTeam', { folder: where.full })
   return (
     <Tooltip label={label}>
       <button type="button" onClick={onOpen} aria-label={label} className="touch-hit inline-flex max-w-[140px] shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink" data-testid="room-file-in-team">

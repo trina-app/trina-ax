@@ -561,7 +561,9 @@ function buildMenu() {
         { role: 'minimize', label: tr('menu.minimize') },
         ...(process.platform === 'darwin'
           ? [{ role: 'zoom' as const, label: tr('menu.zoom') }, { type: 'separator' as const }, { role: 'front' as const, label: tr('menu.front') }]
-          : [{ role: 'close' as const, label: tr('menu.close') }]),
+          : [{ role: 'close' as const, label: tr('menu.close') },
+              // no tray: closing the last window quits, and Linux had no other way to say Quit (Windows: Alt+F4)
+              ...(process.platform === 'linux' ? [{ type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit'), accelerator: 'Ctrl+Q' }] : [])]),
       ],
     },
   ]
@@ -579,6 +581,8 @@ async function createWindow() {
     teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
     // Settings shows whether the program runs now: told to the open team's page
     onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+    // Connect pressed after the check stopped waiting: the open team's page checks the connection again
+    onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
   })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))
@@ -607,7 +611,7 @@ async function createWindow() {
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else await win.openLast(resume?.page ?? null)
+  else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
   if (launchLink) {
     const link = launchLink
     launchLink = null

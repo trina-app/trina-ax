@@ -1,6 +1,7 @@
 // "AI 연결" wherever no AI answers (docs/DECISIONS.md "W2 — AI connection first"): one way in, the same everywhere.
-// The welcome step and Home's card show ConnectAiPanel: the three ways at once, "Claude 구독 연결" (추천) first, then
-// "ChatGPT 구독 연결" and "API 키로 연결", and one quiet line to the AI engines page for other providers (OpenRouter …).
+// The welcome step shows ConnectAiPanel: the three ways at once, "Claude 구독 연결" (추천) first, then "ChatGPT 구독 연결"
+// and "API 키로 연결". Home shows one quiet line under the greeting instead (NoAiCard, QA TC-5447): one button
+// ("Claude 연결하기"), the other ways under "다른 방법".
 // The line above the composer and a failed answer show ConnectAiButton ("AI 연결하기"; a member's "내 AI 연결하기"): one
 // button where there is room for one line, opening on the recommended way, with "다른 방법" in the dialog for the rest.
 // The setup row and the end screen of the welcome steps (`panel`) open a dialog titled "AI 연결" with the same three
@@ -9,12 +10,15 @@
 // the provider's terms in one line; no password). No connection
 // logic here. When the dialog is done, GET /api/me/ai-access is asked again: every "no AI" place reads that store, so
 // they all move on together; a connection saved that cannot answer yet says so.
+import clsx from 'clsx'
+import { ChevronDown } from 'lucide-react'
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import type { CredentialKind } from '@mycel/shared/api'
 import { api, API, errorText } from '../../lib/api'
 import { useLocale, useT, type MessageKey } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { toast } from '../../store/ui'
+import { MenuButton } from '../rooms/MenuButton'
 import { Button, ErrorNote, Modal, Skeleton } from '../ui'
 
 // the dialog comes with Admin's page: loaded when it is first opened, not with Home
@@ -69,14 +73,9 @@ function waysShown(w: Ways): Way[] {
 
 const quietLink = 'font-medium text-ink underline decoration-line-strong underline-offset-4 hover:decoration-ink disabled:opacity-50'
 
-/**
- * The welcome step's way to connect (and Home's card for the owner): the ways at once, one stack of equal rows. The
- * first is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. No line
- * to Admin › AI accounts under them (removed with fix/onboarding-after-setup: an expert page in a non-developer's first
- * screen; other providers stay in Admin, where an owner who looks for them finds them). The team's connection: the
- * owner's or an admin's.
- */
-export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; onConnected?: () => void }) {
+/** The team's ways, the dialog of the one chosen, and what happens after it (does AI answer now?): ConnectAiPanel's and
+ * Home's line's. */
+function useTeamWays(onConnected?: () => void) {
   const t = useT()
   const locale = useLocale()
   const [ways, setWays] = useState<Ways | null>(null)
@@ -101,7 +100,20 @@ export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; 
       setChecking(null)
     }
   }
-  const shown = ways ? waysShown(ways) : []
+  const dialog = open && ways && <Dialog ways={ways} personal={false} kind={open.kind} onlyKinds={open.onlyKinds} onClose={() => setOpen(null)} onDone={() => void done()} />
+  return { ways, shown: ways ? waysShown(ways) : [], setOpen, checking, error, dialog }
+}
+
+/**
+ * The welcome step's way to connect (and the "AI 연결" dialog's): the ways at once, one stack of equal rows. The first
+ * is the main button ("Claude 구독 연결", marked 추천), the others bordered; each opens the dialog on its way. No line to
+ * Admin › AI accounts under them (removed with fix/onboarding-after-setup: an expert page in a non-developer's first
+ * screen; other providers stay in Admin, where an owner who looks for them finds them). The team's connection: the
+ * owner's or an admin's. Home has its own one line (NoAiCard).
+ */
+export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; onConnected?: () => void }) {
+  const t = useT()
+  const { ways, shown, setOpen, checking, error, dialog } = useTeamWays(onConnected)
   return (
     <div className="space-y-3" data-testid="connect-ai">
       {!ways && !error ? <Skeleton lines={2} /> : (
@@ -119,7 +131,7 @@ export function ConnectAiPanel({ disabled, onConnected }: { disabled?: boolean; 
         </>
       )}
       {error && <ErrorNote>{error}</ErrorNote>}
-      {open && ways && <Dialog ways={ways} personal={false} kind={open.kind} onlyKinds={open.onlyKinds} onClose={() => setOpen(null)} onDone={() => void done()} />}
+      {dialog}
     </div>
   )
 }
@@ -181,42 +193,62 @@ export function ConnectAiButton({ personal = false, panel = false, size = 'sm', 
   )
 }
 
+/** "다른 방법 ⌄" and "내 AI 연결하기": a quiet text action beside Home's one button */
+const quietAction = 'inline-flex min-h-9 items-center gap-1 rounded-md px-1 text-sm font-medium text-muted transition hover:text-ink disabled:opacity-50 max-md:min-h-11'
+
 /**
- * Home while no AI answers this person (docs/DECISIONS.md "Y — Home shows one thing at a time"): ONE card in place of
- * the top row (the welcome steps' "continue" row, the goal card) and of the suggestions, which would all fail. The
- * owner and admins: the welcome step's own heading and way to connect. Anyone else: "팀장이 AI를 연결하면 바로 쓸 수 있어요"
- * with [팀장에게 알리기] (one notice per owner and admin, then "알렸어요"),
- * and, where the team allows personal connections, a quiet "내 AI 연결하기" under it.
+ * Home while no AI answers this person (docs/DECISIONS.md "Y — Home shows one thing at a time"; QA TC-5447, the owner:
+ * the old card was "garbage"): ONE quiet line under the greeting, right over the box, in place of the top row (the
+ * welcome steps' "continue" row, the goal card) and of the suggestions, which would all fail. No frame, no heading, one
+ * button: the greeting stays the page's hero, the line is the step before the box.
+ * The owner and admins: "AI를 연결하면 바로 시작할 수 있어요" [Claude 연결하기] 다른 방법 ⌄, the menu holding the
+ * team's other ways (ChatGPT 구독 연결, API 키로 연결), each opening the same dialog as before. A team that does not
+ * share subscriptions: its first way (the API keys) is the button. Anyone else: "아직 쓸 수 있는 AI가 없어요"
+ * [팀장·관리자에게 연결 요청하기] (one notice per owner and admin, then "알렸어요"), and, where the team allows personal
+ * connections, a quiet "내 AI 연결하기" beside it. On a computer the line and its actions sit in one row; on a phone
+ * the line, then the actions under it, centred like the greeting.
  */
 export function NoAiCard() {
   const t = useT()
   const { action, requested, sending, failed, ask } = useAiAccess()
-  if (action === 'connect_team')
-    return (
-      // phones (below 768px): no frame, centred like the greeting under it
-      <section className="mb-6 rounded-2xl border border-line p-4 sm:p-5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" aria-labelledby="no-ai-title" data-testid="no-ai-card" data-action={action}>
-        <h2 id="no-ai-title" className="text-title-sm font-semibold text-ink">{t('welcome.ai.title')}</h2>
-        <p className="mt-1 mb-4 text-sm text-balance text-muted">{t('welcome.ai.why')}</p>
-        <ConnectAiPanel />
-      </section>
-    )
+  const row = 'flex flex-wrap items-center justify-center gap-x-3 gap-y-2 text-center'
+  const frame = 'mb-6 max-md:mt-5 max-md:mb-0'
+  if (action === 'connect_team') return <ConnectTeamLine className={clsx(frame, row)} />
   return (
-    // phones (below 768px): no frame; the line, then its button under it, centred like the greeting
-    <section role="status" className="mb-6 rounded-2xl border border-line px-4 py-3.5 max-md:mb-8 max-md:border-0 max-md:p-0 max-md:text-center" data-testid="no-ai-card" data-action={action}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 max-md:flex-col max-md:gap-y-3">
-        <p className="min-w-0 flex-[1_1_12rem] text-sm leading-6 text-ink text-balance max-md:flex-none">{t(requested ? 'aiAccess.banner.asked' : 'aiConnect.member')}</p>
-        {!requested && (
-          <Button size="sm" variant="primary" busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action="ask_owner">
-            {sending ? t('aiAccess.asking') : t('aiAccess.askOwner')}
-          </Button>
-        )}
-      </div>
-      {failed && <p role="alert" className="mt-1 text-xs text-danger">{t('aiAccess.askFailed')}</p>}
-      {action === 'connect_own' && (
-        <p className="mt-2 text-label">
-          <ConnectAiButton personal quiet data-testid="no-ai-own" />
-        </p>
+    <section role="status" className={clsx(frame, row)} data-testid="no-ai-card" data-action={action}>
+      <p className="text-sm leading-6 text-pretty text-muted max-md:basis-full" data-testid="no-ai-line">{t(requested ? 'aiAccess.banner.asked' : 'home.noAi.member')}</p>
+      {!requested && (
+        <Button variant="primary" busy={sending} onClick={() => void ask()} data-testid="ai-access-button" data-action="ask_owner">
+          {sending ? t('aiAccess.asking') : t('home.noAi.ask')}
+        </Button>
       )}
+      {action === 'connect_own' && <ConnectAiButton personal row={quietAction} data-testid="no-ai-own" />}
+      {failed && <p role="alert" className="basis-full text-xs text-danger">{t('aiAccess.askFailed')}</p>}
+    </section>
+  )
+}
+
+/** The owner's and an admin's line: the first of the team's ways as the one button, the rest under "다른 방법". */
+function ConnectTeamLine({ className }: { className: string }) {
+  const t = useT()
+  const { ways, shown, setOpen, checking, error, dialog } = useTeamWays()
+  const [first, ...rest] = shown
+  return (
+    <section aria-labelledby="no-ai-line" className={className} data-testid="no-ai-card" data-action="connect_team">
+      <p id="no-ai-line" className="text-sm leading-6 text-pretty text-muted max-md:basis-full" data-testid="no-ai-line">{t('home.noAi.connect')}</p>
+      {!ways && !error && <span aria-hidden className="h-9 w-32 animate-pulse rounded-lg bg-subtle" />}
+      {first && (
+        <Button variant="primary" busy={checking === first.id} disabled={checking !== null} onClick={() => setOpen(first)} data-testid={`welcome-ai-${first.id}`}>
+          {first.id === 'claude' ? t('home.noAi.claude') : t(first.label)}
+        </Button>
+      )}
+      {rest.length > 0 && (
+        <MenuButton bare startAligned label={t('welcome.ai.other')} testId="no-ai-other" buttonClassName={quietAction}
+          icon={<>{t('welcome.ai.other')}<ChevronDown size={15} aria-hidden /></>}
+          items={rest.map((w) => ({ label: t(w.label), onSelect: () => setOpen(w), testId: `welcome-ai-${w.id}`, disabled: checking !== null }))} />
+      )}
+      {error && <div className="basis-full text-left"><ErrorNote>{error}</ErrorNote></div>}
+      {dialog}
     </section>
   )
 }

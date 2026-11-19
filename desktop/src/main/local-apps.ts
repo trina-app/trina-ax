@@ -20,7 +20,7 @@ export class LocalAppsHost {
   private file: string
   private data: Saved
 
-  constructor(private o: { userData: string; parent: () => BaseWindow | null; locale: () => UiLocale; teamLabel: (team: string) => string; onChange: (team: string, id: string, running: boolean) => void; deps?: Partial<LocalAppsDeps> }) {
+  constructor(private o: { userData: string; parent: () => BaseWindow | null; locale: () => UiLocale; teamLabel: (team: string) => string; onChange: (team: string, id: string, running: boolean) => void; onConfirmed?: (team: string, id: string) => void; deps?: Partial<LocalAppsDeps> }) {
     this.file = path.join(o.userData, 'local-apps.json')
     this.data = this.read()
     this.apps = new LocalApps({
@@ -29,6 +29,8 @@ export class LocalAppsHost {
       setConfirmed: (team, id, hash) => this.put(team, id, { confirmed: hash }),
       settings: (team, id) => this.settings(team, id),
       onChange: o.onChange,
+      onConfirmed: o.onConfirmed,
+      locale: o.locale,
       ...o.deps,
     })
   }

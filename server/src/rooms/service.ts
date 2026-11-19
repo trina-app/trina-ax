@@ -57,7 +57,8 @@ import { countedUnreadIn } from './inbox'
 import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles } from './search'
 import { tr } from '../chat/i18n'
 import { roomMentionAllIn } from '@mycel/shared/api'
-import { loadPrincipal, type Principal, type RuleSet } from '../policy/access'
+import { loadPrincipal, RuleSet, type Principal } from '../policy/access'
+import { activeRoomOf, checkPrivateChannel, checkProject, dropLinksInTx, linkedRoomSeats, linkedRoomsOf, linkedSightFlips, linkInTx, projectHasChannel, unlinkInTx } from './project-link'
 import { claimGuestRoom, guestsAmong, isGuest, sharesPlace } from '../auth/guests'
 import { afterGuestsLeft, dmPairOk } from './guest-reach'
 import { authorize, visiblePath } from '../policy/authorize'
@@ -265,7 +266,7 @@ export class Rooms {
    * (at least one other person); without one a group DM (at least two others), named after its people in the app, and
    * a group DM of exactly these people that I am in already is opened instead of a second one
    * (docs/decisions/20261117-named-groups-private-channels.md). Everyone in it sees it from its first line. */
-  createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en'): Room {
+  createGroup(userId: string, userIds: readonly string[], name?: string | null, locale: Locale = 'en', inTx?: (roomId: string) => void): Room {
     // a guest makes no group chat: a member puts them into one (one group chat at most)
     if (isGuest(this.db, userId)) fail('forbidden')
     const others = [...new Set(userIds)].filter((id) => id !== userId)
@@ -307,6 +308,9 @@ export class Rooms {
       for (const u of [userId, ...others]) add.run(id, u, now)
       this.eventLine(id, userId, { type: 'created', userIds: others }, now)
       // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
+      // (a channel made from a project: its link in this same write; a throw rolls back the room, its members and a
+      // guest's claim: createProjectChannel)
+      inTx?.(id)
     }).immediate()
     this.roomEvent(id, 'added')
     return this.get(userId, id)
@@ -528,6 +532,8 @@ export class Rooms {
       const left = (this.db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(roomId) as { n: number }).n
       if (!left) {
         this.db.query('UPDATE rooms SET archived_at = ? WHERE id = ? AND archived_at IS NULL').run(now, roomId)
+        // its project link goes with it (rooms/project-link.ts), audited by the project only
+        dropLinksInTx(this.db, { roomId })
         return { lines, archived: true }
       }
       for (const o of out) lines.push(this.eventLine(roomId, o.actor, o.event, now))
@@ -587,6 +593,71 @@ export class Rooms {
   members(userId: string, roomId: string): RoomMember[] {
     this.mine(userId, roomId)
     return membersOut(this.db, roomId)
+  }
+
+  // ---------------- a private channel linked to a project (rooms/project-link.ts) ----------------
+  /** PUT /api/rooms/:id/project: link this private channel to a team project (the error order of rooms/project-link.ts,
+   * checked again inside one immediate write). The same project again: the room as it is. An event line; every member
+   * gets the room as they see it. */
+  linkProject(userId: string, roomId: string, projectId: string, via: 'channel' | 'project', locale: Locale = DEFAULT_LOCALE): Room {
+    if (isGuest(this.db, userId)) fail('forbidden')
+    const { room } = this.mine(userId, roomId)
+    checkPrivateChannel(room, locale)
+    let line: string | null = null
+    const r = this.db.transaction(() => {
+      const out = linkInTx(this.db, { userId, room, projectId, via, locale })
+      if (out.state === 'linked') line = this.eventLine(room.id, userId, { type: 'project_linked', projectId }, nowIso())
+      return out
+    }).immediate()
+    if (r.state === 'linked') this.afterLinkChange(room.id, line)
+    return this.get(userId, roomId)
+  }
+
+  /** DELETE /api/rooms/:id/project: a member who reads and writes the project. No active link: nothing to do (204). */
+  unlinkProject(userId: string, roomId: string, via: 'channel' | 'project', locale: Locale = DEFAULT_LOCALE): void {
+    if (isGuest(this.db, userId)) fail('forbidden')
+    const { room } = this.mine(userId, roomId)
+    let line: string | null = null
+    const p = this.db.transaction(() => {
+      const gone = unlinkInTx(this.db, { userId, room, via, locale })
+      if (gone) line = this.eventLine(room.id, userId, { type: 'project_unlinked', projectId: gone.id }, nowIso())
+      return gone
+    }).immediate()
+    if (p) this.afterLinkChange(room.id, line)
+  }
+
+  /** POST /api/projects/:id/channel: a private channel with these people, linked to the project in createGroup's own
+   * write (the project checked again there; a failure rolls the room back). The created line, then the link line. */
+  createProjectChannel(userId: string, projectId: string, name: string, userIds: readonly string[], locale: Locale = DEFAULT_LOCALE): Room {
+    if (isGuest(this.db, userId)) fail('forbidden')
+    // the project's checks first (steps 4-6, and one channel per project), so a refusal costs no channel budget
+    const who = loadPrincipal(this.db, userId)
+    if (!who) fail('forbidden')
+    const p = checkProject(this.db, RuleSet.load(this.db), who!, projectId, locale)
+    if (activeRoomOf(this.db, p.id)) projectHasChannel(locale)
+    if (!name.trim()) fail('validation', undefined, { fields: { 'body.name': 'a private channel needs a name' } })
+    let line: string | null = null
+    const room = this.createGroup(userId, userIds, name, locale, (roomId) => {
+      const r = roomRow(this.db, roomId)!
+      linkInTx(this.db, { userId, room: r, projectId: p.id, via: 'create', locale })
+      line = this.eventLine(roomId, userId, { type: 'project_linked', projectId: p.id }, nowIso())
+    })
+    if (line) this.messageEvent('room.message', messageRow(this.db, room.id, line)!)
+    return this.get(userId, room.id)
+  }
+
+  /** After a link or an unlink: each member gets the room as they see it, then the line. */
+  private afterLinkChange(roomId: string, line: string | null) {
+    this.roomEvent(roomId, 'updated')
+    if (line) this.messageEvent('room.message', messageRow(this.db, roomId, line)!)
+  }
+
+  /** A project changed in a way its linked channel shows (renamed, repointed, to the trash, back, deleted for good):
+   * room.updated to each member of those channels, each as they see it. Never throws. */
+  projectsChanged(projectIds: readonly string[], rooms: readonly string[] = []) {
+    try {
+      for (const roomId of new Set([...linkedRoomsOf(this.db, projectIds), ...rooms])) this.roomEvent(roomId, 'updated')
+    } catch (e) { this.ctx.log.warn('linked channels not told', { err: e }) }
   }
 
   // ---------------- messages ----------------
@@ -1363,6 +1434,8 @@ export function teamRoomSeats(ctx: AppContext, userIds: readonly string[]): Set<
       for (const r of rows) out.add(`${r.room_id} ${r.user_id}`)
     }
   } catch (e) { ctx.log.warn('team room seats not read', { err: e }) }
+  // and the private channels linked to a project they sit in (groupFoldersChanged's second pass)
+  for (const seat of linkedRoomSeats(ctx.db, userIds)) out.add(seat)
   return out
 }
 
@@ -1400,6 +1473,9 @@ export function groupFoldersChanged(ctx: AppContext, before: { principals: reado
       }
       if (flipped.size) roomsOf(ctx).roomEvent(roomId, 'updated', flipped)
     }
+    // the second pass: a private channel linked to a project (rooms/project-link.ts), for whoever's answer for the
+    // project's folder changed, to open it (its Files button) or to save into it (Save to project), bounded the same way
+    for (const [roomId, flipped] of linkedSightFlips(db, before, after, changed, seats)) roomsOf(ctx).roomEvent(roomId, 'updated', flipped)
   } catch (e) { ctx.log.warn('team room folder buttons not sent', { err: e }) }
 }
 

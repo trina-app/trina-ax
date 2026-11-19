@@ -9,6 +9,7 @@ import { IntegrationInput } from '@mycel/shared/api'
 import { AI_APPS, BUILT_IN, connectorFor, CONNECTORS, isConnected, SLACK_APP } from '../../src/lib/connectors'
 import { canonicalService, emptyForm, toInput, validate } from '../../src/lib/integrations'
 import { DICTS } from '../../src/i18n'
+import { LISTED_LOCAL_APPS } from '../../src/lib/localApps'
 import { APP_LOGOS } from '../../src/components/rooms/apps/AppParts'
 
 describe('the shared list of services (shared/src/service-catalog.ts)', () => {
@@ -109,7 +110,8 @@ describe('Discover', () => {
     // AI apps' that connect to this server (Claude and Claude Code share one file; "other MCP apps" has no logo) and
     // Slack's (Admin › Connected apps › Slack)
     const apps = AI_APPS.flatMap((a) => (a.logo ? [{ id: a.id, logo: a.logo }] : []))
-    const all = [...CONNECTORS, ...BUILT_IN, ...apps, SLACK_APP]
+    // and the apps on the person's computer listed by name (Aside, ego lite: lib/localApps.ts)
+    const all = [...CONNECTORS, ...BUILT_IN, ...apps, SLACK_APP, ...LISTED_LOCAL_APPS]
     expect(fs.readdirSync(dir).sort()).toEqual([...new Set(all.map((c) => c.logo))].sort())
     expect(new Set(all.map((c) => c.id)).size).toBe(all.length)
     for (const c of all) {

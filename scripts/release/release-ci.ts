@@ -4,9 +4,11 @@
 //   bun scripts/release/release-ci.ts tag <tag>
 //       the release of a tag: v<version> where <version> is server/package.json's; a tag with "-" (v0.3.0-beta.1) is
 //       the beta channel, otherwise stable. Prints version=, channel=, prerelease= lines (for $GITHUB_OUTPUT).
-//   bun scripts/release/release-ci.ts rollout <notes file> [tag|staged|all]
+//   bun scripts/release/release-ci.ts rollout <tag message file> [tag|staged|all] [--notes-out <notes file>]
 //       the staged roll-out of the release (rolloutOf): a "Rollout: all" line in the tag message, or the workflow's
-//       input; takes the line out of the notes file and prints rollout=staged|all (for $GITHUB_OUTPUT)
+//       input; prints rollout=staged|all (for $GITHUB_OUTPUT). It only reads the tag message file, so a check of a
+//       drafted tag message leaves the draft as it is (0.5.20 was tagged without its "Rollout: all" line after such a
+//       check took it out); --notes-out writes the notes without the line to another file (the release notes)
 //   bun scripts/release/release-ci.ts check-key <pem file>
 //       the key's public part must be one of RELEASE_CHANNEL.keys (shared/src/release-channel.ts); prints its key id
 //   bun scripts/release/release-ci.ts sign-linux <dir> <amd64|arm64> <pem file>
@@ -164,15 +166,36 @@ export async function signLinuxBuild(o: { dir: string; arch: string; pem: string
   return { version, arch, keyId, archive, archiveSize: packed.size, archiveSha256: packed.sha256, kit: kit.file, kitSize: kit.size, kitSha256: kit.sha256 }
 }
 
+/** `rollout`'s arguments: the tag message file (only read), the manual run's input and where the notes go. The notes
+ * never go back into the tag message file, so the check can never change a drafted tag message. */
+export function rolloutArgs(a: string[]): { message: string; mode: string; notesOut?: string } | undefined {
+  const rest = [...a]
+  let notesOut: string | undefined
+  const i = rest.indexOf('--notes-out')
+  if (i >= 0) {
+    notesOut = rest[i + 1]
+    if (!notesOut || notesOut.startsWith('--')) return undefined
+    rest.splice(i, 2)
+    notesOut = path.resolve(notesOut)
+  }
+  if (rest.length < 1 || rest.length > 2 || rest.some((x) => x.startsWith('--'))) return undefined
+  const message = path.resolve(rest[0]!)
+  if (notesOut && fs.existsSync(notesOut) && fs.existsSync(message) && fs.realpathSync(notesOut) === fs.realpathSync(message)) {
+    throw new Error('rollout: --notes-out must be another file than the tag message (the tag message file is only read)')
+  }
+  if (notesOut === message) throw new Error('rollout: --notes-out must be another file than the tag message (the tag message file is only read)')
+  return { message, mode: rest[1] ?? '', notesOut }
+}
+
 export async function main(argv: string[], out: (s: string) => void = (s) => process.stdout.write(s)): Promise<void> {
   const [cmd, ...a] = argv
   if (cmd === 'tag' && a.length === 1) {
     const r = parseReleaseTag(a[0]!, packageVersion())
     out(`tag=${r.tag}\nversion=${r.version}\nchannel=${r.channel}\nprerelease=${r.prerelease}\n`)
-  } else if (cmd === 'rollout' && (a.length === 1 || a.length === 2)) {
-    const file = path.resolve(a[0]!)
-    const r = rolloutOf(fs.readFileSync(file, 'utf8'), a[1] ?? '')
-    fs.writeFileSync(file, r.notes)
+  } else if (cmd === 'rollout' && rolloutArgs(a)) {
+    const { message, mode, notesOut } = rolloutArgs(a)!
+    const r = rolloutOf(fs.readFileSync(message, 'utf8'), mode)
+    if (notesOut) fs.writeFileSync(notesOut, r.notes)
     out(`rollout=${r.rollout}\n`)
   } else if (cmd === 'check-key' && a.length === 1) {
     out(`release key ${checkSigningKey(readKeyFile(a[0]!))}: one of this product's release keys\n`)
@@ -185,7 +208,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
   } else if (cmd === 'verify-sums' && a.length === 1) {
     for (const n of verifySums(path.resolve(a[0]!))) out(`${n}: OK\n`)
   } else {
-    throw new Error('usage: release-ci.ts tag <tag> | rollout <notes file> [tag|staged|all] | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
+    throw new Error('usage: release-ci.ts tag <tag> | rollout <tag message file> [tag|staged|all] [--notes-out <notes file>] | check-key <pem> | sign-linux <dir> <arch> <pem> | sums <out> <pem> <file>... | verify-sums <SHA256SUMS>')
   }
 }
 
