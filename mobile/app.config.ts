@@ -54,6 +54,10 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     ...(chosen.assets ? { icon: chosen.assets.icon } : {}),
     ios: {
       supportsTablet: false, bundleIdentifier: product.bundleId, buildNumber: build,
+      // iOS 18+ draws the Dark and Tinted home screen styles, Notification Center and the lock screen from the icon's
+      // dark and tinted appearances; with none it darkens the icon itself, a black tile in every notification while the
+      // system is dark. The edition's one tile for all three (Trina: the light paper tile, owner 2026-11-16).
+      ...(chosen.assets ? { icon: { light: chosen.assets.icon, dark: chosen.assets.icon, tinted: chosen.assets.icon } } : {}),
       ...(product.appleTeamId ? { appleTeamId: product.appleTeamId } : {}),
       // universal links: the App ID needs the Associated Domains capability before a signed build (STORE-SUBMISSION.md)
       ...(linkHost ? { associatedDomains: [`applinks:${linkHost}`] } : {}),
