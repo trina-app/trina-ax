@@ -757,7 +757,7 @@ export class ChatRuntime {
   private runExec(exec: TurnExec) {
     // the opt-in error report of a failed or timed-out turn reads the saved end state after the turn's own end
     // (system/error-reports.ts; nothing happens when reports are off)
-    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id })).finally(() => reportTurnEnd(this.db, exec.id))
+    exec.run().catch((err) => this.log.error('turn run failed', { err, turn: exec.id })).finally(() => { try { reportTurnEnd(this.db, exec.id) } catch { /* never breaks a turn */ } })
   }
   /** A turn stopped before its engine launched (Stop, a deleted chat, shutdown): it leaves the gate and runs now, which
    * only ends it (TurnExec.run skips the engine once stopReason is set), so its slot comes back at once. After the

@@ -27,9 +27,12 @@ are generic and must be readable by anyone; the hosting service's address, key a
     dev), `logger` `server`, tag `team_id` (`MYCEL_INSTALL_ID`, the hosting service's tenant id; left out when unset or
     when it does not look like an id);
   - an error line of the server log: the line's message (a fixed text written in code) and, when the line carries an
-    error, its type, its message after the scrubber, and its code frames (the last two parts of a code file's name,
-    function, line, column). No other field of the line;
-  - a crash (uncaught exception, unhandled rejection): the same as an error line, level fatal;
+    error, its type, its code when it is a fixed word (`ENOENT`, `EACCES`, `ERR_…`) and its code frames (the last two
+    parts of a code file's name, function, line, column), read from the stack after the message. **Never the error's
+    own message:** it is often built from a name, a file or a person's text ("Folder Kim Minsu not found"), and no
+    scrubber can tell plain words from a name. No other field of the line;
+  - a crash (uncaught exception, unhandled rejection): the same as an error line, level fatal; the full error still
+    goes to the server's own stderr, and the process still exits with 1;
   - an AI answer that **failed** or **timed out** (the stall guard): tags `outcome` (`failed` / `timed_out`), `reason`
     (the code the person's error message was made from, e.g. `rate_limit`, `credential_unusable`, `no_credential`,
     `stalled`; a code outside that list becomes `other`, none becomes `none`), `provider_status` (the AI provider's
@@ -40,7 +43,11 @@ are generic and must be readable by anyone; the hosting service's address, key a
   `deriveUserId`), which is often a person's name, so sending it would send a name. The report carries
   `u_` + the first 16 hex of HMAC-SHA256(user id) under a random key made on first use and kept only in this server's
   settings (`system.errorReportSalt`). Reports of one person can be told apart; who it is can be found only with this
-  server's database.
+  server's database. The key is one of the server's own settings (`SERVER_OWN_SETTINGS`): a restore keeps the
+  current one.
+- **One person's run of the same end is one report a minute** (outcome, reason, person), because the duration and
+  rate tags make every report different for the shared sender's repeat rule; across people the shared limit of 30 a
+  minute holds.
 - **What is never sent:** message text, prompts, AI answers, file names or contents, folder paths, email addresses,
   real names, team names, the team's address, chat or project ids, IP addresses, request paths or headers, keys.
   The turn report is built from codes in the database (`turns` status, the answer's `error.params.reason` and

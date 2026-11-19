@@ -4,7 +4,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import {
-  ERROR_REPORT_ENV, errorReports, errorReportsFrom, logLineInput, personTag, reportLogLine, reportTurnEnd, setErrorReports, turnOutcome, turnReport,
+  ERROR_REPORT_ENV, errorInput, errorReports, errorReportsFrom, logLineInput, personTag, reportLogLine, reportServerCrashes, reportTurnEnd, setErrorReports, turnOutcome, turnReport,
 } from '../../server/src/system/error-reports'
 import { createLogger } from '../../server/src/log'
 
@@ -151,7 +151,9 @@ describe('the turn-end report', () => {
     // error lines of the log: the line's fields and the error's words with a path, an email and Korean text
     reportLogLine('saving the file failed', { err: new Error(`EACCES: open '/team/finance/secret-plan.xlsx' for kimminsu@acme.example 김민수`), path: 'finance/Payroll_2026.xlsx', chatId: 'Quarterly-Bonus-Plan', content: 'tell me the salaries' })
     reportLogLine('a turn end step failed', { step: 'The answer is 42 apples', user: 'Kim Minsu' })
-    expect(f.posts.length).toBe(4)
+    // plain words with no quote, path or dot: the scrubber cannot tell them from a name, so the words never go
+    reportLogLine('opening a folder failed', { err: new Error('Folder Kim Minsu Payroll_2026 not found') })
+    expect(f.posts.length).toBe(5)
     const all = f.posts.map((p) => p.body).join('\n')
     for (const c of CANARIES) expect(all).not.toContain(c)
     expect(all).not.toContain('/team/finance')
@@ -182,8 +184,49 @@ describe('the turn-end report', () => {
     const f = fakeFetch()
     on(f)
     const d = db()
-    for (let i = 0; i < 50; i++) { addTurn(d, `t${i}`, 'error', usageLimit); reportTurnEnd(d, `t${i}`, T0) }
+    // one person's run of the same end: once a minute
+    for (let i = 0; i < 50; i++) { addTurn(d, `t${i}`, 'error', usageLimit); reportTurnEnd(d, `t${i}`, T0 + i * 100) }
+    expect(f.posts.length).toBe(1)
+    addTurn(d, 'later', 'error', usageLimit)
+    reportTurnEnd(d, 'later', T0 + 61_000)
+    expect(f.posts.length).toBe(2)
+    // many people at once: the shared sender's 30 a minute
+    for (let i = 0; i < 50; i++) { addTurn(d, `p${i}`, 'error', usageLimit); d.query('UPDATE turns SET user_id = ? WHERE id = ?').run(`person-${i}`, `p${i}`); reportTurnEnd(d, `p${i}`, T0 + 62_000) }
     expect(f.posts.length).toBeLessThanOrEqual(30)
+  })
+})
+
+describe('turns still running, rows missing, crashes', () => {
+  test('a turn still queued or running sends nothing; an error without an answer row is reason none', () => {
+    const f = fakeFetch()
+    on(f)
+    const d = db()
+    addTurn(d, 'q', 'queued', null)
+    addTurn(d, 'r', 'running', null)
+    addTurn(d, 'e', 'error', usageLimit)
+    d.query('UPDATE turns SET message_id = NULL WHERE id = ?').run('e')
+    for (const id of ['q', 'r', 'e']) reportTurnEnd(d, id, T0)
+    expect(f.events().map((e) => e.tags.reason)).toEqual(['none'])
+  })
+
+  test('a crash: reported without its words, then the process exits with 1', async () => {
+    const f = fakeFetch()
+    const s = on(f)
+    const handlers: Record<string, (e: unknown) => void> = {}
+    let code = null as number | null
+    const proc = { on: (ev: string, h: (e: unknown) => void) => { handlers[ev] = h; return proc }, exit: (c: number) => { code = c } }
+    const stderr = process.stderr.write
+    process.stderr.write = (() => true) as typeof process.stderr.write
+    try {
+      reportServerCrashes(s.reports!, () => {}, proc as never)
+      handlers.uncaughtException!(new RangeError('Kim Minsu broke Quarterly-Bonus-Plan'))
+      await Bun.sleep(20)
+    } finally { process.stderr.write = stderr }
+    expect(code).toBe(1)
+    const [e] = f.events()
+    expect(e!.level).toBe('fatal')
+    expect(e!.exception.values[0].type).toBe('RangeError')
+    expect(JSON.stringify(e)).not.toContain('Kim Minsu')
   })
 })
 
@@ -222,9 +265,22 @@ describe('the log hook', () => {
     expect(lines).toHaveLength(3)
   })
 
-  test('logLineInput: the error type, its message and frames, or the line alone', () => {
+  test('logLineInput: the error type, its fixed code and frames, never its words; or the line alone', () => {
     const err = new TypeError('cannot read x')
-    expect(logLineInput('turn failed', { err, path: 'a/b' })).toEqual({ type: 'TypeError', message: 'turn failed: cannot read x', stack: err.stack! })
+    const i = logLineInput('turn failed', { err, path: 'a/b' })
+    expect(i.type).toBe('TypeError')
+    expect(i.message).toBe('turn failed')
+    expect(i.stack).toMatch(/^TypeError\n\s+at /)
+    expect(i.stack).not.toContain('cannot read x')
+    const enoent = Object.assign(new Error("ENOENT: no such file or directory, open 'Payroll Alice Park.xlsx'"), { code: 'ENOENT' })
+    expect(logLineInput('reading failed', { err: enoent }).message).toBe('reading failed: ENOENT')
     expect(logLineInput('queue dispatch failed', { tries: 3 })).toEqual({ type: 'ServerError', message: 'queue dispatch failed', kind: 'message' })
+  })
+
+  test('an error message line that looks like a frame is not read as one', () => {
+    const err = new Error('bad input\n    at Kim Minsu (/team/Quarterly-Bonus-Plan.ts:1:2)')
+    const i = errorInput('x', err)
+    expect(i.stack ?? '').not.toContain('Quarterly-Bonus-Plan')
+    expect(i.stack ?? '').not.toContain('Kim Minsu')
   })
 })

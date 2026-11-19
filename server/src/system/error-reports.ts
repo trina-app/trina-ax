@@ -10,7 +10,7 @@
 import crypto from 'node:crypto'
 import type { Database } from 'bun:sqlite'
 import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
-import { parseDsn, reportCrashes, reporterFromDsn, type ErrorInput, type ErrorReporter, type ReporterOptions } from '@mycel/shared/sentry-report'
+import { CRASH_FLUSH_MS, parseDsn, reporterFromDsn, type ErrorInput, type ErrorReporter, type ReporterOptions } from '@mycel/shared/sentry-report'
 
 export const ERROR_REPORT_ENV = 'MYCEL_ERROR_REPORT_URL'
 
@@ -46,25 +46,59 @@ export function errorReportsFrom(env: Record<string, string | undefined>, o: { v
 let active: ErrorReports | null = null
 /** turns that ended in the last hour, for the rate on each report (turns_1h, failed_1h) */
 let ended: { at: number; failed: boolean }[] = []
+/** outcome|reason|person -> when it was last sent (reportTurnEnd) */
+const lastSent = new Map<string, number>()
+const REPEAT_MS = 60_000
 
 /** Set once at the start (main.ts); null turns reports off (tests). */
 export function setErrorReports(r: ErrorReports | null): void {
   active = r
   ended = []
+  lastSent.clear()
 }
 export function errorReports(): ErrorReports | null { return active }
 
-/** Crash handlers, only while reports are on: the process still exits with 1 (shared reportCrashes). */
-export function reportServerCrashes(r: ErrorReports, logLine: (what: string, err: Error) => void): void {
-  reportCrashes(r.reporter, logLine)
+/** An error's code (Node's ENOENT, EACCES, ERR_…): a fixed word, never a value */
+const ERR_CODE_RE = /^[A-Z][A-Z0-9_]{1,39}$/
+
+/** An error as a report, without its words: an error's message is often built from a name, a file or a person's text
+ *  ("Folder Quarterly Plan not found"), and the scrubber cannot tell plain words from a name. So the report holds the
+ *  error's type, its code when it has a fixed one, the fixed text written in code (`what`) and the code frames; the
+ *  frames are read from the stack after the message, so a message line that looks like a frame is never one. */
+export function errorInput(what: string, err: unknown, o: { fatal?: boolean } = {}): ErrorInput {
+  if (!(err instanceof Error)) return { type: 'ServerError', message: what, kind: 'message', ...(o.fatal ? { fatal: true } : {}) }
+  const code = (err as { code?: unknown }).code
+  const stack = typeof err.stack === 'string' ? err.stack : ''
+  const at = err.message ? stack.indexOf(err.message) : -1
+  const frames = (at >= 0 ? stack.slice(at + err.message.length) : stack).split('\n').filter((l) => /^\s*at /.test(l)).join('\n')
+  return {
+    type: err.name,
+    message: typeof code === 'string' && ERR_CODE_RE.test(code) ? `${what}: ${code}` : what,
+    ...(frames ? { stack: `${err.name}\n${frames}` } : {}),
+    ...(o.fatal ? { fatal: true } : {}),
+  }
+}
+
+/** Crash handlers, only while reports are on. Like the shared reportCrashes (the full error still goes to stderr, the
+ *  report is flushed for at most 2 s, the process exits with 1), but the report is errorInput's: no error words. */
+export function reportServerCrashes(r: ErrorReports, logLine: (what: string, err: Error) => void, proc: Pick<NodeJS.Process, 'on' | 'exit'> = process): void {
+  let dying = false
+  const die = (what: string) => (e: unknown) => {
+    if (dying) return
+    dying = true
+    try { process.stderr.write(`${e instanceof Error ? (e.stack ?? String(e)) : `${what}: ${String(e)}`}\n`) } catch { /* exit anyway */ }
+    try { r.reporter.capture(errorInput(what, e, { fatal: true })) } catch { /* exit anyway */ }
+    try { logLine(what, e instanceof Error ? e : new Error(what)) } catch { /* exit anyway */ }
+    void r.reporter.flush(CRASH_FLUSH_MS).catch(() => {}).finally(() => proc.exit(1))
+  }
+  proc.on('uncaughtException', die('uncaught exception'))
+  proc.on('unhandledRejection', die('unhandled rejection'))
 }
 
 /** An error line of the server log as a report: the line's message (a fixed text written in code) and, when the line
- *  carries one, its error (type, message, frames). Every other field of the line stays in the local log. */
+ *  carries one, its error without its words (errorInput). Every other field of the line stays in the local log. */
 export function logLineInput(msg: string, fields: Record<string, unknown> | undefined): ErrorInput {
-  const err = fields?.err
-  if (err instanceof Error) return { type: err.name, message: `${msg}: ${err.message}`, ...(err.stack ? { stack: err.stack } : {}) }
-  return { type: 'ServerError', message: msg, kind: 'message' }
+  return errorInput(msg, fields?.err)
 }
 
 /** The log hook (createLogger onError): never throws, never logs. */
@@ -124,7 +158,7 @@ export function turnReport(row: TurnRow, error: unknown, rate: { turns: number; 
   }
 }
 
-const SALT_KEY = 'system.errorReportSalt'
+export const ERROR_REPORT_SALT_SETTING = 'system.errorReportSalt'
 
 /** The person on a report: a stable stand-in, never the id itself. users.id is made from the username (auth/users.ts
  *  deriveUserId), which is often a name, so the report carries "u_" + an HMAC of it under a random key that stays on
@@ -132,10 +166,10 @@ const SALT_KEY = 'system.errorReportSalt'
  *  apart; only someone with this server's database can tell who it is. null when the key cannot be read or made. */
 export function personTag(db: Database, userId: string): string | null {
   try {
-    let salt = (db.query('SELECT value FROM settings WHERE key = ?').get(SALT_KEY) as { value: string } | null)?.value
+    let salt = (db.query('SELECT value FROM settings WHERE key = ?').get(ERROR_REPORT_SALT_SETTING) as { value: string } | null)?.value
     if (!salt) {
-      db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(SALT_KEY, JSON.stringify(crypto.randomBytes(32).toString('hex')))
-      salt = (db.query('SELECT value FROM settings WHERE key = ?').get(SALT_KEY) as { value: string } | null)?.value
+      db.query('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(ERROR_REPORT_SALT_SETTING, JSON.stringify(crypto.randomBytes(32).toString('hex')))
+      salt = (db.query('SELECT value FROM settings WHERE key = ?').get(ERROR_REPORT_SALT_SETTING) as { value: string } | null)?.value
     }
     if (!salt) return null
     return `u_${crypto.createHmac('sha256', String(JSON.parse(salt))).update(userId).digest('hex').slice(0, 16)}`
@@ -157,7 +191,14 @@ export function reportTurnEnd(db: Database, turnId: string, now = Date.now()): v
     const outcome = turnOutcome(row.status, (error as { params?: { reason?: unknown } } | null)?.params?.reason as string | null ?? null)
     ended = ended.filter((x) => x.at <= now && now - x.at < HOUR_MS)
     ended.push({ at: now, failed: outcome === 'failed' || outcome === 'timed_out' })
-    const input = turnReport(row, error, { turns: ended.length, failed: ended.filter((x) => x.failed).length }, personTag(db, row.user_id))
-    if (input) r.reporter.capture(input)
+    if (outcome !== 'failed' && outcome !== 'timed_out') return
+    const reason = (error as { params?: { reason?: unknown } } | null)?.params?.reason
+    // the same end for the same person once a minute: the duration and rate tags differ on every report, so the
+    // shared sender's repeat rule would not hold a run of them back
+    const key = `${outcome}|${typeof reason === 'string' ? reason.slice(0, 40) : ''}|${row.user_id}`
+    for (const [k, at] of lastSent) if (now - at >= REPEAT_MS || at > now) lastSent.delete(k)
+    if (lastSent.has(key)) return
+    const input = turnReport(row, error, { turns: ended.length, failed: ended.filter((x) => x.failed).length }, personTag(db, row.user_id) ?? undefined)
+    if (input) { lastSent.set(key, now); r.reporter.capture(input) }
   } catch { /* a report never breaks a turn's end */ }
 }
