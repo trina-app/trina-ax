@@ -25807,7 +25807,7 @@ default.
   heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
   open; the page pings every 20 s, the relay has no pings of its own, Bun closes idle sockets after 120 s), or a window
   closed while in use within the 30 s grace (a reload, a Wi-Fi switch, a relay reconnect; any window opening again
-  ends it). Not when the person set themselves away (manual away sends). Any Trina window counts, the phone app's too
+  ends it). Their own away pick does not count (2026-11-19, docs/decisions/20261116-away-os-idle.md). Any Trina window counts, the phone app's too
   while open in front of them (it goes idle when hidden), as Slack counts any active client.
 - **The computer's own use (desktop app).** A page sees only its own input: someone in Excel with Trina behind it, or
   in the in-app browser pane, would look away. The desktop app asks Electron `powerMonitor` every 30 s

@@ -1,7 +1,7 @@
 // Phone notifications only when I'm away (docs/DECISIONS.md "Phone notifications when I'm away";
 // server/src/notifications/away.ts), Slack's default: decided once per notice when its phone push would go. The person
 // at Trina then (a window in use) saw it on the computer: that phone push is cancelled, never held or sent later. Away
-// (idle, no window, manual away): it goes as before. "Always": as before. Right after a start it waits once for the
+// (idle, no window; their own "away" pick does not count, TC-5205): it goes as before. "Always": as before. Right after a start it waits once for the
 // windows to reconnect. Someone else's phone is never affected.
 import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
 import crypto from 'node:crypto'
@@ -81,20 +81,32 @@ test('closed while in use (a reload): still at Trina for the grace; closed after
   expect(sent).toHaveLength(1)
 })
 
-test('manual away sends; "Always" sends while at Trina; the setting is the caller\'s own', async () => {
-  const { nora, mia, dm, send, read, sent, pr } = await setup()
-  pr.open(nora.id, 'w1')
-  pr.setAway(nora.id, true)
+test('their own "away" pick: no phone push while the desktop app says the computer is in use; idle 10 min: it goes (QA TC-5205)', async () => {
+  const { nora, mia, dm, send, read, sent, states } = await setup()
+  // nora picked "Show me as away" in the account menu, and works at the Mac with Trina in the back
+  expect((await nora.client.call('PUT', '/api/me/away', { away: true })).away).toBe(true)
+  const report = (idleMs: number) => nora.client.call('POST', '/api/me/computer', { locked: false, idleMs })
+  await report(2000)
   await send(mia.client, dm.id, 'one')
   await p!.tick()
-  expect(sent).toHaveLength(1)
-  pr.setAway(nora.id, false)
-  const prefs = await nora.client.call('PATCH', '/api/notification-preferences', { phoneWhen: 'always' })
-  expect(prefs.phoneWhen).toBe('always')
+  expect(sent).toHaveLength(0)
+  expect(states()).toEqual([{ state: 'cancelled', n: 1 }])
+  // the computer left alone for 10 minutes: the next one rings the phone
   await read(nora.client)
+  await report(10 * 60_000)
   await send(mia.client, dm.id, 'two')
   await p!.tick()
-  expect(sent).toHaveLength(2)
+  expect(sent).toHaveLength(1)
+})
+
+test('"Always" sends while at Trina; the setting is the caller\'s own', async () => {
+  const { nora, mia, dm, send, sent, pr } = await setup()
+  pr.open(nora.id, 'w1')
+  const prefs = await nora.client.call('PATCH', '/api/notification-preferences', { phoneWhen: 'always' })
+  expect(prefs.phoneWhen).toBe('always')
+  await send(mia.client, dm.id, 'two')
+  await p!.tick()
+  expect(sent).toHaveLength(1)
   expect((await mia.client.call('GET', '/api/notification-preferences')).phoneWhen).toBe('away')
   expect((await nora.client.call('GET', '/api/notification-preferences')).phoneWhen).toBe('always')
 })
