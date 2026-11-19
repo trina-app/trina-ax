@@ -45,7 +45,7 @@ import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
@@ -1110,6 +1110,10 @@ export class TurnExec {
     // (not an answer hidden from this person: they never saw it, chat/shared-answers.ts)
     const cutOff = before?.role === 'assistant' && !this.sharedWithheld.has(before.id) ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
+    // the previous answer was stopped (or failed) mid-answer: the engine was killed before it saved that text in its
+    // session, so a resumed session is told what the person saw (QA AP-030). A fresh session has it in its history.
+    const unfinished = before?.role === 'assistant' && (before.status === 'stopped' || before.status === 'error') && before.content.trim() && !this.sharedWithheld.has(before.id)
+      ? `${stoppedAnswerBlock(before.content, before.status)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
     const hints = !invoked && !this.restricted && !guestTurn && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
@@ -1145,10 +1149,11 @@ export class TurnExec {
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
-      if (!resumed || this.restricted) return message
+      if (!resumed) return message
+      if (this.restricted) return unfinished + message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${unfinished}${message}`
     }
     // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
     // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
