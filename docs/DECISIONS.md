@@ -27566,9 +27566,9 @@ default" above: self-hosted operators may want to change the phone push address,
   most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
   (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
 - **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
-  shows the value, has no control, and one line says where it is set ("Set in the server's settings
-  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
-  set it as `push.setBy`.
+  shows the value, has no control, and one plain line says so ("Set in your team server's settings, so it can't be
+  changed here."; since 2026-11-19 without the variable or file name, which meant nothing to the people reading it). A
+  save is refused (409, reason `locked`). AppConfig carries who set it as `push.setBy`.
 - **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
   the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
   change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):

@@ -86,13 +86,14 @@ import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
-import { Button, IconButton, useAnnounce, useMediaQuery } from '../ui'
+import { IconButton, useAnnounce, useMediaQuery } from '../ui'
 import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { CalmNotice, LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
 import { appChip } from '../../lib/roomApps'
+import { MicBlockedNotice } from '../MicBlockedNotice'
 
 /** the newest side chat of mine for this room (not deleted), or null: one asks the server */
 export async function newestSideChat(roomId: string): Promise<Chat | null> {
@@ -923,12 +924,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
         </div>
         {limit && <CalmNotice className="mt-2" testId="side-chat-limit" icon={<CirclePause size={16} />} title={limit} />}
         {fileError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-file-error">{fileError}</p>}
-        {voiceError && (
-          <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-voice-error">
-            {voiceError}
-            {voice.settingsFor === voiceError && <Button size="sm" className="ml-2 align-middle" onClick={voice.openSettings} data-testid="voice-open-settings">{t('voice.openSettings')}</Button>}
-          </p>
+        {voiceError && voice.blockedFor === voiceError && (
+          <MicBlockedNotice className="mt-2" text={voiceError} onOpenSettings={voice.settingsFor === voiceError ? voice.openSettings : undefined} testId="side-chat-voice-error" />
         )}
+        {voiceError && voice.blockedFor !== voiceError && <p role="alert" className="pt-1.5 text-xs text-danger" data-testid="side-chat-voice-error">{voiceError}</p>}
         {phone && (
           <TeamFilePicker
             open={teamPicker}

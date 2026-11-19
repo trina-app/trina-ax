@@ -1733,7 +1733,7 @@ export const ja: Record<MessageKey, string> = {
   "pushGateway.address": "プッシュサービスのアドレス",
   "pushGateway.customNote": "自分たちでビルドしたアプリでのみ動作します。ストアのアプリでは受け取れません。",
   "pushGateway.saved": "スマホ通知の設定を保存しました。",
-  "pushGateway.locked": "サーバーの設定（{where}）で決められているため、ここでは変更できません。",
+  "pushGateway.locked": "チームのサーバー設定で決められているため、ここでは変更できません。",
   "pushGateway.problem.address": "名前の後に何も付けない https:// のアドレスを入力してください。例: https://push.example.com",
   "pushGateway.problem.private": "このアドレスはプライベートまたはローカルのネットワークを指しています。公開されている https アドレスを使ってください。",
   "pushGateway.problem.unreachable": "このアドレスに接続できませんでした。確認してもう一度お試しください。",

@@ -60,10 +60,12 @@ for (const size of [{ name: '1440', viewport: { width: 1440, height: 900 } }, { 
         await shot(page, `owner-${size.name}-${scheme}-custom-saved`)
       })
 
-      test('admin: the same row; set in the server\'s config it is locked with where', async ({ page }) => {
+      test('admin: the same row; set in the server\'s config it is locked, in plain words', async ({ page }) => {
         await page.request.post('/__test/push-gateway', { data: { choice: 'custom', url: 'https://push.acme.example', lockedBy: 'MYCEL_PUSH_GATEWAY' } })
         await signIn(page, DANA); await page.goto('/settings/notifications')
-        await expect(page.getByTestId('phone-gateway-locked')).toHaveText(t['pushGateway.locked'].replace('{where}', 'MYCEL_PUSH_GATEWAY'))
+        // plain words, never the setting's name (MYCEL_PUSH_GATEWAY, server.json push.gatewayUrl)
+        await expect(page.getByTestId('phone-gateway-locked')).toHaveText(t['pushGateway.locked'])
+        await expect(section(page)).not.toContainText('MYCEL_PUSH_GATEWAY')
         await expect(page.getByTestId('phone-gateway-value')).toHaveText(t['pushGateway.choice.custom'])
         await expect(page.getByTestId('phone-gateway-url')).toHaveText('https://push.acme.example')
         await expect(page.getByTestId('phone-gateway-choice')).toHaveCount(0)

@@ -1761,7 +1761,7 @@ export const en: Record<MessageKey, string> = {
   "pushGateway.address": "Push service address",
   "pushGateway.customNote": "Works only with your own build of the app. The store app can't receive these.",
   "pushGateway.saved": "Phone notifications saved.",
-  "pushGateway.locked": "Set in the server's settings ({where}), so it can't be changed here.",
+  "pushGateway.locked": "Set in your team server's settings, so it can't be changed here.",
   "pushGateway.problem.address": "Enter an https:// address with nothing after the name, for example https://push.example.com.",
   "pushGateway.problem.private": "This address points to a private or local network. Use a public https address.",
   "pushGateway.problem.unreachable": "Couldn't reach this address. Check it and try again.",

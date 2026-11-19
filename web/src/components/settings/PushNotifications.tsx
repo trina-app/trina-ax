@@ -16,6 +16,7 @@ import { notificationsChanged } from '../../store/live'
 import { hidesTabs } from '../../lib/tabs'
 import { Button, ErrorNote, Switch, confirmDialog, useMediaQuery } from '../ui'
 import { settingDesc, settingName } from './SettingRow'
+import { SettingsLink } from '../phone/SettingsLink'
 
 /** What a browser's push failure says (Settings › Notifications and the web ask, components/WebPushAsk.tsx): the reason
  * in plain words (lib/push.ts pushFailure), never the generic "check your connection and try again" when that cannot
@@ -146,10 +147,13 @@ export function PushNotifications() {
   let status: ReactNode = null, action: ReactNode = null
   // a phone's switch: whether this device gets push, and whether the switch can change that here (null: no switch)
   let here: { on: boolean; disabled: boolean } | null = null
+  // the phone app after the phone's Settings turned its notifications off: on a phone the row's end is the way there
+  let toSettings = false
   if (settings && app) {
     if (settings.native?.available) {
       status = <span data-testid="phone-push-status">{t(view.status)}</span>
       if (view.action !== 'open-settings') here = { on: view.action === 'disable', disabled: busy }
+      else toSettings = true
       action = view.action === 'open-settings' ? <Button onClick={() => void openAppSettings().catch(() => {})} data-testid="phone-push-settings">{t('push.openSettings')}</Button>
         : view.action === 'disable' ? <Button busy={busy} onClick={disableAll} data-testid="push-disable">{t('push.disable')}</Button>
           : <Button variant="primary" busy={busy} onClick={() => void change(true)} data-testid="phone-push-enable">{t('push.turnOn')}</Button>
@@ -178,18 +182,23 @@ export function PushNotifications() {
     {badgeHint && <p className="mt-2 text-xs text-faint" data-testid="push-badge-hint">{t(badgeHint)}</p>}
     {failureText && <div className="mt-2" data-testid="push-failure" data-kind={failure?.kind}><ErrorNote onRetry={!app && failure && pushRetryHelps(failure) ? () => retry.current?.() : undefined}>{failureText}</ErrorNote></div>}
   </>
-  if (narrow && here) {
+  if (narrow && (here || toSettings)) {
     return (
       <div data-testid="push-notifications" data-phone="">
-        <div className="flex items-start gap-4 py-3.5">
+        <div className={clsx('flex gap-4 py-3.5', here ? 'items-start' : 'items-center')}>
           <div className="min-w-0 flex-1">
-            <label htmlFor="np-push-here" className={settingName}>{t('push.thisDevice')}</label>
+            {here ? <label htmlFor="np-push-here" className={settingName}>{t('push.thisDevice')}</label> : <p className={settingName}>{t('push.thisDevice')}</p>}
             {status && <p id="np-push-here-desc" className={clsx('mt-0.5', settingDesc)}>{status}</p>}
           </div>
-          <div className="shrink-0 pt-0.5">
-            <Switch id="np-push-here" external describedBy="np-push-here-desc" checked={here.on} disabled={here.disabled} label={t('push.thisDevice')}
-              onChange={(v) => void (v ? change(true) : offHere())} testId="push-here-switch" />
-          </div>
+          {here ? (
+            <div className="shrink-0 pt-0.5">
+              <Switch id="np-push-here" external describedBy="np-push-here-desc" checked={here.on} disabled={here.disabled} label={t('push.thisDevice')}
+                onChange={(v) => void (v ? change(true) : offHere())} testId="push-here-switch" />
+            </div>
+          ) : (
+            // the phone's Settings turned this app's notifications off: only there can they come back (as iPhone apps do)
+            <SettingsLink label={t('push.openSettings')} onClick={() => void openAppSettings().catch(() => {})} testId="phone-push-settings" />
+          )}
         </div>
         {notes}
         {/* every device of mine: its own red row, which asks first (a switch above is this device's only) */}
@@ -254,6 +263,6 @@ export function PhonePushLine() {
   if (!denied || !mobilePushApp()) return null
   return <div className="flex items-center gap-2 px-4 pt-2 text-sm md:hidden" data-testid="phone-push-line">
     <span className="min-w-0 flex-1 text-muted">{t('push.phoneOffShort')}</span>
-    {canOpenAppSettings() && <Button size="sm" onClick={() => void openAppSettings().catch(() => {})}>{t('push.openSettings')}</Button>}
+    {canOpenAppSettings() && <SettingsLink label={t('push.openSettings')} onClick={() => void openAppSettings().catch(() => {})} testId="phone-push-line-settings" />}
   </div>
 }

@@ -1730,7 +1730,7 @@ export const zh: Record<MessageKey, string> = {
   "pushGateway.address": "推送服务地址",
   "pushGateway.customNote": "仅适用于你们自己构建的应用。商店版应用无法收到这些通知。",
   "pushGateway.saved": "手机通知设置已保存。",
-  "pushGateway.locked": "已在服务器设置（{where}）中指定，无法在此更改。",
+  "pushGateway.locked": "已在团队服务器的设置中指定，无法在此更改。",
   "pushGateway.problem.address": "请输入名称后面不带任何内容的 https:// 地址，例如 https://push.example.com。",
   "pushGateway.problem.private": "此地址指向私有或本地网络。请使用公开的 https 地址。",
   "pushGateway.problem.unreachable": "无法连接到此地址。请检查后重试。",

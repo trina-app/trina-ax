@@ -1733,7 +1733,7 @@ export const es: Record<MessageKey, string> = {
   "pushGateway.address": "Dirección del servicio push",
   "pushGateway.customNote": "Solo funciona con su propia compilación de la app. La app de la tienda no puede recibirlas.",
   "pushGateway.saved": "Notificaciones en el teléfono guardadas.",
-  "pushGateway.locked": "Está definido en la configuración del servidor ({where}), así que no se puede cambiar aquí.",
+  "pushGateway.locked": "Está definido en la configuración del servidor del equipo, así que no se puede cambiar aquí.",
   "pushGateway.problem.address": "Escriba una dirección https:// sin nada después del nombre, por ejemplo https://push.example.com.",
   "pushGateway.problem.private": "Esta dirección apunta a una red privada o local. Use una dirección https pública.",
   "pushGateway.problem.unreachable": "No se pudo conectar con esta dirección. Revísela e inténtelo de nuevo.",

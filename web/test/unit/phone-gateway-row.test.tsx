@@ -94,7 +94,7 @@ describe('an owner or admin', () => {
     await page.unmount()
   })
 
-  test('set in the server\'s settings: the value and where, no control', async () => {
+  test('set in the server\'s settings: the value and plain words, no control', async () => {
     server = { choice: 'custom', url: 'https://own.example.com', defaultHost: 'push.trina.app', lockedBy: 'MYCEL_PUSH_GATEWAY' }
     const page = await mount(<PhoneGatewayRow />)
     await page.until(() => page.find('phone-gateway-locked'), 'the lock line')
@@ -102,7 +102,9 @@ describe('an owner or admin', () => {
     expect(page.find('phone-gateway-address')).toBeNull()
     expect(page.get('phone-gateway-value').textContent).toBe('Custom')
     expect(page.get('phone-gateway-url').textContent).toBe('https://own.example.com')
-    expect(page.get('phone-gateway-locked').textContent).toBe(en('pushGateway.locked', { where: 'MYCEL_PUSH_GATEWAY' }))
+    // plain words, no setting's name (the reader is no developer)
+    expect(page.get('phone-gateway-locked').textContent).toBe(en('pushGateway.locked'))
+    expect(page.get('phone-gateway').textContent).not.toContain('MYCEL_PUSH_GATEWAY')
     await page.unmount()
   })
 
