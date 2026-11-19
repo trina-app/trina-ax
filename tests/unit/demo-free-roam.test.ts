@@ -8,8 +8,8 @@ import { afterAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient, CSRF_HEADER } from '../../shared/src/api'
-import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
-import { LEAK_PROMPTS, readSealed, scan } from '../../scripts/demo/free-roam/canary'
+import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, SNAPSHOT_MODEL, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
+import { LEAK_PROMPTS, askLeakPrompts, readSealed, scan, sealedIn } from '../../scripts/demo/free-roam/canary'
 import { baseLayout, cloneBase, shortTemp, startInstance } from '../../scripts/demo/free-roam/instance'
 
 const tmp = shortTemp('frt')
@@ -45,6 +45,13 @@ describe('the snapshot of Steepling (en)', () => {
         const there = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t)
         if (there) expect((db.query(`SELECT count(*) n FROM ${t}`).get() as { n: number }).n, t).toBe(0)
       }
+      // the team's default model is pinned to Sonnet (a subscription turn would otherwise start on Opus)
+      const setting = (k: string) => JSON.parse((db.query('SELECT value FROM settings WHERE key = ?').get(k) as { value: string } | null)?.value ?? 'null')
+      expect(setting('defaultModel')).toBe(SNAPSHOT_MODEL)
+      expect(SNAPSHOT_MODEL).toBe('sonnet')
+      // the screens show Steepling and Mina (never a fixture's names)
+      expect(setting('teamName')).toBe('Steepling')
+      expect((db.query("SELECT name FROM users WHERE lower(username) = 'mina'").get() as { name: string }).name).toMatch(/^Mina\b/)
     } finally { db.close() }
     expect(JSON.parse(fs.readFileSync(L.demo, 'utf8')).builder).toBeUndefined()
     const gmail = JSON.parse(fs.readFileSync(path.join(L.fakes, 'gmail.json'), 'utf8'))
@@ -97,5 +104,54 @@ describe('the snapshot of Steepling (en)', () => {
     fs.chmodSync(sealed, 0o644)
     expect(() => readSealed(sealed)).toThrow(/chmod 600/)
     expect(LEAK_PROMPTS.length).toBe(10)
+  })
+})
+
+describe('the canary\'s leak prompts (a stand-in instance; the real one needs the AI and is a hosting step)', () => {
+  test('each prompt in a new chat; a sealed string in the streamed text or a tool step is found; nothing else is', async () => {
+    const strings = ['somebody.real@account-owner.test', 'org-0000-made-up']
+    let socket: import('bun').ServerWebSocket<unknown> | null = null
+    const asked: string[] = []
+    let n = 0
+    const id = () => `0190a000-0000-7000-8000-${String(++n).padStart(12, '0')}`
+    const server = Bun.serve({
+      hostname: '127.0.0.1', port: 0,
+      async fetch(req, srv) {
+        const u = new URL(req.url)
+        if (req.headers.get('cookie') !== 'mycel-dev-sid=visitor' || req.headers.get('origin') !== 'https://demo.trina.app') return new Response('{}', { status: 401 })
+        if (u.pathname === '/api/ws') return srv.upgrade(req, { headers: { 'sec-websocket-protocol': 'mycel.v1' } }) ? undefined : new Response('no', { status: 400 })
+        if (req.method === 'POST' && u.pathname === '/api/chats') return Response.json({ id: id() }, { status: 201 })
+        const m = /^\/api\/chats\/([0-9a-f-]+)\/messages$/.exec(u.pathname)
+        if (m && req.method === 'GET') return Response.json({ items: [] })
+        if (m && req.method === 'POST') {
+          if (req.headers.get(CSRF_HEADER) !== '1') return new Response('{}', { status: 403 })
+          const { content } = await req.json() as { content: string }
+          asked.push(content)
+          const messageId = id()
+          const k = asked.length
+          setTimeout(() => {
+            const send = (type: string, data: object) => socket?.send(JSON.stringify({ type, seq: 0, data: { chatId: m[1], messageId, ...data } }))
+            // prompt 5 leaks in the answer text (another case), prompt 3 inside a tool step; the rest are clean
+            send('message.delta', { offset: 0, text: k === 5 ? 'The org is ORG-0000-MADE-UP.' : 'I cannot tell you that.' })
+            if (k === 3) send('message.step', { step: { id: 's1', tool: 'read', output: 'token for somebody.real@account-owner.test' } })
+            send('message.done', { status: 'done', message: { id: messageId, content: 'done' } })
+          }, 20)
+          return Response.json({ userMessage: null, assistantMessage: { id: messageId } }, { status: 202 })
+        }
+        return new Response('{}', { status: 404 })
+      },
+      websocket: { open(ws) { socket = ws }, message() {} },
+    })
+    try {
+      const lines: string[] = []
+      const r = await askLeakPrompts({ url: `http://127.0.0.1:${server.port}`, cookie: 'mycel-dev-sid=visitor', origin: 'https://demo.trina.app', strings, timeoutMs: 5000, log: (s) => lines.push(s) })
+      expect(asked).toEqual([...LEAK_PROMPTS])
+      expect(r.length).toBe(10)
+      expect(r.every((x) => x.status === 'done')).toBe(true)
+      expect(r.filter((x) => x.hits.length)).toEqual([{ prompt: 3, status: 'done', hits: [1] }, { prompt: 5, status: 'done', hits: [2] }])
+      // the report names numbers only, never a sealed string
+      for (const s of strings) expect(lines.join('\n').toLowerCase()).not.toContain(s)
+      expect(sealedIn('x ORG-0000-made-up y', strings)).toEqual([2])
+    } finally { server.stop(true) }
   })
 })
