@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { API, DEV_ENV_DEFAULT_LIMITS, type ProjectParticipant } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
-import { _active, setSrtSystem } from '../../server/src/devenv/srt/runner'
+import { _active, _liveSweeps, reconcile, setSrtSystem } from '../../server/src/devenv/srt/runner'
 import { personHome, projectHome, unitName } from '../../server/src/devenv/srt/config'
 import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt/system'
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
@@ -135,5 +135,38 @@ describe('git hooks in the project folder', () => {
     for (let i = 0; i < 50 && fs.statSync(later).mode & 0o111; i++) await Bun.sleep(20)
     expect(fs.statSync(later).mode & 0o111).toBe(0)
     expect(fs.statSync(hook).mode & 0o666).toBe(0o644)
+  })
+})
+
+// review of #46 (N4): a run that lives on across a restart is still another person's live run; the folders it may write
+// that a new run may read are swept before that run (runner.ts reconcile rebuilds liveSweeps from the open rows)
+describe('git hooks after a restart', () => {
+  test('bob\'s job in shared/ lives on: a hook it writes there has no exec bit when alice\'s command starts; when its row ends, it is no longer live', async () => {
+    const team = h.ctx.files.fx.root
+    const runId = 'bobjobafterrest1'
+    h.ctx.db.query('INSERT INTO dev_env_runs (id, user_id, chat_id, project_id, turn_id, kind, name, command, root, cwd, state, started_at, run_at, unit, once_domains, access, shared_key, port) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)')
+      .run('row-bob-1', 'bob', 'job', 'j', 'sleep', path.join(team, 'shared'), '', 'running', new Date().toISOString(), new Date().toISOString(), unitName(runId), '', '', '')
+    runs.set(runId, { spec: {} as SpawnSpec, state: 'active', resolve: () => {} })
+    await reconcile(h.ctx)
+    expect(_liveSweeps().get(runId)).toEqual({ userId: 'bob', roots: [path.join(team, 'shared'), path.join(team, 'users', 'bob')], rowId: 'row-bob-1' })
+    const hook = path.join(team, 'shared', 'hk-n4', 'pre-commit')
+    fs.mkdirSync(path.dirname(hook), { recursive: true }); fs.writeFileSync(hook, '#!/bin/sh\ntrue\n', { mode: 0o755 })
+    let atStart = -1
+    onSpawn = () => { atStart = fs.statSync(hook).mode & 0o111 }
+    try { expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi') } finally { onSpawn = null }
+    expect(atStart).toBe(0)
+    // the row ends: no longer live; alice's next command leaves a new executable file there alone (not her folder)
+    h.ctx.db.query('UPDATE dev_env_runs SET ended_at = ?, state = ? WHERE id = ?').run(new Date().toISOString(), 'ended', 'row-bob-1')
+    runs.get(runId)!.state = 'gone'
+    fs.writeFileSync(hook, '#!/bin/sh\ntrue\n', { mode: 0o755 }); fs.chmodSync(hook, 0o755)
+    // the ended row's sweep runs once (pruneLive): the bit goes
+    expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi')
+    for (let i = 0; i < 50 && fs.statSync(hook).mode & 0o111; i++) await Bun.sleep(20)
+    expect(fs.statSync(hook).mode & 0o111).toBe(0)
+    fs.chmodSync(hook, 0o755)
+    expect(out(await shell('alice', chatA).call({ command: 'echo hi' }))).toContain('hi')
+    await Bun.sleep(100)
+    expect(fs.statSync(hook).mode & 0o111).toBe(0o111)
+    fs.rmSync(path.dirname(hook), { recursive: true, force: true })
   })
 })

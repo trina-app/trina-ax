@@ -173,7 +173,7 @@ const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
 /** the time of the last preview request of a run (a previewed dev server is not idle) */
 const lastPreview = new Map<string, number>()
 /** The folders each live run may write, by run id (hook-sweep.ts othersLive): kept until its sweep after it ended. */
-const liveSweeps = new Map<string, { userId: string; roots: string[] }>()
+const liveSweeps = new Map<string, { userId: string; roots: string[]; rowId?: string }>()
 
 function reset() { liveSweeps.clear(); for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
 
@@ -634,6 +634,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     const own = runOwner(s.space, s.runId, ctx.files.fx.root)
     const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(c.base, own), runTmp(c.base, own)])
     const visible = visibleOf(settings.filesystem, ctx.files.fx.root)
+    pruneLive(ctx)
     const before = [...new Set([...swept, ...othersLive(liveSweeps.values(), s.space.userId, visible)])]
     const sweptNow = await sweepHooks(before, { visible }).catch((e: Error) => { throw new Error(`${e.message}; the command did not run`) })
     if (sweptNow.length) ctx.log?.info?.('devenv: git hooks lost their exec bit before a run', { count: sweptNow.length })
@@ -1294,9 +1295,6 @@ export const stopAll = (ctx: AppContext, reason: EndReason) => stopWhere(ctx, ()
  * end at the next poll (lost). */
 export async function reconcile(ctx: AppContext): Promise<void> {
   const c = srtConfig()
-  // after a restart: a run that was live then never had its sweep after it ended; the whole team folder is checked once
-  // (git hooks, QA TC-5348), before runs that start now read it
-  try { const ch = await sweepHooks([ctx.files.fx.root], { timeoutMs: 15 * 60_000 }); if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit at start', { count: ch.length }) } catch (e) { ctx.log?.warn?.('devenv: git hooks could not be checked at start', { error: (e as Error).message }) }
   // the calls of waiting commands went with the old process
   endOrphanTickets(ctx.db)
   // so did the preview forwarders (their stdin closed): their sockets stay as files
@@ -1308,6 +1306,30 @@ export async function reconcile(ctx: AppContext): Promise<void> {
     const runId = runIdOf(u)
     await c.system.stop(runId)
     await c.system.forget(runId)
+  }
+  // git hooks (QA TC-5348) after a restart: the runs that live on are tracked again as other people's live runs, and the
+  // whole team folder is checked once (a run that was live then never had its sweep after it ended). Not awaited
+  for (const r of openRuns(ctx.db, 'running')) { const id = runIdOf(r.unit); if (id && !liveSweeps.has(id)) liveSweeps.set(id, { userId: r.user_id, roots: rowRoots(ctx, r), rowId: r.id }) }
+  const root = ctx.files.fx.root
+  // links are not followed here (no person's view: a link's target might be a file its maker may not open)
+  void sweepHooks([root], { timeoutMs: 15 * 60_000, visible: { read: [] } })
+    .then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit at start', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked at start', { error: e.message }))
+}
+
+/** The folders a run of this row may write: its folder (a project folder or the chat's work folder) and the person's own
+ * folder (Q0 (b)). */
+const rowRoots = (ctx: AppContext, r: Pick<RunRow, 'root' | 'user_id'>) => [r.root, path.join(ctx.files.fx.root, 'users', r.user_id)]
+
+/** The live runs tracked again after a restart (a row id) whose row has ended since: their sweep after the run, then
+ * they are no longer live. */
+function pruneLive(ctx: AppContext) {
+  for (const [id, l] of liveSweeps) {
+    if (!l.rowId) continue
+    const open = ctx.db.query('SELECT 1 FROM dev_env_runs WHERE id = ? AND ended_at IS NULL').get(l.rowId)
+    if (open) continue
+    liveSweeps.delete(id)
+    // a link's target only inside its own folders (no view of that run is kept)
+    void sweepHooks(l.roots, { visible: { read: l.roots } }).catch((e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message }))
   }
 }
 
@@ -1464,3 +1486,4 @@ export function busyOwners(ctx: AppContext): { users: Set<string>; chats: Set<st
 /** tests */
 export function _active() { return active }
 export function _forwarders() { return forwarders }
+export function _liveSweeps() { return liveSweeps }

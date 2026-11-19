@@ -50,12 +50,16 @@ sandbox) takes the exec bits of every file git could run as a hook:
   ASCII letter case, and on macOS any other name APFS resolves a hook's name to (`pre-puſh` is opened as `pre-push`):
   such a file (every executable non-ASCII name) is checked by looking each hook's name up in its folder, as git does.
   Only executable files are counted, so many empty `update` files cost nothing and fail nothing (review V4).
-- **A hook-named link:** its target loses the bit when the target is a file the run may read (its view, without
-  personal folders): another person's folder, a hidden sub-folder or a system program is never changed (review V2).
+- **A hook-named link:** its target loses the bit only when the target is a file the person may read (a run: its
+  view, without personal folders; a Files move: the mover's own folder rules): another person's folder, a hidden
+  sub-folder or project, or a system program is never changed (review V2, N1). A sweep with no person's view (the
+  one at server start, the one for a run tracked again after a restart) follows no link (N2).
   A husky-style link to `scripts/lint.sh` takes that script's bit; `sh scripts/lint.sh` still runs it (review V8,
   kept: with no unavoidable wrapper, the link is a way to run the script as a hook).
 - **A file with more than one name** (a hard link, possibly to a file outside the team folder on macOS): the hook's
-  name gets a copy of its own without the exec bit; the other name keeps its mode (review V3).
+  name gets a copy of its own without the exec bit; the other name keeps its mode (review V3). Node has no `openat`,
+  so the copy is made by path: its folder is checked by device, inode and real path before and after, and a change
+  stops it (the copy is removed). The macOS `lchmod` fallback checks its folder the same way.
 - **How:** Linux: an `O_PATH|O_NOFOLLOW` descriptor and chmod through `/proc/self/fd`, so an exec-only (0111) file is
   changed too (review V1); macOS: the descriptor, else `lchmod`. Each is checked by device and inode first; paths are
   resolved by hand (lstat, readlink; nothing opened). A hook that is still executable after that fails the sweep.
@@ -64,9 +68,12 @@ sandbox) takes the exec bits of every file git could run as a hook:
     read (`runner.ts` liveSweeps: a job or dev server may write a hook there after its last sweep; review V6, R2b).
     The run does not start when they cannot be checked in 30 s or a hook cannot be made safe (fail closed);
   - after a run ends: the folders it may write (not holding up its answer);
-  - when the server starts (`reconcile`): the whole team folder once, for runs that were live during a restart;
+  - when the server starts (`reconcile`): after leftover units are stopped, the whole team folder once, in the
+    background, for runs that were live during a restart; runs that live on (open `dev_env_runs` rows) are tracked
+    again as other people's live runs, and when their row ends their folders get the sweep after the run (N4);
   - when Files moves, copies or restores an entry (`team-files/service.ts` hookSafe): that entry, all of a folder
-    (a rename keeps a file's mode: review V6, R2).
+    (a rename keeps a file's mode: review V6, R2), listed by `find` off the request (N3); a sweep that fails is tried
+    once more with a longer limit, then left to the server's next start.
   - `find -P` lists (only executable files and links); when it cannot list a folder, a walk of our own looks the hook
     names up in it and lists it with a read bit given for that moment, through the folder itself, then put back
     (review V9).
@@ -77,6 +84,11 @@ sandbox) takes the exec bits of every file git could run as a hook:
   `core.hooksPath=/dev/null` runs none anyway.
 
 ## Not covered, said plainly
+
+- **TC-5366** (repository settings that run a program, through `/usr/bin/git`): a check of every git `config` before
+  a run, refusing the run, was looked at and left for its own change. It is not small: the folders a run may *read*
+  matter too (`git -C`), `include.path` and `includeIf` must be followed as git does, and a refusal of every command in
+  a folder that holds a git-lfs repository (`filter.lfs.*`, common and legitimate) needs a decision of its own.
 
 - **git by its full path and a repository's settings** (review V7/finding 9, there before this change): `/usr/bin/git`
   skips the wrapper, so a filter, diff or merge driver, `core.sshCommand` or `gpg.program` in a repository a teammate
@@ -101,8 +113,9 @@ sandbox) takes the exec bits of every file git could run as a hook:
 ## Tests
 
 `tests/unit/dev-env-hook-sweep.test.ts` (each bypass with the real git by its full path: the repro, then the sweep;
-the review's V1-V9), `tests/unit/dev-env-command-access.test.ts` (the runner sweeps before and after a run),
-`tests/linux/srt-attack.ts` G12-G21, R1-R4 and R2b on real srt, with the sweep run as the server account
+the review's V1-V9 and N1-N3), `tests/unit/dev-env-command-access.test.ts` (the runner sweeps before and after a run;
+a run that lives on across a restart, N4),
+`tests/linux/srt-attack.ts` G12-G21, R1-R4, R2b, N1 and N2 on real srt, with the sweep run as the server account
 (`tests/linux/sweep-as.ts`).
 
 - **Version impact:** patch.

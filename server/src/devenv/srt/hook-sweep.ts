@@ -50,8 +50,10 @@ const visibleIn = (v: Visible, p: string) => { const r = depth(v.read, p); retur
 export interface SweepOptions {
   timeoutMs?: number
   find?: string
-  /** what the run may read: a hook-named link's target is changed only there (default: the swept folders) */
+  /** what the run may read: a hook-named link's target is changed only there (default: nowhere, links are left) */
   visible?: Visible
+  /** and the person may read this file (Files: the mover's folder rules); a link target is changed only when both say so */
+  mayRead?: (abs: string) => boolean
   /** the platform's rules (tests) */
   platform?: NodeJS.Platform
 }
@@ -158,11 +160,14 @@ function setMode(abs: string, want: fs.Stats, mode: number, linux: boolean): boo
     if ((e as NodeJS.ErrnoException).code !== 'EACCES') return false
   }
   // no read access (an exec-only file): lchmod changes the entry itself, never a link's target
+  // (its folder checked by device, inode and real path before and after: a folder swapped for a link meanwhile is seen)
   try {
+    const dir = path.dirname(abs), d0 = fs.lstatSync(dir)
     const st = fs.lstatSync(abs)
-    if (st.dev !== want.dev || st.ino !== want.ino || st.isSymbolicLink()) return false
+    if (st.dev !== want.dev || st.ino !== want.ino || st.isSymbolicLink() || realOfEntry(dir) !== dir) return false
     fs.lchmodSync(abs, mode)
-    return true
+    const d1 = fs.lstatSync(dir), st1 = fs.lstatSync(abs)
+    return d1.dev === d0.dev && d1.ino === d0.ino && st1.ino === want.ino && (st1.mode & 0o7777) === (mode & 0o7777)
   } catch { return false }
 }
 
@@ -176,7 +181,13 @@ function withModeFor<T>(dir: string, st: fs.Stats, mode: number, fn: () => T): T
 /** The hook's name of a file with more than one name gets a copy of its own without the exec bit (the other name, maybe
  * outside the team folder, keeps its mode); a file it cannot read loses that name. True when done. */
 function splitLink(abs: string, st: fs.Stats): boolean {
-  const tmp = path.join(path.dirname(abs), `.trina-hook-${process.pid}-${Date.now().toString(36)}`)
+  const dir = path.dirname(abs)
+  const tmp = path.join(dir, `.trina-hook-${process.pid}-${Date.now().toString(36)}`)
+  // the folder is checked by device and inode before and after the copy is made: a folder swapped for a link meanwhile
+  // (the copy would land elsewhere) stops it and the copy is removed
+  let d0: fs.Stats
+  try { d0 = fs.lstatSync(dir); if (!d0.isDirectory()) return false } catch { return false }
+  const sameDir = () => { try { const d = fs.lstatSync(dir); return d.isDirectory() && d.dev === d0.dev && d.ino === d0.ino && realOfEntry(dir) === dir } catch { return false } }
   try {
     let bytes: Buffer | null = null
     try {
@@ -184,9 +195,11 @@ function splitLink(abs: string, st: fs.Stats): boolean {
       try { if (fs.fstatSync(fd).ino !== st.ino) return false; bytes = fs.readFileSync(fd) } finally { fs.closeSync(fd) }
     } catch { bytes = null }
     const now = fs.lstatSync(abs)
-    if (now.ino !== st.ino || now.dev !== st.dev) return false
+    if (now.ino !== st.ino || now.dev !== st.dev || !sameDir()) return false
     if (bytes === null) { fs.unlinkSync(abs); return true }
     fs.writeFileSync(tmp, bytes, { mode: st.mode & 0o666, flag: 'wx' })
+    const t = fs.lstatSync(tmp)
+    if (!sameDir() || t.dev !== d0.dev) { fs.rmSync(tmp, { force: true }); return false }
     fs.renameSync(tmp, abs)
     return true
   } catch { try { fs.rmSync(tmp, { force: true }) } catch { /* gone */ } return false }
@@ -194,7 +207,7 @@ function splitLink(abs: string, st: fs.Stats): boolean {
 
 // ---------------- the sweep ----------------
 
-interface Ctx { roots: string[]; visible: Visible; linux: boolean; mac: boolean; changed: string[]; failed: string[] }
+interface Ctx { roots: string[]; visible: Visible; mayRead?: (abs: string) => boolean; linux: boolean; mac: boolean; changed: string[]; failed: string[] }
 
 /** Is this entry a file git could open by a hook's name? An ASCII name: one of the names in any case. Another name
  * (macOS): one of the hook names, looked up in its folder, is this very entry. */
@@ -253,7 +266,7 @@ function handle(c: Ctx, f: string) {
     // or a system program is not the team's code that this run could run)
     let target: string
     try { target = realOfEntry(f) } catch { return }
-    if (!visibleIn(c.visible, target)) return
+    if (!visibleIn(c.visible, target) || (c.mayRead && !c.mayRead(target))) return
     let ts: fs.Stats
     try { ts = fs.lstatSync(target) } catch { return }
     makeSafe(c, target, ts, c.visible.read)
@@ -268,8 +281,9 @@ function ctxOf(roots: readonly string[], o: SweepOptions): Ctx | null {
   const real = realOf(roots)
   if (!real.length) return null
   const platform = o.platform ?? process.platform
-  const visible = o.visible ? { read: realOf(o.visible.read), deny: realOf(o.visible.deny ?? []) } : { read: real }
-  return { roots: real, visible, linux: platform === 'linux', mac: platform === 'darwin', changed: [], failed: [] }
+  // no view given: a link is not followed (its target might be a file its maker may not open)
+  const visible = o.visible ? { read: realOf(o.visible.read), deny: realOf(o.visible.deny ?? []) } : { read: [] }
+  return { roots: real, visible, mayRead: o.mayRead, linux: platform === 'linux', mac: platform === 'darwin', changed: [], failed: [] }
 }
 function finish(c: Ctx): string[] {
   if (c.failed.length) throw new Error(`a git hook file could not be made safe (${c.failed.length})`)
@@ -285,14 +299,15 @@ export async function sweepHooks(roots: readonly string[], o: SweepOptions = {})
   return finish(c)
 }
 
-/** The same for one entry that just appeared (Files moved, copied or restored it): a file, or a folder and all in it. */
-export function sweepEntrySync(abs: string, o: SweepOptions = {}): string[] {
+/** The same for one entry that just appeared (Files moved, copied or restored it): a file, or a folder and all in it
+ * (listed by find, off the event loop). */
+export async function sweepEntry(abs: string, o: SweepOptions = {}): Promise<string[]> {
   const c = ctxOf([abs], o)
   if (!c) return []
   let st: fs.Stats
   try { st = fs.lstatSync(abs) } catch { return [] }
-  if (st.isDirectory()) for (const f of walk([abs], Date.now() + (o.timeoutMs ?? HOOK_SWEEP_LIMITS.timeoutMs), c.mac)) handle(c, f)
-  else handle(c, abs)
+  if (st.isDirectory()) for (const f of await findHookCandidates(c.roots, o)) handle(c, f)
+  else handle(c, c.roots[0]!)
   return finish(c)
 }
 

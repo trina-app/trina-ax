@@ -460,6 +460,27 @@ ls -l tools/hooks/pre-commit build.sh && echo PLANTED`,
   { id: 'R4', what: 'erin: a hard link from the project to a file outside it (srt mounts: EXDEV)', o: { who: ERIN, start: 'projects/gitp' },
     cmd: `ln ${TEAM}/shared/s.md pre-rebase 2>&1; ln /opt/mycel/package.json pre-auto-gc 2>&1; echo TRIED`, check: has('TRIED'),
     after: () => (fs.existsSync(`${GITP}/pre-rebase`) || fs.existsSync(`${GITP}/pre-auto-gc`) ? 'a hard link out of the project folder was made' : null) },
+  // ---- round 2 of the review of #46: N1 (a Files move follows a link only to what the mover may read) and N2 (the
+  // sweep when the server starts follows no link) ----
+  { id: 'N1', what: 'erin: a folder with a hook-named link to a project she cannot open; she moves it in Files: that file keeps its exec bit', o: { who: ERIN, start: 'projects/gitp' },
+    before: () => { fs.writeFileSync(`${DIR1}/deploy-n1.sh`, '#!/bin/sh\n', { mode: 0o755 }); sh(`chown ${SRV}:${SRV} ${DIR1}/deploy-n1.sh`) },
+    cmd: `mkdir -p n1src && ln -s ${DIR1}/deploy-n1.sh n1src/pre-commit && echo LINKED`, check: has('LINKED'),
+    after: () => {
+      // as Files does: the move, then hookSafe with the mover's view (here: what erin's folder rules let her read)
+      fs.renameSync(`${GITP}/n1src`, `${GITP}/n1dst`)
+      const v = folderView(RULES, ERIN, { start: 'projects/gitp' })
+      const abs = (r: string) => (r === '' ? TEAM : `${TEAM}/${r}`)
+      const why = sweepAs({ entry: `${GITP}/n1dst`, visible: { read: [...v.read, ...v.write].map(abs).filter((p) => !p.startsWith(`${TEAM}/users`)), deny: v.denyRead.map(abs) } })
+      if (why) return `the Files sweep failed: ${why}`
+      return fs.statSync(`${DIR1}/deploy-n1.sh`).mode & 0o111 ? null : 'a Files move took the exec bit of a file in a project erin cannot open'
+    } },
+  { id: 'N2', what: 'the server starts: the whole team folder is swept, no link followed (bob\'s script R3 linked stays executable), a planted hook is not', o: { start: 'projects/gitp' },
+    before: () => {
+      fs.mkdirSync(`${GITP}/n2`, { recursive: true }); fs.writeFileSync(`${GITP}/n2/pre-push`, '#!/bin/sh\n', { mode: 0o755 }); sh(`chown -R ${SRV}:${SRV} ${GITP}/n2`)
+      const why = sweepAs({ roots: [TEAM], visible: { read: [] } }); if (why) throw new Error(why)
+    },
+    cmd: 'true', check: ok,
+    after: () => (!(fs.statSync(`${TEAM}/users/bob/tool.sh`).mode & 0o111) ? 'the start sweep took the exec bit of bob\'s personal script' : noExec(`${GITP}/n2/pre-push`)) },
   // the home of a project folder's runs is not the home of her own chats (review of #1297)
   { id: 'H1', what: 'alice\'s run in the project folder leaves a file in its home', o: { start: 'projects/gitp' },
     cmd: 'echo HOME=$HOME; touch $HOME/PLANTED-IN-PROJECT-HOME && echo PLANTED', check: both(ok, has(`HOME=${PROJECT_HOME}`), has('PLANTED')) },
