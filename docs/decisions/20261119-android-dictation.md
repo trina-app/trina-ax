@@ -11,8 +11,10 @@ iPhone and Android".
 
 - **Ask:** in the Android app the words show in the message box while the person talks, as on the Mac.
 - **Rule:** Android app 1.0.10 offers `dictation-v1`, the iPhone's capability
-  ([20261119-iphone-dictation](20261119-iphone-dictation.md), the same app version), with additions an iPhone page
-  ignores. The app's module (`mobile/modules/dictation`) runs the system
+  ([20261119-iphone-dictation.md](20261119-iphone-dictation.md), the same app version), with additions an iPhone page ignores. Only a page that says
+  `appMic: true` in its `dictation-check` gets Android's recognizer; any other page (one that knows only the iPhone's
+  way) is told unsupported and records for the team server as before, so it never runs a recognizer that is not on the
+  phone and never opens the microphone twice. The app's module (`mobile/modules/dictation`) runs the system
   `SpeechRecognizer` with partial results for the app language (the phone's own region when its languages name one).
   It uses `createOnDeviceSpeechRecognizer` where the phone has an on-device recognizer (Android 12+; Android 13+ also
   says which languages are installed and can fetch a missing one), else the phone's default recognizer with

@@ -60,7 +60,8 @@ export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
  * text (final false is a guess the next text replaces), done after stop, error. Nothing leaves the phone. Only the
  * iPhone app with its Dictation module offers it; without it the team server transcribes, as before.
  * The Android app (1.0.10, docs/decisions/20261119-android-dictation.md) offers the same with two additions an older page
- * ignores: its `dictation-check` reply says `dictationMic: 'app'` (the phone's recognizer opens the microphone itself:
+ * ignores. Only a page that says `appMic: true` in its `dictation-check` gets it (any other is told unsupported, so a
+ * page that knows only the iPhone's way records as before); the reply then says `dictationMic: 'app'` (the phone's recognizer opens the microphone itself:
  * the page records nothing and sends no `dictation-push`) and `dictationOnDevice: false` when the recognizer is not on
  * the phone (the default one, asked to stay offline, may send the sound to its maker: the page uses it only where the
  * team's voice may go outside, never in a confidential chat); its recordings also send `level` events (0-1) for the
@@ -155,7 +156,9 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'change-team' }
   // dictation-v1: the language's state on this phone, Apple's model for it, and one recording (the envelope id): its
   // start, its sound in order (never answered), its end or cancel
-  | { type: 'dictation-check'; language: string }
+  // appMic (Android 1.0.10): this page can let the app hold the microphone; a page without it is told unsupported on
+  // Android (it would record too, and could not tell a recognizer that is not on the phone)
+  | { type: 'dictation-check'; language: string; appMic?: boolean }
   | { type: 'dictation-install'; language: string }
   | { type: 'dictation-start'; language: string }
   | { type: 'dictation-push'; seq: number; b64: string }
@@ -219,7 +222,9 @@ export function parseMessage(raw: string): MobileMessage | null {
         || typeof m.offset !== 'number' || !Number.isSafeInteger(m.offset) || m.offset < 0 || m.offset >= MAX_FILE_BYTES || m.offset % PICK_CHUNK_BYTES !== 0) return null
       break
     case 'photo-done': break
-    case 'dictation-check': case 'dictation-install': case 'dictation-start': if (!dictationLanguage(m.language)) return null; break
+    case 'dictation-check': case 'dictation-install': case 'dictation-start':
+      if (!dictationLanguage(m.language) || (m.type === 'dictation-check' && m.appMic !== undefined && typeof m.appMic !== 'boolean')) return null
+      break
     case 'dictation-push': {
       const n = base64Size(m.b64)
       if (!seq(m.seq) || n === null || n > MAX_DICTATION_BYTES || n % 2 !== 0) return null

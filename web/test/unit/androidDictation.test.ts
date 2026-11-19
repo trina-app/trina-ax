@@ -43,9 +43,11 @@ beforeEach(() => {
 
 test('the app holds the microphone: ownMic after the check, levels to the wave, words to the box, no sound sent', async () => {
   const b = phoneDictation()!
-  expect(ownMic(b)).toBe(false)
-  expect(await checkMac('ko', b)).toEqual({ kind: 'ready' })
+  // the Android app always holds the microphone, before any check too
   expect(ownMic(b)).toBe(true)
+  expect(await checkMac('ko', b)).toEqual({ kind: 'ready' })
+  // the page says it can take that
+  expect(messages.find(m => m.type === 'dictation-check')).toMatchObject({ appMic: true })
   const levels: number[] = []
   const words: DesktopDictationEvent[] = []
   b.onLevel(l => levels.push(l))

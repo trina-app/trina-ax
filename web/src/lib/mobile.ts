@@ -469,14 +469,16 @@ export function phoneDictation(): PhoneDictationBridge | null {
   const now = () => mobileApp() ?? config
   const bridge: PhoneDictationBridge = {
     version: 1,
-    ownMic: false,
+    // the Android app's recognizer always holds the microphone (also before this bridge's first check)
+    ownMic: config.platform === 'android',
     onLevel(cb) {
       levelListeners.add(cb)
       return () => void levelListeners.delete(cb)
     },
     async check(language) {
       const c = now()
-      const reply = await request({ ...envelope(c), type: 'dictation-check', language }, c, 15_000)
+      // appMic: this page can let the Android app hold the microphone (an older page is told unsupported there)
+      const reply = await request({ ...envelope(c), type: 'dictation-check', language, appMic: true }, c, 15_000)
       const state = dictationState(reply.dictation) ? reply.dictation : 'unsupported'
       if (state === 'unsupported') return { state }
       if (reply.dictationMic === 'app') bridge.ownMic = true

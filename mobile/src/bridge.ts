@@ -255,7 +255,7 @@ export class MobileReceiver {
         if (!this.dictation || !current.capabilities.includes(DICTATION_CAPABILITY)) throw new Error('unsupported')
         const owner = { id: m.id, nonce: m.nonce, generation: m.generation }
         if (m.type === 'dictation-check') {
-          const c = await this.dictation.checkDetail(m.language)
+          const c = await this.dictation.checkDetail(m.language, { nonce: m.nonce, appMic: m.appMic === true })
           reply.dictation = c.state
           // Android: the recognizer holds the microphone, and whether it is on the phone
           if (c.micInApp) { reply.dictationMic = 'app'; reply.dictationOnDevice = c.onDevice !== false }

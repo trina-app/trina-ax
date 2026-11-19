@@ -66,9 +66,16 @@ export class PhoneDictation {
 
   /** the state, and on Android (1.0.10) that the app holds the microphone (`micInApp`) and whether the recognizer is
    * on the phone */
-  async checkDetail(language: string): Promise<{ state: DictationState; micInApp?: true; onDevice?: boolean }> {
+  async checkDetail(language: string, page?: { nonce: string; appMic: boolean }): Promise<{ state: DictationState; micInApp?: true; onDevice?: boolean }> {
     const r = await this.native.check(language).catch(() => null) as { state?: unknown; micInApp?: unknown; onDevice?: unknown } | null
     const state = dictationState(r?.state) ? r.state : 'unsupported'
+    if (r?.micInApp === true) {
+      this.micInApp = true
+      // a page that knows only the iPhone's way would record too and treat any recognizer as on the phone
+      if (!page?.appMic) return { state: 'unsupported' }
+      if (this.appMicPages.size > 50) this.appMicPages.clear()
+      this.appMicPages.add(page.nonce)
+    }
     if (state === 'unsupported' || r?.micInApp !== true) return { state }
     return { state, micInApp: true, onDevice: r.onDevice !== false }
   }
@@ -83,8 +90,14 @@ export class PhoneDictation {
     } finally { this.runs.delete(run.n) }
   }
 
+  /** the module holds the microphone (Android): only a page that said it can take that (appMic) may use it */
+  private micInApp = false
+  /** the pages (nonces) whose check said appMic */
+  private appMicPages = new Set<string>()
+
   /** true once the phone listens; a recording before this one ends (one at a time) */
   async start(owner: DictationOwner, language: string): Promise<boolean> {
+    if (this.micInApp && !this.appMicPages.has(owner.nonce)) return false
     this.listen()
     if (this.recording) this.cancelRun(this.recording)
     const run: Run = { n: this.next++, owner, seq: 0, kind: 'record' }

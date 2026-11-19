@@ -1,6 +1,7 @@
-// dictation-v1 on the Android app (docs/decisions/20261119-android-dictation.md): the check answer says the app holds
-// the microphone and whether its recognizer is on the phone, an older page's check still reads a plain state, level
-// events reach the recording (never a model download), and the bounds of a level.
+// dictation-v1 on the Android app (docs/decisions/20261119-android-dictation.md): only a page that says appMic gets it
+// (an iPhone-only page would record too and take any recognizer as on the phone); the check answer says the app holds
+// the microphone and whether its recognizer is on the phone, an iPhone answer stays as it was, level events reach the
+// recording (never a model download), and the bounds of a level.
 import { expect, test } from 'bun:test'
 import { FileTransfers, MobileReceiver, type TransferIO } from '../../mobile/src/bridge'
 import { PhoneDictation, type DictationNative } from '../../mobile/src/dictation'
@@ -25,25 +26,34 @@ const receiver = (native: DictationNative, out: DictationEvent[] = []) =>
 const ask = (r: MobileReceiver, type: string, extra: object = {}) => r.receive(JSON.stringify({ ...base, id: 'rec-android1', type, ...extra }), 'https://team.example/chat')
 
 test('the check answer: the app holds the microphone, and whether the recognizer is on the phone', async () => {
-  const onPhone = await ask(receiver(android({ state: 'ready', locale: 'ko-KR', onDevice: true, micInApp: true }).native), 'dictation-check', { language: 'ko' })
+  const onPhone = await ask(receiver(android({ state: 'ready', locale: 'ko-KR', onDevice: true, micInApp: true }).native), 'dictation-check', { language: 'ko', appMic: true })
   expect(onPhone).toMatchObject({ ok: true, dictation: 'ready', dictationMic: 'app', dictationOnDevice: true })
-  const shared = await ask(receiver(android({ state: 'ready', locale: 'ko-KR', onDevice: false, micInApp: true }).native), 'dictation-check', { language: 'ko' })
+  const shared = await ask(receiver(android({ state: 'ready', locale: 'ko-KR', onDevice: false, micInApp: true }).native), 'dictation-check', { language: 'ko', appMic: true })
   expect(shared).toMatchObject({ dictation: 'ready', dictationMic: 'app', dictationOnDevice: false })
   // the iPhone's module says neither: its answer stays as it was
   const iphone = await ask(receiver(android({ state: 'ready' }).native), 'dictation-check', { language: 'ko' })
   expect(iphone?.dictation).toBe('ready')
   expect(iphone && 'dictationMic' in iphone).toBe(false)
   // no recognizer: unsupported, nothing else
-  const none = await ask(receiver(android({ state: 'unsupported', micInApp: true }).native), 'dictation-check', { language: 'ko' })
+  const none = await ask(receiver(android({ state: 'unsupported', micInApp: true }).native), 'dictation-check', { language: 'ko', appMic: true })
   expect(none).toMatchObject({ dictation: 'unsupported' })
   expect(none && 'dictationMic' in none).toBe(false)
-  expect(await new PhoneDictation(android({ state: 'ready', micInApp: true, onDevice: false }).native, () => {}).check('ko')).toBe('ready')
+})
+
+test('a page that does not say appMic (it knows only the iPhone way) is told unsupported, and cannot start', async () => {
+  const r = receiver(android({ state: 'ready', locale: 'ko-KR', onDevice: false, micInApp: true }).native)
+  const old = await ask(r, 'dictation-check', { language: 'ko' })
+  expect(old).toMatchObject({ ok: true, dictation: 'unsupported' })
+  expect(old && 'dictationMic' in old).toBe(false)
+  expect((await ask(r, 'dictation-start', { language: 'ko' }))?.started).toBe(false)
+  expect(await ask(r, 'dictation-check', { language: 'ko', appMic: 'yes' })).toBeNull()
 })
 
 test('level events go to the recording that started, bounded to 0-1; a bad level is dropped', async () => {
   const a = android({ state: 'ready', micInApp: true, onDevice: true })
   const out: DictationEvent[] = []
   const r = receiver(a.native, out)
+  await ask(r, 'dictation-check', { language: 'ko', appMic: true })
   expect((await ask(r, 'dictation-start', { language: 'ko' }))?.started).toBe(true)
   a.emit({ id: 1, event: 'level', level: 0.42 })
   a.emit({ id: 1, event: 'level', level: 7 })

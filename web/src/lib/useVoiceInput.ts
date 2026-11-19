@@ -354,7 +354,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
           if (m) {
             const r = await checkMac(m.language, m.bridge)
             // (a phone recognizer that is not on the phone: only for a team whose voice may go outside)
-            if (r.kind === 'ready' && (!r.shared || outsideAllowed()) && (await startOnMac(m.bridge, m.language))) return
+            if (r.kind === 'ready' && (!r.shared || (outsideAllowed() && !opts.current.blocked)) && (await startOnMac(m.bridge, m.language))) return
             // the first tap: Apple's model comes down now, and this recording goes the server's way
             if (r.kind === 'model') prepareMac(m.language, m.bridge)
           }
