@@ -10,9 +10,9 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
-import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
+import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
-import { entryGuard, entryPins, hideDeniedNames, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, readOnlyTops, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
@@ -198,9 +198,10 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const sharedChat = sh_ ? sh_.chat : null
   // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
   const given = sh_ ? hideDeniedNames(view, TEAM) : view
-  // as the runner: the entries given one by one are checked first inside the sandbox (mounts.ts entryGuard)
-  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM)) : null
-  if (pinFiles) sh(`chown ${SRV}:${SRV} '${pinFiles.paths}' '${pinFiles.ids}'`)
+  // as the runner: the entries given one by one are checked first inside the sandbox, and the tops of read-only folders
+  // given so are made read-only there (mounts.ts entryGuard, readOnlyTops)
+  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM), readOnlyTops(view, given, TEAM)) : null
+  if (pinFiles) sh(`chown ${SRV}:${SRV} '${pinFiles.paths}' '${pinFiles.ids}'${pinFiles.readOnly ? ` '${pinFiles.readOnly}'` : ''}`)
   const guard = entryGuard(pinFiles)
   // S18: the disk changes after the listing, before srt binds
   o.afterPins?.()
@@ -211,6 +212,13 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const root = work ?? `${TEAM}/${start}`
   const cwd = resolveRunCwd(root, o.cwd ?? '')
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
+  // as the runner: a shared chat's cwd in a team folder the chat does not show is refused before srt (runner.ts
+  // sharedCwdShown, by the rules for everyone in the chat)
+  if (sh_) {
+    const rel = path.relative(fs.realpathSync(TEAM), cwd)
+    const outside = rel.startsWith('..') || path.isAbsolute(rel)
+    if (!outside && (rel === '' || sharedPathAccess(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }, rel) === 'none')) return { code: null, out: '', refused: 'cwd' }
+  }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
   const exitFile = path.join(runLogs(BASE, owner), `${runId}.exit`)
@@ -235,6 +243,8 @@ type Check = (r: { code: number | null; out: string; refused?: string }) => stri
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
+/** the output without the error lines of cat, ls and stat, which repeat the path the attack typed itself */
+const shown = (out: string) => out.split('\n').filter((l) => !/^(cat|ls|stat): .*(No such file or directory|Permission denied)$/.test(l)).join('\n')
 /** nothing that only alice may open (her own folder, her sub-folder, her home and logs) came back */
 const noAsker: Check = (r) => (r.out.includes(ASKER) || r.out.includes('alice todo') ? `something only alice may open came back: ${r.out.slice(Math.max(0, r.out.indexOf(ASKER) - 60), r.out.indexOf(ASKER) + 40)}` : null)
 const SPC = { shared: { chat: SP, within: 'projects/web', audience: [ALICE, DAVE] } }
@@ -482,16 +492,16 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
     }), o: SWC,
     after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
   { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
-    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(r.out) ? `a folder they may not all open is listed: ${r.out.slice(0, 300)}` : null)), o: SWC },
+    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(shown(r.out)) ? `a folder they may not all open is listed: ${shown(r.out).slice(0, 300)}` : null)), o: SWC },
   { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
   // jobs and dev servers of shared chats (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md, QA TC-4989): a
   // command reads the job logs of its chat's people, never those of another audience of the same chat, and writes none
   { id: 'S16', what: 'shared project chat: $TRINA_LOGS is the folder of the chat\'s people (a job\'s log there reads); another audience\'s logs of the same chat do not, and are not listed', cmd: `echo LOGS=$TRINA_LOGS; cat $TRINA_LOGS/build.log; cat ${SP_LOGS_OTHER}/build.log; echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -A ${SP_LOGS_OTHER}; true`,
-    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => (r.out.includes(path.basename(SP_LOGS_OTHER)) ? 'the other audience\'s logs folder is listed' : null)), o: SPC },
+    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => (shown(r.out).includes(path.basename(SP_LOGS_OTHER)) ? `the other audience's logs folder is listed: ${shown(r.out).slice(0, 300)}` : null)), o: SPC },
   { id: 'S16b', what: 'shared project chat: the logs folder is read-only in a run (no planted log for the next command)', cmd: 'echo planted > $TRINA_LOGS/build.log || echo planted > $TRINA_LOGS/new.log || rm -f $TRINA_LOGS/build.log', check: failsQuietly, o: SPC,
     after: () => (fs.readFileSync(path.join(SP_LOGS, 'build.log'), 'utf8') !== 'JOB-LOG-OF-THESE-PEOPLE\n' || fs.existsSync(path.join(SP_LOGS, 'new.log')) ? 'the logs folder changed' : null) },
   { id: 'S16c', what: 'chat shared with people: another chat\'s job logs, and her own private runs see no shared chat\'s logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') ? 'another chat\'s job log was read' : null)), o: SWC },
-  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || r.out.includes(SP) ? 'a shared chat\'s logs were seen' : null)) },
+  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || shown(r.out).includes(SP) ? `a shared chat's logs were seen: ${shown(r.out).slice(0, 300)}` : null)) },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)

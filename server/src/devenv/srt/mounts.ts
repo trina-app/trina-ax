@@ -82,6 +82,18 @@ export function lockedTops(v: FolderView, given: FolderView): string[] {
   return v.write.filter((w) => !given.write.includes(w)).sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1))
 }
 
+/** The read-only folders of `v` that hideDeniedNames gave entry by entry (absolute paths, shallowest first). On Linux
+ * the top of such a folder is srt's empty place inside the sandbox, which bwrap makes writable: a file made there
+ * would seem written and never reach the disk (attack S12). The command's first line makes these places read-only
+ * (entryGuard), so such a write fails as it does in a folder given whole. Never one under a writable entry of `given`:
+ * there the path could be the real folder on disk. */
+export function readOnlyTops(v: FolderView, given: FolderView, teamRoot: string): string[] {
+  const now = new Set([...given.read, ...given.write])
+  return v.read.filter((r) => !now.has(r) && !given.write.some((w) => isUnder(r, w)) && !v.write.some((w) => isUnder(r, w)))
+    .sort((a, b) => a.split('/').length - b.split('/').length || (a < b ? -1 : 1))
+    .map((r) => (r === '' ? teamRoot : path.join(teamRoot, r)))
+}
+
 /** A git repository by its look: `.git` in any letter case (a folder, or the file of a worktree), or a folder with
  * HEAD, objects/ and refs/ (a bare repository such as web.git/). */
 function gitLike(abs: string, name: string, dir: boolean): boolean {
@@ -108,20 +120,26 @@ export function entryPins(v: FolderView, given: FolderView, teamRoot: string): R
 }
 
 const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
-/** The pins of a run as two files in `dir` (the run's own TMPDIR): the paths NUL-separated, and the expected
- * `dev:ino` lines. */
-export function writePins(dir: string, pins: Record<string, string>): { paths: string; ids: string } | null {
+/** The pins of a run as files in `dir` (the run's own TMPDIR): the paths NUL-separated, the expected `dev:ino` lines,
+ * and (when there are any) the read-only tops to lock (readOnlyTops), NUL-separated. */
+export function writePins(dir: string, pins: Record<string, string>, readOnly: readonly string[] = []): { paths: string; ids: string; readOnly?: string } | null {
   const ps = Object.entries(pins)
   if (!ps.length) return null
   const paths = path.join(dir, '.trina-pins'), ids = path.join(dir, '.trina-pins.ids')
   fs.writeFileSync(paths, ps.map(([p]) => p + '\0').join(''), { mode: 0o600 })
   fs.writeFileSync(ids, ps.map(([, id]) => id + '\n').join(''), { mode: 0o600 })
-  return { paths, ids }
+  if (!readOnly.length) return { paths, ids }
+  const ro = path.join(dir, '.trina-pins.ro')
+  fs.writeFileSync(ro, readOnly.map((p) => p + '\0').join(''), { mode: 0o600 })
+  return { paths, ids, readOnly: ro }
 }
 /** The first line of a command whose run has pinned entries (Linux): inside the sandbox one stat (GNU, by its full
  * path; xargs splits only a very long list) prints every pinned entry's `dev:ino`, which must be the list written
- * before the run, else the command does not run (exit 97). The files are removed before the command. Prints no path. */
-export function entryGuard(f: { paths: string; ids: string } | null): string {
+ * before the run, else the command does not run (exit 97). Then the read-only tops (readOnlyTops) lose their write
+ * bits: they are srt's places in the sandbox's own tmpfs, so nothing on the disk changes, and a file made there fails
+ * ("Permission denied") instead of seeming written. The files are removed before the command. Prints no path. */
+export function entryGuard(f: { paths: string; ids: string; readOnly?: string } | null): string {
   if (!f) return ''
-  return `/usr/bin/xargs -0 /usr/bin/stat -c %d:%i -- < ${shq(f.paths)} 2>/dev/null | /usr/bin/cmp -s - ${shq(f.ids)} || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }; /bin/rm -f ${shq(f.paths)} ${shq(f.ids)}`
+  const lock = f.readOnly ? `/usr/bin/xargs -0 /bin/chmod a-w -- < ${shq(f.readOnly)} 2>/dev/null; ` : ''
+  return `/usr/bin/xargs -0 /usr/bin/stat -c %d:%i -- < ${shq(f.paths)} 2>/dev/null | /usr/bin/cmp -s - ${shq(f.ids)} || { echo 'The command did not run: a folder changed while it started. Run it again.' >&2; exit 97; }; ${lock}/bin/rm -f ${shq(f.paths)} ${shq(f.ids)}${f.readOnly ? ` ${shq(f.readOnly)}` : ''}`
 }
