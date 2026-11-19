@@ -51,3 +51,15 @@ test('a room box: its limit is what the server takes (10,000); a paste over it i
   const text = '가'.repeat(60_000)
   expect(await pastedTextFile(text, 'Pasted text').text()).toBe(text)
 })
+
+test('a Windows paste counts each line break once (\\r\\n is one character in the box)', () => {
+  const box = { value: '', selectionStart: 0, selectionEnd: 0 }
+  // 2,500 x "abc\r\n": 12,500 raw, 10,000 in the box
+  const crlf = 'abc\r\n'.repeat(2500)
+  expect(crlf.length).toBe(12_500)
+  expect(pasteOverLimit(box, crlf, 10_000)).toBe(false)
+  expect(pasteOverLimit(box, `${crlf}ab`, 10_000)).toBe(true)
+  expect(pasteOverLimit(box, 'abc\n'.repeat(2500), 10_000)).toBe(false)
+  // a lone \r is not a pair
+  expect(pasteOverLimit(box, 'a\r'.repeat(5001), 10_000)).toBe(true)
+})

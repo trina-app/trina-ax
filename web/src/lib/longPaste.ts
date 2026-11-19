@@ -15,7 +15,8 @@ export interface PasteTarget {
 export function pasteOverLimit(box: PasteTarget, pasted: string, max = MESSAGE_TEXT_MAX): boolean {
   const start = box.selectionStart ?? box.value.length
   const end = box.selectionEnd ?? start
-  return box.value.length - Math.max(0, end - start) + pasted.length > max
+  // a Windows paste's \r\n is one line break in the box (a text box keeps \n only)
+  return box.value.length - Math.max(0, end - start) + pasted.replace(/\r\n/g, '\n').length > max
 }
 
 /** Whether a message's text is longer than a message holds (said before sending, the text kept). */

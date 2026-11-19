@@ -88,3 +88,37 @@ test('a short paste is a plain paste', async ({ page }) => {
   await expect(input).toHaveValue('see you at 3')
   await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
 })
+
+test('a Windows paste counts a line break once: 12,500 characters of CRLF text that the box keeps as 10,000 stay text', async ({ page }) => {
+  const { input } = await openRoom(page)
+  // "abc\r\n" x 2,500: 12,500 raw, 10,000 in the box (a text box keeps \n only): fits, stays text
+  await pasteText(page, 'abc\r\n'.repeat(2500))
+  await expect(input).toHaveValue('abc\n'.repeat(2500))
+  await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
+  await input.fill('')
+  // 4,000 x "abcd\r\n": 24,000 raw, 20,000 in the box: over, becomes the file
+  await pasteText(page, 'abcd\r\n'.repeat(4000))
+  await expect(page.getByTestId('room-file-chip')).toHaveCount(1)
+  await expect(input).toHaveValue('')
+})
+
+test('when the file is refused there is the refusal and not the "added as a text file" line', async ({ page }) => {
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  // the team's upload limit is 1,000 bytes: the pasted file is over it
+  await page.route(/\/api\/me$/, async (route) => {
+    const r = await route.fetch()
+    const j = await r.json()
+    j.team = { ...j.team, uploadMaxBytes: 1000 }
+    await route.fulfill({ response: r, json: j })
+  })
+  await routeRoom(page, { members: [BEN], messages: [{ id: '019a5f00-0000-7000-8000-000000000501', author: BEN, body: 'Hi' }] })
+  await page.goto(`/rooms/${ROOM_ID}`)
+  const input = page.getByTestId('room-input')
+  await input.click()
+  await pasteText(page, 'x'.repeat(20_000))
+  await expect(page.getByText(/larger than .* and can't be sent/).first()).toBeVisible()
+  await expect(page.getByTestId('room-file-chip')).toHaveCount(0)
+  await expect(page.getByText('so it was added as a text file')).toHaveCount(0)
+  await expect(input).toHaveValue('')
+})
