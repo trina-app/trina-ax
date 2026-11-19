@@ -415,7 +415,18 @@ export const AskUserInput = z.strictObject({
   multiple: z.boolean().optional(),
   allowText: z.boolean().optional(),
 })
-export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) })])
+export const AskUserOutput = z.union([z.object({ answer: z.union([z.string(), z.array(z.string())]) }), z.object({ skipped: z.literal(true) }), z.object({ asked: z.literal(true), note: z.string() })])
+
+/** todo_write (docs/decisions/20261118-questions-wait-and-todo-card.md): the AI's checklist for this answer, the same
+ * input as Claude Code's TodoWrite. Each call replaces the whole list; the person sees it as one card under the answer. */
+export const TODO_ITEMS_MAX = 50
+export const TodoItem = z.strictObject({
+  content: z.string().min(1).max(300).describe('the task, in the imperative ("Read the March invoices")'),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+  activeForm: z.string().max(300).optional().describe('the task while it is under way ("Reading the March invoices")'),
+})
+export type TodoItem = z.infer<typeof TodoItem>
+export const TodoWriteInput = z.strictObject({ todos: z.array(TodoItem).max(TODO_ITEMS_MAX) })
 
 /** connect_service (docs/INTEGRATIONS.md "Connecting from a chat"): the AI fills in a connection to a service, or
  * Google Drive, and shows the person a card to finish it. The person pastes the key into the card or signs in at the
@@ -633,6 +644,7 @@ export const OTHER_TOOLS = {
   remember: { input: RememberInput, output: RememberOutput },
   forget: { input: ForgetInput, output: ForgetOutput },
   ask_user: { input: AskUserInput, output: AskUserOutput },
+  todo_write: { input: TodoWriteInput, output: TextOutput },
   connect_service: { input: ConnectServiceInput, output: ConnectServiceOutput },
   set_title: { input: SetTitleInput, output: SetTitleOutput },
   skill: { input: SkillInput, output: TextOutput },

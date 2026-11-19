@@ -1058,7 +1058,7 @@ export function devEnvDownRule(who: 'staff' | 'member', L: Locale): string {
  * sentence. A test checks that every such tool has its words, so the sentence follows the list (QA TC-4926: it named 6
  * of 30 and the AI handed helpers work they could not do). */
 export const PARENT_ONLY_WORDS: Readonly<Record<string, string>> = {
-  ask_user: 'asking the user', connect_service: 'connecting a service', set_title: 'the chat title', remember: 'memories', forget: 'memories',
+  ask_user: 'asking the user', todo_write: 'the answer\'s to-do list', connect_service: 'connecting a service', set_title: 'the chat title', remember: 'memories', forget: 'memories',
   move_skill: 'moving skills', skill_files: 'changing skill folders', delete_files: 'putting files in the trash',
   change_project_members: 'project members', change_folder_access: 'folder access',
   schedule_create: 'schedules', schedule_list: 'schedules', schedule_delete: 'schedules',

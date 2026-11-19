@@ -495,6 +495,14 @@ export const Step = z.object({
     why: z.literal('project').optional(),
     port: z.number().int().min(1).max(65535).optional(),
   }).optional(),
+  /** the AI's to-do list for this answer (todo_write, like Claude Code's TodoWrite): one step per answer, its list
+   * replaced in place on each call and kept with the answer. Apps show it as a checklist card, not as a step line;
+   * an app without this field shows the step's label only */
+  todos: z.array(z.object({
+    content: z.string().max(300),
+    status: z.enum(['pending', 'in_progress', 'completed']),
+    activeForm: z.string().max(300).optional(),
+  })).max(50).optional(),
 })
 export type Step = z.infer<typeof Step>
 

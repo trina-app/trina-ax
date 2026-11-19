@@ -746,6 +746,11 @@ export const ko = {
   "voice.confidentialRoom": "모든 채팅이 기밀로 다뤄지는 동안에는 녹음을 바깥 음성 서비스(OpenRouter)로 보내지 않아서 대화에서 음성 입력을 쓸 수 없어요. 글로 입력해 주세요.",
 
   'steps.label': '작업 단계',
+  'todo.title': "할 일 목록",
+  'todo.progress': "{n}개 중 {done}개 완료",
+  'todo.pending': "시작 전",
+  'todo.inProgress': "진행 중",
+  'todo.completed': "완료",
   'steps.summary': '작업 {n}단계',
   'steps.earlier': '앞선 단계 {n}개',
   'steps.running': '진행 중',

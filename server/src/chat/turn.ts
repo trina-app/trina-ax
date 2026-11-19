@@ -68,6 +68,7 @@ import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
+import { answeredNote, saveQuestion } from './open-questions'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
@@ -236,7 +237,7 @@ export function answerStepCap(team: number, o: { guest: boolean; unattended: boo
 }
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
-const HIDDEN_STEP_TOOLS = new Set(['set_title'])
+const HIDDEN_STEP_TOOLS = new Set(['set_title', 'todo_write'])
 /** a file of the person's own folder this big or bigger is not hashed to find who made its bytes (bytesOutsideLevel) */
 const OWN_HASH_MAX = 64 * 1024 * 1024
 /** the bytes of own files hashed for one call (noteOwnReads): more counts as outside, unhashed */
@@ -1109,7 +1110,10 @@ export class TurnExec {
     // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
     // resumed Claude session keeps from its first instructions
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
-    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
+    // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
+    const answeredQ = answeredNote(rt.db, userMsg.id)
+    const answered = answeredQ ? `${answeredQ}\n\n` : ''
+    const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -2078,7 +2082,7 @@ export class TurnExec {
       ...(s.sources ? { sources: s.sources.slice(0, 50) } : {}), ...(s.images ? { images: s.images.slice(0, 20) } : {}),
       // a sub-agent's step: the id of its sub-task step, through the same cap as step ids (review S8)
       ...(s.parentId ? { parentId: stepId(s.parentId) } : {}), ...(s.subtask ? { subtask: s.subtask } : {}),
-      ...(s.devEnvRun ? { devEnvRun: s.devEnvRun } : {}),
+      ...(s.devEnvRun ? { devEnvRun: s.devEnvRun } : {}), ...(s.todos ? { todos: s.todos } : {}),
     }
     const i = this.steps.findIndex((x) => x.id === step.id)
     // where in the answer the step started (held text is let out before a tool step): an artifact's card shows there.
@@ -2152,6 +2156,7 @@ export class TurnExec {
     if (out.sv) out.sv = { ...out.sv, label: r.hide(out.sv.label) }
     if (out.detail) out.detail = r.hide(out.detail)
     if (out.sources) out.sources = out.sources.map((x) => ({ ...x, title: r.hide(x.title), url: r.hide(x.url) }))
+    if (out.todos) out.todos = out.todos.map((x) => ({ ...x, content: r.hide(x.content), ...(x.activeForm !== undefined ? { activeForm: r.hide(x.activeForm) } : {}) }))
     return out
   }
 
@@ -4367,6 +4372,35 @@ export class TurnExec {
    * for it, then opens with its full time; the delete tool itself refuses while any card is open. */
   private exclusiveCard: Promise<void> | null = null
 
+  /** the answer's one to-do step (setTodos), once the AI wrote a list */
+  private todoStepId: string | null = null
+  /**
+   * todo_write (chat/tools.ts): the answer's to-do list, like Claude Code's TodoWrite. Its calls make no step of their
+   * own (HIDDEN_STEP_TOOLS); the first makes the answer's one to-do step and each later one replaces its list in place,
+   * so the person sees one checklist that moves on and stays with the answer.
+   */
+  setTodos(todos: NonNullable<Step['todos']>) {
+    const list = todos.slice(0, 50).map((x) => ({ content: x.content.slice(0, 300), status: x.status, ...(x.activeForm ? { activeForm: x.activeForm.slice(0, 300) } : {}) }))
+    if (this.todoStepId && this.steps.some((x) => x.id === this.todoStepId)) { this.updateStep(this.todoStepId, { todos: list }); return }
+    this.todoStepId = this.addStep({ kind: 'tool', tool: 'todo_write', label: tr('todoList', this.spec.locale), status: 'ok', todos: list }).id
+  }
+
+  /** The AI's questions this turn left open for after its end (askLater) */
+  questionsLeft = 0
+  /**
+   * The main AI's ask_user in a chat a person watches (chat/open-questions.ts): the card is saved and shown, and the
+   * call returns at once, so the answer ends and holds nothing while the person takes their time. False: the answer is
+   * already stopping (no card).
+   */
+  askLater(request: Extract<TurnRequest, { kind: 'ask_user' }>): boolean {
+    if (this.stopReason || this.abort.signal.aborted) return false
+    saveQuestion(this.rt.db, { request, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId })
+    this.questionsLeft++
+    this.rt.hub.publish(this.spec.userId, { type: 'turn.request', data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request } })
+    this.cardsChanged(null, true)
+    return true
+  }
+
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
@@ -4647,6 +4681,9 @@ export class TurnExec {
     } catch (e) { this.rt.log.error('giving back the turn slot failed', { err: e, turn: this.id }) }
     try { this.announceEnd(status) } catch (e) { this.rt.log.error('announcing the turn end failed', { err: e, turn: this.id }) }
     finally { this.resolveDone() }
+    // its questions were answered while it was still ending: the next turn starts now (chat/open-questions.ts)
+    // (a quarantined one: when its slot is let go, ChatRuntime.probeQuarantined)
+    if (this.questionsLeft && !this.terminationUnconfirmed) { try { this.rt.startAnsweredTurns(this.spec.chatId) } catch (e) { this.rt.log.error('starting the answered turn failed', { err: e, turn: this.id }) } }
   }
 
   /** The end of a turn that never ran, at the server's stop (interruptForRequeue): queued again with its place
@@ -4812,7 +4849,9 @@ export class TurnExec {
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
     // run or a question from Slack (this.tells)
-    const long = status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && performance.now() - this.startedAt >= this.rt.longAnswerMs
+    // an answer that ended on its question (askLater) was told when the card opened: its end tells nothing more
+    const asked = status === 'done' && this.questionsLeft > 0
+    const long = !asked && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && performance.now() - this.startedAt >= this.rt.longAnswerMs
     // a question asked from Slack got its answer there: the chat is not left unseen (no dot, nothing in the count for
     // every Slack thread); a card it raised still shows its "?" (Chat.waiting) until it is answered in the app
     if (this.spec.clientKind === 'slack') { try { this.rt.store.markSeen(this.spec.chatId) } catch (e) { this.rt.log.warn('marking a Slack chat seen failed', { err: e, turn: this.id }) } }
@@ -4820,7 +4859,7 @@ export class TurnExec {
     // chat on screen then marks the answer seen after the notice, and nothing is pushed. Not an answer they stopped or
     // a server stop cut off, a scheduled run or a question from Slack (this.tells), or a turn the server started by
     // itself (no clientKind: skill drafts, merges, file ranking)
-    if (status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
+    if (!asked && status !== 'stopped' && this.stopReason !== 'shutdown' && this.tells && this.spec.clientKind) noteChatAnswer(this.rt.ctx, { userId: this.spec.userId, chatId: this.spec.chatId, turnId: this.id, kind: status === 'error' ? 'failed' : 'done' })
     this.rt.publishChat(this.spec.userId, this.spec.chatId, 'updated', long ? { notify: 'answer' } : {})
   }
 }

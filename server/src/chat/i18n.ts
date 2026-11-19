@@ -33,6 +33,13 @@ export const TEXT = {
   turnInProgress: t('이 채팅에서 답변이 아직 진행 중이에요. 끝나거나 중지한 뒤 보내 주세요.', 'An answer is still in progress in this chat. Wait for it or stop it first.', 'Jawaban di chat ini masih berjalan. Tunggu atau hentikan dulu.', "このチャットではまだ回答中です。完了を待つか、先に停止してください。", "Aún hay una respuesta en curso en este chat. Espere a que termine o deténgala primero.", "这个对话里还有回答正在进行。请等它结束或先停止。"),
   attachmentsTeamUnavailable: t('추가한 팀 파일 중 더 이상 열 수 없는 파일이 있어요. 그 파일을 빼고 보내려면 다시 보내기를 눌러 주세요.', 'A team file you added is no longer available to you. Send again to send the message without it.', 'Ada berkas tim yang Anda tambahkan yang tidak lagi tersedia untuk Anda. Kirim ulang untuk mengirim pesan tanpa berkas itu.', "追加したチームのファイルが利用できなくなりました。再送信すると、そのファイルなしで送信します。", "Un archivo del equipo que añadió ya no está disponible. Vuelva a enviar para mandar el mensaje sin él.", "你添加的一个团队文件已无法使用。再次发送即可不带这个文件发送消息。"),
   attachmentsUnavailable: t('첨부 파일을 찾을 수 없어요. 다시 올려 주세요.', 'The attachments could not be found. Please upload them again.', 'Lampiran tidak ditemukan. Unggah ulang.', "添付ファイルが見つかりませんでした。再度アップロードしてください。", "No se encontraron los archivos adjuntos. Vuelva a subirlos.", "找不到附件。请重新上传。"),
+  /** the user message of a skipped question (Skip on the AI's question card: the AI goes on without that answer) */
+  questionSkipped: t('(질문 건너뜀)', '(Skipped the question)', '(Pertanyaan dilewati)', "（質問をスキップ）", "(Omitió la pregunta)", "（已跳过问题）"),
+  /** the label of an answer's to-do step (todo_write): apps that know Step.todos show the checklist instead */
+  todoList: t('할 일 목록', 'To-do list', 'Daftar tugas', "ToDoリスト", "Lista de tareas", "待办清单"),
+  /** a picked option on the AI's question card in a shared chat whose labels may hold what others may not see
+   * (chat/open-questions.ts labelsHidden) */
+  questionAnswered: t('(AI의 질문에 답함)', "(Answered the AI's question)", '(Menjawab pertanyaan AI)', "（AIの質問に回答）", "(Respondió la pregunta de la IA)", "（已回答AI的问题）"),
   requestClosed: t('이미 답했거나 시간이 지난 질문이에요.', 'This question was already answered or has expired.', 'Pertanyaan ini sudah dijawab atau kedaluwarsa.', "この質問は回答済みか、期限切れです。", "Esta pregunta ya se respondió o venció.", "这个问题已经回答过或已过期。"),
   answerNotOption: t('이 확인은 카드의 버튼으로만 답할 수 있어요.', 'This check takes only the buttons on its card.', 'Pemeriksaan ini hanya bisa dijawab dengan tombol di kartunya.', "この確認にはカードのボタンでのみ答えられます。", "Esta comprobación solo se responde con los botones de su tarjeta.", "这项确认只能用卡片上的按钮回答。"),
   notUserMessage: t('사용자 메시지만 수정할 수 있어요.', 'Only your own messages can be edited.', 'Hanya pesan Anda yang bisa diubah.', "編集できるのは自分のメッセージのみです。", "Solo puede editar sus propios mensajes.", "只能编辑你自己的消息。"),
