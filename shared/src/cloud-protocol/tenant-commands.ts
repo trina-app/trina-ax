@@ -166,12 +166,21 @@ export const UploadedFile = z.object({ name: BackupFileName, size: z.number().in
 export const BackupUploadResult = z.object({ files: z.array(UploadedFile).min(1) })
 export type BackupUploadResult = z.infer<typeof BackupUploadResult>
 
-export const ExportInput = z.object({ partSize: PartSize, partUrls: PartUrls })
+export const ExportInput = z.object({
+  partSize: PartSize, partUrls: PartUrls,
+  /** also the plain ZIP for people (folders, chats as text and JSON, README.txt), age-encrypted to this one-time
+   * recipient of the control plane, which decrypts it only while a signed-in owner downloads it. An older team
+   * server ignores the key and answers without `zip`. */
+  zip: z.object({ recipient: AgeRecipient, partSize: PartSize, partUrls: PartUrls }).optional(),
+})
 export type ExportInput = z.infer<typeof ExportInput>
 export const ExportResult = z.object({
-  /** random passphrase of the age (scrypt) file; the control plane shows it to the owner once */
+  /** random passphrase of the age (scrypt) file; the control plane shows it to the owner once. Since the plain ZIP:
+   * eight groups of five from 23456789abcdefghjkmnpqrstuvwxyz joined by "-" (no 0/o, 1/l/i to mix up) */
   passphrase: z.string().min(20).max(200),
   size: z.number().int().nonnegative(), sha256: Sha256Hex, parts: z.array(UploadedPart).min(1),
+  /** the encrypted plain ZIP, when the input asked for it */
+  zip: z.object({ size: z.number().int().nonnegative(), sha256: Sha256Hex, parts: z.array(UploadedPart).min(1) }).optional(),
 })
 export type ExportResult = z.infer<typeof ExportResult>
 
