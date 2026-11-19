@@ -287,7 +287,8 @@ export const UnzipFileOutput = z.object({ folder: z.string(), paths: z.array(z.s
 // Files and folders into one .zip (server/src/tools/make-zip.ts, docs/decisions/20261118-make-zip-and-mail-attachments.md)
 export const MakeZipInput = z.strictObject({
   paths: z.array(relPath).min(1).max(50).describe('Files and folders to put in the zip (1-50), e.g. ["projects/falcon/contracts", "shared/price-list.xlsx"]; a folder goes in with everything in it the user can open'),
-  output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it)'),
+  output: optRelPath.describe('Where to save the .zip, e.g. "projects/falcon/contracts.zip" (default: next to the first path, named after it); an ending of .tar, .tar.gz or .tgz makes that kind'),
+  format: z.enum(['zip', 'tar', 'tar.gz', 'tgz']).optional().describe('zip (default), tar, or tar.gz / tgz (gzipped tar); only when the user asks for that kind'),
 })
 export const MakeZipOutput = z.object({ path: z.string(), files: z.number(), size: z.number() })
 // Totals, pivots, top-N and splits over data files, without the dev environment (server/src/tools/query-data.ts,

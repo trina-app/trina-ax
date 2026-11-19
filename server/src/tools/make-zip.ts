@@ -13,6 +13,8 @@
 // - Saved through make_file's save path (make-file.ts placeProduced: write access again, never under skills/, a version
 //   of a zip the AI read in this turn or a conflict copy, the per-turn file count, a file event, the change published),
 //   after the wider-audience card for the zipped files (confirmSources with the folders they came from).
+// - A .tar or .tar.gz / .tgz instead (QA TC-5057, docs/decisions/20261118-tar-archives.md): `format`, or the ending of
+//   `output`; written by files/tar.ts TarStream the same way (same walk, same checks, same limits), the tool name stays.
 import fs from 'node:fs'
 import path from 'node:path'
 import type { z } from 'zod'
@@ -25,6 +27,7 @@ import { readRegularPieces } from '../files/store'
 import { unzipSlot } from '../files/unzip'
 import { ZipProblem } from '../files/zip-guard'
 import { ZipStream, ZipTooLarge } from '../files/zip-stream'
+import { TarChanged, TarStream } from '../files/tar'
 import { atLeast } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import { ToolError } from '../policy/errors'
@@ -51,7 +54,8 @@ const STORED = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif', 'av
 export const MAKE_ZIP_DESCRIPTION = 'Make a .zip of files and folders in the team folder (like `zip -r`): every file and sub-folder the user can open goes in, ' +
   'with folder names and Korean names kept. Use it for "zip this folder", "put these files in one zip", "send them as a zip". By default the zip is saved next to the first ' +
   'path, named after it; give output for another place or name. The originals are unchanged. For a whole folder give the folder, not each file. ' +
-  `Up to ${MAKE_ZIP_FILES_MAX.toLocaleString('en')} files and folders and ${MAKE_ZIP_TOTAL_MAX / 1024 ** 3} GB per zip. Only .zip (no .tar.gz, 7z or passwords).`
+  'A .tar or .tar.gz when the user asks for one: format, or an output ending in .tar, .tar.gz or .tgz (default .zip). ' +
+  `Up to ${MAKE_ZIP_FILES_MAX.toLocaleString('en')} files and folders and ${MAKE_ZIP_TOTAL_MAX / 1024 ** 3} GB per archive. No 7z, rar or passwords.`
 
 const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : n < 1024 ** 3 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`)
 const LIST_MAX = 30
@@ -81,6 +85,15 @@ function freeInZip(taken: Set<string>, dir: string, name: string): string {
   }
 }
 
+export type ArchiveFormat = 'zip' | 'tar' | 'tar.gz' | 'tgz'
+const ENDING = /\.(tar\.gz|tgz|tar|zip)$/i
+/** The format an output name asks for by its ending, or null. */
+export function formatOf(name: string): ArchiveFormat | null {
+  const m = ENDING.exec(name)
+  return m ? (m[1]!.toLowerCase() as ArchiveFormat) : null
+}
+const sameFormat = (x: ArchiveFormat, y: ArchiveFormat) => (x === 'tgz' ? 'tar.gz' : x) === (y === 'tgz' ? 'tar.gz' : y)
+
 export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: MakeZipIn): Promise<MakeZipResult> {
   const fx = files.fx
   const rules = files.rules()
@@ -103,18 +116,23 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
 
   // where: output, or next to the first path, named after it (a free name: never a copy next to an older zip)
   let out = a.output?.trim().normalize('NFC').replace(/^\/+/, '') ?? ''
-  if (out.endsWith('/')) out = `${out}${roots[0]!.segs.at(-1)!.replace(/\.[^.]+$/, '') || 'files'}.zip`
-  if (out && !/\.zip$/i.test(out)) out += '.zip'
+  // the format: given, or the output's ending; both given must agree
+  const named = out && !out.endsWith('/') ? formatOf(out) : null
+  if (a.format && named && !sameFormat(a.format, named)) throw new ToolError(`output '${out}' ends in .${named} but format is ${a.format}; give one of them, or the same in both`)
+  const format: ArchiveFormat = a.format ?? named ?? 'zip'
+  const dotExt = `.${format}`
+  if (out.endsWith('/')) out = `${out}${roots[0]!.segs.at(-1)!.replace(/\.[^.]+$/, '') || 'files'}${dotExt}`
+  if (out && !named) out += dotExt
   if (!out) {
     const first = roots[0]!
     const parent = first.segs.slice(0, -1)
     const base = roots.length === 1 ? (first.st!.isDirectory() ? first.segs.at(-1)! : first.segs.at(-1)!.replace(/\.[^.]+$/, '')) : (parent.at(-1) ?? 'files')
-    const name = badSegment(`${base}.zip`) ? 'files.zip' : `${base}.zip`
+    const name = badSegment(`${base}${dotExt}`) ? `files${dotExt}` : `${base}${dotExt}`
     out = [...parent, fs.existsSync(path.join(fx.root, ...parent)) ? freeName(path.join(fx.root, ...parent), name) : name].join('/')
   }
   if (inSkills(out)) throw new ToolError('a zip cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
   const target = authorize(fx, rules, c.user, out, 'write', { mustExist: false, createDirs: true })
-  if (target.exists && target.st!.isDirectory()) throw new ToolError(`'${target.rel}' is a folder; give a file name ending in .zip`)
+  if (target.exists && target.st!.isDirectory()) throw new ToolError(`'${target.rel}' is a folder; give a file name ending in ${dotExt}`)
 
   // what goes in, as list and read show it to this person
   const items: Item[] = []
@@ -190,7 +208,7 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
   if (!guest) c.files.zippedBytes = (c.files.zippedBytes ?? 0) + total
 
   const work = makeWorkDir(path.join(ctx.config.dataDir, 'work'))
-  const tmp = path.join(work, 'out.zip')
+  const tmp = path.join(work, format === 'zip' ? 'out.zip' : 'out.tar')
   let release: (() => void) | null = null
   const done: MakeZipResult['files'] = []
   try {
@@ -199,9 +217,10 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
       if (e instanceof ZipProblem && e.kind === 'busy') throw new ToolError('the server is busy with other zips right now, so nothing was saved. Tell the user in plain words to try again in a moment', 'busy')
       throw e
     }
-    const zip = new ZipStream(tmp)
+    const zip = format === 'zip' ? new ZipStream(tmp) : null
+    const tar = format === 'zip' ? null : new TarStream(tmp, format !== 'tar')
     try {
-      for (const f of folders) zip.folder(f.name, f.mtime)
+      for (const f of folders) { if (zip) zip.folder(f.name, f.mtime); else await tar!.folder(f.name, f.mtime) }
       // each folder checked once per zip, as the file layer resolves it now (a walk of its path lists every folder on
       // the way: once per file made 10,000 files take 80 s); then each file by the rules as they are now, its inode
       // against the walk's, and read through the descriptor of that very file (store.ts openToRead with `seen`)
@@ -220,14 +239,16 @@ export async function makeZip(ctx: AppContext, files: TeamFiles, c: ToolCtx, a: 
         if (dirOk.get(dir) && atLeast(rulesNow.access(c.user, it.rel.split('/')), 'read')) { try { st = fs.lstatSync(it.abs) } catch { st = null } }
         if (!st) { skipped.push({ path: it.rel, why: 'no longer there or no longer open to the user' }); continue }
         if (!st.isFile() || st.nlink > 1 || st.ino !== it.st.ino || st.dev !== it.st.dev) { skipped.push({ path: it.rel, why: 'it changed while the zip was made' }); continue }
-        const r = await zip.file(it.name, st.mtime, STORED.has(ext(it.name)), (push) => readRegularPieces(it.abs, st!, push, c.signal).then(() => undefined))
+        const feed = (push: (piece: Buffer) => Promise<void>) => readRegularPieces(it.abs, st!, push, c.signal).then(() => undefined)
+        const r = zip ? await zip.file(it.name, st.mtime, STORED.has(ext(it.name)), feed) : await tar!.file(it.name, st.mtime, st.size, feed)
         done.push({ inZip: it.name, from: it.rel, size: r.usize })
       }
-      zip.finish()
+      if (zip) zip.finish(); else await tar!.finish()
     } catch (e) {
       if (e instanceof ZipTooLarge) throw new ToolError(`the zip would be 4 GB or larger or hold too many entries, so nothing was saved. Tell the user; zip fewer folders at a time`)
+      if (e instanceof TarChanged) throw new ToolError('a file changed while the archive was made, so nothing was saved. Try again; tell the user if it happens again')
       throw e
-    } finally { zip.close() }
+    } finally { zip?.close(); tar?.close() }
     if (!done.length && !folders.length) throw new ToolError('none of the files could be read for the zip, so nothing was saved')
     const made = await placeProduced(ctx, files, c, target.segs, tmp, 'make_zip', undefined, { turnBytes: guest, thisAnswerOnly: true, detail: { files: done.length } })
     return { path: made.path, size: made.size, files: done, folders: folders.length, total, skipped, renamed, ...(made.conflictCopyOf ? { conflictCopyOf: made.conflictCopyOf } : {}) }
