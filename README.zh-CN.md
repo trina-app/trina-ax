@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>然后点页面顶部的 ☆ Star。点个 Star 能让更多团队发现 Trina AX。</sub></p>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 只需设置一次，全队都能用
 
 **一个 AI 账户，全队共用。** 接入一个 Claude 或 OpenAI 的 API 密钥（或条款允许的套餐），全队都用它提问，可按人、群组或团队设置 token 上限。
@@ -48,6 +52,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 </tr>
 </table>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 每个人用它做什么
 
 **在任何对话旁边提问，一键发出。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到对话里。
@@ -70,11 +78,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>访客。</b> 邀请公司外的人进群聊或项目，并决定他们能否使用 AI。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="有代理公司访客 Morgan Reyes 的 Launch email 群聊：标题方案、@提及和 Trina 的回答"></td>
 </tr>
 <tr>
-<td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；可按人、群组或团队设置 token 上限。<br><br><img src="docs/site/images/usage/team.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
+<td width="50%"><b>用量与上限。</b> 按人显示回答数、token 和预估费用；可按人、群组或团队设置 token 上限。<br><br><img src="docs/images/readme/v4/usage.webp" alt="管理员用量页面：每个人的 token、回答数和预估费用"></td>
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，在任何对话旁边都能打开只有你能看到的聊天来问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的一条回答，右侧打开了一个话题"></td>
+<td colspan="2"><b>像 Slack 一样的团队聊天，还有 Trina AI。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，在任何对话旁边都能打开只有你能看到的聊天来问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的一条回答，右侧打开了一个话题"></td>
 </tr>
 </table>
 
@@ -85,6 +93,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **查找工作文件。** 桌面应用在你的电脑上找出最近的工作文件，只添加你选中的。
 - **文档。** 读取韩文（HWP/HWPX）正文，预览 PDF 和 PowerPoint。
 - **任何设备。** Mac、Windows、Linux、iPhone、Android 和任何浏览器，支持六种语言。
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## 开始使用
 
@@ -111,6 +123,10 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 需要 Bun 1.3.12 和 Go 1.27+。这不是生产环境的安装方式。[详细步骤](docs/QUICKSTART.md)
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 工作原理
 
 一台服务器以 Claude Code 和 Codex 为引擎。无论是人还是他的 AI，每个文件请求都要经过服务器上的同一道权限检查。在 Linux 服务器上，引擎用专用账户在 bubblewrap、Landlock 和 seccomp 沙箱里运行，它的 shell 和内置文件工具都已关闭，只能通过 Trina 的工具打开文件。[安全与权限](docs/security-and-permissions.md)
@@ -133,6 +149,10 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 
 </details>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 社区
 
 如果 Trina AX 帮到了你的团队，点个 ⭐ 能让更多团队找到它。
@@ -140,6 +160,10 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [版本发布](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
 应用界面支持英语、韩语、印尼语、日语、西班牙语和简体中文。所有图片中的公司和人物都是虚构的。
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## 许可证
 
