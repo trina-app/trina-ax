@@ -1,3 +1,0 @@
-- A refused app update now says "This update didn't pass its safety check, so it wasn't installed." It used to say it couldn't be checked.
-- On Linux and Windows, "Open in the app" on a chat link now opens that chat when the app was closed, not the team's Home.
-- The Linux app has a Quit item in the Window menu (Ctrl+Q).
