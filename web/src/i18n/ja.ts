@@ -4232,6 +4232,8 @@ export const ja: Record<MessageKey, string> = {
   "demo.free.fenced": "デモでは使えません",
   "demo.free.devEnv": "デモでは開発環境は使えません。",
   "demo.free.continue": "{name}として続ける",
+  "demo.free.profileFixed": "名前とメールアドレスはデモ用のため変更できません。",
+  "demo.free.connectors": "これらのサービスはデモ用に接続済みです。デモでは新しく接続できません。",
   "welcome.files.who": "ここに置いたファイルは{team}だけが見られます · チャットは各自だけが見られます",
   "welcome.files.whoCount": "ここに置いたファイルは{team}の{n, plural, one {#人} other {#人}}だけが見られます · チャットは各自だけが見られます",
   "welcome.files.whoAlone": "ここに置いたファイルは今は自分だけが見られます · チームメンバーを招待すると{team}の全員が見られます",

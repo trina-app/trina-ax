@@ -4277,6 +4277,8 @@ export const en: Record<MessageKey, string> = {
   "demo.free.fenced": "Not available in the demo",
   "demo.free.devEnv": "The dev environment isn't available in the demo.",
   "demo.free.continue": "Continue as {name}",
+  "demo.free.profileFixed": "Your name and email belong to the demo and stay as they are.",
+  "demo.free.connectors": "These services are connected for the demo. Connecting new ones isn't available here.",
   "welcome.files.who": "Only {team} can see files you add here · Chats are private to each person",
   "welcome.files.whoCount": "Only {team} ({n, plural, one {# person} other {# people}}) can see files you add here · Chats are private to each person",
   "welcome.files.whoAlone": "Only you can see files you add here for now · Invite teammates and everyone in {team} will see them",

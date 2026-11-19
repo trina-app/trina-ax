@@ -4276,6 +4276,8 @@ export const id: Record<MessageKey, string> = {
   "demo.free.fenced": "Tidak tersedia di demo",
   "demo.free.devEnv": "Lingkungan pengembangan tidak tersedia di demo.",
   "demo.free.continue": "Lanjutkan sebagai {name}",
+  "demo.free.profileFixed": "Nama dan email ini milik demo dan tidak bisa diubah.",
+  "demo.free.connectors": "Layanan ini sudah terhubung untuk demo. Menghubungkan layanan baru tidak tersedia di sini.",
   "welcome.files.who": "File yang diunggah di sini hanya dilihat {team} · Setiap chat hanya dilihat pemiliknya",
   "welcome.files.whoCount": "File yang diunggah di sini hanya dilihat {n} orang di {team} · Setiap chat hanya dilihat pemiliknya",
   "welcome.files.whoAlone": "File yang diunggah di sini untuk sementara hanya terlihat oleh Anda · Undang rekan tim agar semua orang di {team} bisa melihatnya",

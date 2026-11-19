@@ -53,6 +53,7 @@ import { PhonePageBar } from '../phone/PhonePageBar'
 import { SettingsBarSlot, SettingsHold } from './SettingsBar'
 import type { MessageKey } from '../../i18n'
 import { useFreeRoam } from '../../store/demo'
+import { FREE_ROAM_HIDDEN_PAGES } from '../../lib/freeRoam'
 
 const SettingsPane = lazy(() => import('../../pages/Settings'))
 /** sections a phone's list shows on top instead of in their group: the profile (the photo row) */
@@ -151,6 +152,8 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // an old or mistyped address (/settings/devices), or /settings/browser outside the desktop app while the team does not
   // let members allow all websites for web reads: /settings instead (the list, and on a computer the profile beside it)
   if (tab && !waiting && !tabs.some((x) => x.id === tab)) return <Navigate to="/settings" replace />
+  // a free-roam demo: the account deletion, password and devices pages are not the visitor's (lib/freeRoam.ts)
+  if (freeRoam && page && FREE_ROAM_HIDDEN_PAGES.has(page)) return <Navigate to="/settings" replace />
   // a phone: Browser and Dev environment sites are parts of 트리나에게 허용한 것
   if (phone && tab && !page && !waiting && PHONE_FOLDED.has(tab)) return <Navigate to="/settings/allowances" replace />
   const current = tab ?? 'profile'
@@ -333,7 +336,9 @@ function PhoneTeamGroup() {
   const t = useT()
   const me = useMeStrict()
   const navigate = useNavigate()
-  const admin = isAdmin(me)
+  // a free-roam demo: nobody is invited to the demo's team (server/src/demo/guard.ts refuses the invites)
+  const freeRoam = useFreeRoam()
+  const admin = isAdmin(me) && !freeRoam
   const canSwitch = useTeamSwitchWay() !== null
   return (
     <PhoneListGroup testId="settings-team-group">

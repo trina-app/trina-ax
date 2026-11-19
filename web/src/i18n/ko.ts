@@ -4275,6 +4275,8 @@ export const ko = {
   "demo.free.fenced": "데모에서는 쓸 수 없어요",
   "demo.free.devEnv": "데모에서는 개발 환경을 쓸 수 없어요.",
   "demo.free.continue": "{name}님으로 계속하기",
+  "demo.free.profileFixed": "이름과 이메일은 데모용이라 바꿀 수 없어요.",
+  "demo.free.connectors": "데모용으로 연결해 둔 서비스예요. 데모에서는 새로 연결할 수 없어요.",
   "welcome.files.who": "여기 올린 파일은 {team}만 봐요 · 기록은 각자만 봐요",
   "welcome.files.whoCount": "여기 올린 파일은 {team} {n}명만 봐요 · 기록은 각자만 봐요",
   "welcome.files.whoAlone": "여기 올린 파일은 지금은 나만 봐요 · 팀원을 초대하면 {team} 모두가 봐요",
