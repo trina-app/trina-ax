@@ -21,6 +21,10 @@
   - `/app-signin` → Continue is unchanged: it lands on Home with the landing state, which now finds the row and opens
     the steps where they stopped. "Continue setup · n/5" follows the existing rules (lib/welcome.ts setupRowState); while
     no AI answers, Home's no-AI card still stands in for it on Home.
+  - Because the row exists from the start, what already happened once the owner had opened `/welcome` now happens from
+    setup on, in the app too: a visual skill installed from Team skills runs the team's start first (the team group and
+    the brand folder, onboarding/welcome-result.ts ensureBrand), and merges into team skills wait for the steps' end
+    (skills/share-merge.ts). Unit tests that modelled a team without a row now delete it first.
   - Not changed: teams made before this (no row) get no row: an old team whose owner never opened the steps is not sent
     into them now. The command-line owner (`admin create-owner`) gets no row either. Members are not affected (the row is
     the owner's; members never read it).
