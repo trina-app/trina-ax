@@ -181,6 +181,9 @@ test('the hosting status: a team with only an older release\'s marketing or hr s
 
 test('a team with some of the general pack from the Skills page, and none of 할 일 정리: recorded as it is, never blocked', async () => {
   const { ownerId, root } = await setup()
+  // a team from before the steps started at setup (docs/decisions/20261119-welcome-steps-in-app.md): no row yet, so the
+  // pack goes in before the team's start
+  h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
   installSkillPack(h.ctx, ownerId, 'general')
   fs.rmSync(path.join(root, 'skills/general/promo-video'), { recursive: true })
   const r = setupWelcomeTeam(h.ctx, ownerId, 'ko')
