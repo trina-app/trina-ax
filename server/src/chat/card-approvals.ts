@@ -27,6 +27,10 @@ export type ApprovalKind =
    * card, chat/turn.ts confirmSharedConnection): target = the connection; detail.c = who saw the chat then (a person who
    * joins later makes it ask again) */
   | 'shared_connection'
+  /** a tool a connection marks read-only whose name Trina cannot read as a look-up, in a shared chat ("Always in this
+   * chat" on its "can't tell" card, integrations/connections/tools.ts unsureGate; read-mark.ts): target = connection,
+   * its version and the tool. Never a change: those ask every time */
+  | 'shared_unsure_tool'
 
 /** An approval covers the same action for at most this long (then the card asks once more). */
 export const APPROVAL_HOURS = 12

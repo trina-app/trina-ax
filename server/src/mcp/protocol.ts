@@ -4,7 +4,7 @@ import { EDIT_FILES_TOOL, EditFilesInput, FILE_TOOLS } from '@mycel/shared'
 import type { Database } from 'bun:sqlite'
 import type { FileService, ToolCtx } from '../files/service'
 import { toolRegistry } from '../tools/registry'
-import { loadPrincipal } from '../policy/access'
+import { loadPrincipal, withHiddenFolders } from '../policy/access'
 import { authorize } from '../policy/authorize'
 import type { TurnToolSet } from '../turns'
 import { confidentialTurn, localTool } from '../safe-ops/confidential'
@@ -25,6 +25,10 @@ export function toolUseIdOf(params: unknown): string | null {
   const id = meta && typeof meta === 'object' ? (meta as Record<string, unknown>)['claudecode/toolUseId'] : undefined
   return typeof id === 'string' && id.length > 0 && id.length <= 200 ? id : null
 }
+
+/** The tools a turn's tools/list gives: the file tools and the turn's own (or every registered one). */
+export const listedTools = (files: FileService, extra?: TurnToolSet): { name: string; description: string; inputSchema: unknown }[] =>
+  [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())]
 
 export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extra?: TurnToolSet) {
   const insert = db.query('INSERT INTO tool_events (turn_id, user_id, tool, summary, ok, tool_use_id, parent_tool_use_id) VALUES (?,?,?,?,?,?,?)')
@@ -174,7 +178,7 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
       // file tools first, then the extra tools. A chat turn brings its own set (`extra`: B's tools plus every
       // ctx.services.turnTools entry, which includes C's registry tools). Without one (stage-1 turns, direct
       // tests) the tools other components registered in tools/registry.ts are served as they are.
-      case 'tools/list': return reply({ tools: [...toolList, ...(extra ? extra.list() : toolRegistry(files).list())] })
+      case 'tools/list': return reply({ tools: listedTools(files, extra) })
       case 'tools/call': {
         const name = String(msg.params?.name ?? '')
         if(confidentialTurn(db,ctx.turnId) && !localTool(name)) return reply({content:[{type:'text',text:safeText(db,ctx.user.id,'external')}],isError:true})
@@ -183,8 +187,12 @@ export function makeHandler(files: FileService, db: Database, ctx: ToolCtx, extr
         try { ended = extra?.callStarted?.() } catch {}
         try {
           // the batch of edits a chat turn offers: each file goes through callTool below as its own edit call
-          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await editFiles(msg.params))
-          const r = await callTool(msg.params)
+          // a shared project chat: its sub-folders some of its people may not open are not there for the person in this
+          // call, the read card and every tool alike (policy/access.ts withHiddenFolders; fails closed in the turn)
+          let hiddenScope: ReturnType<NonNullable<TurnToolSet['hiddenFolders']>> = null
+          try { hiddenScope = extra?.hiddenFolders?.() ?? null } catch { return reply(failed('The call could not be checked, so nothing was read or changed. Try again.').result) }
+          if (name === EDIT_FILES_TOOL && extra?.has(name)) return reply(await withHiddenFolders(hiddenScope, () => editFiles(msg.params)))
+          const r = await withHiddenFolders(hiddenScope, () => callTool(msg.params))
           const response = reply(r.result)
           if (r.beforeDelivery) Object.defineProperty(response, 'beforeDelivery', { value: r.beforeDelivery })
           return response

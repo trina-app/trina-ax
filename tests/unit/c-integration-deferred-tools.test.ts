@@ -11,7 +11,7 @@ import { FakeServices } from '../lib/fake-services'
 import { bigCatalog, TOOL_150, TOOL_151 } from '../lib/big-catalog'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
 import { MAX_TOOLS } from '../../server/src/integrations/connections/mcp'
-import { CALL_TOOL, FIND_TOOLS, integrationToolProvider, MAX_TURN_TOOL_CHARS, MAX_TURN_TOOLS } from '../../server/src/integrations/connections/tools'
+import { CALL_TOOL, CONNECTION_RESULT, FIND_TOOLS, integrationToolProvider, MAX_TURN_TOOL_CHARS, MAX_TURN_TOOLS } from '../../server/src/integrations/connections/tools'
 import { checkArgs, CHECK_STEPS, deferredLines, DEFERRED_LIST_BUDGET, matchTools, toolTokens } from '../../server/src/integrations/connections/deferred'
 import { recordSent } from '../../server/src/tools/connection-urls'
 import { TurnFiles } from '../../server/src/files/service'
@@ -103,7 +103,7 @@ describe('a turn that cannot carry them all', () => {
     const a = turn('alice')
     const own = [...a.tools.keys()].filter((n) => n.startsWith('my_studio__'))
     expect(own).toEqual([])
-    expect([...a.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL])
+    expect([...a.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL, CONNECTION_RESULT])
     // what every model request of the answer carries for this connection, before and after
     const all = bigCatalog().reduce((n, t) => n + t.name.length + JSON.stringify(t.inputSchema).length + t.description.length, 0)
     expect(all).toBeGreaterThan(MAX_TURN_TOOL_CHARS)
@@ -138,9 +138,11 @@ describe('a turn that cannot carry them all', () => {
     const sel = await a.call(FIND_TOOLS, { query: `select:my_studio__${TOOL_150},${TOOL_151}` })
     expect(sel.text.split('\n## ').slice(1).map((b) => b.split('\n')[0])).toEqual([`my_studio__${TOOL_150}`, `my_studio__${TOOL_151}`])
     expect(sel.text).toContain('changes something at the service: the user may be asked first')
-    // at most 10, and an answer that fits MAX_RESULT_CHARS (schemas left out past it)
-    const many = await a.call(FIND_TOOLS, { query: 'image video audio', max_results: 10 })
-    expect(many.text.split('\n## ').length - 1).toBe(10)
+    // at most 25 (10 before TC-4979), and an answer that fits MAX_RESULT_CHARS (schemas left out past it)
+    const many = await a.call(FIND_TOOLS, { query: 'image video audio', max_results: 25 })
+    expect(many.isError).toBe(false)
+    expect(many.text.split('\n## ').length - 1).toBe(25)
+    expect((await a.call(FIND_TOOLS, { query: 'image video audio', max_results: 26 })).isError).toBe(true)
     expect(many.text.length).toBeLessThanOrEqual(41_000)
     const none = await a.call(FIND_TOOLS, { query: 'qqqzzz' })
     expect(none.text).toContain('No tool to look up matches')
@@ -276,7 +278,7 @@ describe('a tool turned off is unreachable', () => {
     const team = (await post('carol', '/api/admin/integrations', { kind: 'mcp', name: 'Team studio', url: `${fake.base}/mcp-open?teamstudio`, auth: 'none', access: { everyone: false, groups: [], users: ['erin'] } })).body
     try {
       const e = turn('erin')
-      expect([...e.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL])
+      expect([...e.tools.keys()]).toEqual([FIND_TOOLS, CALL_TOOL, CONNECTION_RESULT])
       expect((await e.call(FIND_TOOLS, { query: 'analyze video' })).text).toContain(`team_teamstudio__${TOOL_150}`)
       await A.json(`/api/integrations/${team.id}`, { method: 'PATCH', as: 'carol', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ access: { everyone: false, groups: [], users: [] } }) })
       expect((await e.call(FIND_TOOLS, { query: 'analyze video' })).text).toContain('No tool to look up matches')
@@ -379,6 +381,21 @@ describe('parts', () => {
     expect(cut.lines.join('\n').length).toBeLessThanOrEqual(8_000)
     expect(cut.listed).toBeLessThan(650)
     expect(cut.lines.some((l) => /^- … \d+ more (of this connection|tools of this connection): find them with find_tools$/.test(l))).toBe(true)
+  })
+
+  test('a long first sentence (TC-4979): up to 400 characters when it fits, shorter for every tool when it does not', () => {
+    const long = 'Generates a short product video from one photo and a prompt, in 9:16 or 16:9, with an optional voice-over in the language of the prompt, and saves it to the person\'s library where it can be edited again later. More after it.'
+    const first = long.slice(0, long.indexOf('. ') + 1)
+    expect(first.length).toBeGreaterThan(160)
+    const group = (n: number) => ({ header: 'S (personal connection), full names my_s__<name below>:', items: Array.from({ length: n }, (_, i) => ({ short: `tool_${i}`, description: long })) })
+    const few = deferredLines([group(5)], 8_000)
+    expect(few.lines[1]).toBe(`- tool_0: ${first}`)
+    // 40 tools: the whole sentences do not fit 8,000 characters, so every line is cut the same, still described
+    const more = deferredLines([group(40)], 8_000)
+    expect(more.lines.join('\n').length).toBeLessThanOrEqual(8_000)
+    expect(more.described).toBe(true)
+    expect(more.listed).toBe(40)
+    expect(new Set(more.lines.slice(1).map((l) => l.split(': ').slice(1).join(': ').length)).size).toBe(1)
   })
 
   test('the argument check: the usual JSON Schema words; what it does not know passes', () => {

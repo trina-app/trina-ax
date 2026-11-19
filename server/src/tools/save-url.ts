@@ -48,10 +48,12 @@ import { egressOf, egressSettled } from './egress'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import { placeProduced } from './make-file'
+import { savePathArg } from './save-target'
 import { ACCEPTED, RefusedKind, refusedName, settleKind, sniffDownload, withExtension, type FileKind, type ReadAt } from './sniff'
 import { redirectGuard } from './connection-urls'
 import { gateUrl } from './url-gate'
-import { precheckTarget } from './web-fetch'
+import { acceptLanguage, precheckTarget } from './web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { diskStat } from '../system/disk-stat'
 
 /** larger downloads ask the person first (save_url's card) */
@@ -159,7 +161,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const source = a.url.trim()
 
   // where it goes: an explicit path (a folder when it ends in "/"), or the person's own folder
-  const wanted = a.save_as?.trim().replace(/^\/+/, '').normalize('NFC')
+  const wanted = a.save_as === undefined ? undefined : savePathArg(a.save_as)
   const folderOnly = !wanted || wanted.endsWith('/')
   const explicitFolder = wanted ? (folderOnly ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')) : null
   if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
@@ -246,7 +248,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       })
       const r = await downloadToFile(source, tmp, {
         lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep, totalTimeoutMs: o.totalTimeoutMs,
-        blockedIps, signal: t.signal,
+        blockedIps, signal: t.signal, acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)),
         askAbove: o.askAbove ?? ASK_ABOVE_BYTES,
         onLarge: async ({ size: total, received }) => {
           const shown = humanBytes(total ?? received)

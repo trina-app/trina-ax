@@ -22,9 +22,9 @@ import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { detectCaseInsensitive } from '../policy/resolve'
-import { ext, extractText, isOffice } from './extract'
+import { ext, extractText, isOffice, utf16Kind, utf16Text } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
-import { numberedLines, prettyAllowed, prettyJsonView } from './read-lines'
+import { memoLines, numberedLines, prettyAllowed, prettyJsonView, ReadViews } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -71,7 +71,11 @@ void ENGINE_BUILTIN_ALLOWED
  * Windows-1252) would lose all its non-ASCII characters, so these tools refuse it and do not convert it silently.
  * The AI can write a new UTF-8 copy under another name. Office and binary files have their own checks.
  */
-function refuseLegacyText(rel: string, cur: Uint8Array) {
+function refuseLegacyText(rel: string, cur: Uint8Array, tool: 'edit' | 'write') {
+  // UTF-16 text reads as text (files/extract.ts utf16Text) but is written back as UTF-8: refused like a legacy encoding.
+  // write replaces a file whose UTF-16 is only guessed (no byte-order mark) as before; an edit never changes one
+  const kind = utf16Kind(cur.subarray(0, 8000))
+  if (kind && (tool === 'edit' || kind.startsWith('bom')) && utf16Text(cur) !== null) throw new ToolError(`'${rel}' is UTF-16 text. The AI cannot change it, because the change would be saved in another encoding (UTF-8) that the programs using this file may not read. Write a new UTF-8 copy under another name instead.`, 'legacy_encoding')
   if (cur.subarray(0, 8000).includes(0) || isUtf8(cur)) return
   throw new ToolError(`'${rel}' is in a legacy encoding (${isLegacyKorean(cur) ? 'Korean CP949 / EUC-KR' : 'not UTF-8'}). ` +
     'The AI cannot change it, because the change would break its characters. Write a new UTF-8 copy under another name instead.', 'legacy_encoding')
@@ -380,8 +384,24 @@ export interface VersionReads {
   places(userId: string, versionId: string): string[]
 }
 
-/** read with `versions`: the most text of the changes shown */
-export const VERSION_DIFF_MAX_CHARS = 8000
+/** read with `versions`: the most text of the changes shown in one read; `offset` (a line of the changes) reads on
+ * (second limits audit N39: 8,000 with no read-on before) */
+export const VERSION_DIFF_MAX_CHARS = 40_000
+/** The changes from line `offset` (1-based) of the whole diff: whole lines up to `max` characters (a single longer line
+ * cut), the line to read on from (null: the end) and how many lines there are. */
+export function versionDiffPart(text: string, offset = 1, max = VERSION_DIFF_MAX_CHARS): { text: string; next: number | null; lines: number } {
+  const all = text.split('\n')
+  const out: string[] = []
+  let used = 0
+  let i = Math.max(1, offset) - 1
+  for (; i < all.length; i++) {
+    const l = all[i]!
+    if (out.length && used + l.length + 1 > max) break
+    out.push(l.length > max ? `${l.slice(0, max)}…` : l)
+    used += l.length + 1
+  }
+  return { text: out.join('\n'), next: i < all.length ? i + 1 : null, lines: all.length }
+}
 /** ...and the most text of either side that is compared at all (above it: "too large to compare") */
 export const VERSION_DIFF_TEXT_MAX = 2 * 1024 * 1024
 /** ...and the most bytes of a plain text file (either side) that are read for it */
@@ -417,6 +437,8 @@ export class FileService {
   shared: SharedReads | null = null
   /** a file's kept versions (team-files/service.ts, set by component C); null: none */
   versions: VersionReads | null = null
+  /** text of files the AI reads in pieces, by content hash (files/read-lines.ts) */
+  readonly readViews = new ReadViews()
   constructor(readonly db: Database, readonly cfg: ServerConfig) {
     db.exec('PRAGMA synchronous = FULL')
     this.quarantine = new Quarantine(db, cfg.teamRoot)
@@ -607,7 +629,17 @@ export class FileService {
       // the very file the check saw (its lstat), as every read of the team folder (store.ts openToRead)
       try { const c = authorize(this.fx, rules, ctx.user, f, 'read'); return firstLine(readHead(c.abs, CSV_HEADER_BYTES, c.st)) } catch { return null }
     }) : res.text
-    return { text, summary: `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}` }
+    const summary = `grep ${r.rel || '.'} pattern(len=${a.pattern.length}) mode=${a.output_mode ?? 'files_with_matches'} -> ${text === 'No matches' ? 0 : text.split('\n').length} lines, filtered=${res.stats.filtered}`
+    // one file that ripgrep skipped as binary because it is UTF-16 without a byte-order mark: say so, read shows it
+    // (QA TC-4950; before, "No matches" and the AI took the text for missing)
+    if (text === 'No matches' && isFile && !vp) {
+      let kind: ReturnType<typeof utf16Kind> = null
+      try { const c = authorize(this.fx, rules, ctx.user, r.rel, 'read'); kind = utf16Kind(readHead(c.abs, 8000, c.st)) } catch {}
+      if (kind === 'le' || kind === 'be') {
+        return { text: `No matches: '${r.rel}' is UTF-16 text without a byte-order mark, which grep cannot search. Read it with read (it shows the text; offset and limit go through it).`, summary: summary + ' (utf-16, not searched)' }
+      }
+    }
+    return { text, summary }
   }
 
   // ---------------- read ----------------
@@ -727,12 +759,18 @@ export class FileService {
         if (now.length > VERSION_DIFF_TEXT_MAX || before.length > VERSION_DIFF_TEXT_MAX) {
           diff = `Changes (${label}): the file is too large to compare here; only the list above.`
         } else {
-          const d = lineDiff(before, now, VERSION_DIFF_MAX_CHARS)
+          const d = lineDiff(before, now, Number.MAX_SAFE_INTEGER)
+          const part = versionDiffPart(d.text, a.offset)
+          // where this part is in the changes, and how to read on (the same call with offset)
+          const at = a.offset && a.offset > 1 ? `; lines ${a.offset}-${part.next ? part.next - 1 : part.lines} of ${part.lines} lines of changes` : ''
+          const more = part.next ? `; cut at line ${part.next - 1} of ${part.lines}: for the rest, the same read with offset: ${part.next}` : ''
           diff = d.added + d.removed === 0
             ? `Changes (${label}): the text is the same (only the file itself differs, e.g. formatting).`
-            : d.approximate
-              ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole (cut) as removed then added, so counts are not meaningful:\n${d.text}`
-              : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${d.truncated ? '; cut, read the file for the rest' : ''}):\n${d.text}`
+            : a.offset && a.offset > part.lines
+              ? `Changes (${label}): offset ${a.offset} is past the end; the changes have ${part.lines} lines.`
+              : d.approximate
+                ? `Changes (${label}): too much changed to compare line by line; the changed part is shown whole as removed then added, so counts are not meaningful${at}${more}:\n${part.text}`
+                : `Changes (${label}; lines starting with "-" were removed, "+" added, "@@ -a,n +b,m @@" gives the line numbers before and now; ${d.removed} removed, ${d.added} added${at}${more}):\n${part.text}`
         }
       } catch (e) {
         if (!(e instanceof ToolError)) throw e
@@ -753,17 +791,26 @@ export class FileService {
     const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
     // inside a shared folder: the bytes come from the very file openChild checked (no swap in between)
     if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
-    // a spreadsheet's sheet and range (files/sheet-stream.ts): those rows only, under their own `# sheet:` label
+    // a kept text skips extractText, so its checks run here first: quarantined output is never shown (also not from
+    // the cache), and a stopped turn stops
+    this.quarantine.assertBytes(bytes)
+    ctx.signal?.throwIfAborted()
+    // a spreadsheet's sheet and range (files/sheet-stream.ts): those rows only, under their own `# sheet:` label (kept
+    // apart from the whole file's text: the sheet and range are part of the key)
     const sheet = a.sheet !== undefined || a.range !== undefined ? { sheet: a.sheet, range: a.range } : undefined
-    const text = await extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, ...(sheet ? { sheet } : {}) }, ctx.signal)
     const hash = sha256(bytes)
+    // the text and its views of these very bytes, kept from an earlier piece of the same file (QA TC-4950)
+    const viewKey = sheet ? `${r.rel}\0sheet:${sheet.sheet ?? ''}\0${sheet.range ?? ''}` : r.rel
+    const { text, memo, done } = await this.readViews.get(viewKey, hash, () => extractText(r.rel, bytes, { pandoc: this.cfg.pandoc, pdftotext: this.cfg.pdftotext, ocr: this.cfg.ocr, quarantine: this.quarantine, ...(sheet ? { sheet } : {}) }, ctx.signal))
     ctx.files.readHashes.set(r.rel, hash)
     ctx.files.readPaths.add(r.rel)
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash, locs: partLocs(r.rel, text, a) })
     // a .json file that is one long line reads as pretty-printed JSON (pretty: false for the raw text)
-    const pretty = prettyJsonView(r.rel, text, a)
+    const pretty = prettyJsonView(r.rel, text, a, memo)
     if (pretty?.view.pretty) ctx.files.prettyReads.add(r.rel); else ctx.files.prettyReads.delete(r.rel)
-    return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, text, a, {}, isOffice(r.rel))
+    try {
+      return pretty ? numberedLines(r.rel, pretty.text, a, pretty.view) : numberedLines(r.rel, memoLines(text, memo), a, {}, isOffice(r.rel))
+    } finally { done() }
   }
 
   /**
@@ -1706,7 +1753,7 @@ export class FileService {
     if (r.exists) {
       if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
       const cur = readRegular(r.abs, undefined, r.st).bytes
-      if (tool === 'write') refuseLegacyText(r.rel, cur)
+      if (tool === 'write') refuseLegacyText(r.rel, cur, 'write')
       // the AI's write: a read of this answer, or of an earlier one in this same engine session (readForReplace)
       const before = tool === 'write' && seen === ctx.files.readHashes ? readForReplace(ctx.files, r.rel) : seen.get(r.rel)
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
@@ -1738,8 +1785,8 @@ export class FileService {
     if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder`, 'is_folder')
     if (isOffice(r.rel) || BINARY_WRITE.has(ext(r.rel))) throw new ToolError('only text files can be edited')
     const cur = readRegular(r.abs, undefined, r.st).bytes
+    refuseLegacyText(r.rel, cur, 'edit')
     if (cur.subarray(0, 8000).includes(0)) throw new ToolError('binary file; cannot edit')
-    refuseLegacyText(r.rel, cur)
     const before = ctx.files.readHashes.get(r.rel)
     if (!before) throw new ToolError(`read '${r.rel}' first (with read) before editing it`, 'not_read')
     const text = cur.toString('utf8')

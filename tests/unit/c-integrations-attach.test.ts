@@ -143,8 +143,8 @@ describe('a team file attached to a mail', () => {
     const one = await turn('alice', { person: p }).call('my_mail__send_mail', sendArgs('groups/marketing/quotes/film.mov'))
     expect(one.isError).toBe(true)
     expect(one.summary).toBe('my_mail__send_mail -> refused (attachment too large)')
-    expect(one.text).toContain('"film.mov" is 10.01 MB')
-    expect(one.text).toContain('at most 10.0 MB together')
+    expect(one.text).toContain('"film.mov" is 18.01 MB')
+    expect(one.text).toContain('at most 18.0 MB together')
     expect(one.text).toContain('too large to attach')
     // two files that fit alone and not together
     const two = await turn('alice', { person: p }).call('my_mail__send_mail', { to: 'a@b.example', attachments: [{ filename: 'a', content_base64: `${TEAM_FILE_PREFIX}groups/marketing/quotes/half-a.bin` }, { filename: 'b', content_base64: `${TEAM_FILE_PREFIX}groups/marketing/quotes/half-b.bin` }] })
@@ -331,7 +331,7 @@ describe('what the AI is told', () => {
     const t = turn('alice')
     for (const text of [t.prompt, t.context]) {
       expect(text).toContain(`"${TEAM_FILE_PREFIX}<the file's path in the team folder>"`)
-      expect(text).toContain('At most 10 files and 10.0 MB together')
+      expect(text).toContain('At most 20 files and 18.0 MB together')
     }
     expect(turn('alice', { scheduled: true }).prompt).not.toContain(TEAM_FILE_PREFIX)
   })

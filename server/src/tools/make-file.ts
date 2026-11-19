@@ -38,6 +38,7 @@ import path from 'node:path'
 import ExcelJS from 'exceljs'
 import { addCharts, placeCharts, type ChartSheet, type ChartSpec } from './xlsx-chart'
 import { finishDocx, markTextColors, type TextMark } from './docx-format'
+import { stripUnsafeLinks } from './office-links'
 import { applySheetOptions, type SheetOptions, type WrittenSheet } from './xlsx-format'
 import { svgToPng, SVG_MAX, SVG_RSS_MIB } from './svg-png'
 import type { z } from 'zod'
@@ -47,6 +48,7 @@ import type { AppContext } from '../context'
 import { teamDefaultLocale, teamTimeZone } from '../admin/settings'
 import { ext, officeWorkerText, officeWorkerWrite } from '../files/extract'
 import { DOCX_TEMPLATE_CHECK_MODE, PPTX_TEMPLATE_CHECK_MODE } from '../files/office-template'
+import { DOCX_LINK_CHECK_MODE, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from '../files/office-links-check'
 import { PPTX_HTML_MODE, type SlidesHtml } from '../files/pptx-html'
 import { encodeHwpxRequest, firstDifference, HWPX_TEMPLATE_MAX, HWPX_WRITE_MODE, hwpxExpectedLines, hwpxReadLines } from '../files/hwpx-check'
 import { readForMakeFile, readThisAnswer, type ToolCtx } from '../files/service'
@@ -81,7 +83,7 @@ import { turnWriteLimits } from '../files/turn-write-limits'
 type Input = z.output<typeof MakeFileInput>
 /** a PDF printed from HTML: its pages, what the page referred to but did not get, and whether it has scripts (off) */
 export interface FromHtml { pages: number; blocked: string[]; blockedCount: number; scripts: boolean }
-export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string }
+export interface MadeFile { path: string; size: number; sha256: string; conflictCopyOf?: string; deck?: Deck; formulas?: number; stored?: number; charts?: number; html?: FromHtml; conditional?: number; svgPictures?: number; csvSheet?: string; linksRemoved?: string[] }
 /** the sources make_file prints as a page (format pdf only) */
 export const HTML_SOURCE_EXT = new Set(['html', 'htm'])
 
@@ -353,6 +355,8 @@ export class MakeFile {
       let svgPictures = 0
       /** the CSV sheet's name when it is not the file's name (cut at 31 characters, or characters Excel refuses) */
       let csvSheet: string | undefined
+      /** link targets that became plain text (office-links.ts) */
+      let linksRemoved: string[] = []
       if (a.format === 'xlsx') { const x = await this.xlsx(text, kind, produced, a.charts ?? [], a.sheets ?? [], first ? { name: first.name, more: a.content! } : undefined); formulas = x.formulas; stored = x.stored; charts = x.charts; conditional = x.conditional; csvSheet = x.csvSheet }
       else if (a.format === 'hwpx') await this.hwpx(c, a, text, kind, work, produced, sources)
       else {
@@ -376,6 +380,8 @@ export class MakeFile {
           const ast = JSON.parse(got.bytes.toString('utf8'))
           // raw markup for the writer (`...`{=openxml}) would go into the file as it is: refused (TC-4941)
           checkRawMarkup(ast)
+          // a link to anything but a web page, a mail address or a place in the document becomes its text (TC-4949)
+          linksRemoved = stripUnsafeLinks(ast)
           images = this.copyImages(c, ast, baseDir, work)
           sources.push(...images)
           // Word and PowerPoint: an SVG picture (a chart the AI drew) goes in as a PNG, which every reader shows
@@ -410,17 +416,24 @@ export class MakeFile {
           // a memory cap: a small template (any readable file now) can expand to hundreds of MB in pandoc (QA TC-4948)
           const r = await runIsolated({ cmd: this.conv.pandoc, args, workDir: work, timeoutMs: 120_000, maxRssMiB: PANDOC_RSS_MIB })
           if (r.code !== 0) throw new ToolError(r.killed === 'memory' ? `the conversion needed more than ${PANDOC_RSS_MIB} MB of memory${a.template ? ' (the template is too large or too complex; use another one)' : ''}; nothing was saved` : convertError('pandoc', r.stderr, r.killed, work))
-          // docx: text colours, page, header and footer (docx-format.ts), written under a name pandoc could not plant
-          if (a.format === 'docx' && (marks.size || a.page)) {
+          // docx: text colours, page, header and footer (docx-format.ts); docx and pptx: no link or reference out of
+          // the file but to the web and mail, whoever wrote it (a template too; office-links-check.ts, TC-4949), in the
+          // office worker with a real XML parser. Written under a name pandoc could not plant.
+          if (a.format === 'docx' || a.format === 'pptx') {
             const got = readOutput(work, path.basename(produced), MAX_DOCX)
-            if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : 'the converter produced no file')
-            const finished = path.join(work, freshName(work, 'finished', 'docx'))
-            fs.writeFileSync(finished, finishDocx(new Uint8Array(got.bytes), marks, a.page), { flag: 'wx', mode: 0o600 })
+            if (!got.ok) throw new ToolError(got.why === 'too_large' ? 'the document is too large to convert' : got.why === 'not_regular' ? 'the converter left a link or a special file instead of the document (symbolic links are not followed); nothing was saved' : 'the converter produced no file')
+            let bytes: Uint8Array = new Uint8Array(got.bytes)
+            if (a.format === 'docx' && (marks.size || a.page)) bytes = finishDocx(bytes, marks, a.page)
+            const checked = await officeWorkerWrite(a.format === 'docx' ? DOCX_LINK_CHECK_MODE : PPTX_LINK_CHECK_MODE, bytes, c.signal)
+            const finished = path.join(work, freshName(work, 'finished', a.format))
+            fs.writeFileSync(finished, checked, { flag: 'wx', mode: 0o600 })
             produced = finished
           }
         }
       }
       if (!fs.existsSync(produced)) throw new ToolError('the converter produced no file')
+      // xlsx: exceljs writes no link from the cells, and HYPERLINK formulas are refused; checked all the same (TC-4949)
+      if (a.format === 'xlsx') await officeWorkerWrite(XLSX_LINK_CHECK_MODE, new Uint8Array(readRegular(produced, MAX_DOCX).bytes), c.signal)
       // the slides that were really made, checked before the person is asked anything or a file is placed
       let deck: Deck | undefined
       if (a.format === 'pptx') {
@@ -431,7 +444,7 @@ export class MakeFile {
       // only now are all the files known whose bytes are in the output (images come out of pandoc's tree)
       await this.checkWidening(c, out.rel, out.segs, sources)
       const made = await this.place(c, out.segs, produced, sources)
-      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}) }
+      const extra = { ...(conditional ? { conditional } : {}), ...(svgPictures ? { svgPictures } : {}), ...(linksRemoved.length ? { linksRemoved } : {}) }
       return deck ? { ...made, deck, ...extra } : formulas !== undefined ? { ...made, formulas, stored, ...(charts ? { charts } : {}), ...(csvSheet ? { csvSheet } : {}), ...extra } : { ...made, ...extra }
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
@@ -525,7 +538,7 @@ export class MakeFile {
       if(!['md','markdown','txt'].includes(ext(s.path))) throw new ToolError(safeText(this.ctx.db,c.user.id,'source'))
       snapshots.push(s); text=s.bytes.toString('utf8'); base=s.path.split('/').slice(0,-1)
     }
-    const output=ext(a.output)==='pptx'?a.output:a.output+'.pptx'
+    const output=makeFileOutputPath(a.output,'pptx')
     c.user=this.ctx.files.principal(c.user.id)
     const out=authorize(this.files.fx,this.files.rules(),c.user,output,'write',{mustExist:false,download:true})
     const {bytes,deck}=await preparePresentation(this.ctx.files,c,this.conv.pandoc,text,base,{slides:a.expected_slides,notes:a.expected_notes,layouts:a.expected_layouts},snapshots)
@@ -680,11 +693,12 @@ export class MakeFile {
     if (st.size > 50 * 1024 * 1024) throw new ToolError('template is too large')
     // pandoc copies the template's headers, footers, settings, masters and layouts as they are: a field that runs or
     // fetches something, an external relationship or an embedded object would be in every new file, so the template
-    // is checked first in the office worker (files/office-template.ts, QA TC-4948), and the checked bytes are used
+    // is checked first in the office worker (files/office-template.ts, QA TC-4948). It returns the bytes with any
+    // attached template taken out (TC-4949), and those are the bytes pandoc reads.
     const bytes = readRegular(r.abs, 50 * 1024 * 1024, r.st).bytes
-    await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
+    const checked = await officeWorkerWrite(format === 'docx' ? DOCX_TEMPLATE_CHECK_MODE : PPTX_TEMPLATE_CHECK_MODE, bytes, c.signal)
     const local = freshName(work, 'template', format)
-    fs.writeFileSync(path.join(work, local), bytes, { flag: 'wx', mode: 0o600 })
+    fs.writeFileSync(path.join(work, local), checked, { flag: 'wx', mode: 0o600 })
     return { local, rel: r.rel }
   }
 

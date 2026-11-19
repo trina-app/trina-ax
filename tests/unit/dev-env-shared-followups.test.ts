@@ -53,10 +53,11 @@ describe('names of folders some people may not open (TC-4929)', () => {
     expect(v.read).toContain('shared/hr-ONLYALICE/open')
     expect(v.read).not.toContain('shared')
   })
-  test('a view with nothing denied inside is unchanged; a writable folder is never given entry by entry', () => {
+  test('a view with nothing denied inside is unchanged; a writable folder is given entry by entry too (QA TC-4945)', () => {
     const plain = { read: ['shared'], write: [], denyRead: [], denyWrite: [] }
     expect(hideDeniedNames(plain, root)).toEqual(plain)
+    // its sub-folders stay writable, its files are read-only, the denied folder and the link are not there
     const w = { read: [], write: ['shared'], denyRead: ['shared/hr-ONLYALICE'], denyWrite: [] }
-    expect(hideDeniedNames(w, root)).toEqual(w)
+    expect(hideDeniedNames(w, root)).toEqual({ read: ['shared/glossary.md'], write: ['shared/docs'], denyRead: [], denyWrite: [] })
   })
 })

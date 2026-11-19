@@ -148,7 +148,9 @@ describe('translations', () => {
       // a guest's Team AI limit: an amount written compact ("5M"), never a bare 1
       'guest.ai.tokens', 'guest.admin.upTo', 'guest.aiLimitTokens', 'welcome.ai.why', 'credentials.order',
       // a group's name, not a count ("Design skills")
-      'skills.groupPlace'])
+      'skills.groupPlace',
+      // a message's text limit, written formatted ("200,000"), never a bare 1
+      'composer.pastedAsFile', 'composer.textTooLong'])
     for (const loc of ['en', 'es'] as const) for (const [k, v] of Object.entries(DICTS[loc])) expect({ loc, k, bare: !notCounts.has(k) && bare.test(v) }).toEqual({ loc, k, bare: false })
   })
   test('steps of older answers follow the language on screen', () => {

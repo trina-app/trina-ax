@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import nodeNet from 'node:net'
 import path from 'node:path'
 import zlib from 'node:zlib'
-import { htmlToText, isPublicAddress, mayEndEvent, pinnedRequest, resolveTarget, webFetch, wrapExternal, type FetchOptions, type Target } from '../../server/src/tools/web-fetch'
+import { acceptLanguage, FETCH_TIMEOUT_MS, fetchedLine, htmlToText, isPublicAddress, mayEndEvent, pinnedRequest, resolveTarget, textPart, webFetch, wrapExternal, type FetchOptions, type Target } from '../../server/src/tools/web-fetch'
 import { sseEvents } from '../../server/src/integrations/connections/mcp'
 import { makeHandler } from '../../server/src/mcp/protocol'
 import { makePdf } from '../lib/pdf'
@@ -189,6 +189,8 @@ describe('fetching (local test servers stand in for public sites)', () => {
   let seenHosts: string[] = []
   const T: FetchOptions = { testAllow: (ip) => ip === '127.0.0.1', lookup: async () => [{ address: '127.0.0.1', family: 4 }], insecureTlsForTests: true, timeoutMs: 3000 }
   const big = 'A'.repeat(6 * 1024 * 1024)
+  // 100,000 characters, each 10-character piece numbered, an emoji at 39,999-40,000 (a pair across the default cut)
+  const long = Array.from({ length: 10_000 }, (_, i) => String(i).padStart(9, '0') + '.').join('').replace(/^([^]{39999})../, '$1😀')
   beforeAll(() => {
     const dir = path.join(WORK, 'c-webfetch')
     fs.mkdirSync(dir, { recursive: true })
@@ -206,12 +208,14 @@ describe('fetching (local test servers stand in for public sites)', () => {
         case '/bomb': return new Response(zlib.gzipSync(Buffer.alloc(50 * 1024 * 1024, 0x61)), { headers: { 'content-type': 'text/plain', 'content-encoding': 'gzip' } })
         case '/chunked': return new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('part one, ')); c.enqueue(new TextEncoder().encode('part two')); c.close() } }), { headers: { 'content-type': 'text/plain' } })
         case '/big': return new Response(big, { headers: { 'content-type': 'text/plain' } })
+        case '/long': return new Response(long, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
         case '/json': return Response.json({ ok: true, items: [1, 2] })
         case '/pdf': return new Response(Buffer.from(makePdf(['Quarterly PDF report', 'line two'])), { headers: { 'content-type': 'application/pdf' } })
         case '/image': return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), { headers: { 'content-type': 'image/png' } })
         case '/slow': return new Promise((r) => setTimeout(() => r(new Response('late')), 5000))
         case '/late': return new Promise((r) => setTimeout(() => r(new Response('a slow handler')), 200))
         case '/404': return new Response('no', { status: 404 })
+        case '/lang': return new Response(`lang=${req.headers.get('accept-language')}`, { headers: { 'content-type': 'text/plain' } })
         case '/to-private': return Response.redirect('http://10.0.0.1/admin', 302)
         case '/to-metadata': return Response.redirect('http://169.254.169.254/latest/meta-data/', 301)
         case '/to-localhost': return Response.redirect('http://localhost/', 307)
@@ -225,6 +229,16 @@ describe('fetching (local test servers stand in for public sites)', () => {
   })
   afterAll(() => { http.stop(true); https.stop(true) })
   const H = (p: string) => `http://fetch.test:19135${p}`
+
+  test('Accept-Language (TC-4981): the person\'s language, then English; English alone by default (was "ko,en" for all)', async () => {
+    expect(acceptLanguage('ko')).toBe('ko,en;q=0.8')
+    expect(acceptLanguage('id')).toBe('id,en;q=0.8')
+    expect(acceptLanguage('en')).toBe('en')
+    expect(acceptLanguage(null)).toBe('en')
+    expect(acceptLanguage('x\r\nEvil: 1')).toBe('en')
+    expect((await webFetch(H('/lang'), T)).text).toBe('lang=en')
+    expect((await webFetch(H('/lang'), { ...T, acceptLanguage: acceptLanguage('ja') })).text).toBe('lang=ja,en;q=0.8')
+  })
 
   test('HTML becomes readable text: no scripts, styles or hidden text; links absolute; title', async () => {
     const r = await webFetch(H('/page'), T)
@@ -254,6 +268,42 @@ describe('fetching (local test servers stand in for public sites)', () => {
     expect(b.truncated).toBe(true)
     expect(b.text.length).toBe(200_000)
   })
+  test('a long page reads on with offset (limits audit 1 #14): the first line says which part and the next offset', async () => {
+    const first = await webFetch(H('/long'), T)
+    expect(first).toMatchObject({ offset: 0, total: 100_000, truncated: true })
+    // the emoji at the default cut is not split: the first part stops before it
+    expect(first.text.length).toBe(39_999)
+    expect(first.text).toBe(long.slice(0, 39_999))
+    const w = wrapExternal(first)
+    expect(w.split('\n')[0]).toBe(`Fetched ${H('/long')}: characters 0-39999 of 100000. To read on, call web_fetch again with the same url and offset 39999.`)
+    const second = await webFetch(H('/long'), { ...T, offset: 39_999 })
+    expect(second.text.startsWith('😀')).toBe(true)
+    expect(second.text).toBe(long.slice(39_999, 79_999))
+    const last = await webFetch(H('/long'), { ...T, offset: 79_999 })
+    expect(last).toMatchObject({ offset: 79_999, total: 100_000, truncated: false })
+    expect(first.text + second.text + last.text).toBe(long)
+    expect(wrapExternal(last).split('\n')[0]).toBe(`Fetched ${H('/long')}: characters 79999-100000 of 100000 (the end of the page).`)
+    // past the end: an empty part that says where the page ends
+    const past = await webFetch(H('/long'), { ...T, offset: 500_000 })
+    expect(past).toMatchObject({ text: '', offset: 100_000, truncated: false })
+    // a short page: the first line is as before
+    expect(wrapExternal(await webFetch(H('/json'), T)).split('\n')[0]).toBe(`Fetched ${H('/json')}.`)
+  })
+
+  test('a page over the size limit says only its first 5 MB were read, and reads on inside them', async () => {
+    const b = await webFetch(H('/big'), { ...T, maxChars: 200_000, offset: 5 * 1024 * 1024 - 100 })
+    expect(b).toMatchObject({ sizeCut: true, truncated: true, offset: 5 * 1024 * 1024 - 100, total: 5 * 1024 * 1024 })
+    expect(b.text.length).toBe(100)
+    expect(fetchedLine(b, 'u')).toBe('Fetched u: characters 5242780-5242880 of 5242880 (the end of the page). The page is larger than 5 MB: only its first 5 MB were read, and this is the end of that part.')
+  })
+
+  test('textPart never splits a surrogate pair; the time limit is 30 s', () => {
+    expect(textPart('ab😀cd', 0, 3)).toEqual({ from: 0, text: 'ab' })
+    expect(textPart('ab😀cd', 3, 10)).toEqual({ from: 2, text: '😀cd' })
+    expect(textPart('abc', 7, 10)).toEqual({ from: 3, text: '' })
+    expect(FETCH_TIMEOUT_MS).toBe(30_000)
+  })
+
   test('limits: decompression bomb', async () => {
     const bomb = await webFetch(H('/bomb'), T)
     expect(bomb.truncated).toBe(true)

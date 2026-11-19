@@ -193,7 +193,7 @@ const resolve = (dir: string, target: string) => {
 /** A tag name without its namespace prefix (`x:row` is `row`). */
 const local = (name: string) => name.slice(name.indexOf(':') + 1)
 
-function sheetsOf(bytes: Uint8Array, ix: Index): { sheets: SheetRef[]; date1904: boolean } {
+function sheetsOf(bytes: Uint8Array, ix: Index): { sheets: SheetRef[]; date1904: boolean; repeated: boolean } {
   const wb = small(bytes, find(ix, 'xl/workbook.xml'))
   if (!wb) throw new ToolError('could not read this spreadsheet (no workbook part)')
   const relsXml = small(bytes, find(ix, 'xl/_rels/workbook.xml.rels'))
@@ -204,6 +204,8 @@ function sheetsOf(bytes: Uint8Array, ix: Index): { sheets: SheetRef[]; date1904:
     if (id && target && attr(t.head, 'TargetMode') !== 'External') targets.set(id, resolve('xl/', target))
   }
   const sheets: SheetRef[] = []
+  const seen = new Set<string>()
+  let repeated = false
   let date1904 = false
   for (const t of tags(wb)) {
     if (t.close) continue
@@ -214,10 +216,24 @@ function sheetsOf(bytes: Uint8Array, ix: Index): { sheets: SheetRef[]; date1904:
     const rid = /\sr:id="([^"]*)"/.exec(t.head)?.[1] ?? /\s\w+:id="([^"]*)"/.exec(t.head)?.[1]
     const part = rid ? targets.get(rid) : undefined
     const state = attr(t.head, 'state')
-    if (part) sheets.push({ name, part, hidden: state === 'hidden' || state === 'veryHidden' })
+    if (part) {
+      // a sheet part named again (repeatsSheetParts) is still read under each name, as before
+      if (seen.has(part)) repeated = true
+      seen.add(part)
+      sheets.push({ name, part, hidden: state === 'hidden' || state === 'veryHidden' })
+    }
   }
   if (!sheets.length) throw new ToolError('could not read this spreadsheet (no sheets found)')
-  return { sheets, date1904 }
+  return { sheets, date1904, repeated }
+}
+
+/**
+ * Does the workbook name a sheet part more than once? SheetJS then reads that sheet and its relationships again for
+ * each name (2,000 names of one sheet took over 60 s, review of #1316), so office-parse.ts gives it to the streaming
+ * reader, which does not read a sheet's relationships and keeps to its overview limits. False when the parts cannot be read (SheetJS gives its own error).
+ */
+export function repeatsSheetParts(bytes: Uint8Array): boolean {
+  try { return sheetsOf(bytes, index(bytes)).repeated } catch { return false }
 }
 
 /** Built-in number formats that are dates or times (ECMA-376 18.8.30, and the East Asian ones Excel adds). */

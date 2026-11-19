@@ -400,3 +400,19 @@ func TestResizeLargePngInTime(t *testing.T) {
 		t.Fatalf("a target size took %v", d)
 	}
 }
+
+// TestResizeInputLimit: a photo up to ResizeInputMax (150 MiB, second limits audit N29) is read, not refused by its
+// size; one byte more is.
+func TestResizeInputLimit(t *testing.T) {
+	if ResizeInputMax < 150<<20 {
+		t.Fatalf("ResizeInputMax %d", ResizeInputMax)
+	}
+	big := make([]byte, 40<<20)
+	copy(big, []byte{0xff, 0xd8, 0xff})
+	if _, err := Resize(big, ResizeSpec{Side: 1600}); errors.Is(err, ErrResizeBytes) || err == nil {
+		t.Fatalf("a 40 MiB input: %v", err)
+	}
+	if _, err := Resize(make([]byte, ResizeInputMax+1), ResizeSpec{Side: 1600}); !errors.Is(err, ErrResizeBytes) {
+		t.Fatalf("over the limit: %v", err)
+	}
+}

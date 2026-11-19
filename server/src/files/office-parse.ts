@@ -9,8 +9,8 @@ import * as XLSX from 'xlsx'
 import { ToolError } from '../policy/errors'
 import { hwpText, hwpxText } from './hwp'
 import { checkZip, isZip, readCentral, tooComplex, ZipProblem } from './zip-guard'
-import { bigSheetPart, bigSheetText, parseRange, pickSheet, PART_ROWS_MAX, type SheetAsk } from './sheet-stream'
-import { docxExtraText, pptxExtraText } from './ooxml'
+import { bigSheetPart, bigSheetText, parseRange, pickSheet, PART_ROWS_MAX, repeatsSheetParts, type SheetAsk } from './sheet-stream'
+import { docxExtraText, pptxExtraText, quoteLines, SECTION_MARK, xlsxChartsText, XLSX_CHARTS_TIME_MS } from './ooxml'
 import { DOCX_COMMENT_MODE, docxCommentRequest } from './docx-comment'
 import { hwpxWriteRequest } from './hwpx-write'
 import { hwpxEditRequest, hwpxVerifyRequest } from './hwpx-edit'
@@ -25,6 +25,7 @@ import './docx-edit'
 import './xlsx-edit'
 import './pptx-edit'
 import { DOCX_TEMPLATE_CHECK_MODE, docxTemplateCheckRequest, PPTX_TEMPLATE_CHECK_MODE, pptxTemplateCheckRequest } from './office-template'
+import { DOCX_LINK_CHECK_MODE, linkCheckRequest, PPTX_LINK_CHECK_MODE, XLSX_LINK_CHECK_MODE } from './office-links-check'
 
 export const WORKER_EXT = new Set(['xlsx', 'xls', 'ods', 'hwp', 'hwpx'])
 /** worker modes that give only the parts of a .docx / .pptx that pandoc drops (ooxml.ts); pandoc still gives the body */
@@ -194,20 +195,52 @@ export function streamsSheets(ext: string, bytes: Uint8Array): boolean {
   if (ext !== 'xlsx' || !isZip(bytes)) return false
   if (bytes.byteLength > SHEETJS_MAX) return true
   try { readCentral(bytes) } catch (e) { return e instanceof ZipProblem && e.kind === 'complex' && /expands to more than/.test(e.why) }
-  return false
+  // a sheet named more than once: SheetJS reads it again for each name (sheet-stream.ts repeatsSheetParts)
+  return repeatsSheetParts(bytes)
 }
 
-/** A spreadsheet's text: the whole workbook (or, when it is too large, its overview), or one sheet's range. */
+/** A spreadsheet's text: the whole workbook (or, when it is too large, its overview), or one sheet's range. The whole
+ * workbook and its overview end with the charts of an .xlsx (withCharts). A line of cell text that starts like a
+ * section label (`=== `) gets a space in front (ooxml.ts quoteLines), so only the real labels start a line. */
 export async function workbookText(ext: string, bytes: Uint8Array, ask?: SheetAsk): Promise<string> {
   const wanted = ask && (ask.sheet !== undefined || ask.range !== undefined)
-  if (streamsSheets(ext, bytes)) return wanted ? bigSheetPart(bytes, ask!) : bigSheetText(bytes)
-  if (wanted) return sheetRangeText(bytes, ask!)
-  try { return sheetText(bytes) } catch (e) {
+  if (streamsSheets(ext, bytes)) return wanted ? quoteLines(await bigSheetPart(bytes, ask!)) : withCharts(ext, bytes, quoteLines(await bigSheetText(bytes)))
+  if (wanted) return quoteLines(sheetRangeText(bytes, ask!))
+  let text: string
+  try { text = sheetText(bytes) } catch (e) {
     // more text than one read gives: an .xlsx gets its overview from the streaming reader instead
-    if (ext === 'xlsx' && isZip(bytes) && e instanceof ToolError && e.message.includes('MB of text')) return bigSheetText(bytes)
-    throw e
+    if (ext === 'xlsx' && isZip(bytes) && e instanceof ToolError && e.message.includes('MB of text')) text = await bigSheetText(bytes)
+    else throw e
   }
+  return withCharts(ext, bytes, quoteLines(text))
 }
+
+/** time kept back for writing the answer when the charts are read near the worker's end (OFFICE_DEADLINE_MS) */
+const CHARTS_TIME_RESERVE_MS = 3000
+
+/**
+ * The text of the sheets, then the workbook's charts (ooxml.ts xlsxChartsText) under their own label. Charts never
+ * lose the sheets: when they cannot be read, or would pass the output cap or the worker's time (extract.ts gives the
+ * worker its end as OFFICE_DEADLINE_MS), a labelled line says so instead.
+ */
+function withCharts(ext: string, bytes: Uint8Array, text: string): string {
+  if (ext !== 'xlsx') return text
+  const notRead = (why: string) => `${SECTION_MARK}The charts of this workbook were not read (${why}) ===`
+  const end = Number(process.env.OFFICE_DEADLINE_MS)
+  const left = Number.isFinite(end) && end > 0 ? end - Date.now() - CHARTS_TIME_RESERVE_MS : XLSX_CHARTS_TIME_MS
+  let charts: string
+  if (left < 500) charts = notRead('no time was left after the sheets')
+  else {
+    try { charts = xlsxChartsText(bytes, { timeMs: Math.min(XLSX_CHARTS_TIME_MS, left) }) } catch (e) {
+      charts = notRead(e instanceof ToolError ? oneLineWhy(e.message) : 'the reader failed')
+    }
+  }
+  if (!charts) return text
+  // the sheets' text with the charts stays under the worker's output cap (extract.ts officeWorkerText)
+  if (Buffer.byteLength(text, 'utf8') + Buffer.byteLength(charts, 'utf8') > OFFICE_TEXT_MAX) charts = notRead("the sheets' text is already at the size limit")
+  return `${text.trimEnd()}\n\n${charts}`
+}
+const oneLineWhy = (s: string) => s.replace(/[\r\n\u0085\u2028\u2029]+/g, ' ').slice(0, 200)
 
 function readBook(bytes: Uint8Array): XLSX.WorkBook {
   if (isZip(bytes)) checkZip(bytes)
@@ -277,6 +310,10 @@ WRITE_MODES.add(OFFICE_VERIFY_MODE)
 // make_file's .docx / .pptx template checked before pandoc copies its parts (office-template.ts)
 WRITE_MODES.add(DOCX_TEMPLATE_CHECK_MODE)
 WRITE_MODES.add(PPTX_TEMPLATE_CHECK_MODE)
+// make_file's finished Word / PowerPoint / Excel file checked for links and references that leave it (office-links-check.ts)
+WRITE_MODES.add(DOCX_LINK_CHECK_MODE)
+WRITE_MODES.add(PPTX_LINK_CHECK_MODE)
+WRITE_MODES.add(XLSX_LINK_CHECK_MODE)
 
 /** Text of one file of a WORKER_EXT format (or an EXTRA_MODES mode); ToolError for a file it cannot or will not read.
  * `ask`: one sheet and range of a spreadsheet (read's `sheet` / `range`). */
@@ -302,6 +339,9 @@ export function officeWrite(mode: string, input: Uint8Array): Uint8Array | Promi
   if (mode === OFFICE_VERIFY_MODE) return officeVerifyRequest(input)
   if (mode === DOCX_TEMPLATE_CHECK_MODE) return docxTemplateCheckRequest(input)
   if (mode === PPTX_TEMPLATE_CHECK_MODE) return pptxTemplateCheckRequest(input)
+  if (mode === DOCX_LINK_CHECK_MODE) return linkCheckRequest('docx')(input)
+  if (mode === PPTX_LINK_CHECK_MODE) return linkCheckRequest('pptx')(input)
+  if (mode === XLSX_LINK_CHECK_MODE) return linkCheckRequest('xlsx')(input)
   if (mode === HWPX_WRITE_MODE) return hwpxWriteRequest(input)
   if (mode === HWPX_EDIT_MODE) return hwpxEditRequest(input)
   if (mode === HWPX_VERIFY_MODE) return hwpxVerifyRequest(input)

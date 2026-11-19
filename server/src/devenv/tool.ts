@@ -23,7 +23,7 @@ import { ToolError } from '../policy/errors'
 import { assertStorageRoomForAI } from '../system/storage'
 import { newJobName, pollSrt, runResultsForAI } from './jobs'
 import { mayUseDevEnv, teamSetting, type ProjectRef } from './setting'
-import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
+import { networkNow, othersInProject, personNetNow, runCommand, runNameInUse, sharedLockedTops, sharedVisible, spaceOf, startServer, submitJob, teamHosts, type SharedRun, type Space } from './srt/runner'
 import { grantUserSite, siteAllowed } from './sites'
 import { DEV_ENV_MAX_USER_SITES, siteFromInput, userSiteProblem } from '@mycel/shared'
 import path from 'node:path'
@@ -81,7 +81,7 @@ export const srtShellDescription = (preview: boolean) => 'Run a shell command in
   + devServerText(preview)
   + 'For a long command (a render, a large build) use job=true: the call returns at once; if other jobs of the team run, it waits in a queue. '
   + 'Read its log with tail -n 20 $TRINA_LOGS/<log_name>.log and do not wait for it in a loop. When a job ends the person gets a notice, and your next box_shell call in this chat gives you its exit code and the end of its log. '
-  + 'One command at a time per folder; default time limit 120 s; only the first 32 KiB of stdout and of stderr come back. '
+  + 'One command at a time per folder; default time limit 120 s; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so): to search all of a long output, send it to a file (cmd > $TRINA_LOGS/out.log 2>&1) and grep or tail that. '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 /** The tool text in a shared chat (docs/decisions/20261118-devenv-shared-chats.md): everyone in the chat sees the
  * command and its output, so it sees only what all of them may open; foreground commands only; no login. */
@@ -95,7 +95,7 @@ export const sharedShellDescription = (project: boolean) => 'Run a shell command
   + 'There are NO credentials, and commands that need a login (git push, npm publish, ssh ...) are refused here: tell the person to do them on their own computer. '
   + 'No jobs and no dev servers here (job and background are refused): each command must finish within its time limit (default 120 s, at most 1800 s). For longer work the person can ask in a chat of their own. '
   + 'You cannot change .git/config or .git/hooks, and git runs no repository hooks here. For chromium use --headless --no-sandbox --disable-dev-shm-usage. '
-  + 'One command at a time per folder; only the first 32 KiB of stdout and of stderr come back. '
+  + 'One command at a time per folder; a long stdout or stderr comes back as its first and its last 16 KiB (the middle is left out, and the result says so). '
   + 'When the dev environment of the team is full, a command waits for a free slot (at most 5 minutes) and then runs; the person sees its place in line.'
 
 /** this server shows previews: a preview origin is set and the runner can forward a port (systemd scopes) */
@@ -126,7 +126,22 @@ export function foreignLines(f: { items: ForeignChange[]; total: number }): stri
   return lines.join('\n')
 }
 
-const clip = (s: string) => (s.length > OUT_SHOWN ? s.slice(0, OUT_SHOWN) + '\n(cut)' : s)
+/** what the AI gets of a stdout or stderr: its first and last half of OUT_SHOWN, never only the start (limits audit 1 #21:
+ * the error at the end of a long build was lost). The runner already cut a long output this way with its own line
+ * (srt/runner.ts readEnds, the same size): that one is kept, never cut again. Cuts go to a line break when one is near,
+ * so a value on one line is never split (the redaction after this matches whole values). */
+export const clip = (s: string) => {
+  if (s.length <= OUT_SHOWN || RUNNER_CUT.test(s) && s.length <= OUT_SHOWN + 200) return s
+  let head = s.slice(0, OUT_SHOWN / 2), tail = s.slice(-OUT_SHOWN / 2)
+  const nl = head.lastIndexOf('\n')
+  if (nl >= 0 && head.length - nl <= 4096) head = head.slice(0, nl + 1)
+  const tn = tail.indexOf('\n')
+  if (tn >= 0 && tn < 4096) tail = tail.slice(tn + 1)
+  if (/[\uD800-\uDBFF]$/.test(head)) head = head.slice(0, -1)
+  if (/^[\uDC00-\uDFFF]/.test(tail)) tail = tail.slice(1)
+  return `${head}\n… (${s.length - head.length - tail.length} characters in the middle left out; the end follows) …\n${tail}`
+}
+const RUNNER_CUT = /\n… \(about \d+ bytes in the middle of this output were left out; the end follows\) …\n/
 
 export interface BoxShellHost {
   ctx: AppContext
@@ -160,15 +175,22 @@ export interface BoxShellHost {
   redact(s: string): string
 }
 
+/** What a shared chat's command cannot do in a folder given entry by entry (srt/mounts.ts). Names only folders everyone
+ * in the chat may open, and never what is hidden or why. */
+export const lockedTopsNote = (folders: readonly string[]) => `Note: in this shared chat a command cannot add, rename or delete anything directly in ${folders.slice(0, 5).map((f) => `$TRINA_TEAM/${f}`).join(', ')}${folders.length > 5 ? ` and ${folders.length - 5} more` : ''} (what it makes there is not kept), and the files there are read-only; folders whose names start with a dot and skill folders there are read-only too, and a .git folder there is not available (git does not work at that level). Write in one of its other sub-folders or in $TMPDIR, and save a result with the file tools (write, edit, copy_files).`
+
 type Window = { changes: Change[]; background: Change[]; conflicts: string[] }
 
 /** The answer to the AI after a command ran. */
 function answer(h: BoxShellHost, o: { notes: string[]; head: string; started: number; exit: RunExit; w: Window; background: boolean; what: string }) {
   const { notes, head, started, exit: e, w, background, what } = o
   const parts = [...notes, `${head} (${((Date.now() - started) / 1000).toFixed(1)} s)`]
-  // srt's proxy login (srt/proxy-login.ts: per run, useless outside it) never reaches the AI, so never a chat
-  parts.push(e.stdout ? `--- stdout ---\n${clip(hideProxyLogin(e.stdout))}` : '--- stdout: empty ---')
-  if (e.stderr) parts.push(`--- stderr ---\n${clip(hideProxyLogin(e.stderr))}`)
+  // srt's proxy login (srt/proxy-login.ts: per run, useless outside it) never reaches the AI, so never a chat; secrets are
+  // hidden before any cut (a value split at a cut would not match), and the whole answer again below
+  parts.push(e.stdout ? `--- stdout ---
+${clip(h.redact(hideProxyLogin(e.stdout)))}` : '--- stdout: empty ---')
+  if (e.stderr) parts.push(`--- stderr ---
+${clip(h.redact(hideProxyLogin(e.stderr)))}`)
   if (e.truncated) parts.push('(output cut)')
   if (w.changes.length) parts.push(`Files changed by this command (${w.changes.length}):\n${changeLines(w.changes)}`)
   if (w.background.length) parts.push(`Files changed in the background since the last command (${w.background.length}):\n${changeLines(w.background)}`)
@@ -203,7 +225,7 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
     const base = { space, turnId: h.turnId, command: input.command, shown, cwd, once: [...o.once] }
     if (jobName) return { kind: 'job', r: await submitJob(ctx, { ...base, name: jobName }) }
     if (background) return { kind: 'server', r: await startServer(ctx, { ...base, name: input.log_name ?? 'background' }) }
-    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once] }) }
+    return { kind: 'exit', r: await runCommand(ctx, { space, cwd, command: input.command, shown, timeoutMs, signal: h.signal, once: [...o.once], redact: h.redact }) }
   }
   let w: Window & { value: Out }
   if (o.tracked) {
@@ -228,6 +250,10 @@ async function srtShell(h: BoxShellHost, input: BoxShellInput, o: { space: Space
   if (h.shared) {
     const see = sharedVisible(ctx, space)
     w = { ...w, changes: w.changes.filter((c) => see(c.path)), background: w.background.filter((c) => see(c.path)), conflicts: w.conflicts.filter(see) }
+    // a writable folder that holds a folder some of them cannot open is given entry by entry (srt/mounts.ts): its top
+    // cannot change in a command, which the AI must know (else a file it makes there is silently not kept)
+    const locked = sharedLockedTops(ctx, space)
+    if (locked.length) notes.push(lockedTopsNote(locked))
   }
   if (!out.r.ok) return { ...text(h.redact([...notes, `Error: the command could not run (${out.r.message.slice(0, 300)}).`].join('\n')), true), summary: `${what} -> ${out.r.message.slice(0, 200)}` }
   const empty = { ev: 'exit' as const, code: 0, signal: '', stdout: '', stderr: '', truncated: false, ms: Date.now() - started }

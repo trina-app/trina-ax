@@ -1,0 +1,2 @@
+- In a chat shared with other people, the AI can now add review comments to a Word file, as it can in your own chats. A file only you can open still asks you first.
+- The AI can read bigger files sent in team chat rooms (up to the same size as files in the team folder; before, it stopped at 32 MB).

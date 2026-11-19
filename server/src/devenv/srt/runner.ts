@@ -44,7 +44,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { hideDeniedNames } from './mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
 import { macConfig, macSystem } from './system-mac'
@@ -56,7 +56,9 @@ export const WAIT_MAX_MS = 24 * 3600_000
 export const JOB_MAX_SEC = 6 * 3600
 export const SERVER_MAX_SEC = 8 * 3600
 export const LOG_MAX_BYTES = 64 << 20
-const OUT_READ = 64 << 10
+/** a command's stdout and stderr each: its first and last half of this (readEnds). The same as what box_shell shows
+ * (devenv/tool.ts OUT_SHOWN), so the output is cut once, here, and the count of what was left out is the real one */
+const OUT_READ = 32 << 10
 const TAIL_BYTES = 4 << 10
 /** a dev server under this CPU share for idleStopMin stops (reason idle) */
 const IDLE_CPU_SHARE = 0.02
@@ -322,6 +324,30 @@ export function sharedVisible(ctx: AppContext, space: Space): (rel: string) => b
   }
 }
 
+/** May a shared chat's command start in `cwd` (a real path the runner resolved)? Outside the team folder (its work
+ * folder): yes; in it: only where the run may name the folder (sharedVisible). */
+function sharedCwdShown(ctx: AppContext, space: Space, cwd: string): boolean {
+  let team: string
+  try { team = fs.realpathSync(ctx.files.fx.root) } catch { return false }
+  const rel = path.relative(team, cwd)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return rel !== ''
+  return sharedVisible(ctx, space)(rel.split(path.sep).join('/'))
+}
+
+/** A shared chat's run: the writable folders whose top a command cannot change because they hold a folder not
+ * everyone in the chat may open (srt/mounts.ts hideDeniedNames gives them entry by entry), shallowest first. For the
+ * tool's note; they are folders everyone in the chat may open. None when the run cannot be worked out (it then does not
+ * start either). */
+export function sharedLockedTops(ctx: AppContext, space: Space): string[] {
+  if (!space.shared) return []
+  try {
+    const run = runWrites(ctx, srtConfig(), space)
+    const scope = sharedScopeNow(ctx, space.shared)
+    const view = scope ? personView(ctx, space.userId, run, space.shared, scope) : null
+    return view ? lockedTops(view, hideDeniedNames(view, ctx.files.fx.root)) : []
+  } catch { return [] }
+}
+
 /** May a run of this person start in `root` now? The root is the chat's work folder, or a team folder the person can
  * read. */
 export function rootAllowed(ctx: AppContext, c: SrtConfig, space: Space, view: FolderView): boolean {
@@ -467,11 +493,14 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
   const hosts = teamHosts(ctx)
   // only this person's sites and switch: another person's never reach this run
   const person = personNetNow(ctx, space.userId)
+  // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
+  // below stays the view's. The entries given one by one are pinned (Linux: srt binds them, following links) and the
+  // command checks them first inside the sandbox (entryGuard)
+  const given = space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view
+  const pins = space.shared && runPlatform() === 'linux' ? entryPins(view, given, ctx.files.fx.root) : {}
   const input = {
     base: c.base, id: c.id, teamRoot: ctx.files.fx.root, userId: space.userId,
-    // a shared chat: no name of a folder some of its people may not open shows in a listing (srt/mounts.ts); the hash
-    // below stays the view's
-    view: space.shared ? hideDeniedNames(view, ctx.files.fx.root) : view, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
+    view: given, start: run.start, work, network, sharedChat: runOwner(space).sharedChat, runId, projectFolder: runOwner(space, runId, ctx.files.fx.root).projectFolder,
     extraDomains: teamSetting(ctx.db).extraDomains,
     userDomains: [...person.sites, ...parseOnce(formatOnce(once), hosts)],
     full: person.full,
@@ -488,7 +517,7 @@ async function settingsFor(ctx: AppContext, c: SrtConfig, space: Space, runId: s
     if (space.shared) { ctx.log?.warn?.('devenv: refused settings of a shared chat run', { problems }); throw new Error('refused settings (see the server log)') }
     throw new Error(`refused settings: ${problems.join('; ')}`)
   }
-  return { settings, work, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
+  return { settings, work, pins, hash: runHash(view, run, scope), net: netSnapshot(input.extraDomains, person) }
 }
 
 async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pid: number; exited: Promise<{ code: number | null; signal: string | null }>; hash: string; net: NetSnapshot }> {
@@ -500,10 +529,15 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   try {
-    const { settings, work, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    const { settings, work, pins, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
+    // the pinned entries, in the run's own TMPDIR (a shared chat's run always has one), checked by the command's first line
+    const guard = entryGuard(writePins(runTmp(c.base, runOwner(s.space, s.runId)), pins))
     // a cwd through a link out of the root folder is refused before the run (attack A10)
     const cwd = resolveRunCwd(s.space.root, s.cwd)
     if (!cwd) throw new Error('cwd must be a folder inside the folder of this chat')
+    // a shared chat: a cwd in a folder the run does not show (a sub-folder some of its people may not open) is refused
+    // with the same words as one that is not there (QA TC-4945)
+    if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
@@ -511,7 +545,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     release = holdPlaceholders(cwd)
     const sp = await c.system.spawn({
     runId: s.runId, id: c.id, cwd, env: runEnv({ base: c.base, userId: s.space.userId, teamRoot: ctx.files.fx.root, work, platform: runPlatform(), sharedChat: runOwner(s.space).sharedChat, runId: s.runId, projectFolder: runOwner(s.space, s.runId, ctx.files.fx.root).projectFolder }),
-    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: s.command,
+    limits: { cpus: s.limits.cpus, memoryMiB: s.limits.memoryMiB, pids: s.limits.pids, runtimeMaxSec: s.runtimeMaxSec }, exitFile, settingsFile, command: guard ? `${guard}\n${s.command}` : s.command,
     stdoutFile: s.stdoutFile, stderrFile: s.stderrFile, full: isFull(settings), writable: settings.filesystem.allowWrite,
     })
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills() }), hash, net }
@@ -526,6 +560,58 @@ function readHead(file: string, max: number): { text: string; cut: boolean } {
     const n = fs.readSync(fd, buf, 0, max + 1, 0)
     return { text: buf.subarray(0, Math.min(n, max)).toString('utf8'), cut: n > max }
   } finally { fs.closeSync(fd) }
+}
+
+/** A command's output as the AI gets it (limits audit 1 #21): all of it up to `head + tail` bytes, else its first `head`
+ * and its last `tail` bytes with a line that says how much was left out in between, so the error a long build prints
+ * at its end is there. `head` and `tail` count characters of the hidden text. `redact` (the stored secrets of the turn, devenv/tool.ts) runs before the cuts, on each part with
+ * REDACT_MARGIN bytes more past the cut, so a secret across a cut is hidden whole, never left half-shown. Neither part
+ * ends inside a UTF-8 character; both cuts go to a line break when there is one near. */
+export function readEnds(file: string, head: number, tail: number, redact: (s: string) => string = (x) => x): { text: string; cut: boolean } {
+  let fd: number
+  try { fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW) } catch { return { text: '', cut: false } }
+  try {
+    const size = fs.fstatSync(fd).size
+    if (size <= head + tail) {
+      const all = Buffer.alloc(size)
+      const n = fs.readSync(fd, all, 0, size, 0)
+      return { text: redact(all.subarray(0, n).toString('utf8')), cut: false }
+    }
+    const ha = Math.min(size, head + REDACT_MARGIN)
+    const a = Buffer.alloc(ha)
+    const na = fs.readSync(fd, a, 0, ha, 0)
+    const tb = Math.min(size, tail + REDACT_MARGIN)
+    const b = Buffer.alloc(tb)
+    const nb = fs.readSync(fd, b, 0, tb, size - tb)
+    // whole characters only at the window's edges, then hidden, then cut to its size (in characters of the hidden text)
+    let startText = redact(utf8Whole(a.subarray(0, na), 'end'))
+    let endText = redact(utf8Whole(b.subarray(0, nb), 'start'))
+    startText = startText.slice(0, head).replace(/[\uD800-\uDBFF]$/, '')
+    endText = endText.slice(Math.max(0, endText.length - tail)).replace(/^[\uDC00-\uDFFF]/, '')
+    const lastNl = startText.lastIndexOf('\n')
+    if (lastNl >= 0 && startText.length - lastNl <= LINE_SNAP) startText = startText.slice(0, lastNl + 1)
+    const nl = endText.indexOf('\n')
+    if (nl >= 0 && nl < LINE_SNAP) endText = endText.slice(nl + 1)
+    const left = size - Buffer.byteLength(startText) - Buffer.byteLength(endText)
+    return { text: `${startText}\n… (about ${Math.max(0, left)} bytes in the middle of this output were left out; the end follows) …\n${endText}`, cut: true }
+  } finally { fs.closeSync(fd) }
+}
+/** how far a cut moves to reach a line break */
+const LINE_SNAP = 4096
+/** bytes read past each cut for the redaction (a stored secret is far shorter) */
+const REDACT_MARGIN = 4096
+/** a buffer cut at either end with no part of a UTF-8 character left there */
+function utf8Whole(buf: Buffer, edge: 'start' | 'end'): string {
+  if (edge === 'start') {
+    let j = 0
+    while (j < buf.length && j < 4 && (buf[j]! & 0xc0) === 0x80) j++
+    return buf.subarray(j).toString('utf8')
+  }
+  let k = buf.length
+  while (k > 0 && k > buf.length - 4 && (buf[k - 1]! & 0xc0) === 0x80) k--
+  const lead = k > 0 ? buf[k - 1]! : 0
+  const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1
+  return (buf.length - (k - 1) < need ? buf.subarray(0, k - 1) : buf).toString('utf8')
 }
 
 function readTail(file: string, max: number): string {
@@ -609,7 +695,7 @@ export function runProblem(ctx: AppContext): string | null {
 }
 
 /** A foreground command: the call waits for it. The answer is a RunExit (srt/types.ts), which tool.ts reads. */
-export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[] }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
+export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string; command: string; shown?: string; timeoutMs: number; signal?: AbortSignal; once?: readonly string[]; redact?: (s: string) => string }): Promise<{ ok: true; value: RunExit } | { ok: false; message: string }> {
   const c = srtConfig()
   const lim = limitsFor(ctx)
   if (!lim.ok) return lim
@@ -644,7 +730,7 @@ export async function runCommand(ctx: AppContext, o: { space: Space; cwd: string
       if (u.result === 'oom-kill') oom = true
       if (u.state === 'failed') await c.system.forget(runId)
       const code = readExit(exitFile)
-      const so = readHead(out, OUT_READ), se = readHead(err, OUT_READ)
+      const so = readEnds(out, OUT_READ / 2, OUT_READ / 2, o.redact), se = readEnds(err, OUT_READ / 2, OUT_READ / 2, o.redact)
       const signal = a.stopReason === 'timeout' ? 'timeout' : a.stopReason === 'setting' ? 'setting' : a.stopReason ? 'stopped' : oom ? 'oom' : ''
       return { ok: true as const, value: { ev: 'exit' as const, code: code ?? ended.code ?? 137, signal, stdout: so.text, stderr: se.text, truncated: so.cut || se.cut, ms: Date.now() - started } }
     } catch (e) {

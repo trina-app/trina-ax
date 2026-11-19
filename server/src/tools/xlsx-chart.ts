@@ -6,12 +6,14 @@
 // as its cache, so a viewer that does not calculate shows it too.
 // A chart covers one rectangle of one sheet: its first column is the labels (categories), its first row the series
 // names, every other column one series of numbers. Kinds: column (vertical bars), bar (horizontal), line, pie.
+import { MAKE_FILE_CHARTS_MAX } from '@mycel/shared'
 import { readZip, writeZip, type ZipEntry } from '../files/zip-write'
 import { ToolError } from '../policy/errors'
 
 export const CHART_TYPES = ['column', 'bar', 'line', 'pie'] as const
 export type ChartType = (typeof CHART_TYPES)[number]
-export const CHARTS_MAX = 10
+/** the charts of one workbook (the tool's schema says the same: MAKE_FILE_CHARTS_MAX) */
+export const CHARTS_MAX = MAKE_FILE_CHARTS_MAX
 
 export interface ChartSpec { type: ChartType; range: string; sheet?: string; title?: string; anchor?: string }
 /** A sheet as make_file wrote it: its name in the file, the heading it came from, its cells (rows[r][c] = row r+1). */

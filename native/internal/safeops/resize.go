@@ -27,8 +27,10 @@ import (
 )
 
 const (
-	// ResizeInputMax is the largest compressed input (a 48 MP phone JPEG is about 20 MiB).
-	ResizeInputMax = 32 << 20
+	// ResizeInputMax is the largest compressed input (a 48 MP phone JPEG is about 20 MiB, a 50 MP PNG up to about
+	// 150 MiB). The pixels, not the bytes, bound the decoded image (visionSize); measured 2026-11-18: a 147 MiB 49 MP
+	// PNG peaked at about 750 MiB, a 16-bit one at 840 MiB (server/src/tools/resize-images.ts allows 1536 MiB).
+	ResizeInputMax = 150 << 20
 	// ResizeOutputMax is the largest copy written (a 48 MP PNG can be larger: it is refused).
 	ResizeOutputMax = 48 << 20
 	// ResizeMaxBytesMin is the smallest target size accepted (smaller is not a photo any more).

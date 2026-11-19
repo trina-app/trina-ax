@@ -254,6 +254,24 @@ describe('saving a room file from my own chat', () => {
     for (const f of [`downloads/${file.name}`, `second-${file.name}`]) fs.rmSync(at(`users/alice/${f}`), { force: true })
   })
 
+  test('a room file over 50 MB is copied whole, in pieces (second limits audit N38, TC-4974)', async () => {
+    const roomId = await teamRoom(['alice', 'erin'])
+    // 60 MB: refused before as "larger than 50 MB"; a room takes up to 1 GB
+    const bytes = Buffer.alloc(60 * 1024 * 1024, 7)
+    bytes.write(uuidv7(), 0)
+    const name = `site-video-${uuidv7().slice(-6)}.bin`
+    const f = await upload('erin', roomId, name, bytes)
+    await send('erin', roomId, 'the raw footage', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await run('alice', chat, fake(save(roomId, f.id)), () => 'allow')
+    expect(r.done.content).not.toContain('larger than')
+    expect(saveLine(r.turnId)).toMatchObject({ ok: 1 })
+    const saved = at(`users/alice/downloads/${name}`)
+    expect(fs.statSync(saved).size).toBe(bytes.length)
+    expect(sha(fs.readFileSync(saved))).toBe(sha(bytes))
+    fs.rmSync(saved, { force: true })
+  })
+
   test('a refusal marks the chat too: room names it may show (several rooms match) never reach an unmarked chat', async () => {
     const tag = uuidv7().slice(-6)
     const a = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin', 'carol'], name: `proj-${tag} one` } })

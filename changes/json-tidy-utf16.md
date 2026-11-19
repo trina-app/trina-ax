@@ -1,0 +1,1 @@
+- The AI reads a very large one-line JSON file without slowing the server: the formatted view is made once, not again for every part it reads. The AI can now also read text files saved as UTF-16 (as some Windows programs save them), and a search in such a file says how to read it instead of finding nothing.

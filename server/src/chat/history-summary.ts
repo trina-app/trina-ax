@@ -139,13 +139,14 @@ export function lookupSummary(db: Database, chatId: string, userId: string, line
 }
 
 /** Messages the window leaves out that no summary covers (0: nothing to summarize). */
-export function uncovered(history: readonly HistoryItem[], summary: HistorySummary | null): number {
-  return historyWindowAfter(history as HistoryItem[], summary).omitted
+/** `budget`: the window's size (a model with a small context has a smaller one: chat/history-fit.ts) */
+export function uncovered(history: readonly HistoryItem[], summary: HistorySummary | null, budget = HISTORY_MAX_TOKENS): number {
+  return historyWindowAfter(history as HistoryItem[], summary, budget).omitted
 }
 
 /** How many messages from the start a new summary should cover: up to where the rest is half the window. */
-export function summaryTarget(history: readonly HistoryItem[]): number {
-  return historyWindow(history as HistoryItem[], HISTORY_MAX_TOKENS / 2).omitted
+export function summaryTarget(history: readonly HistoryItem[], budget = HISTORY_MAX_TOKENS): number {
+  return historyWindow(history as HistoryItem[], budget / 2).omitted
 }
 
 /** chat text can neither close nor open a data block of the call ("< /chat>", a zero-width "</chat>" included:
@@ -232,6 +233,8 @@ export interface EnsureInput {
   lines: readonly string[]
   /** hashChain(lines), when the caller has it already */
   chain?: readonly string[]
+  /** the window's size in estimated tokens (default HISTORY_MAX_TOKENS; smaller for a small model) */
+  budget?: number
 }
 
 /**
@@ -242,8 +245,8 @@ export interface EnsureInput {
 export function ensureSummary(i: EnsureInput): Promise<HistorySummary | null> {
   const chain = i.chain ?? hashChain(i.lines)
   const have = lookupSummary(i.db, i.chatId, i.userId, i.lines, chain)
-  if (uncovered(i.history, have) === 0) return Promise.resolve(have)
-  const target = summaryTarget(i.history)
+  if (uncovered(i.history, have, i.budget) === 0) return Promise.resolve(have)
+  const target = summaryTarget(i.history, i.budget)
   if (target < 1) return Promise.resolve(have)
   const key = `${i.chatId}\0${i.userId}\0${chain[target - 1]}`
   const running = inflight.get(key)

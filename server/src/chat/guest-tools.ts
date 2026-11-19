@@ -16,6 +16,8 @@ export const GUEST_TURN_TOOLS: ReadonlySet<string> = new Set([
   // the comments under answers in their own chat (chat/answer-comments.ts): a guest opens only their own chats
   'answer_comments',
   'make_file', 'edit_hwp', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'move_files', 'copy_files', 'rename_file', 'share_file', 'artifact', 'delete_files',
+  // many renames in one call (tools/file-moves.ts): rename_file's checks for each
+  'rename_files',
 ])
 
 /** the room tools of GUEST_TURN_TOOLS: only for a guest whose place is a group chat (chat/tools.ts) */

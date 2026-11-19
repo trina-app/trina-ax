@@ -31,6 +31,8 @@ export const GrepInput = z.strictObject({
   offset: z.number().int().min(0).max(1_000_000).optional().describe('Skip this many output lines/entries first: to read on after a result that stopped at its size limit (the result says the offset)'),
   multiline: z.boolean().optional(),
 })
+/** make_file: native Excel charts in one workbook (tools/xlsx-chart.ts; second limits audit N30: 10 before) */
+export const MAKE_FILE_CHARTS_MAX = 50
 /** read with `versions`: how many earlier versions are listed (default, at most) */
 export const VERSIONS_SHOWN_DEFAULT = 5
 export const VERSIONS_SHOWN_MAX = 20
@@ -47,7 +49,7 @@ export const ReadInput = z.strictObject({
   time: z.string().max(40).optional().describe('Video and audio only: the part to read, e.g. "1:00-2:30", "90-150" (seconds) or "0:05" (one moment). Without it: the whole file, as far as one read goes (the result says what to read next).'),
   frames: z.number().int().min(0).max(20).optional().describe('Video only: how many pictures, evenly spaced (0-20; default up to 12). Fewer give bigger pictures: 1-4 for small text on a screen. 0: the transcript only (then a read covers up to 30 minutes of sound).'),
   transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
-  versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before".`),
+  versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before". Long changes come in parts: the result says the offset to read on from.`),
   version: z.number().int().min(1).optional().describe('With or without versions: compare this earlier version (its number from the list) with the file now, instead of the version before the current one.'),
 })
 export const WriteInput = z.strictObject({
@@ -128,7 +130,7 @@ export const MakeFileInput = z.strictObject({
     sheet: z.string().max(100).optional().describe('Sheet name (the table\'s heading); default the first sheet'),
     title: z.string().max(200).optional(),
     anchor: z.string().max(10).optional().describe('Top-left cell of the chart, e.g. "G2"; default right of the data'),
-  })).min(1).max(10).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
+  })).min(1).max(MAKE_FILE_CHARTS_MAX).optional().describe('xlsx only: native Excel charts over the cells of a sheet you write'),
   page: MakeFilePage.optional().describe('docx only: page size, orientation, margins, header, footer and page numbers'),
   sheets: z.array(MakeFileSheet).min(1).max(50).optional().describe('xlsx only: number formats, column widths, frozen rows/columns, filter and conditional formatting per sheet'),
   expected_layouts: z.array(z.enum(['Title Slide','Title and Content','Section Header','Two Content','Comparison','Content with Caption','Blank'])).min(1).max(30).optional().describe('Safe PowerPoint only: required bundled layout for each slide in order. A mismatch saves nothing. One ## heading per ordinary slide; columns select Two Content, text then image selects Content with Caption.'),
@@ -325,6 +327,21 @@ export const RenameFileInput = z.strictObject({
   new_name: z.string().min(1).max(255).describe('The new name only (no folder): it stays in the same folder'),
 })
 export const RenameFileOutput = z.object({ path: z.string() })
+/** rename_files (server/src/tools/file-moves.ts, TC-4983): many renames in one call, each with rename_file's checks.
+ * At most this many per call; a pattern that matches more renames these and says how many are left. */
+export const RENAME_FILES_MAX = 500
+const newName = z.string().min(1).max(255)
+export const RenameFilesInput = z.strictObject({
+  renames: z.array(z.strictObject({ path: relPath, new_name: newName })).min(1).max(RENAME_FILES_MAX).optional()
+    .describe('Each file or folder with its new name (the name only: it stays in its folder), 1-500'),
+  folder: relPath.optional().describe('Or by pattern: the folder whose files and folders (directly inside it, not deeper) are renamed'),
+  find: z.string().min(1).max(255).optional().describe('With folder: the text to find in each name, as plain text (no wildcards or regular expressions); names without it are left as they are'),
+  replace: z.string().max(255).optional().describe('With folder: what the found text becomes (default "")'),
+  at: z.enum(['anywhere', 'start', 'end']).optional().describe('With folder: "anywhere" (default: every occurrence is replaced), "start" (only when the name starts with find, e.g. find "IMG_" replace "trip-") or "end" (only when it ends with find, e.g. find ".jpeg" replace ".jpg")'),
+}).refine((v) => (v.renames !== undefined) !== (v.folder !== undefined), { message: 'give either renames or folder with find' })
+  .refine((v) => v.folder === undefined || v.find !== undefined, { message: 'folder needs find' })
+  .refine((v) => v.renames === undefined || (v.find === undefined && v.replace === undefined && v.at === undefined), { message: 'find, replace and at go with folder, not renames' })
+export const RenameFilesOutput = z.object({ renamed: z.array(z.object({ from: z.string(), to: z.string() })), failed: z.array(z.object({ path: z.string(), error: z.string() })), left: z.number() })
 /** The AI's delete_files (server/src/chat/delete-files.ts): items go to the team trash after the person's yes on the
  * server's card. Never part of FILE_TOOLS: the app connector (connectors/remote-mcp/tools.ts) lists those, and it has
  * no card. At most 200 entries per call, counted inside folders (the server walks them). */
@@ -415,8 +432,13 @@ export const ConnectServiceOutput = z.union([
 ])
 
 // Web search is Claude Code's built-in WebSearch (runs on Anthropic's side). We keep only our own fetch.
-export const WebFetchInput = z.strictObject({ url: z.string().url().max(4000), maxChars: z.number().int().min(100).max(200000).optional() })
-export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean() })
+export const WebFetchInput = z.strictObject({
+  url: z.string().url().max(4000),
+  maxChars: z.number().int().min(100).max(200000).optional(),
+  // a long page read on from this character (limits audit 1 #14): the result's first line gives the next offset
+  offset: z.number().int().min(0).max(100_000_000).optional(),
+})
+export const WebFetchOutput = z.object({ url: z.string(), title: z.string().optional(), text: z.string(), truncated: z.boolean(), offset: z.number().optional(), total: z.number().optional() })
 /** save_url (server/src/tools/save-url.ts): a file from the web, or one a connected service returned inline
  * (mcp-file:<id>), saved into the team folder. */
 export const SaveUrlInput = z.strictObject({
@@ -597,6 +619,7 @@ export const OTHER_TOOLS = {
   move_files: { input: MoveFilesInput, output: MoveFilesOutput },
   copy_files: { input: CopyFilesInput, output: CopyFilesOutput },
   rename_file: { input: RenameFileInput, output: RenameFileOutput },
+  rename_files: { input: RenameFilesInput, output: RenameFilesOutput },
   delete_files: { input: DeleteFilesInput, output: DeleteFilesOutput },
   edit_files: { input: EditFilesInput, output: TextOutput },
   artifact: { input: ArtifactInput, output: ArtifactOutput },

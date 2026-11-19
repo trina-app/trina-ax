@@ -207,6 +207,26 @@ export function sharedPathAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolder
   return sharedAccess(rules, p, run, scope, []).at(rel)
 }
 
+/**
+ * The sub-folders of a shared project chat's folder that do not exist for the chat (docs/decisions/
+ * 20261118-shared-hide-subfolder-names.md, QA TC-4945): each folder with rules of its own strictly inside `within`
+ * that the person or anyone else who sees the chat may not read, shallowest only (everything below one is hidden with
+ * it, a folder everyone may read again inside it too: its path names the hidden one). The file tools hide them for the
+ * person of the turn (policy/access.ts withHiddenFolders) and a run's view leaves them out (sharedAccess), so a listing,
+ * a search, a zip, a command and an error tell the chat the same: nothing is there.
+ */
+export function sharedHiddenFolders(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, audience: readonly Principal[], within: string): string[] {
+  const people = [p, ...audience.filter((q) => q.id !== p.id)]
+  const inside = rules.boundaryFolders().filter((f) => f !== within && isUnder(f, within)).sort((a, b) => depth(a) - depth(b) || (a < b ? -1 : a > b ? 1 : 0))
+  const out: string[] = []
+  for (const f of inside) {
+    if (out.some((h) => isUnder(f, h))) continue
+    const s = segsOf(f)
+    if (people.some((q) => !atLeast(rules.access(q, s), 'read'))) out.push(f)
+  }
+  return out
+}
+
 function sharedAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Principal, run: RunWrites, scope: SharedScope, zoneFolders: readonly string[]) {
   const w = scope.within
   if (w !== null && (w === '' || w.split('/').some((x) => x === '' || x === '.' || x === '..'))) throw new Error(`not a project folder: ${JSON.stringify(w)}`)
@@ -215,10 +235,13 @@ function sharedAccess(rules: Pick<RuleSet, 'access' | 'boundaryFolders'>, p: Pri
   const others = scope.audience.filter((q) => q.id !== p.id)
   // no shared folders of the person matter: users/ is hidden as a whole here
   const own: RunWrites = { start: run.start, shared: [] }
+  // a project chat: its sub-folders not everyone in it may open, with everything below them (sharedHiddenFolders)
+  const hidden = w !== null ? sharedHiddenFolders(rules, p, scope.audience, w) : []
   const at = (c: string): Access => {
     const s = segsOf(c)
     if (s[0] === 'users' || s[0] === PRODUCT.systemDir) return 'none'
     if (w !== null && !isUnder(c, w)) return 'none'
+    if (hidden.some((h) => isUnder(c, h))) return 'none'
     let a = rules.access(p, s)
     if (a === 'none' || others.some((q) => !atLeast(rules.access(q, s), 'read'))) return 'none'
     if (a === 'write' && !runMayWrite(own, p.id, c)) a = 'read'

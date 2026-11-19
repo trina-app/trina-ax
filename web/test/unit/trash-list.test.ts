@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { setOwnFolderWord } from '@mycel/shared'
 import type { TrashItem } from '@mycel/shared/api'
 import { folderWords } from '../../src/lib/folderLabels'
-import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../../src/lib/trashList'
+import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, sameNamedProjects, showWhoSwitch, trashPlace, type PlaceWords } from '../../src/lib/trashList'
 
 const DAY = 86_400_000
 const T0 = Date.parse('2026-11-13T10:00:00Z')
@@ -132,5 +132,27 @@ describe('how long items stay', () => {
     expect(purgeIn(new Date(T0 + 5 * 3_600_000).toISOString(), 'en', T0)).toBe('in 5 hours')
     expect(purgeIn(new Date(T0 + 60_000).toISOString(), 'en', T0)).toBe('in 1 minute')
     expect(purgeIn(new Date(T0 + 18 * DAY).toISOString(), 'ko', T0)).toBe('18일 후')
+  })
+})
+
+describe('two trashed projects with one name (QA TC-4971)', () => {
+  const proj = (path: string, id: string, name: string): TrashItem => ({ ...item(path, { type: 'folder' }), project: { id, name } })
+  const w: PlaceWords = { words: folderWords('en', 'dana'), me: 'dana', projects: [], root: 'Team folder', myProjects: 'My projects', personal: 'Personal' }
+
+  test('only the rows that share a name (case and form ignored) ask for the whole path', () => {
+    const a = proj('projects/Launch', 'p1', 'Launch'), b = proj('users/dana/projects/launch', 'p2', 'launch'), c = proj('projects/Other', 'p3', 'Other')
+    const groups = groupTrash([a, b, c])
+    const same = sameNamedProjects(groups)
+    expect([...same].sort()).toEqual(groups.filter((g) => g.items[0]!.project!.id !== 'p3').map((g) => g.key).sort())
+    expect(same.size).toBe(2)
+  })
+
+  test('the full path tells them apart; a single one keeps the short place', () => {
+    const a = proj('projects/Launch', 'p1', 'Launch'), b = proj('users/dana/projects/Launch', 'p2', 'Launch')
+    expect(trashPlace(a, w).where).toBe(trashPlace(a, w, false).where)
+    const fa = trashPlace(a, w, true).where, fb = trashPlace(b, w, true).where
+    expect(fa).not.toBe(fb)
+    expect(fa).toContain('Launch')
+    expect(fb).toBe('My projects › Launch')
   })
 })
