@@ -84,14 +84,15 @@ chmod +x Trina-AX-<v>-linux-x86_64.AppImage
 
 - **FUSE 2:** AppImage는 FUSE 2가 필요하다(Fedora `fuse-libs`, Arch `fuse2`, Ubuntu 24.04 `libfuse2t64`).
 - **샌드박스:** 앱은 Chromium 샌드박스 안에서만 돈다. AppArmor 프로필이 없는 프로그램의 user namespace를 막는 시스템(Ubuntu 24.04
-  이후)에서는 AppImage가 샌드박스를 쓸 수 없어서, 앱이 ".deb를 설치하세요"라고 말하고 끝난다. 거기서는 .deb를 쓴다. 앱을
-  `--no-sandbox`로 띄우지 않는다. 그것도 거절한다.
+  이후)에서는 AppImage가 샌드박스를 쓸 수 없어서, 앱이 ".deb를 설치하세요"라고 말하고 끝난다. 거기서는 .deb를 쓴다. AppImage를
+  손으로 `--no-sandbox`와 함께 띄워도 같이 거절한다. .deb의 앱도 `--no-sandbox`로 띄우지 않는다.
 - 메뉴 항목과 링크 처리기를 만들지 않는다. `trina-ax://` 링크가 필요하면 .deb를 쓴다.
 - 스스로 업데이트하려면 쓸 수 있는 폴더(예: `~/Applications`)에 둔다.
 
 **키링:** "내 컴퓨터의 앱"은 설정값(토큰, 키)을 Secret Service를 통해 시스템 키링(GNOME Keyring 또는 KWallet)에 둔다. 세션에
 키링이 없으면(창 관리자만 쓸 때, `gnome-keyring` 없는 Xfce 등) 설정을 저장하지 않고 앱이 그렇게 알려 준다. 연결은 설정 없이도 된다.
-로그인 쿠키도 키링이 있으면 Chrome처럼 그것으로 보호된다.
+로그인 쿠키도 키링이 있으면 Chrome처럼 그것으로 보호된다. Chromium이 모르는 데스크톱(sway, i3 등)에서는 키링이 떠 있어도 Electron이
+그것을 고르지 않을 수 있다. 거기서는 앱을 `--password-store=gnome-libsecret`(또는 `kwallet6`)로 띄운다.
 
 **받은 파일 확인**(버전의 GitHub Release에 있는 서명된 체크섬으로):
 

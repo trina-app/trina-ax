@@ -98,14 +98,17 @@ chmod +x Trina-AX-<v>-linux-x86_64.AppImage
 - **FUSE 2:** an AppImage needs FUSE 2 (`fuse-libs` on Fedora, `fuse2` on Arch, `libfuse2t64` on Ubuntu 24.04).
 - **Sandbox:** the app runs only inside Chromium's sandbox. Where the system blocks user namespaces for programs without
   an AppArmor profile (Ubuntu 24.04 and later), the AppImage cannot use it: the app says "Install the .deb instead" and
-  quits. Use the .deb there. Do not start the app with `--no-sandbox`; it refuses that too.
+  quits. Use the .deb there. An AppImage started with `--no-sandbox` by hand is refused the same way. Never start the
+  .deb's app with `--no-sandbox` either.
 - It adds no menu entry and no link handler. Use the .deb if you want `trina-ax://` links.
 - For self-updates, keep the file in a folder you can write to (for example `~/Applications`).
 
 **Keyring:** "Apps on your computer" keeps setting values (tokens, keys) in the system keyring through the Secret
 Service: GNOME Keyring or KWallet. Without one in your session (for example a bare window manager, or Xfce without
 `gnome-keyring`), the settings are not saved and the app says so; the connection still works without them. Your sign-in
-cookies are protected by the same keyring when there is one, as in Chrome.
+cookies are protected by the same keyring when there is one, as in Chrome. On a desktop Chromium does not recognise
+(for example sway or i3), Electron may skip a running keyring; start the app with
+`--password-store=gnome-libsecret` (or `kwallet6`) there.
 
 **Check a download** against the release's signed checksums (from a version's GitHub Release):
 
