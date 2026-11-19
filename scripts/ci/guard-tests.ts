@@ -42,6 +42,7 @@ export const GUARD_TESTS = [
   'tests/unit/edition-source.test.ts', // one source link per edition, no other repository name
   'tests/unit/release-channel.test.ts', // one place for where updates come from
   'tests/unit/ci-unit-shard.test.ts', // every test file runs in exactly one CI shard
+  'tests/unit/brand-light-icons.test.ts', // every app icon (iOS dark/tinted, Android, web push, desktop) is the light tile
 ]
 
 if (import.meta.main) {

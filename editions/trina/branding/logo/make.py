@@ -114,6 +114,9 @@ def main():
 
     # phones (mobile/app.config.ts): iOS icon full-bleed; Android adaptive foreground (mark only) on adaptive-background;
     # the launch screen's mark (light) and its dark-mode twin. The notification icon stays the white silhouette.
+    # No dark icon tile, ever (owner 2026-11-16): mobile/app.config.ts gives iOS this icon.png as its dark and tinted
+    # appearances too, else iOS 18+ darkens it into a black tile in Notification Center and the Dark home screen.
+    # tests/unit/brand-light-icons.test.ts samples every icon file written here.
     M = 'editions/trina/branding/mobile'
     write(f'{M}/icon.svg', square_tile(0.83)); png(f'{M}/icon.svg', f'{M}/icon.png', 1024)
     write(f'{M}/adaptive-icon.svg', svg(scaled('light', 0.5))); png(f'{M}/adaptive-icon.svg', f'{M}/adaptive-icon.png', 1024)

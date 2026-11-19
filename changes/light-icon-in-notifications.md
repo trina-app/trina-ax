@@ -1,0 +1,1 @@
+- The iPhone app's icon is the light Trina AX tile in Notification Center, on the lock screen and in the Dark home screen style too; it showed as a black tile there while the phone was in dark mode. Reaches iPhones with the next App Store build of the phone app. Web push notifications show the same light tile.
