@@ -10,8 +10,9 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { LocalAppSpec, LocalCall } from '@mycel/shared/api'
-import { ASIDE_SIGNED_OUT, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { LOCAL_APP_PRESETS, type LocalAppSpec, type LocalCall } from '@mycel/shared/api'
+import { t } from '../../desktop/src/common/i18n'
+import { ASIDE_SIGNED_OUT, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -323,5 +324,156 @@ describe('Aside with an account no Aside Browser profile uses', () => {
     expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] })).toBe(true)
     expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp', '--account', 'u1'], env: [] })).toBe(false)
     expect(isListedAside({ adapter: 'mcp', command: '/usr/local/bin/aside', args: ['mcp'], env: [] })).toBe(false)
+  })
+})
+
+describe('the confirm on the computer, answered late', () => {
+  test('the call stops waiting just before its deadline (unconfirmed); a Connect pressed later is kept and told, and the next call runs without asking', async () => {
+    let press: (yes: boolean) => void = () => {}
+    const confirmed = new Map<string, string>()
+    const told: string[] = []
+    let asks = 0
+    const apps = new LocalApps({
+      confirm: () => { asks++; return new Promise<boolean>((r) => { press = r }) },
+      confirmed: (team, id) => confirmed.get(`${team}/${id}`) ?? null, setConfirmed: (team, id, h) => { confirmed.set(`${team}/${id}`, h) },
+      settings: () => ({}), isRoot: () => false,
+      onConfirmed: (team, id) => told.push(`${team}/${id}`),
+    })
+    all.push(apps)
+    const init = (deadline: number, id = 'i1') => apps.call(TEAM, { callId: `late-${id}`, turnId: null, connectionId: 'conn-late', name: 'Fake', spec: spec(), message: { jsonrpc: '2.0', id, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } }, deadline })
+    const started = Date.now()
+    const r = await init(Date.now() + 2600)
+    expect(r).toMatchObject({ ok: false, failure: 'unconfirmed' })
+    // about 2 s before the deadline (CONFIRM_EARLY_MS), so the server hears why
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(told).toEqual([])
+    press(true)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(told).toEqual([`${TEAM}/conn-late`])
+    expect(confirmed.get(`${TEAM}/conn-late`)).toBe(commandHash(spec()))
+    expect(await init(Date.now() + 10_000, 'i2')).toMatchObject({ ok: true })
+    expect(asks).toBe(1)
+  })
+
+  test('Connect pressed in time: the call runs, and nothing is told (no second check)', async () => {
+    const told: string[] = []
+    const confirmed = new Map<string, string>()
+    const apps = new LocalApps({
+      confirm: () => new Promise<boolean>((r) => setTimeout(() => r(true), 50)),
+      confirmed: (team, id) => confirmed.get(`${team}/${id}`) ?? null, setConfirmed: (team, id, h) => { confirmed.set(`${team}/${id}`, h) },
+      settings: () => ({}), isRoot: () => false, onConfirmed: (team, id) => told.push(`${team}/${id}`),
+    })
+    all.push(apps)
+    const r = await apps.call(TEAM, { callId: 'ok-1', turnId: null, connectionId: 'conn-ok', name: 'Fake', spec: spec(), message: { jsonrpc: '2.0', id: 'i1', method: 'initialize', params: {} }, deadline: Date.now() + 10_000 })
+    expect(r).toMatchObject({ ok: true })
+    expect(told).toEqual([])
+  })
+})
+
+describe('ego lite not open', () => {
+  const EGO = LOCAL_APP_PRESETS.find((p) => p.id === 'ego-lite')!.spec
+  const BOOTSTRAP = 'Failed to connect to ego_cli bootstrap\nAgent note: ego-browser cannot connect to the ego_cli bootstrap from the default agent sandbox. Retry with Full Access or run ego-browser outside the agent sandbox. If it still fails, launch ego lite.app manually.'
+  /** the listed ego lite as a program named ego-browser: the fake CLI while the "app" is up (a marker file), else
+   * ego-browser's own bootstrap failure (exit 5), or `missing` words when set */
+  function egoHarness(o: { running?: boolean; installed?: boolean; comesUp?: boolean; platform?: string; spec?: LocalAppSpec; missingWords?: boolean } = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ego-down-'))
+    const up = path.join(dir, 'up')
+    const fail = o.missingWords ? 'Failed to start ego lite: cannot find the app for com.citrolabs.ego.lite. Reinstall ego lite or launch it manually.' : BOOTSTRAP
+    fs.writeFileSync(path.join(dir, 'ego-browser'), `#!/bin/sh\nif [ -f "${up}" ]; then exec "${process.execPath}" "${path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-cli.ts')}" "$@"; fi\nprintf '%s\\n' "${fail.replace(/"/g, '\\"')}" >&2\nexit 5\n`, { mode: 0o755 })
+    if (o.running && o.comesUp) fs.writeFileSync(up, '')
+    let isRunning = !!o.running
+    const opened: { id: string; args: string[] }[] = []
+    const slept: number[] = []
+    const apps = new LocalApps({
+      confirm: async () => true, confirmed: () => commandHash(o.spec ?? EGO), setConfirmed: () => {}, settings: () => ({}), isRoot: () => false,
+      searchPath: () => [dir], platform: o.platform ?? 'darwin', locale: () => 'en',
+      appRunning: async () => isRunning,
+      openApp: async (id, args) => { opened.push({ id, args }); if (o.installed === false) return false; isRunning = true; if (o.comesUp !== false) fs.writeFileSync(up, ''); return true },
+      sleep: async (ms) => { slept.push(ms) },
+    })
+    all.push(apps)
+    const run = (script = 'console.log(1)') => apps.call(TEAM, { callId: `ego-${Math.random()}`, turnId: null, connectionId: 'ego-1', name: 'ego lite', spec: o.spec ?? EGO, message: { jsonrpc: '2.0', id: 'c1', method: 'tools/call', params: { name: 'run_script', arguments: { script } } }, deadline: Date.now() + 20_000 })
+    const texts = (r: Awaited<ReturnType<typeof run>>) => ((r.message?.result as { content?: { text: string }[] })?.content ?? []).map((c) => c.text)
+    const done = () => fs.rmSync(dir, { recursive: true, force: true })
+    return { run, texts, opened, slept, done }
+  }
+
+  test('not running: opened once in the background by its bundle id (as ego-browser starts it), waited for, and the call tried once more', async () => {
+    const h = egoHarness()
+    try {
+      const r = await h.run()
+      expect(r.ok).toBe(true)
+      const out = h.texts(r)
+      expect(out).toHaveLength(1)
+      expect(out[0]).toContain('ran 14 chars')
+      expect(h.opened).toEqual([{ id: EGO_BUNDLE_ID, args: ['--startup-ego-browser-service'] }])
+      expect((r.message?.result as { isError?: boolean }).isError).toBe(false)
+    } finally { h.done() }
+  })
+
+  test('not installed: plain words, no retry', async () => {
+    const h = egoHarness({ installed: false })
+    try {
+      const out = h.texts(await h.run())
+      expect(out.at(-1)).toBe(notOpenWords(t('en', 'localApp.egoNotInstalled')))
+      expect(out.at(-1)).toContain("ego lite isn't installed on this computer. Install it from lite.ego.app, then ask again.")
+      expect(h.opened).toHaveLength(1)
+    } finally { h.done() }
+    // ego-browser's own "cannot find the app": not opened at all
+    const m = egoHarness({ missingWords: true })
+    try {
+      expect(m.texts(await m.run()).at(-1)).toContain("isn't installed")
+      expect(m.opened).toHaveLength(0)
+    } finally { m.done() }
+  })
+
+  test('it does not come up in time: "ego lite isn\'t open. Open ego lite, then ask again."', async () => {
+    const h = egoHarness({ comesUp: false })
+    try {
+      // running, but its service never answers: tried once more, then the words for an app that does not answer
+      const out = h.texts(await h.run())
+      expect(out.at(-1)).toContain("ego lite is open but isn't answering")
+    } finally { h.done() }
+    const w = egoHarness({ platform: 'win32' })
+    try {
+      const out = w.texts(await w.run())
+      expect(out.at(-1)).toBe(notOpenWords("ego lite isn't open. Open ego lite, then ask again."))
+      expect(w.opened).toHaveLength(0)
+    } finally { w.done() }
+  })
+
+  test('already running (someone opened it): never opened again, only waited for and tried once more', async () => {
+    const h = egoHarness({ running: true, comesUp: false })
+    try {
+      const out = h.texts(await h.run())
+      expect(h.opened).toHaveLength(0)
+      expect(h.slept.length).toBeGreaterThan(0)
+      expect(out.at(-1)).toContain("ego lite is open but isn't answering")
+    } finally { h.done() }
+  })
+
+  test('a command the person typed is never opened or retried, even when it is ego-browser', async () => {
+    expect(isListedEgo({ ...EGO, command: '/opt/ego/ego-browser' } as LocalAppSpec)).toBe(false)
+    const h = egoHarness({ spec: { ...EGO, command: '/opt/ego/ego-browser' } as LocalAppSpec })
+    try {
+      await h.run()
+      expect(h.opened).toHaveLength(0)
+    } finally { h.done() }
+  })
+
+  test('reading ego-browser\'s and Aside\'s words', () => {
+    expect(isListedEgo(EGO)).toBe(true)
+    expect(egoDown({ stdout: '', stderr: BOOTSTRAP, code: 5 })).toBe('down')
+    expect(egoDown({ stdout: '', stderr: 'Failed to start ego lite.\nAgent note: …', code: 5 })).toBe('down')
+    expect(egoDown({ stdout: '', stderr: 'Failed to start ego lite: cannot find the app for x. Reinstall ego lite or launch it manually.', code: 5 })).toBe('missing')
+    expect(egoDown({ stdout: '', stderr: 'TypeError: x is undefined', code: 1 })).toBe(null)
+    expect(egoDown({ stdout: '', stderr: BOOTSTRAP, code: 0 })).toBe(null)
+    const down = { result: { content: [{ type: 'text', text: "Aside isn't running on this machine. Ask the user to open Aside, then retry the same command." }], isError: true } }
+    expect(asideNotRunning(down)).toBe(true)
+    expect(asideNotRunning({ error: { code: -1, message: 'Start Aside Browser to use the local host.' } })).toBe(true)
+    expect(asideNotRunning({ result: { content: [{ type: 'text', text: 'ok' }] } })).toBe(false)
+    const words = notOpenWords(t('en', 'localApp.asideNotOpen'))
+    expect(words).toContain("Aside isn't open. Open Aside, then ask again.")
+    expect((withAsideSignedOut(down, words).result as { content: { text: string }[] }).content.at(-1)!.text).toBe(words)
   })
 })
