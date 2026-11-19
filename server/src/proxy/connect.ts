@@ -26,6 +26,7 @@ import type { IncomingMessage } from 'node:http'
 import type { Duplex } from 'node:stream'
 import type { Database } from 'bun:sqlite'
 import { audit } from '../admin/audit'
+import { demoOffline, isLoopbackHost } from '../demo/fakes/offline'
 
 export const CODEX_CONNECT_HOSTS = ['chatgpt.com:443', 'auth.openai.com:443']
 /** the ChatGPT device sign-in (`codex login --device-auth`) calls auth.openai.com only (codex-rs/login, C13) */
@@ -204,6 +205,8 @@ export function codexConnectHandler(o: ConnectOpts): ConnectHandler {
     }
     const i = target.lastIndexOf(':')
     const host = target.slice(0, i), port = Number(target.slice(i + 1))
+    // a demo server with fakes opens no tunnel out of this computer (demo/fakes/offline.ts)
+    if (demoOffline() && !isLoopbackHost(host)) return deny(403, 'not available in the demo', r.user_id, r.turn_id)
     const up = claudeTurn ? o.terminate!.dial() : (o.dial ?? ((h, p) => net.connect(p, h)))(host, port)
     let open = false
     const turnId = r.turn_id

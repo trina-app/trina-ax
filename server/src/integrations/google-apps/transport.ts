@@ -2,9 +2,11 @@
 // Workspace MCP server this server started on 127.0.0.1, at exactly the address it was started on (library.ts
 // endpoint()), with the person's access token. Nothing anyone types reaches it: a connection's address is a placeholder
 // (catalog.ts placeholderUrl) and the generic connection requests (connections/net.ts serviceRequest) keep refusing
-// http and this machine as before. node:http, not fetch: no proxy from the environment can ever see the token.
+// http and this machine as before. node:http, not fetch: no proxy from the environment can ever see the token. On a
+// demo server with fakes the fake Gmail answers instead, in this process (server/src/demo/fakes/).
 import http from 'node:http'
 import type { NetRequest, NetResponse } from '../connections/net'
+import { activeDemoFakes } from '../../demo/fakes'
 
 /** what the AI is told when the library cannot be reached (the app's name first) */
 export const downMessage = (name: string) => `${name} is not reachable right now, try again in a minute`
@@ -29,6 +31,9 @@ export class LibraryDown extends Error { name = 'LibraryDown' }
  * reply is in (an event stream may stay open). Throws LibraryDown when it cannot be reached.
  */
 export function libraryRequest(endpoint: string | null, url: string, r: NetRequest): Promise<NetResponse> {
+  // a demo server with fakes: the fake library answers in this process (server/src/demo/fakes/gmail.ts); no socket
+  const fakes = activeDemoFakes()
+  if (fakes) return fakes.gmail.request(r)
   const target = loopbackEndpoint(endpoint)
   if (!target || url !== target.href) return Promise.reject(new LibraryDown('not the library'))
   const max = r.maxBytes ?? MAX_BODY
