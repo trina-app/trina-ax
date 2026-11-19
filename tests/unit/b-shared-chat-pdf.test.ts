@@ -69,6 +69,16 @@ describe('stamp_pdf in a shared chat', () => {
     expect(ws.bob!.frames.some((f) => f.type === 'turn.request' && (f.data.turnId === no.turnId || f.data.turnId === yes.turnId))).toBe(false)
   })
 
+  test('page written as text ("1") goes through the whole answer path (the engine, the MCP handler, the registry): stamped, not "Invalid input" (TC-5241)', async () => {
+    put('projects/falcon/quotes/quote-text-page.pdf', makePagedPdf([['Quote page one'], ['Terms page two']]))
+    put('projects/falcon/brand/seal.png', SEAL)
+    const chat = await newShared()
+    const r = await turn('alice', chat, fake({ tool: 'stamp_pdf', args: { file_path: 'projects/falcon/quotes/quote-text-page.pdf', image: 'projects/falcon/brand/seal.png', page: '1' }, sayResult: true }), [])
+    expect(r.content).not.toContain('Invalid input')
+    expect(r.content).toContain('Saved projects/falcon/quotes/quote-text-page (stamped).pdf')
+    expect(r.content).toContain('page 1 of 2')
+  })
+
   test('the project\'s own PDF and seal: no card, saved next to the original', async () => {
     put('projects/falcon/quotes/quote-falcon.pdf', makePagedPdf([['Quote for Falcon']]))
     put('projects/falcon/brand/seal.png', SEAL)
