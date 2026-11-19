@@ -2,8 +2,9 @@
 // data, its checks (the same limits as shared/src/api/integrations.ts, so most mistakes show before anything is sent),
 // the request bodies it becomes, and the checks on what the server sends back (the sign-in address).
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
-import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
+import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type RemoteIntegrationKind as IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { desktop } from './desktop'
 
 /** how the connection proves who it is: sign in at the service (an API: with your own app), a key, or nothing */
 export type SignInMethod = 'oauth' | 'key' | 'none'
@@ -74,8 +75,10 @@ export function emptyForm(kind: IntegrationKind = 'mcp', access: IntegrationAcce
 
 /** the form for editing `i` (no key in it: a stored key stays on the server) */
 export function formFrom(i: Integration): IntegrationForm {
+  // an app on the computer is never edited here (it has no address, key or sign-in): its own page changes it
+  const kind = i.kind === 'local' ? 'mcp' : i.kind
   return {
-    kind: i.kind,
+    kind,
     name: i.name,
     url: i.url,
     method: i.auth === 'oauth' ? 'oauth' : i.auth === 'none' ? 'none' : 'key',
@@ -86,7 +89,7 @@ export function formFrom(i: Integration): IntegrationForm {
     notes: i.notes ?? '',
     writePolicy: i.writePolicy,
     access: i.scope === 'team' ? i.access ?? NOBODY : null,
-    ...appFields(i.oauthClient, i.kind, i.auth),
+    ...appFields(i.oauthClient, kind, i.auth),
   }
 }
 
@@ -464,8 +467,16 @@ export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>):
  * the team has members' own connections off → "Off", whatever its state (not used, not signed in again: QA TC-2930);
  * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
  * Reconnect; any other problem → Needs attention. */
-export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' {
+/** An app on a computer read away from it: its last check came from somewhere else (another computer), or this window
+ * is not the desktop app at all (the web, the phone app: the server never checks it from there, so its last state is
+ * the desktop's "Connected", which would read as usable here). Not a fault, so it never shows as an error; it says
+ * where it works instead (ConnectionPage, ConnectorRow). A real failure on the computer stays one. */
+export const awayFromComputer = (i: Pick<Integration, 'kind' | 'lastErrorReason'> & Partial<Pick<Integration, 'status'>>): boolean =>
+  i.kind === 'local' && (i.lastErrorReason === 'local_offline' || (i.status === 'connected' && !desktop()?.localApps))
+
+export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'> & Partial<Pick<Integration, 'kind' | 'lastErrorReason'>>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' | 'elsewhere' {
   if (i.personalOff) return 'off'
+  if (i.kind && awayFromComputer({ kind: i.kind, lastErrorReason: i.lastErrorReason, status: i.status })) return 'elsewhere'
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }

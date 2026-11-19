@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs
 import { opendir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { folderKey, FolderGrants, guardedIdentities, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, refusedShare, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
+import { folderKey, FolderGrants, guardedIdentities, isDevicePath, isUncPath, macBlocked, opensHome, PICKABLE_BLOCKED_ROOTS, refusedFolderReason, refusedShare, restrictedFolderAction, type FolderIdentity, type FolderSystem, type RestrictedFolder } from '../../desktop/src/common/folder-access'
 import { pickRefused } from '../../desktop/src/common/work-files'
 
 /**
@@ -407,6 +407,17 @@ describe('never the home folder or a folder that holds it, whatever the path loo
     // a share that may be picked is asked (the person's pick already reached it)
     expect(await opensHome('\\\\nas\\company\\Sales', sys, 'win32', { shares: true })).toBe(false)
     expect(log).toContain('\\\\nas\\company\\Sales')
+  })
+
+  // Windows QA of 0.5.16: Node's realpath drops the device prefix, so a pick is checked as written too
+  test('isDevicePath: a device path as written (\\\\?\\…, \\\\.\\…, either slash) on Windows only; a share or a drive path is none', () => {
+    for (const path of ['\\\\?\\C:\\Users\\Alex\\Documents', '\\\\.\\C:\\Work', '//?/C:/Work', '//./C:/', '\\\\?\\UNC\\nas\\company', '\\\\?\\Volume{0b1c}\\', '\\\\.\\', '\\\\?', '/\\?\\C:\\x']) {
+      expect([path, isDevicePath(path, 'win32')]).toEqual([path, true])
+      expect([path, isDevicePath(path, 'darwin')]).toEqual([path, false])
+    }
+    for (const path of ['C:\\Users\\Alex\\Documents', '\\\\nas\\company', '\\\\?nas\\share', '\\\\..\\C$', 'D:\\?\\x', '']) {
+      expect([path, isDevicePath(path, 'win32')]).toEqual([path, false])
+    }
   })
 
   test('TC-4846: other spellings of an admin share, a device path, a loopback host, dot names, mixed slashes and case are refused without asking the network', async () => {

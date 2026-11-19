@@ -25,6 +25,7 @@ import { FILE_LIST_SPECS } from './file-list-cases'
 import { NAV_FOLDER_CANARY, NAV_FOLDER_SPECS } from './nav-folders-cases'
 import { FILE_SHARE_SPECS } from './file-share-cases'
 import { ACCESS_REQUEST_SPECS } from './access-request-cases'
+import { LINK_NAME_SPECS } from './link-names-cases'
 import { inviterOnlyByName, MISC_LAST_SPECS, MISC_SPECS } from './misc-cases'
 
 type Build = (c: Client, w: World) => Promise<Resp>
@@ -47,6 +48,7 @@ type Scope =
   | 'members'         // members only: owners and admins have their own way (members contribute, docs/DECISIONS.md "MC")
   | 'byLevel'         // nothing beyond the auth level (admin/owner endpoints, self-ish lists)
   | 'room-dm'         // the DM of alice and erin: only those two (not the owner, not an admin)
+  | 'team-chat'       // Team plan's shared chat: its project's members alice and erin (not the owner or an admin: they are no members)
   | 'room-group'      // the group chat of alice, erin and frank: alice and erin (frank still has to change his password)
   | 'room-all-admins' // the everyone room's apps: its owners and admins (everyone is in it; members are refused)
   | 'nobody'          // a resource of nobody (an unknown sign-in id): 4xx for everyone, after the auth level
@@ -95,7 +97,7 @@ function scopeAllows(scope: Scope, who: Who): boolean {
     case 'skills-manager': case 'admins': return who === 'owner' || who === 'admin'
     case 'own-owner': return who === 'owner'
     case 'members': return who === 'memberIn' || who === 'memberOut' || who === 'other'
-    case 'room-dm': case 'room-group': return who === 'memberIn' || who === 'other'
+    case 'room-dm': case 'room-group': case 'team-chat': return who === 'memberIn' || who === 'other'
     case 'room-all-admins': return who === 'owner' || who === 'admin'
     case 'nobody': return false
   }
@@ -136,6 +138,7 @@ export const SPECS: Record<string, Spec> = {
   ...NAV_FOLDER_SPECS,
   ...FILE_SHARE_SPECS,
   ...ACCESS_REQUEST_SPECS,
+  ...LINK_NAME_SPECS,
   ...MISC_SPECS,
   // ---- auth / me (self or public) ----
   setupStatus: { build: (c) => c.get('/api/setup'), scope: 'byLevel' },
@@ -226,6 +229,9 @@ export const SPECS: Record<string, Spec> = {
   listMessages: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages`), scope: 'own-alice-chat' },
   sendMessage: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/messages`, { clientMessageId: cm(), attachmentIds: [], content: 'hi from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} posted into alice's chat`) } },
+  // how many of my messages wait in a shared chat (chat/shared-waiting.ts): Team plan's shared chat, for its members
+  // only (everyone else: the 404 of a missing chat); 0, so the place is gone again after each case
+  putChatWaiting: { build: (c, w) => c.put(`/api/chats/${w.ids.teamChat}/waiting`, { count: 0 }), scope: 'team-chat' },
   stop: { build: (c, w) => c.post(`/api/chats/${w.ids.chatA}/stop`), scope: 'own-alice-chat' },
   messageSources: { build: (c, w) => c.get(`/api/chats/${w.ids.chatA}/messages/${w.ids.assistantMsg}/sources`), scope: 'own-alice-chat' },
   // threads on AI answers (chat/threads.ts): alice's chat is private, so it has no thread (a 404 for alice too, after the
@@ -297,6 +303,10 @@ export const SPECS: Record<string, Spec> = {
   listTurnRequests: { build: (c, w) => c.get(`/api/chats/${w.ids.chatB}/requests`), scope: 'own-alice-chat' },
   answerTurn: { build: (c, w) => c.post(`/api/turns/${w.ids.turnB}/answer`, { kind: 'ask_user', requestId: w.ids.requestB, answer: 'from intruder' }), scope: 'own-alice-chat',
     check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} answered alice's card`) } },
+  // the whole text of a folded card detail (chat/card-fold.ts): alice's own open card only. Hers has no folded text,
+  // so she meets a 404 (the text itself: tests/unit/limits-api-images-cards.test.ts); nobody else may get a 2xx
+  turnRequestDetail: { build: (c, w) => c.get(`/api/turns/${w.ids.turnB}/requests/${w.ids.requestB}/details/0`), scope: 'own-alice-chat', allowNotFound: true,
+    check: (r, w, who) => { if (who !== 'memberIn' && r.status < 300) throw new Error(`${who} read alice's card text`) } },
   // an open connect_service card of alice's turn (buildWorld's connectCard option, which the matrix sets): only alice
   // may finish it. A skip is enough to show who reaches it: anyone else who got through would close it (2xx). Alice's
   // own skip runs in phase 2 and closes it (or meets a card whose time ran out: 409).
@@ -566,6 +576,10 @@ export const SPECS: Record<string, Spec> = {
   // ---- browser relay (own session/window) ----
   pollCalls: { build: (c) => c.get('/api/browser/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
   postResult: { build: (c) => c.post('/api/browser/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
+    check: (r) => { /* unknown call -> 404; never another window's */ } },
+  // ---- local relay: apps on the person's computer (own session/window) ----
+  pollLocalCalls: { build: (c) => c.get('/api/local-apps/calls?windowId=win-xxxxxxxx&waitMs=1'), scope: 'self' },
+  postLocalResult: { build: (c) => c.post('/api/local-apps/results', { callId: 'nope', ok: false, error: 'x' }), scope: 'self',
     check: (r) => { /* unknown call -> 404; never another window's */ } },
 
   // ---- admin (by level) ----

@@ -1,7 +1,8 @@
 // Settings › Connectors (/settings/connectors, a section of the Settings dialog for everyone; it was a page of its own
 // until 2026-11-12, docs/DECISIONS.md "Connectors in Settings"): what the AI may use
 // with the person's own accounts, kept simple like Claude's Settings › Connectors. On top the section's title, one line,
-// a search box and, for owners and admins, "Add custom connector" (any MCP server or API by its address). Then what an
+// a search box and, for owners and admins, "Add custom connector" (any MCP server or API by its address); a member reads
+// "Not listed? Ask an admin to add it." in its place (lib/connectors.ts customConnectorAction). Then what an
 // admin asked the person to connect
 // (components/integrations/AnswerDialog.tsx, only while there is something), and two sections:
 // - **Your connectors**: one line each (ConnectorsView.tsx ConnectorRow) for every connection the person can use: the
@@ -13,8 +14,8 @@
 //   (lib/connectors.ts), each with a + that connects at once (a Google card opens Google during the click). One that
 //   cannot be connected now comes last: one the team has not set up yet shows an owner or admin "Set up" (Admin) and a
 //   member "Not set up yet" (its page has "Ask admin to add it", and the card then says "Asked":
-//   components/integrations/AskAdmin.tsx); one turned off for members is left out for them. A member reads "Not listed?
-//   Ask an admin to add it." under it (docs/DECISIONS.md "Plain words for members").
+//   components/integrations/AskAdmin.tsx); one turned off for members is left out for them (docs/DECISIONS.md "Plain
+//   words for members").
 // A card opens its page inside Settings, a page under the section (SettingsDialog.tsx): /settings/connectors/<id> for a
 // built-in's (AppDetail.tsx) or a listed service's (ConnectionPage.tsx), /settings/connectors/mcp/<connection id> for one
 // of the person's connections or a team connection they may use; its way back is the list. The old addresses lead here
@@ -31,7 +32,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
-import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, isConnected, servesAt, type Connector } from '../lib/connectors'
+import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
@@ -50,6 +51,7 @@ import { MyRequests } from '../components/integrations/AnswerDialog'
 import { IntegrationDialog } from '../components/integrations/IntegrationDialog'
 import { useIntegrationActions } from '../components/integrations/IntegrationRow'
 import { ConnectionPage, ListedServicePage } from '../components/integrations/ConnectionPage'
+import { LocalAppDialog, localAppsBridge } from '../components/integrations/LocalApp'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
 import { useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
@@ -167,6 +169,8 @@ function ConnectorsHome() {
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
   const [all, setAll] = useState(false)
+  // "An app on your computer" (LocalApp.tsx): only in the desktop app, while the team allows it
+  const [local, setLocal] = useState(false)
   const [params, setParams] = useSearchParams()
   // the phone app: Google's sign-in is not started from here (connecting is done on a computer, QA TC-262)
   const inApp = !!mobileApp()
@@ -175,7 +179,7 @@ function ConnectorsHome() {
   // and admins (a member's Search comes here without it); ?drive=1 (old Drive links, a notice) opens Google Drive's page
   useEffect(() => {
     if (params.get('add') !== '1' || personalAllowed === undefined) return
-    if (personalAllowed && admin) setDialog({})
+    if (customConnectorAction(personalAllowed, admin) === 'add') setDialog({})
     setParams((p) => { p.delete('add'); return p }, { replace: true })
   }, [params, personalAllowed, admin, setParams, setDialog])
 
@@ -237,7 +241,11 @@ function ConnectorsHome() {
   // their order (Drive, Gmail, Calendar, Docs, Sheets: QA TC-138), also one that cannot be connected yet because the
   // team has not set it up ("off"): an owner or admin sees "Set up", which goes to Admin, where it is set up; a member
   // sees "Not set up yet" ("Asked" once they asked), and its page has "Ask admin to add it".
-  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...listed, ...askable]
+  const localCard: Card[] = list.data?.localAllowed && localAppsBridge() ? [{
+    id: 'local-app', name: t('localApps.title'), line: t('localApps.line'), logo: '/favicon.svg', state: 'available',
+    onOpen: () => setLocal(true), onAdd: () => setLocal(true),
+  }] : []
+  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCard, ...listed, ...askable]
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -264,16 +272,26 @@ function ConnectorsHome() {
   const nothing = !!q && fromTeam.ready && !cards.length && !yours.length
   // nothing connected and nothing this person can add (the team has set nothing up for members): say so once
   const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length
+  // next to the search: an owner or admin's Add custom connector; a member's "Not listed? Ask an admin to add it." (an
+  // owner who asked why a member's screen had no Add, 2026-11-18: the line was under Discover's last card, out of sight);
+  // not with the empty list's own words for members, which say the same
+  const custom = customConnectorAction(personalAllowed, admin)
   const headActions = (
     <>
       <div className="relative w-[calc(100vw-2rem)] min-w-0 sm:w-60">
         <Search size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-faint" aria-hidden />
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('integrations.search')} aria-label={t('integrations.search')} className={`${inputCls} pl-9`} data-testid="connector-search" />
       </div>
-      {personalAllowed && admin && (
+      {custom === 'add' && (
         <Button onClick={() => setDialog({})} data-testid="integration-add">
           <Plus size={15} aria-hidden /> {t('connectorsPage.addCustom')}
         </Button>
+      )}
+      {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
+      {custom === 'ask' && !empty && (
+        <p className="text-sm text-muted" data-testid="connector-not-listed">
+          {t('integrations.discover.customHint')} <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
+        </p>
       )}
     </>
   )
@@ -290,15 +308,13 @@ function ConnectorsHome() {
         {/* what an admin asked this person to connect: answered, its own page, with its row */}
         <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
-        {/* a service a member looked for and did not find: where to go next (an owner or admin has Add above) */}
+        {/* a service a member looked for and did not find: where to go next is the line next to the search */}
         {/* the team turned own connections off: said once, whether or not this person has any (QA TC-2932) */}
         {personalAllowed === false && (
           <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
         )}
         {loading ? <Skeleton lines={4} /> : nothing ? (
-          <EmptyState title={t('integrations.noMatch', { q })}>
-            {personalAllowed !== undefined && !admin && <p data-testid="connector-ask-admin">{t('integrations.discover.customHint')} {t('integrations.discover.askAdmin')}</p>}
-          </EmptyState>
+          <EmptyState title={t('integrations.noMatch', { q })} />
         ) : empty ? (
           <EmptyState title={t('connectors.none')}>
             {!admin && <p data-testid="connector-ask-admin">{t('connectors.noneMember')}</p>}
@@ -326,18 +342,13 @@ function ConnectorsHome() {
                 <ul className="grid gap-x-6 sm:grid-cols-2" data-testid="connector-list">
                   {shownCards.map((c) => <DiscoverCard key={c.id} c={c} admin={admin} linkState={fromStep} />)}
                 </ul>
-                {/* members: the address form (kind, sign-in method, headers, scopes) is an admin's job */}
-                {personalAllowed !== undefined && !admin && (
-                  <p className="mt-5 text-sm text-muted" data-testid="connector-not-listed">
-                    {t('integrations.discover.customHint')} <span data-testid="connector-ask-admin">{t('integrations.discover.askAdmin')}</span>
-                  </p>
-                )}
               </section>
             )}
           </>
         )}
       </div>
       {fromTeam.dialog}
+      {local && <LocalAppDialog onClose={() => setLocal(false)} onSaved={(i) => { setLocal(false); actions.saved(i, null, true); navigate(connectionHref(i.id)) }} />}
     </div>
   )
 }
@@ -446,7 +457,8 @@ function CustomConnectorPage() {
   const i = list.data.items.find((x) => x.id === integrationId)
   if (!i) return <Navigate to={CONNECTORS_HOME} replace />
   return (
-    <McpShell>
+    // an app on the computer keeps no key or sign-in on the server (its settings stay on that computer): no privacy note
+    <McpShell privacy={i.kind !== 'local'}>
       <MinePage i={i} about={t(i.scope === 'team' ? 'connectors.mcp.aboutTeam' : 'connectors.mcp.about', { name: i.name })} />
     </McpShell>
   )
@@ -461,12 +473,12 @@ function MinePage({ i, about }: { i: Integration; about: string }) {
 }
 
 /** A connection's page (inside Settings' column, which scrolls it); the privacy note (moved off the list) at its end. */
-function McpShell({ children }: { children: ReactNode }) {
+function McpShell({ children, privacy = true }: { children: ReactNode; privacy?: boolean }) {
   const t = useT()
   return (
     <div className="pb-6">
       {children}
-      <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>
+      {privacy && <p className="max-w-3xl text-xs text-faint" data-testid="connector-privacy">{t('integrations.privacy')}</p>}
     </div>
   )
 }

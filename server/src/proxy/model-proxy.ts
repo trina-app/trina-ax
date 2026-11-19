@@ -25,6 +25,7 @@ import { gatewayModelIds } from '../app-config'
 import type { CredentialBroker } from '../credentials/broker'
 import type { Family } from '../credentials/resolve'
 import { handleCodex } from './codex-path'
+import type { FitReport } from './fit-images'
 import { accountRefusal, upstreamSpeaksForAccount } from './anthropic-refusal'
 
 /** 403s of two different accounts within this time: a cause on this server's side, nothing is marked */
@@ -153,6 +154,9 @@ export interface ProxyOpts {
    * plain HTTP with the engine's own credential, get the same checks as managed mode and go to `upstream` (default
    * OWN_LOGIN_UPSTREAM) with that credential (TC-359) */
   ownLogin?: { upstream?: string }
+  /** fits the pictures of a Claude request before it goes on (./fit-images.ts: older ones smaller, the oldest out past
+   * one request's limits); a failure forwards the request as it came */
+  fitImages?: (body: unknown, signal: AbortSignal) => Promise<FitReport | null>
   port?: number
   hostname?: string
   /** why a request was refused or failed: status, path and the error's type + message only (never a body, a header
@@ -258,6 +262,14 @@ export function checkProxyRequest(method: string, url: URL, body: unknown, model
   }
   return null
 }
+
+/** The largest engine request the proxy takes in (Bun answers 413 past it, before any check). The engine sends every
+ * picture of the conversation again with each request and the proxy fits them (./fit-images.ts) down to what the
+ * provider takes (32 MB), so it takes in more than that: 64 MB. Memory: a request is held about four times while it is
+ * checked and fitted (the bytes, the decoded text, the parsed object, the body written again), so up to about 256 MB
+ * for each request of that size at the same time; a turn's own images stay below this (files/vision.ts
+ * VISION_FITTED_BYTES, 48 MB of base64). */
+export const PROXY_BODY_MAX = 64 * 1024 * 1024
 
 export function apiError(status: number, type: string, message: string, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify({ type: 'error', error: { type, message } }), { status, headers: { 'content-type': 'application/json', ...extra } })
@@ -391,6 +403,15 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // the body that goes out is the one checked above, written again: a raw body could say more than JSON.parse
       // saw (a duplicate key: JSON.parse keeps the last, another parser the first, e.g. a refused tool list)
       headers.set('content-type', 'application/json')
+      if (o.fitImages && url.pathname.startsWith('/v1/messages')) {
+        try {
+          const fit = await o.fitImages(parsed, req.signal)
+          if (fit && (fit.shrunk || fit.dropped || fit.pending)) o.log?.debug?.('model request images fitted', { turn: row.turn_id, ...fit, bodyBytes: body.byteLength })
+        } catch (e) {
+          if (req.signal.aborted) return unreachable(req)
+          o.log?.warn('model request images not fitted', { turn: row.turn_id, err: (e as Error).message?.slice(0, 120) })
+        }
+      }
       const outBody = JSON.stringify(parsed)
       const beta = new Set((headers.get('anthropic-beta') ?? '').split(',').map((s) => s.trim()).filter((s) => BETA_RE.test(s)))
       let sent = ''
@@ -539,7 +560,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
     hostname: '127.0.0.1', port: 0, reusePort: false,
     // a long answer can stream for many minutes; Bun's default idle timeout (10 s) would cut a quiet stream
     idleTimeout: 0,
-    maxRequestBodySize: 32 * 1024 * 1024,
+    maxRequestBodySize: PROXY_BODY_MAX,
     async fetch(req, srv) {
       const ip = srv.requestIP(req)
       const clientPort = ip ? links.get(ip.port) : undefined

@@ -7,9 +7,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { uuidv7 } from '@mycel/shared/api'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { UserText } from '../../src/components/chat/Messages'
 import { Markdown, PersonMarkdown } from '../../src/components/Markdown'
-import { capDepth, footnotesTooHeavy, MAX_TABLE_CELLS, tableTooBig, hiddenAddress, MAX_AUTOLINK_TRIES, MAX_FOOTNOTES, MAX_LINE_MARKS, MAX_LINES, MAX_LOOSE, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
+import { capDepth, keepBlankLines, footnotesTooHeavy, MAX_TABLE_CELLS, tableTooBig, hiddenAddress, MAX_AUTOLINK_TRIES, MAX_FOOTNOTES, MAX_LINE_MARKS, MAX_LINES, MAX_LOOSE, MAX_NEST, MAX_OPEN, tooHeavyForMarkdown, protectMentions, type MessageMention } from '../../src/lib/messageMarkdown'
 import type { PendingSend } from '../../src/store/rooms'
+import { capBlankLines, MAX_BLANK_LINES } from '../../src/lib/blankLines'
 import { BEN, CY, ME, message } from './rooms-fixtures'
 
 const R = uuidv7()
@@ -453,3 +455,164 @@ test('a table of millions of cells (a wide header, then short lines) is its word
   // a line of dashes under words is a heading, a list item's dash no table
   expect(tableTooBig('Title\n---\n' + 'text\n'.repeat(900))).toBe(false)
 }, 60_000)
+
+// ---------------- blank lines as typed (QA TC-4964) ----------------
+/** the empty lines each spacer holds, in order */
+const spacers = (html: string) => [...html.matchAll(/<div data-blank-lines="(\d+)" aria-hidden="true">((?:<br\/>)*)<\/div>/g)].map((m) => {
+  expect(m[2]).toBe('<br/>'.repeat(Number(m[1])))
+  return Number(m[1])
+})
+
+test("the owner's message keeps one blank line, then two, as typed", () => {
+  const h = words('hei\n\nI test\n\n\nyou')
+  expect(h).toMatch(/<p>hei<\/p>\s*<div data-blank-lines="1" aria-hidden="true"><br\/><\/div>\s*<p>I test<\/p>\s*<div data-blank-lines="2" aria-hidden="true"><br\/><br\/><\/div>\s*<p>you<\/p>/)
+  // a paragraph has no margin of its own: the empty lines are the whole gap
+  expect(md('a\n\nb')).toContain('prose-p:my-0')
+  expect(md('a\n\nb')).not.toContain('prose-p:my-1')
+  // a line break is still a line break, with no empty line
+  expect(spacers(words('one\ntwo'))).toEqual([])
+  expect(words('one\ntwo')).toContain('one<br/>\ntwo')
+  // lines of only spaces or tabs are blank lines too; "\r\n" ends a line
+  expect(spacers(words('a\n  \n\t\nb'))).toEqual([2])
+  expect(spacers(words('a\r\n\r\n\r\nb'))).toEqual([2])
+})
+
+test('blank lines stay in quotes, lists and between other blocks; code keeps its own lines', () => {
+  const q = words('> a\n>\n>\n> b')
+  expect(q).toMatch(/<blockquote>\s*<p>a<\/p>\s*<div data-blank-lines="2"[^>]*><br\/><br\/><\/div>\s*<p>b<\/p>\s*<\/blockquote>/)
+  // between list items: at the end of the first item, so the next bullet stays on its words
+  const l = words('- a\n\n\n- b\n- c')
+  expect(l).toMatch(/<li>\s*<p>a<\/p>\s*<div data-blank-lines="2"[^>]*><br\/><br\/><\/div>\s*<\/li>\s*<li>/)
+  expect(spacers(l)).toEqual([2])
+  expect(spacers(words('- a\n- b'))).toEqual([])
+  expect(spacers(words('1. a\n\n   more\n2. b'))).toEqual([1])
+  // a code block keeps every line inside it exactly; the blank lines after it are empty lines
+  const c = words('```\nx\n\n\n\n\n\n\n\ny\n```\n\n\nz')
+  expect(c).toContain('x\n\n\n\n\n\n\n\ny</code>')
+  expect(spacers(c)).toEqual([2])
+  // headings, rules, tables, mentions and links around blank lines
+  const m = words('# Title\n\n\n@Cy Park see https://trina.app\n\n---\n\n|a|b|\n|-|-|\n|1|2|', [CY.id])
+  expect(spacers(m)).toEqual([2, 1, 1])
+  expect(m).toContain('<h1>Title</h1>')
+  expect(m).toContain('<span class="font-medium text-accent-text">@Cy Park</span>')
+  expect(m).toMatch(/<a [^>]*href="https:\/\/trina\.app\/"/)
+  expect(m).toContain('<hr/>')
+  expect(m).toContain('<table')
+  // no empty lines before the first block or after the last
+  expect(spacers(words('\n\n\nhi\n\n\n'))).toEqual([])
+})
+
+test(`a run of more than ${MAX_BLANK_LINES} blank lines shows ${MAX_BLANK_LINES} empty lines, drawn or plain`, () => {
+  expect(spacers(words('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b'))).toEqual([MAX_BLANK_LINES])
+  expect(spacers(words('a' + '\n'.repeat(900) + 'b'))).toEqual([MAX_BLANK_LINES])
+  // thousands of line breaks: too many lines for Markdown, so the plain words, cut the same way
+  for (const body of ['a' + '\n'.repeat(9_998) + 'b', '\n'.repeat(5000) + 'x' + '\n \n'.repeat(1500) + 'y', 'a\n\n\n\n\n\n\n\nb\n'.repeat(1000)]) {
+    const h = md(body.slice(0, 10_000))
+    expect(h).toContain('data-plain=""')
+    expect(h).not.toMatch(new RegExp(`\\n{${MAX_BLANK_LINES + 2}}`))
+  }
+  // what the plain surfaces (a question to the AI, a waiting message, a message being sent) show
+  expect(capBlankLines('hei\n\nI test\n\n\nyou')).toBe('hei\n\nI test\n\n\nyou')
+  expect(capBlankLines('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+  expect(capBlankLines('a' + '\n'.repeat(MAX_BLANK_LINES + 2) + 'b')).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+  expect(capBlankLines('a\n \n\t\n  \n\n\n\n\nb')).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+  expect(capBlankLines('a\r\n\r\nb')).toBe('a\n\nb')
+  expect(capBlankLines('  indented\n    code')).toBe('  indented\n    code')
+  // linear: 200,000 line breaks, or spaces between them, in a few milliseconds
+  for (const big of ['\n'.repeat(200_000), ' \n'.repeat(100_000), '\n' + ' '.repeat(200_000), ('\n' + ' '.repeat(50)).repeat(4000)]) {
+    const ms = fastest(() => capBlankLines(big))
+    expect(ms).toBeLessThan(50)
+  }
+})
+
+test('a message of only line breaks, or of blank lines between many short lines, draws fast', () => {
+  md('warm')
+  for (const body of ['\n'.repeat(10_000), 'x\n\n'.repeat(3333), 'x\n\n\n\n\n\n\n'.repeat(1250), '> x\n>\n'.repeat(2500), '- x\n\n'.repeat(1666), '\n\n- x'.repeat(1666), ('a' + '\n'.repeat(MAX_LINES / 10 - 1)).repeat(10)]) {
+    const s = body.slice(0, 10_000)
+    const ms = fastest(() => md(s))
+    if (ms >= 200) throw new Error(`${Math.round(ms)} ms: ${JSON.stringify(s.slice(0, 40))}`)
+    // never more empty lines than MAX_BLANK_LINES for each block drawn
+    const h = md(s)
+    const blocks = (h.match(/<(p|li|blockquote|h\d|pre|table)\b/g) ?? []).length
+    expect(spacers(h).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(Math.max(1, blocks) * MAX_BLANK_LINES)
+  }
+})
+
+test('keepBlankLines leaves nodes without offsets alone and answers keep normal Markdown spacing', () => {
+  const tree = { type: 'root', children: [{ type: 'paragraph', children: [] }, { type: 'paragraph', children: [] }] }
+  keepBlankLines(tree as never, 'a\n\n\nb')
+  expect(tree.children.length).toBe(2)
+  // an AI's answer is ordinary Markdown: no spacers
+  expect(answer('hei\n\nI test\n\n\nyou')).not.toContain('data-blank-lines')
+})
+
+test('an edited message keeps its blank lines and the mark; the plain surfaces show them as typed, a long run cut', () => {
+  const edited = render([message({ roomId: R, seq: 1, body: 'hei\n\nI test\n\n\nyou', editedAt: new Date().toISOString() })])
+  expect(edited).toMatch(/<div data-blank-lines="2"[^>]*><br\/><br\/><\/div>\s*<p>you<\/p><span class="ml-1 text-xs text-faint select-none">/)
+  // a message being sent
+  const long = 'a' + '\n'.repeat(3000) + 'b'
+  const p = (body: string) => ({ clientMessageId: 'c1', body, files: [], mentions: [], state: 'sending' }) as unknown as PendingSend
+  const sending = (body: string) => { const h = render([], [p(body)]); return h.slice(h.indexOf('room-pending-message')) }
+  expect(sending('hei\n\nI test\n\n\nyou')).toContain('hei\n\nI test\n\n\nyou')
+  expect(sending(long)).toContain('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+  // a question in an AI chat or the side chat
+  const asked = (content: string) => renderToStaticMarkup(<MemoryRouter><UserText content={content} clamp={false} /></MemoryRouter>)
+  expect(asked('hei\n\nI test\n\n\nyou')).toContain('hei\n\nI test\n\n\nyou')
+  expect(asked(long)).toContain('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+  expect(asked(long)).not.toContain('\n'.repeat(MAX_BLANK_LINES + 2))
+})
+
+// ---------------- review follow-ups (QA TC-4967) ----------------
+test('a link definition shows nothing and adds no empty line; a footnote stays its words', () => {
+  // the blank lines on its two sides are one run
+  expect(spacers(words('a\n\n[r]: https://example.com/r\n\nb'))).toEqual([1])
+  expect(spacers(words('a\n\n\n[r]: https://example.com/r\n\nb'))).toEqual([2])
+  expect(spacers(words('a\n\n[r]: https://example.com/r\n[s]: https://example.com/s\n\n\nb'))).toEqual([2])
+  // none after the last shown block, none before the first
+  const tail = words('[docs][r]\n\n[r]: https://example.com/d')
+  expect(spacers(tail)).toEqual([])
+  expect(tail).toMatch(/<a href="https:\/\/example\.com\/d"[^>]*>docs<\/a>/)
+  expect(spacers(words('[r]: https://example.com/d\n\n\n[docs][r]'))).toEqual([])
+  // in a quote too
+  expect(spacers(words('> a\n>\n> [r]: https://example.com/r\n>\n> b'))).toEqual([1])
+  // a footnote's definition is its words, so it is a neighbour like any paragraph
+  expect(spacers(words('x[^1]\n\n[^1]: note'))).toEqual([1])
+})
+
+test('lines of only U+3000 or NBSP are blank lines: counted and capped like empty ones', () => {
+  for (const ch of ['　', ' ', ' 　 \t']) {
+    // a paragraph of them is its lines in the run
+    expect(spacers(words(`a\n\n${ch}\n\nb`))).toEqual([3])
+    expect(spacers(words(`a\n\n${(ch + '\n').repeat(50)}\nb`))).toEqual([MAX_BLANK_LINES])
+    // inside a paragraph: at most MAX_BLANK_LINES empty lines in a row
+    const inside = words(`a\n${(ch + '\n').repeat(50)}b`)
+    expect((inside.match(/<br\/>/g) ?? []).length).toBe(MAX_BLANK_LINES + 1)
+    expect(inside).toContain('b</p>')
+    // the plain surfaces
+    expect(capBlankLines(`a\n${(ch + '\n').repeat(20)}b`)).toBe('a' + '\n'.repeat(MAX_BLANK_LINES + 1) + 'b')
+    expect(capBlankLines(`a\n${ch}\n${ch}\nb`)).toBe(`a\n${ch}\n${ch}\nb`)
+  }
+  // a blank-looking line that a link, a mention or formatting goes on from is not empty: the cap counts only the empty
+  // ones before it, and the link stays on its own line
+  for (const tail of ['\u3000https://e.com', '\u3000@Cy Park', '\u3000**bold**']) {
+    const h = words('a\n' + '\u3000\n'.repeat(5) + tail, [CY.id])
+    expect(h.match(/<br\/>/g)?.length).toBe(6)
+    expect(h).toMatch(/<br\/>\n\u3000(<a |<span class="font-medium|<strong>)/)
+  }
+  // a message of nothing but them still shows (nothing to space out)
+  expect(words('　\n\n　')).toContain('<p>　</p>')
+  // other text with an NBSP is words, not a blank line
+  expect(spacers(words('a\n\nx y\n\nb'))).toEqual([1, 1])
+  // linear on big runs of them
+  for (const big of ['　\n'.repeat(100_000), ('\n' + ' '.repeat(50)).repeat(4000)]) expect(fastest(() => capBlankLines(big))).toBeLessThan(50)
+  md('warm')
+  for (const body of [('　\n').repeat(5000), 'a\n\n' + ' \n\n'.repeat(3000), 'x\n　\n'.repeat(2500)]) {
+    const s = body.slice(0, 10_000)
+    const ms = fastest(() => md(s))
+    if (ms >= 200) throw new Error(`${Math.round(ms)} ms: ${JSON.stringify(s.slice(0, 20))}`)
+  }
+})
+
+test('the blocks around empty lines have no margin of their own there', () => {
+  expect(md('a\n\n\n```\nx\n```')).toContain('[&amp;_[data-blank-lines]+*]:mt-0 [&amp;_*:has(+[data-blank-lines])]:mb-0')
+})

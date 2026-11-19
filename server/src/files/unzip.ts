@@ -1,0 +1,247 @@
+// What is inside a zip, as the AI's unzip_file (tools/unzip.ts) will save it: every entry's name decoded, its path
+// checked and cut into folder names, junk left out, and the limits applied, before anything is written (planZip writes
+// nothing). The tool then streams one entry at a time into a work file (inflateEntryToFile), inside a server-wide unzip
+// slot (unzipSlot: each call holds its zip in memory), and places each file through the normal checks.
+// - Names: UTF-8 when the zip says so (flag bit 11) or carries an Info-ZIP Unicode path whose CRC matches the name;
+//   otherwise UTF-8 when the bytes are valid UTF-8, else CP949 (zips made on Korean Windows without the UTF-8 flag;
+//   WHATWG "euc-kr" is Windows' code page 949). Then NFC (macOS zips write decomposed Hangul) and "\" read as "/".
+// - Refused for the whole zip (nothing is saved): an absolute path ("/x", "C:\x") or a ".." segment, the sign of a zip
+//   made to write outside its folder; zip64, encryption, a damaged directory, too many entries or bytes (zip-guard.ts).
+// - Skipped and named: links and device files (only plain files and folders come out of a zip here), names the team
+//   folder does not take (policy/names.ts badSegment), a path that appears twice or is both a file and a folder.
+// - Left out silently: macOS and Windows junk (__MACOSX/, ._*, .DS_Store, Thumbs.db, desktop.ini).
+import fs from 'node:fs'
+import zlib from 'node:zlib'
+import { badSegment, foldKey } from '../policy/names'
+import { entryData, readCentral, ZIP_RATIO_FROM, ZIP_RATIO_MAX, ZIP_TOTAL_MAX, ZipProblem, type ZipEntry } from './zip-guard'
+
+/** the zip file itself (it is read into memory) and all of its files together, uncompressed */
+export const UNZIP_ZIP_MAX = ZIP_TOTAL_MAX
+export const UNZIP_TOTAL_MAX = ZIP_TOTAL_MAX
+/** entries of the central directory (folders and junk count too) */
+export const UNZIP_ENTRIES_MAX = 5000
+/** folder levels inside the zip */
+export const UNZIP_DEPTH_MAX = 30
+
+/** `part`: an email's attachment (tools/unzip.ts with an .eml / .msg: files/mail-parts.ts), by its place in the list;
+ * its `entry` is then MAIL_ENTRY and unused */
+export interface PlannedFile { segs: string[]; entry: ZipEntry; size: number; part?: number }
+export const MAIL_ENTRY: ZipEntry = { nameBytes: new Uint8Array(0), flags: 0, extra: new Uint8Array(0), madeBy: 0, external: 0, method: 0, crc: 0, csize: 0, usize: 0, local: 0 }
+export interface ZipPlan {
+  files: PlannedFile[]
+  /** folders the zip names (also empty ones), each as its segments; parents of files are implied */
+  folders: string[][]
+  /** entries not saved, with a plain reason */
+  skipped: { name: string; why: string }[]
+  /** junk entries left out (__MACOSX and the like) */
+  junk: number
+  /** all the zip's entries sat in one folder of this name; it was taken off the paths (the tool names its folder after
+   * it) */
+  top: string | null
+  total: number
+}
+
+/** A zip made to write outside its folder (an absolute path or ".."): the whole zip is refused. */
+export class UnsafeZip extends Error {
+  constructor(readonly entry: string) { super(`unsafe path in the zip: ${entry}`); this.name = 'UnsafeZip' }
+}
+
+const UTF8 = new TextDecoder('utf-8', { fatal: true })
+const UTF8_LOOSE = new TextDecoder('utf-8')
+const CP949 = new TextDecoder('euc-kr')
+
+const crc32 = (b: Uint8Array, prev = 0): number => (zlib as unknown as { crc32: (d: Uint8Array, v?: number) => number }).crc32(b, prev) >>> 0
+
+/** The Info-ZIP Unicode path extra field (0x7075): its UTF-8 name when its CRC is that of the raw name. */
+function unicodePath(e: ZipEntry): string | null {
+  const x = e.extra
+  const v = new DataView(x.buffer, x.byteOffset, x.byteLength)
+  for (let p = 0; p + 4 <= x.length;) {
+    const id = v.getUint16(p, true)
+    const len = v.getUint16(p + 2, true)
+    if (p + 4 + len > x.length) return null
+    if (id === 0x7075 && len >= 5 && x[p + 4] === 1 && v.getUint32(p + 5, true) === crc32(e.nameBytes)) {
+      try { return UTF8.decode(x.subarray(p + 9, p + 4 + len)) } catch { return null }
+    }
+    p += 4 + len
+  }
+  return null
+}
+
+/** An entry's name as people wrote it (see the head of this file). */
+export function decodeName(e: Pick<ZipEntry, 'nameBytes' | 'flags' | 'extra'>): string {
+  const b = e.nameBytes
+  let s: string
+  if (e.flags & 0x800) s = UTF8_LOOSE.decode(b)
+  else {
+    const u = unicodePath(e as ZipEntry)
+    if (u !== null) s = u
+    else { try { s = UTF8.decode(b) } catch { s = CP949.decode(b) } }
+  }
+  return s.normalize('NFC')
+}
+
+const JUNK_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini'])
+const isJunk = (segs: string[]) => segs[0] === '__MACOSX' || segs.some((s) => JUNK_NAMES.has(s.toLowerCase())) || segs.at(-1)!.startsWith('._')
+
+const S_IFMT = 0o170000
+const S_IFREG = 0o100000
+const S_IFDIR = 0o040000
+const S_IFLNK = 0o120000
+
+/**
+ * The plan of a zip: what it holds, where each file goes under the target folder, and what is left out. Throws a
+ * ZipProblem (zip-guard.ts) or UnsafeZip; nothing has been written then.
+ */
+export function planZip(bytes: Uint8Array, o: { unwrap?: boolean } = {}): ZipPlan {
+  const entries = readCentral(bytes, { total: UNZIP_TOTAL_MAX, entries: UNZIP_ENTRIES_MAX })
+  // the whole zip may not expand more than ZIP_RATIO_MAX times either (many small parts each under the per-part bound)
+  const declared = entries.reduce((n, e) => n + e.usize, 0)
+  if (declared > ZIP_RATIO_FROM && declared > bytes.length * ZIP_RATIO_MAX) throw new ZipProblem('complex', `the zip expands more than ${ZIP_RATIO_MAX} times`)
+  // every part's local header and data in its own range: parts that share their data (one block named 49 times) are a
+  // bomb made from overlap, never a zip a program writes
+  const ranges = entries.map((e) => { const d = entryData(bytes, e); return [e.local, d.byteOffset - bytes.byteOffset + d.length] as const }).sort((x, y) => x[0] - y[0])
+  for (let i = 1; i < ranges.length; i++) if (ranges[i]![0] < ranges[i - 1]![1]) throw new ZipProblem('complex', 'parts of the zip share their data')
+  const items: { segs: string[]; dir: boolean; entry: ZipEntry; name: string }[] = []
+  const skipped: ZipPlan['skipped'] = []
+  let junk = 0
+  for (const e of entries) {
+    const name = decodeName(e)
+    const raw = name.replace(/\\/g, '/')
+    if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw)) throw new UnsafeZip(name)
+    const parts = raw.split('/')
+    if (parts.includes('..')) throw new UnsafeZip(name)
+    const segs = parts.filter((s) => s !== '' && s !== '.')
+    if (!segs.length) continue
+    if (isJunk(segs)) { junk++; continue }
+    // a Unix mode in the upper half of the external attributes (made by Unix, 3): links and devices stay out
+    const mode = e.madeBy === 3 ? (e.external >>> 16) & S_IFMT : 0
+    if (mode === S_IFLNK) { skipped.push({ name, why: 'a link (shortcut) to another file, which is not saved' }); continue }
+    if (mode && mode !== S_IFREG && mode !== S_IFDIR) { skipped.push({ name, why: 'not a regular file' }); continue }
+    const dir = raw.endsWith('/') || mode === S_IFDIR || (e.external & 0x10) !== 0
+    if (segs.length > UNZIP_DEPTH_MAX) { skipped.push({ name, why: `more than ${UNZIP_DEPTH_MAX} folders deep` }); continue }
+    const bad = segs.map((s) => badSegment(s)).find(Boolean)
+    if (bad) { skipped.push({ name, why: `the name is not allowed in the team folder (${bad})` }); continue }
+    items.push({ segs, dir, entry: e, name })
+  }
+  // one folder around everything ("report/…"): taken off, the tool's folder is named after it
+  const firsts = new Set(items.map((i) => i.segs[0]!))
+  let top: string | null = null
+  if (o.unwrap !== false && firsts.size === 1 && items.some((i) => i.segs.length > 1) && items.every((i) => i.segs.length > 1 || i.dir)) {
+    top = [...firsts][0]!
+    for (const i of items) i.segs = i.segs.slice(1)
+  }
+  // duplicates (also by case and width, as the team folder compares names), a path that is a file and a folder
+  const files: PlannedFile[] = []
+  const folders: string[][] = []
+  const fileKeys = new Set<string>()
+  const dirKeys = new Set<string>()
+  const keyOf = (segs: string[]) => segs.map(foldKey).join('/')
+  let total = 0
+  for (const i of items) {
+    if (!i.segs.length) continue
+    const k = keyOf(i.segs)
+    const parents = i.segs.slice(0, -1).map((_, n) => keyOf(i.segs.slice(0, n + 1)))
+    if (parents.some((p) => fileKeys.has(p))) { skipped.push({ name: i.name, why: 'it is inside a name that is also a file in the zip' }); continue }
+    if (i.dir) {
+      if (fileKeys.has(k)) { skipped.push({ name: i.name, why: 'a file of the same name is in the zip' }); continue }
+      if (!dirKeys.has(k)) { dirKeys.add(k); folders.push(i.segs) }
+      for (const p of parents) dirKeys.add(p)
+      continue
+    }
+    if (fileKeys.has(k) || dirKeys.has(k)) { skipped.push({ name: i.name, why: 'the zip has this name twice' }); continue }
+    fileKeys.add(k)
+    for (const p of parents) dirKeys.add(p)
+    total += i.entry.usize
+    files.push({ segs: i.segs, entry: i.entry, size: i.entry.usize })
+  }
+  return { files, folders, skipped, junk, top, total }
+}
+
+/** The plan without the zip's bytes (an entry's name and extra field point into them), so the zip can be let go while
+ * the person answers a card; extraction reads the zip again. */
+export function detachPlan(p: ZipPlan): ZipPlan {
+  const none = new Uint8Array(0)
+  return { ...p, files: p.files.map((f) => ({ ...f, entry: { ...f.entry, nameBytes: none, extra: none } })) }
+}
+
+/**
+ * One entry streamed into a new file `dest` (made here, never there before): inflated on the zlib thread pool chunk by
+ * chunk, so a call holds the zip and a chunk, never a whole inflated entry. Its real size may not pass the size the
+ * directory declares (counted as it streams) and must end equal to it, with a matching CRC. Throws a ZipProblem (the
+ * partial file is removed).
+ */
+export async function inflateEntryToFile(bytes: Uint8Array, e: ZipEntry, dest: string, signal?: AbortSignal): Promise<number> {
+  const data = entryData(bytes, e)
+  const fd = fs.openSync(dest, 'wx', 0o600)
+  let open = true
+  const close = () => { if (open) { open = false; fs.closeSync(fd) } }
+  let n = 0
+  let crc = 0
+  try {
+    if (e.method === 0) {
+      if (e.csize !== e.usize) throw new ZipProblem('damaged', 'stored entry with two sizes')
+      for (let off = 0; off < data.length;) off += fs.writeSync(fd, data, off, Math.min(1 << 20, data.length - off))
+      n = data.length
+      crc = crc32(data)
+    } else {
+      if (e.usize > ZIP_RATIO_FROM && e.usize > e.csize * ZIP_RATIO_MAX) throw new ZipProblem('complex', `a part expands more than ${ZIP_RATIO_MAX} times`)
+      await new Promise<void>((resolve, reject) => {
+        const inf = zlib.createInflateRaw({ chunkSize: 64 * 1024 })
+        let failed = false
+        const onAbort = () => fail(new ZipProblem('damaged', 'stopped'))
+        const fail = (err: Error) => { if (failed) return; failed = true; signal?.removeEventListener('abort', onAbort); inf.destroy(); reject(err) }
+        signal?.addEventListener('abort', onAbort, { once: true })
+        inf.on('data', (chunk: Buffer) => {
+          if (failed) return
+          n += chunk.length
+          if (n > e.usize) { fail(new ZipProblem('complex', 'a part is larger than its header says')); return }
+          crc = crc32(chunk, crc)
+          try { for (let off = 0; off < chunk.length;) off += fs.writeSync(fd, chunk, off, chunk.length - off) } catch (err) { fail(err as Error) }
+        })
+        inf.on('error', () => fail(new ZipProblem('damaged', 'bad compressed data')))
+        inf.on('end', () => { signal?.removeEventListener('abort', onAbort); if (!failed) resolve() })
+        inf.end(data)
+      })
+    }
+    if (n !== e.usize) throw new ZipProblem('damaged', 'a part is not the size its header says')
+    if (crc !== e.crc) throw new ZipProblem('damaged', 'a part does not match its checksum')
+    return n
+  } catch (err) {
+    close()
+    fs.rmSync(dest, { force: true })
+    throw err
+  } finally { close() }
+}
+
+// ---------------- one or two unzips at a time on the server ----------------
+/** unzips that may run at once (each holds its zip in memory, up to UNZIP_ZIP_MAX) and how long another waits */
+export const UNZIP_LIMITS = { parallel: 2, waitMs: 20_000 }
+let unzipRunning = 0
+const unzipWaiting: (() => void)[] = []
+
+/** A server-wide unzip slot; the returned function gives it back. Waits up to UNZIP_LIMITS.waitMs, then throws a
+ * ZipProblem of kind 'busy'. */
+export function unzipSlot(signal?: AbortSignal): Promise<() => void> {
+  return new Promise((resolve, reject) => {
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      unzipRunning--
+      const next = unzipWaiting.shift()
+      if (next) next()
+    }
+    const grant = () => { unzipRunning++; resolve(release) }
+    if (signal?.aborted) { reject(new ZipProblem('damaged', 'stopped')); return }
+    if (unzipRunning < UNZIP_LIMITS.parallel) { grant(); return }
+    const go = () => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); grant() }
+    const drop = (err: Error) => { const i = unzipWaiting.indexOf(go); if (i >= 0) unzipWaiting.splice(i, 1); clearTimeout(timer); signal?.removeEventListener('abort', onAbort); reject(err) }
+    const timer = setTimeout(() => drop(new ZipProblem('busy', 'other zips are being unzipped')), UNZIP_LIMITS.waitMs)
+    const onAbort = () => drop(new ZipProblem('damaged', 'stopped'))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    unzipWaiting.push(go)
+  })
+}
+/** tests: the slots' state */
+export const _unzipSlotsForTest = () => ({ running: unzipRunning, waiting: unzipWaiting.length })

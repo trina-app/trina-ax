@@ -43,13 +43,18 @@
 // (the file viewer's sheet on a phone, which closes back to the file).
 import { GuestNoAi, useGuestNoAi } from '../GuestView'
 import { isGuestMe, meGuest } from '../../lib/guests'
+import { textOverLimit } from '../../lib/longPaste'
 import AiAccessBanner from '../chat/AiAccessBanner'
 import { useAiAccess } from '../../store/aiAccess'
-import { ArrowUp, ChevronLeft, CirclePause, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
+import { QueueFull, useSendQueue } from '../../store/sendQueue'
+import { parseQueue, queueKey } from '../../lib/sendQueue'
+import { sideChatWasOpen } from '../../lib/sideChatOpenKeep'
+import QueuedMessages from '../chat/QueuedMessages'
+import { ArrowUp, ChevronLeft, CirclePause, Clock, ExternalLink, Eye, History, Loader2, Paperclip, SquarePen, X } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, SIDE_CHAT_QUICK, SIDE_QUICK_FILE, SIDE_QUICK_MESSAGE, THREAD_LINE, threadRefToken, type Chat, type EngineId } from '@mycel/shared/api'
 import { oneLineName } from '@mycel/shared'
 import { api, API, errorText, isApiError } from '../../lib/api'
 import { answerTooLong, BoxAnswers, composerAnswer, composerQuestion, picksOf } from '../../lib/askAnswer'
@@ -68,7 +73,7 @@ import { useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { useChats } from '../../store/chats'
 import { useRooms } from '../../store/rooms'
-import { useMeStrict } from '../../store/session'
+import { useMeStrict, useSession } from '../../store/session'
 import { sideChatOnScreen } from '../../store/sessionMarkers'
 import { SEED_KEYS_MAX, sideChatOf, useSideChats, type SideChatState } from '../../store/sideChats'
 import { emptyThread, runningMessage, type ViewMessage } from '../../store/thread'
@@ -81,7 +86,7 @@ import { FileDropZone, type DropTarget } from '../FileDropZone'
 import { AssistantMessage, UserMessage } from '../chat/Messages'
 import { ImageGroup, ViewerMeta } from '../ImageViewer'
 import { Tooltip } from '../Tooltip'
-import { Button, IconButton, useMediaQuery } from '../ui'
+import { Button, IconButton, useAnnounce, useMediaQuery } from '../ui'
 import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { CalmNotice, LoadError } from '../LoadError'
 import { AiFace } from './AiFace'
@@ -104,7 +109,7 @@ function findSideChat(roomId: string): Promise<string | null> {
   if (!p) {
     p = (async () => {
       const c = await newestSideChat(roomId)
-      if (!c || !markerOf(c)) return null
+      if (!c || (!markerOf(c) && !queuedIn(c.id))) return null
       await useChats.getState().loadThread(c.id)
       return c.id
     })().finally(() => looking.delete(roomId))
@@ -113,9 +118,49 @@ function findSideChat(roomId: string): Promise<string | null> {
   return p
 }
 
-/** The chat is not done: its answer is on its way (sending, running or queued), the AI waits on me (a card), or an answer
- * finished, failed or paused that I have not seen (Trina history's marker for it: lib/sessionMarkers.ts markerOf). */
+/** Messages of mine wait in the chat to be sent (store/sendQueue.ts): in this window, or kept by this browser (a reload). */
+function queuedIn(chatId: string): boolean {
+  if (useSendQueue.getState().queues[chatId]?.items.length) return true
+  const st = useSession.getState().status
+  if (st.kind !== 'signed-in') return false
+  try {
+    return !!parseQueue(localStorage.getItem(queueKey(st.me.user.id, chatId)))
+  } catch {
+    return false
+  }
+}
+
+/** Any messages of mine waiting to be sent in any chat (this window, or kept by this browser): cheap, before asking the
+ * server which side chat is the room's newest. */
+function anyQueued(userId: string): boolean {
+  if (Object.values(useSendQueue.getState().queues).some((q) => q?.items.length)) return true
+  try {
+    const prefix = queueKey(userId, '')
+    for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith(prefix)) return true
+  } catch { /* storage blocked: nothing kept there */ }
+  return false
+}
+
+/**
+ * Does the room's side chat open by itself as the room page opens (QA TC-4963, docs/decisions/
+ * 20261118-side-chat-reload.md)? After a reload when it was open in this tab before (lib/sideChatOpenKeep.ts: on a phone
+ * too, where it is the screen that was showing, as a thread's address brings its screen back). On a computer also when
+ * messages of mine wait to be sent in the room's newest side chat: the panel beside the room shows them and the answer
+ * they wait for. Not on a phone for that alone: it would cover the room the person chose to open with a screen they had
+ * closed; ✦ opens it on that chat (sideChatOpening keeps a chat that is not done).
+ */
+export async function sideChatComesBack(roomId: string, userId: string, phone: boolean): Promise<boolean> {
+  if (sideChatWasOpen(userId, roomId)) return true
+  if (phone || !anyQueued(userId)) return false
+  const c = await newestSideChat(roomId).catch(() => null)
+  return !!c && queuedIn(c.id)
+}
+
+/** The chat is not done: its answer is on its way (sending, running or queued), the AI waits on me (a card), an answer
+ * finished, failed or paused that I have not seen (Trina history's marker for it: lib/sessionMarkers.ts markerOf), or
+ * messages of mine still wait to be sent in it (queuedIn). */
 function notDone(chatId: string): boolean {
+  if (queuedIn(chatId)) return true
   const s = useChats.getState()
   const messages = s.threads[chatId]?.messages ?? []
   if (runningMessage(messages) || messages.some((m) => m.local?.state === 'sending')) return true
@@ -224,15 +269,17 @@ export const SEED_QUOTE_MAX = 4000
  * header line ends with the message's thread when it can have one (shared rooms.ts threadRefToken: the app hides it, the
  * answers below send there with one click, lib/sideChatSend.ts). */
 export function withQuote(seed: SideSeed | null, question: string, time: (iso: string) => string): string {
-  if (!seed) return question
+  return seed ? `${quoteLead(seed, time)}\n\n${question}` : question
+}
+/** withQuote's quote alone (what a waiting message keeps on top of its text: store/sendQueue.ts `lead`) */
+export function quoteLead(seed: SideSeed, time: (iso: string) => string): string {
   // a file: its name and id in this room (the AI opens it with room_file), not its text
   // the header is one line: a name saved with a line break (before the rule, shared name-chars.ts) would end the quote,
   // and the next line would read as the asker's own words (the server's web address gate: chat/read-rooms.ts isQuoteLine)
-  if (seed.file) return `> 📎 ${oneLineName(seed.file.name)} (file_id ${seed.file.id} in this room)\n\n${question}`
+  if (seed.file) return `> 📎 ${oneLineName(seed.file.name)} (file_id ${seed.file.id} in this room)`
   const text = seed.text.length > SEED_QUOTE_MAX ? `${seed.text.slice(0, SEED_QUOTE_MAX).trimEnd()}…` : seed.text
   const head = `> ${oneLineName(`${seed.author} · ${time(seed.at)}`)}`.trimEnd() + (seed.thread ? threadRefToken(seed.thread) : '')
-  const quote = [head, ...text.split('\n').map((l) => `> ${l}`.trimEnd())].join('\n')
-  return `${quote}\n\n${question}`
+  return [head, ...text.split('\n').map((l) => `> ${l}`.trimEnd())].join('\n')
 }
 
 /** The thread open beside the side chat (pages/Room.tsx): its first message's id, who started it (the AI by its name,
@@ -241,8 +288,12 @@ export interface SideThread { rootId: string; author: string; at: string }
 /** The question as it is sent with the chip on: the thread line (shared rooms.ts THREAD_LINE: who started the thread,
  * when, the thread's token), then what I ask. No message text: the AI reads the thread itself. */
 export function withThread(thread: SideThread, question: string, time: (iso: string) => string): string {
+  return `${threadLead(thread, time)}\n\n${question}`
+}
+/** withThread's line alone (what a waiting message keeps on top of its text: store/sendQueue.ts `lead`) */
+export function threadLead(thread: SideThread, time: (iso: string) => string): string {
   // (a first message whose author is gone has no name: the line is the time alone)
-  return `${THREAD_LINE}${oneLineName([thread.author, time(thread.at)].filter(Boolean).join(' · '))}`.trimEnd() + threadRefToken(thread.rootId) + `\n\n${question}`
+  return `${THREAD_LINE}${oneLineName([thread.author, time(thread.at)].filter(Boolean).join(' · '))}`.trimEnd() + threadRefToken(thread.rootId)
 }
 
 /** the questions an empty side chat offers (like Slackbot's): what I missed, what is for me, the latest discussion */
@@ -320,6 +371,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   const messages = thread.messages
   const running = runningMessage(messages)
   const busy = !!running || messages.some((m) => m.local?.state === 'sending')
+  // messages typed while an answer ran (the full chat's queue, store/sendQueue.ts): they wait under the conversation
+  const waiting = useSendQueue((s) => (chatId ? s.queues[chatId] : undefined))
+  const queueing = !!chatId && !question && (busy || !!waiting?.items.length)
+  const announce = useAnnounce()
   const shareable = !chat?.confidential && !me.server.allChatsConfidential
   // the thread open beside this chat, while its chip is on: the next question is about it (not for a guest whose AI
   // cannot read the room or cannot answer yet)
@@ -404,6 +459,11 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
     })
   }, [roomId, load])
   useEffect(() => { if (autoFocus) box.current?.focus() }, [])
+  // messages this browser kept waiting in the chat shown (the panel closed and opened again, a reload): back under it
+  const threadRead = messages.length > 0 || !!thread.nextCursor
+  useEffect(() => {
+    if (chatId && threadRead) useSendQueue.getState().restore(me.user.id, chatId)
+  }, [chatId, threadRead, me.user.id])
   // a message asked about: quoted in front of the next question, until it is sent or taken off (once per ask: a panel
   // drawn again, or a second panel of the room, does not quote it again)
   useEffect(() => {
@@ -456,8 +516,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
   // messages on screen (a member cannot list the apps)
   const chip = useRooms((s) => (s.timeline?.roomId === roomId ? appChip(s.timeline.messages) : null))
   // what the box sends: its text and its files (all uploaded); an answer to the AI's question is the text alone
-  const canSend = chatId !== undefined && !voice.busy && (question ? !!draft.trim() : !busy && !files.uploading && (!!draft.trim() || files.ready.length > 0))
-  const sendLabel = question ? t('sideChat.answer') : t('sideChat.send')
+  // (while an answer runs the box's message waits for it: queueing)
+  const canSend = chatId !== undefined && !voice.busy && (question ? !!draft.trim() : (!busy || queueing) && !files.uploading && (!!draft.trim() || files.ready.length > 0))
+  const sendLabel = question ? t('sideChat.answer') : busy && queueing ? t('outbox.sendLater') : t('sideChat.send')
   // an answer to the AI's question typed here goes to the AI: as under the full chat's box, the "no passwords" line and
   // a key-looking answer held for "Send anyway" (the question's card leaves typing to this box: AskCard BoxAnswers)
   const secret = useSecretHold(draft)
@@ -487,6 +548,9 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       }
       return
     }
+    // longer than a message holds (a long paste went in as a file): said, the text kept
+    if (textOverLimit(text)) return fail(new Error(t('composer.textTooLong', { max: MESSAGE_TEXT_MAX.toLocaleString(locale) })))
+    if (asked === undefined && queueing && chatId) return void queue(text, atts)
     if (busy || (asked === undefined && files.uploading)) return
     stick.current = true
     setLimit(null)
@@ -512,6 +576,31 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
       if (isApiError(e, 'budget_exceeded')) setLimit(errorText(e, locale, t('error.network')))
       else fail(e)
     }
+  }
+  /** The box's message while an answer runs (or earlier ones wait): it waits under the conversation and goes when the
+   * answer is done, with what the box showed on top of it now (the quoted message, else the thread's chip), its files
+   * too; earlier ones paused by a stopped or failed answer go now, together with it (as in the full chat, pages/Chat.tsx). */
+  const queue = (text: string, atts: ReturnType<typeof files.attachments>) => {
+    if (!chatId || files.uploading) return
+    const time = (iso: string) => formatDateTime(iso, locale)
+    const lead = quoted ? quoteLead(quoted, time) : looking ? threadLead(looking, time) : undefined
+    const m = { content: text, attachments: atts, author: { id: me.user.id, name: me.user.name }, ...(lead ? { lead } : {}) }
+    const sq = useSendQueue.getState()
+    stick.current = true
+    setLimit(null)
+    try {
+      if (!busy && waiting?.paused) sq.sendNow(chatId, m)
+      else sq.enqueue(me.user.id, chatId, m)
+    } catch (e) {
+      return fail(e instanceof QueueFull ? new Error(t('outbox.full')) : e)
+    }
+    setDraft('')
+    setQuoted(null)
+    if (atts.length) {
+      files.clearSent()
+      setFileError(null)
+    }
+    if (busy) announce(t('outbox.waitingOne'))
   }
   const newChat = () => {
     if (busy) return
@@ -696,6 +785,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
             )}
           </ImageGroup>
           </BoxAnswers.Provider>
+          {!history && chatId && <div className="pt-3"><QueuedMessages chatId={chatId} onFocusComposer={() => box.current?.focus()} /></div>}
         </div>
       </div>
       <div className="shrink-0 px-4 pb-[var(--box-bottom)]">
@@ -788,8 +878,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                   }
                 }}
                 rows={2}
-                maxLength={20_000}
-                placeholder={voice.transcribing ? voice.transcribingText : boxLabel}
+                placeholder={voice.transcribing ? voice.transcribingText : busy && queueing ? t('outbox.placeholder') : boxLabel}
                 // not disabled: the focus stays in the box while the words are on their way
                 readOnly={voice.busy}
                 aria-busy={voice.transcribing || undefined}
@@ -824,7 +913,7 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
                       className={clsx('touch-hit flex size-9 shrink-0 items-center justify-center rounded-full transition max-sm:size-10', canSend ? 'bg-accent text-accent-ink hover:bg-accent-hover' : 'bg-subtle text-faint')}
                       data-testid="side-chat-send"
                     >
-                      <ArrowUp size={18} aria-hidden />
+                      {busy && queueing ? <Clock size={17} aria-hidden /> : <ArrowUp size={18} aria-hidden />}
                     </button>
                   </Tooltip>
                 </>}

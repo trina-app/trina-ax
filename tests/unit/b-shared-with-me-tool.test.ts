@@ -65,6 +65,17 @@ beforeAll(async () => {
 })
 afterAll(async () => { for (const s of Object.values(socks)) s.close(); await h?.close() })
 
+/** deleteFilesRefusal as a scheduled run with the person's own "Always allow" for deletes would ask it: since #1338 a chat
+ * that read rooms or a shared file asks on the card, so only such a run, which shows no card, is refused for it */
+function scheduledDelete(x: unknown, who: string, db: import('bun:sqlite').Database) {
+  const e = x as { spec: Record<string, unknown> }
+  db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES (?, 'delete_files', ?)").run(who, new Date().toISOString())
+  try {
+    const place = () => ({ db, userId: who, chatId: 'no-such-chat', turnId: 'scheduled-delete', locale: 'en' as const, clientKind: 'schedule' })
+    return deleteFilesRefusal({ ...e, spec: { ...e.spec, clientKind: 'schedule' }, alwaysPlace: place } as never)
+  } finally { db.query("DELETE FROM card_always_allow WHERE user_id = ? AND kind = 'delete_files'").run(who) }
+}
+
 type Card = { question: string; note?: string; origin?: string; options?: { label: string; value: string }[]; details?: { label: string; text: string }[] }
 async function turn(who: string, content: string, o: { chat?: string; answer?: string | null } = {}) {
   const chatId = o.chat ?? (await h.api(who).call(API.createChat, { body: {} })).id
@@ -273,14 +284,16 @@ describe('a file read through a grant is other people\'s words', () => {
     addSources(h.ctx.db, chat, [sourceOf(h.ctx.db, rules, 'users/alice/quote.md')])
     const seen = { ...(exec(chat) as object), roomsSeen: true } as never
     expect(othersSource(seen, 'ROOM')).toBe(SHARED_FILE_SOURCE)
-    expect(deleteFilesRefusal(seen)).toBe('sharedFile')
+    expect(deleteFilesRefusal(seen)).toBeNull()
+    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBe('sharedFile')
     expect(DELETE_REFUSAL.sharedFile).toContain('a file someone shared with the user')
     expect(DELETE_REFUSAL.sharedFile).not.toContain('chat room')
     const intoSkills = { path: 'users/bob/payroll.md', to_folder: 'skills' }
     expect(skillFilesRefusal({ ...(seen as object), spec: { userId: 'bob', chatId: chat, assistantId: '', clientKind: 'web' } } as never, intoSkills)!.text).toContain(`read ${SHARED_FILE_SOURCE}`)
     addSources(h.ctx.db, chat, [{ type: 'room', id: financeRoom }])
     expect(othersSource(seen, 'ROOM')).toBe('ROOM')
-    expect(deleteFilesRefusal(seen)).toBe('roomsSeen')
+    expect(deleteFilesRefusal(seen)).toBeNull()
+    expect(scheduledDelete(seen, 'bob', h.ctx.db)).toBe('roomsSeen')
     expect(skillFilesRefusal({ ...(seen as object), spec: { userId: 'bob', chatId: chat, assistantId: '', clientKind: 'web' } } as never, intoSkills)!.text).toContain('read a team chat room')
 
     // end to end: bob's AI reads alice's shared file, then tries to delete one of his files; then a change whose card nobody answers
@@ -289,13 +302,14 @@ describe('a file read through a grant is other people\'s words', () => {
     const del = fake({ tool: 'delete_files', args: { paths: ['users/bob/payroll.md'] }, sayResult: true })
     // (the chat is marked once the read is noted: the delete comes in the next message of the same chat)
     const first = await turn('bob', read)
-    const d = await turn('bob', del, { chat: first.chatId })
-    expect(d.cards).toBe(0)
-    expect(d.content).toContain('a file someone shared with the user')
+    // (since #1338 the delete asks on its card, its question led by the shared-file line; left unanswered, nothing goes)
+    const d = await turn('bob', del, { chat: first.chatId, answer: null })
+    expect(d.cards).toBe(1)
+    expect(d.card!.question).toContain(tr('sharedFileSeenWhy', 'ko').slice(0, 20))
     expect(d.content).not.toContain('team chat rooms')
     expect(fs.existsSync(path.join(h.ctx.files.fx.root, 'users/bob/payroll.md'))).toBe(true)
     const audit = h.ctx.db.query("SELECT json_extract(detail, '$.outcome') o, json_extract(detail, '$.reason') r FROM audit_log WHERE action = 'files.ai_trash' AND json_extract(detail, '$.turnId') = ?").all(d.turnId)
-    expect(audit).toEqual([{ o: 'refused', r: 'sharedFile' }])
+    expect(audit).toEqual([{ o: 'no_answer', r: null }])
     const write = fake({ tool: 'write', args: { file_path: 'groups/finance/declined-after-shared.md', content: 'x' }, sayResult: true })
     // (left unanswered: the card runs out, and the refusal says why every change here asks)
     const w = await turn('bob', `${read}\n${write}`, { answer: null })

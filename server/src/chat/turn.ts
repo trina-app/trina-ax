@@ -1,5 +1,6 @@
 import { confidentialChat } from "../safe-ops/confidential"
 import { seesChatFiles } from './chat-files-access'
+import { chatFileCopyOf } from './chat-file-tool'
 import { ALWAYS_VALUE, LIVE_CLIENTS, alwaysHere, keepAlways, withAlways, type AlwaysPlace } from './always-allow'
 import { approvalsFor, approved, clearApprovals, noteApproval } from './card-approvals'
 import { stampOutputOf } from '../tools/stamp-pdf'
@@ -17,6 +18,7 @@ import crypto from 'node:crypto'
 import { CLAUDE_AGENT_TOOL_NAMES, FILE_STEP_VERB, FILE_TOOLS, isUuid7, readableToolName, STEP_WORDS_OTHER, TEAM_TOOL_PREFIX, type AgentStats, type EngineEvent } from '@mycel/shared'
 import { recordSent, webEcho } from '../tools/connection-urls'
 import { carriesAddress, normUrl, rememberUrls } from '../tools/url-gate'
+import { GUEST_ANSWER_STEP_LIMIT, UNATTENDED_ANSWER_STEP_LIMIT } from '@mycel/shared/api'
 import type { ApiErrorBody, Attachment, ConfirmDetail as ConfirmDetailT, EngineId, FileChange, FileChangeSummary, Locale, MessageStatus, OpenTurnRequest, Step, TurnRequest, TurnStopReason } from '@mycel/shared/api'
 import { buildClaudeLaunch, SUBSCRIPTION_DEFAULT_MODEL, type ClaudeConf } from '../engine/claude'
 import { buildCodexLaunch, CODEX_VERSION, prepareCodexTurn, type CodexConf } from '../engine/codex'
@@ -31,18 +33,22 @@ import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
-import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, loadPrincipal, withHiddenFolders, type HiddenFolders, type Principal, type RuleSet } from '../policy/access'
+import { sharedHiddenFolders } from '../devenv/srt/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
+import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
-import { TurnFiles } from '../files/service'
+import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, historyTrimmed, instructionFiles, neutralizeTags, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { saveAudienceNote } from './save-audience'
-import { quotesAppOnBranch, readRooms, withoutQuoteLines } from './read-rooms'
+import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
 import { grantOnly, othersSource, sameRoomOnly, seenWhy } from './grant-reads'
 import { componentC } from '../team-files/component'
@@ -72,11 +78,14 @@ import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
 import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
-import type { ToolCard } from '../services'
+import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
 import { devEnvFlag, mayUseDevEnv } from '../devenv/setting'
+import { devEnvDownReason } from '../devenv/srt/runner'
+import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { Denied } from '../policy/errors'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
 import { readRegular, sha256, sha256Regular } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
@@ -91,7 +100,15 @@ import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../prox
 import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
-import { runApiAgent } from '../engine/api-agent'
+import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
+import { foldCardDetails } from './card-fold'
+import { apiSeesImages } from '../engine/api-vision'
+import { apiContextSize, noteContextRefusal } from '../engine/api-context'
+import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-fit'
+import { historyFit } from './history-fit'
+import { HISTORY_MAX_TOKENS } from './prompt'
+import { listedTools } from '../mcp/protocol'
+import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
@@ -124,15 +141,21 @@ import { isOwnerOrAdmin, roomRow } from '../rooms/store'
 import { ext } from '../files/extract'
 import { CONTENT_KINDS, fileTimelineWalk, selfAndAbove } from '../files/timeline'
 import { audienceOf, chatAudienceOf, isSharedRow, messageFor, stashWrittenBy } from './shared'
+import { LiveAnswer, publishDoneToOthers } from './live-answer'
 import { answerRecord, setAnswerReads, setLeftOut, withheldFrom, type ReadGroup } from './shared-answers'
 import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
-import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { savePathArg } from '../tools/save-target'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
+import { carriedReads, compactionsIn, forgetSessionText, mayCarryReads, saveReads, sessionDroppedText } from './carried-reads'
+import { ensureSummary, hashChain, HISTORY_SUMMARY_TOOL, lookupSummary, markSummaryFailed, summaryAi, summaryLines, summaryMode, SUMMARY_WAIT_MS, uncovered, type HistoryItem } from './history-summary'
+import { ownerId } from '../file-list/engine-reader'
+import { sessionPictures, slimSession } from './session-slim'
 
 export { noSearchPath } from './search-path'
 
@@ -154,7 +177,10 @@ export const OWN_CALL_PAUSE_MAX_MS = 2 * 60 * 60_000
 export const QUARANTINE_HOLD_MAX_MS = 45 * 60_000
 export const TURN_STOP_GRACE_MS = 10_000
 export const SAVE_INTERVAL_MS = 300
-export const SESSION_STASH_MAX = 20 * 1024 * 1024
+/** the most a saved engine session may be: below the launcher's 48 MiB collect cap, with a margin under the 64 MiB
+ * request line its base64 travels in; pictures of older turns are taken out of it first (chat/session-slim.ts), so
+ * pictures alone no longer make a chat start over */
+export const SESSION_STASH_MAX = 40 * 1024 * 1024
 
 
 /** Where a call saves and what it copies, for the wider-audience check asked with a room change (chat/tools.ts widenOf,
@@ -192,7 +218,8 @@ export interface TurnSpec extends QueueTiming {
 type SharedNo = CardEnd | 'failed'
 type SharedDecision = 'shared' | SharedNo
 /** openedAt: when the tool call asked (performance.now()), for the engine's tool timeout (ChatRuntime.slotWaitMaxMs) */
-interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number }
+/** `full`: the whole texts of the card's details it carries only the start of (chat/card-fold.ts), by detail index */
+interface OpenRequest { request: TurnRequest; resolve(v: unknown): void; timer: ReturnType<typeof setTimeout>; window: string | null; openedAt: number; full?: Map<number, string> }
 /** A card's answer and, with none, why there was none (policy/refusal.ts CardEnd): a refusal then says the real reason. */
 export interface CardAnswer { value: unknown; missing: Exclude<CardEnd, 'declined'> | null }
 
@@ -202,6 +229,15 @@ const ENGINE_TEXT_STEP_KIND = (tool: string): Step['kind'] =>
   : tool === 'artifact' ? 'artifact'
   : tool === 'ask_user' ? 'ask_user'
   : 'tool'
+
+/** Tool rounds of one answer: the team limit, at most GUEST_ANSWER_STEP_LIMIT for a guest and
+ * UNATTENDED_ANSWER_STEP_LIMIT for a run nobody watches (docs/decisions/20261118-limits-caps.md). */
+export function answerStepCap(team: number, o: { guest: boolean; unattended: boolean }): number {
+  let n = team
+  if (o.guest) n = Math.min(n, GUEST_ANSWER_STEP_LIMIT)
+  if (o.unattended) n = Math.min(n, UNATTENDED_ANSWER_STEP_LIMIT)
+  return n
+}
 
 /** Tools whose calls get no step under the answer (their tool_end then finds no step and changes nothing). */
 const HIDDEN_STEP_TOOLS = new Set(['set_title'])
@@ -228,7 +264,9 @@ const FILE_TIMELINE_MAX = 1000
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
-const SELF_LABELLED_TOOLS = new Set(['save_room_file'])
+const SELF_LABELLED_TOOLS = new Set(['save_room_file', 'save_chat_file'])
+/** Tools that copy a file kept outside the team folder (a room's, a chat's): only their widen hook knows the target */
+const WIDEN_TARGET_TOOLS = new Set(['save_room_file', 'save_chat_file'])
 
 /** how many times one answer goes on after a connect (each needs another card the person finished) */
 export const CONTINUE_MAX = 2
@@ -265,6 +303,9 @@ const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C
 /** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
 const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
+/** The per-turn yes and no of a save card (sharedReadRefusal), apart from a read's of the same place */
+const SAVE_KEY = 'save:'
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -277,16 +318,28 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** the trim is the model's doing: its small context (chat/history-fit.ts), not a long chat */
+  historySmallModel = false
+  /** the API engine: a model of this many tokens has no room for any history next to this turn's instructions */
+  private apiFixedLeavesNoRoom: ((contextTokens: number) => boolean) | null = null
+  /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
+  private summaryAfter: (() => void) | null = null
+  /** the attempt that answers started a fresh session (its prompt carried the history) */
+  private ranFresh = false
   /** the engine wrote text or called a tool in this turn (any attempt) */
   private producedOutput = false
   /** steps still running when the turn was stopped (Stop, the stall guard): if the answer pauses at a limit they were
    * cut off by the pause, not failed (Step.paused) */
   private runningAtStop: ReadonlySet<string> = new Set()
   status: 'starting' | 'running' | 'finished' = 'starting'
+  /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
+  engineRunning: EngineId | null = null
   browser = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
-  devEnv: { project: { id: string; folderPath: string; name: string } | null } | null = null
+  devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
+  /** the dev environment is on for this person but does not work now: no box_shell, the AI is told (prompt.ts devEnvDownRule) */
+  devEnvDown: 'staff' | 'member' | null = null
   principal: Principal | null = null
   private templateScope = false
   /** an approved scheduled template's run (its scope is fixed: chat/schedule-templates.ts) */
@@ -315,6 +368,10 @@ export class TurnExec {
   /** office-network hosts the person allowed "once" in this turn */
   readonly allowedHosts = new Set<string>()
   readonly files = new TurnFiles()
+  /** the person's reads carry over between answers in this chat (not a guest, not a restricted run: chat/carried-reads.ts) */
+  private carryReads = false
+  /** compactions in the session file this turn resumed (a new one in its stash: the session dropped text) */
+  private compactionsBefore = 0
   /** folders the person allowed to receive content from a narrower read scope, this turn, with the sources they were
    * shown (sourceKey): a source the card did not name (an image make_file embeds later) is asked about again */
   readonly widenAllowed = new Map<string, Set<string>>()
@@ -341,6 +398,9 @@ export class TurnExec {
    * (confirmSharedRead). Every gate of a shared chat (SHARED_TOOLS, no browser, no dev environment, no memories, the read
    * gate, the instructions' allowlist) is on this being set, whatever its kind; null elsewhere */
   shared: { kind: 'project'; project: ProjectRow } | { kind: 'people'; chat: ChatRow } | null = null
+  /** a shared chat: the others who see it get this answer's text and steps as they are written, as they see the
+   * finished answer (chat/live-answer.ts); null elsewhere */
+  private live: LiveAnswer | null = null
   /** a people-shared chat: where a search without a path looks (the one folder everyone in it may read), or why it does
    * not run; worked out once per turn */
   private peopleSearch: { path: string } | { refuse: string } | null = null
@@ -354,7 +414,13 @@ export class TurnExec {
   private sharedSkipped = new Set<string>()
   /** a shared chat: what this answer read, by the people who saw the chat then (chat/shared-answers.ts; one group per
    * set of people, its places by sourceKey) */
-  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource>; y?: boolean }>()
+  private sharedReads = new Map<string, { c: string[]; s: Map<string, ReadSource>; y?: boolean; k?: boolean }>()
+  /** a shared chat: the connections the person allowed on the connection card for this answer ("Allow once"), with
+   * who saw the chat then (a person who joins meanwhile makes it ask again), and the ones refused, with why */
+  private sharedConnAllowed = new Map<string, Set<string>>()
+  private sharedConnRefused = new Map<string, SharedNo>()
+  /** a connection card already open (parallel calls wait for that one answer) */
+  private sharedConnPending = new Map<string, { asked: string[]; p: Promise<SharedDecision | 'always'> }>()
   /** a shared chat: the answers hidden from this person when the turn started (none of them reaches the engine) */
   sharedWithheld: ReadonlySet<string> = new Set()
   /** someone other than this person wrote in this chat: a shared chat, or one that stopped being shared (a deleted
@@ -493,7 +559,15 @@ export class TurnExec {
       const project = rt.store.projectRow(row.project_id!)
       this.shared = { kind: 'project', project: project ?? ({ id: row.project_id!, name: '', folder_path: '', trashed_with: 'gone' } as ProjectRow) }
     }
+    if (this.shared) this.live = new LiveAnswer(rt, spec.chatId, spec.assistantId, spec.turnId, spec.userId, () => this.redactor())
   }
+
+  /** Someone may have stopped seeing this shared chat, or the answer's record changed: the live text's viewers are
+   * worked out again before the next piece (chat/live-answer.ts). */
+  forgetLiveViewers() { this.live?.forget() }
+  /** The running answer's text as anyone but its asker may get it now (the REST read of a running answer: chat/shared.ts
+   * messageFor); null: not a shared chat's answer. */
+  othersText(): string | null { return this.live ? this.live.others.of(this.content) : null }
 
   get id() { return this.spec.turnId }
   redactor(): Redactor { return (this.redactorNow ??= redactorFor(this.rt.ctx, this.spec.userId)) }
@@ -541,7 +615,9 @@ export class TurnExec {
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
       if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
-      await this.finish()
+      // the long connection answers kept for this answer (integrations/connections/kept.ts) go with it, also when
+      // finishing throws
+      try { await this.finish() } finally { dropKept(this.id) }
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
     }
@@ -678,6 +754,7 @@ export class TurnExec {
     const route = this.route(confs)
     const engine: EngineId = route === 'claude-code' || route === 'codex' ? route : spec.engine
     const routed = engine !== spec.engine
+    this.engineRunning = engine
     // a model named for the chat's engine means nothing to the other one: its default
     const chosenModel = routed ? null : spec.model
     if (routed) this.addStep({ kind: 'tool', tool: 'engine', label: tr('engineNoConnection', spec.locale, { from: ENGINE_LABELS[spec.engine], to: ENGINE_LABELS[engine] }), status: 'ok' })
@@ -685,6 +762,10 @@ export class TurnExec {
     const claude = engine === 'claude-code' ? confs.claude : null
     const codex = engine === 'codex' ? confs.codex : null
     const api = engine === 'api' ? confs.api ?? null : null
+    // the team rules, the memories and a "/skill" together take at most a share of this model's context (prompt.ts
+    // promptBudget): a small or local model gets less of each, with the usual quiet note
+    const budget = promptBudget(contextTokensFor(engine, api ? api.model : chosenModel, { apiBaseUrl: api?.baseUrl }))
+    const promptTokens = budget.total
     // demo mode only (demo/replay.ts): a demo person's first message that is exactly one of their recorded prompts
     // plays that recorded real answer again (its team tool calls made again here, as this person), no engine needed
     const asked = this.restricted ? null : rt.store.messageRow(spec.userMessageId)
@@ -727,11 +808,23 @@ export class TurnExec {
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
-    // scope, with or without a project; the folder access is the person's (devenv/srt).
-    if (devEnvFlag() && !this.templateScope && !this.restricted && !this.shared && spec.clientKind !== 'schedule') {
+    // scope, with or without a project; the folder access is the person's (devenv/srt). In a shared chat too
+    // (docs/decisions/20261118-devenv-shared-chats.md): there a run sees only what everyone who sees the chat now may
+    // read (read again for every command), in the project folder of a project chat, never a personal folder; what it
+    // may read joins the answer's record as a file read does
+    if (devEnvFlag() && !this.templateScope && !this.restricted && spec.clientKind !== 'schedule') {
       const p = chat.project_id ? rt.store.projectRow(chat.project_id) : null
       const project = p ? { id: p.id, folderPath: p.folder_path, name: p.name } : null
-      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) this.devEnv = { project }
+      const shared: SharedRun | undefined = this.shared ? {
+        within: this.shared.kind === 'project' ? this.shared.project.folder_path : null,
+        audience: () => this.sharedAudience(),
+        noteReads: (folders, audience) => { const rules = rt.files.rules(); return this.noteSharedReads(folders.map((f) => sourceOf(rt.db, rules, f)), audience) },
+      } : undefined
+      // only while it works (QA TC-4924): a broken or missing install is told to the AI once instead (devEnvDownRule)
+      if (mayUseDevEnv(rt.db, rt.files, spec.userId)) {
+        if (await devEnvDownReason(rt.log)) this.devEnvDown = this.shared || !(this.principal.role === 'owner' || this.principal.role === 'admin') ? 'member' : 'staff'
+        else this.devEnv = { project, ...(shared ? { shared } : {}) }
+      }
     }
     const toolSet = buildToolSet(this)
     this.toolSet = toolSet
@@ -859,14 +952,66 @@ export class TurnExec {
     // folder rules)
     // never in a scheduled run: nobody watches it, and a file another member shared must not act there
     this.files.grantReads = !this.shared && !guestPrompt && !this.restricted && !confidential && !this.slackChat && !this.templateScope && spec.clientKind !== 'schedule'
+    // the person's own reads of the answers above on this branch (chat/carried-reads.ts): not for a guest or a restricted
+    // run (theirs stay per answer); a failure only means a read again, as before
+    this.carryReads = !guestTurn && mayCarryReads(rt.db, spec.userId, this.restricted)
+    if (this.carryReads) {
+      try { this.files.carried = carriedReads(rt.db, rt.files, { chatId: spec.chatId, userId: spec.userId, answers: rt.store.pathTo(userMsg.parent_id).filter((m) => m.role === 'assistant').map((m) => m.id) }) } catch (e) { rt.log.warn('loading earlier reads failed', { err: e, turn: this.id }) }
+    }
+    // the branch's text for a fresh session; in a chat several people wrote in, as this person may see it (chat/shared.ts)
+    const several = !!this.shared || othersWrote
+    const historyOf = (leaf: string | null): HistoryItem[] => rt.history(leaf, several ? { runner: spec.userId, withheld: this.sharedWithheld } : null)
+    // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
+    // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
+    const summaryOn = !guestTurn && !confidential && !this.restricted
+    // the history window: HISTORY_MAX_TOKENS, or what a small model's context leaves (set below, chat/history-fit.ts)
+    let historyBudget: number | undefined
+    const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
+    // the branch up to a message with its summary lines and their hash chain, made once per turn and message. The
+    // attempts of this turn (a refusal retry, a failed resume, another connection, the Codex fallback) all reuse what
+    // was read at its start: the history, the attachments as the person could see them then and the hidden answers
+    // (sharedWithheld, read once above). A change during the turn applies from the next turn on
+    const prepared = new Map<string, { h: HistoryItem[]; lines: string[]; chain: string[] }>()
+    const prep = (leaf: string | null) => {
+      let p = prepared.get(leaf ?? '')
+      if (!p) {
+        const h = historyOf(leaf)
+        const lines = summaryOn ? summaryLines(rt.store, h, viewer) : []
+        p = { h, lines, chain: summaryOn ? hashChain(lines) : [] }
+        prepared.set(leaf ?? '', p)
+      }
+      return p
+    }
+    const summaryOf = (leaf: string | null) => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length) return null
+      try { return lookupSummary(rt.db, spec.chatId, spec.userId, p.lines, p.chain) } catch (e) { rt.log.warn('reading the chat summary failed', { err: e, turn: this.id }); return null }
+    }
+    /** the summary made (or extended) for the branch up to `leaf`, when the window leaves out messages no summary
+     * covers; null: nothing to do, a "block" budget reached (the person's, or the owner's whose turns the calls are:
+     * file-list/service.ts), or no AI for it */
+    const summaryJob = (leaf: string | null): Promise<unknown> | null => {
+      const p = prep(leaf)
+      if (!summaryOn || !p.h.length || (historyBudget !== undefined && historyBudget < 1) || uncovered(p.h, summaryOf(leaf), historyBudget) === 0) return null
+      try {
+        const owner = ownerId(rt.ctx)
+        if (budgetBlock(rt.db, spec.userId, 'en') || (owner && budgetBlock(rt.db, owner, 'en'))) return null
+      } catch { return null }
+      const ai = summaryAi(rt.ctx)
+      if (!ai) return null
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain, budget: historyBudget })
+    }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
       // personal memories are not part of a shared project chat
-      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), project, browser: this.browser, tools: extraTools,
+      memories: this.shared ? [] : rt.memoriesForPrompt(spec.userId), promptTokens, project, browser: this.browser, tools: extraTools,
       // the web or a phone: the AI says the desktop app has the browser (prompt.ts NO_BROWSER_RULE)
       browserInDesktopApp: !this.browser && !this.restricted && !this.shared && (spec.clientKind === 'web' || spec.clientKind === 'mobile'),
       // a shared chat's transcript says who wrote each message (chat/shared.ts)
-      history: fresh ? rt.history(userMsg.parent_id, this.shared || othersWrote ? { runner: spec.userId, withheld: this.sharedWithheld } : null) : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
+      // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
+      historySummary: fresh ? summaryOf(userMsg.parent_id) : null,
+      historyBudget,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -875,12 +1020,14 @@ export class TurnExec {
       situation, appMap, runKind,
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
+      devEnvDown: this.devEnvDown,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
     let childTools = turnTools.filter((t) => !PARENT_ONLY_TOOLS.has(t))
+    // each sub-agent gets the answer's own cap (QA TC-4911), which is 150 for a guest and a run nobody watches
     const subagentLaunch = () => subagents
-      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
+      ? { agents: buildAgentDefinitions({ tools: turnTools, webSearch, maxTurns: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }) }), prompt: buildSubagentPrompt(rt.files, { ...promptInput(false), memories: [], browser: false }, childTools) }
       : undefined
     // the answer before this message: a resumed session ends there, so it remembers what that answer's session did
     const before = userMsg.parent_id ? rt.store.messageRow(userMsg.parent_id) : null
@@ -892,7 +1039,10 @@ export class TurnExec {
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
-      this.historyTrimmed = fresh ? historyTrimmed(input.history) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
+      // cut only because the model's context is small: the default window would have held it (the chat says so)
+      this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
+      this.ranFresh = fresh
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
       // a team skill draft: its own instructions, the source answer inside them as data (onboarding/skill-draft.ts)
@@ -955,11 +1105,15 @@ export class TurnExec {
       : this.templateScope ? 'a scheduled template run reads only its own folders'
       : 'this kind of chat has no room tools'
     const refs = roomRefsBlock(userMsg.content, roomsOff, spec.locale)
-    // a message that names a room carries room names (other people's words) into the chat: marked like a room read
-    if (refs) this.markRoomsSeen()
+    // a message that names a room carries room names (other people's words) into the chat: marked like a room read,
+    // names only (no message of the room came in: chat/read-rooms.ts ROOM_NAMES_ONLY)
+    if (refs) this.markRoomsSeen(true)
     const asSent = refs ? { ...userMsg, content: roomRefsForModel(userMsg.content) } : userMsg
     const skillInput = invoked && refs ? roomRefsForModel(invoked.input) : invoked?.input ?? ''
-    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invoked ? `${skillBlock(invoked.skill, skillInput)}\n\n` : '') + composeMessage(asSent, atts)
+    // a "/skill" has its own share (promptBudget.skillTokens): it never takes from the rules and memories, which a
+    // resumed Claude session keeps from its first instructions
+    const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
+    const message = skillNotShared + scheduled + continued + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
@@ -968,6 +1122,72 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
+    // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
+    // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
+    // instructions, the tool list and the message leave, with room for the answer (chat/history-fit.ts). A model the
+    // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
+    // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
+    let apiToolBudget: number | undefined
+    /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
+    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
+      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    }
+    this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
+    if (api && !replay && !this.restricted) {
+      const size = await apiContextSize(api, { signal: this.abort.signal }).catch(() => null)
+      if (this.stopReason) return
+      if (size) {
+        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it: on a size
+        // the model's server stated or a refusal named, never on a guess (a proxy in front of a large model). A wrong
+        // refusal number is forgotten with the next answer that used more tokens (engine/api-context.ts)
+        const guess = !size.exact && size.source !== 'refusal'
+        if (!guess) apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
+        const { tools, fit } = apiFit(size.tokens, apiToolBudget)
+        if (fit.overflows && size.exact) {
+          rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
+          this.error = engineError('model_too_small', spec.locale)
+          return
+        }
+        // a guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front of a
+        // large model, a local server that keeps its size to itself): the default window, as for an unknown model
+        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        else if (fit.limited) {
+          historyBudget = fit.budget
+          rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
+        }
+      }
+    }
+    // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
+    // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
+    // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
+    // (also before the first fresh start after a full conversation in this answer: chat/context-recover.ts)
+    const waitForSummary = async () => {
+      const mode = summaryMode(spec.chatId, spec.userId)
+      if (replay || mode === 'skip') return
+      const job = summaryJob(userMsg.parent_id)
+      if (job && mode === 'background') job.catch(() => {})
+      else if (job) {
+        const step = this.addStep({ kind: 'tool', tool: HISTORY_SUMMARY_TOOL, label: tr('historySummary', spec.locale), status: 'running' })
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const stopped = new Promise<'stopped'>((r) => { if (this.abort.signal.aborted) r('stopped'); else this.abort.signal.addEventListener('abort', () => r('stopped'), { once: true }) })
+        const end = await Promise.race([job.then(() => 'done' as const, () => 'done' as const), new Promise<'late'>((r) => { timer = setTimeout(() => r('late'), SUMMARY_WAIT_MS) }), stopped])
+        clearTimeout(timer)
+        if (end === 'late') markSummaryFailed(spec.chatId, spec.userId)
+        // the step says whether this answer has the summary (an error mark: it started with the recent part only)
+        const got = summaryOf(userMsg.parent_id)
+        const used = !!got && uncovered(prep(userMsg.parent_id).h, got, historyBudget) === 0
+        this.updateStep(step.id, { status: used ? 'ok' : 'error', endedAt: new Date().toISOString() })
+      }
+    }
+    if (!claude || !resume) {
+      await waitForSummary()
+      if (this.stopReason) return
+    }
+    // after an answer that started fresh (Codex, an edit, another writer in a shared chat): the summary for the history
+    // with it, so the next fresh session does not wait. Not after a resumed session (rarely needed there)
+    this.summaryAfter = () => { if (this.ranFresh && summaryMode(spec.chatId, spec.userId) !== 'skip') summaryJob(spec.assistantId)?.catch(() => {}) }
     // the API engine always answers with the owner's one model: the turn records it (usage by model), never empty
     const { turn, token } = core.turns.create(spec.userId, spec.chatId, engine, api ? api.model : chosenModel, spec.turnId)
     this.registered = true
@@ -1031,12 +1251,21 @@ export class TurnExec {
       const exclude = new Set<string>()
       // tool rounds this answer may take (Admin > Team settings answerStepLimit), read once for all its attempts; a
       // continuation after a connect gets only what the answer has left
-      const maxTurns = rt.maxEngineTurns
+      // A guest, and a run nobody watches (a scheduled run, one asked from Slack), keep the old default as a ceiling
+      // (docs/decisions/20261118-limits-caps.md); a chat someone watches gets the team limit
+      const maxTurns = answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat })
       let turnsLeft = maxTurns
       // the same answer going on after a service was connected on its card (owner decision 2026-11-12): the server's
       // note is the resumed session's message, at most CONTINUE_MAX times per answer
       let continueNote: string | null = null
       let continuations = 0
+      // the conversation got too long for the engine: the answer goes on in a fresh session with the history window
+      // and what it already wrote and did (chat/context-recover.ts), at most CONTEXT_RECOVER_MAX times
+      let recoveries = 0
+      /** the note for a fresh session of this answer after a recovery, built at each launch from what the answer has
+       * written and done by then (a later fresh start after a switch or a retry must not get an older note and redo a
+       * step); a shared chat's step keeps its file targets for this person (sharedStep: sv is the runner's label) */
+      const answerSoFar = () => contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))
       this.continueMode = 'step'
       /** a continuation keeps what the answer's first attempt recorded about its history (prompt() sets it per attempt) */
       const continuePrompt = (fresh: boolean, sessionId: string) => {
@@ -1088,9 +1317,22 @@ export class TurnExec {
         // calls wait for the stream to say which agent made them from the start when sub-agents are possible: a child's
         // first call can never pass as the main AI's because its Agent line was not read yet (fails closed)
         this.files.subagents ||= subagents
+        // whole-file replaces (write, make_file) from an earlier answer's read only inside the very engine session that
+        // read it (it still holds the text); a fresh session gets edit and the in-place tools only (chat/carried-reads.ts)
+        this.files.engineSession(sid, resume)
+        const resumedStash = resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null
+        this.compactionsBefore = resumedStash ? compactionsIn(resumedStash) : 0
+        // the pictures the resumed session brings along count against this answer's caps (files/vision.ts): taken at
+        // the first launch only, later launches of this turn resume what it already counted
+        if (!this.files.carriedKnown) {
+          this.files.carriedKnown = true
+          const carried = resumedStash ? sessionPictures(resumedStash) : { count: 0, bytes: 0 }
+          this.files.carriedImages = carried.count
+          this.files.carriedBytes = carried.bytes
+        }
         const lr = buildClaudeLaunch({ webSearch, subagents: subagentLaunch(),
-          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? claudeMessage(resume, sid), sessionId: sid, resume,
-          stash: resume ? fs.readFileSync(rt.sessionStash(spec.chatId, sid)) : null, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
+          turnId: spec.turnId, chatDir, token, systemPrompt: continuePrompt(!resume, sid), message: continueNote ?? (recoveries && !resume ? `${answerSoFar()}\n\n${claudeMessage(false, sid)}` : claudeMessage(resume, sid)), sessionId: sid, resume,
+          stash: resumedStash, model, maxTurns: turnsLeft, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools, proxyToken, tokenKind,
           // a pick of work files from names (not the folder plan, which reads files): low effort, quick
           ...(this.fileRank && !('kind' in this.fileRank.material) ? { effort: 'low' as const } : {}),
           ...(tunnelPort !== null && proxyToken ? { tunnel: { port: tunnelPort, token: proxyToken, caPem: core.proxy?.refreshCaPem ?? null } } : {}),
@@ -1129,6 +1371,31 @@ export class TurnExec {
         // the engine says the account was refused but the proxy saw no refusal it knows (QA TC-4835): this account is
         // skipped for the rest of the turn and the next one answers; its state stays (only the proxy's reading marks it)
         if (this.proxyRefused && (err || crashed)) { this.error = engineError('lockdown', spec.locale); break }
+        // the conversation no longer fits (Claude Code could not compact it, or one result was too big): this answer
+        // goes on in a fresh session, the text so far stays on screen (limits audit 2 #13)
+        if (err?.code === 'context' && recoveries < CONTEXT_RECOVER_MAX && !this.budgetHit) {
+          const used = typeof parser.result?.num_turns === 'number' ? parser.result.num_turns : 1
+          // a call and an answer after it: at least two rounds left, else the answer pauses at the round limit as at
+          // any other one ("continue" goes on, from a fresh session: this one does not fit)
+          if (turnsLeft - used < 2) { this.dropSession(); this.limitReason = 'tool_limit'; break }
+          recoveries++
+          turnsLeft -= used
+          this.flushText()
+          this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
+          rt.log.info('conversation too long: the answer goes on in a fresh session', { turn: this.id, recoveries, resumed: resume })
+          // the fresh session gets the summary of the older part (history-summary.ts): a resumed session had none
+          // made before it started
+          await waitForSummary()
+          if (this.stopReason) break
+          // what this answer read so far is not text the fresh session has: edits from those reads go on, a
+          // whole-file replace (write, make_file) asks for a new read (chat/carried-reads.ts)
+          this.files.answerTextGone()
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          continueNote = null
+          resume = false; sid = crypto.randomUUID()
+          attempt--
+          continue
+        }
         if (managed && err?.code === 'auth' && !this.proxyRefused && !this.attemptCalledTool && !this.attemptHadOutput && !this.credentialFailure && this.lastCredential) {
           this.credentialFailure = { id: this.lastCredential, reason: 'invalid', retryAt: null }
           if (this.switchCredential('claude-code', exclude)) { resume = false; sid = crypto.randomUUID(); attempt--; continue }
@@ -1139,6 +1406,9 @@ export class TurnExec {
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         else if (parser.refused) this.error = engineError('refused', spec.locale)
+        // still too long after the fresh starts: that session is not kept, so the person's next message ("continue")
+        // starts fresh from the chat's history instead of resuming a session that cannot fit
+        if (err?.code === 'context') this.dropSession()
         // the engine's whole text when none streamed; not when the hold dropped status lines (they are in it)
         if (!this.writtenText && !this.error && parser.text && !this.narration.dropped) this.appendText(parser.text)
         // a service connected on this answer's card: the same answer goes on in this session with the new tools
@@ -1180,15 +1450,30 @@ export class TurnExec {
       this.attemptHadOutput = false
       // a service connected on a card during the answer: its tools from the next round (toolsChanged)
       this.continueMode = 'round'
+      // a model that takes images gets the pictures its reads give (engine/api-vision.ts: what its server says, else
+      // the admin's choice); else the text path and the plain note (files/vision.ts visionBlock)
+      const images = (await apiSeesImages(api, { signal: this.abort.signal })).images
+      setApiVisionTurn(spec.turnId, images)
       try {
+        // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
+        // it was a fixed 30)
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign() })
-      } finally { this.continueMode = null; this.connectedSince = [] }
+          maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget,
+          images, onImagesRefused: () => setApiVisionTurn(spec.turnId, false) })
+      } finally { this.continueMode = null; this.connectedSince = []; setApiVisionTurn(spec.turnId, false) }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (err && !this.stopReason) {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
-        this.error = engineError(err.code, spec.locale, undefined, err.status)
+        // a refusal that names the model's context size: the model is small, not the chat too long (a new chat would
+        // not help); the size is kept, so the next turn's window fits it (engine/api-context.ts)
+        // only for a small model (below the default window) or one the instructions alone nearly fill; a large one
+        // refused for an oversized tool result keeps the usual "too long" words
+        const named = err.code === 'context' ? noteContextRefusal(api, err.message) : null
+        let small = false
+        if (named !== null) { try { small = named < HISTORY_MAX_TOKENS || !!this.apiFixedLeavesNoRoom?.(named) } catch { small = named < HISTORY_MAX_TOKENS } }
+        this.error = engineError(small ? 'model_too_small' : err.code, spec.locale, undefined, err.status)
       }
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
@@ -1237,6 +1522,8 @@ export class TurnExec {
   /** Codex: one turn (a crash without output is tried once more; managed: a refused / limited connection moves the
    * turn to the next one, like Claude). */
   private async runCodex(core: Running, codex: CodexConf, o: { chatDir: string; token: string; systemPrompt: string; message: string; extraTools: string[]; model: string | undefined }) {
+    // the skill tool cuts to the running engine's limit: Codex also after a Claude limit moved the turn here (limitFallback)
+    this.engineRunning = 'codex'
     const { rt, spec } = this
     const { chatDir, token, model } = o
     const managed = codex.auth === 'managed'
@@ -1253,6 +1540,9 @@ export class TurnExec {
       if (!this.proxyUnsubscribe) this.proxyUnsubscribe = core.proxy.subscribe(spec.turnId, (ev) => this.onProxyEvent(ev))
     }
     const exclude = new Set<string>()
+    // the conversation got too long for Codex: once more with what this answer already wrote and did (context-recover.ts),
+    // built at each launch after that (a switch or a retry later in the answer gets what is done by then)
+    let recovered = false
     try {
       const retried = new Set<string>()
       for (let attempt = 0; attempt < 2 && !this.stopReason; attempt++) {
@@ -1277,7 +1567,7 @@ export class TurnExec {
           m = { port: core.proxy!.port, mode: kind === 'chatgpt' ? 'chatgpt' : 'openai', codexVersion: CODEX_VERSION,
             authJson: dummyAuthJson({ credentialId: c.credentialId, kind, planType: meta.planType ?? null, fedramp: meta.fedramp === true }, t) }
         }
-        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
+        const lr = buildCodexLaunch({ webSearch, turnId: spec.turnId, chatDir, token, systemPrompt: o.systemPrompt, message: recovered ? `${contextRecoverBlock(this.writtenText, this.steps.filter((x) => x.kind !== 'thinking' && !x.parentId && x.tool !== 'context').map((x) => ({ label: x.sv?.label ?? x.label, status: x.status })))}\n\n${o.message}` : o.message, timeoutMs: LAUNCHER_BACKSTOP_MS, extraTools: o.extraTools, model, proxy, ...(m ? { managed: m } : {}) }, codex)
         const { exit, stderr, notes } = await this.launch(core, lr, (l) => { for (const e of parser.push(l)) this.onEvent(e, errors) })
         this.closeThinking()
         try { prepareCodexTurn(codex, chatDir) } catch (e) { rt.log.warn('codex home restore failed', { err: e }) } // a refreshed login goes back to its place
@@ -1295,6 +1585,18 @@ export class TurnExec {
         if (crashed || err) rt.log.warn('engine attempt failed', { turn: this.id, engine: 'codex', attempt, exit, code: err?.code ?? 'crash', stderr: stderr.slice(-2000) })
         if ((crashed || err?.code === 'crash') && this.engineStartFailed(stderr)) break
         if ((crashed || err?.code === 'crash') && !this.attemptHadOutput && !retried.has('crash')) { retried.add('crash'); continue }
+        if (err?.code === 'context' && !retried.has('context') && !this.budgetHit) {
+          retried.add('context')
+          this.flushText()
+          recovered = true
+          // the run that read files so far is gone: a whole-file replace from those reads asks for a new read
+          this.files.answerTextGone()
+          this.addStep({ kind: 'tool', tool: 'context', label: tr('contextRecover', spec.locale), status: 'ok' })
+          rt.log.info('conversation too long: the answer goes on in a fresh Codex run', { turn: this.id })
+          if (this.writtenText && !this.writtenText.endsWith('\n\n')) this.appendText('\n\n')
+          attempt--
+          continue
+        }
         if (err) this.error = err.code === 'crash' ? this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`) : engineError(err.code, spec.locale)
         else if (crashed) this.error = this.crashOrFullDisk(undefined, `${stderr}\n${exit?.message ?? ''}`)
         break
@@ -1327,6 +1629,7 @@ export class TurnExec {
     // so the next Claude turn starts fresh from the history
     rt.db.query("UPDATE messages SET engine = 'codex', model = NULL WHERE id = ?").run(spec.assistantId)
     rt.db.query("UPDATE turns SET engine = 'codex', model = NULL WHERE id = ?").run(spec.turnId)
+    this.engineRunning = 'codex'
     rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(spec.chatId)
     // built only now: the fresh session's history (and whether it was cut) belongs to the Codex attempt
     await this.runCodex(core, codex, { ...o, systemPrompt: o.systemPrompt(), model: undefined })
@@ -1706,6 +2009,11 @@ export class TurnExec {
       case 'agent_progress':
         this.subtaskProgress(e.id, e.stats)
         return
+      case 'compacted':
+        // Claude Code compacted the session in the middle of this answer: what it read before is no longer all in it
+        // (a later write or make_file asks for a new read; edits go on; chat/carried-reads.ts)
+        this.files.sessionLostText()
+        return
       case 'usage':
         // a running usage is one model call of the run under way; the run's total replaces those estimates
         if (e.running) { this.runningUsage.i += e.inputTokens; this.runningUsage.o += e.outputTokens }
@@ -1822,6 +2130,7 @@ export class TurnExec {
     this.content = this.content.slice(0, at)
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset: at, text: '', reset: true } })
+    this.live?.text(this.content)
   }
 
   private emitText(t: string) {
@@ -1830,6 +2139,8 @@ export class TurnExec {
     this.content += t
     this.dirty = true
     this.rt.hub.publish(this.spec.userId, { type: 'message.delta', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, offset, text: t } })
+    // the others in a shared chat: their own copy of the text (chat/live-answer.ts OthersText)
+    this.live?.text(this.content)
   }
 
   addStep(s: Partial<StoredStep> & Pick<Step, 'kind' | 'label' | 'status'>): StoredStep {
@@ -1923,6 +2234,8 @@ export class TurnExec {
     // the person whose turn it is sees the line they caused, paths included (a shared chat stores it aside)
     const step: Step = stored.sv ? { ...publicStep(stored), label: stored.sv.label } : { ...stored }
     this.rt.hub.publish(this.spec.userId, { type: 'message.step', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, step } })
+    // the others in a shared chat: the step as the finished answer shows it to each of them (ChatStore.viewSteps)
+    this.live?.step(stored)
   }
 
   private closeThinking() {
@@ -1947,7 +2260,12 @@ export class TurnExec {
   /** A team chat room's content entered this chat (a room tool was called, chat/room-tools.ts): kept on the chat for
    * good (chats.rooms_seen: no new session, edited first message or restart clears it), and the session is tainted.
    * From then on changes wait for the person's yes on a card (confirmRoomChange). */
-  markRoomsSeen() { this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId); this.syncOutsideMark() }
+  markRoomsSeen(namesOnly = false) {
+    // `namesOnly`: only room names came in (chat/read-rooms.ts ROOM_NAMES_ONLY), never lowering a mark of messages
+    if (namesOnly) this.rt.db.query(`UPDATE chats SET rooms_seen = CASE WHEN rooms_seen = 0 THEN ${ROOM_NAMES_ONLY} ELSE rooms_seen END, session_tainted = 1 WHERE id = ?`).run(this.spec.chatId)
+    else this.rt.db.query('UPDATE chats SET rooms_seen = 1, session_tainted = 1 WHERE id = ?').run(this.spec.chatId)
+    this.syncOutsideMark()
+  }
   /** Something from outside the team's own words came in (chats.room_outside): the chat skips no room card from then
    * on, until a new
    * session (its session carries earlier answers; docs/DECISIONS.md "대화방을 읽은 뒤 카드 줄이기"). */
@@ -2353,7 +2671,7 @@ export class TurnExec {
   roomCardDetails(tool: string, input: unknown, own: ToolCard | null = this.toolCard(tool, input)): ConfirmDetailT[] {
     // a tool's own words (a connection's HTTP API call: "Read from Tasks", its address, the exact request one click away)
     // in place of its raw arguments one per line (QA TC-233)
-    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId)
+    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId, (p) => this.visibleTree(p))
     return raw.map((d) => ({
       ...d, text: this.redact(d.text),
       ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}),
@@ -2509,7 +2827,7 @@ export class TurnExec {
     // to (TurnTool.sendsTo). A new file in the person's own folder is the next rule's, in a run too
     const cover = !o.noCover ? this.scheduleCover : null
     if (cover) {
-      const t = tool === 'save_room_file' ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (o.widen?.target ? { path: o.widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       const c = t ? cover.save({ key, tool, path: t.path, mayBeNew: t.mayBeNew, from: o.widen?.extra ?? [], read: o.widen?.read ?? [], main: o.main !== false })
         : o.send ? cover.send(o.send) : undefined
       if (c !== undefined) return c
@@ -2766,7 +3084,7 @@ export class TurnExec {
   private newPlainFile(tool: string, input: unknown, widen?: WidenOf): boolean {
     try {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return false
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t?.mayBeNew) return false
       const r = authorize(this.rt.files.fx, this.rt.files.rules(), this.livePrincipal(), t.path, 'write', { createDirs: true })
       if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
@@ -2793,7 +3111,7 @@ export class TurnExec {
       if (confidentialChat(this.rt.db, this.spec.chatId)) return null
       // the PDF tools (QA TC-4703): every place the call may write must qualify (ownFolderPdf)
       if (PDF_OUT_TOOLS.has(tool)) return this.ownFolderPdf(tool, input)
-      const t = tool === 'save_room_file' ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen?.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
       if (!t) return null
       return this.ownFolderPlace(tool, t.path, t.mayBeNew)
     } catch { return null }
@@ -2813,7 +3131,7 @@ export class TurnExec {
     // open the file in any way (onlyMine) and the server's file events say this chat made it (madeInChat)
     // an existing file is changed only by the AI's own writing or a converter (never save_room_file: a room's bytes
     // as they are over the person's draft; security review of this change)
-    if (r.exists && tool === 'save_room_file') return null
+    if (r.exists && WIDEN_TARGET_TOOLS.has(tool)) return null
     if (r.exists && (!r.st?.isFile() || !(this.roomMadeHere(r.rel) || (!this.shared && !this.restricted && this.onlyMine(segs) && madeInChat(this.rt.db, this.spec.chatId, this.spec.userId, r.rel))))) return null
     if (!r.exists && !mayBeNew) return null
     // a path an AI turn put in the trash (delete_files) is not a new file: writing it again without a card would put
@@ -3008,6 +3326,29 @@ export class TurnExec {
     return p ? chatAudienceOf(this.rt.db, this.rt.files, p, owner) : []
   }
 
+  /** A shared project chat's sub-folders that not everyone who sees it may open (devenv/srt/access.ts
+   * sharedHiddenFolders), hidden from the person for one tool call (policy/access.ts withHiddenFolders, set by
+   * mcp/protocol.ts; QA TC-4945): a listing, search, zip or path there answers as for a name that is not there, and no
+   * read card is about them. The audience as it is when the call starts. Anyone who cannot be loaded, nobody found, or
+   * a check that fails: every folder with rules of its own inside the project folder is hidden (fails closed). */
+  sharedHiddenScope(): HiddenFolders | null {
+    if (this.shared?.kind !== 'project') return null
+    const within = this.shared.project.folder_path
+    return withHiddenFolders(null, () => {
+      let rules: RuleSet
+      // (no rules to look at: the project folder itself is hidden, so the call finds nothing)
+      try { rules = this.rt.files.rules() } catch { return { userId: this.spec.userId, folders: [within] } }
+      const all = () => ({ userId: this.spec.userId, folders: rules.boundaryFolders().filter((f) => f.startsWith(within + '/')) })
+      try {
+        const me = this.livePrincipal()
+        const ids = this.sharedAudience()
+        const people = ids.map((id) => loadPrincipal(this.rt.db, id))
+        if (!ids.length || people.some((q) => !q)) return all()
+        return { userId: me.id, folders: sharedHiddenFolders(rules, me, people as Principal[], within) }
+      } catch (e) { this.rt.log.warn('shared hidden folders not worked out', { err: e, turn: this.id }); return all() }
+    })
+  }
+
   /**
    * Where a search without a path looks in a chat shared with people and groups (S4): never the sender's whole access
    * (it would reach their own folder and every place only they may read). The candidates are the team's top folders (not users/ or skills/) and
@@ -3065,16 +3406,18 @@ export class TurnExec {
    * `yes`: after a read card's yes (the group gets y: nothing hides by it, it tells a later widening warning and an
    * older build's walk apart from a silent read). false: the record could not be written (the caller does not read:
    * fails closed). */
-  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false): boolean {
+  private noteSharedReads(sources: readonly ReadSource[], audience: readonly string[], yes = false, kept = false): boolean {
     if (!this.shared || !sources.length) return true
     const c = [...new Set(audience)].sort()
-    const k = `${yes ? 'y' : ''}|${c.join(',')}`
+    const k = `${yes ? 'y' : ''}${kept ? 'k' : ''}|${c.join(',')}`
     let g = this.sharedReads.get(k)
-    if (!g) this.sharedReads.set(k, (g = { c, s: new Map(), ...(yes ? { y: true } : {}) }))
+    if (!g) this.sharedReads.set(k, (g = { c, s: new Map(), ...(yes ? { y: true } : {}), ...(kept ? { k: true } : {}) }))
     let changed = false
     for (const src of sources) { const sk = sourceKey(src); if (!g.s.has(sk)) { g.s.set(sk, src); changed = true } }
     if (!changed) return true
-    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}) }))
+    const groups: ReadGroup[] = [...this.sharedReads.values()].map((x) => ({ c: x.c, s: [...x.s.values()], ...(x.y ? { y: 1 as const } : {}), ...(x.k ? { k: 1 as const } : {}) }))
+    // (who may see the live text depends on this record: worked out again before the next piece)
+    this.live?.forget()
     try { setAnswerReads(this.rt.db, this.spec.chatId, this.spec.assistantId, groups); return true }
     catch (e) { this.rt.log.warn('shared answer reads not recorded', { err: e, turn: this.id }); return false }
   }
@@ -3123,8 +3466,10 @@ export class TurnExec {
    *   - a search looks into every folder under where it starts that the person may read, the person's own included;
    *   - a listing shows the names one level down: each entry the person sees there that is a folder with its own rules,
    *     or every entry when they may only list the folder.
+   * `o.writes` gets the keys of the places only a write argument named (a save into a place that is there already, and
+   * nothing read from it: the card says "save", docs/decisions/20261118-shared-save-card-wording.md).
    */
-  sharedSources(tool: string, input: unknown): ReadSource[] {
+  sharedSources(tool: string, input: unknown, o: { writes?: Set<string> } = {}): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
     if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
@@ -3149,15 +3494,48 @@ export class TurnExec {
         if (rules.canList(me, up)) return
       }
     }
-    const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
+    // a write target that would make a new name: the very check the write makes (authorize 'write', the path read as the
+    // tools read it: savePathArg). Anything else counts as there (fails closed): a name that is there, a look-alike of
+    // one ("already exists with almost the same name"), a file on the way ("not a folder"), a path that cannot be read.
+    // Only a refusal for no access is new: the tool refuses it with the same words whether something is there or not.
+    // (the path as the tool really writes it: an extension some tools add to `output`, OUTPUT_PATH_OF)
+    // (several when the tool picks among them: resize_images; new only when every one of them is)
+    const asWritten = (k: string, v: string): string[] => { const p = savePathArg(v); const f = k === 'output' ? OUTPUT_PATH_OF[tool] : undefined; return f ? [f(p, a)].flat() : [p] }
+    const fresh = (k: string, v: string) => asWritten(k, v).every((p) => {
+      try { return !authorize(fx, rules, me, p, 'write', { mustExist: false, createDirs: true }).exists }
+      catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
+    })
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
+    // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
+    const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
-      if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-      if (writes.has(k) && !exists(v)) continue
-      for (const p of this.roomNames(v)) note(p)
+      const w = writes.has(k)
+      if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      if (w && fresh(k, v)) continue
+      // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
+      // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
+      if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      const from = out.length
+      for (const p of this.roomNames(w ? asWritten(k, v)[0]! : v)) note(p)
+      for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
+    }
+    const named = out.length
+    const done = () => {
+      if (o.writes) for (const k of written) if (!read.has(k) && !out.slice(named).some((s) => sourceKey(s) === k)) o.writes.add(k)
+      return out
+    }
+    // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
+    // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
+    if (tool === 'make_zip' && Array.isArray(a.paths)) {
+      const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      const bases = [...new Set(a.paths.filter((p): p is string => typeof p === 'string').flatMap((p) => this.roomNames(p)).map((p) => fold(p.split('/').filter(Boolean).join('/'))))]
+      for (const f of rules.boundaryFolders()) {
+        const k = fold(f)
+        if (bases.some((b) => b === '' || k.startsWith(b + '/')) && readable(f.split('/'))) out.push(sourceOf(this.rt.db, rules, f))
+      }
     }
     if (SEARCH_TOOLS.has(tool) || tool === 'list') {
       const fold = (p: string) => { const n = p.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
@@ -3177,7 +3555,7 @@ export class TurnExec {
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
         try {
           const r = authorize(fx, rules, me, start, 'list')
-          if (!r.exists || !r.st?.isDirectory()) { note(start); return out }
+          if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
           let n = 0, files = false
           for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
             if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
@@ -3195,7 +3573,7 @@ export class TurnExec {
         } catch { note(start) }
       }
     }
-    return out
+    return done()
   }
 
   /**
@@ -3208,8 +3586,10 @@ export class TurnExec {
    * AI, or null to go on.
    */
   async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<string | null> {
-    const no = await this.sharedReadRefusal(tool, input, o)
-    return no ? this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no) : null
+    const kind = { save: false }
+    const no = await this.sharedReadRefusal(tool, input, o, kind)
+    if (!no) return null
+    return kind.save ? this.sharedReadText(`Not saved (${tool}): nothing was saved there.`, no, { save: true }) : this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no)
   }
 
   /**
@@ -3218,11 +3598,24 @@ export class TurnExec {
    * open it (counts only), and where the person can read it instead. Before, every one of them said the person "did not
    * share it", also when nobody had decided anything.
    */
-  sharedReadText(done: string, no: SharedNo): string {
+  sharedReadText(done: string, no: SharedNo, o: { save?: boolean } = {}): string {
     const name = neutralizeTags(this.principal?.name ?? 'the user')
     const project = this.shared?.kind === 'project' ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
     const why = no === 'failed' ? { kind: 'failed' as const, what: 'who in this shared chat can open that place' } : no === 'declined'
       ? { kind: 'declined' as const, who: name } : cardReason(no, { who: name })
+    // a save (the save card): it is not saved, and the AI does not look for another place to put it
+    if (o.save) {
+      const dontSave = 'Do not try other paths or tools to save it, and do not mention the place or guess what is there'
+      return refusal({
+        done,
+        why,
+        also: no === 'failed' ? dontSave : `It needed a yes because some of ${project} cannot open that place. ${dontSave}`,
+        next: no === 'declined' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'unattended' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'failed' ? 'tell the user it was not saved; they can ask again, or save it from a chat of their own'
+          : 'tell the user it was not saved; they can ask again and answer the card, or save it from a chat of their own',
+      })
+    }
     const dont = 'Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there'
     // a check that failed showed no card, and may have been about a place everyone can open: no "needed a yes" then
     return refusal({
@@ -3237,14 +3630,20 @@ export class TurnExec {
   }
 
   /** confirmSharedRead's decision: null to go on, or why it was refused. */
-  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<SharedNo | null> {
+  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
     if (!this.shared) return null
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
-    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool); return why }
+    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool, kind.save); return why }
     let missing: { key: string; source: ReadSource; missing: string[] }[], audience: string[], sources: ReadSource[]
     let skillUse = false
+    // the places only a write argument named (a save into a place that is there already: sharedSources)
+    const writes = new Set<string>()
+    const saves = !!WRITE_TARGET_ARGS[tool] && !!SAVE_CARD_TOOLS[tool]
+    // (a check that fails below: a call that names only places it writes to is said as a save)
+    const named = saves ? namedPaths(tool, input) : []
+    kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
     try {
-      sources = this.sharedSources(tool, input)
+      sources = this.sharedSources(tool, input, { writes })
       audience = this.sharedAudience()
       const rules = this.rt.files.rules()
       missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
@@ -3257,7 +3656,13 @@ export class TurnExec {
         const ids = audience.filter((id, i) => !people[i] || no.has(id))
         if (ids.length) { skillUse = true; missing.push({ key: `skill:${p}`, source: sourceOf(this.rt.db, rules, p), missing: ids }) }
       }
-      missing = missing.filter((m) => !this.sharedAllowed.has(m.key))
+      // a save into a place a yes of this turn covered, for a read (more than a save) or a save there
+      missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
+      // the save card (docs/decisions/20261118-shared-save-card-wording.md): every place it would name is one the call
+      // only saves into; anything it reads keeps the read card. Its yes and no are its own (SAVE_KEY): a yes to save in
+      // a place never lets a read of it through
+      kind.save = saves && !skillUse && missing.length > 0 && missing.every((m) => writes.has(m.key))
+      if (kind.save) missing = missing.map((m) => ({ ...m, key: SAVE_KEY + m.key }))
     } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse('failed') }
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
@@ -3268,7 +3673,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3279,31 +3684,138 @@ export class TurnExec {
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
   }
 
-  /** The card itself and its audit row: 'shared' = "읽고 공유하기", else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
+  /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
-    const { value: answer, missing: none } = await this.askAlways('shared_read', {
+    const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place)
-      question: tr(skillUse ? 'sharedSkillConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
-      options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
+      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
+      // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
+      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
     const yes = answer === 'share' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'share')
     const decision = yes ? 'shared' : scheduled ? 'unattended' : answer === null || answer === undefined ? 'no_answer' : 'declined'
-    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id } }) }
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id, ...(save ? { save: true } : {}) } }) }
     catch (e) { this.rt.log.warn('shared read audit failed', { err: e, turn: this.id }) }
     // the AI's text goes by how the card ended (a closed card without a choice is a no; scheduled: nobody asked)
     return yes ? 'shared' : scheduled ? 'unattended' : none ?? 'declined'
   }
 
+  /** The connection tools' side of a shared chat (BuildCtx.shared, integrations/connections/tools.ts sharedGate). */
+  sharedConnections(): SharedConnections {
+    return {
+      locale: this.spec.locale,
+      audience: () => this.sharedAudience(),
+      // fails closed: a check that cannot be done counts as a guest being here (no team connection)
+      guestHere: () => { try { return this.sharedAudience().some((id) => isGuestUser(this.rt.db, id)) } catch { return true } },
+      confirm: (c) => this.confirmSharedConnection(c),
+    }
+  }
+
+  /**
+   * A connected service in a shared chat (docs/decisions/20261118-shared-chat-connections.md, QA TC-4885/TC-4886): before
+   * a call fetches anything, the people who see the chat now and could not see what the connection returns
+   * (missingReaders on its sources: everyone but its owner for a person's own connection, whoever a team connection's
+   * rule leaves out) make the card come first, to the person whose turn it is only: "Allow once" (this answer), "Always
+   * in this chat" (chat_card_approvals kind shared_connection, with who saw the chat then: a person who joins later
+   * makes it ask again) or "Cancel". Cancel, no answer, a scheduled run or a failed check fetch nothing. What the call
+   * brings in joins the answer's read record first (a record that cannot be written is a refusal) as a k group: someone
+   * who sees the chat later and may not use the connection themselves does not see the answer. null: go on.
+   */
+  async confirmSharedConnection(c: { id: string; key: string; name: string; sources: ReadSource[] }): Promise<string | null> {
+    if (!this.shared) return null
+    const failed = () => this.sharedConnText(c.name, 'failed')
+    // at most a few rounds: a card answered while more people came to see the chat asks once more for them
+    for (let round = 0; round < 3; round++) {
+      let audience: string[], missing: { missing: string[] }[]
+      try {
+        audience = this.sharedAudience()
+        missing = missingReaders(this.rt.db, this.rt.files.rules(), c.sources, audience)
+      } catch (e) { this.rt.log.warn('shared connection check failed', { err: e, turn: this.id }); return failed() }
+      // nobody found to see the chat (missingReaders then finds nobody missing): fails closed, no silent fetch
+      if (!audience.length) return failed()
+      // everyone here may see what it returns (a team connection all of them may use): no card
+      if (!missing.length) return this.noteSharedReads(c.sources, audience, false, true) ? null : failed()
+      const covers = (people: Iterable<unknown>) => { const set = new Set(people); return audience.every((id) => set.has(id)) }
+      const before = this.sharedConnRefused.get(c.id)
+      if (before) return this.sharedConnText(c.name, before)
+      // covered: the people the card was answered for (recorded as they were: those who were told)
+      const once = this.sharedConnAllowed.get(c.key)
+      if (once && covers(once)) return this.noteSharedReads(c.sources, [...once], true, true) ? null : failed()
+      const always = approvalsFor(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key })
+        .find((d) => Array.isArray(d.c) && covers(d.c))
+      if (always) return this.noteSharedReads(c.sources, (always.c as unknown[]).filter((x): x is string => typeof x === 'string'), true, true) ? null : failed()
+      // one card per connection at a time; the people it names go with it, so a parallel call whose audience is wider
+      // (someone joined meanwhile) is not covered by it and asks again on the next round
+      let pending = this.sharedConnPending.get(c.key)
+      if (!pending) {
+        const asked = [...new Set(audience)].sort()
+        const made = { asked, p: this.askSharedConnection(c, asked).finally(() => { if (this.sharedConnPending.get(c.key) === made) this.sharedConnPending.delete(c.key) }) }
+        pending = made
+        this.sharedConnPending.set(c.key, made)
+        const decision = await made.p
+        if (decision !== 'shared' && decision !== 'always') { this.sharedConnRefused.set(c.id, decision); return this.sharedConnText(c.name, decision) }
+        this.sharedConnAllowed.set(c.key, new Set(asked))
+        if (decision === 'always') noteApproval(this.rt.db, { chatId: this.spec.chatId, userId: this.spec.userId, kind: 'shared_connection', target: c.key, detail: { c: asked } })
+        continue
+      }
+      const decision = await pending.p
+      if (decision !== 'shared' && decision !== 'always') return this.sharedConnText(c.name, decision)
+      // (the asker of that card saved what it covers; the next round checks this call's audience against it)
+    }
+    return failed()
+  }
+
+  /** The connection card and its audit row (counts, never who). `asked`: the people it names (a guest among them is
+   * said: someone outside the team). */
+  private async askSharedConnection(c: { id: string; name: string }, asked: readonly string[]): Promise<SharedDecision | 'always'> {
+    const L = this.spec.locale
+    const scheduled = this.spec.clientKind === 'schedule'
+    const name = c.name.replace(/\s+/g, ' ').trim().slice(0, 80)
+    let guests = 0
+    try { guests = asked.filter((id) => isGuestUser(this.rt.db, id)).length } catch { guests = 1 }
+    const { value, missing: none } = await this.askPerson({
+      kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
+      question: guests
+        ? tr('sharedConnectionConfirmGuest', L, { service: name, n: String(asked.length), g: String(guests) })
+        : tr('sharedConnectionConfirm', L, { service: name, n: String(asked.length) }),
+      options: [{ label: tr('sharedConnectionOnce', L), value: 'once' }, { label: tr('sharedConnectionAlways', L), value: 'always' }, { label: tr('sharedConnectionCancel', L), value: 'cancel' }],
+      multiple: false, allowText: false,
+      expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
+    } as TurnRequest, { timeoutMs: this.rt.askUserTimeoutMs() })
+    const v = Array.isArray(value) && value.length === 1 ? value[0] : value
+    const decision: SharedDecision | 'always' = v === 'always' ? 'always' : v === 'once' ? 'shared' : scheduled ? 'unattended' : v === 'cancel' ? 'declined' : none ?? 'declined'
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_connection', target: this.spec.chatId, detail: { decision, connection: c.id, audience: asked.length, guests, turnId: this.id } }) }
+    catch (e) { this.rt.log.warn('shared connection audit failed', { err: e, turn: this.id }) }
+    return decision
+  }
+
+  /** Why a connection call in a shared chat fetched nothing, for the AI (docs/DECISIONS.md "Refusals say why, who and
+   * what next"): the real reason, and where the person can ask instead. */
+  private sharedConnText(service: string, no: SharedNo): string {
+    const who = neutralizeTags(this.principal?.name ?? 'the user')
+    const name = neutralizeTags(service)
+    const why = no === 'failed' ? { kind: 'failed' as const, what: `who in this shared chat may see what ${name} returns` } : no === 'declined' ? { kind: 'declined' as const, who } : cardReason(no, { who })
+    return refusal({
+      done: `Nothing was fetched from ${name}.`,
+      why,
+      also: `It needed ${who}'s yes because what ${name} returns would be shown to everyone in this shared chat, and not all of them may use it. Do not try another tool or another person's connection to get it`,
+      next: no === 'declined' ? `answer without it; ${who} can ask in a chat only they see`
+        : no === 'failed' ? `answer without it; ${who} can ask again, or ask in a chat only they see`
+        : `answer without it; ${who} can ask again and answer the card, or ask in a chat only they see`,
+      names: [name],
+    })
+  }
+
   /** The step of a call refused on the read card: one neutral line, no path, not red (sharedSkipped). */
-  private skipStep(tool: string) {
-    const label = tr('sharedReadSkipped', this.spec.locale)
+  private skipStep(tool: string, save = false) {
+    const label = tr(save ? 'sharedSaveSkipped' : 'sharedReadSkipped', this.spec.locale)
     this.patchToolStep(tool, (st) => { this.sharedSkipped.add(st.id); return { label, sv: undefined, detail: undefined } as Partial<StoredStep> })
   }
 
@@ -3683,7 +4195,7 @@ export class TurnExec {
     let after: string | null = null
     if (r.exists) {
       // the tool refuses a folder, and an overwrite of a file not read in this turn: no card for a call that fails
-      if (r.st!.isDirectory() || (!produced && !files.readHashes.has(r.rel))) return null
+      if (r.st!.isDirectory() || (!produced && !(tool === 'write' ? mayReplace(files, r.rel) : files.readHashes.has(r.rel)))) return null
       try {
         const cur = readRegular(r.abs, undefined, r.st).bytes
         before = cur.subarray(0, 8000).includes(0) ? null : cur.toString('utf8')
@@ -3948,10 +4460,12 @@ export class TurnExec {
     }
     return shown
   }
-  private showCard(request: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
+  private showCard(asked: TurnRequest, o: { window?: string | null; timeoutMs: number; askedAt?: number }): Promise<unknown> {
+    // a detail longer than the card carries (a write of millions of characters): its start, the rest on request
+    const { request, full } = foldCardDetails(asked)
     return new Promise((resolve) => {
       const timer = setTimeout(() => this.closeRequest(request.requestId, null, 'timeout'), o.timeoutMs)
-      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now() })
+      this.requests.set(request.requestId, { request, resolve, timer, window: o.window ?? null, openedAt: o.askedAt ?? performance.now(), ...(full ? { full } : {}) })
       this.humanWaits++
       // waiting for a person: the turn's queue slot goes to the next answer meanwhile (ChatRuntime.turnWaiting)
       if (this.humanWaits === 1) { try { this.rt.turnWaiting(this) } catch (e) { this.rt.log.warn('giving the slot back while waiting failed', { err: e, turn: this.id }) } }
@@ -4009,6 +4523,8 @@ export class TurnExec {
   }
   /** one open card of this turn, or null (answered, expired, the turn ended) */
   openRequest(requestId: string): TurnRequest | null { return this.requests.get(requestId)?.request ?? null }
+  /** the whole text of a detail an open card carries only the start of (chat/card-fold.ts), or null */
+  cardDetailText(requestId: string, index: number): string | null { return this.requests.get(requestId)?.full?.get(index) ?? null }
 
   private closeRequest(requestId: string, value: unknown, reason: 'answered' | 'timeout' | 'turn_ended') {
     const r = this.requests.get(requestId)
@@ -4137,15 +4653,36 @@ export class TurnExec {
   }
 
   // ---------------- session stash ----------------
+  /** no saved session for this chat: the next turn starts a fresh one from the DB history */
+  private dropSession() {
+    fs.rmSync(path.dirname(this.rt.sessionStash(this.spec.chatId, 'x')), { recursive: true, force: true })
+    this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
+  }
   private stashSession(sid: string, b64: string) {
-    const bytes = Buffer.from(b64, 'base64')
+    // pictures of older turns out first (chat/session-slim.ts): they are what made sessions too big to keep
+    const slim = slimSession(Buffer.from(b64, 'base64'))
+    if (slim.removed) this.rt.log.info('pictures taken out of the saved session', { turn: this.id, pictures: slim.removed })
+    const bytes = slim.bytes
     const dir = path.dirname(this.rt.sessionStash(this.spec.chatId, sid))
-    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked) {
+    // a session that would carry more pictures into the next answer than half of what an answer may hold (after the
+    // slim above kept the newest turn's): the next answer starts fresh, from the chat's summary, so its pictures still
+    // fit under what the model proxy takes in (proxy/model-proxy.ts PROXY_BODY_MAX)
+    const kept = sessionPictures(bytes)
+    const tooManyPictures = !sessionPicturesKept(kept, turnImageCaps(this.rt.db, this.spec.turnId))
+    if (tooManyPictures) this.rt.log.info('saved session holds too many pictures: the next answer starts fresh', { turn: this.id, pictures: kept.count, bytes: kept.bytes })
+    if (bytes.length > SESSION_STASH_MAX || this.sessionRevoked || tooManyPictures) {
       // too big to keep, or it may hold files the person can no longer read (reset while this turn ran): the next
       // turn starts a fresh session from the DB history
       fs.rmSync(dir, { recursive: true, force: true })
       this.rt.db.query('UPDATE chats SET engine_session_id = NULL, engine_session_leaf_id = NULL WHERE id = ?').run(this.spec.chatId)
       return
+    }
+    // Claude Code compacted the session in this turn, or the slim above took pictures out: it no longer holds all that
+    // earlier reads saw (whole-file replaces from them ask for a new read; edits go on; chat/carried-reads.ts). A fresh
+    // session that starts from the chat's summary is another session id, so earlier reads never count there anyway
+    if (sessionDroppedText({ bytes, compactionsBefore: this.compactionsBefore, slimmed: slim.removed })) {
+      this.files.sessionLostText()
+      try { forgetSessionText(this.rt.db, this.spec.chatId) } catch (e) { this.rt.log.warn('forgetting the session text failed', { err: e, turn: this.id }) }
     }
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     for (const f of fs.readdirSync(dir)) if (f !== `${sid}.jsonl`) fs.rmSync(path.join(dir, f), { force: true })
@@ -4185,11 +4722,14 @@ export class TurnExec {
         return
       }
     }
+    // what this answer's AI read or saved, for the person's next answers in this chat (chat/carried-reads.ts)
+    if (this.carryReads && this.files.allReads.size) this.finishStep('reads', () => saveReads(this.rt.db, { chatId: this.spec.chatId, messageId: this.spec.assistantId, userId: this.spec.userId }, this.files.allReads, this.files.readSessions))
     let status: MessageStatus = 'error'
     try { status = this.finishState() } catch (e) {
       this.rt.log.error('finishing the turn failed', { err: e, turn: this.id })
       this.endAfterFailure()
     }
+    if (status === 'done') { try { this.summaryAfter?.() } catch (e) { this.rt.log.warn('the chat summary after the answer failed', { err: e, turn: this.id }) } }
     this.status = 'finished'
     try {
       if (this.terminationUnconfirmed) this.quarantine()
@@ -4205,6 +4745,7 @@ export class TurnExec {
     this.finishStep('held answers', () => this.dropHeldAnswers())
     for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('local relay', () => this.rt.localRelay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     const db = this.rt.db
@@ -4259,6 +4800,7 @@ export class TurnExec {
     this.content = this.redact(this.content)
     for (const [id] of this.requests) this.finishStep('card', () => this.closeRequest(id, null, 'turn_ended'))
     this.finishStep('relay', () => this.rt.relay.cancelTurn(this.id))
+    this.finishStep('local relay', () => this.rt.localRelay.cancelTurn(this.id))
     this.finishStep('proxy', () => this.proxyUnsubscribe?.())
     try { revokeProxyTokens(this.rt.db, this.id) } catch {}
     // what was still running when the turn was stopped, or is still running now (an event read after the stop)
@@ -4294,9 +4836,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
@@ -4354,6 +4896,8 @@ export class TurnExec {
       const chatRow = this.rt.store.chatRow(this.spec.chatId)
       const message = chatRow ? messageFor(this.rt, chatRow, row, this.spec.userId, this.spec.locale) : this.rt.store.toMessage(row)
       this.rt.hub.publish(this.spec.userId, { type: 'message.done', data: { chatId: this.spec.chatId, messageId: this.spec.assistantId, status, message } })
+      // the others in a shared chat: the finished message as each of them may see it
+      if (this.shared) publishDoneToOthers(this.rt, this.spec.chatId, this.spec.assistantId, this.spec.userId, status)
     })
     // an answer that ran about a minute or longer is worth telling when it ends (docs/DECISIONS.md "Session markers"):
     // not one the person stopped, not one a server stop cut off (a restart would tell once per chat), not a scheduled
@@ -4485,11 +5029,6 @@ export const ROOM_CHANGE_PREVIEW = 400
 /** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
 export const ROOM_CHANGE_FULL = 100_000
 
-/** A team path as the file layer reads it (policy/resolve.ts parseInput: no empty or "." names), NFC; null when it is
- * not one (the tool refuses it). */
-function teamSegs(p: unknown): string[] | null {
-  try { return parseInput(p).map((x) => x.normalize('NFC')) } catch { return null }
-}
 
 /** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
  * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
@@ -4530,12 +5069,13 @@ export function writeTargetOf(tool: string, input: unknown, source: (p: string) 
   return p.trim() ? { path: p, mayBeNew } : null
 }
 
-export function instructionLike(rel: string): boolean {
-  const segs = teamSegs(rel)
-  if (!segs?.length) return false
-  const p = segs.join('/')
-  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(segs.at(-1)!)
-}
+// instructionLike and teamSegs live in tools/rename-pattern.ts (rename_files checks them when it runs too)
+export { instructionLike }
+
+/** a rename_files pattern's card lists this many of the files it renames, then "+N" */
+const ROOM_RENAME_SHOWN = 50
+/** rename_files' `at` as the call gives it (anything else: anywhere, as the input check would refuse it anyway) */
+const renameAt = (v: unknown): RenameAt => (v === 'start' || v === 'end' ? v : 'anywhere')
 
 /** at most this many names of a folder a room change would carry are looked at (more: treated as unknown) */
 export const ROOM_CHANGE_SCAN_MAX = 2000
@@ -4573,9 +5113,22 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const folder = !want ? `users/${me}/downloads` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [want, `${folder.replace(/\/+$/, '')}/${nameFromUrl(str(a.url)) || 'download'}`].filter(Boolean), shown: false }
     }
+    case 'save_connector_file': {
+      // the original of a connection's file: named by save_as, or for a folder ("…/") or none by the file's own name,
+      // which the handle does not tell here (tools/save-connector-file.ts refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}file`], shown: false }
+    }
     case 'save_room_file': {
       // a copy of a room file: named by save_as, or for a folder ("…/") or none by the file's own name, which an id does
       // not tell here (the tool refuses an instruction file's name itself)
+      const want = str(a.save_as).trim()
+      const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
+      return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
+    }
+    case 'save_chat_file': {
+      // a copy of a chat's file: as save_room_file (the file's own name for a folder or none)
       const want = str(a.save_as).trim()
       const folder = !want ? `users/${me}/downloads/` : want.endsWith('/') ? want : null
       return { targets: folder === null ? [want] : [`${folder}${str(a.file)}`], shown: false }
@@ -4587,6 +5140,18 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
     case 'rename_file': {
       const segs = teamSegs(a.path)
       return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
+    }
+    case 'rename_files': {
+      // a list: each lands as rename_file's; a pattern: the new names of what is directly in the folder, worked out as
+      // the tool does (tools/rename-pattern.ts patternName); past ROOM_CHANGE_SCAN_MAX, counted as holding an instruction
+      // file (it might). The tool checks every item again when it runs (the folder may change after this card)
+      if (Array.isArray(a.renames)) {
+        return { targets: a.renames.flatMap((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; const segs = teamSegs(str(x.path)); return segs?.length ? landing(str(x.path), segs.slice(0, -1), str(x.new_name)) : [] }), shown: false }
+      }
+      const folder = teamSegs(str(a.folder)) ?? []
+      const under = tree(str(a.folder))
+      if (under === null || !str(a.find)) return { targets: [[...folder, 'SKILL.md'].join('/')], shown: false }
+      return { targets: under.filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : landing([...folder, n].join('/'), folder, to) }), shown: false }
     }
   }
   // any other change (a tool added later): every string it is given may be a place it writes
@@ -4600,7 +5165,7 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -4654,6 +5219,21 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'rename_files': {
+      // each rename on a line ("old → new"), or the folder and the pattern
+      if (Array.isArray(a.renames)) {
+        const lines = a.renames.map((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; return `${at(str(x.path))} → ${str(x.new_name)}` })
+        return detail([], lines.join('\n'), [], true)
+      }
+      // a pattern: the files it would rename now, old → new (the first ROOM_RENAME_SHOWN, then "+N"); the tool renames
+      // no others (it checks each again when it runs)
+      const under = tree(str(a.folder))
+      const now = (under ?? []).filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : [`${n} → ${to}`] })
+      const shown = now.slice(0, ROOM_RENAME_SHOWN).join('\n') + (now.length > ROOM_RENAME_SHOWN ? `\n… +${now.length - ROOM_RENAME_SHOWN}` : '')
+      return detail([field('roomAiChangeFolder', place(str(a.folder))), field('roomAiChangeNewName', `${str(a.find)} → ${str(a.replace)}`)], shown, [], true)
+    }
+    case 'save_connector_file':
+      return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':
       return detail([field('roomAiChangeAddress', str(a.url)), ...(str(a.save_as) ? [field('roomAiChangeSaveAs', at(str(a.save_as)))] : [])], tr('roomAiChangeNotShown', L, { from: str(a.url) }), [str(a.save_as)])
     case 'save_room_file': {

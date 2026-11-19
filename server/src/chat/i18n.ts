@@ -118,9 +118,11 @@ export const TEXT = {
   // steps
   refusedRetry: STEP_TEXT.refusedRetry,
   demoReplay: STEP_TEXT.demoReplay,
+  historySummary: STEP_TEXT.historySummary,
   engineOffDefault: STEP_TEXT.engineOffDefault,
   engineNoConnection: STEP_TEXT.engineNoConnection,
   limitFallback: STEP_TEXT.limitFallback,
+  contextRecover: STEP_TEXT.contextRecover,
   credentialSwitchLimit: STEP_TEXT.credentialSwitchLimit,
   credentialSwitchInvalid: STEP_TEXT.credentialSwitchInvalid,
   attachChanged: STEP_TEXT.attachChanged,
@@ -222,8 +224,6 @@ export const TEXT = {
   /** a share or post card raised because what it acts on came from what is open on the screen (looking_at), not from
    * the person's own words (chat/looking-at.ts): said in place of othersWordsWhy */
   lookedWhy: t('메시지에 이름이 없어서 지금 화면에 열려 있는 것을 보고 골랐어요. 그래서 먼저 물어봐요.', 'Your message didn\'t name this, so it was taken from what is open on your screen. That is why this is asked first.', 'Pesan Anda tidak menyebut namanya, jadi ini diambil dari yang terbuka di layar Anda. Karena itu ini ditanyakan dulu.', 'メッセージに名前がなかったため、いま画面で開いているものから選びました。そのため先に確認します。', 'Su mensaje no lo nombraba, así que se tomó de lo que tiene abierto en la pantalla. Por eso se consulta antes.', '你的消息没有写名称，所以是根据你屏幕上打开的内容选的。因此会先问你。'),
-  /** "Send to Trina" in an answer's thread, as the web app names it (chat.thread.sendToAi; chat/share-words.ts) */
-  threadSendToAi: t('{name}에게 보내기', 'Send to {name}', 'Kirim ke {name}', '{name}に送る', 'Enviar a {name}', '发送给{name}'),
   /** the same three sentences when the cause is a file someone shared with the person, read through its share, and no
    * room's words came in (chat/grant-reads.ts seenWhy; docs/decisions/20261116-ai-screen-and-shared-tools.md) */
   sharedFileSeenWhy: t('여기에서 다른 사람이 공유한 파일(다른 사람이 쓴 글)을 읽어서, 무언가를 바꾸기 전에 먼저 물어봐요.', 'A file someone shared with you (other people\'s words) was read here, so changes are asked first.', 'Chat ini membaca berkas yang dibagikan orang lain kepada Anda (tulisan orang lain), jadi perubahan ditanyakan dulu.', "このチャットでほかの人が共有したファイル（ほかの人が書いたもの）を読んだため、変更の前に確認します。", "En este chat se leyó un archivo que alguien compartió con usted (palabras de otras personas), así que los cambios se consultan antes.", "这里读取了别人共享给你的文件（其他人写的内容），所以修改前会先问你。"),
@@ -287,6 +287,8 @@ export const TEXT = {
   postRoomAskThreadNoQuote: t('{room}({n}명)의 메시지 스레드에 보낼까요?', 'Send to a message\'s thread in {room} ({n, plural, one {# person} other {# people}})?', 'Kirim ke utas sebuah pesan di {room} ({n} orang)?', '{room}（{n, plural, one {#人} other {#人}}）のメッセージのスレッドに送りますか？', '¿Enviar al hilo de un mensaje en {room} ({n, plural, one {# persona} other {# personas}})?', '要发送到{room}中一条消息的话题（{n, plural, one {#人} other {#人}}）吗？'),
   postRoomAskNewDm: t('{name}님과의 새 1:1 대화로 보낼까요?', 'Send to {name} in a new 1:1 chat?', 'Kirim ke {name} di obrolan 1:1 baru?', '{name}さんとの新しい1:1で送りますか？', '¿Enviar a {name} en un chat 1:1 nuevo?', '要在新的私信中发送给{name}吗？'),
   postRoomOwnWords: t('내 메시지', 'Your message', 'Pesan Anda', 'あなたのメッセージ', 'Su mensaje', '你的消息'),
+  postRoomMentions: t('알림 받을 사람 (멘션)', 'Mentions (they get a notice)', 'Disebut (mendapat pemberitahuan)', 'メンション（通知が届きます）', 'Menciones (reciben un aviso)', '提及（会收到通知）'),
+  postRoomMentionsAll: t('이 방의 모든 사람 ({word})', 'Everyone in this room ({word})', 'Semua orang di ruang ini ({word})', 'このルームの全員（{word}）', 'Todos en esta sala ({word})', '此聊天室的所有人（{word}）'),
   postRoomNote: t('내 이름으로 보일 한마디', 'Your note, shown under your name', 'Catatan Anda, tampil atas nama Anda', 'あなたの名前で表示されるひとこと', 'Su nota, que aparece con su nombre', '你的备注，显示在你的名下'),
   postRoomFilesToSend: t('함께 보낼 파일', 'Files sent with it', 'Berkas yang ikut dikirim', '一緒に送るファイル', 'Archivos que se envían', '一起发送的文件'),
   postRoomText: t('보낼 내용', 'What will be sent', 'Yang akan dikirim', '送る内容', 'Lo que se enviará', '将要发送的内容'),
@@ -375,6 +377,8 @@ export const TEXT = {
   // selectBranch while an answer runs or waits (routes/chats.ts branchBusyCheck); the web turns the arrows off then
   branchWhileAnswering: t('답변을 쓰는 중이에요. 끝나면 다른 버전으로 바꿀 수 있어요.', 'An answer is still being written. You can switch versions when it is done.', 'Jawaban masih ditulis. Anda bisa beralih versi setelah selesai.', "まだ回答を作成中です。終わったら別のバージョンに切り替えられます。", "Todavía se está escribiendo una respuesta. Podrá cambiar de versión cuando termine.", "回答还在生成中。完成后就可以切换版本。"),
   sharedChatBusy: t('{name}님의 질문에 답하는 중이에요. 끝나면 보낼 수 있어요.', "{name}'s question is being answered. You can send yours when it is done.", 'Pertanyaan {name} sedang dijawab. Anda bisa mengirim setelah selesai.', "{name}さんの質問に回答中です。終わったら送信できます。", "Se está respondiendo la pregunta de {name}. Podrá enviar la suya cuando termine.", "正在回答{name}的问题。完成后你就可以发送你的问题。"),
+  // a send in a shared chat while someone else's messages have waited longer (routes/chats.ts busyCheck, chat/shared-waiting.ts)
+  sharedChatNext: t('다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', "Someone else's message has been waiting longer. Yours goes after it.", 'Pesan orang lain sudah menunggu lebih dulu. Pesan Anda dikirim setelahnya.', 'ほかの人のメッセージが先に待っています。その後に送ります。', 'El mensaje de otra persona lleva más tiempo esperando. El suyo irá después.', '其他人的消息先在等待。你的会在它之后发送。'),
   // threads on AI answers in shared chats (chat/threads.ts)
   chatThreadFull: t('이 스레드는 답글이 가득 찼어요. 채팅에서 이어가 주세요.', 'This thread is full. Continue in the chat.', 'Utas ini sudah penuh. Lanjutkan di obrolan.', 'このスレッドは返信がいっぱいです。チャットで続けてください。', 'Este hilo está lleno. Continúe en el chat.', '这个话题的回复已满。请在对话中继续。'),
   chatThreadNotShared: t('이 채팅은 이제 공유되지 않아서 답글을 달 수 없어요.', "This chat isn't shared anymore, so no new replies.", 'Obrolan ini tidak dibagikan lagi, jadi tidak bisa dibalas.', 'このチャットは共有されなくなったため、返信できません。', 'Este chat ya no se comparte, así que no admite respuestas nuevas.', '这个对话已不再共享，所以不能再回复。'),
@@ -446,6 +450,43 @@ export const TEXT = {
   sharedReadYes: t('읽고 공유하기', 'Read and share', 'Baca dan bagikan', "読んで共有する", "Leer y compartir", "读取并共享"),
   sharedReadNo: t('읽지 않기', "Don't read", 'Jangan baca', "読まない", "No leer", "不读取"),
   sharedReadSkipped: t('이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요', 'Not read: not everyone who sees this chat can open that place', 'Tidak dibaca: tidak semua orang yang melihat obrolan ini bisa membuka tempat itu', "このチャットを見る全員が開ける場所ではないため、読みませんでした", "No se leyó: no todos los que ven este chat pueden abrir ese lugar", '未读取：不是所有能看到这个对话的人都能打开那个位置'),
+  // the save card (docs/decisions/20261118-shared-save-card-wording.md): the AI saves into a place some people who see
+  // the chat cannot open, and that place is there already; nothing is read from it, but the name the file gets there
+  // shows in the chat (and with it whether a file of that name was there)
+  sharedSaveConfirm: t('AI가 {sources}에 파일을 저장하려고 해요. 이 채팅을 보는 {n}명 중 {m}명은 이곳을 열 수 없어서, 저장한 파일도 열 수 없어요. 저장하면 파일이 저장된 이름이 이 채팅을 보는 모두에게 보여서, 같은 이름의 파일이 이미 있었는지도 알 수 있어요.',
+    "The AI wants to save a file in {sources}. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open it, so they won't be able to open the file either. Everyone who sees the chat will see the name it's saved under, which can show whether a file with that name was already there.",
+    'AI ingin menyimpan berkas di {sources}. {m} dari {n} orang yang melihat obrolan ini tidak bisa membukanya, jadi mereka juga tidak bisa membuka berkas itu. Semua orang yang melihat obrolan ini akan melihat nama simpanannya, yang bisa menunjukkan apakah berkas dengan nama itu sudah ada di sana.',
+    "AIが{sources}にファイルを保存しようとしています。このチャットを見る{n}人のうち{m}人はここを開けないため、保存したファイルも開けません。保存すると、保存されたファイル名がこのチャットを見る全員に表示され、同じ名前のファイルがすでにあったかどうかも分かります。",
+    "La IA quiere guardar un archivo en {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrirlo, así que tampoco podrán abrir el archivo. Todos los que ven el chat verán el nombre con el que se guarda, lo que puede mostrar si ya había un archivo con ese nombre.",
+    'AI想把文件保存到{sources}。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开那里，所以也打不开这个文件。保存后，所有能看到这个对话的人都会看到它保存时的名称，由此可能看出那里原本是否已有同名文件。'),
+  /** ...for a call that can save several files (unzip_file, split_pdf, resize_images: SAVE_CARD_TOOLS 'many') */
+  sharedSaveManyConfirm: t('AI가 {sources}에 파일을 저장하려고 해요. 이 채팅을 보는 {n}명 중 {m}명은 이곳을 열 수 없어서, 저장한 파일도 열 수 없어요. 저장하면 파일들이 저장된 이름이 이 채팅을 보는 모두에게 보여서, 같은 이름의 파일이 이미 있었는지도 알 수 있어요.',
+    "The AI wants to save files in {sources}. {m} of the {n, plural, one {# person} other {# people}} who see this chat can't open it, so they won't be able to open the files either. Everyone who sees the chat will see the names they're saved under, which can show whether files with those names were already there.",
+    'AI ingin menyimpan berkas-berkas di {sources}. {m} dari {n} orang yang melihat obrolan ini tidak bisa membukanya, jadi mereka juga tidak bisa membuka berkas-berkas itu. Semua orang yang melihat obrolan ini akan melihat nama simpanannya, yang bisa menunjukkan apakah berkas dengan nama itu sudah ada di sana.',
+    "AIが{sources}にファイルを保存しようとしています。このチャットを見る{n}人のうち{m}人はここを開けないため、保存したファイルも開けません。保存すると、保存されたファイル名がこのチャットを見る全員に表示され、同じ名前のファイルがすでにあったかどうかも分かります。",
+    "La IA quiere guardar archivos en {sources}. {m} de {n, plural, one {la # persona} other {las # personas}} que ven este chat no pueden abrirlo, así que tampoco podrán abrir los archivos. Todos los que ven el chat verán los nombres con los que se guardan, lo que puede mostrar si ya había archivos con esos nombres.",
+    'AI想把一些文件保存到{sources}。能看到这个对话的{n, plural, one {#人} other {#人}}中，有{m}人打不开那里，所以也打不开这些文件。保存后，所有能看到这个对话的人都会看到它们保存时的名称，由此可能看出那里原本是否已有同名文件。'),
+  sharedSaveYes: t('저장하기', 'Save', 'Simpan', "保存する", "Guardar", "保存"),
+  sharedSaveNo: t('저장하지 않기', "Don't save", 'Jangan simpan', "保存しない", "No guardar", "不保存"),
+  sharedSaveSkipped: t('이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 저장하지 않았어요', 'Not saved: not everyone who sees this chat can open that place', 'Tidak disimpan: tidak semua orang yang melihat obrolan ini bisa membuka tempat itu', "このチャットを見る全員が開ける場所ではないため、保存しませんでした", "No se guardó: no todos los que ven este chat pueden abrir ese lugar", '未保存：不是所有能看到这个对话的人都能打开那个位置'),
+  /** a connected service in a shared chat (chat/turn.ts confirmSharedConnection): the card only the asker sees before
+   * anything is fetched (docs/decisions/20261118-shared-chat-connections.md) */
+  sharedConnectionConfirm: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요.',
+    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat.",
+    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini.',
+    "AIが{service}を使おうとしています。{service}から返ってきた内容が、このチャットの{n}人に表示されます。",
+    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat.",
+    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人。'),
+  /** ...when a guest sees the chat (someone outside the team) */
+  sharedConnectionConfirmGuest: t('AI가 {service}을(를) 쓰려고 해요. {service}에서 가져온 내용이 이 채팅에 있는 {n}명에게 보여요. 여기에는 게스트(팀 밖의 사람) {g}명도 있어요.',
+    "The AI wants to use {service}. This will show what {service} returns to the {n, plural, one {# person} other {# people}} in this chat, including {g, plural, one {a guest (someone outside the team)} other {# guests (people outside the team)}}.",
+    'AI ingin memakai {service}. Apa yang dikembalikan {service} akan terlihat oleh {n} orang di obrolan ini, termasuk {g} tamu (orang di luar tim).',
+    "AIが{service}を使おうとしています。{service}から返ってきた内容が、ゲスト（チーム外の人）{g}人を含む、このチャットの{n}人に表示されます。",
+    "La IA quiere usar {service}. Lo que devuelva {service} se mostrará a {n, plural, one {la # persona} other {las # personas}} de este chat, {g, plural, one {incluido un invitado (alguien de fuera del equipo)} other {incluidos # invitados (personas de fuera del equipo)}}.",
+    'AI想使用{service}。{service}返回的内容会显示给这个对话里的{n}人，其中包括{g}位访客（团队以外的人）。'),
+  sharedConnectionOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅允许这一次"),
+  sharedConnectionAlways: t('이 채팅에서 항상 허용', 'Always in this chat', 'Selalu di obrolan ini', "このチャットでは常に許可", "Siempre en este chat", "在这个对话中始终允许"),
+  sharedConnectionCancel: t('취소', 'Cancel', 'Batal', "キャンセル", "Cancelar", "取消"),
   sharedScopeMine: t('내 개인 폴더', 'your personal folder', 'folder pribadi Anda', "自分の個人フォルダー", "su carpeta personal", "你的个人文件夹"),
   sharedScopeOther: t('이 채팅에서 다른 사람이 연 곳', 'a place someone else opened in this chat', 'tempat yang dibuka orang lain di obrolan ini', "このチャットでほかの人が開いた場所", "un lugar que otra persona abrió en este chat", "其他人在这个对话中打开的位置"),
   sharedAnswerFailed: t('답을 마치지 못했어요.', 'The answer did not finish.', 'Jawaban tidak selesai.', "回答を完了できませんでした。", "La respuesta no terminó.", "回答没有完成。"),

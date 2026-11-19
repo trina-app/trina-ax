@@ -95,6 +95,8 @@ export interface MycelUi {
     select(id: string): void
     closeTab(id: string): void
     close(): void
+    /** the page on screen in the person's own browser */
+    openExternal(): void
     stop(): void
     answer(id: string, decision: 'once' | 'always' | 'deny'): void
     toolbarHeight(h: number): void

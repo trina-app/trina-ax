@@ -436,15 +436,15 @@ describe.skipIf(!layers)("the turn's image budget, room and team reads together"
         // the room read uses the same turn's files: one page fits, the second gets the budget note
         const room = await read(reader('alice', ctx.files, turn), { file: twoScans })
         expect(images(room)).toHaveLength(1)
-        expect(texts(room)).toContain('image limit')
+        expect(texts(room)).toContain('as many as one answer can hold')
         expect(ctx.files.imageCount).toBe(VISION_TURN_IMAGES)
         const after = await team({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'read', arguments: { file_path: 'users/alice/photo.png' } } })
         expect(after.result.content.filter((c: any) => c.type === 'image')).toEqual([])
-        expect(JSON.stringify(after.result.content)).toContain('image limit')
+        expect(JSON.stringify(after.result.content)).toContain('as many as one answer can hold')
         // and a room read after a full turn converts nothing
         const full = await read(reader('alice', ctx.files, turn), { file: file['scan.pdf']! })
         expect(images(full)).toEqual([])
-        expect(texts(full)).toContain('image limit')
+        expect(texts(full)).toContain('as many as one answer can hold')
         expect(calls()).toBe(1)
       })
     } finally { codec.mockRestore() }

@@ -38,6 +38,7 @@ export interface MessageRow {
   stop_reason: string | null
   /** migration 213: 1 when the AI got only the recent part of the conversation for this answer */
   history_trimmed: number
+  history_small_model: number
 }
 export interface ProjectRow {
   id: string; name: string; folder_path: string; instructions: string; created_by: string | null; created_at: string
@@ -54,7 +55,7 @@ export interface ProjectRow {
 }
 
 export const CHAT_COLS = 'id, user_id, project_id, title, engine, model, engine_session_id, engine_session_leaf_id, session_tainted, active_leaf_id, created_at, updated_at, deleted_at, title_source, room_id, seen_at, shared_at, side_room_id, people_shared_at'
-export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed'
+export const MESSAGE_COLS = 'id, chat_id, parent_id, role, author_id, content, attachments, steps, status, error, turn_id, engine, model, files, client_message_id, created_at, updated_at, stop_reason, history_trimmed, history_small_model'
 export const PROJECT_COLS = 'id, name, folder_path, instructions, created_by, created_at, instructions_author, instructions_authored, trashed_with, share_chats, folder_made'
 
 /** SQLite timestamps ("2026-10-21T03:04:05.678Z" from strftime, or ISO from JS) -> ISO with offset. */
@@ -339,12 +340,15 @@ export class ChatStore {
   /** `view`: a shared project chat's message as one viewer sees it (MessageView); absent: the chat's own person. */
   toMessage(r: MessageRow, live?: { content: string; steps: StoredStep[] }, view?: MessageView): Message {
     const siblings = this.siblingIds(r)
-    // a shared chat: the turn's person sees the answer as it is; anyone else not its live text, usage or failure reason
+    // a shared chat: the turn's person sees the answer as it is; anyone else not its usage or failure reason, and its
+    // steps as viewSteps shows them to them
     const runner = !view || (r.role === 'assistant' ? !!r.turn_id && this.turnUser(r.turn_id) === view.viewer : r.author_id === view.viewer)
     if (view) view = { ...view, runner }
-    const hideLive = !!view && !runner && r.status === 'streaming'
-    // an answer hidden from the viewer: its place in the branch and nothing else (Message.withheld); a running one shows
-    // nothing to anyone but its runner anyway
+    // a running answer: its text so far for everyone it is not hidden from, as its live events give it to them
+    // (chat/live-answer.ts, docs/decisions/20261118-shared-chat-live-answers.md); nothing when that cannot be told
+    const hideLive = !!view && !runner && r.status === 'streaming' && view.withheld?.(r.id) !== false
+    // an answer hidden from the viewer: its place in the branch and nothing else (Message.withheld); a running one hidden
+    // from them shows no text (hideLive)
     if (view && !runner && r.role === 'assistant' && r.status !== 'streaming' && view.withheld?.(r.id)) {
       const branch = { index: Math.max(0, siblings.indexOf(r.id)), count: Math.max(1, siblings.length), siblingIds: siblings }
       return { id: r.id, chatId: r.chat_id, parentId: r.parent_id, role: r.role, author: null, content: '', attachments: [], steps: [], status: r.status, error: null,
@@ -363,6 +367,8 @@ export class ChatStore {
       // only when it paused at a limit: every other message keeps its earlier shape
       ...(r.role === 'assistant' && stopReasonOf(r.stop_reason) ? { stopReason: stopReasonOf(r.stop_reason) } : {}),
       ...(r.role === 'assistant' && r.history_trimmed === 1 ? { historyTrimmed: true } : {}),
+      // cut because the team's AI model reads only a short conversation (chat/history-fit.ts)
+      ...(r.role === 'assistant' && r.history_trimmed === 1 && r.history_small_model === 1 ? { historySmallModel: true as const } : {}),
       // a finished answer's "참고한 파일" count; the list itself is checked for the viewer when it is opened
       ...(() => { const n = r.role === 'assistant' && r.status !== 'streaming' && !live ? sourceCount(this.db, r.id) : 0; return n ? { sourceCount: n } : {} })(),
       // a finished answer that ran a team skill: "팀 스킬 '할 일 정리' · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note")

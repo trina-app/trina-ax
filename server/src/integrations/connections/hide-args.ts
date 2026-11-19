@@ -41,13 +41,22 @@ const KEEP: Record<string, readonly string[]> = {
   merge_pdfs: ['files'],
   split_pdf: ['file_path', 'parts', 'every'],
   resize_images: ['paths', 'longest_side', 'width', 'max_mb', 'preset'],
+  unzip_file: ['path', 'list_only'],
+  make_zip: ['paths'],
+  // the saved result is the files' own data; a key the AI wrote into the SQL is hidden like any argument
+  query_data: ['paths', 'sheet', 'header_row', 'show_rows', 'split_by'],
   comment_docx: ['file_path'],
+  edit_office: ['file_path'],
   artifact: ['edits'],
   rename_file: ['path'],
+  // the paths and the pattern find the files; the new names are hidden (each renames[].new_name, and replace)
+  rename_files: ['folder', 'find', 'at'],
   move_files: ['paths'],
   copy_files: ['paths'],
   save_url: ['url'],
+  save_connector_file: ['file'],
   save_room_file: ['room', 'file'],
+  save_chat_file: ['file'],
   generate_video: [],
   promo_video: ['sources', 'logo'],
   save_promo_video: [],
@@ -86,6 +95,9 @@ export function hideKeysInArgs(name: string, args: unknown, r: Redactor, current
       if (isObj(c.add_rows)) return { ...c, add_rows: { ...c.add_rows, ...(Array.isArray(c.add_rows.rows) ? { rows: deep(c.add_rows.rows, r.hide) } : {}) } }
       return c
     })
+  }
+  if (name === 'rename_files' && Array.isArray(args.renames)) {
+    out.renames = args.renames.map((x) => (isObj(x) && typeof x.new_name === 'string' ? { ...x, new_name: r.hide(x.new_name) } : x))
   }
   if (name === 'artifact' && Array.isArray(args.edits)) {
     out.edits = args.edits.map((e) => (isObj(e) && typeof e.new === 'string' ? { ...e, new: hideExcept(r, e.new, typeof e.old === 'string' ? e.old : null) } : e))

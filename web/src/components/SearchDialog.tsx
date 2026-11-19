@@ -80,6 +80,7 @@ import { SessionMarker } from './chat/ChatState'
 import { ChatFaces, otherWriters } from './chat/SharedChat'
 import { AppTile, SenderTag, useAppName } from './rooms/apps/AppParts'
 import { serviceOf } from '../lib/roomApps'
+import { awayFromComputer } from '../lib/integrations'
 
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
@@ -591,7 +592,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
         const attention: Row[] = [
           ...markedChats(listLoaded ? listed : chats, { here: onScreen, cards: cardChats(requests) }).map((x) => markedRow(x.chat, x.marker)),
           ...allSchedules.filter((s) => s.needsReview).map((s) => scheduleRow(s, t('search.attn.review'))),
-          ...allMcp.filter((i) => i.status !== 'connected').map((i) => mcpRow(i, t(i.status === 'needs_auth' ? 'search.attn.signIn' : 'search.attn.error'))),
+          // an app on a computer checked from elsewhere is not a fault (lib/integrations.ts awayFromComputer)
+          ...allMcp.filter((i) => i.status !== 'connected' && !awayFromComputer(i)).map((i) => mcpRow(i, t(i.status === 'needs_auth' ? 'search.attn.signIn' : 'search.attn.error'))),
         ].slice(0, 5)
         push('attention', t('search.attention'), attention)
         const busy = new Set(attention.map((r) => r.key))

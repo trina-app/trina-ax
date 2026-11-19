@@ -66,3 +66,28 @@ test('without exact (the lines could not show all of it, or an older server): th
     removeDom()
   }
 })
+
+test('a script (a field with code: a declared CLI\'s stdin) shows in a code block, every space and line as sent', async () => {
+  installDom()
+  const script = 'const p = await page()\nif (p) {\n  await p.goto("https://en.wikipedia.org/wiki/Mycelium")  // the page\n\tconsole.log(await p.title())\n}\n'
+  const req: Ask = {
+    kind: 'ask_user', origin: 'server', requestId: 'r2', question: 'The AI wants to run this in ego lite: Run a browser script', multiple: false, allowText: false,
+    options: [{ label: 'Run', value: 'allow' }, { label: 'Don’t run', value: 'deny' }],
+    details: [{ label: 'What it sends', text: JSON.stringify({ script }, null, 2), exact: true, fields: [{ name: 'Script', value: script, code: true }, { name: 'Note', value: 'plain' }] }],
+  }
+  const m = await mount(<AskCard req={{ request: req }} onAnswer={async () => {}} />)
+  try {
+    const codes = m.container.querySelectorAll('[data-testid="ask-detail-code"]')
+    expect(codes.length).toBe(1)
+    // byte for byte: indentation, the run of spaces, the tab and the final line break, no escaping
+    expect(codes[0]!.textContent).toBe(script)
+    expect(codes[0]!.textContent).not.toContain('\\n')
+    expect(codes[0]!.getAttribute('class')).toContain('whitespace-pre')
+    expect(codes[0]!.getAttribute('aria-label')).toBe('Script')
+    // the other value stays a plain line
+    expect(m.get('ask-detail-fields').textContent).toContain('plain')
+  } finally {
+    await m.unmount()
+    removeDom()
+  }
+})

@@ -38,7 +38,7 @@ function refuseNotRegular(st: fs.Stats) {
  * opening". Without `seen` (server-owned folders: uploads, caches, work folders) the file is only checked to be
  * regular.
  */
-function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
+export function openToRead(abs: string, seen?: fs.Stats): { fd: number; st: fs.Stats } {
   if (seen) { refuseNotRegular(seen); return openChecked(abs, seen) }
   let fd: number
   try { fd = fs.openSync(abs, C.O_RDONLY | C.O_NOFOLLOW | (C.O_NONBLOCK ?? 0)) } catch (e: any) {
@@ -76,6 +76,23 @@ export function readHead(abs: string, n: number, seen?: fs.Stats): Buffer {
   } finally { fs.closeSync(fd) }
 }
 
+/** A regular, singly linked file in pieces of at most 4 MiB (same refusals and `seen` as readRegular), up to the size
+ * its fstat gave, never the whole file in memory: `each` gets every piece in order and may wait (make_zip's deflate). */
+export async function readRegularPieces(abs: string, seen: fs.Stats | undefined, each: (piece: Buffer) => Promise<void> | void, signal?: AbortSignal): Promise<fs.Stats> {
+  const { fd, st } = openToRead(abs, seen)
+  try {
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    for (let pos = 0; pos < st.size;) {
+      signal?.throwIfAborted()
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, st.size - pos), pos)
+      if (n <= 0) break
+      await each(Buffer.from(buf.subarray(0, n)))
+      pos += n
+    }
+    return st
+  } finally { fs.closeSync(fd) }
+}
+
 /**
  * sha256 of a regular, singly linked file (no final symlink followed), read in 4 MiB pieces: no size limit and never
  * the whole file in memory. Synchronous, for checks that run inside authorize(); same refusals as readRegular, and the
@@ -95,6 +112,38 @@ export function sha256Regular(abs: string, seen?: fs.Stats): string {
     }
     return h.digest('hex')
   } finally { fs.closeSync(fd) }
+}
+
+/**
+ * A copy of a regular, singly linked file (same refusals and `seen` as readRegular) into `dest`, a new file (0600):
+ * read and written in 4 MiB pieces without blocking the server, never whole in memory, and hashed on the way, so the
+ * hash is of the very bytes copied (a file that grows meanwhile is copied up to the size fstat gave). Refused over
+ * `maxBytes`. The caller removes `dest` on failure (it is in a work folder).
+ */
+export async function copyRegular(abs: string, dest: string, maxBytes: number, seen?: fs.Stats, signal?: AbortSignal): Promise<{ size: number; sha256: string }> {
+  const { fd, st } = openToRead(abs, seen)
+  let out: number | null = null
+  try {
+    if (st.size > maxBytes) throw new ToolError('file is too large')
+    out = fs.openSync(dest, C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 0o600)
+    const h = crypto.createHash('sha256')
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    const read = (pos: number, len: number) => new Promise<number>((ok, no) => fs.read(fd, buf, 0, len, pos, (e, n) => (e ? no(e) : ok(n))))
+    const write = (at: number, from: number, len: number) => new Promise<number>((ok, no) => fs.write(out!, buf, from, len, at, (e, n) => (e ? no(e) : ok(n))))
+    let pos = 0
+    while (pos < st.size) {
+      signal?.throwIfAborted()
+      const n = await read(pos, Math.min(buf.length, st.size - pos))
+      if (n <= 0) break
+      h.update(buf.subarray(0, n))
+      for (let w = 0; w < n;) w += await write(pos + w, w, n - w)
+      pos += n
+    }
+    return { size: pos, sha256: h.digest('hex') }
+  } finally {
+    fs.closeSync(fd)
+    if (out !== null) fs.closeSync(out)
+  }
 }
 
 /** Current sha256 of an existing regular file, or null if missing. */

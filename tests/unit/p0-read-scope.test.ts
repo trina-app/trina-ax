@@ -7,6 +7,8 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { API } from '@mycel/shared/api'
 import { readScope, sourceOf, widening } from '../../server/src/chat/read-scope'
+import { widenOf } from '../../server/src/chat/tools'
+import { which } from '../../server/src/config'
 import { RuleSet } from '../../server/src/policy/access'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { oldProject } from '../lib/legacy-project'
@@ -109,6 +111,23 @@ describe('the AI saves what it read', () => {
     ), 'skip')
     expect(r.card!.question).toContain('부서 › finance')
     expect(fs.existsSync(path.join(h.team, 'shared/budget.docx'))).toBe(false)
+  })
+
+  // any readable file may be a template now (docs/decisions/20261118-any-file-template.md, QA TC-4948): its bytes are a
+  // source of the output, asked on the same one card as a source (widenOf, which merges it with a room card)
+  test('make_file with a finance template into shared/: one card for it; skipped, nothing saved', async () => {
+    const pandoc = which('pandoc')
+    if (!pandoc) return
+    const r0 = Bun.spawnSync([pandoc, '-f', 'markdown', '-t', 'docx', '-o', '-'], { stdin: Buffer.from('# Finance letterhead\n') })
+    fs.writeFileSync(path.join(h.team, 'groups/finance/letterhead.docx'), r0.stdout)
+    expect(widenOf('make_file', { format: 'docx', content: '# x', output: 'shared/t.docx', template: 'groups/finance/letterhead.docx' })).toEqual({ target: 'shared/t.docx', extra: ['groups/finance/letterhead.docx'] })
+    expect(widenOf('make_file', { format: 'docx', source: 'a.md', output: 'shared/t.docx', template: 't.docx' })!.extra).toEqual(['a.md', 't.docx'])
+    const r = await turn(bob, 'bob', fake(
+      { tool: 'make_file', args: { format: 'docx', content: '# Note\n', output: 'shared/with-template.docx', template: 'groups/finance/letterhead.docx' }, sayResult: true },
+    ), 'skip')
+    expect(r.cards).toBe(1)
+    expect(r.card!.question).toContain('부서 › finance')
+    expect(fs.existsSync(path.join(h.team, 'shared/with-template.docx'))).toBe(false)
   })
 
   test('project instructions on a finance folder count as read: saving into shared/ from that project asks', async () => {

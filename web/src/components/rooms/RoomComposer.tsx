@@ -8,7 +8,8 @@
 // for the room's members: a picked name stands out in the
 // box at once and is sent as a mention (useMentionMenu, components/TokenTextarea.tsx). "@전체" notifies everyone in the
 // room (not in a DM; in the everyone room only for owners and admins); in a room of MENTION_ALL_CONFIRM people or more the
-// send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"). In a thread (threadRootId) it
+// send asks first, in one line inside the box ("N명에게 알림이 가요. 보낼까요?"), with one quiet tick "더 이상 묻지 않기" (Don't
+// ask again: prefs.mentionAllAsk, one choice for every room and device; Settings › Notifications turns it back on). In a thread (threadRootId) it
 // writes a reply, with one quiet choice under the box: "대화방에도 보내기" (the reply goes to the room's timeline too).
 // Voice input as in the AI chat's box (lib/useVoiceInput.ts, components/VoiceBar.tsx), under the same team switch: the
 // mic right before send (the clip stays on the left), Space held in the box on a computer, a finger held on the mic; the words go into the box as
@@ -48,12 +49,12 @@ import { useVoiceInput } from '../../lib/useVoiceInput'
 import { micState, voiceBlockedInRoom } from '../../lib/voice'
 import { currentLocale, translate, useLocale, useT } from '../../i18n'
 import { myUploadMax } from '../../lib/guests'
-import { isAdmin, useMe } from '../../store/session'
+import { isAdmin, useMe, useSession } from '../../store/session'
 import { findMessage, keepRoomDraft, onRoomDraftElsewhere, placeKey, restoreRoomDraft, roomDraftMentions, roomDrafts as drafts, useRooms } from '../../store/rooms'
 import { failedEdits, hasRoomBox, registerRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { usePeople } from '../../store/people'
 import { fitHeight } from '../../lib/autoGrow'
-import { allMentionNames, lineBreaks, type PickedMention } from '../../lib/rooms'
+import { allMentionNames, lineBreaks, MENTION_ALL_CONFIRM, type PickedMention } from '../../lib/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, IconButton, useMediaQuery } from '../ui'
@@ -83,8 +84,6 @@ type Upload = RoomUpload
 // an iPhone photo (HEIC) is a picture square from the start: the room's thumbnail once it is sent (a picture icon until then)
 const picture = (u: Upload) => isLocalImage(u.file) || isHeicName(u.file.name) || (u.roomFile?.kind === 'image' && !!u.roomFile.thumb)
 
-/** From this many members (me included) a message with "@전체" asks before it goes. */
-export const MENTION_ALL_CONFIRM = 10
 
 /** the boxes on screen for each place (placeKey), each with how it reads the place's draft again */
 const boxesOf = new Map<string, Set<() => void>>()
@@ -157,6 +156,9 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // an edit keeps "@전체" or takes it out, never adds one: it notifies nobody (the server refuses it)
   const mention = useMentionMenu({ text, setText, input, members, meId, initial: roomDraftMentions.get(key), everyone: editing ? (editMsg!.mentionsAll ? { count: others } : null) : everyone })
   const [asking, setAsking] = useState(false)
+  // "Don't ask again" ticked on the question (saved with the send); the person said so before: no question at all
+  const [noAsk, setNoAsk] = useState(false)
+  const askAll = me?.user.prefs?.mentionAllAsk !== 'off'
   // voice input off (Admin > Team settings): no mic for members, a hint to the setting for admins
   const mic = micState(me)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -409,14 +411,20 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   // the question shows while the message still has "@전체" (taken out, there is nothing to ask, and a later one asks anew)
   const ask = asking && all
   useEffect(() => {
-    if (!all) setAsking(false)
+    if (!all) { setAsking(false); setNoAsk(false) }
   }, [all])
   const submit = (sure = false) => {
     if (!canSend) return
-    if (all && members.length >= MENTION_ALL_CONFIRM && !sure) {
+    if (all && askAll && members.length >= MENTION_ALL_CONFIRM && !sure) {
       setAsking(true)
       return
     }
+    // sent with "Don't ask again" ticked: from now on "@전체" goes without the question, in every room (a refusal says so
+    // and the next one asks again)
+    if (sure && noAsk) {
+      void useSession.getState().updatePrefs({ mentionAllAsk: 'off' }).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+    }
+    setNoAsk(false)
     setAsking(false)
     // "stopped" before the message, so nobody sees it arrive under "… is typing"
     typing.stop()
@@ -608,8 +616,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
             <p role="status" className="min-w-0 flex-1 text-sm text-ink">
               {t('rooms.mentionAllConfirm', { n: others })}
             </p>
-            <div className="flex shrink-0 gap-1.5">
-              <Button size="sm" variant="ghost" onClick={() => { setAsking(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
+            {/* a phone: the tick and the buttons on a line of their own under the question, the tick on the left */}
+            <div className="flex shrink-0 items-center gap-1.5 max-md:w-full">
+              <label className="mr-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-muted select-none max-md:mr-auto" data-testid="room-mention-all-no-ask">
+                <input type="checkbox" checked={noAsk} onChange={(e) => setNoAsk(e.target.checked)} className="size-4 accent-[var(--color-accent)]" />
+                {t('rooms.mentionAllNoAsk')}
+              </label>
+              <Button size="sm" variant="ghost" onClick={() => { setAsking(false); setNoAsk(false); input.current?.focus() }} data-testid="room-mention-all-cancel">
                 {t('common.cancel')}
               </Button>
               <Button size="sm" variant="primary" onClick={() => submit(true)} disabled={!canSend} data-testid="room-mention-all-send">

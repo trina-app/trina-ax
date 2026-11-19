@@ -18,7 +18,7 @@ export const APP_MAP_KEYS = [
   'skills.catalog.more', 'skills.catalog.bring', 'files.findWork.entryButton',
   // the 2026-11-17 catalog rerun: Shared with me, folder sharing, threads under an answer, the desktop app hand-off,
   // meeting notes (the Meetings folder's name is shared/folder-labels.ts MEETINGS_LABEL, not a web key)
-  'filesPanel.shared', 'folderAccess.menu', 'fileShare.stop', 'common.undo', 'rooms.replyInThread', 'chat.thread.sendToAi',
+  'filesPanel.shared', 'folderAccess.menu', 'fileShare.stop', 'common.undo', 'rooms.replyInThread',
   'openApp.lineLink', 'openApp.mac', 'openApp.download', 'meeting.entry', 'meeting.stop',
   // Admin
   'admin.members', 'members.inviteToTeam', 'members.inviteMore', 'teamLink.title', 'members.resetLinkButton', 'members.reset', 'admin.groups',

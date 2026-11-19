@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
 import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
 import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
-import { BrowserCall } from '@mycel/shared/api'
+import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
 import { isOwnUiUrl, isTrustedAppSender, UI_SCHEME } from '../common/trust'
@@ -39,11 +39,13 @@ import { scanAsk } from '../common/work-files'
 import { WORK_FILES_WIDE_VERSION } from '@mycel/shared'
 import { debug } from './debug'
 import { HostClassifier } from './pane/classify'
+import { openExternal } from './security'
 import { asSiteAccess } from '../common/site-permissions'
 import { TeamsStore } from './teams-store'
 import { DesktopUpdater } from './updater'
 import { onLaunch, takeResume } from './update-launch'
 import { SignInReturn } from '../common/sign-in-return'
+import { LocalAppsHost } from './local-apps'
 
 // the folder of the bundled main.cjs (Bun inlines __dirname at build time, so look for it at run time):
 // packaged = <app.asar>/dist, `electron .` = desktop/dist, `electron dist/main.cjs` = that file's folder
@@ -153,6 +155,8 @@ if (primary) app.on('open-url', (e, url) => {
 let win: AppWindow | undefined
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */
 const signInReturn = new SignInReturn({ current: () => win?.team?.origin })
+/** apps on this computer as connectors (main/local-apps.ts): made when the app is ready (its user data folder) */
+let localApps: LocalAppsHost | undefined
 const updater = new DesktopUpdater({
   team: () => (win?.team && win.app ? { id: win.team.id, origin: win.team.origin } : null),
   window: () => win?.win ?? null,
@@ -258,12 +262,22 @@ function registerIpc() {
   ipcMain.on('ui:pane-select', (e, id: string) => fromChrome(e) && win!.pane?.selectTab(String(id)))
   ipcMain.on('ui:pane-close-tab', (e, id: string) => fromChrome(e) && win!.pane?.closeTab(String(id)))
   ipcMain.on('ui:pane-close', (e) => fromChrome(e) && win!.pane?.hide())
+  // ↗ in the toolbar: the page on screen in the person's own browser (security.ts openExternal: http/https only)
+  ipcMain.on('ui:pane-open-external', (e) => {
+    const url = fromChrome(e) ? win!.pane?.externalUrl() : null
+    if (url) openExternal(url)
+  })
   ipcMain.on('ui:pane-stop', (e) => fromChrome(e) && win!.pane?.stop())
   ipcMain.on('ui:pane-answer', (e, a: { id?: string; decision?: string }) => {
     if (!fromChrome(e) || !a?.id) return
     win!.pane?.answer(String(a.id), a.decision === 'always' ? 'always' : a.decision === 'once' ? 'once' : 'deny')
   })
-  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => fromChrome(e) && Number.isFinite(h) && win!.pane?.setToolbarHeight(h))
+  ipcMain.on('ui:pane-toolbar-height', (e, h: number) => {
+    if (!fromChrome(e) || !Number.isFinite(h)) return
+    win!.pane?.setToolbarHeight(h)
+    // the toolbar rendered: the browser may be drawn under it (AppWindow.chromeUp)
+    win!.chromeUp()
+  })
   // the edge handle between the team page and the browser (AppWindow.paneDrag / paneKey)
   ipcMain.handle('ui:pane-width', (e) => (fromChrome(e) ? win!.paneWidth() : null))
   ipcMain.on('ui:pane-drag', (e, phase: unknown, edgeX: unknown) => {
@@ -282,7 +296,7 @@ function registerIpc() {
   // team page bridge (shared/src/desktop-bridge.ts); store: a Mac App Store or Microsoft Store build, where Settings >
   // Apps offers no installer
   ipcMain.on('bridge:info', (e) => {
-    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas } : null
+    e.returnValue = fromApp(e) ? { global: DESKTOP_BRIDGE_GLOBAL, bridgeVersion: DESKTOP_BRIDGE_VERSION, appVersion: app.getVersion(), platform: process.platform, store: storeBuild(process), workFiles: workFilesVersion({ platform: process.platform, mas: process.mas }), workFilesWide: workFilesVersion({ platform: process.platform, mas: process.mas }) ? WORK_FILES_WIDE_VERSION : 0, meeting: process.mas ? 0 : (win?.meeting.version() ?? 0), downloads: !process.mas, localApps: process.mas ? 0 : LOCAL_APPS_BRIDGE_VERSION } : null
   })
   ipcMain.handle('bridge:browser-run', async (e, raw: unknown) => {
     const call = BrowserCall.safeParse(raw)
@@ -297,12 +311,30 @@ function registerIpc() {
     return pane.run(call.data)
   })
   ipcMain.on('bridge:browser-cancel', (e, callId: string) => fromApp(e) && win!.pane?.cancel(String(callId)))
+  // apps on this computer (main/local-apps.ts): only the open team's page, for that team; the app's own dialog asks
+  // before a command runs, and the page never answers it
+  ipcMain.handle('bridge:local-run', async (e, raw: unknown): Promise<LocalResult> => {
+    const callId = typeof (raw as { callId?: unknown })?.callId === 'string' ? (raw as { callId: string }).callId.slice(0, 100) : 'invalid'
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (!team || !localApps) return { callId, ok: false, failure: 'not_desktop', error: 'no team is open in the desktop app' }
+    const call = LocalCall.safeParse(raw)
+    if (!call.success) return { callId, ok: false, failure: 'failed', error: 'malformed call' }
+    return localApps.apps.call(team, call.data)
+  })
+  ipcMain.on('bridge:local-cancel', (e, callId: unknown) => fromApp(e) && typeof callId === 'string' && localApps?.apps.cancel(callId.slice(0, 100)))
+  ipcMain.on('bridge:local-stop', (e, id: unknown) => {
+    const team = fromApp(e) ? win?.team?.id : undefined
+    if (team && typeof id === 'string') localApps?.apps.stop(team, id.slice(0, 100))
+  })
+  ipcMain.handle('bridge:local-running', (e) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.apps.runningIds(team) : [] })
+  ipcMain.handle('bridge:local-settings', (e, id: unknown, values: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.setSettings(team, id, values) : 'unavailable' })
+  ipcMain.handle('bridge:local-setting-names', (e, id: unknown) => { const team = fromApp(e) ? win?.team?.id : undefined; return team && localApps ? localApps.settingNames(team, id) : [] })
   ipcMain.on('bridge:pane', (e, what: string) => {
     if (!fromApp(e) || !win?.pane) return
     // the team page's Browser entry: the person's own (common/keyboard-focus.ts keyboardTaken)
     if (what === 'open' || what === 'close' || what === 'toggle') win.paneByPerson(what)
   })
-  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? (win!.pane?.state() ?? null) : null))
+  ipcMain.handle('bridge:pane-state', (e) => (fromApp(e) ? win!.paneStateForPage() : null))
   ipcMain.handle('bridge:connection', (e) => (fromApp(e) ? win!.connection() : null))
   ipcMain.on('bridge:notify', (e, n: { title?: string; body?: string; tag?: unknown; open?: unknown; read?: unknown }) => fromApp(e) && win!.notify({ title: String(n?.title ?? ''), body: String(n?.body ?? ''), tag: n?.tag, open: n?.open, read: n?.read }))
   // Settings › Notifications' "Test notification": shown while focused too, with the app's own words (the page gives
@@ -474,6 +506,14 @@ function buildMenu() {
 
 async function createWindow() {
   store = new TeamsStore(app.getPath('userData'))
+  localApps ??= new LocalAppsHost({
+    userData: app.getPath('userData'),
+    parent: () => (win && !win.win.isDestroyed() ? win.win : null),
+    locale,
+    teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
+    // Settings shows whether the program runs now: told to the open team's page
+    onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+  })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))
   win = new AppWindow({
@@ -547,9 +587,12 @@ if (primary) {
     if (!win) void createWindow()
   })
   // write cookies of the open team (page and browser) to disk before quitting (lastTeam, flushed: above)
-  app.on('before-quit', () => debug('before-quit'))
+  app.on('before-quit', () => { debug('before-quit'); localApps?.apps.stopAll() })
   app.on('will-quit', (e) => {
     debug('will-quit', flushed)
+    // every program an app on this computer started ends with the app: asked to stop first (before-quit, and here),
+    // killed on the last pass, after which no timer of the app runs to finish one that ignored it
+    localApps?.apps.stopAll(undefined, flushed)
     if (flushed) return
     e.preventDefault()
     const id = win?.team?.id ?? lastTeam

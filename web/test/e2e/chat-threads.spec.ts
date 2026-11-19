@@ -2,10 +2,8 @@
 // server.ts "threads on AI answers": a chat counts as shared once POST /__test/people-chat marked it). A finished answer
 // of a shared chat has "Reply in thread"; a private chat's answer has none. The thread opens beside the chat at 1440 (its
 // own address, /c/:chatId/t/:messageId) and over it at 390 with ‹ back; Esc and ✕ close it, the browser's back too. A
-// reply shows at once and under the answer as "1 reply"; another person's window sees it come without a reload. "Send to
-// Trina" puts the thread in the chat's box as a quote (every line "> "), below what was typed there, and sends nothing;
-// on a phone it goes back to the chat. Delete asks first and removes the reply for everyone. A thread with no replies has
-// no Send to Trina. axe on the panel.
+// reply shows at once and under the answer as "1 reply"; another person's window sees it come without a reload. Delete
+// asks first and removes the reply for everyone. There is no "Send to Trina" row under the box. axe on the panel.
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER, uuidv7 } from '@mycel/shared/api'
@@ -49,8 +47,6 @@ test('1440: Reply in thread opens the thread beside the chat; a reply shows unde
   await expect(page.getByTestId('chat-drop')).toBeVisible()
   await expect(panel.getByTestId('chat-thread-count')).toBeVisible()
   await expect(panel.getByTestId('chat-thread-people-only')).toBeVisible()
-  // no replies yet: no Send to Trina
-  await expect(panel.getByTestId('chat-thread-send-to-ai')).toHaveCount(0)
   await expect(panel.getByTestId('chat-thread-input')).toBeFocused()
   await audit(page, 'thread, empty')
   await panel.getByTestId('chat-thread-input').fill('Use the corporate seal.')
@@ -58,7 +54,7 @@ test('1440: Reply in thread opens the thread beside the chat; a reply shows unde
   await expect(panel.getByTestId('chat-thread-reply')).toHaveCount(1)
   await expect(panel.getByTestId('chat-thread-reply-text')).toHaveText('Use the corporate seal.')
   await expect(answer.getByTestId('chat-thread-line')).toBeVisible()
-  await expect(panel.getByTestId('chat-thread-send-to-ai')).toBeVisible()
+  await expect(panel.getByTestId('chat-thread-send-to-ai')).toHaveCount(0)
   await audit(page, 'thread, one reply')
   // Esc: back to the chat, one step back (the chat opened it)
   await page.keyboard.press('Escape')
@@ -81,32 +77,6 @@ test('a private chat\'s answer has no Reply in thread, and its thread address is
   await expect(answer.getByTestId('copy-button').or(answer.getByTestId('answer-actions')).first()).toBeVisible()
   await expect(answer.getByTestId('reply-in-thread')).toHaveCount(0)
   expect((await page.request.get(`/api/chats/${chatId}/messages/${answerId}/thread`)).status()).toBe(404)
-})
-
-test('Send to Trina: the thread goes into the chat\'s box as a quote, below what was typed, and nothing is sent', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await signIn(page)
-  const { chatId, answerId } = await chatWithAnswer(page, true)
-  for (const text of ['Corporate seal, or the CEO line?', 'Seal. Legal said so last time.'])
-    expect((await page.request.post(`/api/chats/${chatId}/messages/${answerId}/thread`, { headers: H, data: { text, clientId: `cid-${uuidv7()}` } })).status()).toBe(201)
-  const before = ((await (await page.request.get(`/api/chats/${chatId}/messages`)).json()) as { items: unknown[] }).items.length
-  await page.goto(`/c/${chatId}`)
-  await page.getByTestId('composer-input').fill('My own note first.')
-  await page.goto(`/c/${chatId}/t/${answerId}`)
-  const panel = page.getByTestId('chat-thread')
-  await expect(panel.getByTestId('chat-thread-reply')).toHaveCount(2)
-  await panel.getByTestId('chat-thread-send-to-ai').click()
-  const box = page.getByTestId('composer-input')
-  await expect(box).toHaveValue(/^My own note first\.\n\n> /)
-  const value = await box.inputValue()
-  const quote = value.slice('My own note first.\n\n'.length).trimEnd().split('\n')
-  expect(quote.every((l) => l.startsWith('>'))).toBe(true)
-  expect(quote.some((l) => l.includes('Corporate seal, or the CEO line?'))).toBe(true)
-  expect(quote.some((l) => l.includes('Seal. Legal said so last time.'))).toBe(true)
-  // the answer's own text is not quoted
-  expect(value).not.toContain('Which seal goes on the quote?')
-  // nothing was sent
-  expect(((await (await page.request.get(`/api/chats/${chatId}/messages`)).json()) as { items: unknown[] }).items.length).toBe(before)
 })
 
 test('delete asks first and removes the reply; another window of the chat sees replies come and go without a reload', async ({ page, browser }) => {
@@ -136,7 +106,7 @@ test('delete asks first and removes the reply; another window of the chat sees r
   await other.close()
 })
 
-test('390: the thread is the whole screen with ‹ back; Send to Trina goes back to the chat with the quote in the box', async ({ page }) => {
+test('390: the thread is the whole screen with ‹ back, which goes to the chat', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await signIn(page)
   const { chatId, answerId } = await chatWithAnswer(page, true)
@@ -154,9 +124,6 @@ test('390: the thread is the whole screen with ‹ back; Send to Trina goes back
   // nothing wider than the screen
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   await audit(page, 'thread, phone')
-  await panel.getByTestId('chat-thread-send-to-ai').click()
-  await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
-  await expect(page.getByTestId('composer-input')).toHaveValue(/> .*Seal, please\./s)
   // ‹ from a thread opened by its address goes to the chat
   await page.goto(`/c/${chatId}/t/${answerId}`)
   await page.getByTestId('chat-thread-back').click()
@@ -231,5 +198,43 @@ for (const vp of [{ name: '1440', size: { width: 1440, height: 900 } }, { name: 
       await expect(line).toHaveCount(0)
       await page.unrouteAll({ behavior: 'ignoreErrors' })
     }
+  })
+}
+
+// @mentions (docs/decisions/20261118-chat-thread-mentions.md): "@" in the thread's box lists the people who see the
+// thread (the page's people, never me), Enter picks, the reply shows the name in the mention look and goes with the id
+for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`${size.width}: "@" in the thread's box lists the chat's people; the reply shows the mention`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await signIn(page)
+    const { chatId, answerId } = await chatWithAnswer(page, true)
+    await page.goto(`/c/${chatId}/t/${answerId}`)
+    const panel = page.getByTestId('chat-thread')
+    const box = panel.getByTestId('chat-thread-input')
+    await expect(box).toBeVisible()
+    const thread = (await (await page.request.get(`/api/chats/${chatId}/messages/${answerId}/thread`)).json()) as { people: { id: string; name: string }[] }
+    expect(thread.people.length).toBeGreaterThan(0)
+    const first = thread.people[0]!
+    await box.click()
+    await page.keyboard.type('@')
+    const menu = panel.getByTestId('mention-menu')
+    await expect(menu).toBeVisible()
+    await expect(menu.getByTestId('mention-option')).toHaveCount(Math.min(8, thread.people.length))
+    // never "@everyone" in a thread
+    await expect(menu.locator('[data-all]')).toHaveCount(0)
+    await page.keyboard.type(first.name.slice(0, 2))
+    await expect(menu.getByTestId('mention-option').first()).toContainText(first.name)
+    await page.keyboard.press('Enter')
+    await expect(box).toHaveValue(`@${first.name} `)
+    await expect(menu).toHaveCount(0)
+    await page.keyboard.type('can you check the seal?')
+    const sent = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith(`/messages/${answerId}/thread`))
+    await panel.getByTestId('chat-thread-send').click()
+    expect((await sent).postDataJSON()).toMatchObject({ text: `@${first.name} can you check the seal?`, mentions: [first.id] })
+    const text = panel.getByTestId('chat-thread-reply-text')
+    await expect(text).toHaveText(`@${first.name} can you check the seal?`)
+    await expect(text.locator('.text-accent-text').first()).toHaveText(`@${first.name}`)
+    // (not with the list open: the rooms' shared "@" list has a button inside each option, axe's nested-interactive)
+    await audit(page, `thread, a reply with a mention ${size.width}`)
   })
 }

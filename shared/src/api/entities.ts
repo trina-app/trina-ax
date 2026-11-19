@@ -41,8 +41,14 @@ export const UserPrefs = z.object({
   /** the office owner's one-time notice on Admin › Home that the server removed Claude Code connections from this Mac
    * (server/src/office/claude-mcp-notice.ts) was closed: it never shows again */
   officeMcpNotice: z.literal('seen').optional().catch(undefined),
+  /** an owner's or admin's one-time notice that the dev environment exists and is off for their team (a team from before
+   * 2026-11-06, docs/decisions/20261118-run-code-skills-subagents.md) was closed or followed: it never shows again */
+  devEnvOffer: z.literal('seen').optional().catch(undefined),
   /** my lists' folds (ListFolds); a stored value that does not read reads as absent, never hiding the other preferences */
   listFolds: ListFolds.optional().catch(undefined),
+  /** 'off': a room message with "@전체" goes without the question first ("Don't ask again" on that question; Settings ›
+   * Notifications › "Ask before notifying everyone" turns it back on). One choice for every room; absent = ask. */
+  mentionAllAsk: z.literal('off').optional().catch(undefined),
 })
 export type UserPrefs = z.infer<typeof UserPrefs>
 
@@ -318,6 +324,9 @@ export const Chat = z.object({
     /** someone else's question is being answered now (their name; `waiting`: the AI waits for their yes on a card);
      * null when nobody's is, or when it is mine */
     answering: z.object({ name: z.string(), waiting: z.literal(true).optional() }).nullable(),
+    /** how many other people have messages waiting there to be sent when the answer ends (PUT /api/chats/:id/waiting): a
+     * number, never who or what. Absent: none (or an older server). */
+    waiting: z.number().int().positive().optional(),
     /** I made it or wrote in it: it is in my chat list */
     mine: z.boolean(),
     /** I may delete it (its creator or an editor of its project) */
@@ -373,8 +382,12 @@ export const Attachment = z.object({
   receivedSize: z.number().int().nonnegative().optional(),
 })
 export type Attachment = z.infer<typeof Attachment>
-/** At most this many attachments (uploads and team files together) per message. */
-export const MESSAGE_ATTACHMENTS_MAX = 20
+/** At most this many attachments (uploads and team files together) per message: 100, what one model request may hold
+ * in pictures (a person attaches 60 photos and asks about all of them, docs/decisions/20261118-limits-images.md). */
+export const MESSAGE_ATTACHMENTS_MAX = 100
+/** At most this many characters of text per AI chat message (send and edit; both message boxes, the full chat's and
+ * the side chat's, say so before sending, and a longer paste goes in as a text file: web/src/lib/longPaste.ts). */
+export const MESSAGE_TEXT_MAX = 200_000
 
 /** A next step under an AI step (Step.fixes): a line the server wrote, and one button that runs
  * POST /api/share-fixes/:id/run as the person. Names are people's display names as the server read them.
@@ -532,7 +545,7 @@ export type MessageSources = z.infer<typeof MessageSources>
 export const MessageStatus = z.enum(['streaming', 'done', 'error', 'stopped'])
 export type MessageStatus = z.infer<typeof MessageStatus>
 /** Why a finished answer ended before the AI was done: it reached the per-answer limit of tool calls (`tool_limit`,
- * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 150 / the API engine's 30 rounds), or, for
+ * Claude Code --max-turns, Admin > Team settings `answerStepLimit`, default 500, the API engine's rounds too), or, for
  * answers from before 2026-11-14, the old limit of working time (`time_limit`, 20 active minutes or 45 in total; one
  * answer has no time limit since then, docs/DECISIONS.md "No time limit on one answer"). Its status stays 'done': not
  * an error, not a stop by the person; the screen offers "continue". */
@@ -564,6 +577,9 @@ export const ChatThreadReply = z.object({
   author: UserRef.nullable(),
   /** plain text; links are made clickable by the app, nothing else is formatted */
   content: z.string(),
+  /** the people it mentions by "@name" (ids; docs/decisions/20261118-chat-thread-mentions.md): only people who saw the
+   * thread when it was sent. Older servers omit it */
+  mentions: z.array(UserId).optional(),
   createdAt: IsoTime,
   /** I may delete it: my own, or I may moderate the chat (its creator; a project editor for a project chat) */
   canDelete: z.boolean(),
@@ -594,6 +610,9 @@ export const Message = z.object({
   /** answers only: the AI got only the recent part of this conversation (the history a fresh engine session gets is
    * cut at 40,000 characters, and a session resumed from such a start keeps that); absent: all of it */
   historyTrimmed: z.boolean().optional(),
+  /** answers only, with historyTrimmed: the cut came from the team's AI model, whose context holds only a short
+   * conversation (server/src/chat/history-fit.ts), not from a long chat */
+  historySmallModel: z.literal(true).optional(),
   /** finished answers only: how many team files the AI read or saw passages of while writing it ("참고한 파일 N개");
    * the list itself, checked against the viewer's access, comes from GET .../messages/:messageId/sources. Absent: none */
   sourceCount: z.number().int().positive().optional(),
@@ -853,34 +872,47 @@ export type AuditEntry = z.infer<typeof AuditEntry>
 export const SpeechProvider = z.enum(['off', 'openrouter', 'local'])
 export type SpeechProvider = z.infer<typeof SpeechProvider>
 export const DEFAULT_SPEECH_MODEL = 'openai/whisper-large-v3-turbo'
-/** A server with this many CPU cores or fewer turns sound into text itself only slowly: on a 2 vCPU box whisper.cpp
- * small took 1.5-1.9 s for each second of speech outside the app (2 and 1 threads) and over 2.5 s inside a read (QA
- * 2026-11-01), so a read gets one to two minutes of a recording. */
-export const SMALL_SERVER_CORES = 2
-/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen: on when the speech
- * provider is this server (the sound stays here) and it has more than SMALL_SERVER_CORES cores, off on a smaller one
- * (too slow; frames still go), off for OpenRouter with the team's own key (team files' sound would go to a third party
- * the team did not pick for it) and on for OpenRouter with the hosting service's key (`hostedKey`: the hosted plan's
- * speech-to-text, zero data retention, the plan's free hours a month; docs/DECISIONS.md "Hosted speech-to-text"). `cpuCores`:
- * the server's (system/limits.ts cpuBudget; GET /api/admin/speech-host for the settings page). An admin's choice
- * always wins. The one place this default lives (docs/DECISIONS.md "AI reads video and audio"). */
-export const mediaTranscriptsDefault = (provider: SpeechProvider, cpuCores: number, hostedKey = false): boolean =>
-  provider === 'local' ? cpuCores > SMALL_SERVER_CORES : provider === 'openrouter' && hostedKey
-/** whether the default is off only because this server is small (the read and the settings switch say so) */
-export const mediaTranscriptsOffSmall = (provider: SpeechProvider, cpuCores: number): boolean => provider === 'local' && !mediaTranscriptsDefault(provider, cpuCores)
-/** whether AI reads of video and audio files transcribe their sound: never with voice input off. `hostedKey`: OpenRouter
- * goes with the hosting service's key (mediaTranscriptsDefault) */
-export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, cpuCores: number, hostedKey = false): boolean =>
-  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, cpuCores, hostedKey))
+/** The least a server needs to turn sound into text itself by default (whisper.cpp next to the AI, voice input and
+ * other reads): 4 CPU cores and 8 GB of memory (the owner, 2026-11-19). A 2 vCPU box took 1.5-1.9 s for each second
+ * of speech (QA 2026-11-01). The memory floor is a little under 8 GiB: an "8 GB" machine reports less. */
+export const LOCAL_SPEECH_MIN_CORES = 4
+export const LOCAL_SPEECH_MIN_MEMORY = 7.5 * 1024 ** 3
+/** whether a server with `cpuCores` and `memoryBytes` is big enough for local speech-to-text by default */
+export const localSpeechBigEnough = (cpuCores: number, memoryBytes: number): boolean =>
+  cpuCores >= LOCAL_SPEECH_MIN_CORES && memoryBytes >= LOCAL_SPEECH_MIN_MEMORY
+/** Where the server runs, for the default of "Turn video sound into text": `hosted` (the hosting service's server, a
+ * plan), `hostedKey` (OpenRouter goes with the hosting service's speech key: the plan's hours), `mac` (an Apple silicon
+ * Mac that runs whisper.cpp on its GPU), `bigEnough` (localSpeechBigEnough). */
+export interface MediaTranscriptsHost { hosted: boolean; hostedKey: boolean; mac: boolean; bigEnough: boolean }
+/** "Turn video sound into text" (TeamSettings.aiMediaTranscripts) when the admin has not chosen (the owner and the
+ * coordinator, 2026-11-19; docs/decisions/20261119-speech-defaults-no-cap.md): for "this server" (the sound stays
+ * here) on when hosted, on a Mac or on a server with at least 4 CPU cores and 8 GB (a self-installed Linux server, the
+ * Docker image), off on a smaller one (too slow; frames still go); for OpenRouter on only with the hosting service's key
+ * (the plan's hours), off with the team's own key anywhere, hosted too (team files' sound would go to a third party at
+ * the team's cost without anyone picking that). An admin's choice always wins. The one place this default lives. */
+export const mediaTranscriptsDefault = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider === 'local' ? host.hosted || host.mac || host.bigEnough : provider === 'openrouter' && host.hostedKey
+/** whether the default is off only because this server is too small for local speech (the read and the settings switch say so) */
+export const mediaTranscriptsOffSmall = (provider: SpeechProvider, host: MediaTranscriptsHost): boolean =>
+  provider === 'local' && !mediaTranscriptsDefault(provider, host)
+/** whether AI reads of video and audio files transcribe their sound: never with voice input off */
+export const mediaTranscriptsOn = (s: { speechProvider: SpeechProvider; aiMediaTranscripts: boolean | null }, host: MediaTranscriptsHost): boolean =>
+  s.speechProvider !== 'off' && (s.aiMediaTranscripts ?? mediaTranscriptsDefault(s.speechProvider, host))
 /** an OpenRouter model id: "<vendor>/<model>" */
 export const SpeechModel = z.string().max(128).regex(/^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/)
 
 /** Tool rounds one answer may take (Claude Code `--max-turns`; Admin > Team settings `answerStepLimit`). A round is one
  * reply of the AI: tools it calls together in one reply count once. Claude Code itself has no such cap; with
  * the budgets it is what ends a long answer (one answer has no time limit). docs/DECISIONS.md "Tool rounds per answer". */
-export const DEFAULT_ANSWER_STEP_LIMIT = 150
+export const DEFAULT_ANSWER_STEP_LIMIT = 500
+/** a guest's answers take at most this many rounds, whatever the team setting (the default before 2026-11-18;
+ * docs/decisions/20261118-limits-caps.md) */
+export const GUEST_ANSWER_STEP_LIMIT = 150
+/** an answer nobody watches (a scheduled run, a run asked from Slack) takes at most this many rounds: nobody can stop a
+ * long run there (docs/decisions/20261118-limits-caps.md) */
+export const UNATTENDED_ANSWER_STEP_LIMIT = 150
 export const ANSWER_STEP_LIMIT_MIN = 10
-export const ANSWER_STEP_LIMIT_MAX = 500
+export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
@@ -912,6 +944,11 @@ export const TeamSettings = z.object({
   /** members may add their own external-service connections (Settings > External services; default on). Off: none can
    * be added and the ones there are left out of chats (team connections are not affected). */
   personalIntegrations: z.boolean(),
+  /** "Apps on your computer" (default on; docs/decisions/20261118-local-app-connectors.md): members may connect a
+   * program on their own computer (Aside, ego lite ...) that the desktop app runs for the AI. Off: none can be added
+   * and the ones there are left out of chats. Needs personalIntegrations too (they are personal connections). Older
+   * servers omit it. */
+  localApps: z.boolean().optional(),
   /** "Send images, PDF pages and video frames to the AI" (default on): an AI read of a photo, screenshot, scanned PDF
    * page or video gives the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads
    * the text with Apple Vision instead, a Linux server says the image is not shown. */
@@ -951,8 +988,8 @@ export const TeamSettings = z.object({
   /** the OpenRouter speech-to-text model */
   speechModel: SpeechModel,
   /** "Turn video sound into text": AI reads of video and audio files transcribe the sound with the speech provider.
-   * null = not chosen: mediaTranscriptsDefault (on for this server unless it is small, off for OpenRouter with the
-   * team's key, on with the hosting service's key). A change of speechProvider
+   * null = not chosen: mediaTranscriptsDefault (OpenRouter: on only with the hosting key; this server: on when hosted,
+   * on a Mac or with 4 cores and 8 GB, off otherwise). A change of speechProvider
    * puts it back to null, so a choice made for one provider never sends sound to another. */
   aiMediaTranscripts: z.boolean().nullable(),
   /** how long the company intro deck may take (docs/DECISIONS.md "D2", round 2; server/src/intro-deck/tiers.ts):

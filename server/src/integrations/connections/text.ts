@@ -13,6 +13,12 @@ export const TEXT = {
   confirm: t('AI가 {name}에 이 내용을 보내려고 해요: {what}', 'The AI wants to send this to {name}: {what}', 'AI ingin mengirim ini ke {name}: {what}', "AIが{name}に次の内容を送ろうとしています：{what}", "La IA quiere enviar esto a {name}: {what}", "AI 想把这个发送到{name}：{what}"),
   // an HTTP API call: {what} is what its method does (methodDELETE …), so the sentence names a request, not "this"
   confirmRequest: t('AI가 {name}에 이 요청을 보내려고 해요: {what}', 'The AI wants to send this request to {name}: {what}', 'AI ingin mengirim permintaan ini ke {name}: {what}', "AIが{name}に次のリクエストを送ろうとしています：{what}", "La IA quiere enviar esta solicitud a {name}: {what}", "AI 想向{name}发送这个请求：{what}"),
+  // a shared chat: a tool the service marks read-only whose name Trina cannot read as a look-up (read-mark.ts 'unsure',
+  // QA TC-4900): {what} is the tool's title
+  unsureConfirm: t('AI가 {name}에서 이 작업을 하려고 해요: {what}. {name} 쪽에서는 읽기만 한다고 하지만, 트리나는 이름만으로는 확인할 수 없어요. 보낼 내용을 아래에서 확인해 주세요.', 'The AI wants to use this at {name}: {what}. {name} says it only reads, but Trina can’t tell from its name. Check what it sends below.', 'AI ingin memakai ini di {name}: {what}. {name} bilang ini hanya membaca, tetapi Trina tidak bisa memastikannya dari namanya. Periksa yang dikirim di bawah.', "AIが{name}でこれを使おうとしています：{what}。{name}は読み取るだけだとしていますが、トリナには名前から確かめられません。送る内容を下で確認してください。", "La IA quiere usar esto en {name}: {what}. {name} dice que solo lee, pero Trina no puede comprobarlo por su nombre. Revise abajo lo que envía.", "AI 想在{name}使用：{what}。{name}说它只读取，但 Trina 无法从名称确认。请在下方查看要发送的内容。"),
+  unsureOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "允许一次"),
+  unsureAlways: t('이 대화에서 항상', 'Always in this chat', 'Selalu di obrolan ini', "この会話では常に", "Siempre en este chat", "在此对话中始终允许"),
+  unsureNo: t('실행하지 않기', 'Don’t run', 'Jangan jalankan', "実行しない", "No ejecutar", "不运行"),
   nothing: t('(보낼 내용 없음)', '(nothing)', '(tidak ada)', "（なし）", "(nada)", "（无）"),
   // a value on the card's lines (card-lines.ts): an empty text, yes / no, nothing
   valueEmpty: t('(비어 있음)', '(empty)', '(kosong)', "（空）", "(vacío)", "（空）"),
@@ -176,6 +182,13 @@ export const TEXT = {
   // the registration answered 429 (oauth.ts register): too many apps registered there just now
   oauth_busy: t('서비스가 지금 너무 바빠요. 몇 분 뒤에 다시 연결해 주세요.', 'The service is too busy right now. Try connecting again in a few minutes.', 'Layanan sedang terlalu sibuk. Coba hubungkan lagi beberapa menit lagi.', "サービスが現在混み合っています。数分後にもう一度接続してください。", "El servicio está demasiado ocupado ahora. Vuelva a conectarlo en unos minutos.", "服务现在太忙了。请过几分钟再连接。"),
   oauth_failed: t('로그인을 마치지 못했어요. 다시 시도해 주세요.', 'Signing in did not finish. Try again.', 'Login tidak selesai. Coba lagi.', "ログインを完了できませんでした。再試行してください。", "No se completó el inicio de sesión. Vuelva a intentarlo.", "登录没有完成。请重试。"),
+  // an app on the person's computer (local.ts): the reasons its check stored, and the refusals of its API
+  local_offline: t('이 연결은 추가한 컴퓨터의 데스크톱 앱에서만 쓸 수 있어요. 그 컴퓨터에서 열어 확인해 주세요.', 'This works only from the desktop app on the computer where you added it. Open it there to check it.', 'Ini hanya berfungsi dari aplikasi desktop di komputer tempat Anda menambahkannya. Buka di sana untuk memeriksanya.', "これは、追加したパソコンのデスクトップアプリからのみ使えます。そのパソコンで開いて確認してください。", "Solo funciona desde la aplicación de escritorio en el ordenador donde la añadió. Ábrala allí para comprobarla.", "只能在添加它的那台电脑上的桌面应用中使用。请在那台电脑上打开并检查。"),
+  local_declined: t('이 컴퓨터에서 연결하지 않았어요(취소를 눌렀어요). 다시 확인을 누르면 다시 물어봐요.', 'It is not connected on this computer: Cancel was chosen. Press Check again to be asked again.', 'Belum terhubung di komputer ini: Batal dipilih. Tekan Periksa lagi agar ditanya lagi.', "このパソコンでは接続されていません（キャンセルが選ばれました）。「もう一度確認」を押すと、もう一度確認します。", "No está conectada en este ordenador: se eligió Cancelar. Pulse Comprobar de nuevo para que se lo vuelva a preguntar.", "在这台电脑上没有连接：选择了取消。按“重新检查”会再次询问。"),
+  local_failed: t('이 컴퓨터에서 프로그램을 시작하지 못했어요. 명령을 확인한 뒤 다시 확인을 눌러 주세요.', 'The program could not start on this computer. Check the command, then press Check again.', 'Program tidak dapat dimulai di komputer ini. Periksa perintahnya, lalu tekan Periksa lagi.', "このパソコンでプログラムを起動できませんでした。コマンドを確認してから「もう一度確認」を押してください。", "El programa no pudo iniciarse en este ordenador. Revise el comando y pulse Comprobar de nuevo.", "程序无法在这台电脑上启动。请检查命令，然后按“重新检查”。"),
+  localOff: t('팀에서 내 컴퓨터의 앱 연결을 꺼 두었어요. 관리자에게 알려 주세요.', 'Your team turned off apps on your computer. Tell your admin.', 'Tim Anda menonaktifkan aplikasi di komputer Anda. Beri tahu admin Anda.', "チームで「パソコンのアプリ」がオフになっています。管理者に知らせてください。", "Su equipo desactivó las aplicaciones de su ordenador. Avise a su administrador.", "你的团队关闭了“电脑上的应用”。请告诉管理员。"),
+  localFixed: t('내 컴퓨터의 앱에는 바꿀 주소, 키, 로그인이 없어요.', 'An app on your computer has no address, key or sign-in to change.', 'Aplikasi di komputer Anda tidak punya alamat, kunci, atau login untuk diubah.', "パソコンのアプリには、変更できるアドレス、キー、ログインがありません。", "Una aplicación de su ordenador no tiene dirección, clave ni inicio de sesión que cambiar.", "电脑上的应用没有可以更改的地址、密钥或登录。"),
+  localHidden: t('보이지 않는 문자가 들어 있어요. 다시 입력해 주세요.', 'It has characters that cannot be seen. Type it again.', 'Ada karakter yang tidak terlihat. Ketik ulang.', "見えない文字が含まれています。もう一度入力してください。", "Contiene caracteres que no se ven. Escríbalo de nuevo.", "其中有看不见的字符。请重新输入。"),
   // the same reasons for someone who cannot fix them (reasonText): a member on a team connection, or on a connection made
   // from a team template for its address (QA TC-235). No admin is named (members never see who the admins are)
   addressMember: t('서비스에 연결하지 못했어요. 관리자에게 알려 주세요.', 'Could not reach the service. Tell your admin.', 'Tidak dapat menghubungi layanan. Beri tahu admin Anda.', "サービスに接続できませんでした。管理者に知らせてください。", "No se pudo conectar con el servicio. Avise a su administrador.", "无法连接到服务。请告诉你的管理员。"),
@@ -213,7 +226,7 @@ export const FIELD_WORDS: Record<string, T> = {
 }
 /** a reason a connection check failed (integrations.last_error holds "<reason>" or "<reason>:<status>") */
 export type Reason = 'unreachable' | 'timeout' | 'list_timeout' | 'call_idle' | 'call_timeout' | 'private_address' | 'blocked_port' | 'tls' | 'refused' | 'no_secret' | 'sign_in' | 'redirect'
-  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe'
+  | 'http_status' | 'not_mcp' | 'too_large' | 'oauth_unsupported' | 'oauth_no_registration' | 'oauth_no_registration_member' | 'oauth_approved_apps_only' | 'oauth_desktop_only' | 'oauth_busy' | 'oauth_failed' | 'key_unsafe' | 'local_offline' | 'local_declined' | 'local_failed'
 
 /** a placeholder and a Korean particle mark right after it ("{name}은(는)"), as the web app's i18n format reads them */
 const PARTICLE_AFTER = new RegExp(`\\{(\\w+)\\}(${KO_PARTICLE_PATTERN})?`, 'g')

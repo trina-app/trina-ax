@@ -402,7 +402,7 @@ describe('what counts as outside', () => {
 })
 
 describe('the tools that refuse after a room read', () => {
-  test('no cover reaches a skill folder; delete_files still refuses; a path an AI put in the trash is no new file', async () => {
+  test('no cover reaches a skill folder; delete_files asks on its own card; a path an AI put in the trash is no new file', async () => {
     const roomId = await teamRoom()
     const dir = folder()
     const tag = uuidv7().slice(-6)
@@ -416,11 +416,12 @@ describe('the tools that refuse after a room read', () => {
     const chat = await sideChat('alice', roomId)
     let n = 0
     const r = await run('alice', chat, fake(roomRead(roomId), write(`${dir}/a.md`), write(`${dir}/b.md`), write(`groups/marketing/skills/planted-${tag}/SKILL.md`, '---\nname: planted\ndescription: x\n---\nx\n'), write(gone, 'planted\n'), { tool: 'delete_files', args: { paths: [`${dir}/a.md`] } }, { say: 'done' }), () => (n++ === 0 ? 'allow' : 'skip'))
-    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : 'other')).toEqual(['team', 'skill', 'trashed'])
+    expect(r.cards.map((c) => c.question.includes(`${W(dir)}: a.md`) ? 'team' : c.question.includes('skills/planted') ? 'skill' : c.question.includes(gone) ? 'trashed' : c.question.includes('to the trash') ? 'delete' : 'other')).toEqual(['team', 'skill', 'trashed', 'delete'])
     expect(read(`${dir}/b.md`)).toBe('made by the AI\n')
     expect(exists(`groups/marketing/skills/planted-${tag}`)).toBe(false)
     expect(exists(gone)).toBe(false)
-    // delete_files refuses after a room read, before any card, and nothing goes
+    // delete_files after a room read: its own card every time (limits audit N20), the room line first; a no keeps it
+    expect(r.cards.at(-1)!.question.startsWith("Messages from your conversations (other people's words) came in here")).toBe(true)
     const del = (h.ctx.db.query("SELECT ok, summary FROM tool_events WHERE turn_id = ? AND tool = 'delete_files'").get(r.turnId) as { ok: number; summary: string })
     expect(del.ok).toBe(0)
     expect(exists(`${dir}/a.md`)).toBe(true)

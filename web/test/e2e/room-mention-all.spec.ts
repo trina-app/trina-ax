@@ -77,6 +77,43 @@ test('10 people or more: one line in the box asks first; 취소 keeps the text, 
   await expect(ask).toHaveCount(0)
 })
 
+test('"더 이상 묻지 않기" (QA TC-4864): ticked and sent, the next "@전체" goes at once; Settings › Notifications asks again', async ({ page }) => {
+  const room = await openRoom(page, { members: many })
+  const box = page.getByTestId('room-input')
+  const pickAll = async () => {
+    await box.click()
+    await page.keyboard.type('@전체')
+    await expect(rows(page).first()).toHaveAttribute('data-all', '')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('공지')
+    await page.keyboard.press('Enter')
+  }
+  await pickAll()
+  const ask = page.getByTestId('room-mention-all-confirm')
+  await expect(ask.getByTestId('room-mention-all-no-ask')).toHaveText('더 이상 묻지 않기')
+  await ask.getByRole('checkbox', { name: '더 이상 묻지 않기' }).check()
+  const saved = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH')
+  await page.getByTestId('room-mention-all-send').click()
+  expect((await saved).ok()).toBe(true)
+  await expect.poll(() => room.sent.length).toBe(1)
+  await pickAll()
+  await expect.poll(() => room.sent.length).toBe(2)
+  await expect(ask).toHaveCount(0)
+  // the choice is on the account: Settings shows the switch off; turned on, the room asks again
+  await page.goto('/settings/notifications')
+  const sw = page.getByTestId('notification-ask-everyone')
+  await expect(sw).not.toBeChecked()
+  const back = page.waitForResponse((r) => r.url().endsWith('/api/me') && r.request().method() === 'PATCH')
+  // the switch's own track (its input is visually hidden)
+  await sw.locator('xpath=..').click()
+  expect((await back).ok()).toBe(true)
+  await expect(sw).toBeChecked()
+  await page.goto(`/rooms/${ROOM_ID}`)
+  await pickAll()
+  await expect(ask).toContainText('11명에게 알림이 가요. 보낼까요?')
+  expect(room.sent).toHaveLength(2)
+})
+
 test('the everyone room: the owner gets the row, a member does not', async ({ page }) => {
   await openRoom(page, { members: few, kind: 'all' })
   await page.getByTestId('room-input').click()

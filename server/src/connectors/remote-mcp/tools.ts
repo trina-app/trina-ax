@@ -117,9 +117,10 @@ export class RemoteTools {
       const policy = this.policy(user.id)
       if (name === 'skills_list') {
         if (args !== undefined && (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length)) return result('Invalid input.', true)
-        // and the team rules the in-app AI follows (chat/prompt.ts teamRuleFiles: the first ten the person may read),
+        // and the team rules the in-app AI follows (chat/prompt.ts teamRuleFiles: the first SKILL_FILES_MAX the person may read),
         // marked rule: true; the client reads them with read, so they join the read scope as any read does
-        const skills = [...listSkills(this.ctx.files, user).map(skillInfo), ...teamRuleFiles(this.ctx.files, user).paths.map(ruleInfo)]
+        const rules = teamRuleFiles(this.ctx.files, user)
+        const skills = [...listSkills(this.ctx.files, user).map(skillInfo), ...[...rules.paths, ...rules.unread].sort().map(ruleInfo)]
         return result(JSON.stringify(skills))
       }
       if (name === 'share_skills') {

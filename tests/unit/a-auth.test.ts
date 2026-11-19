@@ -57,7 +57,7 @@ describe('first-run setup', () => {
     const body = (await res.json()) as any
     expect(body.token).toBeUndefined()
     expect(body.me.user).toMatchObject({ id: 'olga', username: 'Olga', role: 'owner', mustChangePassword: false })
-    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, projectCreators: 'members' })
+    expect(body.me.team).toEqual({ name: 'Acme', defaultLocale: 'en', browserAllowAll: true, webAllowAll: true, iconVersion: null, voiceInput: false, chatTrashRetentionDays: 7, trashRetentionDays: 30, projectCreators: 'members' })
     const me = await c.call('GET', '/api/me')
     expect(me.user.id).toBe('olga')
     // the team's switch for Always allow off: the session says so, and the connector pages say it asks again after
@@ -313,6 +313,31 @@ describe('sign-in and sessions', () => {
     expect(me.user.prefs.listFolds).toBeUndefined()
     // a stored value that does not read reads as none and hides nothing else
     h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', listFolds: { x: 1 } }), id)
+    expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
+  })
+
+  test('"Don\'t ask again" on the @everyone question is my own preference, on every device; null asks again (QA TC-4864)', async () => {
+    const c = h.client()
+    await c.login('olga', OWNER_PW)
+    const id = (await c.call('GET', '/api/me')).user.id
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark' }), id)
+    let me = await c.call('PATCH', '/api/me', { prefs: { mentionAllAsk: 'off' } })
+    expect(me.user.prefs).toEqual({ theme: 'dark', mentionAllAsk: 'off' })
+    const other = h.client()
+    await other.login('olga', OWNER_PW)
+    expect((await other.call('GET', '/api/me')).user.prefs.mentionAllAsk).toBe('off')
+    // another preference saved later keeps it
+    me = await c.call('PATCH', '/api/me', { prefs: { theme: 'light' } })
+    expect(me.user.prefs.mentionAllAsk).toBe('off')
+    // only 'off' or null
+    expect((await c.try('PATCH', '/api/me', { prefs: { mentionAllAsk: 'on' } })).status).toBe(400)
+    expect((await c.try('PATCH', '/api/me', { prefs: { mentionAllAsk: true } })).status).toBe(400)
+    // null (Settings › "Ask before notifying everyone" on): asked again
+    me = await c.call('PATCH', '/api/me', { prefs: { mentionAllAsk: null } })
+    expect(me.user.prefs.mentionAllAsk).toBeUndefined()
+    expect((await other.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'light' })
+    // a stored value that does not read reads as absent (asks) and hides nothing else
+    h.ctx.db.query('UPDATE users SET prefs = ? WHERE id = ?').run(JSON.stringify({ theme: 'dark', mentionAllAsk: 'never' }), id)
     expect((await c.call('GET', '/api/me')).user.prefs).toEqual({ theme: 'dark' })
   })
 })

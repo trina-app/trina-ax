@@ -380,6 +380,25 @@ describe('diagnostics of an installed Linux server', () => {
       configureStorageGuard(null)
     }
   })
+  test('the Mac rule: a big disk 95% full is low, not read-only; under 10 GiB free it is read-only (absoluteFloor capped)', async () => {
+    const GiB = 1024 ** 3
+    let total = 0, free = 0
+    const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => ({ type: 0, bsize: 4096, blocks: total / 4096, bfree: free / 4096, bavail: free / 4096, files: 0, ffree: 0 })) as unknown as typeof fs.statfsSync)
+    const layout = resolveLayout(ctx.config, { MYCEL_INSTALL_BASE: base, MYCEL_LABEL: 'mycel' }, 'linux')
+    const mac = new OpsService(ctx, { layout, platform: 'darwin', engines: async () => [], launcherStatus: async () => status, procSysDir: procSys, atDir: path.join(root, 'etc') })
+    const team = async () => (await mac.diagnostics('en')).checks.find((c) => c.id === 'disk.team')!
+    try {
+      // 1.8 TB with 85 GB free: 5% would be 90 GB (read-only before the cap), the cap keeps the floor at 10 GiB
+      total = 1.8e12; free = 85e9
+      expect((await team()).status).toBe('warn')
+      expect((await team()).detail).not.toBe(M.diskReadOnly(free).en)
+      free = 9 * GiB
+      expect((await team()).status).toBe('fail')
+      // a small disk keeps its 10 GiB floor (QA TC-209)
+      total = 100 * GiB; free = 9.5 * GiB
+      expect((await team()).status).toBe('fail')
+    } finally { statfs.mockRestore(); configureStorageGuard(null) }
+  })
   test('free space that cannot be read (QA TC-3099): a disk warning, and the rest of the report still comes', async () => {
     fw({})
     const statfs = spyOn(fs, 'statfsSync').mockImplementation((() => { throw new DiskSpaceUnknown('could not read the free disk space of x') }) as unknown as typeof fs.statfsSync)

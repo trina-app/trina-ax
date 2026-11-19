@@ -7,6 +7,10 @@ import { roomCounts, roomLightsDot, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, 
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
 export interface TitleWords { all: string; gone: string; names?: (names: string, more: number) => string; sep?: string; alone?: string }
 
+/** From this many members (me included) a message with "@전체" asks before it goes (components/rooms/RoomComposer.tsx),
+ * unless the person said "Don't ask again" (prefs.mentionAllAsk). */
+export const MENTION_ALL_CONFIRM = 10
+
 /** How many of a group chat's other members its title names before "외 N명". */
 export const TITLE_NAMES = 3
 
@@ -176,6 +180,10 @@ export function mentionsIn(text: string, people: { id: string; name: string }[])
   }
   return out
 }
+
+/** The class of a mention: the accent colour; mine on a soft background (as RoomMessages drew it before). One look for
+ * a message's Markdown (lib/messageMarkdown.ts) and plain words (components/rooms/MessageText.tsx MentionedText). */
+export const mentionClass = (strong?: boolean) => ['font-medium', 'text-accent-text', ...(strong ? ['rounded', 'bg-accent-soft', 'px-0.5'] : [])]
 
 /** A sent text cut into plain parts and the "@name"s of the people it mentions (the longest name wins where one name
  * starts another). Only shown as text: another member's words are never HTML. */

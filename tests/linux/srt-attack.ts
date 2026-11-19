@@ -9,10 +9,12 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { RuleSet, type Access } from '../../server/src/policy/access'
-import { folderView } from '../../server/src/devenv/srt/access'
+import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
+import { folderView, sharedFolderView } from '../../server/src/devenv/srt/access'
+import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
+import { entryGuard, entryPins, hideDeniedNames, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { chatWork, devenvPaths, isFull, personHome, personLogs, resolveRunCwd, runEnv, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -67,10 +69,30 @@ const RULES = ruleWorld(([
   // "Project contents only for members"), an admin opens a project only as one of its members (A28d-h, A29)
   ['projects/one', 'user', ME, 'write'], ['projects/one', 'user', 'carol', 'write'], ['projects/one/public', 'everyone', null, 'read'],
   ['projects/two', 'group', 'finance', 'write'], ['connected/nas', 'everyone', null, 'read'],
-] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two'])
+  // a shared project chat (S1-S9): projects/web has alice and dave; projects/web/mine is limited to alice alone
+  ['projects/web', 'user', ME, 'write'], ['projects/web', 'user', 'dave', 'write'], ['projects/web/mine', 'user', ME, 'write'],
+  // git between two members (QA TC-4939, G1-G4): projects/gitp has alice and erin and no repository yet
+  ['projects/gitp', 'user', ME, 'write'], ['projects/gitp', 'user', 'erin', 'write'],
+  ['groups/marketing/hr-alicealone', 'user', ME, 'write'],
+  // QA TC-4945 review (S17): projects/mix both read, its w/ alice writes and dave reads, its hid/ alice's alone; a git
+  // repository at its top that once tracked hid/
+  ['projects/mix', 'user', ME, 'read'], ['projects/mix', 'user', 'dave', 'read'], ['projects/mix/w', 'user', ME, 'write'], ['projects/mix/w', 'user', 'dave', 'read'],
+  ['projects/mix/hid', 'user', ME, 'read'],
+] as [string, 'everyone' | 'group' | 'user', string | null, Access][]).map(([p, t, s, a]) => ({ path: p, subject_type: t, subject_id: s, access: a })), ['groups/marketing/salaries', 'shared/hr-limited', 'projects/one', 'projects/one/public', 'projects/two', 'projects/web', 'projects/web/mine', 'projects/gitp', 'groups/marketing/hr-alicealone', 'projects/mix', 'projects/mix/hid'])
 const ALICE = { id: ME, name: 'Alice', role: 'member' as const, groups: ['marketing'] }
 /** an admin: the rules give her write in the whole team folder, so in a run the team root is read-only (Q0 (b)) */
 const CAROL = { id: 'carol', name: 'Carol', role: 'admin' as const, groups: [] as string[] }
+/** shared chats (docs/decisions/20261118-devenv-shared-chats.md): dave is a member of projects/web only; erin is in
+ * marketing like alice */
+const DAVE: Principal = { id: 'dave', name: 'Dave', role: 'member', groups: [] }
+const ERIN: Principal = { id: 'erin', name: 'Erin', role: 'member', groups: ['marketing'] }
+const WEB = `${TEAM}/projects/web`
+/** the shared project chat (alice and dave), the chat shared with people (alice and erin), another shared chat */
+// production-length chat ids (uuid v7, 36 characters): with short ones this suite missed srt's socket paths growing past
+// the unix socket limit (QA TC-4848; tests/unit/dev-env-socket-path.test.ts)
+const SP = '01a1ed7a-0000-7000-8000-0000000000sp', SW = '01a1ed7a-0000-7000-8000-0000000000sw', SO = '01a1ed7a-0000-7000-8000-0000000000so'
+/** what only alice has: her own folder's text, her own home and logs (no CANARY prefix: alice's own runs read them) */
+const ASKER = 'ASKER-ONLY-9c1e'
 fs.mkdirSync('/etc/default', { recursive: true }); fs.writeFileSync(`/etc/default/${ID}`, `MYCEL_TOKEN=${CANARY}-etcdefault\n`)
 fs.mkdirSync('/tmp/server-private', { recursive: true }); fs.writeFileSync('/tmp/server-private/t', `${CANARY}-tmp`)
 fs.mkdirSync(`/run/${ID}`, { recursive: true }); fs.writeFileSync(`/run/${ID}/x`, `${CANARY}-run`)
@@ -95,11 +117,48 @@ const ETC_CANARIES: [string, string][] = [['/etc/environment', 'API_KEY'], ['/et
   ['/etc/pki/tls/key.pem', 'key'], ['/etc/cloud/cloud.cfg.d/99-link.cfg', 'token'], ['/etc/crontab', 'curl -u user'], ['/etc/postfix/sasl_passwd', 'password']]
 for (const [f, what] of ETC_CANARIES) { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.appendFileSync(f, `\n${what} ${CANARY}-etc\n`); fs.chmodSync(f, 0o644) }
 sh(`chmod -R a+rX ${NAS} ${NAS2} /srv/other-app /opt/other /etc/systemd/system /etc/cloudflared /var/lib/other-app /home/someone && chmod a+r /etc/systemd/system/cloudflared.service`)
-for (const u of [ME, 'bob', 'carol']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
+w('projects/gitp/plan.md', 'plan\n')
+for (const u of [ME, 'bob', 'carol', 'erin']) { fs.mkdirSync(path.join(personHome(BASE, u), 'tmp'), { recursive: true }); fs.mkdirSync(personLogs(BASE, u), { recursive: true }) }
 fs.writeFileSync(path.join(personHome(BASE, 'bob'), 'secret'), `${CANARY}-other-home`)
 fs.writeFileSync(path.join(personLogs(BASE, 'bob'), 'job.log'), `${CANARY}-other-log`)
 fs.mkdirSync(WORK, { recursive: true }); fs.mkdirSync(chatWork(BASE, 'chat-2'), { recursive: true })
+// shared chats: the project folder with a folder only alice sees, links out of it planted before the run (as an earlier
+// run of her own chat could), her own home and logs with text only she has, the homes and logs of the shared chats
+w('projects/web/index.html', 'web index\n')
+w('projects/web/docs/guide.md', 'web guide\n')
+w('projects/web/mine/secret.md', `${ASKER}-subfolder`)
+// a folder of her group limited to alice alone (QA TC-4929): in a chat she shares with erin not even its name shows
+w('groups/marketing/hr-alicealone/pay.md', `${ASKER}-hr`)
+w('projects/mix/readme.md', 'mix readme\n'); w('projects/mix/w/notes.md', 'mix notes\n'); w('projects/mix/hid/pay.md', `${ASKER}-mix-hid\n`)
+sh(`cd ${TEAM}/projects/mix && git init -q && git add -A && git -c user.name=t -c user.email=t@t commit -qm init && chmod -R a+rX .git`)
+sh(`cd ${TEAM}/projects/mix && git clone -q --bare . mix.git && chmod -R a+rX mix.git`)
+fs.writeFileSync(`${TEAM}/users/alice/key.txt`, `${ASKER}-own-folder`)
+fs.mkdirSync(`${WEB}/.git/hooks`, { recursive: true }); fs.writeFileSync(`${WEB}/.git/config`, '[core]\n')
+fs.writeFileSync(path.join(personHome(BASE, ME), '.netrc'), `machine github.com password ${ASKER}-home\n`)
+fs.writeFileSync(path.join(personLogs(BASE, ME), 'job.log'), `${ASKER}-logs\n`)
+for (const [l, t] of [['to-own', `${TEAM}/users/alice`], ['to-own-file', `${TEAM}/users/alice/key.txt`], ['to-mine', 'mine'], ['to-mine-file', 'mine/secret.md'],
+  ['to-finance', '../../groups/finance'], ['to-one', `${TEAM}/projects/one`], ['to-secret', `${BASE}/secrets/master.key`], ['to-home', personHome(BASE, ME)],
+  ['to-chat', chatWork(BASE, 'chat-2')], ['to-system', `${TEAM}/.system`]]) fs.symlinkSync(t, `${WEB}/${l}`)
+for (const c of [SP, SW, SO]) { fs.mkdirSync(path.join(chatHome(BASE, c), 'tmp'), { recursive: true }); fs.mkdirSync(chatLogs(BASE, c), { recursive: true }) }
+fs.mkdirSync(chatWork(BASE, SW), { recursive: true }); fs.mkdirSync(chatWork(BASE, SO), { recursive: true })
+fs.writeFileSync(path.join(chatHome(BASE, SO), 'x'), `${CANARY}-other-shared-home`); fs.writeFileSync(path.join(chatLogs(BASE, SO), 'cmd.out'), `${CANARY}-other-shared-logs`)
+fs.writeFileSync(path.join(chatWork(BASE, SO), 'x'), `${CANARY}-other-shared-work`)
+// a shared chat's job logs (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): the folder of SP's people and
+// view (alice and dave) holds a job's log their next command reads; the folder of another audience of SP (erin joined
+// since, or someone's access narrowed) holds one nobody of this audience may read (S16)
+const SP_LOGS = sharedLogs(BASE, SP, sharedWorkKey([ME, 'dave'], 'logs')), SP_LOGS_OTHER = sharedLogs(BASE, SP, sharedWorkKey([ME, 'dave', 'erin'], 'logs'))
+fs.mkdirSync(SP_LOGS, { recursive: true }); fs.writeFileSync(path.join(SP_LOGS, 'build.log'), 'JOB-LOG-OF-THESE-PEOPLE\n')
+fs.mkdirSync(SP_LOGS_OTHER, { recursive: true }); fs.writeFileSync(path.join(SP_LOGS_OTHER, 'build.log'), `${CANARY}-other-audience-log`)
 fs.writeFileSync(path.join(chatWork(BASE, 'chat-2'), 'x'), `${CANARY}-other-chat`)
+// SW was alice's private chat before it was shared: its private work folder holds a copy of her own file (review 1)
+fs.writeFileSync(path.join(chatWork(BASE, SW), 'x'), `${ASKER}-private-work`)
+// a work folder of SW for an earlier, smaller audience (alice alone): a new audience never gets it (review 2)
+fs.mkdirSync(sharedWork(BASE, SW, sharedWorkKey([ME])), { recursive: true }); fs.writeFileSync(path.join(sharedWork(BASE, SW, sharedWorkKey([ME])), 'x'), `${ASKER}-alone-work`)
+// another run's short temp folder (devenv/rt/<run>, config.ts runTmp), with a marker: a shared run never sees or writes it
+const RT_SIB = path.join(devenvPaths(BASE).runTmp, 'othersibling0001')
+fs.mkdirSync(RT_SIB, { recursive: true }); fs.writeFileSync(path.join(RT_SIB, 'marker'), `${CANARY}-rt-sibling`)
+// the git wrapper first on every run's PATH, as the runner writes it (runner.ts writeGitWrapper)
+fs.mkdirSync(devenvPaths(BASE).bin, { recursive: true }); fs.writeFileSync(path.join(devenvPaths(BASE).bin, 'git'), gitWrapperSource({ node: SRT_PATHS.node, realGit: '/usr/bin/git' }), { mode: 0o755 })
 sh(`chown -R ${SRV}:${SRV} ${BASE} /tmp/server-private /run/${ID} && chown root:${SRV} /etc/default/${ID} && chmod 640 /etc/default/${ID}`)
 // a host name that resolves to a private address, one to loopback (the resolved-address check)
 fs.appendFileSync('/etc/hosts', '10.11.12.13 private.attack.test\n127.0.0.1 loop.attack.test\n')
@@ -110,19 +169,42 @@ const us = net.createServer((c) => c.end(`${CANARY}-unix`)).listen(unixSock)
 await new Promise((r) => us.on('listening', r))
 sh(`chown ${SRV} ${unixSock}`)
 process.env.MYCEL_LEAK = `${CANARY}-env`
+// credentials in the server's environment: a run never gets them (A3, S8)
+process.env.GH_TOKEN = `${CANARY}-gh-token`; process.env.ANTHROPIC_API_KEY = `${CANARY}-anthropic`
 
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
-async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: typeof ALICE | typeof CAROL; people?: (typeof ALICE | typeof CAROL)[] } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
+async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] } } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
-  const work = o.work ? WORK : null
+  const sh_ = o.shared
+  // a shared chat (runner.ts spaceOf): a project chat starts in its project folder, a chat shared with people in its work folder
+  // (its own work folder for the people who see it now, never the private one: config.ts sharedWork)
+  const work = sh_ ? (sh_.within === null ? sharedWork(BASE, sh_.chat, sharedWorkKey(sh_.audience.map((q) => q.id))) : null) : o.work ? WORK : null
+  // a shared chat's command: a home and logs of its own (runner.ts prepare)
+  // a person's run in a project folder: a home of its own for that folder (runner.ts runOwner, config.ts projectHome)
+  const projectFolder = sh_ || work ? null : o.start ?? 'projects/one'
+  // a shared chat's logs folder: the one of its people (runner.ts sharedLogKey; here a key of the audience alone)
+  const logKey = sh_ ? sharedWorkKey(sh_.audience.map((q) => q.id), 'logs') : null
+  const owner = { userId: (o.who ?? ALICE).id, sharedChat: sh_ ? sh_.chat : null, runId, projectFolder, logKey }
+  if (!sh_) { fs.mkdirSync(path.join(runHome(BASE, owner), 'tmp'), { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
+  if (sh_) { for (const d of [runHome(BASE, owner), runTmp(BASE, owner), runLogs(BASE, owner), ...(work ? [work] : [])]) fs.mkdirSync(d, { recursive: true }); sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`) }
   // the run's view: the person's folder rules, writable only in the starting folder and her own folder
-  const start = work ? null : o.start ?? 'projects/one'
+  const start = sh_ ? sh_.within : work ? null : o.start ?? 'projects/one'
   const who = o.who ?? ALICE
-  // with people (the runner passes the team's active people): a project run reads only what all who see it may read
-  const view = folderView(RULES, who, { start }, o.people)
-  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view, start, work, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
+  // with people (the runner passes the team's active people): a project run reads only what all who see it may read.
+  // A shared chat: what the person AND everyone who sees the chat may read (access.ts sharedFolderView)
+  const view = sh_ ? sharedFolderView(RULES, who, { start }, { audience: sh_.audience, within: sh_.within }) : folderView(RULES, who, { start }, o.people)
+  const sharedChat = sh_ ? sh_.chat : null
+  // a shared chat: read-only folders holding a denied one are given entry by entry (runner.ts settingsFor, mounts.ts)
+  const given = sh_ ? hideDeniedNames(view, TEAM) : view
+  // as the runner: the entries given one by one are checked first inside the sandbox (mounts.ts entryGuard)
+  const pinFiles = sh_ ? writePins(runTmp(BASE, owner), entryPins(view, given, TEAM)) : null
+  if (pinFiles) sh(`chown ${SRV}:${SRV} '${pinFiles.paths}' '${pinFiles.ids}'`)
+  const guard = entryGuard(pinFiles)
+  // S18: the disk changes after the listing, before srt binds
+  o.afterPins?.()
+  const input = { base: BASE, id: ID, teamRoot: TEAM, userId: who.id, view: given, start, work, sharedChat, runId, projectFolder, logKey, network: o.network ?? 'open', extraDomains: o.extra ?? [], userDomains: o.user ?? [], full: o.full ?? false, denyHosts: ['team.trina.test'], denyAddrs: ['203.0.113.7'], connectedSources: [NAS, NAS2] }
   const settings = srtSettings(input)
   const problems = settingsProblems(settings, input)
   if (problems.length) throw new Error(problems.join('; '))
@@ -131,12 +213,12 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   if (!cwd) return { code: null, out: '', refused: 'cwd' }
   const settingsFile = path.join(devenvPaths(BASE).run, `${runId}.json`)
   fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600 }); sh(`chown ${SRV} ${settingsFile}`)
-  const exitFile = path.join(personLogs(BASE, who.id), `${runId}.exit`)
-  const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command, full: isFull(settings) })]
+  const exitFile = path.join(runLogs(BASE, owner), `${runId}.exit`)
+  const argv = ['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', ...wrappedArgv({ exitFile, settingsFile, command: guard ? `${guard}\n${command}` : command, full: isFull(settings) })]
   // as the runner: srt's protected names exist in the cwd before the run (placeholders.ts), owned by the server account
   const release = holdPlaceholders(cwd)
   sh(`chown -h ${SRV}:${SRV} ${[...SRT_NAMES].map((n) => `'${path.join(cwd, n)}'`).join(' ')} 2>/dev/null || true`)
-  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
+  const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder, logKey }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
@@ -153,9 +235,22 @@ type Check = (r: { code: number | null; out: string; refused?: string }) => stri
 const failsQuietly: Check = (r) => (r.code === 0 ? `exit code 0: ${r.out.slice(0, 200)}` : null)
 const ok: Check = (r) => (r.code === 0 ? null : `exit code ${r.code}: ${r.out.slice(0, 300)}`)
 const has = (s: string): Check => (r) => (r.out.includes(s) ? null : `no "${s}" in: ${r.out.slice(0, 300)}`)
+/** nothing that only alice may open (her own folder, her sub-folder, her home and logs) came back */
+const noAsker: Check = (r) => (r.out.includes(ASKER) || r.out.includes('alice todo') ? `something only alice may open came back: ${r.out.slice(Math.max(0, r.out.indexOf(ASKER) - 60), r.out.indexOf(ASKER) + 40)}` : null)
+const SPC = { shared: { chat: SP, within: 'projects/web', audience: [ALICE, DAVE] } }
+const SWC = { shared: { chat: SW, within: null, audience: [ALICE, ERIN] } }
+const SW_WORK = sharedWork(BASE, SW, sharedWorkKey([ALICE.id, ERIN.id]))
 const both = (...cs: Check[]): Check => (r) => cs.map((c) => c(r)).find((x) => x) ?? null
 
-const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null }[] = [
+const GITP = `${TEAM}/projects/gitp`
+const HOOK_MARK = path.join(personHome(BASE, ME), '.hook-was-here')
+/** git as the server (root) on the test's repositories, which the server account owns */
+const hostGit = (dir: string, ...args: string[]) => { fs.mkdirSync(dir, { recursive: true }); const r = Bun.spawnSync(['git', '-c', 'safe.directory=*', ...args], { cwd: dir, env: { PATH: process.env.PATH!, HOME: '/root' } }); sh(`chown -R ${SRV}:${SRV} ${GITP}`); return r }
+const GMARK = `${GITP}/PLANTED-RAN`
+/** a git call refused by the wrapper, and nothing planted ran */
+const gitRefused = (r: { code: number | null; out: string }) => (!r.out.includes('git was refused') ? `git was not refused: ${r.out.slice(0, 300)}` : fs.existsSync(GMARK) ? 'a planted program ran' : null)
+const PROJECT_HOME = projectHome(BASE, ME, 'projects/gitp')
+const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parameters<typeof run>[1]; after?: () => string | null; before?: () => void }[] = [
   { id: 'A0', what: 'the project folder and her own folder: read and write; her other folders and read-only folders: read', cmd: `cat readme.md && echo new > new.txt && cat new.txt && echo $HOME && touch $TMPDIR/x && cat ${TEAM}/skills/rules.md && cat ${TEAM}/shared/s.md && cat ${TEAM}/groups/marketing/brief.md && echo y > ${TEAM}/users/alice/new.md && cat public/notice.md`, check: both(ok, has('hello from p1'), has('new'), has('skills text'), has('shared text'), has('marketing brief'), has('read only for alice')) },
   { id: 'A0b', what: 'a chat with no project: the work folder, and the person\'s folders (read)', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${DIR1}/readme.md && echo z > ${TEAM}/users/alice/z.md && echo $TRINA_WORK`, check: both(ok, has(WORK), has('shared text'), has('hello from p1')), o: { work: true } },
   // Q0 (b) / G-SRT-11: person A's AI plants code in a folder that A may write and person B runs later (a git hook,
@@ -227,6 +322,176 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'A14f', what: 'Full internet: the Trina server port and host name', cmd: 'curl -fsS -m 5 http://127.0.0.1:8099/ || curl -fsS -m 5 http://localhost:8099/ || curl -fsS -m 5 https://team.trina.test/ || curl -fsS -m 5 https://team.trina.test./ || curl -fsS -m 5 https://Team.Trina.Test../ || curl -fsS -m 5 --noproxy "*" https://1.1.1.1/', check: failsQuietly, o: { full: true } },
   { id: 'A27f', what: 'offline wins over Full internet and allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://example.com/ || curl -fsS -m 10 -o /dev/null https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline', full: true, user: ['example.com'] } },
   { id: 'A27', what: 'offline: nothing, also the allowed sites', cmd: 'curl -fsS -m 10 -o /dev/null -w "%{http_code}" https://registry.npmjs.org/', check: failsQuietly, o: { network: 'offline' } },
+  // ---- git between members (QA TC-4939): a run that makes a repository can write its hooks and config (srt protects
+  // them only when .git is there as the run starts); another member's git must not run them ----
+  { id: 'G1', what: 'erin makes a repository in the project folder and plants a pre-commit hook', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `git init -q && printf '#!/bin/sh\\necho HOOK-RAN; touch "$HOME/.hook-was-here"; touch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && echo PLANTED`,
+    check: both(ok, has('PLANTED')) },
+  { id: 'G2', what: 'alice commits there: the hook does not run, nothing lands in her home', o: { start: 'projects/gitp' },
+    cmd: 'git -c user.name=a -c user.email=a@example.com commit -q --allow-empty -m x && echo COMMITTED; git config core.hooksPath',
+    check: both(ok, has('COMMITTED'), has('/dev/null'), (r) => (r.out.includes('HOOK-RAN') ? 'the hook ran' : null)),
+    after: () => (fs.existsSync(HOOK_MARK) || fs.existsSync(path.join(PROJECT_HOME, '.hook-was-here')) ? 'the hook wrote alice\'s home' : null) },
+  { id: 'G3', what: 'a filter driver planted in the repository\'s config: alice\'s git is refused (the wrapper), nothing runs', o: { start: 'projects/gitp' },
+    before: () => fs.appendFileSync(`${GITP}/.git/config`, `[filter "x"]\n\tclean = touch ${GMARK}\n`),
+    cmd: 'git status; echo CODE=$?', check: both(has('CODE=128'), gitRefused) },
+  { id: 'G4', what: 'a repository made in a sub-folder in the same run, with a planted hook: git there runs no hook', o: { who: ERIN, start: 'projects/gitp' },
+    before: () => fs.writeFileSync(`${GITP}/.git/config`, fs.readFileSync(`${GITP}/.git/config`, 'utf8').replace(/\[filter "x"\][^[]*/, '')),
+    cmd: `mkdir -p sub && cd sub && git init -q && printf '#!/bin/sh\\ntouch ${HOOK_MARK}\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && git -c user.name=e -c user.email=e@example.com commit -q --allow-empty -m x && echo SUBCOMMIT`,
+    check: both(ok, has('SUBCOMMIT')), after: () => (fs.existsSync(HOOK_MARK) ? 'the sub-folder\'s hook ran' : null) },
+  // the bypasses of the first version (review of #1297): each planted as erin's run could have, then alice's git there
+  { id: 'G5', what: 'a section header and its setting on one line ([diff "x"] textconv = ...)', o: { start: 'projects/gitp', cwd: 'g5' },
+    before: () => { const d = `${GITP}/g5`; hostGit(d, 'init', '-q'); fs.writeFileSync(`${d}/a.txt`, 'one\n'); fs.writeFileSync(`${d}/.gitattributes`, '*.txt diff=x\n'); hostGit(d, 'add', '.'); hostGit(d, '-c', 'user.name=e', '-c', 'user.email=e@example.com', 'commit', '-q', '-m', 'x'); fs.writeFileSync(`${d}/a.txt`, 'two\n'); fs.appendFileSync(`${d}/.git/config`, `[diff "x"] textconv = sh -c 'touch ${GMARK}; cat'\n`); sh(`chown -R ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git diff; echo CODE=$?', check: gitRefused },
+  { id: 'G6', what: 'a .git that is a link to a repository elsewhere in the folder', o: { start: 'projects/gitp', cwd: 'g6' },
+    before: () => { hostGit(`${GITP}/g6real`, 'init', '-q'); fs.appendFileSync(`${GITP}/g6real/.git/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`); fs.mkdirSync(`${GITP}/g6`, { recursive: true }); fs.symlinkSync('../g6real/.git', `${GITP}/g6/.git`); sh(`chown -hR ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G7', what: 'a bare repository folder: not used by itself, and refused when named', o: { start: 'projects/gitp' },
+    before: () => { hostGit(GITP, 'init', '-q', '--bare', 'g7.git'); fs.appendFileSync(`${GITP}/g7.git/config`, `[core]\n\talternateRefsCommand = touch ${GMARK}\n`) },
+    cmd: 'cd g7.git && git log; echo CODE1=$?; cd .. && git --git-dir=g7.git log; echo CODE2=$?',
+    check: both((r) => (/CODE1=0\b/.test(r.out) ? 'the bare repository was used by itself' : null), gitRefused) },
+  { id: 'G8', what: 'submodule.<name>.update = !command', o: { start: 'projects/gitp', cwd: 'g8' },
+    before: () => { hostGit(`${GITP}/g8`, 'init', '-q'); fs.appendFileSync(`${GITP}/g8/.git/config`, `[submodule "s"]\n\tupdate = !touch ${GMARK}\n`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G9', what: 'core.alternateRefsCommand and a "!" alias', o: { start: 'projects/gitp', cwd: 'g9' },
+    before: () => { hostGit(`${GITP}/g9`, 'init', '-q'); fs.appendFileSync(`${GITP}/g9/.git/config`, `[core]\n\talternateRefsCommand = touch ${GMARK}\n[alias]\n\tst = !touch ${GMARK}\n`) },
+    cmd: 'git st; echo CODE=$?', check: gitRefused },
+  { id: 'G10', what: 'no depth limit: a repository twelve folders down, and an absorbed submodule\'s config', o: { start: 'projects/gitp', cwd: 'g10/a/b/c/d/e/f/g/h/i/j/k/l' },
+    before: () => { const d = `${GITP}/g10/a/b/c/d/e/f/g/h/i/j/k/l`; hostGit(d, 'init', '-q'); fs.mkdirSync(`${d}/.git/modules/s`, { recursive: true }); fs.writeFileSync(`${d}/.git/modules/s/HEAD`, 'ref: refs/heads/main\n'); fs.writeFileSync(`${d}/.git/modules/s/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`); sh(`chown -R ${SRV}:${SRV} ${GITP}`) },
+    cmd: 'git status; echo CODE=$?', check: gitRefused },
+  { id: 'G11', what: 'a filter written by another member\'s job after the command started: the next git call is refused', o: { start: 'projects/gitp', cwd: 'g11', during: () => fs.appendFileSync(`${GITP}/g11/.git/config`, `[filter "f"]\n\tclean = touch ${GMARK}\n`) },
+    before: () => hostGit(`${GITP}/g11`, 'init', '-q'),
+    cmd: 'git status >/dev/null && echo FIRST-OK; sleep 4; git status; echo CODE=$?', check: both(has('FIRST-OK'), gitRefused) },
+  // the home of a project folder's runs is not the home of her own chats (review of #1297)
+  { id: 'H1', what: 'alice\'s run in the project folder leaves a file in its home', o: { start: 'projects/gitp' },
+    cmd: 'echo HOME=$HOME; touch $HOME/PLANTED-IN-PROJECT-HOME && echo PLANTED', check: both(ok, has(`HOME=${PROJECT_HOME}`), has('PLANTED')) },
+  { id: 'H2', what: 'her own chat\'s run has another home: the file is not there', o: { work: true },
+    cmd: 'echo HOME=$HOME; ls $HOME/PLANTED-IN-PROJECT-HOME 2>/dev/null && echo SEEN || echo NOT-SEEN', check: both(ok, has(`HOME=${personHome(BASE, ME)}`), has('NOT-SEEN')) },
+  // ---- shared chats (docs/decisions/20261118-devenv-shared-chats.md): alice asks; what the run shows goes to everyone
+  // who sees the chat, so it sees only what all of them may read, and nothing that is hers alone ----
+  { id: 'S1', what: 'shared project chat: the project folder lists, reads and writes as alice may; HOME and TMPDIR are the command\'s own, the logs folder the chat\'s people\'s', cmd: `ls && cat index.html && cat docs/guide.md && echo made > docs/made.txt && cat docs/made.txt && mkdir -p docs/new && echo g > docs/new/g.md && echo HOME=$HOME && echo LOGS=$TRINA_LOGS && echo TMP=$TMPDIR && touch $TMPDIR/x && echo tmp-ok && touch $HOME/.cache-ok && echo home-ok`,
+    check: both(ok, has('index.html'), has('web index'), has('web guide'), has('made'), has(`HOME=${chatHome(BASE, SP)}/attack`), has(`LOGS=${SP_LOGS}`), has(`TMP=${devenvPaths(BASE).runTmp}/attack`), has('tmp-ok'), has('home-ok'), noAsker), o: SPC,
+    after: () => (!fs.existsSync(`${WEB}/docs/made.txt`) || !fs.existsSync(`${WEB}/docs/new/g.md`) ? 'a write in the project folder is not on the disk' : !fs.readdirSync(chatHome(BASE, SP)).some((d) => fs.existsSync(path.join(chatHome(BASE, SP), d, '.cache-ok'))) ? 'the command\'s home was not written' : fs.existsSync(path.join(personHome(BASE, ME), '.cache-ok')) ? 'the run wrote alice\'s own home' : null) },
+  { id: 'S2', what: 'shared project chat: alice\'s own users/<id> folder and the project sub-folder only she may open are not there', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -a ${TEAM}/users ${TEAM}/users/alice; cat mine/secret.md; echo MINE: $(ls -A mine 2>&1); true`,
+    check: both(ok, noAsker, (r) => (/MINE: .*secret/.test(r.out) ? `the sub-folder lists its files: ${r.out.slice(0, 300)}` : null)), o: SPC },
+  { id: 'S3', what: 'shared project chat: no team folder outside the project folder (shared/, skills/, her group, another project she may open)', cmd: `cat ${TEAM}/shared/s.md; cat ${TEAM}/skills/rules.md; cat ${TEAM}/groups/marketing/brief.md; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/connected/nas/open.md; echo TEAM: $(ls -A ${TEAM} 2>/dev/null); echo PROJECTS: $(ls -A ${TEAM}/projects 2>/dev/null); true`,
+    check: (r) => {
+      if (r.code !== 0) return `exit code ${r.code}: ${r.out.slice(0, 300)}`
+      const leak = ['shared text', 'skills text', 'marketing brief', 'hello from p1', 'nas open mirror'].find((t) => r.out.includes(t))
+      if (leak) return `"${leak}" came back`
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      const bad = [...line('TEAM').filter((x) => x !== 'projects'), ...line('PROJECTS').filter((x) => x !== 'web')]
+      return bad.length ? `listed outside the project folder: ${bad.join(' ')}` : null
+    }, o: SPC },
+  { id: 'S4', what: 'shared project chat: other chats\' work folders, homes and logs, alice\'s own home and logs, .system/', cmd: `cat ${chatWork(BASE, 'chat-2')}/x; cat ${chatHome(BASE, SO)}/x; cat ${chatLogs(BASE, SO)}/cmd.out; cat ${chatWork(BASE, SO)}/x; cat ${personHome(BASE, ME)}/.netrc; cat ${personLogs(BASE, ME)}/job.log; cat ${TEAM}/.system/history/old.bin; echo WORKS: $(ls -A ${devenvPaths(BASE).work} 2>/dev/null); echo CHOMES: $(ls -A ${devenvPaths(BASE).chatHome} 2>/dev/null); echo CLOGS: $(ls -A ${devenvPaths(BASE).chatLogs} 2>/dev/null); echo HOMES: $(ls -A ${devenvPaths(BASE).home} 2>/dev/null); echo LOGS: $(ls -A ${devenvPaths(BASE).logs} 2>/dev/null); true`,
+    check: both(ok, noAsker, (r) => {
+      const lines = r.out.split('\n').filter((l) => /^(WORKS|CHOMES|CLOGS|HOMES|LOGS):/.test(l))
+      const bad = lines.flatMap((l) => l.replace(/^\w+:/, '').trim().split(/\s+/).filter((x) => x && x !== SP))
+      return bad.length ? `listed: ${bad.join(' ')}` : null
+    }), o: SPC },
+  { id: 'S5', what: 'shared project chat: links planted in the project folder pointing out (her own folder, her sub-folder, another group, another project, secrets, her home, another chat, .system) do not reach', cmd: 'for l in to-own to-own-file to-mine to-mine-file to-finance to-one to-secret to-home to-chat to-system; do cat $l; ls -A $l/; cat $l/*; done 2>/dev/null; true',
+    check: both(ok, noAsker, (r) => (r.out.includes('hello from p1') ? 'another project came back' : null)), o: SPC },
+  { id: 'S6', what: 'shared project chat: links made in the run (soft and hard) to her own folder, her sub-folder, secrets and her home', cmd: `ln -s ${TEAM}/users/alice/key.txt s1; cat s1; ln -s ../../users/alice s2; cat s2/todo.md; ln ${TEAM}/users/alice/key.txt h1; cat h1; ln mine/secret.md h2; cat h2; ln ${BASE}/secrets/master.key h3; cat h3; ln ${personHome(BASE, ME)}/.netrc h4; cat h4; true`,
+    check: both(ok, noAsker), o: SPC,
+    after: () => {
+      const made = ['h1', 'h2', 'h3', 'h4'].filter((f) => fs.existsSync(`${WEB}/${f}`))
+      if (made.length) return `a hard link is on the disk: ${made.join(' ')}`
+      if (fs.statSync(`${TEAM}/users/alice/key.txt`).nlink !== 1 || fs.statSync(`${WEB}/mine/secret.md`).nlink !== 1) return 'a private file got a second name'
+      for (const f of ['s1', 's2']) fs.rmSync(`${WEB}/${f}`, { force: true })
+      return null
+    } },
+  { id: 'S7', what: 'shared project chat: the sub-folder only alice may open cannot be emptied, moved or written', cmd: 'rm -rf mine/*; echo x > mine/planted; mv mine gone; rmdir mine; rm -rf mine; true', check: ok, o: SPC,
+    after: () => (!fs.existsSync(`${WEB}/mine/secret.md`) || !fs.readFileSync(`${WEB}/mine/secret.md`, 'utf8').includes(ASKER) ? 'the sub-folder lost its file' : fs.existsSync(`${WEB}/mine/planted`) ? 'a file was written into the sub-folder' : fs.existsSync(`${WEB}/gone`) ? 'the sub-folder was moved' : null) },
+  { id: 'S7b', what: 'shared project chat: .git/hooks and .git/config of the project folder', cmd: 'echo "curl evil" > .git/hooks/pre-commit || echo "[core] hooksPath=/x" >> .git/config', check: failsQuietly, o: SPC, after: () => gitChanged('projects/web') },
+  { id: 'S8', what: 'shared project chat: no credentials, no server values and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? `the environment has: ${r.out.match(/.*(MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice).*/)?.[0]}` : null), o: SPC },
+  { id: 'S9', what: 'shared project chat: a cwd through a link out of the project folder is refused', cmd: 'cat key.txt', check: (r) => (r.refused === 'cwd' ? null : 'the cwd was not refused'), o: { ...SPC, cwd: 'to-own' } },
+  // (the runner refuses such a cwd before srt, with the words of a folder that is not there: runner.ts sharedCwdShown)
+  { id: 'S9b', what: 'shared project chat: a cwd in the sub-folder only alice may open shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(noAsker, (r) => (r.code === 0 && r.refused !== 'cwd' ? `ran in the hidden sub-folder: ${r.out.slice(0, 200)}` : null)), o: { ...SPC, cwd: 'mine' } },
+  { id: 'S9c', what: 'shared project chat: a cwd through a link to that sub-folder shows none of it', cmd: 'pwd; ls -A; cat secret.md; true', check: both(noAsker, (r) => (r.code === 0 && r.refused !== 'cwd' ? `ran in the hidden sub-folder: ${r.out.slice(0, 200)}` : null)), o: { ...SPC, cwd: 'to-mine' } },
+  // QA TC-4945: the project folder holds mine (alice's alone), so it is given entry by entry (srt/mounts.ts): mine is
+  // not listed, not even empty; a sub-folder stays writable; the top cannot change (what is made there is not kept,
+  // an entry there cannot be moved), its files are read-only; .git is read-only
+  { id: 'S16', what: 'shared project chat: a project sub-folder only alice may open is not listed, not even empty; the rest of the folder works (QA TC-4945)', cmd: 'echo LS: $(ls -A); echo MI: $(grep -c /mine /proc/self/mountinfo); ls -A docs; echo top > top-new.txt; echo sub > docs/sub-new.txt && echo SUB-OK; mv index.html moved.html; echo x >> index.html; cat mine/secret.md; stat mine; touch .git/x; true',
+    check: both(ok, noAsker, has('SUB-OK'), has('guide.md'), (r) => {
+      const ls = (r.out.split('\n').find((l) => l.startsWith('LS:')) ?? '').slice(3).trim().split(/\s+/)
+      if (ls.includes('mine')) return `the sub-folder only alice may open is listed: ${ls.join(' ')}`
+      if (!ls.includes('index.html') || !ls.includes('docs')) return `the project folder does not list its entries: ${ls.join(' ')}`
+      if (ls.includes('.git')) return '.git is given in a folder that holds a hidden one'
+      if (!/^MI: 0$/m.test(r.out)) return `the hidden folder is a mount in the run: ${(r.out.match(/^MI:.*$/m) ?? [''])[0]}`
+      return null
+    }), o: SPC,
+    after: () => {
+      if (!fs.existsSync(`${WEB}/docs/sub-new.txt`)) return 'a write in a sub-folder is not on the disk'
+      if (fs.existsSync(`${WEB}/top-new.txt`)) return 'a new file at the top of the folder was written to the disk'
+      if (fs.existsSync(`${WEB}/moved.html`) || !fs.existsSync(`${WEB}/index.html`)) return 'an entry at the top was moved'
+      if (fs.readFileSync(`${WEB}/index.html`, 'utf8') !== 'web index\n') return 'a file at the top was written'
+      if (fs.existsSync(`${WEB}/.git/x`)) return '.git was written'
+      fs.rmSync(`${WEB}/docs/sub-new.txt`, { force: true }); fs.rmSync(`${WEB}/top-new.txt`, { force: true })
+      return null
+    } },
+  { id: 'S17', what: 'shared project chat: a read-only folder that holds a writable one and a hidden one is opened too; its git history is not there (QA TC-4945 review)', cmd: 'echo LS: $(ls -A); echo MI: $(grep -c /hid /proc/self/mountinfo); git status 2>&1; git show HEAD:hid/pay.md 2>&1; git log --stat 2>&1 | head -20; cat .git/HEAD 2>&1; echo w > w/new.txt && echo W-OK; cat readme.md; true',
+    check: both(ok, noAsker, has('W-OK'), has('mix readme'), (r) => {
+      const ls = (r.out.split('\n').find((l) => l.startsWith('LS:')) ?? '').slice(3).trim().split(/\s+/)
+      if (ls.includes('hid') || ls.includes('.git')) return `listed: ${ls.join(' ')}`
+      if (!/^MI: 0$/m.test(r.out)) return 'the hidden folder is a mount in the run'
+      return /hid\/pay\.md|mix-hid/.test(r.out) ? `git told of the hidden folder: ${r.out.slice(0, 300)}` : null
+    }), o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] } },
+    after: () => { const f = `${TEAM}/projects/mix/w/new.txt`; if (!fs.existsSync(f)) return 'a write in the writable sub-folder is not on the disk'; fs.rmSync(f); return null } },
+  // the guard stops the command with 97 and its own words (srt/mounts.ts entryGuard)
+  { id: 'S18', what: 'shared project chat: a sub-folder swapped for a link to the hidden folder after the listing stops the command before it runs (QA TC-4945 review)', cmd: 'echo RAN; cat docs/secret.md; ls -A docs; true',
+    check: both(noAsker, (r) => (r.out.includes('RAN') ? `the command ran: ${r.out.slice(0, 200)}` : r.code !== 97 || !r.out.includes('a folder changed while it started') ? `not stopped by the guard (exit ${r.code}): ${r.out.slice(0, 200)}` : null)),
+    o: { ...SPC, afterPins: () => { fs.renameSync(`${WEB}/docs`, `${WEB}/docs-was`); fs.symlinkSync(`${WEB}/mine`, `${WEB}/docs`) } },
+    after: () => { fs.rmSync(`${WEB}/docs`); fs.renameSync(`${WEB}/docs-was`, `${WEB}/docs`); return null } },
+  // a writable folder the view gave already, inside an opened one (projects/mix/w): pinned too
+  { id: 'S18b', what: 'shared project chat: the writable sub-folder of an opened folder swapped for a link to the hidden folder stops the command (QA TC-4945 re-review)', cmd: 'echo RAN; cat w/pay.md; echo x > w/planted; true',
+    check: both(noAsker, (r) => (r.out.includes('RAN') ? `the command ran: ${r.out.slice(0, 200)}` : r.code !== 97 || !r.out.includes('a folder changed while it started') ? `not stopped by the guard (exit ${r.code}): ${r.out.slice(0, 200)}` : null)),
+    o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] }, afterPins: () => { fs.renameSync(`${TEAM}/projects/mix/w`, `${TEAM}/projects/mix/w-was`); fs.symlinkSync(`${TEAM}/projects/mix/hid`, `${TEAM}/projects/mix/w`) } },
+    after: () => {
+      const planted = fs.existsSync(`${TEAM}/projects/mix/hid/planted`)
+      fs.rmSync(`${TEAM}/projects/mix/w`); fs.renameSync(`${TEAM}/projects/mix/w-was`, `${TEAM}/projects/mix/w`)
+      return planted ? 'the hidden folder was written through the link' : null
+    } },
+  // a bare repository beside the hidden folder (web.git/): not given either
+  { id: 'S19', what: 'shared project chat: a bare git repository in a folder that holds a hidden one is not there (QA TC-4945 re-review)', cmd: 'echo LS: $(ls -A); git --git-dir=mix.git log --stat 2>&1 | head; true',
+    check: both(ok, noAsker, (r) => (/^LS:.*\bmix\.git\b/m.test(r.out) || /hid\/pay\.md/.test(r.out) ? `the bare repository is there: ${r.out.slice(0, 300)}` : null)),
+    o: { shared: { chat: SP, within: 'projects/mix', audience: [ALICE, DAVE] } } },
+  { id: 'S10', what: 'chat shared with people: the work folder writes; folders everyone in the chat may open read; HOME is the chat\'s', cmd: `pwd && echo w > w.txt && cat w.txt && cat ${TEAM}/shared/s.md && cat ${TEAM}/skills/rules.md && cat ${TEAM}/groups/marketing/brief.md && echo HOME=$HOME && echo WORK=$TRINA_WORK`,
+    check: both(ok, has(SW_WORK), has('shared text'), has('skills text'), has('marketing brief'), has(`HOME=${chatHome(BASE, SW)}/attack`), has(`WORK=${SW_WORK}\n`), noAsker), o: SWC,
+    after: () => (!fs.existsSync(path.join(SW_WORK, 'w.txt')) ? 'w.txt is not in the work folder' : fs.existsSync(path.join(chatWork(BASE, SW), 'w.txt')) ? 'w.txt went into the private work folder' : null) },
+  { id: 'S11', what: 'chat shared with people: alice\'s own folder, the chat\'s private work folder and one of an earlier audience, a project erin may not open, a folder limited inside the group, another group, .system, other chats, alice\'s home', cmd: `cat ${TEAM}/users/alice/key.txt; cat ${TEAM}/users/alice/todo.md; ls -A ${TEAM}/users; cat ${TEAM}/projects/one/readme.md; cat ${TEAM}/projects/web/index.html; cat ${TEAM}/projects/web/mine/secret.md; cat ${TEAM}/groups/marketing/salaries/2026.md; cat ${TEAM}/groups/finance/budget.md; cat ${TEAM}/.system/history/old.bin; cat ${chatWork(BASE, 'chat-2')}/x; cat ${chatWork(BASE, SO)}/x; cat ${chatWork(BASE, SW)}/x; cat ${sharedWork(BASE, SW, sharedWorkKey([ME]))}/x; cat x; ls -A ${devenvPaths(BASE).workShared}/${SW}; cat ${personHome(BASE, ME)}/.netrc; cat ${personLogs(BASE, ME)}/job.log; ln -s ${TEAM}/users/alice/key.txt l1; cat l1; ln ${TEAM}/users/alice/key.txt l2; cat l2; true`,
+    check: both(ok, noAsker, (r) => (r.out.includes('hello from p1') || r.out.includes('web index') ? 'a project erin may not open came back' : null)), o: SWC },
+  { id: 'S12', what: 'chat shared with people: the shared folders, her group folder and her own folder are read-only', cmd: `echo x >> ${TEAM}/shared/s.md || echo x > ${TEAM}/shared/new2.md || echo x >> ${TEAM}/groups/marketing/brief.md || echo evil > ${TEAM}/shared/repo/.git/hooks/pre-commit || echo '{}' > ${TEAM}/shared/repo/package.json || mkdir ${TEAM}/shared/dir2 || echo x > ${TEAM}/users/alice/z2.md`, check: failsQuietly, o: SWC,
+    after: () => (fs.readFileSync(`${TEAM}/shared/s.md`, 'utf8') !== 'shared text\n' || fs.existsSync(`${TEAM}/shared/new2.md`) || fs.readFileSync(`${TEAM}/groups/marketing/brief.md`, 'utf8') !== 'marketing brief\n' || fs.existsSync(`${TEAM}/shared/dir2`) || fs.existsSync(`${TEAM}/users/alice/z2.md`) || fs.readFileSync(`${TEAM}/shared/repo/package.json`, 'utf8') === '{}\n' ? 'a team folder changed' : gitChanged('shared/repo')) },
+  { id: 'S14', what: 'shared project chat: the parent of TMPDIR (devenv/rt) and another run\'s temp folder there: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SPC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14b', what: 'chat shared with people: the parent of TMPDIR and another run\'s temp folder: not listed, not read, not written', cmd: `echo SELF: $(basename $TMPDIR); echo FSTYPE: $(stat -f -c %T $(dirname $TMPDIR)); echo PARENT: $(ls -A $(dirname $TMPDIR) 2>/dev/null); ls -A ${devenvPaths(BASE).runTmp}; cat ${RT_SIB}/marker; touch ${RT_SIB}/t && echo TOUCHED-SIB; mkdir ${RT_SIB}/d && echo TOUCHED-SIB; touch $(dirname $TMPDIR)/p && echo TOUCHED-PARENT; mkdir $(dirname $TMPDIR)/newrun && echo TOUCHED-PARENT; true`,
+    check: both(ok, (r) => (/TOUCHED-SIB/.test(r.out) ? `the sibling temp folder was written: ${r.out.slice(0, 300)}` : null),
+      // srt shows the way to its own temp folder as a folder of the sandbox only: a write there must reach no disk (after)
+      (r) => (/TOUCHED-PARENT/.test(r.out) && !/^FSTYPE: tmpfs$/m.test(r.out) ? `the parent of TMPDIR is writable and not the sandbox's tmpfs: ${r.out.slice(0, 300)}` : null), (r) => {
+      const line = (k: string) => (r.out.split('\n').find((l) => l.startsWith(k + ':')) ?? '').slice(k.length + 1).trim().split(/\s+/).filter(Boolean)
+      // only the path to its own temp folder (srt shows the folders on the way to an allowed one), never another run's
+      const self = line('SELF')[0] ?? '', bad = line('PARENT').filter((x) => x !== self)
+      return bad.length ? `the parent of TMPDIR lists: ${r.out.slice(0, 300)}` : null
+    }), o: SWC,
+    after: () => (fs.existsSync(path.join(RT_SIB, 't')) || fs.existsSync(path.join(RT_SIB, 'd')) ? 'the sibling temp folder was written' : fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'p')) || fs.existsSync(path.join(devenvPaths(BASE).runTmp, 'newrun')) ? 'the parent of TMPDIR was written' : fs.readFileSync(path.join(RT_SIB, 'marker'), 'utf8') !== `${CANARY}-rt-sibling` ? 'the marker changed' : null) },
+  { id: 'S14', what: 'chat shared with people: a folder of her group only alice may open, and a limited one nobody may, are not even listed (QA TC-4929)', cmd: `ls -A ${TEAM}/groups/marketing; ls -A ${TEAM}/shared; ls -A ${TEAM}; cat ${TEAM}/groups/marketing/hr-alicealone/pay.md; true`,
+    check: both(ok, noAsker, has('brief.md'), has('s.md'), (r) => (/hr-alicealone|hr-limited/.test(r.out) ? `a folder they may not all open is listed: ${r.out.slice(0, 300)}` : null)), o: SWC },
+  { id: 'S13', what: 'chat shared with people: no credentials and nothing of alice\'s in the environment', cmd: 'env; cat /proc/self/environ | tr "\\0" "\\n"', check: (r) => (/MYCEL_|GH_TOKEN|ANTHROPIC|\/home\/alice|\/logs\/alice/.test(r.out) ? 'the environment has a value it must not' : null), o: SWC },
+  // jobs and dev servers of shared chats (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md, QA TC-4989): a
+  // command reads the job logs of its chat's people, never those of another audience of the same chat, and writes none
+  { id: 'S16', what: 'shared project chat: $TRINA_LOGS is the folder of the chat\'s people (a job\'s log there reads); another audience\'s logs of the same chat do not, and are not listed', cmd: `echo LOGS=$TRINA_LOGS; cat $TRINA_LOGS/build.log; cat ${SP_LOGS_OTHER}/build.log; echo LIST: $(ls -A ${chatLogs(BASE, SP)} 2>&1); ls -A ${SP_LOGS_OTHER}; true`,
+    check: both(ok, has(`LOGS=${SP_LOGS}`), has('JOB-LOG-OF-THESE-PEOPLE'), (r) => (r.out.includes(path.basename(SP_LOGS_OTHER)) ? 'the other audience\'s logs folder is listed' : null)), o: SPC },
+  { id: 'S16b', what: 'shared project chat: the logs folder is read-only in a run (no planted log for the next command)', cmd: 'echo planted > $TRINA_LOGS/build.log || echo planted > $TRINA_LOGS/new.log || rm -f $TRINA_LOGS/build.log', check: failsQuietly, o: SPC,
+    after: () => (fs.readFileSync(path.join(SP_LOGS, 'build.log'), 'utf8') !== 'JOB-LOG-OF-THESE-PEOPLE\n' || fs.existsSync(path.join(SP_LOGS, 'new.log')) ? 'the logs folder changed' : null) },
+  { id: 'S16c', what: 'chat shared with people: another chat\'s job logs, and her own private runs see no shared chat\'s logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') ? 'another chat\'s job log was read' : null)), o: SWC },
+  { id: 'S16d', what: 'her own chat: no shared chat\'s job logs', cmd: `cat ${SP_LOGS}/build.log; ls -A ${devenvPaths(BASE).chatLogs}; true`, check: both(ok, (r) => (r.out.includes('JOB-LOG-OF-THESE-PEOPLE') || r.out.includes(SP) ? 'a shared chat\'s logs were seen' : null)) },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)
@@ -240,12 +505,42 @@ if (pre.code !== 0) {
 }
 console.log('pass preflight: a plain command runs through srt')
 let failed = 0
+let firstProxy = ''
+// S15 (QA TC-4928): srt's proxy login is the run's own: another run gets another one, and the first one is refused
+// there (it reaches only its own run's proxy, which ended with it)
+attacks.push({ id: 'S15', what: 'shared chat: the proxy login in a run\'s environment is per run and useless in the next run', cmd: 'echo "P=$http_proxy"', check: (r) => {
+  const first = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  if (!/^http:\/\/srt[^:]*:[0-9a-f]{32}@localhost:\d+$/.test(first)) return `no per-run proxy login in the environment: ${r.out.slice(0, 200)}`
+  firstProxy = first
+  return null
+}, o: SWC })
+attacks.push({ id: 'S15b', what: 'shared chat: the previous run\'s proxy login is another one and does not work here', cmd: 'echo "P=$http_proxy"; curl -s -m 15 -o /dev/null -w "CODE=%{http_code}" -x "@OLD_PROXY@" https://registry.npmjs.org/; true', check: (r) => {
+  const first = firstProxy
+  const now = /P=(\S+)/.exec(r.out)?.[1] ?? ''
+  const tok = (u: string) => /:([0-9a-f]{32})@/.exec(u)?.[1] ?? ''
+  if (!tok(first) || !tok(now) || tok(first) === tok(now)) return `the same proxy login in two runs: ${tok(first)} ${tok(now)}`
+  return /CODE=200/.test(r.out) ? 'the previous run\'s proxy login worked in this run' : null
+}, o: SWC })
 for (const a of attacks) {
-  const r = await run(a.cmd, a.o)
+  a.before?.()
+  // S15b uses the login S15 saw
+  const r = await run(a.id === 'S15b' ? a.cmd.replace('@OLD_PROXY@', firstProxy) : a.cmd, a.o)
   const why = (r.out.includes(CANARY) ? `canary: ${r.out.slice(r.out.indexOf(CANARY) - 40, r.out.indexOf(CANARY) + 40)}` : null) ?? a.check(r) ?? a.after?.() ?? null
   console.log(`${why ? 'FAIL' : 'pass'} ${a.id} ${a.what}${why ? `\n     ${why.replace(/\n/g, ' ')}` : ''}`)
   if (why) failed++
 }
+// L1 (QA TC-4990): with no bridge (mycel-sandbox port-bridge, started by the runner for the chat's own dev server
+// only; it needs run units, so the spike VM checks it, tests/linux/srt-vm-preview.ts P8), a dev server of one run is not
+// reachable from another run at the same time: each run has its own localhost. The run itself reaches it.
+{
+  let second: Promise<{ code: number | null; out: string }> | null = null
+  const dev = `node -e "require('http').createServer((q,s)=>s.end('DEV-OF-RUN-ONE')).listen(4555,'127.0.0.1')" & sleep 6; echo SELF=$(curl -s -m 3 http://127.0.0.1:4555/); kill %1; true`
+  const first = await run(dev, { during: () => { second = run('echo A=$(curl -s -m 3 http://127.0.0.1:4555/); echo B=$(curl -s -m 3 http://localhost:4555/); true', SWC) } })
+  const other = second ? await second : { code: null, out: '' }
+  const why = !first.out.includes('SELF=DEV-OF-RUN-ONE') ? `the run did not reach its own dev server: ${first.out.slice(0, 200)}` : other.code !== 0 ? `the second run did not run: ${other.out.slice(0, 200)}` : other.out.includes('DEV-OF-RUN-ONE') ? 'another run reached the dev server' : null
+  console.log(`${why ? 'FAIL' : 'pass'} L1 a run's dev server is not reachable from another run (each its own localhost)${why ? `\n     ${why}` : ''}`)
+  if (why) failed++
+}
 server.stop(true); us.close()
-console.log(failed ? `\n${failed} of ${attacks.length} attacks got through` : `\nall ${attacks.length} attacks held`)
+console.log(failed ? `\n${failed} of ${attacks.length + 1} attacks got through` : `\nall ${attacks.length + 1} attacks held`)
 process.exit(failed ? 1 : 0)

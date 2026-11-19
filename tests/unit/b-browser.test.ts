@@ -8,7 +8,7 @@ import { API } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { hostOf, isPrivateHost, privateIp } from '../../server/src/realtime/private-net'
 import { urlsOf } from '../../server/src/realtime/browser-tools'
-import { VISION_TURN_IMAGES } from '../../server/src/files/vision'
+import { VISION_FITTED_IMAGES, VISION_TURN_IMAGES } from '../../server/src/files/vision'
 import { hwpPluginOn } from '../lib/hwp-plugin'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 import { buildTurnContext, buildTurnPrompt, NO_BROWSER_RULE, type PromptInput } from '../../server/src/chat/prompt'
@@ -80,7 +80,7 @@ describe('browser tools', () => {
     // so a Linux CI runner does not get it
     const got = d.data.message.content.split(',')
     expect(got.includes('save_promo_video')).toBe(mp4Available(h.ctx))
-    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_folder_access,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,looking_at,make_file,merge_pdfs,move_files,move_skill,post_to_room,promo_video,read,remember,rename_file,resize_images,room_file,room_read,rooms,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_folder,share_with_person,shared_with_me,skill,skill_files,split_pdf,stamp_pdf,stop_sharing,web_fetch,who_can_open,write')
+    expect(got.filter((x: string) => x !== 'save_promo_video').join(',')).toBe('artifact,ask_user,change_folder_access,change_project_members,comment_docx,connect_service,copy_files,delete_files,edit,edit_files,edit_hwp,edit_office,edit_pdf,find_skills,forget,glob,grep,intro_deck,list,looking_at,make_file,make_zip,merge_pdfs,move_files,move_skill,post_to_room,promo_video,query_data,read,remember,rename_file,rename_files,resize_images,room_file,room_read,rooms,save_connector_file,save_room_file,save_url,schedule_create,schedule_delete,schedule_list,set_title,share_file,share_folder,share_with_person,shared_with_me,skill,skill_files,split_pdf,stamp_pdf,stop_sharing,unzip_file,web_fetch,who_can_open,write')
     const r2 = await send(fake({ echo: 'tools' }), { window: 'win-desk-gone1', client: 'desktop' })(chat.id)
     const d2 = await web.next('message.done', (f) => f.data.messageId === r2.assistantMessage.id, 20_000)
     expect(d2.data.message.content).not.toContain('navigate')
@@ -201,16 +201,18 @@ describe('browser tools', () => {
         expect(m.steps.find((s) => s.tool === 'computer')!.images?.length).toBe(1)
       } finally { h.ctx.db.query("DELETE FROM settings WHERE key = 'aiVision'").run() }
     } finally { stop() }
-    // the per-turn budget (40 images): screenshots past it get the note in their place, once per call. A batch result
-    // holds at most 20 images: the first two batches use the budget up, the third gets the note
+    // the per-turn budget: this turn's requests pass the model proxy, which fits each request's pictures
+    // (proxy/fit-images.ts), so screenshots go on past what one request may hold (VISION_TURN_IMAGES, the cap of a turn
+    // the proxy does not fit) up to the safety cap. A batch result holds at most 20 images: six batches give 120
     const stopMany = serve(desk, (c) => ({ callId: c.callId, ok: true, content: Array.from({ length: 20 }, () => ({ type: 'image', mime: 'image/png', data: PNG })) }))
     try {
       const batch = (say: boolean) => ({ tool: 'browser_batch', args: { actions: [{ name: 'computer', input: { action: 'screenshot' } }] }, inspectImages: true, sayResult: say })
-      const [first, third] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
+      const [first, sixth] = (await ask(batch(true), { say: ' | ' }, batch(false), batch(false), batch(false), batch(false), batch(true))).content.split(' | ').map((x) => JSON.parse(x))
       expect(first.images).toHaveLength(20)
-      expect(VISION_TURN_IMAGES).toBe(40)
-      expect(third.images).toEqual([])
-      expect(third.text.match(/image limit/g)).toHaveLength(1)
+      expect(VISION_TURN_IMAGES).toBe(90)
+      expect(VISION_FITTED_IMAGES).toBeGreaterThan(120)
+      expect(sixth.images).toHaveLength(20)
+      expect(sixth.text).not.toContain('as many as one answer can hold')
     } finally { stopMany() }
   })
 

@@ -242,6 +242,42 @@ describe('the look through Documents, Desktop and Downloads', () => {
       expect(f.calls.some((c) => c.startsWith('identity'))).toBe(false)
     })
 
+    // Windows QA of 0.5.16: a link entry whose lstat never answered ended the whole walk of a picked share at once
+    test('on a share a link entry whose lstat never answers is skipped (cut), never entered or listed; the second call that never answers ends the walk', async () => {
+      const hangs = (names: string[]) => (f: ReturnType<typeof fakeFs>): WorkFs => {
+        const fs = reparse(f, marks, { Plain: HOME })
+        return { ...fs, lstat: (q) => (names.includes(q.split(/[\\/]/).pop()!) ? new Promise(() => {}) : fs.lstat(q)) }
+      }
+      const run = async (fs: (f: ReturnType<typeof fakeFs>) => WorkFs, root: WorkRoot = SHARE, serial = true) => {
+        const f = shareTree()
+        const local = fakeFs({ 'D:': dir({ Work: tree() }) })
+        const r = await scanRoots([root], fs(root === SHARE ? f : local), opts({ platform: 'win32', ...(serial ? { serial: true } : {}), guard: async () => [HOME, DRIVE] }))
+        return { names: r.files.map((x) => x.name).sort(), entered: entered(root === SHARE ? f : local), cut: r.roots[0]!.cut }
+      }
+      // one hung link: skipped and the root cut; the rest of the share is walked as when it answers (a link is never entered)
+      expect(await run(hangs(['Junction']))).toEqual({ names: ['Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Mount', 'Sales', 'Team'], cut: true })
+      // two hung reparse entries: the second ends the walk and no call follows, not even the lstat of the documents listed
+      // before it (each hung call may hold one of the system's file threads)
+      const two = await run(hangs(['Back', 'Junction']))
+      expect(two).toMatchObject({ names: [], entered: ['Team'], cut: true })
+      // a hung link, then a hung folder date, on a share: the date is the second and ends the walk there
+      const linkThenDate = await run((f) => {
+        const fs = hangs(['Junction'])(f)
+        return { ...fs, lstat: (q) => (q.endsWith('Sales') ? new Promise(() => {}) : fs.lstat(q)) }
+      })
+      expect(linkThenDate).toMatchObject({ entered: ['Team'], cut: true })
+      // a link whose lstat answers late (after the cap) stops counting: two such entries do not end the walk
+      const slow = await run((f) => {
+        const fs = reparse(f, marks, { Plain: HOME })
+        return { ...fs, lstat: (q) => (/(Back|Junction)$/.test(q) ? new Promise<WorkStat>((ok) => setTimeout(ok, 1700)).then(() => fs.lstat(q)) : fs.lstat(q)) }
+      })
+      expect(slow).toEqual({ names: ['Team.docx', 'other volume.pdf', 'quote.xlsx'], entered: ['Mount', 'Sales', 'Team'], cut: true })
+      // a hung entry whose lstat would have said "folder" is not entered either: what it is was never told
+      expect((await run(hangs(['Mount']))).entered).not.toContain('Mount')
+      // a local pick skips it as before
+      expect((await run(hangs(['Junction']), { id: 'folder', path: 'D:\\Work', oneDrive: false }, false)).names).toContain('quote.xlsx')
+    }, 15_000)
+
     test('a local folder enters one when its real path is its own and it is not home, a folder above it or a system folder', async () => {
       const local = () => fakeFs({ 'D:': dir({ Work: tree() }) })
       const root: WorkRoot = { id: 'folder', path: 'D:\\Work', oneDrive: false }
@@ -723,6 +759,33 @@ describe('owner 2026-11-15: "they\'re work files, but it only brought really use
   hung({ serial: false, listHangs: true })
   hung({ serial: true, listHangs: false })
 
+  // Windows QA of 0.5.16: a folder whose listing never answered while its date did held the walk for the whole root time
+  const listHung = (serial: boolean) => test(`a folder whose listing never answers (its date does) is skipped after a short wait; its siblings' files come back; a second ends the walk (${serial ? 'one call at a time' : 'in parallel'})`, async () => {
+    const subs = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`Folder ${i}`, dir({ [`Doc ${i}.pdf`]: file(5000) }, Date.UTC(2026, 9, 1 + i))]))
+    const picked: WorkRoot = { id: 'documents', path: '/Users/alex/Picked', oneDrive: false }
+    const run = async (hang: string[]) => {
+      const f = fakeFs(home({ Picked: dir({ ...subs, 'top.pdf': file(5000) }) }))
+      const fs: WorkFs = { ...f.fs, readdir: (q, max) => (hang.some((h) => q.endsWith(`/${h}`)) ? new Promise(() => {}) : f.fs.readdir(q, max)) }
+      const t0 = Date.now()
+      const r = await lookRoots([picked], fs, { platform: 'darwin', newId: () => `id${n++}`, index: async () => null, deadline: Date.now() + 10_000, ...(serial ? { serial: true } : {}) })
+      return { ms: Date.now() - t0, r, listed: f.calls.filter((c) => c.startsWith('readdir /Users/alex/Picked/')) }
+    }
+    // one: skipped (cut) after a few seconds, not the folder's 10 s; every sibling is listed
+    const one = await run(['Folder 7'])
+    expect(one.ms).toBeLessThan(6000)
+    expect(one.r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+    expect(one.r.files.map((x) => x.name).sort()).toEqual(['top.pdf', ...Array.from({ length: 12 }, (_, i) => `Doc ${i}.pdf`).filter((x) => x !== 'Doc 7.pdf')].sort())
+    // two (newest first: Folder 11 hangs first, then Folder 8): the walk ends at the second, with what it found
+    const two = await run(['Folder 11', 'Folder 8'])
+    expect(two.ms).toBeLessThan(9000)
+    expect(two.r.roots[0]).toMatchObject({ state: 'ok', cut: true })
+    // (a hung listing is not logged by the fake) nothing after Folder 8 is listed
+    expect(two.listed).toEqual(['readdir /Users/alex/Picked/Folder 10', 'readdir /Users/alex/Picked/Folder 9'])
+    expect(two.r.files.map((x) => x.name).sort()).toEqual(['Doc 10.pdf', 'Doc 9.pdf', 'top.pdf'])
+  }, 20_000)
+  listHung(false)
+  listHung(true)
+
   test('a walked folder\'s files opened lately (Spotlight, the recent lists) join the walk even when it was cut; a tiny note is listed for search', async () => {
     const NOW = Date.UTC(2026, 10, 15)
     const many = Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`x${i}.mp4`, file()]))
@@ -1009,6 +1072,12 @@ describe('MAN-057, second look (2026-11-17): a big Documents left the quotes out
     const pick = ctl.slice(ctl.indexOf('async pickFolder('), ctl.indexOf('private async consent('))
     expect(pick).toContain('if (!this.sessions.has(origin)) return { state: \'cancelled\' }')
     expect(pick).toContain('opensHome(realPicked, FOLDER_SYSTEM, process.platform, { shares: true })')
+    // a device path as picked is refused before realpath drops its prefix (here and in "Choose it yourself")
+    expect(pick.indexOf('isDevicePath(picked, process.platform)')).toBeGreaterThan(0)
+    expect(pick.indexOf('isDevicePath(picked, process.platform)')).toBeLessThan(pick.indexOf('await realpath(picked)'))
+    const pickRoot = ctl.slice(ctl.indexOf('async pickRoot('), ctl.indexOf('async pickFolder('))
+    expect(pickRoot.indexOf('isDevicePath(picked, process.platform)')).toBeGreaterThan(0)
+    expect(pickRoot.indexOf('isDevicePath(picked, process.platform)')).toBeLessThan(pickRoot.indexOf('realpath(picked)'))
     // the picked folder's walk lets the same share through, and a share is looked at one call at a time
     expect(ctl).toContain('allowed: async (root) => !(await opensHome(root.path, FOLDER_SYSTEM, process.platform, { shares: true })),')
     expect(pick).toContain("realPicked.startsWith('\\\\\\\\')")

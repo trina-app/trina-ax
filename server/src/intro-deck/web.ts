@@ -13,7 +13,8 @@ import { inWebScope, webScope } from '../onboarding/draft'
 import { redirectGuard } from '../tools/connection-urls'
 import { egressOf } from '../tools/egress'
 import { TEXT as GATE_TEXT } from '../tools/url-gate'
-import { webFetch, wrapExternal, type FetchOptions } from '../tools/web-fetch'
+import { acceptLanguage, webFetch, wrapExternal, type FetchOptions } from '../tools/web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { auditUrl } from '../tools/audit-url'
 
 export interface WebPart { url: string; label: string; text: string; kind: 'page' | 'article'; title?: string }
@@ -80,7 +81,7 @@ async function fetchText(ctx: AppContext, t: ToolCtx, url: string, inScope: ((u:
       declined: 'the page was not read',
     })
     const r = await webFetch(url, {
-      ...o.fetch, blockedIps: () => egressOf(ctx).ips, maxChars: WEB_TEXT_MAX, pdftotext: ctx.engineConfig.pdftotext, keepHtml: true,
+      acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)), ...o.fetch, blockedIps: () => egressOf(ctx).ips, maxChars: WEB_TEXT_MAX, pdftotext: ctx.engineConfig.pdftotext, keepHtml: true,
       onRedirect: async (next: string) => { if (inScope && !inScope(next)) throw new Error('off site'); await echo.check(next) },
     })
     return { url: r.url, title: r.title, text: r.text.slice(0, WEB_TEXT_MAX), html: r.html }

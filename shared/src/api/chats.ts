@@ -1,12 +1,11 @@
 // Chats, messages, turn control, projects, ask_user answers. Owner: B (server/src/routes/chats.ts).
 import { z } from 'zod'
-import { Uuid7 } from '../ids'
+import { UserId, Uuid7 } from '../ids'
 import { Access, EngineId, IsoTime, PageQuery, QueryBool, RelPath, page } from './common'
 import { endpoint, empty, stream } from './endpoint'
 import { SealedSecret } from './credentials'
-import { AudienceSplit, Chat, ChatThreadReply, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
-import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
-import { oneLineName } from '../name-chars'
+import { AudienceSplit, Chat, ChatThreadReply, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, Message, MessageSources, Project, SubjectType, UserRef } from './entities'
+import { ANSWER_NOTE_MAX, AnswerShareConfirm, AnswerSharePlace, ROOM_FILES_MAX, ROOM_MENTIONS_MAX, ROOM_MESSAGE_MAX, RoomMessage } from './rooms'
 import { IntegrationStatus } from './integrations'
 import { TurnRequest } from './ws'
 
@@ -45,8 +44,6 @@ export type ShareAnswerToRoomResult = z.infer<typeof ShareAnswerToRoomResult>
 export const CHAT_THREAD_REPLY_MAX = ROOM_MESSAGE_MAX
 /** at most this many replies under one answer (409 thread_full) */
 export const CHAT_THREAD_MAX = 500
-/** "Send to Trina" quotes at most this much of a thread into the chat's box (the side chat's quote cap), newest kept */
-export const CHAT_THREAD_DRAFT_MAX = 4000
 export const ListChatThreadQuery = PageQuery
 /** Why I can read a thread but not reply: safe operations are on (or the chat is confidential), the chat is in the
  * trash, or it is not shared any more (its creator still reads it). */
@@ -65,66 +62,20 @@ export const ChatThreadPage = z.object({
   onShownBranch: z.boolean(),
   /** the thread holds CHAT_THREAD_MAX replies: no more */
   full: z.boolean(),
+  /** who the reply box may mention ("@"): the people who see this thread now (the chat's audience and the answer not
+   * hidden from them), never me. Only while I may reply. Older servers omit it (no mentions) */
+  people: z.array(UserRef).optional(),
 })
 export type ChatThreadPage = z.infer<typeof ChatThreadPage>
 export const SendChatThreadReplyBody = z.object({
   text: z.string().max(CHAT_THREAD_REPLY_MAX).refine((t) => t.trim().length > 0, { message: 'empty reply' }),
   /** client-made id: sending the same one again returns the first reply */
   clientId: z.string().min(8).max(64),
+  /** the people picked with "@" (ids). The server keeps only those who see the thread now, never the sender */
+  mentions: z.array(UserId).max(ROOM_MENTIONS_MAX).optional(),
 }).strict()
 /** the newest reply I have read (one of the thread's) */
 export const MarkChatThreadReadBody = z.object({ upTo: Uuid7 }).strict()
-
-/** One reply as "Send to Trina" quotes it. */
-export interface ChatThreadDraftReply { name: string; at: string; text: string }
-/**
- * What "Send to Trina" puts in the chat's box: the thread as a Markdown quote, every line starting with "> " (the
- * server reads quote lines as other people's words: chat/read-rooms.ts isQuoteLine, chat/project-members.ts ownWords),
- * names and the header made one line (a name with a line break would end the quote), the newest replies kept within
- * CHAT_THREAD_DRAFT_MAX characters with `cut` on top when older ones were left out, then an empty line for the
- * presser's own words. The answer's text is never quoted (it may be hidden from someone; the AI has it already).
- * `head`: the header line's words ("Thread on Trina's answer · 2:10 PM · 4 replies"); `time`: a reply's time as shown.
- */
-export function chatThreadDraft(replies: readonly ChatThreadDraftReply[], o: { head: string; cut: string; time: (iso: string) => string; max?: number }): string {
-  const max = o.max ?? CHAT_THREAD_DRAFT_MAX
-  const q = (l: string) => `> ${l}`.trimEnd()
-  const head = q(oneLineName(o.head))
-  const blocks: string[] = []
-  let size = head.length + 1
-  let cut = false
-  for (let i = replies.length - 1; i >= 0; i--) {
-    const r = replies[i]!
-    const lines = [q(oneLineName(`${r.name} · ${o.time(r.at)}`)), ...r.text.split(/\r\n|[\n\r\u2028\u2029\u0085\v\f]/).map(q)]
-    let block = lines.join('\n')
-    if (size + block.length + 1 > max) {
-      // the newest reply alone does not fit (QA TC-3786): it goes in cut to the room left, its end marked "…", so the
-      // draft is never just the header; an older one that does not fit is left out
-      if (!blocks.length) {
-        const room = max - size - 1 - (q(oneLineName(o.cut)).length + 1) - 1
-        if (room > lines[0]!.length + 3) {
-          // (never half of a character: a cut that ends on a high surrogate drops it)
-          block = `${block.slice(0, room).replace(/[\uD800-\uDBFF]$/, '').replace(/\n>?$/, '').trimEnd()}…`
-          blocks.unshift(block)
-          size += block.length + 1
-        }
-        // older replies left out: the line says so (none older: only the newest, cut)
-        cut = i > 0 || !blocks.length
-        break
-      }
-      cut = true
-      break
-    }
-    blocks.unshift(block)
-    size += block.length + 1
-  }
-  // the line that says older ones were left out takes room too: the oldest kept go until it fits
-  const cutLine = q(oneLineName(o.cut))
-  if (cut) {
-    size += cutLine.length + 1
-    while (blocks.length && size > max) size -= blocks.shift()!.length + 1
-  }
-  return [head, ...(cut ? [cutLine] : []), ...blocks].join('\n') + '\n\n'
-}
 
 // ---------------- an existing chat shared with its project's members ("프로젝트 멤버와 공유") ----------------
 export const ShareChatBody = z.object({
@@ -295,12 +246,22 @@ export const MessagesPage = page(Message)
  * (the team's time zone is used), not refused. */
 export const TurnTimeZone = z.string().max(64).optional()
 
+/** PUT /api/chats/:id/waiting: how many of my messages wait in this shared chat for the running answer to end (0: none
+ * any more, or they are paused). Said again every 15 s while they wait; the server lets the one who waited longest send
+ * first (docs/decisions/20261118-shared-chat-queued-sends.md). Never the text. */
+export const PutChatWaitingBody = z.object({ count: z.number().int().min(0).max(50) })
+export type PutChatWaitingBody = z.infer<typeof PutChatWaitingBody>
+
 export const SendMessageBody = z.object({
-  content: z.string().max(200_000),
+  content: z.string().max(MESSAGE_TEXT_MAX),
   /** uploaded via POST /api/uploads or an upload session with target attachment */
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   /** message to answer under; default: the chat's active leaf */
   parentId: Uuid7.nullable().optional(),
+  /** without parentId: answer under the newest end of the branch through this message (a shared chat's waiting
+   * message: the end its sender last saw; turns that came since are kept, another version someone switched to is not
+   * where it lands) */
+  after: Uuid7.optional(),
   /** only for people who may pick the engine (Me.user.canChooseEngine); anyone else naming another engine or model
    * than the chat's gets 403 */
   engine: EngineId.optional(),
@@ -339,8 +300,8 @@ export const RegenerateBody = z.object({
 /** Edit a user message: adds a sibling user message (same parent) and answers it. Team-folder file changes of the
  * old branch are NOT undone (the UI says so). */
 export const EditMessageBody = z.object({
-  content: z.string().min(1).max(200_000),
-  attachmentIds: z.array(Uuid7).max(20).default([]),
+  content: z.string().min(1).max(MESSAGE_TEXT_MAX),
+  attachmentIds: z.array(Uuid7).max(MESSAGE_ATTACHMENTS_MAX).default([]),
   engine: EngineId.optional(),
   model: z.string().max(100).nullable().optional(),
   clientMessageId: z.string().min(8).max(64),
@@ -691,6 +652,7 @@ export const CHATS = {
   markChatSeen: endpoint({ method: 'POST', path: '/api/chats/:id/seen', auth: 'user', owner: 'B', response: Chat, summary: 'I have this own chat on screen: its finished answers are seen (Chat.unseen goes away in every window and device).' }),
   listMessages: endpoint({ method: 'GET', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', query: ListMessagesQuery, response: MessagesPage, summary: 'Active branch of the conversation, paged backwards.' }),
   sendMessage: endpoint({ method: 'POST', path: '/api/chats/:id/messages', auth: 'user', owner: 'B', status: 202, body: SendMessageBody, response: TurnStarted, summary: 'Save the message, create the empty answer, queue the turn. Send the X-Mycel-Window header so browser tools reach this window.' }),
+  putChatWaiting: endpoint({ method: 'PUT', path: '/api/chats/:id/waiting', auth: 'user', owner: 'B', body: PutChatWaitingBody, response: empty, status: 204, summary: 'A shared chat I may continue: how many of my messages wait there for the running answer to end (0: none). The server keeps it in memory for 45 s after the last call; a send there while someone else has waited longer is refused (409 shared_chat_next, naming nobody); a first place whose holder does not send within 12 s of holding someone back goes to the back of the line. The others see only how many other people wait (Chat.shared.waiting), told when someone starts or stops waiting. At most 30 a minute per person and chat (429). A chat of one person: nothing kept.' }),
   stop: endpoint({ method: 'POST', path: '/api/chats/:id/stop', auth: 'user', owner: 'B', response: StopResponse, summary: 'Stop the running or queued turn of this chat (a shared chat: only the person whose turn it is).' }),
   shareAnswerToRoom: endpoint({ method: 'POST', path: '/api/chats/:id/messages/:messageId/share-to-room', auth: 'user', owner: 'B', body: ShareAnswerToRoomBody, response: ShareAnswerToRoomResult, summary: 'Post a finished answer of my own AI chat to a room I am in, as my message (my note, then the answer as a quote), or as a reply in a message\'s thread there (threadRootId: a room\'s side chat). When some member cannot open a file it links to, or it carries content from material some cannot see, it first answers "confirm": a row per linked file and one provenance line, as counts and places I may look myself (never who), with a confirmKey; sent again with that key it posts, attaching the linked files asked for (attach). Older clients: confirm = the number of people. Rate-limited and notified like any message; audited. The AI\'s post_to_room tool (the person\'s own chat, after their yes on one server card) goes through the same checks and is audited with via ai.' }),
   shareChat: endpoint({ method: 'POST', path: '/api/chats/:id/share', auth: 'user', owner: 'B', body: ShareChatBody, response: ShareChatResult, summary: 'Share my private chat with its project\'s members (a team project that shares its chats). First a check of every branch: when its answers carry content from material some of them cannot see, or may have used my personal memories (or with ask), it answers "confirm" (how many, the places I may look myself, never who) with a confirmKey; sent again with that key it shares. Never undone. 409 with reason project_not_sharing, project_personal, project_in_trash, safe_ops, already_shared, scheduled_run, chat_busy or share_hidden. Rate-limited like a room message; audited.' }),
@@ -712,6 +674,7 @@ export const CHATS = {
   listTurnRequests: endpoint({ method: 'GET', path: '/api/chats/:id/requests', auth: 'user', owner: 'B', response: z.object({ items: z.array(OpenTurnRequest) }), summary: 'Open ask_user / browser site cards of the running turn of this chat.' }),
   // here, not in rooms.ts: ws.ts (TurnRequest) and this file import rooms.ts
   connectTurn: endpoint({ method: 'POST', path: '/api/turns/:id/connect', auth: 'user', owner: 'B', body: TurnConnectBody, response: TurnConnectResult, summary: 'Finish a connect_service card: add the connection with a sealed key, after a sign-in, or skip' }),
+  turnRequestDetail: endpoint({ method: 'GET', path: '/api/turns/:id/requests/:requestId/details/:index', auth: 'user', owner: 'B', response: z.object({ text: z.string() }), summary: 'The whole text of a card detail that the card carries only the start of (ConfirmDetail.fullChars), of an own open card.' }),
   answerTurn: endpoint({ method: 'POST', path: '/api/turns/:id/answer', auth: 'user', owner: 'B', body: TurnAnswerBody, response: empty, status: 204, summary: 'Answer an ask_user card or a browser site confirmation of an own running turn.' }),
 
   listProjects: endpoint({ method: 'GET', path: '/api/projects', auth: 'user', owner: 'B', query: ProjectsQuery, response: z.object({ items: z.array(Project) }), summary: 'Projects whose folder the caller can read; manage=1 (the owner and admins): also the team projects they manage without being a member, without their contents; and for everyone the team projects in the trash they are a member of (name and state only).' }),

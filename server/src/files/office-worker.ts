@@ -4,22 +4,63 @@
 // can only take this process down, not the server. The bundles ship it built to one self-contained file next to
 // main.js (scripts/build-bundle.ts, scripts/build-office.ts); a dev server builds it on first use.
 //
+// `data-query` (files/data-query.ts, query_data): the request on stdin, the data files and the results in the work folder
+// (its cwd), the answer as JSON on stdout.
 // Protocol: exit 0 = stdout is the text (a write mode, `hwpx-write`: the file's bytes); exit 3 = stderr is a
 // ToolError message to show as it is; anything else = the worker failed.
+import fs from 'node:fs'
 import { EXTRA_MODES, officeText, officeWrite, TOOL_ERROR_EXIT, WORKER_EXT, WRITE_MODES } from './office-parse'
 import { ToolError } from '../policy/errors'
+import type { SheetAsk } from './sheet-stream'
+import { DATA_QUERY_MODE, dataQueryRequest } from './data-query'
+
+/**
+ * The whole of stdin, read a MiB at a time into one buffer of the size extract.ts gives (INPUT_BYTES), else a growing
+ * one. Bun.stdin.arrayBuffer() on a pipe peaked at 570 MB for a 200 MB file (measured 2026-11-18), this at 234 MB.
+ */
+async function readStdin(size: number): Promise<Uint8Array> {
+  let out = Buffer.allocUnsafe(size > 0 ? size : 1 << 20)
+  const piece = Buffer.allocUnsafe(1 << 20)
+  let at = 0
+  for (;;) {
+    const n = await new Promise<number>((ok, no) => fs.read(0, piece, 0, piece.length, null, (e, got) => (e ? no(e) : ok(got))))
+    if (n === 0) break
+    if (at + n > out.length) { const grown = Buffer.allocUnsafe(Math.max(out.length * 2, at + n)); out.copy(grown, 0, 0, at); out = grown }
+    piece.copy(out, at, 0, n)
+    at += n
+  }
+  return new Uint8Array(out.buffer, out.byteOffset, at)
+}
+
+/**
+ * All of `b` to stdout before the worker exits. Bun.write(Bun.stdout, …) on a pipe could resolve after part of a
+ * large answer (64 KB of a 2 MB overview, then process.exit cut the rest) or spin (measured 2026-11-18, Bun 1.3.12):
+ * written here a MiB at a time, waiting while the pipe is full.
+ */
+async function writeStdout(b: Uint8Array): Promise<void> {
+  let at = 0
+  while (at < b.length) {
+    try { at += fs.writeSync(1, b, at, Math.min(1 << 20, b.length - at)) } catch (e) {
+      if ((e as { code?: string }).code !== 'EAGAIN') throw e
+      await Bun.sleep(1)
+    }
+  }
+}
 
 async function main() {
   const ext = process.argv[2] ?? ''
-  if (!WORKER_EXT.has(ext) && !EXTRA_MODES.has(ext) && !WRITE_MODES.has(ext)) { process.stderr.write(`unknown format ${ext}\n`); process.exit(2) }
-  const bytes = new Uint8Array(await Bun.stdin.arrayBuffer())
+  if (!WORKER_EXT.has(ext) && !EXTRA_MODES.has(ext) && !WRITE_MODES.has(ext) && ext !== DATA_QUERY_MODE) { process.stderr.write(`unknown format ${ext}\n`); process.exit(2) }
+  // a spreadsheet's sheet and range (read's `sheet` / `range`, extract.ts officeWorkerText), as JSON
+  let ask: SheetAsk | undefined
+  try { const a = process.argv[3] ? JSON.parse(process.argv[3]) : undefined; if (a && typeof a === 'object') ask = { sheet: typeof a.sheet === 'string' ? a.sheet : undefined, range: typeof a.range === 'string' ? a.range : undefined } } catch {}
+  const bytes = await readStdin(Number(process.env.INPUT_BYTES) || 0)
   let out: string | Uint8Array
-  try { out = WRITE_MODES.has(ext) ? await officeWrite(ext, bytes) : officeText(ext, bytes) } catch (e) {
+  try { out = ext === DATA_QUERY_MODE ? dataQueryRequest(bytes) : WRITE_MODES.has(ext) ? await officeWrite(ext, bytes) : await officeText(ext, bytes, ask) } catch (e) {
     if (e instanceof ToolError) { process.stderr.write(e.message.slice(0, 1500)); process.exit(TOOL_ERROR_EXIT) }
     process.stderr.write(String((e as Error)?.stack ?? e).slice(0, 2000))
     process.exit(1)
   }
-  await Bun.write(Bun.stdout, out)
+  await writeStdout(typeof out === 'string' ? Buffer.from(out, 'utf8') : out)
   process.exit(0)
 }
 

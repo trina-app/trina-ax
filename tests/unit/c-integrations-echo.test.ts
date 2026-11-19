@@ -180,7 +180,7 @@ describe('a service that repeats the key, in real turns', () => {
     expect(t.text).toContain(`Location: https://svc.test/login?token=${HIDDEN}`)
     // hidden before the answer is cut for the AI: no first half of the key at the end
     const long = await direct('api_request', { connection: 'my_echo', method: 'GET', path: '/long' })
-    expect(long.text).toContain(`(cut to ${MAX_RESULT_CHARS} characters)`)
+    expect(long.text).toContain(`(characters 0-${MAX_RESULT_CHARS} of `)
     expect(long.text).toMatch(/L\[hidden key\n<\/external_data>$/)
     expect(leaked(long.text + long.summary, secrets())).toEqual([])
   })

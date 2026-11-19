@@ -129,9 +129,9 @@ export function isUncPath(path: string, platform: string): boolean {
 }
 
 /** A Windows device path (\\?\…, \\.\…): a drive, a volume or a share under another name; never a folder a person
- * picks. */
-function isDevicePath(path: string): boolean {
-  return /^[\\/]{2}[?.](?:[\\/]|$)/.test(path)
+ * picks. Checked on a pick as written too (main/work-files.ts pickFolder, pickRoot): realpath drops the prefix. */
+export function isDevicePath(path: string, platform: string): boolean {
+  return platform === 'win32' && /^[\\/]{2}[?.](?:[\\/]|$)/.test(path)
 }
 
 /**
@@ -144,7 +144,7 @@ function isDevicePath(path: string): boolean {
  */
 export function refusedShare(path: string, platform: string): boolean {
   if (platform !== 'win32' || !isUncPath(path, platform)) return false
-  if (isDevicePath(path)) return true
+  if (isDevicePath(path, platform)) return true
   const [host = '', share = ''] = path.replace(/^[\\/]+/, '').split(/[\\/]+/)
   const h = host.toLowerCase()
   // Windows drops trailing dots and spaces from a name ("C$." is C$)

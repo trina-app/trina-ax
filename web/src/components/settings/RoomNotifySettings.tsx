@@ -1,6 +1,6 @@
 // Settings › Notifications › 대화 (docs/DECISIONS.md "대화방 알림 설정"): what in the team's conversations alerts me. My
 // default for rooms without a level of their own (알림 받을 메시지), replies in threads I follow, quiet hours (방해 금지 시간,
-// in the team's time zone) and the rooms I turned off, with each one's level to change back. Each room's own level is
+// in the team's time zone), whether a "@전체" message asks first (my own preference, PATCH /api/me) and the rooms I turned off, with each one's level to change back. Each room's own level is
 // on its bell (components/rooms/RoomNotifyMenu.tsx). The rule is the server's and the sound's (shared room-alerts.ts).
 // A phone: the three levels are checkmark rows (no radio circles), like the iPhone's Settings, and a muted room's level
 // is "Off ›" at its row's end that opens a sheet with ✓ (components/phone/PhoneChoice.tsx, QA TC-378), not a select box.
@@ -9,11 +9,14 @@ import { Check } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { NotificationPreferences, QuietHours, RoomNotifyDefault, RoomNotifyLevel } from '@mycel/shared/api'
 import { QUIET_HOURS_DEFAULT } from '@mycel/shared/api'
-import { useT } from '../../i18n'
 import { messagePreviewDescKey } from '../../lib/appWording'
 import { mobileApp } from '../../lib/mobile'
 import { useRooms } from '../../store/rooms'
-import { useMeStrict } from '../../store/session'
+import { useMeStrict, useSession } from '../../store/session'
+import { toast } from '../../store/ui'
+import { errorText } from '../../lib/api'
+import { MENTION_ALL_CONFIRM } from '../../lib/rooms'
+import { useLocale, useT } from '../../i18n'
 import { inputCls, Switch, useMediaQuery } from '../ui'
 import { RoomIcon, useRoomTitle } from '../rooms/RoomIcon'
 import { roomNotify } from '../rooms/RoomNotifyMenu'
@@ -71,9 +74,26 @@ export function RoomNotifySettings({ prefs, onChange }: { prefs: NotificationPre
       {/* inside the Android app the words say its notifications do not show the first line yet (QA TC-4692) */}
       <PrefRow id="np-message-preview" title={t('notifications.messagePreview')} desc={t(messagePreviewDescKey(mobileApp()))}
         control={<Switch id="np-message-preview" external describedBy="np-message-preview-desc" checked={prefs.messagePreview !== false} onChange={(v) => onChange({ messagePreview: v })} label={t('notifications.messagePreview')} testId="notification-message-preview" />} />
+      <AskEveryoneRow />
       <QuietHoursRow quiet={prefs.quietHours ?? QUIET_HOURS_DEFAULT} onChange={(quietHours) => onChange({ quietHours })} />
       <MutedRooms />
     </PrefSection>
+  )
+}
+
+/** "Ask before notifying everyone": the question before a "@전체" message in a big room (components/rooms/RoomComposer.tsx).
+ * On is the default; "Don't ask again" on that question turns it off (prefs.mentionAllAsk, one choice for every room). */
+function AskEveryoneRow() {
+  const t = useT()
+  const locale = useLocale()
+  const on = useMeStrict().user.prefs?.mentionAllAsk !== 'off'
+  const change = (v: boolean) => {
+    // shown at once (store/session.ts); a refusal puts it back and says why
+    void useSession.getState().updatePrefs({ mentionAllAsk: v ? null : 'off' }).catch((e) => toast({ level: 'error', text: errorText(e, locale, t('error.network')) }))
+  }
+  return (
+    <PrefRow id="np-ask-everyone" title={t('notifications.askEveryone')} desc={t('notifications.askEveryoneDesc', { n: MENTION_ALL_CONFIRM })}
+      control={<Switch id="np-ask-everyone" external describedBy="np-ask-everyone-desc" checked={on} onChange={change} label={t('notifications.askEveryone')} testId="notification-ask-everyone" />} />
   )
 }
 

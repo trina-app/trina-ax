@@ -25,12 +25,13 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { makeWorkDir } from './isolate'
+import { commentDocxOutput } from './make-file-path'
 import { confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
 
 export const COMMENT_DOCX_TOOL = 'comment_docx'
 export const CommentDocxInput = z.strictObject({
-  file_path: z.string().min(1).max(1000).describe('The .docx to comment on (read it in this turn first)'),
+  file_path: z.string().min(1).max(1000).describe('The .docx to comment on (read it in this chat first)'),
   comments: z.array(z.strictObject({
     on: z.string().min(1).max(500).describe('Exact text from ONE paragraph, as read shows it, e.g. "Article 3 (Payment)": the comment goes next to that paragraph'),
     text: z.string().min(1).max(5000).describe('The comment itself'),
@@ -40,12 +41,12 @@ export const CommentDocxInput = z.strictObject({
 })
 export const COMMENT_DOCX_DESCRIPTION =
   'Add Word comments (review notes in the margin, as Review > New Comment makes them) to an existing .docx, next to the paragraph that holds ' +
-  'the given text, with the person as the author. Everything else in the file stays exactly as it was. Read the file in this turn first. ' +
+  'the given text, with the person as the author. Everything else in the file stays exactly as it was. Read the file in this chat first. ' +
   'Without `output` the result is a new version of the same file (the previous one stays in its history). Comments already in a .docx show ' +
   'when you read it. Tracked changes (suggested edits) cannot be made here: say so plainly, and offer a comment instead.'
 
 /** where an `output` saves: a .docx ("x" and "x/" save x.docx) */
-export const commentDocxOutput = (o: string) => (ext(o) === 'docx' ? o : `${o.replace(/\/+$/, '')}.docx`)
+export { commentDocxOutput }
 
 export interface CommentedDocx { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; added: DocxCommentResult['added'] }
 

@@ -453,6 +453,24 @@ describe('in a chat', () => {
   })
 })
 
+describe('room_file on a big file (limits audit 1 #23)', () => {
+  test('a 40 MB export sent in a room is read up to the read limit, not refused at 32 MB', async () => {
+    // erin makes this room: alice's own group chats are already near the 10-an-hour limit in this file
+    const roomId = await groupChat('erin', ['alice', 'carol'], 'big export')
+    const src = path.join(h.dataDir, `room-file-${uuidv7()}.csv`)
+    const row = 'id,name,amount,region,note\n'
+    fs.writeFileSync(src, 'id,name,amount,region,note\n' + `1,Acme,100,Seoul,${'x'.repeat(80)}\n`.repeat(Math.ceil((40 << 20) / 98)))
+    expect(fs.statSync(src).size).toBeGreaterThan(40 << 20)
+    const f = await roomFilesOf(h.ctx).create('erin', roomId, 'export.csv', src, 'x'.repeat(64))
+    await send('erin', roomId, 'export', { fileIds: [f.id] })
+    const chat = await newChat('alice')
+    const r = await turn('alice', chat, fake({ tool: 'room_file', args: { room: roomId, file: f.id }, sayResult: true }))
+    expect(r.done.content).not.toContain('too large')
+    expect(r.done.content).toContain(row.trim())
+    expect(r.done.content).toMatch(/read on with offset=\d+/)
+  })
+})
+
 describe('room_file on a scanned PDF', () => {
   test.skipIf(!pageRenderer)('its page comes as an image in my own chat, as a team-folder read gives it', async () => {
     const roomId = await groupChat('alice', ['erin', 'carol'], 'scan check')
@@ -516,7 +534,8 @@ describe('"#" room tokens', () => {
     expect(block).toContain('토큰 확인')
     expect(said).not.toContain('토큰 확인')
     expect(said).toContain('[#room 1] 봐봐')
-    expect(roomsSeen(chat)).toBe(1)
+    // names only (docs/decisions/20261118-dm-own-paste.md): every gate of a read room applies, no room message came in
+    expect(roomsSeen(chat)).toBe(2)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).toContain(`[#room room_id=${roomId}] 봐봐`)
     expect(historyBlock([{ role: 'user', content: `${token} 봐봐` }, { role: 'assistant', content: 'ok' }])).not.toContain('토큰 확인')
     // the AI passes the id the block gave it (the token itself never reaches it: the message says [#room 1])

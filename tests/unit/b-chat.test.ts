@@ -386,13 +386,20 @@ describe('tools', () => {
   })
 
   test('large tool results reach the engine whole (the tool socket finishes partial writes)', async () => {
-    const lines = Array.from({ length: 1900 }, (_, i) => `line ${i + 1} ` + 'x'.repeat(200))
-    fs.writeFileSync(path.join(h.team, 'users/alice/big.md'), lines.join('\n') + '\n')
-    const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'read', args: { file_path: 'users/alice/big.md' }, sayLength: true }))
-    const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
-    expect(n).toBeGreaterThan(380_000)
-    expect(r.done.content).toContain('tail=  1900\tline')
+    // a read stays under one call's budget (files/read-lines.ts), so a test tool gives the large result
+    const lines = Array.from({ length: 1900 }, (_, i) => `${String(i + 1).padStart(6)}\tline ${i + 1} ` + 'x'.repeat(200))
+    const savedTools = h.ctx.services.turnTools
+    h.ctx.services.turnTools = [{
+      name: 'web_fetch', description: 'test tool', inputSchema: { type: 'object', properties: {} },
+      async call() { return { content: [{ type: 'text', text: lines.join('\n') }] } },
+    }]
+    try {
+      const chat = await newChat()
+      const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'web_fetch', args: {}, sayLength: true }))
+      const n = Number(/length=(\d+)/.exec(r.done.content)?.[1])
+      expect(n).toBeGreaterThan(380_000)
+      expect(r.done.content).toContain('tail=  1900\tline')
+    } finally { h.ctx.services.turnTools = savedTools }
   })
 
   test('tools offered to a web turn: file tools + remember / forget / ask_user / connect_service / set_title / edit_files (+ registered tools), no browser tools', async () => {
@@ -512,8 +519,8 @@ describe('memories', () => {
 
   test('too long memories are refused; REST delete one / clear all (own only)', async () => {
     const chat = await newChat()
-    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(301) }, sayResult: true }))
-    expect(r.done.content).toContain('under 300 characters')
+    const r = await ask(h, alice, 'alice', chat.id, fake({ tool: 'remember', args: { text: 'x'.repeat(1001) }, sayResult: true }))
+    expect(r.done.content).toContain('under 1000 characters')
     h.ctx.db.query("INSERT INTO memories (id, user_id, text) VALUES (?, 'bob', 'bob secret')").run(uuidv7())
     const mine = await h.api('alice').call(API.listMemories, { query: { limit: 1 } })
     if (mine.items[0]) {
@@ -595,8 +602,11 @@ describe('instructions', () => {
 })
 
 describe('write access', () => {
-  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07)', () => {
-    expect(WRITE_ACCESS_RULE).toContain('call write or edit and let the server decide')
+  test('the AI calls write or edit and lets the server decide access (B-W4-2 / PERM-07), without narrating the rule (TC-4865)', () => {
+    expect(WRITE_ACCESS_RULE).toContain('just call write, edit or the tool that saves it')
+    expect(WRITE_ACCESS_RULE).toContain('do not mention this rule')
+    // nothing in it to paraphrase as a plan ("I should call the tool and let the server decide")
+    expect(WRITE_ACCESS_RULE).not.toMatch(/let the server decide/i)
     expect(WRITE_ACCESS_RULE).toContain('do not refuse on your own guess')
     expect(WRITE_ACCESS_RULE).toContain('do not save a copy somewhere else unless they ask')
     for (const t of [FILE_TOOLS.write, FILE_TOOLS.edit]) expect(t.description).toContain('The server checks access on each call')
@@ -618,8 +628,9 @@ describe('codex', () => {
 
 describe('long conversations', () => {
   // docs/DECISIONS.md "Long conversations: say when the AI got only the recent part"
-  const long = 'L'.repeat(41_000)
-  test('Codex gets the history every turn: past 40,000 characters the answer says the AI got only the recent part', async () => {
+  // past the window (40,000 tokens: 160,000 Latin characters), and no AI for a summary in this test server
+  const long = 'L'.repeat(170_000)
+  test('Codex gets the history every turn: past the window, with no summary, the answer says the AI got only the recent part', async () => {
     const chat = await newChat('alice', { engine: 'codex' })
     const one = await ask(h, alice, 'alice', chat.id, `${long}\n` + fake({ say: 'read it' }))
     expect(one.done.historyTrimmed).toBeUndefined()
@@ -637,7 +648,7 @@ describe('long conversations', () => {
     const two = await ask(h, alice, 'alice', chat.id, 'second\n' + fake({ echo: 'resume' }))
     expect(two.done.content).toBe('resumed=true')
     expect(two.done.historyTrimmed).toBeUndefined()
-    // edit the second message: a new branch, a fresh session with the history before it (41,000 + characters)
+    // edit the second message: a new branch, a fresh session with the history before it (170,000 + characters)
     const edited = await h.api('alice').call(API.editMessage, { params: { id: chat.id, messageId: two.started.userMessage!.id }, body: { content: 'second, edited\n' + fake({ echo: 'resume' }), clientMessageId: cm(), attachmentIds: [] } })
     const e = await alice.next('message.done', (f) => f.data.messageId === edited.assistantMessage.id, 20_000)
     expect(e.data.message.content).toBe('resumed=false')

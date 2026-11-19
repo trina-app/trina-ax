@@ -1,6 +1,6 @@
 // A team file attached to what a connected service sends (a mail's attachment): docs/decisions/
 // 20261116-mail-attach-team-file.md. A service's tool takes a file as base64 text in one of its arguments, and the AI
-// can neither read a team file's bytes nor write that much text (a write over MAX_CARD_PAYLOAD is refused). So the AI
+// can neither read a team file's bytes nor write that much text in one call. So the AI
 // gives a handle instead, `team-file:<path in the team folder>`, as the whole value where the tool wants the content,
 // and the server puts the file's base64 there:
 //   - read as the person of the turn as they are now (read permission, a regular file, not held by the safety check);
@@ -22,18 +22,22 @@ import { completeRedactorFor } from './redact'
 import { say } from './text'
 
 export const TEAM_FILE_PREFIX = 'team-file:'
-/** the files of one call together: their base64 (4/3 of it) stays well under what one mail takes (Gmail: 25 MB) */
-export const ATTACH_MAX_BYTES = 10 * 1024 * 1024
-export const ATTACH_MAX_FILES = 10
+/** the files of one call together, in megabytes as mail services count them (1 MB = 1,000,000 bytes): base64 makes
+ * 18 MB 24 MB, its line breaks (76 characters + CRLF) 24.6 MB, which with the mail's own text and headers stays under
+ * what one mail takes (Gmail and Outlook.com: 25 MB; second limits audit N26: 10 MiB before) */
+export const ATTACH_MAX_BYTES = 18_000_000
+/** the card lists every file; the bytes above are the real limit */
+export const ATTACH_MAX_FILES = 20
 const DEPTH_MAX = 12
 const PATH_MAX = 1000
 
 /** One file to attach: the handle as the AI gave it, the file as it was read before the card. */
 export interface AttachedFile { handle: string; rel: string; name: string; size: number; sha256: string; identity: string; bytes: Buffer }
 
-const human = (n: number) => (n < 1024 ? `${n} B` : n < 1048576 ? `${Math.round(n / 1024)} KB` : `${(n / 1048576).toFixed(1)} MB`)
-/** a size next to the limit it is over: two decimals, so "10.00 MB" is never said to be over "10.0 MB" by rounding */
-const exact = (n: number) => (n < 1048576 ? human(n) : `${(Math.ceil(n / 10485.76) / 100).toFixed(2)} MB`)
+/** sizes as a mail service shows them (1 MB = 1,000,000 bytes, like the limit) */
+const human = (n: number) => (n < 1000 ? `${n} B` : n < 1_000_000 ? `${Math.round(n / 1000)} KB` : `${(n / 1_000_000).toFixed(1)} MB`)
+/** a size next to the limit it is over: two decimals, so "18.00 MB" is never said to be over "18.0 MB" by rounding */
+const exact = (n: number) => (n < 1_000_000 ? human(n) : `${(Math.ceil(n / 10_000) / 100).toFixed(2)} MB`)
 const quote = (s: string) => s.replace(/[\u0000-\u001f\u007f"]/g, ' ').slice(0, 200)
 
 /** The handles in a call's arguments: every text value that is `team-file:<path>` as a whole, each time it stands

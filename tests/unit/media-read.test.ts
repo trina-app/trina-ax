@@ -7,15 +7,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, setDefaul
 import fs from 'node:fs'
 import path from 'node:path'
 import { localizeStep, mediaKind, mediaStepKind, stepLabel } from '@mycel/shared'
-import { mediaTranscriptsDefault, mediaTranscriptsOn } from '@mycel/shared/api'
+import { localSpeechBigEnough, mediaTranscriptsDefault, mediaTranscriptsOn } from '@mycel/shared/api'
 import { getTeamSettings, teamDefaultLocale, updateTeamSettings } from '../../server/src/admin/settings'
 import { componentC } from '../../server/src/team-files/component'
 import { credentialsOf } from '../../server/src/credentials/store'
 import { writeSpeechKey } from '../../server/src/credentials/speech-key'
-import { setPlanForTests } from '../../server/src/system/limits'
+import { containerLimits, setCgroupForTests, setPlanForTests, speechBigEnough } from '../../server/src/system/limits'
 import os from 'node:os'
 import { JobFailure } from '../../server/src/jobs/service'
-import { dictationTurn, pieceTurn, setPieceWaitForTests, whisperTurns } from '../../server/src/jobs/whisper-turns'
+import { dictationTurn, pieceTurn, setPieceSlotsForTests, setPieceWaitForTests, whisperTurns } from '../../server/src/jobs/whisper-turns'
 import { whisperFile } from '../../server/src/jobs/transcribe'
 import * as isolate from '../../server/src/tools/isolate'
 import crypto from 'node:crypto'
@@ -99,6 +99,8 @@ const spies: { mockRestore(): void }[] = []
 /** this server's cores (system/limits.ts cpuBudget): 8, a server whose transcripts are on by default, unless a test
  * says otherwise (the machine running the tests may have 2) */
 let cores: ReturnType<typeof spyOn<typeof os, 'availableParallelism'>>
+/** and its memory: 16 GB (local speech is on by default from 4 cores and 8 GB) */
+let memory: ReturnType<typeof spyOn<typeof os, 'totalmem'>>
 let local: { calls: number }
 /** pieces packed for OpenRouter (FileService.mediaSendable: FLAC; here the WAV as it is) */
 let packed = 0
@@ -108,6 +110,8 @@ beforeAll(async () => {
   componentC(A.ctx)
   A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id IN ('alice','bob')").run()
   F().speech.openRouterUrl = `http://127.0.0.1:${fakeOr.port}/api/v1/audio/transcriptions`
+  // a read here ends with its result: the background transcription of the rest is tested on its own below
+  F().backgroundTranscripts = false
   fs.mkdirSync(path.join(A.team, 'users/alice'), { recursive: true })
   setServedDelayForTests(50)
 })
@@ -127,8 +131,9 @@ beforeEach(() => {
   Object.assign(F().speech, { whisperBin: '/usr/bin/true', modelDir: A.data, sharedModelDir: null, modelOverride: { file: 'fake-model.bin', size: 4, sha256: 'x' }, mac: null })
   fs.writeFileSync(path.join(A.data, 'fake-model.bin'), 'abcd')
   cores = spyOn(os, 'availableParallelism').mockReturnValue(8)
+  memory = spyOn(os, 'totalmem').mockReturnValue(16 * 1024 ** 3)
   spies.push(
-    cores,
+    cores, memory,
     spyOn(F(), 'mediaTools').mockReturnValue({ ffmpeg: '/fake/ffmpeg', ffprobe: '/fake/ffprobe' }),
     spyOn(F(), 'mediaProbe').mockImplementation(async () => structuredClone(probe)),
     spyOn(F(), 'mediaDuration').mockResolvedValue(null),
@@ -403,7 +408,7 @@ describe('limits of one result and one turn', () => {
     ctx.files.imageCount = VISION_TURN_IMAGES - 2
     const { out, images } = await read({ file_path: put('budget.mp4') }, { ctx })
     expect(images).toBe(2)
-    expect(out.text).toContain('already reached its image limit')
+    expect(out.text).toContain('as many as one answer can hold')
     expect(ctx.files.imageCount).toBe(VISION_TURN_IMAGES)
   })
   test('no pixels: image viewing off, the API engine, a connection without a chat turn; the transcript still comes', async () => {
@@ -442,10 +447,18 @@ describe('limits of one result and one turn', () => {
 
 describe('who transcribes, and when sound may leave the server', () => {
   const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
-  test('the default follows the provider: on for this server, off for OpenRouter; voice input off means none', async () => {
-    expect(mediaTranscriptsDefault('local', 4)).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter', 16)).toBe(false)
-    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, 16)).toBe(false)
+  test('the default follows the provider and the server: on when hosted, on a Mac, on this server with 4 cores and 8 GB; off for the team\'s own OpenRouter key on its own server; voice input off means none', async () => {
+    const own = { hosted: false, hostedKey: false, mac: false, bigEnough: true }
+    expect(mediaTranscriptsDefault('local', own)).toBe(true)
+    expect(mediaTranscriptsDefault('local', { ...own, bigEnough: false })).toBe(false)
+    expect(mediaTranscriptsDefault('local', { ...own, mac: true, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('local', { ...own, hosted: true, bigEnough: false })).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', own)).toBe(false)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, mac: true })).toBe(false)
+    // hosted: on only with the hosting key (its hours); the team's own key is off there too (coordinator, 2026-11-19)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, hosted: true, hostedKey: true })).toBe(true)
+    expect(mediaTranscriptsDefault('openrouter', { ...own, hosted: true, hostedKey: false })).toBe(false)
+    expect(mediaTranscriptsOn({ speechProvider: 'off', aiMediaTranscripts: true }, { hosted: true, hostedKey: true, mac: true, bigEnough: true })).toBe(false)
     updateTeamSettings(A.ctx.db, { speechProvider: 'off' })
     let r = await read({ file_path: put('m1.mp4') })
     expect(r.out.text).toContain('Voice input is off for this team')
@@ -597,17 +610,29 @@ describe('who transcribes, and when sound may leave the server', () => {
     expect(hits.length).toBe(1)
     expect(r.out.text).toMatch(/Access denied/)
   })
-  test('this server: whisper.cpp or its model missing says so and never downloads the model', async () => {
+  test('this server: a model that cannot be downloaded says the server tries again (never "use voice input"); no whisper.cpp says so', async () => {
+    // QA TC-4919: a read on any server starts the download it needs (before: a Mac only, and the person was told to use
+    // voice input once); a failed one is tried again by the server, not on every read
     const dl: string[] = []
     const srv = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) { dl.push(req.url); return new Response('no') } })
     try {
       Object.assign(F().speech, { baseUrl: `http://127.0.0.1:${srv.port}/`, modelOverride: { file: 'absent.bin', size: 10, sha256: 'x' } })
-      expect((await read({ file_path: put('nomodel.mp4') })).out.text).toContain('The speech model is not downloaded yet')
-      expect(dl).toEqual([])
+      let text = (await read({ file_path: put('nomodel.mp4') })).out.text
+      expect(dl).toHaveLength(1)
+      expect(text).toContain('The speech model could not be downloaded yet')
+      expect(text).toContain('Never ask them to use voice input')
+      expect(text).not.toMatch(/uses? voice input in chat|use voice input once/)
+      // the next read within the pause does not download again
+      text = (await read({ file_path: put('nomodel2.mp4') })).out.text
+      expect(dl).toHaveLength(1)
+      expect(text).toContain('It is tried again automatically')
       expect(local.calls).toBe(0)
       F().speech.whisperBin = null
       expect((await read({ file_path: put('nowhisper.mp4') })).out.text).toContain('The transcription tool is missing here')
-    } finally { srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' }
+    } finally {
+      srv.stop(true); F().speech.baseUrl = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/'
+      ;(F() as unknown as { modelFailedAt: number }).modelFailedAt = 0
+    }
   })
   test('an Apple silicon Mac: the first read downloads the model in its time and goes on, or says it is downloading', async () => {
     const body = 'ten bytes!'
@@ -630,7 +655,9 @@ describe('who transcribes, and when sound may leave the server', () => {
       gate = new Promise((resolve) => { open = resolve })
       local.calls = 0
       r = await read({ file_path: put('first-slow.m4a') }, { turnId: null })
-      expect(r.out.text).toContain('The speech model (about 488 MB, needed only the first time) is downloading now')
+      expect(r.out.text).toContain('The speech model (about 488 MB, needed only the first time) is still downloading (0 MB so far)')
+      expect(r.out.text).toContain('Read this file again now with the same arguments')
+      expect(r.out.text).not.toMatch(/voice input once|Try again in a few minutes/)
       expect(local.calls).toBe(0)
       // it goes on without the read and lands
       open()
@@ -641,15 +668,230 @@ describe('who transcribes, and when sound may leave the server', () => {
       Object.assign(F().speech, { mac: null, baseUrl: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/' })
     }
   })
-  test('this server on a hosted plan: 30-second pieces, at most 2 minutes of new sound a read', async () => {
+  test('this server on a hosted plan: no 2-minute cap (the owner, 2026-11-19); on by default even on 2 cores; a read turns as much as its time holds', async () => {
     setPlanForTests({ cpuCores: 2 } as any)
-    // a 2-core plan starts with the switch off (a small server): the admin turned it on
-    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: true })
+    expect(F().transcriptsHost().hosted).toBe(true)
     probe = audioOnly(600)
     const { out } = await read({ file_path: put('hosted.m4a') })
-    expect(audios).toEqual([0, 30, 60, 90].map((start) => ({ start, seconds: 30 })))
-    expect(out.text).toContain('Here one read turns at most 2 minutes of new sound into text.')
-    expect(out.text).toContain('To read on: time: "2:00-10:00", frames: 0 (in another call).')
+    // before: [0, 30, 60, 90] and "Here one read turns at most 2 minutes of new sound into text."
+    expect(audios.map((a) => a.start)).toEqual(Array.from({ length: 20 }, (_, i) => i * 30))
+    expect(out.text).not.toContain('at most 2 minutes')
+    expect(out.text).not.toContain('To read on')
+    expect(out.text).toContain('words at 570')
+    expect(F().speechHost()).not.toHaveProperty('hostedNewSec')
+  })
+})
+
+describe('the whole recording: what a read has no time for goes on in the background (docs/decisions/20261119-speech-defaults-no-cap.md)', () => {
+  /** whisper.cpp taking 60 s of the read's clock for each 30 s piece, and held at `gate` for the piece at `holdAt` */
+  let gate: Promise<void> | null = null
+  let holdAt = -1
+  /** every background piece waits at `gate` too */
+  let holdBg = false
+  const slow = () => spies.push(spyOn(F(), 'mediaTranscribe').mockImplementation(async (_p, _w, _n, _b, o) => {
+    local.calls++
+    const a = audios[audios.length - 1]!
+    if ((a.start === holdAt || (holdBg && o.timeoutMs === media.FILL_PIECE_MS)) && gate) await gate
+    clockMs += 60_000
+    return { text: '', language: 'ko', durationSec: 30, segments: said(a.start, a.seconds) }
+  }))
+  beforeEach(() => { F().backgroundTranscripts = true; F().fillRetryMs = 5; gate = null; holdAt = -1; holdBg = false; A.ctx.db.query(SPEED).run(); measured(2) })
+  afterEach(async () => { gate = null; await F().fillsSettled(); F().backgroundTranscripts = false; F().fillRetryMs = media.FILL_RETRY_MS })
+
+  test('a 10-minute recording: the read gives what its time held and says the rest is being made; reading again has all of it', async () => {
+    probe = audioOnly(600)
+    slow()
+    const rel = put('bg-meeting.m4a')
+    const a = await read({ file_path: rel })
+    const first = audios.map((x) => x.start)
+    expect(first.length).toBeGreaterThan(0)
+    expect(first.length).toBeLessThan(20)
+    const to = a.out.text.match(/turn the sound from 0:00\.0 to (\S+) into text/)![1]
+    expect(a.out.text).toContain(`The sound from ${to} to 10:00.0 is still being turned into text in the background.`)
+    await F().fillsSettled()
+    // the background made every other piece, each transcribed once
+    expect([...new Set(audios.map((x) => x.start))].sort((x, y) => x - y)).toEqual(Array.from({ length: 20 }, (_, i) => i * 30))
+    expect(local.calls).toBe(20)
+    const bg = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' AND target = ? ORDER BY id").all(rel) as { detail: string }[]
+    // the read's row, then one row per background turn in the media slot (FILL_CHUNK_SEC each)
+    const flags = bg.map((r) => JSON.parse(r.detail).background ?? false)
+    expect(flags[0]).toBe(false)
+    expect(flags.length).toBeGreaterThan(1)
+    expect(flags.slice(1).every(Boolean)).toBe(true)
+    // reading again: the whole file from the cache, nothing new
+    audios = []; clockMs = 0
+    const b = await read({ file_path: rel })
+    expect(audios).toEqual([])
+    expect(b.out.text).toContain('words at 570')
+    expect(b.out.text).not.toContain('To read on')
+    expect(b.out.text).not.toContain('in the background')
+  })
+  test('a read of a piece the background is making waits for it (never made twice); a time part is filled only to its end', async () => {
+    probe = audioOnly(600)
+    slow()
+    const rel = put('bg-wait.m4a')
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    const a = await read({ file_path: rel, time: '0:00-5:00' })
+    const first = audios.length
+    holdAt = first * 30
+    // the background holds at its first piece; another read of that part waits for it
+    await Bun.sleep(20)
+    const waiting = read({ file_path: rel, time: `${media.timeArg(holdAt)}-${media.timeArg(holdAt + 30)}`, frames: 0 })
+    await Bun.sleep(30)
+    open()
+    const b = await waiting
+    expect(b.out.text).toContain(`words at ${holdAt}`)
+    await F().fillsSettled()
+    expect(audios.filter((x) => x.start === holdAt).length).toBe(1)
+    // "time" asked for 0:00-5:00: nothing past it was transcribed
+    expect(Math.max(...audios.map((x) => x.start))).toBe(270)
+    expect(a.out.text).toContain('to 5:00.0 is still being turned into text in the background')
+  })
+  test('Stop of the turn ends the background transcription; turned off meanwhile, it sends nothing more', async () => {
+    probe = audioOnly(600)
+    slow()
+    const ac = new AbortController()
+    const t = turn()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    await read({ file_path: put('bg-stop.m4a') }, { ctx: { ...A.toolCtx('alice', t), signal: ac.signal } })
+    holdAt = audios.length * 30
+    await Bun.sleep(20)
+    const before = audios.length
+    ac.abort(); open()
+    await F().fillsSettled()
+    expect(audios.length).toBe(before)
+    // switched off while the background runs: the next piece is not made
+    gate = new Promise<void>((r) => { open = r })
+    audios = []; clockMs = 0
+    await read({ file_path: put('bg-off.m4a') })
+    holdAt = audios.length * 30
+    await Bun.sleep(20)
+    const made = audios.length
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
+    open()
+    await F().fillsSettled()
+    expect(audios.length).toBe(made)
+    updateTeamSettings(A.ctx.db, { aiMediaTranscripts: null })
+  })
+  test('a key replaced or removed while the background runs: nothing more goes with the old key, the run stops (security review of #1335)', async () => {
+    const setKey = (k: string | null) => writeSpeechKey(credentialsOf(A.ctx), k)
+    updateTeamSettings(A.ctx.db, { speechProvider: 'openrouter', aiMediaTranscripts: true })
+    setKey(KEY)
+    try {
+      probe = audioOnly(3600)
+      // each 10-minute OpenRouter piece takes 200 s of the read's clock: the read gets two, the background the rest
+      reply = () => { clockMs += 200_000; return Response.json({ text: 'x', segments: [{ start: 1, end: 2, text: 'or words' }], language: 'english' }) }
+      let open!: () => void
+      const gate = new Promise<void>((r) => { open = r })
+      let held = -1
+      spies.push(spyOn(F(), 'mediaSendable').mockImplementation(async (_t, _w, _n, wav: Buffer) => {
+        const a = audios[audios.length - 1]!
+        if (held < 0 && hits.length >= 2) { held = a.start; await gate }
+        return { bytes: wav, format: 'flac' }
+      }))
+      await read({ file_path: put('bg-key.m4a') })
+      for (let i = 0; i < 100 && held < 0; i++) await Bun.sleep(10)
+      expect(held).toBeGreaterThan(0)
+      // the background holds its first piece (checked already); the key is replaced meanwhile
+      const OTHER = 'sk-or-v1-FAKE-OTHER-KEY-0123456789abcdef0000'
+      setKey(OTHER)
+      open()
+      await F().fillsSettled()
+      // the held piece had passed its checks with the old key; nothing after it went, with either key
+      expect(hits.length).toBe(3)
+      const bg = A.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'media.transcribe' ORDER BY id DESC LIMIT 1").get() as { detail: string }
+      expect(JSON.parse(bg.detail)).toMatchObject({ background: true, pieces: 1 })
+    } finally { setKey(null); updateTeamSettings(A.ctx.db, { speechProvider: 'local', aiMediaTranscripts: null }) }
+  })
+  test('marked a guest while the background runs: no more pieces are sent (security review of #1335)', async () => {
+    probe = audioOnly(600)
+    slow()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    await read({ file_path: put('bg-guest.m4a') })
+    holdAt = audios.length * 30
+    for (let i = 0; i < 100 && !audios.some((a) => a.start === holdAt); i++) await Bun.sleep(10)
+    const before = local.calls
+    A.ctx.db.query("UPDATE users SET guest = 1 WHERE id = 'alice'").run()
+    try {
+      open()
+      await F().fillsSettled()
+      // the held piece (counted already when it reached whisper.cpp) had passed its checks; nothing after it
+      expect(local.calls).toBe(before)
+      expect(audios.filter((a) => a.start > holdAt)).toEqual([])
+    } finally { A.ctx.db.query("UPDATE users SET guest = 0 WHERE id = 'alice'").run() }
+  })
+  test('at most 2 background transcriptions per person; another person never sees or moves someone else\'s (security review of #1335)', async () => {
+    probe = audioOnly(600)
+    slow()
+    let open!: () => void
+    gate = new Promise<void>((r) => { open = r })
+    // every background piece holds at the gate (whisper.cpp slots for all of them)
+    holdBg = true
+    setPieceSlotsForTests(8)
+    const notes = []
+    for (const name of ['bg-cap1.m4a', 'bg-cap2.m4a', 'bg-cap3.m4a']) {
+      clockMs = 0
+      notes.push((await read({ file_path: put(name) })).out.text.includes('in the background'))
+      await Bun.sleep(10)
+    }
+    expect(notes).toEqual([true, true, false])
+    // bob reads a shared recording alice's background is working on: no note of hers, and his own short part is done
+    fs.mkdirSync(path.join(A.team, 'shared'), { recursive: true })
+    const rel = 'shared/bg-team-meeting.m4a'
+    fs.writeFileSync(path.join(A.team, rel), `fake media ${++n} team`)
+    open(); gate = null
+    await F().fillsSettled()
+    let open2!: () => void
+    gate = new Promise<void>((r) => { open2 = r })
+    clockMs = 0
+    expect((await read({ file_path: rel })).out.text).toContain('in the background')
+    await Bun.sleep(10)
+    const bob = await read({ file_path: rel, time: '0:00-0:30' }, { ctx: A.toolCtx('bob', A.turn('bob', A.chat('bob'))) })
+    expect(bob.out.text).toContain('words at 0')
+    expect(bob.out.text).not.toContain('in the background')
+    open2(); gate = null
+    await F().fillsSettled()
+    setPieceSlotsForTests(null)
+  })
+  test('media reads at once grow with the server: one per 2 cores and 2 GB, 1 to 8; whisper.cpp pieces by cores over threads', async () => {
+    expect(media.mediaParallelFor(2, 4 * 1024 ** 3)).toBe(1)
+    expect(media.mediaParallelFor(4, 8 * 1024 ** 3)).toBe(2)
+    expect(media.mediaParallelFor(8, 16 * 1024 ** 3)).toBe(4)
+    expect(media.mediaParallelFor(16, 4 * 1024 ** 3)).toBe(2)
+    expect(media.mediaParallelFor(64, 512 * 1024 ** 3)).toBe(8)
+    // two reads run side by side on a server that takes two
+    media.setMediaParallelForTests(2)
+    try {
+      let now = 0, most = 0
+      const job = () => media.mediaSlot('alice', async () => { now++; most = Math.max(most, now); await Bun.sleep(20); now-- })
+      await Promise.all([job(), job(), job()])
+      expect(most).toBe(2)
+    } finally { media.setMediaParallelForTests(null) }
+    // two whisper.cpp pieces at once; voice input still stops them all and runs alone
+    setPieceSlotsForTests(2)
+    try {
+      let now = 0, most = 0
+      const piece = () => pieceTurn(async () => { now++; most = Math.max(most, now); await Bun.sleep(20); now--; return 'x' }, { waitMs: 1000 })
+      expect((await Promise.all([piece(), piece()])).every((r) => r.ok)).toBe(true)
+      expect(most).toBe(2)
+      const stopped: string[] = []
+      const run = () => pieceTurn((y) => new Promise((_, rej) => { y.addEventListener('abort', () => { stopped.push('piece'); rej(new Error('aborted')) }) }), { waitMs: 1000 })
+      const r1 = run(), r2 = run()
+      await Bun.sleep(5)
+      expect(await dictationTurn(async () => 'words')).toBe('words')
+      expect([await r1, await r2]).toEqual([{ ok: false, why: 'yielded' }, { ok: false, why: 'yielded' }])
+      expect(stopped).toEqual(['piece', 'piece'])
+      // every slot taken by other pieces (not voice input): 'full'
+      setPieceSlotsForTests(1)
+      let release!: () => void
+      const held = pieceTurn(() => new Promise<string>((r) => { release = () => r('y') }), { waitMs: 1000 })
+      await Bun.sleep(5)
+      expect(await pieceTurn(async () => 'z', { waitMs: 10 })).toEqual({ ok: false, why: 'full' })
+      release(); await held
+    } finally { setPieceSlotsForTests(null) }
   })
 })
 
@@ -810,7 +1052,7 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
   })
   test('the moving average of the speed: the first measurement replaces the default, a piece cut off by its time counts as slower', () => {
     A.ctx.db.query(SPEED).run()
-    expect(F().speechHost()).toMatchObject({ localPieceSec: 30, localSecPerSec: null, hostedNewSec: null })
+    expect(F().speechHost()).toMatchObject({ localPieceSec: 30, localSecPerSec: null })
     const m = media.localModelName('small'), th = F().speech.threads + 1
     expect(media.localSpeed(A.ctx.db, m, th)).toEqual({ secPerSec: media.LOCAL_SPEED_DEFAULT, measured: false })
     expect(media.recordLocalSpeed(A.ctx.db, m, th, 45_000, 30).secPerSec).toBe(1.5)
@@ -826,19 +1068,85 @@ describe('slow local transcripts: frames first, measured pieces, small servers, 
     measured(1.2)
     expect(F().speechHost().localSecPerSec).toBe(1.2)
   })
-  test('a server with 2 cores or fewer: off by default with a note why, frames still go; an admin\'s choice wins', async () => {
-    expect(mediaTranscriptsDefault('local', 2)).toBe(false)
-    expect(mediaTranscriptsDefault('local', 3)).toBe(true)
-    expect(mediaTranscriptsDefault('openrouter', 2)).toBe(false)
+  test('a server under 4 cores or 8 GB: off by default with a note why, frames still go; an admin\'s choice wins', async () => {
+    // the owner's rule (2026-11-19): 4 cores and 8 GB; an "8 GB" machine that reports a little less still counts
+    expect(localSpeechBigEnough(4, 8 * 1024 ** 3)).toBe(true)
+    expect(localSpeechBigEnough(4, 7.7 * 1024 ** 3)).toBe(true)
+    expect(localSpeechBigEnough(3, 64 * 1024 ** 3)).toBe(false)
+    expect(localSpeechBigEnough(16, 4 * 1024 ** 3)).toBe(false)
+    expect(F().speechHost()).toMatchObject({ hosted: false, bigEnough: true, memoryGb: 17 })
+    // a Docker container sees the host's cores and memory: its own cgroup's limits count, for the default, the
+    // settings page, the media reads at once and whisper.cpp's slots (security review of #1335)
+    const cg = fs.mkdtempSync(path.join(os.tmpdir(), 'cgroup-'))
+    const w = (rel: string, text: string) => { fs.mkdirSync(path.dirname(path.join(cg, rel)), { recursive: true }); fs.writeFileSync(path.join(cg, rel), text) }
+    const self = path.join(cg, 'self-cgroup')
+    try {
+      // no files at all (a Mac, a host): no limits
+      expect(containerLimits({ root: path.join(cg, 'fs'), self: path.join(cg, 'none') })).toEqual({ cpus: null, memory: null })
+      // v2 in its own namespace: the root it sees; "max" is no limit
+      w('self-cgroup', '0::/\n')
+      w('fs/memory.max', 'max\n'); w('fs/cpu.max', 'max 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      w('fs/cpu.max', '200000 100000\n'); w('fs/memory.max', String(16 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 2, memory: 16 * 1024 ** 3 })
+      // v2 without its own namespace: the process's own path, the smallest from it up; a systemd unit (MemoryMax=75%) is skipped
+      fs.rmSync(path.join(cg, 'fs'), { recursive: true })
+      w('self-cgroup', '0::/system.slice/docker-abc.scope\n')
+      w('fs/system.slice/docker-abc.scope/memory.max', String(6 * 1024 ** 3)); w('fs/system.slice/docker-abc.scope/cpu.max', '400000 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 4, memory: 6 * 1024 ** 3 })
+      // the server unit: the kit's MemoryMax=75% (here 12 of 16 GB) is skipped, its CPU quota counts
+      w('self-cgroup', '0::/system.slice/mycel.service\n')
+      w('fs/system.slice/mycel.service/memory.max', String(12 * 1024 ** 3)); w('fs/system.slice/mycel.service/cpu.max', '300000 100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: null })
+      // an explicit smaller MemoryMax on the unit (an admin's, or Podman with --cgroupns=host) counts
+      w('fs/system.slice/mycel.service/memory.max', String(6 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: 6 * 1024 ** 3 })
+      // the same on cgroup v1 below
+      fs.rmSync(path.join(cg, 'fs/system.slice'), { recursive: true })
+      // v1 (an older Docker): memory.limit_in_bytes and the CFS quota; no limit is a huge number and -1
+      fs.rmSync(path.join(cg, 'fs'), { recursive: true })
+      w('self-cgroup', '5:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n0::/\n')
+      w('fs/memory/memory.limit_in_bytes', '9223372036854771712\n'); w('fs/cpu,cpuacct/cpu.cfs_quota_us', '-1\n'); w('fs/cpu,cpuacct/cpu.cfs_period_us', '100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: null, memory: null })
+      w('fs/memory/docker/abc/memory.limit_in_bytes', String(4 * 1024 ** 3)); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_quota_us', '300000\n'); w('fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us', '100000\n')
+      expect(containerLimits({ root: path.join(cg, 'fs'), self })).toEqual({ cpus: 3, memory: 4 * 1024 ** 3 })
+      // v1 under a systemd unit: 75% skipped, a smaller explicit limit counts
+      w('self-cgroup', '5:memory:/system.slice/mycel.service\n4:cpu,cpuacct:/docker/abc\n0::/\n')
+      w('fs/memory/system.slice/mycel.service/memory.limit_in_bytes', String(12 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).memory).toBeNull()
+      w('fs/memory/system.slice/mycel.service/memory.limit_in_bytes', String(5 * 1024 ** 3))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).memory).toBe(5 * 1024 ** 3)
+      w('self-cgroup', '5:memory:/docker/abc\n4:cpu,cpuacct:/docker/abc\n0::/\n')
+      // a period file missing: no CPU limit read from that level
+      fs.rmSync(path.join(cg, 'fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us'))
+      expect(containerLimits({ root: path.join(cg, 'fs'), self }).cpus).toBeNull()
+      // fed into the budgets: the settings page, the default, the reads and whisper slots at once follow the container
+      w('fs/cpu,cpuacct/docker/abc/cpu.cfs_period_us', '100000\n')
+      setCgroupForTests({ root: path.join(cg, 'fs'), self })
+      expect(F().speechHost()).toMatchObject({ cpuCores: 3, bigEnough: false, memoryGb: 4 })
+      expect(speechBigEnough()).toBe(false)
+      expect(media.mediaParallel()).toBe(1)
+      expect((await read({ file_path: put('in-docker.mp4') })).out.text).toContain('This computer is too small')
+    } finally { setCgroupForTests(null); fs.rmSync(cg, { recursive: true, force: true }) }
+    // 3 cores were enough before (more than 2); now they are not
+    cores.mockReturnValue(3)
+    expect(F().speechHost()).toMatchObject({ cpuCores: 3, bigEnough: false })
+    let r = await read({ file_path: put('small3.mp4') })
+    expect(audios).toEqual([])
+    expect(r.out.text).toContain('This computer is too small to turn sound into text quickly')
+    // 8 cores and 4 GB: too little memory
+    cores.mockReturnValue(8); memory.mockReturnValue(4 * 1024 ** 3)
+    expect((await read({ file_path: put('small-mem.mp4') })).out.text).toContain('This computer is too small')
+    memory.mockReturnValue(16 * 1024 ** 3)
     cores.mockReturnValue(2)
     expect(F().speechHost().cpuCores).toBe(2)
-    let r = await read({ file_path: put('small.mp4') })
+    r = await read({ file_path: put('small.mp4') })
     expect(r.images).toBe(12)
     expect(audios).toEqual([])
-    expect(r.out.text).toContain('Turning sound into text takes long here, so it is off. An admin can turn on "Turn video sound into text"')
+    expect(r.out.text).toContain('(it has fewer than 4 CPU cores or less than 8 GB of memory), so it is off. An admin can turn on "Turn video sound into text"')
     expect(r.out.text).not.toContain('To read on')
     A.ctx.db.query("UPDATE users SET locale = 'ko' WHERE id = 'alice'").run()
-    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('여기서는 소리를 글로 바꾸는 데 오래 걸려서 꺼 두었어요. 관리자가') }
+    try { expect((await read({ file_path: put('small-ko.mp4') })).out.text).toContain('여기는 소리를 글로 바꾸기에 컴퓨터가 작아서(CPU 4개, 메모리 8GB 미만) 꺼 두었어요. 관리자가') }
     finally { A.ctx.db.query("UPDATE users SET locale = 'en' WHERE id = 'alice'").run() }
     // turned off on purpose: the usual note, not the small-server one
     updateTeamSettings(A.ctx.db, { aiMediaTranscripts: false })
@@ -1274,7 +1582,11 @@ describe('review of the small-server fixes', () => {
 })
 
 describe('the media slot, Stop and the work folder', () => {
-  test('one media read at a time; a person may queue a few (parallel sub-agents), more are busy', async () => {
+  test('one media read at a time on a server that takes one; a person may queue a few (parallel sub-agents), more are busy', async () => {
+    media.setMediaParallelForTests(1)
+    try { await oneAtATime() } finally { media.setMediaParallelForTests(null) }
+  })
+  const oneAtATime = async () => {
     const order: string[] = []
     let release!: () => void
     const gate = new Promise<void>((r) => { release = r })
@@ -1300,7 +1612,7 @@ describe('the media slot, Stop and the work folder', () => {
     hold()
     await held
     expect(media.mediaStats()).toEqual({ running: 0, waiting: 0 })
-  })
+  }
   test('Stop during the transcript ends the read at once; its work folder is gone, and the frames made are not delivered', async () => {
     const ac = new AbortController()
     spies.push(spyOn(F(), 'mediaAudio').mockImplementation(async () => { ac.abort(new Error('stopped by the person')); throw new Error('aborted') }))

@@ -45,7 +45,7 @@ export const templateSignsIn = (db: Database, templateId: string) =>
   (db.query('SELECT auth FROM integration_templates WHERE id=?').get(templateId) as { auth: string } | null)?.auth === 'oauth'
 type LastOutcome = 'done' | 'problems' | 'error' | 'stopped' | 'interrupted' | 'budget_exceeded' | 'user_unavailable' | 'needs_key' | 'project_gone'
 
-export const SCHEDULES_PER_PERSON = 20
+export const SCHEDULES_PER_PERSON = 50
 /** a run refused because the queue was full is tried again this much later */
 export const QUEUE_FULL_RETRY_MS = 60_000
 const TICK_MS = 30_000

@@ -26,6 +26,11 @@ const invisible = (s: string) => INVISIBLE.test(s.replace(EMOJI, ''))
  * at either end of a line, more than one empty line, white space at the start or the end. Such a value gets no lines
  * either: spacing can carry data too, and only the exact JSON shows every space. */
 const ODD_SPACE = /[^\S\n ]| {2}| \n|\n |\n{3}|^\s|\s$/u
+/** A script's spacing (a code value: cardLines `isCode`), shown in a code block where every space and line keeps its
+ * place: indentation, runs of spaces and tabs are shown as sent. Still no lines for what a code block would not show
+ * either: another kind of space, white space at the end of a line or of the text, more than two empty lines in a row,
+ * an empty first line. One line break at the very end is allowed (most scripts end with one). */
+const CODE_ODD_SPACE = /[^\S\n \t]|[ \t]\n|[ \t]$|\n{4}|^\n|\n\n$/u
 /** at most this long, a name of a value; a longer one squeezes the values off the card: no lines */
 const NAME_MAX = 40
 
@@ -75,28 +80,32 @@ function label(path: Seg[], L: Locale): string {
  * not show all of it: more than CARD_LINES_MAX values, nested deeper than CARD_LINES_DEPTH, more than CARD_LINES_CHARS
  * in all, a name longer than NAME_MAX, an invisible character in a name or a value (INVISIBLE), white space a line
  * would not show as sent (ODD_SPACE), or not an object at all. A list of plain values is one line, one value per row.
- * Two values whose names read the same get their names as sent after the words ("내용 (html)").
+ * Two values whose names read the same get their names as sent after the words ("내용 (html)"). A text value at the top
+ * whose name `isCode` picks (a program's script: a declared CLI's stdin) is a code line (`code`): byte for byte as sent,
+ * for a code block, its indentation and runs of spaces allowed (CODE_ODD_SPACE instead of ODD_SPACE), never trimmed.
  */
-export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean): { name: string; value: string }[] | null {
+export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) => boolean, isCode: (name: string) => boolean = () => false): CardLine[] | null {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return null
-  const lines: { name: string; raw: string; value: string; first: boolean }[] = []
+  const lines: { name: string; raw: string; value: string; first: boolean; code: boolean }[] = []
   let chars = 0
   let bad = false
-  const scalar = (v: unknown): string | null => {
+  const scalar = (v: unknown, code = false): string | null => {
     if (v === null || v === undefined) return say('valueNone', L)
     if (typeof v === 'boolean') return say(v ? 'valueYes' : 'valueNo', L)
     if (typeof v === 'number' || typeof v === 'bigint') return String(v)
     if (typeof v === 'string') {
-      const t = v.replace(/\r\n/g, '\n')
-      if (invisible(t) || ODD_SPACE.test(t)) { bad = true; return null }
+      // code as it is, byte for byte (a Windows line break's \r is then an invisible character: no lines)
+      const t = code ? v : v.replace(/\r\n/g, '\n')
+      // the guard against hidden text holds for code too: only its spacing differs (a tab indents, CODE_ODD_SPACE)
+      if (invisible(code ? t.replace(/\t/g, '') : t) || (code ? CODE_ODD_SPACE : ODD_SPACE).test(t)) { bad = true; return null }
       return t || say('valueEmpty', L)
     }
     return null
   }
-  const add = (path: Seg[], value: string, first: boolean) => {
+  const add = (path: Seg[], value: string, first: boolean, code = false) => {
     chars += value.length
     if (lines.length >= CARD_LINES_MAX || chars > CARD_LINES_CHARS) { bad = true; return }
-    lines.push({ name: label(path, L), raw: path.map((x) => (typeof x === 'number' ? `[${x}]` : x)).join('.'), value, first })
+    lines.push({ name: label(path, L), raw: path.map((x) => (typeof x === 'number' ? `[${x}]` : x)).join('.'), value, first, code })
   }
   const walk = (v: unknown, path: Seg[], first: boolean) => {
     if (bad) return
@@ -109,7 +118,7 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
       if (!v.length) return add(path, say('valueNone', L), first2)
       // a list of plain values: one line, a value per row
       if (v.every((x) => x === null || typeof x !== 'object')) {
-        const values = v.map(scalar)
+        const values = v.map((x) => scalar(x))
         if (bad || values.some((x) => x === null)) { bad = true; return }
         return add(path, values.join('\n'), first2)
       }
@@ -122,9 +131,11 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
       for (const [k, x] of entries) walk(x, [...path, k], first2)
       return
     }
-    const s = scalar(v)
+    // a script at the top: a code line, when it is text that is not empty
+    const code = path.length === 1 && typeof name === 'string' && typeof v === 'string' && v !== '' && isCode(name)
+    const s = scalar(v, code)
     if (s === null) { bad = true; return }
-    add(path, s, first2)
+    add(path, s, first2, code)
   }
   const top = Object.entries(args as Record<string, unknown>)
   if (!top.length) return null
@@ -132,5 +143,8 @@ export function cardLines(args: unknown, L: Locale, isRecipient: (name: string) 
   if (bad) return null
   const same = new Map<string, number>()
   for (const l of lines) same.set(l.name, (same.get(l.name) ?? 0) + 1)
-  return [...lines.filter((l) => l.first), ...lines.filter((l) => !l.first)].map(({ name, raw, value }) => ({ name: (same.get(name) ?? 0) > 1 && raw !== name ? `${name} (${raw})` : name, value }))
+  return [...lines.filter((l) => l.first), ...lines.filter((l) => !l.first)].map(({ name, raw, value, code }) => ({ name: (same.get(name) ?? 0) > 1 && raw !== name ? `${name} (${raw})` : name, value, ...(code ? { code: true as const } : {}) }))
 }
+
+/** One line of a card: a value under its name in words; `code`: a script, shown in a code block as sent */
+export interface CardLine { name: string; value: string; code?: true }

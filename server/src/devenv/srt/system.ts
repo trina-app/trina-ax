@@ -23,6 +23,11 @@ export interface SpawnSpec {
   stderrFile: string
   /** the folders the run may write (the settings' allowWrite). macOS gives them the dev accounts' ACL again first */
   writable?: string[]
+  /** macOS: the runs (and their slot ports) on localhost this run may connect to besides its own port, the chat's own
+   * running jobs and dev servers (srt/runner.ts reachTargets; srt-mac.mjs TRINA_REACH_PORTS). A port counts only while
+   * that run still has the slot, and the slot is not given to another run while this one lives. Linux reaches them
+   * through `bridge` instead */
+  reach?: readonly { runId: string; port: number }[]
 }
 
 export interface Spawned {
@@ -61,6 +66,10 @@ export interface SrtSystem {
    * network namespace (docs/DECISIONS.md "Dev environment on srt: preview"). Resolves when the socket accepts, or
    * with why not. null: this system has no preview (no unit cgroup to find the run by). */
   forward?: ((o: { runId: string; port: number; socket: string }) => Promise<Forwarder | { error: string }>) | null
+  /** Linux: listen on 127.0.0.1:<port> (and [::1]) in the network namespace of run `runId` and copy each connection to
+   * the unix socket `socket` (another run's forwarder): `mycel-sandbox port-bridge` (native/cmd/mycel-sandbox
+   * portfwd_linux.go). A later command of a chat reaches the chat's own dev server this way. null: not on this server */
+  bridge?: ((o: { runId: string; port: number; socket: string }) => Promise<Forwarder | { error: string }>) | null
 }
 
 /** A running port forwarder of one run and port. stop() ends it (its stdin closes); exited resolves when it ended. */
@@ -241,6 +250,13 @@ export function systemdSystem(id: string, base: string, template: () => boolean 
       if (!helper) return { error: 'no MYCEL_SANDBOX_HELPER on this server' }
       return startForwarder([helper, 'port-forward', '--cgroup', cgroupDir(id, runId, template()), '--port', String(port), '--socket', socket], socket)
     } : null,
+    // a later command reaches the chat's dev server (docs/decisions/20261118-devenv-shared-jobs-mac-localhost.md): the
+    // bridge waits for the new run's network namespace (at most 10 s), listens there and dials the dev server's forwarder
+    bridge: sandboxHelper() ? async ({ runId, port, socket }) => {
+      const helper = sandboxHelper()
+      if (!helper) return { error: 'no MYCEL_SANDBOX_HELPER on this server' }
+      return startForwarder([helper, 'port-bridge', '--cgroup', cgroupDir(id, runId, template()), '--port', String(port), '--socket', socket], socket, 15_000)
+    } : null,
   }
 }
 
@@ -275,5 +291,6 @@ export function directSystem(): SrtSystem {
     async selfTest() { return '' },
     // no unit cgroup: port-forward cannot tell this run's processes from others, so there is no preview here
     forward: null,
+    bridge: null,
   }
 }

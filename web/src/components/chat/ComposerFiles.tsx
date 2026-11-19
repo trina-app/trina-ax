@@ -23,7 +23,7 @@ import clsx from 'clsx'
 import { FileAudio, FileText, FolderOpen, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent } from 'react'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
-import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, UPLOAD_SESSION_MAX, uuidv7, type Attachment } from '@mycel/shared/api'
 import { api, API, errorText, thumbnailUrl } from '../../lib/api'
 import { markBusy } from '../../lib/busy'
 import { SIGNED_OUT } from '../../lib/localData'
@@ -33,6 +33,8 @@ import { openFilePreview, openTeamFile } from '../../lib/sidePanel'
 import { loadChips, patchStash, readStash, saveChips, shareStash, subscribeStash, TEAM_FILE_DRAG_TYPE, writeStash, type AttachResult } from '../../lib/teamAttach'
 import { cancelUpload, splitOversize, unreadableFile, uploadFile, uploadPercent, type UploadProgress } from '../../lib/upload'
 import { pastedFiles } from '../../lib/paste'
+import { pastedTextFile, pasteOverLimit, type PasteTarget } from '../../lib/longPaste'
+import { toast } from '../../store/ui'
 import { dragKind, filesOfDrop, withoutFolders, type DropKind } from '../../lib/fileDrop'
 import { attachmentItem, localItem } from '../../lib/imageViewer'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -232,14 +234,25 @@ export function useComposerFiles({ userId, draftId, ensureChat, onError, reload 
       for (const f of filesRef.current) f.abort.abort()
       setFiles(() => [])
     },
-    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text */
+    /** files pasted into the box's text (a screenshot, a copied file) are attached, not pasted as text. Text that would
+     * take the box over what a message holds is never cut (lib/longPaste.ts): it goes in as a text file where the box
+     * takes files from this computer and has room for one more, else the paste is refused with the reason. */
     onPaste: (e: ClipboardEvent<HTMLElement>) => {
       // files are not taken here: the paste goes on as text (a screenshot alone adds nothing)
       const pasted = computer ? pastedFiles(e.clipboardData) : []
       if (pasted.length) {
         e.preventDefault()
         void addFiles(pasted)
+        return
       }
+      const box = e.currentTarget as HTMLElement & Partial<PasteTarget>
+      const text = e.clipboardData?.getData?.('text/plain') ?? ''
+      if (typeof box.value !== 'string' || !pasteOverLimit({ value: box.value, selectionStart: box.selectionStart ?? null, selectionEnd: box.selectionEnd ?? null }, text)) return
+      e.preventDefault()
+      const max = MESSAGE_TEXT_MAX.toLocaleString(locale)
+      if (!computer || room() < 1) return onError(t('composer.textTooLong', { max }))
+      void addFiles([pastedTextFile(text, t('composer.pastedTextName'))])
+      toast({ level: 'info', text: t('composer.pastedAsFile', { max }) })
     },
     /** a file input's pick (the input is emptied, so the same file can be picked again) */
     onPicked: (e: ChangeEvent<HTMLInputElement>) => {
@@ -364,7 +377,7 @@ export function ComposerFileList({ files, onRemove, className }: { files: Pendin
     // the box's pictures: ← → in the image viewer walks through these. A phone: one sideways row, so many files and the
     // keyboard do not push the text field out of sight
     <ImageGroup>
-    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
+    <ul className={clsx('scroll-thin flex flex-wrap items-center gap-2 md:max-h-40 md:overflow-y-auto max-md:flex-nowrap max-md:overflow-x-auto max-md:pb-1 max-md:*:shrink-0', className)} aria-label={t('composer.attachments')}>
       {files.map((f) => {
         const canOpen = !!previewKind(f.name) && (f.source === 'upload' || f.status === 'done')
         const open = () => (f.source === 'team' || !f.file || (serverPreview(f.name) && f.attachment?.path) ? openTeamFile(f.attachment?.path ?? f.path!) : openFilePreview({ source: 'local', name: f.name, blob: f.file }))
@@ -492,6 +505,25 @@ export function SharedUploadLine({ files, audience, kind, className }: { files: 
       {t('chat.sharedUploadLine', { folder, n: audience })}
     </p>
   )
+}
+
+/**
+ * The same line under a waiting message of a shared chat (components/chat/QueuedMessages.tsx): a file from the computer
+ * in it was saved when it was attached, so the line still says where and who can see it. A waiting message keeps only
+ * its attachments: a file in the project's chat attachments folder (in any language's name) counts as one of those
+ * uploads; a chat shared with people, a file kept with the chat.
+ */
+export function SharedQueuedLine({ attachments, audience, kind, className }: { attachments: readonly Attachment[]; audience: number; kind?: 'project' | 'people'; className?: string }) {
+  const t = useT()
+  if (kind === 'people') {
+    if (!attachments.some((a) => a.source === 'chat')) return null
+    return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.share.uploadLine')}</p>
+  }
+  const names = new Set<string>(Object.values(CHAT_FILES_FOLDER))
+  const saved = attachments.find((a) => a.source === 'team' && names.has(folderOf(a.path).slice(folderOf(a.path).lastIndexOf('/') + 1)))
+  if (!saved) return null
+  const folder = folderOf(saved.path).slice(folderOf(saved.path).lastIndexOf('/') + 1)
+  return <p className={clsx('text-xs leading-5 break-keep text-faint', className)} data-testid="outbox-upload-line">{t('chat.sharedUploadLine', { folder, n: audience })}</p>
 }
 
 /** The chips of a draft: those kept in memory, else (`reload`) the finished ones kept for this tab (after a reload). */

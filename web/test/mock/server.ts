@@ -512,9 +512,9 @@ export class MockServer {
   pieceDropHint = false
   /** transcription jobs report this label first and end after `ms` (POST /__test/transcribe-progress) */
   transcribeProgress: { message: string; progress: number | null; ms: number; queuedMs: number } | null = null
-  /** GET /api/admin/speech-host: a 4-core self-installed server that has not measured its speed yet, with whisper.cpp and
-   * ffmpeg (localMissing: the tools 'local' lacks) */
-  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hostedNewSec: null as number | null, localMissing: [] as LocalSpeechTool[] }
+  /** GET /api/admin/speech-host: a 4-core, 16 GB self-installed server that has not measured its speed yet, with
+   * whisper.cpp and ffmpeg (localMissing: the tools 'local' lacks) */
+  speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null as number | null, hosted: false, bigEnough: true, memoryGb: 16, localMissing: [] as LocalSpeechTool[] }
   /** every request the client made (method + path), for assertions */
   log: string[] = []
   /** the contract endpoints the API requests reached since the server started, with how often (docs/FEATURES.md):
@@ -777,7 +777,7 @@ export class MockServer {
     this.pieceLanguages = []
     this.pieceDropHint = false
     this.transcribeProgress = null
-    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hostedNewSec: null, localMissing: [] }
+    this.speechHost = { cpuCores: 4, localPieceSec: 30, localSecPerSec: null, hosted: false, bigEnough: true, memoryGb: 16, localMissing: [] }
     if (o.teamLocale) this.settings.defaultLocale = o.teamLocale
     this.activeLeaf.clear()
     this.pendingAsk.clear()
@@ -870,7 +870,7 @@ export class MockServer {
   sources = new Map<string, MessageSourceFile[]>()
   // ---------------- threads on AI answers in shared chats (server/src/chat/threads.ts, short) ----------------
   /** the replies under answers, oldest first; who follows each thread (the asker, the repliers) and the newest they read */
-  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string }[] = []
+  chatThreadReplies: { id: string; chatId: string; rootId: string; authorId: string; content: string; clientId: string; createdAt: string; mentions?: string[] }[] = []
   chatThreadFollows = new Map<string, Map<string, string | null>>()
   /** the answer a thread is under: a finished answer of a chat shared now (the mock's Chat.shared); else 404 */
   threadRoot(chatId: string, rootId: string) {
@@ -888,10 +888,15 @@ export class MockServer {
     const newReplies = !!read?.has(viewer) && list.some((r) => r.authorId !== viewer && r.id > (read.get(viewer) ?? ''))
     return { replyCount: list.length, lastReplyAt: list.at(-1)!.createdAt, repliers, newReplies }
   }
-  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string }, viewer: string) {
+  threadReplyOut(r: { id: string; chatId: string; rootId: string; authorId: string; content: string; createdAt: string; mentions?: string[] }, viewer: string) {
     const u = this.users.find((x) => x.id === r.authorId)
     const chat = this.chats.find((x) => x.id === r.chatId)
-    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+    return { id: r.id, chatId: r.chatId, rootId: r.rootId, author: u ? { id: u.id, name: u.name } : null, content: r.content, mentions: r.mentions ?? [], createdAt: r.createdAt, canDelete: r.authorId === viewer || chat?.shared?.by.id === viewer }
+  }
+  /** who a thread's box may mention (ChatThreadPage.people, chat/threads.ts threadPeople): the mock's active members
+   * other than the viewer (no guests: the mock's shared chats are members' chats), by name */
+  threadPeople(viewer: string) {
+    return this.users.filter((u) => u.status === 'active' && u.role !== 'guest' && u.id !== viewer).map((u) => ({ id: u.id, name: u.name })).sort((a, b) => a.name.localeCompare(b.name))
   }
   /** POST /__test/confidential {all: true}: Safe operations 1A is on (Me.server.allChatsConfidential) */
   allConfidential = false
@@ -2897,14 +2902,17 @@ export class MockServer {
       const th = this.threadSummary(m.id, c.user.id)
       const replies = this.chatThreadReplies.filter((r) => r.rootId === m.id)
       const shown = this.path(chat.id).some((x) => x.id === m.id)
-      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500 }
+      return { root: th ? { ...view, thread: th } : view, replies: replies.slice(-50).map((r) => this.threadReplyOut(r, c.user.id)), nextCursor: null, canReply: !this.allConfidential && replies.length < 500, ...(this.allConfidential ? { readOnlyReason: 'safe_ops' } : {}), version: { index: view.branch.index + 1, count: view.branch.count }, onShownBranch: shown, full: replies.length >= 500, ...(!this.allConfidential ? { people: this.threadPeople(c.user.id) } : {}) }
     },
     sendChatThreadReply: (c) => {
       const { m } = this.threadRoot(c.params.id!, c.params.messageId!)
       if (this.allConfidential) fail('conflict', 409, '이 팀의 보안 설정 때문에 공유 채팅을 이어갈 수 없어요.', undefined, { reason: 'safe_ops' })
       const again = this.chatThreadReplies.find((r) => r.authorId === c.user.id && r.clientId === c.body.clientId)
       if (again) return { status: 201, body: this.threadReplyOut(again, c.user.id) }
-      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now() }
+      // the server keeps only mentions of people who see the thread (threadPeople)
+      const allowed = new Set(this.threadPeople(c.user.id).map((u) => u.id))
+      const mentions = [...new Set((c.body.mentions ?? []) as string[])].filter((id) => allowed.has(id))
+      const r = { id: uuidv7(), chatId: c.params.id!, rootId: m.id, authorId: c.user.id, content: String(c.body.text).trimEnd(), clientId: String(c.body.clientId), createdAt: now(), mentions }
       this.chatThreadReplies.push(r)
       const follows = this.chatThreadFollows.get(m.id) ?? new Map<string, string | null>()
       this.chatThreadFollows.set(m.id, follows)
@@ -6399,6 +6407,20 @@ export class MockServer {
   /** who put each shared chat in the trash (chats.deleted_by) */
   sharedDeletedBy = new Map<string, string>()
   sharedHolds = new Map<string, () => void>()
+  /** who has messages waiting in each shared chat and since when (server/src/chat/shared-waiting.ts; PUT
+   * /api/chats/:id/waiting): a send while someone else waited longer is refused (409 shared_chat_next) */
+  sharedWaitingPlaces = new Map<string, Map<string, { since: number; seen: number; count: number }>>()
+  /** the waiting places of a chat still refreshed within 45 s */
+  freshWaiting(chatId: string): Map<string, { since: number; seen: number; count: number }> {
+    const places = this.sharedWaitingPlaces.get(chatId) ?? new Map()
+    for (const [id, p] of places) if (Date.now() - p.seen > 45_000) places.delete(id)
+    return places
+  }
+  /** Chat.shared.waiting for `viewer`: how many other people have messages waiting */
+  othersWaiting(chatId: string, viewer: string): { waiting?: number } {
+    const n = [...this.freshWaiting(chatId).keys()].filter((id) => id !== viewer).length
+    return n ? { waiting: n } : {}
+  }
   /** (the layer is in place; set while the mock is made, after the handlers above) */
   readonly sharedInstalled = this.installSharedChats()
 
@@ -6488,6 +6510,40 @@ export class MockServer {
   // saves here too (putChatAudience, with its confirm; putProjectParticipants); Decline says nothing. Never for guests.
   accessRequests: { id: string; kind: 'chat' | 'project'; targetId: string; userId: string; note: string | null; at: string; state: 'pending' | 'approved' | 'declined' | 'closed' }[] = []
   readonly accessRequestsInstalled = this.installAccessRequests()
+  // named app links (server/src/link-names/resolve.ts): each link named by asking the page's own mock answer as the
+  // caller (getChat, getProject without manage, getRoom, sharedFile open, tree for a folder, the file's own access); no
+  // access and not there both name nothing
+  readonly linkNamesInstalled = this.installLinkNames()
+  private installLinkNames() {
+    const h = this.handlers
+    const ctxOf = (u: User, params: Record<string, string>, query: Record<string, string> = {}): Ctx => ({ user: u, params, query, body: undefined, req: new Request('http://mock.local/') })
+    h.linkNames = async (c) => {
+      const links = (c.body as { links: { kind: string; id: string }[] }).links
+      const seen = new Set<string>()
+      const items: { kind: string; id: string; name: string | null; folder?: true; room?: unknown }[] = []
+      for (const l of links) {
+        const key = `${l.kind}:${l.id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        let named: { name: string | null; folder?: true; room?: unknown } = { name: null }
+        try {
+          if (l.kind === 'chat') named = { name: ((await h.getChat!(ctxOf(c.user, { id: l.id }))) as { title: string }).title }
+          else if (l.kind === 'project') named = { name: ((await h.getProject!(ctxOf(c.user, { id: l.id }))) as { name: string }).name }
+          else if (l.kind === 'room') {
+            const r = (await h.getRoom!(ctxOf(c.user, { id: l.id }))) as { kind: string; name: string | null; peers: unknown[]; memberCount: number }
+            named = { name: r.name ?? '', room: { kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount } }
+          } else if (l.kind === 'share' && c.user.role !== 'guest') {
+            const v = (await h.sharedFile!(ctxOf(c.user, { id: l.id }))) as { status: string; name?: string; kind?: string }
+            if (v.status === 'open') named = { name: v.name ?? null, ...(v.kind === 'folder' ? { folder: true as const } : {}) }
+          } else if ((l.kind === 'file' || l.kind === 'folder') && this.files.has(l.id) && this.access(l.id, c.user) !== 'none') {
+            named = { name: l.id.slice(l.id.lastIndexOf('/') + 1) }
+          }
+        } catch { named = { name: null } }
+        items.push({ kind: l.kind, id: l.id, ...named })
+      }
+      return { items }
+    }
+  }
 
   fileOwner(path: string): string | null {
     if (path.startsWith('users/')) return path.split('/')[1] ?? null
@@ -7308,6 +7364,7 @@ export class MockServer {
         shared: {
           kind: 'people' as const, by: s.by, audience: hidden ? 0 : aud.length, ...(hidden ? { audienceHidden: true as const } : {}),
           answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+          ...this.othersWaiting(chat.id, viewer.id),
           mine: true, canDelete: creator, canUpload: !this.allConfidential,
         },
       }
@@ -7774,6 +7831,7 @@ export class MockServer {
         by: s.by,
         audience: this.sharedAudience(p).length,
         answering: runner ? { name: runner.name, ...(s.waiting ? { waiting: true as const } : {}) } : null,
+        ...this.othersWaiting(chat.id, viewer.id),
         mine: s.by.id === viewer.id || this.messages.some((m) => m.chatId === chat.id && m.role === 'user' && m.author?.id === viewer.id),
         canDelete: s.by.id === viewer.id || this.sharedMayEdit(p, viewer),
         canUpload: this.sharedMayUpload(p, viewer),
@@ -7827,9 +7885,12 @@ export class MockServer {
       this.chatOwners = new Map()
       this.sharedDeletedBy = new Map()
       this.sharedHolds = new Map()
+      this.sharedWaitingPlaces = new Map()
       baseReset(o)
     }
-    // the events of a shared chat: chat.updated to everyone who sees it (their own view), the rest to the runner
+    // the events of a shared chat: chat.updated to everyone who sees it (their own view); the answer's text, steps and
+    // end to everyone who sees it too (chat/live-answer.ts: a step without its detail, the end without usage); the rest
+    // (cards, queue positions) to the runner
     const basePublish = this.publish.bind(this)
     this.publish = (ev) => {
       const chatId = (ev.data as { chatId?: unknown }).chatId
@@ -7848,6 +7909,17 @@ export class MockServer {
         })
       }
       const to = s.runner ?? s.by.id
+      if (ev.type === 'message.delta' || ev.type === 'message.step' || ev.type === 'message.done') {
+        const p = project(s)
+        const sees = new Set(p ? this.sharedAudience(p).map((u) => u.id) : [])
+        return this.sharedSend((uid) => {
+          if (uid === to) return ev
+          if (!sees.has(uid)) return null
+          if (ev.type === 'message.step') { const { detail: _d, ...step } = ev.data.step; return { ...ev, data: { ...ev.data, step } } }
+          if (ev.type === 'message.done') return { ...ev, data: { ...ev.data, message: { ...ev.data.message, usage: null } } }
+          return ev
+        })
+      }
       return this.sharedSend((uid) => (uid === to ? ev : null))
     }
     const baseControl = this.testControl.bind(this)
@@ -8093,6 +8165,20 @@ export class MockServer {
     }
     const started = (user: Message | null, assistant: Message) => ({ status: 202, body: { userMessage: user ? this.view(user) : null, assistantMessage: this.view(assistant), turnId: assistant.turnId, queuePosition: 0, queueEpoch: this.epoch, queueRevision: this.queueRevision } })
 
+    /** how many of my messages wait in a shared chat (server/src/chat/shared-waiting.ts); the others hear how many */
+    h.putChatWaiting = (c) => {
+      const chatId = c.params.id!
+      mayContinue(c.user, chatId)
+      if (!shared(chatId)) return { status: 204, body: null }
+      const places = this.freshWaiting(chatId)
+      const old = places.get(c.user.id)
+      const n = Math.min(50, Number((c.body as { count: number }).count))
+      if (n) places.set(c.user.id, { since: old?.since ?? Date.now(), seen: Date.now(), count: n })
+      else places.delete(c.user.id)
+      this.sharedWaitingPlaces.set(chatId, places)
+      if (!!old !== !!n) this.publish({ type: 'chat.updated', data: { chatId, change: 'updated', chat: chatOf(chatId) } })
+      return { status: 204, body: null }
+    }
     over('sendMessage', (c, base) => {
       const s = shared(c.params.id)
       if (!s) return base(c)
@@ -8100,9 +8186,18 @@ export class MockServer {
       if (again) fail('conflict', 409)
       mayContinue(c.user, c.params.id!)
       notBusy(s, c.user)
+      // whoever has waited longer goes first (409 shared_chat_next, naming them)
+      const places = this.freshWaiting(c.params.id!)
+      const mine = places.get(c.user.id)?.since ?? Infinity
+      const first = [...places].filter(([id, p]) => id !== c.user.id && p.since < mine).sort((a, b) => a[1].since - b[1].since)[0]
+      if (first) fail('conflict', 409, '다른 사람의 메시지가 먼저 기다리고 있어요. 그다음에 보낼게요.', undefined, { reason: 'shared_chat_next' })
+      places.delete(c.user.id)
       const chat = chatOf(c.params.id!)
       const attachments = teamOnly(c.body.attachmentIds as string[])
-      const parentId = c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
+      // `after` (a waiting message): the newest end of the branch through it
+      const newestUnder = (id: string): string => { let cur = id; for (;;) { const kids = this.messages.filter((m) => m.chatId === chat.id && m.parentId === cur); if (!kids.length) return cur; cur = kids.at(-1)!.id } }
+      const after = c.body.parentId === undefined && typeof c.body.after === 'string' ? (c.body.after as string) : null
+      const parentId = after ? newestUnder(after) : c.body.parentId ?? this.activeLeaf.get(chat.id) ?? null
       const user = this.message({ chatId: chat.id, role: 'user', parentId, content: c.body.content, attachments, author: { id: c.user.id, name: c.user.name } })
       ;(user as Message & { cmid?: string }).cmid = c.body.clientMessageId
       return started(user, this.sharedTurn(chat, c.user, c.body.content, user.id))
@@ -8246,11 +8341,18 @@ export class MockServer {
       put({ ...read, status: 'ok', endedAt: now(), ...(yes ? {} : { label: '이 채팅을 보는 모두가 열 수 있는 곳이 아니라서 읽지 않았어요' }) })
       text = yes ? '3분기 금액은 100이에요 (finance/2026/q3.csv).' : '그 파일은 읽지 않았어요. 프로젝트 멤버 모두가 볼 수 있는 자료로만 답할게요.'
     }
-    if (/hold/i.test(prompt) && !this.stopped.has(turnId)) await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    const half = Math.ceil(text.length / 2)
+    // "hold": the first half is written before the answer waits, so the others see it as it is written
+    // (docs/decisions/20261118-shared-chat-live-answers.md)
+    const held = /hold/i.test(prompt) && !this.stopped.has(turnId)
+    if (held) {
+      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      assistant.content = text.slice(0, half)
+      await new Promise<void>((r) => this.sharedHolds.set(chatId, r))
+    }
     if (gen !== this.generation) return
     if (!this.stopped.has(turnId)) {
-      const half = Math.ceil(text.length / 2)
-      pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
+      if (!held) pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: 0, text: text.slice(0, half) } })
       await sleep(30)
       pub({ type: 'message.delta', data: { chatId, messageId: assistant.id, offset: half, text: text.slice(half) } })
       assistant.content = text

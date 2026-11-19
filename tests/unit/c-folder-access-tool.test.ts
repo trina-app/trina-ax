@@ -16,7 +16,7 @@
 // - T19: the yes is bound to the plan (a rule added while the card waits refuses, a demotion while it waits refuses);
 //   narrowing while files inside are shared one by one: the PERSON picks keep or remove on the card;
 // - never users/, a project's folder, skills/, the team root, "everyone"; a guest only in their one project; a no stops
-//   the answer's other cards; one change per call.
+//   the answer's other cards; no count of cards per answer; several changes in one call (`changes`) on one card.
 // Fixture (tests/lib/fixtures.ts): alice + erin = marketing, bob = finance, carol = admin, dana = owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
@@ -178,16 +178,96 @@ describe('an admin: the card every time, then the dialog\'s own save', () => {
     } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'carol'").run() }
   })
 
-  test('a no stops the answer\'s other cards; a fourth card in an answer is refused', async () => {
+  test('a no stops the answer\'s other cards; no count of cards per answer (four calls, four cards)', async () => {
     // (Erin views Plans through her group already: edit, so the second call would change her access and need a card)
     const r = await turn('carol', `${call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } })}\n${call({ folder: 'Plans', action: 'add', who: { name: 'Erin Yoo' }, access: 'edit' })}`, { answer: 'no' })
     expect(r.cards).toHaveLength(1)
     const ai = audits('folder.ai_access', r.turnId)
     expect(ai.map((a) => a.outcome)).toEqual(['declined', 'refused'])
     expect(ai[1]).toMatchObject({ reason: 'declined' })
+    // limits audit N20 (Claude Code asks every time): every call gets its card, none is refused for a count
     const many = await turn('carol', [1, 2, 3, 4].map((i) => call({ folder: 'Plans', action: i % 2 ? 'add' : 'remove', who: { name: 'Bob Lee' } })).join('\n'), { answer: 'change' })
-    expect(many.cards.length).toBeLessThanOrEqual(3)
-    expect(audits('folder.ai_access', many.turnId).some((a) => a.reason === 'too_many')).toBe(true)
+    expect(many.cards).toHaveLength(4)
+    expect(audits('folder.ai_access', many.turnId).map((a) => a.outcome)).toEqual(['done', 'done', 'done', 'done'])
+    expect(rulesAt('Plans').some((x) => x.s === 'bob')).toBe(false)
+  })
+
+  describe('several changes in one call (`changes`): one card lists them all', () => {
+    const many = (changes: Record<string, unknown>[]) => call({ changes })
+    const fresh = (name: string) => {
+      fs.mkdirSync(path.join(h.ctx.files.fx.root, name), { recursive: true })
+      setFolderAccess(h.ctx.db, name, [{ subjectType: 'group', subjectId: marketing, access: 'read' }], null, { limited: true })
+    }
+    test('two folders and two people on one card; one yes saves each folder; one audit row', async () => {
+      fresh('BatchA'); fresh('BatchB')
+      const r = await turn('carol', many([
+        { folder: 'BatchA', action: 'add', who: { name: 'Bob Lee' } },
+        { folder: 'BatchA', action: 'add', who: { name: 'finance' }, access: 'edit' },
+        { folder: 'BatchB', action: 'add', who: { name: 'Bob Lee' }, access: 'edit' },
+      ]), { answer: 'change' })
+      expect(r.cards).toHaveLength(1)
+      const c = r.cards[0]!
+      expect(c.question).toBe(FOLDER_TEXT.askMany.ko)
+      const text = c.details!.map((d) => d.text).join('\n')
+      expect(text).toContain('BatchA')
+      expect(text).toContain('BatchB')
+      expect(text.match(/Bob Lee/g)!.length).toBeGreaterThanOrEqual(2)
+      expect(rulesAt('BatchA')).toContainEqual({ t: 'user', s: 'bob', a: 'read' })
+      expect(rulesAt('BatchA')).toContainEqual({ t: 'group', s: finance, a: 'write' })
+      expect(rulesAt('BatchB')).toContainEqual({ t: 'user', s: 'bob', a: 'write' })
+      const a = audits('folder.ai_access', r.turnId)
+      expect(a).toHaveLength(1)
+      expect(a[0]).toMatchObject({ outcome: 'done', changes: 3, saved: ['BatchA', 'BatchB'] })
+      expect(r.content).toContain('BatchA')
+    })
+
+    test('one change that cannot be planned (a name nobody has) → no card, nothing saved anywhere', async () => {
+      fresh('BatchC')
+      const before = rulesAt('BatchC')
+      const r = await turn('carol', many([
+        { folder: 'BatchC', action: 'add', who: { name: 'Bob Lee' } },
+        { folder: 'BatchC', action: 'add', who: { name: 'Nobody Here' } },
+      ]), { answer: 'change' })
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain('Change 2')
+      expect(rulesAt('BatchC')).toEqual(before)
+    })
+
+    test('a no saves nothing; a rule added to one folder while the card waits → nothing saved in either', async () => {
+      fresh('BatchD'); fresh('BatchE')
+      const no = await turn('carol', many([{ folder: 'BatchD', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchE', action: 'add', who: { name: 'Bob Lee' } }]), { answer: 'no' })
+      expect(no.cards).toHaveLength(1)
+      expect(rulesAt('BatchD').some((x) => x.s === 'bob') || rulesAt('BatchE').some((x) => x.s === 'bob')).toBe(false)
+      expect(audits('folder.ai_access', no.turnId)[0]).toMatchObject({ outcome: 'declined' })
+      // one folder, two people: the question names the folder
+      fresh('BatchF')
+      const one = await turn('carol', many([{ folder: 'BatchF', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchF', action: 'add', who: { name: 'finance' } }]), { answer: 'no' })
+      expect(one.cards[0]!.question).not.toBe(FOLDER_TEXT.askMany.ko)
+      expect(one.cards[0]!.question).toContain('BatchF')
+      const r = await turn('carol', many([{ folder: 'BatchD', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchE', action: 'add', who: { name: 'Bob Lee' } }]), {
+        answer: 'change',
+        meanwhile: () => { setFolderAccess(h.ctx.db, 'BatchE', [{ subjectType: 'group', subjectId: marketing, access: 'read' }, { subjectType: 'user', subjectId: 'erin', access: 'write' }], null, { limited: true }) },
+      })
+      expect(r.content).toContain('changed while the card waited')
+      expect(rulesAt('BatchD').some((x) => x.s === 'bob')).toBe(false)
+      expect(rulesAt('BatchE').some((x) => x.s === 'bob')).toBe(false)
+    })
+
+    test('security review of #1338 (L1): a folder and one inside it in one call → refused, no card, nothing saved', async () => {
+      fresh('BatchG'); fresh('BatchG/Payroll')
+      const r = await turn('carol', many([{ folder: 'BatchG', action: 'add', who: { name: 'Bob Lee' } }, { folder: 'BatchG/Payroll', action: 'add', who: { name: 'finance' } }]), { answer: 'change' })
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain('is inside')
+      expect(rulesAt('BatchG').some((x) => x.s === 'bob')).toBe(false)
+      expect(rulesAt('BatchG/Payroll').some((x) => x.s === finance)).toBe(false)
+      expect(audits('folder.ai_access', r.turnId)[0]).toMatchObject({ outcome: 'refused', reason: 'nested' })
+    })
+
+    test('both forms at once, or neither, is refused as invalid input', async () => {
+      const r = await turn('carol', call({ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' }, changes: [{ folder: 'Plans', action: 'add', who: { name: 'Bob Lee' } }] }), { answer: 'change' })
+      expect(r.cards).toHaveLength(0)
+      expect(r.content).toContain('Invalid input')
+    })
   })
 
   test('remove a person: who loses on the card; someone without a rule of their own is refused; change needs a rule', async () => {

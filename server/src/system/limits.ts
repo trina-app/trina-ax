@@ -13,7 +13,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import type { Database } from 'bun:sqlite'
 import { PlanFile } from '@mycel/shared/cloud-protocol'
-import type { Locale } from '@mycel/shared/api'
+import { localSpeechBigEnough, type Locale } from '@mycel/shared/api'
 import { getSetting } from '../admin/settings'
 import { fail } from '../http/errors'
 
@@ -29,9 +29,12 @@ export const DEFAULT_CONCURRENCY = 3
 /** read tool limit without a plan (files/store.ts READ_MAX) */
 export const DEFAULT_READ_MAX_MIB = 200
 export const DEFAULT_BACKUP_RETENTION_DAYS = 14
-/** office documents parsed inside the server process (xlsx / xls / ods / hwp / hwpx) above this are refused where
- * limits apply: a 200 MB spreadsheet expanded in memory could take the whole tenant down */
-export const IN_PROCESS_PARSE_MAX = 32 * MIB
+/** office documents read by the office worker (xlsx / xls / ods / hwp / hwpx, and the extra parts of docx / pptx)
+ * above this are refused where limits apply, counted without their pictures and media (files/zip-slim.ts). The same as
+ * the read limit and unzip_file: a big .xlsx is read a sheet piece at a time (files/sheet-stream.ts), and the worker's
+ * own memory and time limits (files/extract.ts, the converter cgroup) bound the rest
+ * (docs/decisions/20261118-limits-office-read.md; it was 32 MB while every workbook was held whole in memory) */
+export const IN_PROCESS_PARSE_MAX = 200 * MIB
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
 
@@ -161,18 +164,100 @@ export function memoryAdmission(running: number, limit: number, live = running):
   return Math.min(limit, Math.max(live === 0 ? 1 : running, running + more))
 }
 
-/** CPU the server's own helpers may use: the plan's cores (a container may show the host's cores), else this machine's. */
+/** CPU the server's own helpers may use: the plan's cores, a container's CPU limit (containerLimits: inside Docker
+ * os.availableParallelism shows the host's), else this machine's. */
 export function cpuBudget(): number {
   const cores = typeof os.availableParallelism === 'function' ? os.availableParallelism() : os.cpus().length
   const plan = currentPlan()?.cpuCores
-  return Math.max(1, plan ? Math.min(cores, plan) : cores)
+  const box = containerLimits().cpus
+  return Math.max(1, Math.min(cores, plan ?? Infinity, box ?? Infinity))
 }
+/** the memory the server may use: the plan's, a container's limit (os.totalmem shows the host's inside Docker), else
+ * the machine's */
+export function memoryBudget(): number {
+  const plan = currentPlan()?.memoryMiB
+  const box = containerLimits().memory
+  return Math.min(os.totalmem(), plan ? plan * MIB : Infinity, box ?? Infinity)
+}
+/** a limit of cgroup v1 at or above this is "no limit" (the kernel writes 2^63 rounded to the page size) */
+const V1_NO_LIMIT = 2 ** 60
+/** a systemd unit's memory limit at this share of the machine or more is the kit's MemoryMax=75% (containerLimits) */
+const UNIT_SHARE_SKIP = 0.7
+/**
+ * A container's limits (Docker's --cpus and --memory) from the cgroup this process is in (/proc/self/cgroup), cgroup v2
+ * (memory.max, cpu.max) or v1 (memory.limit_in_bytes, cpu.cfs_quota_us / cpu.cfs_period_us): the smallest from its
+ * own cgroup up to the root of the hierarchy it sees, or null where there is none ("max", -1, a missing file). A
+ * systemd unit (a cgroup named *.service) counts with its CPU limit always and its memory limit only below 70% of the
+ * machine: the server unit's MemoryMax=75% is a safety net, not the machine's size; Docker's own cgroups are
+ * /docker/<id>, docker-<id>.scope or the namespace root. Read again at most
+ * every 60 s (cpuBudget runs often). `o`: tests (another root and /proc/self/cgroup).
+ */
+export function containerLimits(o: { root?: string; self?: string } = {}): { cpus: number | null; memory: number | null } {
+  const now = Date.now()
+  if (!o.root && !o.self && limitsCache && now - limitsCache.at < 60_000) return limitsCache.v
+  const root = o.root ?? cgroupPaths.root, self = o.self ?? cgroupPaths.self
+  let cpus: number | null = null, memory: number | null = null
+  const lower = (cur: number | null, v: number) => (cur === null ? v : Math.min(cur, v))
+  const read = (f: string): string | null => { try { return fs.readFileSync(f, 'utf8').trim() } catch { return null } }
+  // the cgroup paths of this process: "0::/path" (v2), "<n>:memory:/path", "<n>:cpu,cpuacct:/path" (v1)
+  let v2 = '/'
+  const v1 = new Map<string, string>()
+  for (const line of (read(self) ?? '').split('\n')) {
+    const m = /^\d+:([^:]*):(.*)$/.exec(line)
+    if (!m) continue
+    if (m[1] === '') v2 = m[2] || '/'
+    else for (const c of m[1]!.split(',')) v1.set(c, m[2] || '/')
+  }
+  /** `base` + each level of `p` from the deepest up to `base` itself; `unit`: a systemd *.service cgroup */
+  const levels = (base: string, p: string): { dir: string; unit: boolean }[] => {
+    const parts = p.split('/').filter(Boolean)
+    const out: { dir: string; unit: boolean }[] = []
+    for (let i = parts.length; i >= 0; i--) out.push({ dir: [base, ...parts.slice(0, i)].join('/'), unit: i > 0 && parts[i - 1]!.endsWith('.service') })
+    return out
+  }
+  /** a unit's memory limit at UNIT_SHARE_SKIP of the machine or more is the kit's safety net (MemoryMax=75%), not the
+   * machine's size, and is skipped; a smaller one (an admin's unit, Podman with --cgroupns=host) counts. CPU limits
+   * count at every level. */
+  const memoryAt = (unit: boolean, bytes: number) => { if (!unit || bytes < UNIT_SHARE_SKIP * os.totalmem()) memory = lower(memory, bytes) }
+  const v1Memory = fs.existsSync(`${root}/memory`) ? `${root}/memory` : null
+  const v1Cpu = ['cpu,cpuacct', 'cpu', 'cpuacct,cpu'].map((d) => `${root}/${d}`).find((d) => fs.existsSync(d)) ?? null
+  if (v1Memory || v1Cpu) {
+    if (v1Memory) for (const { dir: d, unit } of levels(v1Memory, v1.get('memory') ?? '/')) {
+      const m = read(`${d}/memory.limit_in_bytes`)
+      if (m && /^\d+$/.test(m) && Number(m) < V1_NO_LIMIT) memoryAt(unit, Number(m))
+    }
+    if (v1Cpu) for (const { dir: d } of levels(v1Cpu, v1.get('cpu') ?? '/')) {
+      const q = read(`${d}/cpu.cfs_quota_us`), per = read(`${d}/cpu.cfs_period_us`)
+      if (q && /^\d+$/.test(q) && per && Number(per) > 0) cpus = lower(cpus, Math.max(1, Math.floor(Number(q) / Number(per))))
+    }
+  } else {
+    for (const { dir: d, unit } of levels(root, v2)) {
+      const m = read(`${d}/memory.max`)
+      if (m && /^\d+$/.test(m)) memoryAt(unit, Number(m))
+      const [q, per] = (read(`${d}/cpu.max`) ?? '').split(/\s+/)
+      if (q && /^\d+$/.test(q) && per && Number(per) > 0) cpus = lower(cpus, Math.max(1, Math.floor(Number(q) / Number(per))))
+    }
+  }
+  const v = { cpus, memory }
+  if (!o.root && !o.self) limitsCache = { at: now, v }
+  return v
+}
+let limitsCache: { at: number; v: { cpus: number | null; memory: number | null } } | null = null
+const cgroupPaths = { root: '/sys/fs/cgroup', self: '/proc/self/cgroup' }
+/** tests: the cgroup files of a pretend container (null: this machine's again); read at once */
+export function setCgroupForTests(p: { root: string; self: string } | null) {
+  Object.assign(cgroupPaths, p ?? { root: '/sys/fs/cgroup', self: '/proc/self/cgroup' })
+  limitsCache = null
+}
+/** at least 4 CPU cores and 8 GB here (shared localSpeechBigEnough; the owner, 2026-11-19), within a container's
+ * limits (cpuBudget, memoryBudget): local speech-to-text is on by default */
+export function speechBigEnough(): boolean { return localSpeechBigEnough(cpuBudget(), memoryBudget()) }
 /** ripgrep --threads (null = ripgrep's own choice, all cores: a Mac without a plan) */
 export function rgThreads(): number | null { return limitsActive() ? Math.min(2, cpuBudget()) : null }
 /** whisper.cpp -t. Where limits apply: one core less than the budget, but 2 on a 2-core box (QA 2026-11-01: a 2-minute
  * piece took 179 s with 2 threads, 226 s with 1; only one whisper.cpp runs at a time, jobs/whisper-turns.ts), at most 4 */
 export function whisperThreads(): number {
-  if (!limitsActive()) return Math.max(1, Math.min(8, os.availableParallelism() - 1))
+  if (!limitsActive()) return Math.max(1, Math.min(8, Math.min(os.availableParallelism(), containerLimits().cpus ?? Infinity) - 1))
   const cores = cpuBudget()
   return cores >= 2 ? Math.max(2, Math.min(4, cores - 1)) : 1
 }

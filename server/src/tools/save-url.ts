@@ -14,9 +14,12 @@
 //     scheduled run such a file is skipped. No other size limit. The only hard stop is the disk: a download that would
 //     leave less than diskReserve() free on the data disk or the team folder's disk is refused, up front and while it
 //     streams (the partial file is deleted).
-//   - The type comes from the first bytes, never from the site (tools/sniff.ts): PNG, JPEG, GIF, WebP, PDF, MP4, MOV,
-//     WebM, MP3, WAV, M4A, AAC, FLAC, Ogg (Vorbis, Opus); the extension is corrected to match. Images up to VISION_INPUT_MAX are also decoded by the isolated
-//     normalizer (files/vision.ts) as a check; the original bytes are saved.
+//   - The type comes from the bytes, never from the site (tools/sniff.ts): PNG, JPEG, GIF, WebP, PDF, MP4, MOV,
+//     WebM, MP3, WAV, M4A, AAC, FLAC, Ogg (Vorbis, Opus), and (docs/decisions/20261118-office-zip-from-the-web.md) Word,
+//     Excel, PowerPoint, Hangul, OpenDocument, Outlook .msg, CSV / TSV and ZIP; a zip or compound file is settled on the
+//     whole file after the download (settleKind: an app package or an installer is refused, the file deleted); the
+//     extension is corrected to match. Images up to VISION_INPUT_MAX are also decoded by the isolated
+//     normalizer (files/vision.ts) as a check; the original bytes are saved. A zip is stored, never opened here.
 //   - Saved through placeProduced like make_file: the person's permissions checked again, never under skills/, a
 //     version of a file the AI read in this turn or a conflict copy, the per-turn file count, a file event with the
 //     source address, the change published. Before that, the wider-audience card (confirmWidening) when more people
@@ -45,21 +48,19 @@ import { egressOf, egressSettled } from './egress'
 import { currentPlan } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
 import { placeProduced } from './make-file'
-import { ACCEPTED, refusedName, sniffKind, withExtension, type FileKind } from './sniff'
+import { savePathArg } from './save-target'
+import { ACCEPTED, RefusedKind, refusedName, settleKind, sniffDownload, withExtension, type FileKind, type ReadAt } from './sniff'
 import { redirectGuard } from './connection-urls'
 import { gateUrl } from './url-gate'
-import { precheckTarget } from './web-fetch'
+import { acceptLanguage, precheckTarget } from './web-fetch'
+import { teamDefaultLocale } from '../admin/settings'
 import { diskStat } from '../system/disk-stat'
 
 /** larger downloads ask the person first (save_url's card) */
 export const ASK_ABOVE_BYTES = 1024 ** 3
-/** free space a download must leave on the data disk: 10% of the disk, at least 5 GiB, at most 20 GiB */
-export const DISK_RESERVE_MIN = 5 * 1024 ** 3
-export const DISK_RESERVE_MAX = 20 * 1024 ** 3
-export const DISK_RESERVE_FRACTION = 0.1
-export function diskReserve(totalBytes: number): number {
-  return Math.min(DISK_RESERVE_MAX, Math.max(DISK_RESERVE_MIN, Math.floor(totalBytes * DISK_RESERVE_FRACTION)))
-}
+// free space a download must leave on the data disk (system/disk-stat.ts, shared with the speech model's download)
+export { DISK_RESERVE_FRACTION, DISK_RESERVE_MAX, DISK_RESERVE_MIN, diskReserve } from '../system/disk-stat'
+import { diskReserve } from '../system/disk-stat'
 
 export const TEXT = {
   large: {
@@ -118,7 +119,7 @@ export interface SaveUrlOptions extends Pick<DownloadOptions, 'lookup' | 'testAl
 
 type Input = z.output<typeof SaveUrlInput>
 
-const cleanName = (s: string) => {
+export const cleanName = (s: string) => {
   let n = s
   try { n = decodeURIComponent(s) } catch { /* as written */ }
   n = n.normalize('NFC').replace(/[\\/:*?"<>|\u0000-\u001f\u007f]/g, '-').replace(/\s+/g, ' ').trim().replace(/^[. ]+|[. ]+$/g, '').slice(0, 100)
@@ -160,11 +161,15 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
   const source = a.url.trim()
 
   // where it goes: an explicit path (a folder when it ends in "/"), or the person's own folder
-  const wanted = a.save_as?.trim().replace(/^\/+/, '').normalize('NFC')
+  const wanted = a.save_as === undefined ? undefined : savePathArg(a.save_as)
   const folderOnly = !wanted || wanted.endsWith('/')
   const explicitFolder = wanted ? (folderOnly ? wanted.replace(/\/+$/, '') : wanted.split('/').slice(0, -1).join('/')) : null
   if (wanted && inSkills(wanted)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
-  const firstName = wanted && !folderOnly ? wanted.split('/').pop()! : (handle ? '' : nameFromUrl(source))
+  // one naming rule for the card before the download and the file after it: the name asked for, else the address's
+  // (after the download the address its redirects ended at, which may name the file: ".../fwlink/?LinkID=1" ->
+  // "Financial Sample.xlsx"; a changed name is checked again on the wider-audience card below)
+  const nameFor = (url: string) => (wanted && !folderOnly ? wanted.split('/').pop()! : handle ? '' : nameFromUrl(url) || nameFromUrl(source))
+  const firstName = nameFor(source)
   const provisional = explicitFolder !== null ? [explicitFolder, firstName || 'download'].filter(Boolean).join('/') : null
   if (provisional !== null) {
     // refused before anything is fetched: a path the person cannot write (placeProduced checks again at the end)
@@ -208,6 +213,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     let from: string
     let confirmed = ''
     let openEnded = false
+    let declared = ''
     if (handle) {
       const item = getMedia(ctx.engineConfig.dataDir, chatId, t.user.id, source)
       if (!item) throw new ToolError(`no file ${source.slice(0, 60)} in this chat: an mcp-file handle works only in the chat whose connection answer named it, for 24 hours. Call the service again to get the file`)
@@ -216,10 +222,11 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       fs.copyFileSync(item.file, tmp, fs.constants.COPYFILE_EXCL)
       const fd = fs.openSync(tmp, 'r')
       try { first = Buffer.alloc(Math.min(64, item.meta.size)); fs.readSync(fd, first, 0, first.length, 0) } finally { fs.closeSync(fd) }
-      kind = judge(first, item.meta.declared)
+      kind = judge(first, item.meta.declared, firstName)
       size = item.meta.size
       sha = item.meta.sha256
       from = source
+      declared = item.meta.declared
     } else {
       // the address rules that need no lookup, then where it came from (the card), then the download
       const blockedIps = () => egressOf(ctx).ips
@@ -241,7 +248,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       })
       const r = await downloadToFile(source, tmp, {
         lookup: o.lookup, testAllow: o.testAllow, insecureTlsForTests: o.insecureTlsForTests, connectTimeoutMs: o.connectTimeoutMs, idleTimeoutMs: o.idleTimeoutMs, roomStep: o.roomStep, totalTimeoutMs: o.totalTimeoutMs,
-        blockedIps, signal: t.signal,
+        blockedIps, signal: t.signal, acceptLanguage: acceptLanguage(t.person?.locale ?? teamDefaultLocale(ctx.db)),
         askAbove: o.askAbove ?? ASK_ABOVE_BYTES,
         onLarge: async ({ size: total, received }) => {
           const shown = humanBytes(total ?? received)
@@ -253,7 +260,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
         },
         onRedirect: redirects.check,
         room: (more) => room(more, fs.existsSync(tmp)),
-        sniff: (b, ct) => { kind = judge(b, ct) },
+        sniff: (b, ct) => { kind = judge(b, ct, firstName || nameFromUrl(source)) },
       })
       if (redirects.confirmed()) confirmed += ' (redirect confirmed by the user)'
       if (largeOk) confirmed += ' (large file confirmed by the user)'
@@ -263,9 +270,23 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
       sha = r.sha256
       from = r.url
       openEnded = r.openEnded
+      declared = r.contentType
     }
-    const k = kind as FileKind | null
+    let k = kind as FileKind | null
     if (!k) throw new ToolError('internal: no file type')
+    // a zip, a compound file or a table: what it really is, from the whole file (a program package is refused here)
+    if (k.media === 'archive' || k.media === 'data' || k.name === 'ole') {
+      const hint = nameFor(from)
+      // judged by small reads of the file (a zip's directory from its end, a compound file's directory), never by
+      // reading it whole and never by its name alone
+      const fd = fs.openSync(tmp, 'r')
+      const read: ReadAt = (pos, len) => { const b = Buffer.alloc(Math.max(0, Math.min(len, size - pos))); const n = b.length ? fs.readSync(fd, b, 0, b.length, pos) : 0; return b.subarray(0, n) }
+      try { k = settleKind(k, read, size, declared, hint) } catch (e) {
+        if (!(e instanceof RefusedKind)) throw e
+        const said = declared ? `; the source said ${declared.split(';')[0]!.trim().slice(0, 60)}` : ''
+        throw new ToolError(`save_url takes ${ACCEPTED}. This file is ${e.what} (judged by its bytes${said}), so it was not saved`)
+      } finally { fs.closeSync(fd) }
+    }
     const notes: string[] = []
     // images: decoded by the isolated normalizer as a check (a file that only starts like a PNG is refused)
     let dims: { width: number; height: number } | null = null
@@ -290,24 +311,31 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     // unverified (images above already fail the decode check when truncated)
     if (!k.image && openEnded) notes.push(`The site did not send the file's length (the connection just closed), so there is no way to confirm the ${k.label} file is complete; if it will not open, download it again.`)
     // the name: the one asked for, or the address's, with the extension of what the file really is
-    const baseName = firstName || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
+    // no name asked for: the last address's name (a download link like ".../fwlink/?LinkID=1" ends at the file's real
+    // name after its redirects), else the first address's
+    const baseName = nameFor(from) || (handle ? `${k.media === 'image' ? 'image' : 'file'}-${crypto.randomBytes(3).toString('hex')}` : 'download')
     const named = withExtension(baseName, k)
     if (named.changed && wanted && !folderOnly) notes.push(`Saved with the extension .${k.ext}: the file is ${k.label} (judged by its bytes), not what "${baseName}" said.`)
     const folder = explicitFolder ?? `users/${t.user.id}/${k.image ? 'images' : 'downloads'}`
     const target = [folder, named.name].filter(Boolean).join('/')
     if (!t.confirmWidening && !own(target)) throw new ToolError('outside a chat this can only save into your own folder (users/<you>/)')
-    if (explicitFolder === null) {
+    // the card before the download asked about `provisional`; a name the redirects changed is asked about again (the
+    // same folder said yes already: no second card)
+    if (explicitFolder === null || target !== provisional) {
       const refusal = await t.confirmWidening?.(target, [])
       if (refusal) throw new ToolError(refusal)
     }
     if (inSkills(target)) throw new ToolError('files cannot be saved in a skills folder (skills/, a group\'s or a project\'s: skills and rules people\'s AI follows); pick another folder')
-    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, detail: { url: from.slice(0, 4000), type: k.mime } })
+    const made = await placeProduced(ctx, files, t, target.split('/').filter(Boolean), tmp, 'save_url', undefined, { turnBytes: false, thisAnswerOnly: true, detail: { url: from.slice(0, 4000), type: k.mime } })
+    // macros are programs inside the document: the person decides whether to trust them
+    if (k.macros) notes.push(`This ${k.label} file contains macros (small programs inside the document). Tell the user plainly before they open it: open it only if they trust where it came from, and keep macros turned off otherwise.`)
     if (made.conflictCopyOf) notes.push(`${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.`)
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')
     const rel = made.path
     const pageHint = k.image || k.media === 'video' || k.media === 'audio'
       ? ` To show it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: "${rel.split('/').slice(-2).join('/')}"); previews show only team files.`
-      : ''
+      : k.media === 'archive' ? ' It was saved as it is (not unzipped); unzip_file opens it when the user wants the files inside.'
+        : k.media === 'document' || k.media === 'data' ? ' Read it with read to see its contents.' : ''
     return {
       text: [`Saved ${handle ? source : from} as ${rel} (${what}).${pageHint}`, ...notes].join('\n'),
       summary: `save_url -> ${rel} (${size} B, ${k.mime}, sha256 ${sha}) from ${from}${from !== source ? ` (asked for ${source})` : ''}${confirmed}`.slice(0, 9000),
@@ -317,8 +345,8 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
 }
 
 /** The kind of a file from its first bytes, or a refusal that says what it is instead. */
-function judge(first: Buffer, declared: string): FileKind {
-  const k = sniffKind(first)
+function judge(first: Buffer, declared: string, hint: string): FileKind {
+  const k = sniffDownload(first, declared, hint)
   if (k) return k
   const name = refusedName(first)
   const said = declared ? `; the source said ${declared.split(';')[0]!.trim().slice(0, 60)}` : ''
@@ -326,10 +354,11 @@ function judge(first: Buffer, declared: string): FileKind {
 }
 
 export const SAVE_URL_DESCRIPTION =
-  'Download a file into the team folder, like `curl -o`: an image, PDF, video or audio file at an http(s) address, or a file a connected service returned ' +
+  'Download a file into the team folder, like `curl -o`: an image, PDF, video, audio, Office (Word, Excel, PowerPoint, Hangul, OpenDocument), CSV or ZIP file at an http(s) address, or a file a connected service returned ' +
   'inline (the mcp-file:<id> handle in its answer). Use it right away for what an image or video service generated (its result links expire), and to put ' +
   'images into HTML: save the image next to the page (save_as "landing/images/hero.png") and reference it by a relative path (<img src="images/hero.png"> in ' +
   'landing/index.html). Previews show only team files: web addresses in a page stay blocked. Takes PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, MP3, ' +
-  'WAV, M4A, AAC, FLAC and Ogg / Opus audio, judged by the file\'s bytes (the extension is corrected); not SVG, HTML, archives or programs. The address rules are web_fetch\'s: ' +
+  'WAV, M4A, AAC, FLAC and Ogg / Opus audio, Word, Excel, PowerPoint, Hangul and OpenDocument files, Outlook .msg emails, CSV / TSV tables and ZIP archives (saved as they are, not unzipped), ' +
+  'judged by the file\'s bytes (the extension is corrected); not SVG, HTML, other archives, installers or programs. Read a saved document with read. The address rules are web_fetch\'s: ' +
   'addresses from this conversation (typed by the user, search results, links of fetched pages, answers of connected services) open without asking within ' +
   'a budget, others are shown to the user first. Files over 1 GB ask the user first.'

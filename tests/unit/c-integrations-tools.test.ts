@@ -7,7 +7,7 @@ import { TEAM_TOOL_PREFIX } from '@mycel/shared'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { API_KEY, FakeServices, MCP_KEY } from '../lib/fake-services'
 import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { buildUrl, connectionWays, integrationToolProvider, MAX_RESULT_CHARS, NO_CONNECTIONS, toolName } from '../../server/src/integrations/connections/tools'
+import { buildUrl, connectionWays, integrationToolProvider, MAX_CARD_PAYLOAD, MAX_RESULT_CHARS, NO_CONNECTIONS, toolName } from '../../server/src/integrations/connections/tools'
 import { readScope, sourceLabel, widening } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
 import type { TurnTool, TurnToolContext } from '../../server/src/services'
@@ -57,7 +57,7 @@ describe('tools made per person', () => {
   test('the owner gets her connections\' tools and api_request; others do not; an admin is not a user of a team connection', () => {
     const a = turn('alice')
     expect([...a.tools.keys()]).toEqual(['my_tasks__search_tasks', 'my_tasks__create_task', 'my_tasks__inject', 'my_tasks__rpc_fail',
-      'team_teamboard__search_tasks', 'team_teamboard__create_task', 'team_teamboard__inject', 'team_teamboard__rpc_fail', 'api_request'])
+      'team_teamboard__search_tasks', 'team_teamboard__create_task', 'team_teamboard__inject', 'team_teamboard__rpc_fail', 'api_request', 'connection_result'])
     expect(a.tools.get('my_tasks__create_task')!.description).toStartWith('[Tasks, personal connection] Create a task: Create a task')
     expect(a.tools.get('my_tasks__create_task')!.description).toContain('Changes something')
     expect(a.tools.get('team_teamboard__search_tasks')!.description).toStartWith('[Team board, team connection]')
@@ -261,7 +261,7 @@ describe('calls', () => {
     expect(fake.calls.at(-1)!.name).toBe('create_task')
   })
 
-  test('the card shows the whole payload, where it goes first; more than a card can show is refused (review F7a)', async () => {
+  test('the card shows the whole payload, where it goes first; more than one call may send (10,000,000 characters) is refused (review F7a, limits audit N25)', async () => {
     // the first 300 characters used to be all the card showed: harmless words first, the data and the recipient after
     const padded = { title: 'Weekly notes ' + 'x'.repeat(2000) + ' SECRET-AT-THE-END', to: 'outside@evil.example', meta: { channel: '#public-feed' } }
     const p = ask(false)
@@ -272,14 +272,34 @@ describe('calls', () => {
     // every value as a labelled line, where it goes first; the exact JSON one click away (exact), the marks in both
     expect(d!.fields).toEqual([{ name: 'Recipient', value: 'outside@evil.example' }, { name: 'Meta › Channel', value: '#public-feed' }, { name: 'Title', value: padded.title }])
     expect(d!.exact).toBe(true)
+    // a write of 100,001 characters (refused before, the old 100,000 cap): asked, and the card holds all of it as text
+    // (the recipients alone as lines; chat/card-fold.ts folds it when the card goes out)
+    const big1 = ask(true)
+    const at = fake.calls.length
+    // (a recipient of 5,000 characters is shown whole on its line, not cut at the gate's 2,000: L2)
+    const to = 'team@example.com,' + 'x'.repeat(5_000) + '@example.com'
+    const ok = await turn('alice', { person: big1 }).call('my_tasks__create_task', { title: 'y'.repeat(100_001), to })
+    expect(ok.isError).toBe(false)
+    expect(big1.questions).toHaveLength(1)
+    expect(big1.details[0]![0]!.text).toContain('y'.repeat(100_001))
+    expect(big1.details[0]![0]!.exact).toBeUndefined()
+    expect(big1.details[0]![0]!.fields).toEqual([{ name: 'to', value: to }])
+    expect(fake.calls.length).toBe(at + 1)
+    // security review of #1338 (L2): where it goes is never folded, so a recipient over 10,000 characters is refused
+    const longTo = ask(true)
+    const at2 = fake.calls.length
+    const lr = await turn('alice', { person: longTo }).call('my_tasks__create_task', { title: 'short', to: 'a'.repeat(10_001) + '@example.com' })
+    expect(lr.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
+    expect(longTo.questions).toHaveLength(0)
+    expect(fake.calls.length).toBe(at2)
     const before = fake.calls.length
     const huge = ask(true)
-    const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(100_001) })
+    const r = await turn('alice', { person: huge }).call('my_tasks__create_task', { title: 'y'.repeat(MAX_CARD_PAYLOAD + 1) })
     expect(r.summary).toBe('my_tasks__create_task -> refused (too large to confirm)')
     expect(huge.questions).toHaveLength(0)
     expect(fake.calls.length).toBe(before)
     // an api_request's address counts too: an empty body with a huge query is no smaller
-    const query = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, 'q'.repeat(4000)]))
+    const query = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, Array.from({ length: 100 }, () => 'q'.repeat(4000))]))
     const requests = fake.seen.length
     const big = await turn('alice', { person: huge }).call('api_request', { connection: 'my_aipm', method: 'POST', path: '/tasks', query })
     expect(big.summary).toBe('api_request my_aipm POST -> refused (too large to confirm)')
@@ -610,8 +630,41 @@ describe('api_request', () => {
     expect(fake.seen.some((s) => s.path.includes('steal'))).toBe(false)
     const big = await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/big' })
     expect(big.text).toContain('(cut at 1 MB)')
-    expect(big.text).toContain(`(cut to ${MAX_RESULT_CHARS} characters)`)
     expect(big.text.length).toBeLessThan(MAX_RESULT_CHARS + 1000)
+    // the rest of it, not cut without a way on (limits audit 1 #13): connection_result in parts, until the end
+    const first = big.text.match(/\(characters 0-40000 of (\d+); read on with connection_result \{"id": "(r\d+)", "offset": 40000\}\)/)
+    expect(first).not.toBeNull()
+    const [, total, id] = first! as unknown as [string, string, string]
+    const inner = (t: string) => t.slice(t.indexOf('>\n') + 2, t.lastIndexOf('\n</external_data>'))
+    const requests = fake.seen.length
+    let all = inner(big.text), offset = 40_000, parts = 1
+    for (;;) {
+      const r = await a.call('connection_result', { id, offset })
+      expect(r.isError).toBe(false)
+      expect(r.text).toStartWith(`Answer ${id} from AI PM, read on (characters ${offset}-`)
+      expect(r.text).toContain('<external_data source="AI PM">')
+      all += inner(r.text); parts++
+      const next = r.text.match(/"offset": (\d+)\}\)/)
+      if (!next) { expect(r.text.split('\n')[0]).toEndWith(`of ${total}, the end)`); break }
+      offset = Number(next[1])
+    }
+    expect(all.length).toBe(Number(total))
+    expect(parts).toBe(Math.ceil(Number(total) / MAX_RESULT_CHARS))
+    // no service was called for it
+    expect(fake.seen.length).toBe(requests)
+    expect((await a.call('connection_result', { id, offset: Number(total) + 5 })).text).toContain('is past its end')
+    expect((await a.call('connection_result', { id: 'r999', offset: 0 })).isError).toBe(true)
+    expect((await a.call('connection_result', { id: '../x', offset: 0 })).text).toContain('Invalid input')
+    // another answer (another person's or the next one) does not reach it
+    expect(turn('bob').tools.has('connection_result')).toBe(false)
+    expect((await turn('alice').call('connection_result', { id, offset: 40_000 })).text).toContain(`No answer "${id}" is kept`)
+    // the tools built again in the same answer (connect_service: refreshTools) reach the same answer under the same id
+    const again = integrationToolProvider(A.ctx).build({ userId: 'alice', chatId: a.chat, turnId: a.turnId, browser: false, scheduled: false }).tools.find((x) => x.name === 'connection_result')!
+    const tc = { turnId: a.turnId, chatId: a.chat, userId: 'alice', messageId: 'm', locale: 'en', signal: new AbortController().signal, files: { user: A.ctx.files.principal('alice'), turnId: a.turnId, files: new TurnFiles() } } as unknown as TurnToolContext
+    const r2 = await again.call({ id, offset: 40_000 }, tc)
+    expect((r2.content[0] as { text: string }).text).toStartWith(`Answer ${id} from AI PM, read on (characters 40000-`)
+    // another person calling with this turn's id gets nothing
+    expect((await again.call({ id, offset: 40_000 }, { ...tc, userId: 'bob' } as TurnToolContext)).isError).toBe(true)
     expect((await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/image' })).text).toContain('binary content')
     const inj = await a.call('api_request', { connection: 'my_aipm', method: 'GET', path: '/inject' })
     expect(inj.text.match(/<\/external_data>/g)).toHaveLength(1)

@@ -40,7 +40,7 @@ import { getSetting, setSetting, teamTimeZone } from '../admin/settings'
 import { limitsActive, planDiskBytes, planManageUrl } from './limits'
 import { zonedParts } from './time-zone'
 import { cleanupAskedAt } from './storage-cleanup-asked'
-import { diskStat } from './disk-stat'
+import { DISK_RESERVE_MAX, diskReserve, diskStat } from './disk-stat'
 
 const MIB = 1024 * 1024
 export const RESERVE_MIN_BYTES = 512 * MIB
@@ -71,8 +71,11 @@ export function reserveBytes(total: number): number { return Math.max(RESERVE_MI
 
 /** Where the Mac's rule decides (a Mac, dev, anything but a Linux production install: system/ops.ts): under this much
  * free space answers, uploads and saves can fail and the disk check fails. The storage card uses it too, so the card
- * never says "여유 있음" on a small disk the check below it calls almost full (QA TC-209). */
-export function absoluteFloor(total: number): number { return Math.max(10 * 1024 ** 3, total * 0.05) }
+ * never says "여유 있음" on a small disk the check below it calls almost full (QA TC-209). 5% of the disk, at least
+ * 10 GiB, capped at the reserve's own cap (disk-stat.ts DISK_RESERVE_MAX, 10 GiB) as diskReserve is: without the cap a
+ * 1.8 TB disk with 91 GB free (5% is 92 GB) showed as read-only in the ops checks while every AI write still worked. */
+export const ABSOLUTE_FLOOR_MIN = 10 * 1024 ** 3
+export function absoluteFloor(total: number): number { return Math.max(ABSOLUTE_FLOOR_MIN, Math.min(total * 0.05, DISK_RESERVE_MAX)) }
 
 /** An error from a full disk: ENOSPC / EDQUOT from the file system, SQLITE_FULL ("database or disk is full") from the
  * database, also as the cause of another error. */
@@ -246,10 +249,25 @@ export function storageRefusesWrites(): boolean {
   return !!r && !r.ok
 }
 
-/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. */
+/** Free space the AI's writes always leave where the plan's guard does not decide (a Mac without a plan: Office Mac,
+ * the desktop app): the one reserve of system/disk-stat.ts diskReserve, max(2 GiB, min(5% of the disk, 10 GiB))
+ * (docs/decisions/20261118-limits-caps.md) */
+export const simpleFloorBytes = diskReserve
+
+/** Is there room for `bytes` more by the simple floor (fresh statfs of the team folder)? null when no guard is set up or
+ * the disk cannot be read. */
+export function simpleRoom(bytes: number): boolean | null {
+  if (!guard) return null
+  const s = storageSnapshot(true)
+  if (!s) return null
+  return s.freeBytes - Math.max(0, bytes) >= simpleFloorBytes(s.totalBytes)
+}
+
+/** The AI's writes (write, edit, make_file): a tool error the AI can tell the person about. Where the plan's guard is
+ * off (storageRoom null), the simple floor still keeps the disk from filling up through one long answer. */
 export function assertStorageRoomForAI(bytes: number): void {
   const r = storageRoom(bytes)
-  if (!r || r.ok) return
+  if (r ? r.ok : simpleRoom(bytes) !== false) return
   throw new ToolError('the team\'s storage is full: nothing can be saved until space is freed (empty the trash or delete files; an admin sees the details in Admin > System)', 'storage_full')
 }
 

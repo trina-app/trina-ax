@@ -19,6 +19,7 @@
 //   - writes an audit line (tool_events) that names no room, person, word searched or file: admins read that log and
 //     must not learn who talks to whom
 import { noteRoomLinks } from '../tools/url-gate'
+import { savePathArg } from '../tools/save-target'
 import { isGuestUser } from '../credentials/guest-ai'
 import { shownTimeZone } from '../system/time-zone'
 import { guestPlace } from '../auth/guests'
@@ -27,13 +28,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { FILE_STEP_VERB, isUuid7, RoomFileInput, RoomReadInput, RoomsInput, SaveRoomFileInput } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
-import { SMALL_UPLOAD_MAX } from '@mycel/shared/api'
+import { ROOM_FILE_MAX } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { ext, extractText, looksScanned } from '../files/extract'
 import { appendText, isVisionImage, layerText, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
 import { mediaKind } from '@mycel/shared'
-import { readRegular } from '../files/store'
+import { copyRegular, readRegular } from '../files/store'
+import { assertStorageRoomForAI } from '../system/storage'
 import { readMaxBytes } from '../system/limits'
 import { roomFilesOf } from '../rooms/files'
 import { roomsOf } from '../rooms/service'
@@ -64,8 +66,9 @@ const text = (t: string, isError = false) => ({ content: [{ type: 'text' as cons
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
 /** characters of a room file's text in one result (the rest: offset) */
 export const ROOM_FILE_CHARS = 40_000
-/** a room file read at most this big (the plan's read limit, and 32 MB like a Drive file) */
-const ROOM_FILE_BYTES = () => Math.min(readMaxBytes(), 32 * 1024 * 1024)
+/** a room file read at most this big: the plan's read limit, as a team-folder read (limits audit 1 #23: it was 32 MB,
+ * while rooms take files up to 1 GB; the converters keep their own limits, files/extract.ts) */
+export const ROOM_FILE_BYTES = () => readMaxBytes()
 
 /** reader.ts NO_ROOM's pointer to the rooms tool, and what a guest's AI reads instead */
 const ROOMS_HINT = 'Call rooms to see them (or ask the user which one).'
@@ -94,10 +97,11 @@ export function roomReadTools(exec: TurnExec): Tool[] {
     return `No room matching "${neutralizeTags(ref.replace(/["<>\s]+/g, ' ').trim().slice(0, 80))}" that you can read. ${GUEST_ROOMS_HINT}`
   }
   const planned = plannedTargets()
-  /** the person as they are now (a disabled account reads nothing); then the chat is marked before anything is read */
-  const begin = (): string | null => {
+  /** the person as they are now (a disabled account reads nothing); then the chat is marked before anything is read.
+   * `namesOnly`: the rooms tool, which shows room names unless it finds messages (then it marks again, below) */
+  const begin = (namesOnly = false): string | null => {
     try { exec.livePrincipal() } catch { return 'Access denied: this account is disabled.' }
-    exec.markRoomsSeen()
+    exec.markRoomsSeen(namesOnly)
     return null
   }
   /** Rooms follow groups and accounts (rooms/service.ts sync): a person whose rooms are out of step (taken out of a
@@ -132,11 +136,16 @@ export function roomReadTools(exec: TurnExec): Tool[] {
       async call(args) {
         const a = RoomsInput.safeParse(args)
         if (!a.success) return text(zodText(a.error), true)
-        const no = begin()
+        // a list of rooms (or a search that found no message) shows names only: looking up a room or a person by name
+        // does not count as reading room messages for what is sent later (chat/read-rooms.ts ROOM_NAMES_ONLY;
+        // docs/decisions/20261118-dm-own-paste.md); every gate of a read room applies all the same
+        const no = begin(true)
         if (no) return { ...text(no, true), summary: 'rooms -> denied: account disabled' }
         syncMine()
         const search = isRoomSearch(a.data)
         const r = search ? searchRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data) : listRooms(rt.db, spec.userId, shownTimeZone(spec.timeZone, rt.timeZone), a.data.room)
+        // messages found: the chat has read room messages (before the result reaches the AI)
+        if (r.seen.length || (search && (r.count ?? 0) > 0)) exec.markRoomsSeen()
         record(r)
         return { ...text(r.text, !r.ok), summary: `rooms -> ${search ? 'search' : 'list'}${r.ok ? `, ${r.count ?? 0} shown` : ', invalid input'}` }
       },
@@ -274,7 +283,7 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   let bytes: Buffer
   try { bytes = readRegular(abs, ROOM_FILE_BYTES()).bytes } catch (e) {
     const big = e instanceof Error && /too large/.test(e.message)
-    return { ...text(`${head}\n${big ? 'The file is too large to read here.' : 'The file could not be read.'}`, true), summary: `room_file -> ${big ? 'too large' : 'unreadable'}` }
+    return { ...text(`${head}\n${big ? `The file is larger than ${Math.round(ROOM_FILE_BYTES() / 1024 / 1024)} MB, the most a file is read here. Tell the user plainly; they can open it from the room themselves.` : 'The file could not be read.'}`, true), summary: `room_file -> ${big ? 'too large' : 'unreadable'}` }
   }
   /** The checks above once more (synchronous): a conversion awaits, and someone whose account was turned off, who was
    * taken out of the room (or it was archived), whose message went or is now hidden from them, or whose file went on
@@ -408,7 +417,7 @@ function saveTarget(exec: TurnExec, a: SaveArgs): SaveRefusal | SaveFound {
   if ('text' in found) return { text: found.text, summary: 'save_room_file -> not found' }
   const { file, message, room } = found
   if (rt.files.quarantine.hasHash(file.sha256)) return { text: 'This file is held by the team\'s safety check, so it cannot be saved.', summary: 'save_room_file -> held' }
-  const wanted = (a.save_as ?? '').trim().replace(/^\/+/, '').normalize('NFC')
+  const wanted = savePathArg(a.save_as ?? '')
   // a folder that is there, named without its "/" ("shared"), is a folder too
   let isFolder = false
   try { isFolder = !wanted.endsWith('/') && !!wanted && !!authorize(rt.files.fx, rt.files.rules(), exec.livePrincipal(), wanted, 'list').st?.isDirectory() } catch { /* not one this person sees */ }
@@ -502,16 +511,14 @@ async function saveRoomFile(exec: TurnExec, files: TurnFiles, a: SaveArgs, named
   const work = fs.mkdtempSync(path.join(workRoot, 'room-file-'))
   try {
     const tmp = path.join(work, 'file')
-    // read whole (the safety check reads the bytes): only up to 50 MB, what a room file could be before rooms took
-    // larger files (up to 1 GB now); a larger one is for the person to download and put in Files themselves
-    if (file.size > SMALL_UPLOAD_MAX) return { ...text(`Not saved: "${neutralizeTags(file.name.replace(/[\r\n"]+/g, ' ').slice(0, 200))}" is larger than 50 MB, which is the most that can be copied from a room here. Tell the user to download it from the room and upload it on the Files screen.`, true), summary: 'save_room_file -> refused: too large' }
-    const bytes = readRegular(abs, SMALL_UPLOAD_MAX).bytes
-    rt.files.quarantine.assertBytes(bytes)
-    fs.writeFileSync(tmp, bytes, { mode: 0o600 })
+    // copied in pieces, never whole in memory, up to what a room takes (1 GB; second limits audit N38): the disk checked
+    // first, the safety check on the hash of the very bytes copied
+    assertStorageRoomForAI(file.size)
+    rt.files.quarantine.assertHash((await copyRegular(abs, tmp, ROOM_FILE_MAX, undefined, exec.abort.signal)).sha256)
     const c: ToolCtx = { user: exec.livePrincipal(), turnId: spec.turnId, files, signal: exec.abort.signal, confirmWidening: (t, s, b) => exec.confirmWidening(t, s, b, call),
       // a save a scheduled task's card covered: checked again right before the copy is placed (chat/schedule-cover.ts)
       ...(call ? { beforePlace: () => { const no = exec.scheduleCover?.recheck(callKey(call.tool, call.args)); if (no) throw new ToolError(no) } } : {}) }
-    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, detail: { type: file.mime } })
+    const made = await placeProduced(rt.ctx, componentC(rt.ctx).files, c, target.split('/').filter(Boolean), tmp, 'save_room_file', undefined, { turnBytes: false, thisAnswerOnly: true, detail: { type: file.mime } })
     // the room file's place, for its "In team folder" link (rooms/file-saves.ts)
     recordRoomFileSave(rt.ctx, file.id, made.path, made.sha256, made.size)
     const note = made.conflictCopyOf ? ` ${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.` : ''

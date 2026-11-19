@@ -194,4 +194,18 @@ describe('company profile API', () => {
     expect(lines).toHaveLength(7)
     expect(lines.join('\n').length).toBeLessThanOrEqual(PROFILE_BLOCK_MAX)
   })
+
+  test('a long profile (TC-4980): 8,000 characters reach the AI, the long fields take a real description', async () => {
+    expect(PROFILE_BLOCK_MAX).toBe(8000)
+    const before = fs.existsSync(file()) ? fs.readFileSync(file(), 'utf8') : null
+    try {
+      // 2,500 + 1,200 + 800 characters: refused before (400 / 300 / 300 per field, 2,000 in all)
+      const long = profile({ products: 'p'.repeat(2500), audience: 'c'.repeat(1200), avoid: 'v'.repeat(800) })
+      expect((await h.req('carol', '/api/onboarding/profile', json(long))).status).toBe(200)
+      const block = companyProfileBlock(h.ctx.files, h.ctx.files.principal('alice'))
+      expect(block).toContain('Products and services: ' + 'p'.repeat(2500) + '\n')
+      expect(block).toContain('Customers: ' + 'c'.repeat(1200) + '\n')
+      expect(block).toContain('Expressions to avoid: ' + 'v'.repeat(800))
+    } finally { if (before !== null) fs.writeFileSync(file(), before) }
+  })
 })

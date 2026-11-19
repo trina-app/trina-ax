@@ -7,7 +7,10 @@
 // and says so instead of doing nothing. In the accent colour, underlined (a mention is the accent colour without one), a
 // long address breaks after its slashes and anywhere when one piece is still too long for the line. The text itself is
 // never changed: copy and edit take the message as it was written.
+import clsx from 'clsx'
 import { useGuestFolderHref } from '../GuestView'
+import { PersonButton } from '../PersonCard'
+import { mentionClass, mentionParts } from '../../lib/rooms'
 import { guestAppHref } from '../../lib/guests'
 import { Fragment, useMemo, useRef, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -17,6 +20,8 @@ import { openTeamFile } from '../../lib/sidePanel'
 import { addressPieces, linkParts } from '../../lib/textLinks'
 import { messagePath, ownMessageLink } from '../../lib/messageLinks'
 import { CHIP, MessageLinkChipBody, useLinkHosts, useMessageLinkPreviews } from './MessageLinkChip'
+import { appLinkRef, labelIsAddress, type AppLinkRef } from '../../lib/appLinks'
+import { AppLinkChipBody, CHIP_UNNAMED, useAppLinkLabel, useAppLinkName, useAppLinkTarget } from '../AppLinkChip'
 import { useT } from '../../i18n'
 import { toast } from '../../store/ui'
 import { useCopy } from '../ui'
@@ -28,6 +33,21 @@ const LONG_PRESS_MS = 500
 const origin = () => (typeof location === 'undefined' ? 'http://localhost' : location.origin)
 /** a click the browser should handle itself: a new tab or window, a download */
 const ownClick = (e: MouseEvent) => e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+
+/** A person's plain words (never Markdown: a thread reply under an AI answer) with the people it mentions as names in the
+ * rooms. mention look (lib/rooms.ts mentionClass; mine on the soft background) that open their card, and its
+ * addresses as links. `mentioned`: the ids and the names to look for (the name now and as the list had it, so "@Ben"
+ * still stands out after Ben renamed himself). */
+export function MentionedText({ text, mentioned, meId }: { text: string; mentioned: { id: string; name: string }[]; meId: string | null }) {
+  const parts = useMemo(() => mentionParts(text, mentioned), [text, mentioned])
+  return (
+    <>
+      {parts.map((p, i) => (p.userId ? (
+        <PersonButton key={i} user={{ id: p.userId, name: '' }} look="mention" className={clsx(mentionClass(p.userId === meId))} testId="room-mention-person">{p.text}</PersonButton>
+      ) : <LinkedText key={i} text={p.text} />))}
+    </>
+  )
+}
 
 /** The words of `text`, its addresses as links. `cut`: the text ends in the "…" of an excerpt; an address cut by it
  * stays text. `oneLine`: the text is one line cut with "…" (a quote): no break inside an address. `menu`: a long press
@@ -94,6 +114,11 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
         <MessageLinkChipBody preview={preview} />
       </Link>
     )
+  // a bare address of something in this app (a chat, a project, a conversation, a file link, a folder or a file in
+  // Files) on this page's host or the team address: a chip with its name for this viewer (AppLinkChip.tsx). A Markdown
+  // link with its own words keeps them.
+  const app = !preview && (children === undefined || labelIsAddress(children, href)) ? appLinkRef(href, hosts, origin()) : null
+  if (app) return <AppLinkInWords link={app} words={words} props={props} held={held} />
   if (l.kind === 'blocked') return <>{children ?? text}</>
   // a guest has no 파일 screen (/files goes Home): their project's files screen, else plain text (lib/guests.ts)
   const appHref = l.kind !== 'app' ? null : guestFolder ? guestAppHref(l.href, guestFolder) : l.href
@@ -137,5 +162,43 @@ export function RoomLink({ href, text, oneLine, menu, children }: { href: string
     >
       {words}
     </a>
+  )
+}
+
+/** RoomLink's chip for a link to something in this app: the same long-press rule as its other links. Where no screen of
+ * the viewer's shows it (a guest and a team folder), its words as text, as before. */
+function AppLinkInWords({ link, words, props, held }: { link: AppLinkRef; words: ReactNode; props: { className: string } & Record<string, unknown>; held: (e: MouseEvent) => boolean }) {
+  const t = useT()
+  const answer = useAppLinkName(link)
+  const { label, named } = useAppLinkLabel(link, answer)
+  const to = useAppLinkTarget(link)
+  if (!to) return <>{words}</>
+  const chip = {
+    ...props,
+    className: named ? CHIP : CHIP_UNNAMED,
+    title: named || !answer ? undefined : t('appLinks.noName'),
+    'data-testid': 'app-link-chip',
+    'data-kind': link.kind,
+    'data-named': named ? '' : undefined,
+  }
+  const body = <AppLinkChipBody link={link} answer={answer} label={label} />
+  if (link.kind === 'file')
+    return (
+      <a
+        href={to}
+        {...chip}
+        onClick={(e) => {
+          if (held(e) || ownClick(e)) return
+          e.preventDefault()
+          openTeamFile(link.path ?? link.id, link.at)
+        }}
+      >
+        {body}
+      </a>
+    )
+  return (
+    <Link to={to} {...chip} onClick={(e) => void held(e)}>
+      {body}
+    </Link>
   )
 }

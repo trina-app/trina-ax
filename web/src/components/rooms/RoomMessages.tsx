@@ -86,6 +86,7 @@ import { navigateTo } from '../../lib/nav'
 import { useFolderWords } from '../../lib/folderLabels'
 import { folderOfPath } from '../../lib/roomSave'
 import { useRoomSaves } from '../../store/roomSaves'
+import { capBlankLines } from '../../lib/blankLines'
 
 const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
@@ -380,11 +381,13 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   // "@Ben" still stands out after Ben renamed himself
   const mentioned = useMemo(() => m.mentions.flatMap((id) => [...new Set([names.get(id) ?? '', members.find((x) => x.id === id)?.name ?? ''])].map((name) => ({ id, name }))), [m.mentions, names, members])
   const text = shared ? m.body.slice(0, shared.at).trim() : m.body
-  // "@전체" stands out like a person's name (it mentions everyone); a shared answer's note mentions nobody (the server
-  // keeps no mention on it) (the mention highlight: me, or "@전체" in someone else's message)
+  // "@전체" stands out like a person's name (it mentions everyone); a shared answer's note marks only the people the
+  // server kept as its mentions (none for the button's share; the AI's post_to_room: the room members the person's card
+  // named, and its "@전체" when the asker wrote it: docs/decisions/20261118-ai-post-real-mentions.md) (the mention
+  // highlight: me, or "@전체" in someone else's message)
   const marks = useMemo<MessageMention[]>(
-    () => (ai || shared ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
-    [m, mentioned, ai, shared, meId],
+    () => (ai ? mentioned : [...mentioned, ...allMentionNames(m, MENTION_ALL_WORDS)]).map((x) => ({ ...x, strong: x.id === meId || (x.id === ALL_MENTION_ID && m.author?.id !== meId), all: x.id === ALL_MENTION_ID })),
+    [m, mentioned, ai, meId],
   )
   const [press, setPress] = useState(0)
   const pressedAt = useRef(0)
@@ -802,7 +805,7 @@ function PendingRow({ roomId, p }: { roomId: string; p: PendingSend }) {
     <div className="py-0.5" data-testid="room-pending-message" data-state={p.state}>
       {p.body && (
         <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted">
-          <LinkedText text={p.body} menu={false} />
+          <LinkedText text={capBlankLines(p.body)} menu={false} />
         </p>
       )}
       {p.files.length > 0 && <p className="truncate text-xs text-muted">{p.files.map((f) => f.name).join(', ')}</p>}

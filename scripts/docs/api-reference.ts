@@ -18,6 +18,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   FILES: 'Files',
   ARTIFACTS: 'Artifacts',
   JOBS: 'Jobs',
+  LOCAL_APPS: 'Apps on your computer',
   BROWSER: 'In-app browser',
   ADMIN: 'Admin',
   CREDENTIALS: 'AI connections',
@@ -55,6 +56,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   ROOM_APPS: 'Apps posting in rooms',
   FILE_SHARES: 'Files shared one by one (links, Ask for access)',
   ACCESS_REQUESTS: 'Ask for access to a chat or project',
+  LINK_NAMES: 'Names of links to things in this app (chips in messages)',
 }
 
 const WHO: Record<Endpoint['auth'], string> = {

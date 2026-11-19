@@ -58,8 +58,8 @@ describe('the pictures and their addresses', () => {
   })
   test('a room photo the browser cannot draw, or past the preview limit, keeps its thumbnail', () => {
     expect(roomItem(roomId, { ...f, name: 'acme.heic' }).original).toBeNull()
-    expect(roomItem(roomId, { ...f, size: 30 * 1024 * 1024 }).original).toBeNull()
-    expect(roomItem(roomId, { ...f, size: 30 * 1024 * 1024 }).href).toBeNull()
+    expect(roomItem(roomId, { ...f, size: 100 * 1024 * 1024 + 1 }).original).toBeNull()
+    expect(roomItem(roomId, { ...f, size: 100 * 1024 * 1024 + 1 }).href).toBeNull()
   })
   test('a chat attachment: its thumbnail, then the team file by its path; a HEIC photo as the server\'s JPEG', () => {
     const a: Attachment = { id: uuidv7(), name: 'acme.png', path: 'users/alex/.attachments/c/acme.png', size: 1000, mime: 'image/png', kind: 'image' }
@@ -119,9 +119,11 @@ describe('a room\'s files beside its pictures', () => {
     expect(it.original).toBe(`/api/rooms/${roomId}/files/${png.id}`)
     expect(it.thumb).toBeNull()
     expect(it.room).toEqual({ roomId, fileId: png.id })
-    // a HEIC photo (the server converts team files only) and a picture past the 20 MB preview limit: their cards
+    // a HEIC photo (the server converts team files only) and a picture past the 100 MB preview limit: their cards
     expect(roomFileItem(roomId, f('acme.heic', { kind: 'image' }), off)).toMatchObject({ kind: 'file', card: 'unsupported' })
-    expect(roomFileItem(roomId, { ...png, size: 30 * MB }, off)).toMatchObject({ kind: 'file', card: 'large' })
+    expect(roomFileItem(roomId, { ...png, size: 100 * MB + 1 }, off)).toMatchObject({ kind: 'file', card: 'large' })
+    // (30 MB, past the old 20 MB: the picture itself)
+    expect(roomFileItem(roomId, { ...png, size: 30 * MB }, off).kind).toBeUndefined()
   })
   test('the card at once, nothing read: no viewer for it, a Hangul file while the HWP preview is off, past its limit', () => {
     expect(roomFileItem(roomId, f('acme-assets.zip'), on).card).toBe('unsupported')
@@ -129,7 +131,9 @@ describe('a room\'s files beside its pictures', () => {
     expect(roomFileItem(roomId, f('acme-form.hwp'), null).card).toBe('unsupported')
     expect(roomFileItem(roomId, f('acme-form.hwp'), on).card).toBeUndefined()
     expect(roomFileItem(roomId, f('acme-scan.hwpx', { size: 20 * MB + 1 }), on).card).toBe('large')
-    expect(roomFileItem(roomId, f('acme-report.pdf', { size: 60 * MB }), on).card).toBe('large')
+    // a PDF, audio and video past what is read whole stream from the room's address: never "too large"
+    for (const name of ['acme-report.pdf', 'acme-film.mp4', 'acme-call.m4a']) expect(roomFileItem(roomId, f(name, { size: 2048 * MB }), on).card).toBeUndefined()
+    expect(roomFileItem(roomId, f('acme-deck.pptx', { size: 60 * MB }), on).card).toBe('large')
     // text shows its beginning, so any size has a preview
     expect(roomFileItem(roomId, f('acme.log', { size: 60 * MB }), on).card).toBeUndefined()
     for (const name of ['a.docx', 'a.pptx', 'a.xlsx', 'a.csv', 'a.md', 'a.txt', 'a.html', 'a.svg', 'a.mp4', 'a.mp3']) expect(roomFileItem(roomId, f(name), off)).toMatchObject({ kind: 'file' })

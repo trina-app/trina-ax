@@ -14,8 +14,8 @@ import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 
 export const PDF_STAMP_MODE = 'pdf-stamp'
 /** the largest PDF stamp_pdf takes, and the largest image */
-// (the stamped PDF comes back through the worker's 64 MB output cap)
-export const STAMP_PDF_MAX = 40 * 1024 * 1024
+// (the PDF tools' limit, pdf-pages.ts PDF_PAGES_INPUT_MAX; the stamped PDF comes back under PDF_OUTPUT_MAX)
+export const STAMP_PDF_MAX = 100 * 1024 * 1024
 export const STAMP_IMAGE_MAX = 10 * 1024 * 1024
 /** the longest side of an image in pixels (a PNG is decoded whole: 8000 x 8000 x 4 bytes is 256 MB) */
 export const STAMP_IMAGE_SIDE_MAX = 8000

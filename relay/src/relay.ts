@@ -374,7 +374,7 @@ export class RelayServer {
   private teamName(req: http.IncomingMessage): { name: string; domain: string } | null {
     for (const domain of this.cfg.domains) {
       const name = teamFromHost(req.headers.host ?? '', domain)
-      if (name !== null) return name === 'relay' ? null : { name, domain }
+      if (name !== null) return (this.cfg.selfNames ?? ['relay']).includes(name) ? null : { name, domain }
     }
     return null
   }

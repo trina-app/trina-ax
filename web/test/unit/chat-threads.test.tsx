@@ -1,13 +1,11 @@
 // Threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md): "Reply in thread" and the
 // thread's line only on a finished answer of a shared chat (the page passes onThread; a private chat and a room's ✦ side
-// chat never do), never on an answer still being written, one that failed or one hidden from me. "Send to Trina"'s
-// draft (shared chats.ts chatThreadDraft): every line a quote, names on one line, the newest kept within 4,000
-// characters with a line saying older ones were left out; the answer's own text never in it. The chat thread route
+// chat never do), never on an answer still being written, one that failed or one hidden from me. The chat thread route
 // lights the Trina place in the rail, and the store puts a live change's summary on the answer.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
-import { CHAT_THREAD_DRAFT_MAX, chatThreadDraft, type ChatThreadSummary } from '@mycel/shared/api'
+import type { ChatThreadSummary } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import { useLocaleStore } from '../../src/i18n'
 import { railOf } from '../../src/lib/rail'
@@ -60,25 +58,6 @@ test('an answer being written, one that failed or one hidden from me has no thre
   }
 })
 
-test('Send to Trina\'s draft: every line a quote, names on one line, an empty line for my own words', () => {
-  const d = chatThreadDraft([
-    { name: 'Minji', at: '2026-11-16T05:11:00Z', text: 'Corporate seal, or the CEO line?' },
-    { name: 'Jae Lee', at: '2026-11-16T05:12:00Z', text: 'Seal.\r\nLegal said so.\n\nOK' },
-  ], { head: "Thread on Trina's answer · 2:10 PM · 2 replies", cut: '…(earlier replies left out)', time: () => '2:11 PM' })
-  expect(d).toBe("> Thread on Trina's answer · 2:10 PM · 2 replies\n> Minji · 2:11 PM\n> Corporate seal, or the CEO line?\n> Jae Lee · 2:11 PM\n> Seal.\n> Legal said so.\n>\n> OK\n\n")
-})
-
-test('the draft keeps the newest replies within 4,000 characters and says older ones were left out', () => {
-  const many = Array.from({ length: 300 }, (_, i) => ({ name: `P${i}`, at: '2026-11-16T05:00:00Z', text: `reply ${i} `.repeat(4) }))
-  const d = chatThreadDraft(many, { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' })
-  expect(d.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
-  const lines = d.trimEnd().split('\n')
-  expect(lines[1]).toBe('> …(earlier replies left out)')
-  expect(d).toContain('reply 299')
-  expect(d).not.toContain('reply 0 ')
-  expect(lines.every((l) => l.startsWith('>'))).toBe(true)
-})
-
 test('the thread route belongs to Trina\'s place in the rail', () => {
   expect(railOf('/c/0190a0a0-0000-7000-8000-000000000001/t/0190a0a0-0000-7000-8000-000000000002')).toBe('ai')
 })
@@ -92,34 +71,6 @@ test('a live change puts the summary on its answer (and takes it off when no rep
   expect(useChats.getState().threads[CHAT]!.messages[0]!.thread).toBeUndefined()
   useChats.getState().reset()
   useChatThreads.getState().reset()
-})
-
-test('a newest reply longer than the cap still goes in, cut with "…", every line a quote (QA TC-3786)', () => {
-  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
-  const one = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `first line\n${'z'.repeat(9000)}` }], o)
-  expect(one.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
-  expect(one).toContain('> Jae · 1:00 PM\n> first line\n> zzz')
-  expect(one.trimEnd().endsWith('…')).toBe(true)
-  // nothing older was left out: no such line
-  expect(one).not.toContain('earlier replies')
-  const two = chatThreadDraft([{ name: 'Minji', at: '2026-11-16T05:00:00Z', text: 'short' }, { name: 'Jae', at: '2026-11-16T05:01:00Z', text: 'y'.repeat(9000) }], o)
-  expect(two.trimEnd().length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
-  expect(two).toContain('> …(earlier replies left out)')
-  expect(two).not.toContain('Minji')
-  expect(two.trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
-})
-
-test('a cut never splits a character: an emoji at the cut is left out whole before "…"', () => {
-  const o = { head: 'Thread', cut: '…(earlier replies left out)', time: () => '1:00 PM' }
-  // the cut lands inside a run of emoji (two UTF-16 units each), at every possible offset
-  for (let pad = 0; pad < 4; pad++) {
-    const d = chatThreadDraft([{ name: 'Jae', at: '2026-11-16T05:00:00Z', text: `${'a'.repeat(pad)}${'😀'.repeat(5000)}` }], o)
-    const body = d.trimEnd()
-    expect(body.endsWith('…')).toBe(true)
-    // no lone surrogate anywhere
-    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(body)).toBe(false)
-    expect(body.length).toBeLessThanOrEqual(CHAT_THREAD_DRAFT_MAX)
-  }
 })
 
 test('replies sent fast wait out the budget with one line for the thread, not a toast each, and then go by themselves (QA TC-3887)', async () => {

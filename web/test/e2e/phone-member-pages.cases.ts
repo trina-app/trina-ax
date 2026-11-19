@@ -194,7 +194,10 @@ export function memberPageCases() {
     await expect(page.getByTestId('profile-save')).toHaveCount(0)
 
     // a tap on the photo opens the photo picker (no photo yet); the picked one shows, and Save is in the bar
-    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), photo.click()])
+    // (our sheet first: Photo library, Take a photo, Files; never iOS's raw menu)
+    await photo.click()
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([en['composer.photos'], en['composer.camera'], en['composer.files']])
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.getByRole('menu').getByTestId('profile-photo-photos').click()])
     await chooser.setFiles({ name: 'me.png', mimeType: 'image/png', buffer: PHOTO })
     await expect(page.getByTestId('profile-photo-preview')).toBeVisible()
     const save = page.getByTestId('settings-bar-action').getByTestId('profile-save')
@@ -204,7 +207,7 @@ export function memberPageCases() {
     // with a photo, a tap opens the photo choices as a sheet: a new one, or take it away
     await photo.click()
     const sheet = page.getByRole('menu')
-    await expect(sheet.getByTestId('profile-photo-new')).toHaveText(en['profile.photoChange'])
+    await expect(sheet.getByRole('menuitem')).toHaveText([en['composer.photos'], en['composer.camera'], en['composer.files'], en['profile.photoRemove']])
     await expect(sheet.getByTestId('profile-photo-remove')).toHaveText(en['profile.photoRemove'])
     await shot(page, 'profile-photo-sheet')
     await page.keyboard.press('Escape')

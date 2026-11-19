@@ -8,6 +8,7 @@
 //   @fake {"tool": …, "followResult": true}  also run the "@fake {…}" directives found in the result (an AI that follows
 //                                            an instruction planted in what a tool returned)
 //   @fake {"sleep": 300}                     wait
+//   @fake {"systemLine": {"subtype": …}}  (Claude) one system line in the stream, like Claude Code's compact_boundary
 //   @fake {"afterContinue": [{…}, …]}        nothing now; the directives of the run that continues this answer after a
 //                                            connect (resumed with the server's note, chat/turn.ts continueAfterConnect).
 //                                            A second one is for the second continuation
@@ -22,6 +23,11 @@
 //   @fake {"fail": "rate limit exceeded"}    end with an engine error
 //   @fake {"claudeFail": "usage limit"}     the same, as Claude only (Codex goes on: the limit fallback)
 //   @fake {"crashOnce": true}                exit 3 without output the first time in this chat folder
+//   @fake {"contextFullOnce": true}          the first time in this chat folder: end like Claude Code when the
+//                                            conversation does not fit ("Prompt is too long", the session kept); the
+//                                            next run (the fresh start that goes on with the answer) skips the
+//                                            directives up to here and runs the rest
+//   @fake {"contextFull": true}              the same, every time
 //   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"startFail": true}                exit 1 without output and bwrap's "Can't find source path …: Permission
 //                                            denied" on stderr, every time (the sandbox could not start the engine)
@@ -513,6 +519,10 @@ if (!directives.length && resumed && message.includes('\n[The connect card is fi
   const plan = (asked?.text ?? '').split('\n').filter((l) => l.startsWith('@fake ')).map((l) => { try { return JSON.parse(l.slice(6)) } catch { return {} } }).filter((d) => d.afterContinue)
   directives = plan[notes]?.afterContinue ?? []
 }
+// the fresh start after "Prompt is too long": the directives after the one that ended the earlier run
+const fullMarker = path.join(process.cwd(), '.context-full-once')
+const fullAt = directives.findIndex((d) => d.contextFullOnce)
+if (fullAt >= 0 && fs.existsSync(fullMarker)) directives = directives.slice(fullAt + 1)
 if (!directives.length) await say('echo: ' + (message.split('\n')[0] ?? ''))
 for (const d of directives) {
   cliAuthText = d.cliAuthText === true
@@ -540,6 +550,7 @@ for (const d of directives) {
       message: { content: [{ type: 'tool_result', tool_use_id: id, content: `Web search results for query: "${q}"\n\nLinks: ${JSON.stringify(d.webSearch.textLinks ?? d.webSearch.hits ?? [])}\n\n${d.webSearch.wrote ?? ''}` }] } })
     await Bun.sleep(Number(d.webSearch.pause ?? 150))
   } else if (d.sleep) await Bun.sleep(Number(d.sleep))
+  else if (d.systemLine) out({ type: 'system', session_id: sessionId, ...d.systemLine })
   // (Claude) one model call ends, with its tokens in the stream (message_start / message_delta), before the run's total
   else if (d.callUsage && !codex) {
     closeBlock()
@@ -552,7 +563,10 @@ for (const d of directives) {
   else if (d.claudeFail) { if (!codex) finish({ error: String(d.claudeFail) }) }
   else if (d.startFail) { process.stderr.write("bwrap: Can't find source path /var/lib/mycel/app/current/native/mycel-bridge: Permission denied\n"); process.exit(1) }
   else if (d.diskFull) { process.stderr.write("Error: ENOSPC: no space left on device, write\n"); process.exit(1) }
-  else if (d.crashOnce) {
+  else if (d.contextFullOnce || d.contextFull) {
+    if (d.contextFullOnce) fs.writeFileSync(fullMarker, '1')
+    finish({ error: 'Prompt is too long: 201234 tokens > 200000 maximum' })
+  } else if (d.crashOnce) {
     const marker = path.join(process.cwd(), '.crashed-once')
     if (!fs.existsSync(marker)) { fs.writeFileSync(marker, '1'); process.exit(3) }
   } else if (d.echo === 'system') await sayEcho(system)

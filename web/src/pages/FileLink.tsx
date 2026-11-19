@@ -23,7 +23,7 @@ import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'reac
 import { FILE_REQUEST_NOTE_MAX, fileLinkUrl, type SharedFileView, type SharedFolderEntry, type SharedFolderList } from '@mycel/shared/api'
 import { api, API, ApiError, errorText, isApiError, startDownload } from '../lib/api'
 import { formatDate, formatSize } from '../lib/format'
-import { previewKind, previewLimit } from '../lib/preview'
+import { previewFits, previewKind, previewLimit } from '../lib/preview'
 import { useLocale, useT } from '../i18n'
 import FileBody, { type FileBlob } from '../components/FileBody'
 import { Button, ErrorNote, Skeleton, inputCls, useMediaQuery } from '../components/ui'
@@ -177,19 +177,23 @@ function AskAccess({ id, askedAt: asked, stoppedBy }: { id: string; askedAt: str
   )
 }
 
-/** The file, as the preview panel shows it: its bytes read here (up to the preview's limit for its kind), drawn by
- * FileBody; a file too large to show here, or of a kind with no viewer, gets FileBody's card with Download. */
+/** The file, as the preview panel shows it: its bytes read here (up to the preview's limit for its kind) or, audio, video
+ * and a large PDF, read from its address in parts, drawn by FileBody; a file too large to show here, or of a kind with no viewer, gets FileBody's card with Download. */
 function OpenFile({ id, view, sub, above }: { id: string; view: { name: string; size: number; mime: string | null; sharedBy: string | null; formerSharer?: true }; sub?: string; above?: ReactNode }) {
   const t = useT()
   const locale = useLocale()
   const url = (disposition: 'inline' | 'attachment') => api.url(API.sharedFileDownload, { params: { id }, query: sub !== undefined ? { disposition, sub } : { disposition } })
   const kind = previewKind(view.name)
-  const fits = !!kind && kind !== 'hwp' && view.size <= previewLimit(kind).max
+  const fits = !!kind && kind !== 'hwp' && previewFits(kind, view.size)
+  // audio, video and a PDF past what is read whole: the player / pdf.js reads the file from its address in parts
+  // (components/FileBody.tsx `stream`)
+  const limit = kind ? previewLimit(kind) : null
+  const stream = fits && limit?.stream && view.size > limit.max ? url('inline') : null
   const [blob, setBlob] = useState<Blob | null>(null)
   const [failed, setFailed] = useState(false)
   const [rev, setRev] = useState(0)
   useEffect(() => {
-    if (!fits) return
+    if (!fits || stream) return
     const ctrl = new AbortController()
     setBlob(null)
     setFailed(false)
@@ -199,7 +203,7 @@ function OpenFile({ id, view, sub, above }: { id: string; view: { name: string; 
     return () => ctrl.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, sub, rev, fits])
-  const loaded: FileBlob = { kind: fits ? kind : null, blob, error: failed ? { kind: 'other', text: t('error.network') } : null, downloadOnly: false }
+  const loaded: FileBlob = { kind: fits ? kind : null, blob, stream, error: failed ? { kind: 'other', text: t('error.network') } : null, downloadOnly: false }
   const box = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(720)
   useEffect(() => {

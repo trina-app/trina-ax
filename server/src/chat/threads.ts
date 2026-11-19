@@ -1,9 +1,7 @@
 // Threads on AI answers in shared chats (docs/decisions/20261116-chat-answer-threads.md, migration 408). Teammates who
 // see a shared chat (a team project's chat, or one shared with people and groups) talk under one finished answer; the
 // AI never takes part, and nothing puts these tables in a turn by itself (no prompt, transcript, room tool, search, Often
-// asked, title, memory or schedule does). Their words reach the AI two ways: "Send to Trina" (the web app quotes the
-// thread into the chat's box, shared chats.ts chatThreadDraft, every line a "> " quote: other people's words to the
-// turn's gates; the presser sends it as their own question), and the AI's answer_comments tool when the user refers to
+// asked, title, memory or schedule does). Their words reach the AI one way: the AI's answer_comments tool when the user refers to
 // them (chat/answer-comments.ts, docs/decisions/20261117-ai-reads-answer-comments.md: this chat only, through
 // threadAccess below, the chat marked as having read rooms).
 //
@@ -13,6 +11,12 @@
 // chat/shared-answers.ts) sees none of it, with the same 404 as a missing thread. Followers are the answer's asker and
 // everyone who replied; each gets one unread notice per thread (updated in place by later replies) and a push while
 // "Replies in threads I'm part of" is on.
+//
+// @mentions (docs/decisions/20261118-chat-thread-mentions.md, migration 417): the reply box may mention the people who
+// see the thread now (threadPeople, sent with the page). A send keeps only the ids that are among them at that moment
+// and pass threadAccess for themselves, never the sender; the rest are dropped without a word. A mentioned person
+// follows the thread from that reply on (as in a room's thread), so its notice and unread dot follow the same rules,
+// and their notice says it mentions them (chat_thread_notices.mention_id) while that reply is there.
 import type { Database } from 'bun:sqlite'
 import { CHAT_THREAD_MAX, inQuietHours, plainLabel, type ChatThreadPage, type ChatThreadReadOnly, type ChatThreadReply, type ChatThreadSummary, type InboxNotification, type Locale, type NotificationEventType } from '@mycel/shared/api'
 import type { AppContext } from '../context'
@@ -29,7 +33,7 @@ import { getPreferences } from '../notifications/preferences'
 import { notificationsOf } from '../notifications/service'
 import { getChatRuntime, type ChatRuntime } from './runtime'
 import { Audiences, chatFor, isProjectSharedRow, isSharedRow, messageFor, messageView, type ChatAccess } from './shared'
-import { AnswerSight } from './shared-answers'
+import { AnswerSight, chatNodes, withheldAmong, type Node } from './shared-answers'
 import { decodeCursor, encodeCursor, type ChatRow, type MessageRow, type MessageView } from './store'
 import { mayEditProject } from './projects'
 import { tr } from './i18n'
@@ -41,8 +45,19 @@ export const CHAT_THREAD_PAGE = 50
 /** answers that can have a thread: finished ones (never one still being written or one that failed) */
 const FINISHED = new Set(['done', 'stopped'])
 
-interface ReplyRow { id: string; chat_id: string; root_id: string; author_id: string | null; content: string; client_id: string | null; created_at: string }
-const REPLY_COLS = 'id, chat_id, root_id, author_id, content, client_id, created_at'
+interface ReplyRow { id: string; chat_id: string; root_id: string; author_id: string | null; content: string; client_id: string | null; created_at: string; mentions: string }
+const REPLY_COLS = 'id, chat_id, root_id, author_id, content, client_id, created_at, mentions'
+
+/** A reply's stored mentions (a JSON array of ids; anything else: none). */
+export function parseReplyMentions(raw: string | null | undefined): string[] {
+  if (!raw || raw === '[]') return []
+  try {
+    const v = JSON.parse(raw) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
 
 /** What threadAccess found: the chat as chatFor gave it, the answer, whether the caller may delete other people's
  * replies, and why they may not reply (null: they may). */
@@ -130,7 +145,7 @@ function moderates(rt: ChatRuntime, row: ChatRow, userId: string): boolean {
 const deletable = (readOnly: ChatThreadReadOnly | null) => readOnly !== 'trash' && readOnly !== 'safe_ops'
 
 function replyOut(rt: ChatRuntime, r: ReplyRow, viewer: string, moderator: boolean, canDelete = true): ChatThreadReply {
-  return { id: r.id, chatId: r.chat_id, rootId: r.root_id, author: rt.store.userRef(r.author_id), content: r.content, createdAt: r.created_at, canDelete: canDelete && (r.author_id === viewer || moderator) }
+  return { id: r.id, chatId: r.chat_id, rootId: r.root_id, author: rt.store.userRef(r.author_id), content: r.content, mentions: parseReplyMentions(r.mentions), createdAt: r.created_at, canDelete: canDelete && (r.author_id === viewer || moderator) }
 }
 
 /**
@@ -157,6 +172,41 @@ export function threadSummaries(db: Database, rootIds: readonly string[], viewer
     if (s) s.newReplies = true
   }
   return out
+}
+
+/**
+ * The people who see this thread now, other than `viewer`: the chat's audience (Audiences.ofChat: a project chat's
+ * project audience, a people-shared chat's creator and its people and groups; a guest only where the chat's audience
+ * holds them) without anyone the answer is hidden from (its asker always sees it). A chat no longer shared: nobody.
+ * Sorted by name. Who the reply box may mention, and the first check on a send's mentions.
+ */
+export function threadPeople(rt: ChatRuntime, row: ChatRow, root: MessageRow, viewer: string): { id: string; name: string }[] {
+  const ids = new Audiences(rt.db, rt.files).ofChat(row)
+  if (!ids.length) return []
+  // whether the answer is hidden from someone depends only on it and the messages above it on its branch: the chat is
+  // read once, and each person is judged on that chain alone (not on every answer of the chat), with one rule set
+  const nodes = chatNodes(rt.db, row.id)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const chain: Node[] = []
+  for (let n = byId.get(root.id), seen = new Set<string>(); n && !seen.has(n.id); n = n.parent ? byId.get(n.parent) : undefined) { seen.add(n.id); chain.push(n) }
+  const rules = rt.files.rules()
+  const asker = root.turn_id ? rt.store.turnUser(root.turn_id) : null
+  const out: { id: string; name: string }[] = []
+  for (const id of ids) {
+    if (id === viewer) continue
+    if (id !== asker && withheldAmong(rt.db, rules, chain, id).has(root.id)) continue
+    const u = rt.store.userRef(id)
+    if (u) out.push({ id: u.id, name: u.name })
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+}
+
+/** The mentions of a send that count: each id once, in the order given, never the sender, only someone among the
+ * thread's people now who also passes threadAccess for themselves (the one gate). Everyone else is dropped. */
+function validMentions(ctx: AppContext, rt: ChatRuntime, g: ThreadGate, userId: string, ids: readonly string[] | undefined): string[] {
+  if (!ids?.length) return []
+  const people = new Set(threadPeople(rt, g.a.row, g.root, userId).map((p) => p.id))
+  return [...new Set(ids)].filter((id) => id !== userId && people.has(id) && threadVisibleTo(ctx, id, g.a.row.id, g.root.id))
 }
 
 /** One answer's summary for `viewer`, or null when it has no replies. */
@@ -191,6 +241,8 @@ export function listThread(rt: ChatRuntime, userId: string, chatId: string, root
     version: { index: root.branch.index + 1, count: root.branch.count },
     onShownBranch,
     full: count >= CHAT_THREAD_MAX,
+    // only with the first page (the app keeps it while it reads older ones), and only while I may reply
+    ...(!g.readOnly && !q.cursor ? { people: threadPeople(rt, g.a.row, g.root, userId) } : {}),
   }
 }
 
@@ -226,7 +278,7 @@ function follow(db: Database, rootId: string, chatId: string, userId: string, re
  * follows the thread from its first reply; the replier from theirs (their own reply read). Followers other than the
  * replier who still see the thread get their notice.
  */
-export function sendReply(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: string, rootId: string, body: { text: string; clientId: string }, locale: Locale): ChatThreadReply {
+export function sendReply(ctx: AppContext, rt: ChatRuntime, userId: string, chatId: string, rootId: string, body: { text: string; clientId: string; mentions?: string[] }, locale: Locale): ChatThreadReply {
   const g = threadAccess(rt, userId, chatId, rootId, 'post', locale)
   const db = rt.db
   const again = db.query(`SELECT ${REPLY_COLS} FROM chat_thread_replies WHERE author_id = ? AND client_id = ?`).get(userId, body.clientId) as ReplyRow | null
@@ -237,19 +289,25 @@ export function sendReply(ctx: AppContext, rt: ChatRuntime, userId: string, chat
   const n = (db.query('SELECT COUNT(*) AS n FROM chat_thread_replies WHERE chat_id = ? AND root_id = ?').get(g.a.row.id, g.root.id) as { n: number }).n
   if (n >= CHAT_THREAD_MAX) return fail('conflict', tr('chatThreadFull', locale), { params: { reason: 'thread_full' } })
   roomsOf(ctx).takeSendToken(userId)
+  const mentioned = validMentions(ctx, rt, g, userId, body.mentions)
   const at = new Date().toISOString()
-  const r: ReplyRow = { id: newId(), chat_id: g.a.row.id, root_id: g.root.id, author_id: userId, content: body.text.trimEnd(), client_id: body.clientId, created_at: at }
+  const r: ReplyRow = { id: newId(), chat_id: g.a.row.id, root_id: g.root.id, author_id: userId, content: body.text.trimEnd(), client_id: body.clientId, created_at: at, mentions: JSON.stringify(mentioned) }
   const asker = g.root.turn_id ? rt.store.turnUser(g.root.turn_id) : null
   db.transaction(() => {
-    db.query(`INSERT INTO chat_thread_replies (${REPLY_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(r.id, r.chat_id, r.root_id, r.author_id, r.content, r.client_id, r.created_at)
+    // the newest reply before this one: a newly mentioned follower has read up to there (this reply is new to them)
+    const prev = (db.query('SELECT id FROM chat_thread_replies WHERE root_id = ? ORDER BY id DESC LIMIT 1').get(r.root_id) as { id: string } | null)?.id ?? null
+    db.query(`INSERT INTO chat_thread_replies (${REPLY_COLS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(r.id, r.chat_id, r.root_id, r.author_id, r.content, r.client_id, r.created_at, r.mentions)
     if (asker && asker !== userId) follow(db, r.root_id, r.chat_id, asker, null, at)
     follow(db, r.root_id, r.chat_id, userId, r.id, at)
+    // (someone who already follows keeps their read mark: a mention never marks earlier replies read)
+    const join = db.query('INSERT INTO chat_thread_follows (root_id, user_id, chat_id, last_read_id, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(root_id, user_id) DO NOTHING')
+    for (const id of mentioned) join.run(r.root_id, id, r.chat_id, prev, at)
   })()
   const followers = db.query('SELECT user_id FROM chat_thread_follows WHERE root_id = ? AND user_id <> ?').all(r.root_id, userId) as { user_id: string }[]
   for (const f of followers) {
     // checked now, not only when the push goes: someone who lost the chat gets no notice at all
     if (!threadVisibleTo(ctx, f.user_id, r.chat_id, r.root_id)) continue
-    try { notificationsOf(ctx).chatThreadReply(f.user_id, { chatId: r.chat_id, rootId: r.root_id, replyId: r.id, by: userId }) }
+    try { notificationsOf(ctx).chatThreadReply(f.user_id, { chatId: r.chat_id, rootId: r.root_id, replyId: r.id, by: userId, mention: mentioned.includes(f.user_id) }) }
     catch { ctx.log.warn('chat thread notice deferred') }
   }
   fanOut(ctx, rt, g.a.row, g.root, { change: 'reply', reply: r })
@@ -314,8 +372,17 @@ export function markRead(ctx: AppContext, rt: ChatRuntime, userId: string, chatI
 
 // ---------------- notices and push (notifications/service.ts, push-service.ts, push-events.ts) ----------------
 
-type NoticeRow = { user_id: string; chat_id: string; source_id: string; by_user: string | null; reply_id: string; read_at: string | null; suppressed: number }
-const noticeOf = (db: Database, id: string) => db.query('SELECT user_id, chat_id, source_id, by_user, reply_id, read_at, suppressed FROM chat_thread_notices WHERE id = ?').get(id) as NoticeRow | null
+type NoticeRow = { user_id: string; chat_id: string; source_id: string; by_user: string | null; reply_id: string; read_at: string | null; suppressed: number; mention_id: string | null }
+const noticeOf = (db: Database, id: string) => db.query('SELECT user_id, chat_id, source_id, by_user, reply_id, read_at, suppressed, mention_id FROM chat_thread_notices WHERE id = ?').get(id) as NoticeRow | null
+/** Who mentioned the notice's person: the author of the newest reply still there, from the notice's first mention
+ * (mention_id, kept from the first one: notifications/service.ts chatThreadReply) up to its newest reply, that mentions
+ * them. One of several mentions deleted: an earlier or later one still counts; none left: null (a plain reply notice). */
+function mentionerOf(db: Database, n: NoticeRow): { by: string | null } | null {
+  if (!n.mention_id) return null
+  const r = db.query(`SELECT author_id FROM chat_thread_replies WHERE root_id = ? AND id >= ? AND id <= ? AND mentions <> '[]' AND json_valid(mentions)
+    AND EXISTS (SELECT 1 FROM json_each(mentions) j WHERE j.value = ?) ORDER BY id DESC LIMIT 1`).get(n.source_id, n.mention_id, n.reply_id, n.user_id) as { author_id: string | null } | null
+  return r ? { by: r.author_id } : null
+}
 /** the notice still has its reply (one deleted since: settleNotices moved it or removed the notice) */
 const replyThere = (db: Database, n: NoticeRow) => !!db.query('SELECT 1 FROM chat_thread_replies WHERE id = ? AND root_id = ?').get(n.reply_id, n.source_id)
 
@@ -345,9 +412,12 @@ export function chatThreadNoticeOut(ctx: AppContext, row: { id: string; user_id:
   const sees = !!n && replyThere(ctx.db, n) && threadVisibleTo(ctx, row.user_id, n.chat_id, n.source_id)
   if (!sees) return { ...base, chatId: null, link: null, chatThread: { chatId: null, rootId: null, name: null, title: null, gone: true } }
   const c = ctx.db.query('SELECT user_id, title FROM chats WHERE id = ?').get(n!.chat_id) as { user_id: string; title: string } | null
-  const u = n!.by_user ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(n!.by_user) as { name: string } | null : null
+  // a reply of it mentions the reader: who mentioned them (else the newest replier)
+  const mention = mentionerOf(ctx.db, n!)
+  const by = mention ? mention.by : n!.by_user
+  const u = by ? ctx.db.query("SELECT name FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(by) as { name: string } | null : null
   const title = c ? plainLabel(redactorFor(ctx, c.user_id).hide(c.title || '')) : ''
-  return { ...base, chatId: n!.chat_id, link: 'chat_thread', chatThread: { chatId: n!.chat_id, rootId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, title: title || null } }
+  return { ...base, chatId: n!.chat_id, link: 'chat_thread', chatThread: { chatId: n!.chat_id, rootId: n!.source_id, name: u ? plainLabel(u.name, 80) : null, title: title || null, ...(mention ? { mention: true as const } : {}) } }
 }
 
 /** The people who follow a thread, for a test or a check: the asker and the repliers. */

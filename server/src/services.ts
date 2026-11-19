@@ -182,7 +182,26 @@ export interface TurnToolProvider {
   name: string
   /** `seen`: outside content the prompt itself carries (a Slack thread asked from): put in the chat's read scope and
    * marked as outside content by the turn once its session starts (chat/turn.ts) */
-  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean }): { tools: TurnTool[]; prompt?: string | null; context?: string | null; seen?: import('./chat/read-scope').ReadSource[] }
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean; shared?: SharedConnections }): { tools: TurnTool[]; prompt?: string | null; context?: string | null; seen?: import('./chat/read-scope').ReadSource[] }
+}
+
+/**
+ * A shared chat's turn (chat/turn.ts shared): its connection tools are built for the person whose turn it is, and every
+ * call asks `confirm` before anything is fetched (docs/decisions/20261118-shared-chat-connections.md). Only the
+ * integrations provider is built there; a provider that does not know this field is not.
+ */
+export interface SharedConnections {
+  /** the asker's language (the screen names in the AI's instructions) */
+  locale: Locale
+  /** the people who see the chat now (the person of the turn included), read again at every call */
+  audience(): string[]
+  /** someone who sees the chat now is a guest: no team connection is offered or run (guests have connectors off) */
+  guestHere(): boolean
+  /** Before a call: the people who see the chat but could not see what `sources` hold get the asker's card first (Allow
+   * once / Always in this chat / Cancel; only the asker sees it), and what the call brings in joins the answer's read
+   * record. `key`: the connection as it is now (version and account): "Always in this chat" holds for that only. Never
+   * covers a change at the service (its own card, gate). null: go on; else the refusal for the AI (nothing was fetched). */
+  confirm(c: { id: string; key: string; name: string; sources: import('./chat/read-scope').ReadSource[] }): Promise<string | null>
 }
 
 export interface JobHandle {
