@@ -1,5 +1,7 @@
 # Room preview re-decide: never over a posted answer, and spread over time
 
+> Superseded (2026-11-19): the room @트리나 ask and its code were removed (off since 11-09, code gone 11-13); people ask in the ✦ side chat beside the room, see PR #670 and "Room @트리나 code removed" in [docs/DECISIONS.md](../../DECISIONS.md).
+
 - Date (UTC): 2026-11-08 12:53
 - Branch: `fix/room-redecide-guards`
 - Status: done
