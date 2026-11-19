@@ -754,6 +754,8 @@ export const zh: Record<MessageKey, string> = {
   "devEnvPreview.ended": "开发服务器已停止。请让 AI 重新启动它。",
   "devEnvPreview.notSetUp": "此服务器未设置预览。请联系你的管理员。",
   "steps.failed": "失败",
+  "steps.memoryForgotten": "已忘记",
+  "steps.memoryGone": "不在你的记忆中",
   "steps.retried": "没有成功，但{ai}换了一种方式继续",
   "steps.retrying": "没有成功；{ai}正在尝试另一种方式",
   "steps.paused": "在此暂停",

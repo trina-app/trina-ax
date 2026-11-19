@@ -773,6 +773,8 @@ export const en: Record<MessageKey, string> = {
   'devEnvPreview.ended': 'The dev server stopped. Ask the AI to start it again.',
   'devEnvPreview.notSetUp': 'Preview is not set up on this server. Ask your admin.',
   'steps.failed': 'Failed',
+  'steps.memoryForgotten': 'Forgotten',
+  'steps.memoryGone': 'Not in your memories',
   'steps.retried': "Didn't work, but {ai} went on another way",
   'steps.retrying': "Didn't work; {ai} is trying another way",
   'steps.paused': 'Paused here',

@@ -772,6 +772,8 @@ export const ko = {
   'devEnvPreview.ended': '개발 서버가 멈췄어요. AI에게 다시 시작해 달라고 하세요.',
   'devEnvPreview.notSetUp': '이 서버에는 미리보기가 설정되지 않았어요. 관리자에게 문의하세요.',
   'steps.failed': '실패',
+  'steps.memoryForgotten': '잊었어요',
+  'steps.memoryGone': '내 메모리에 없어요',
   'steps.retried': '안 됐지만 {ai}가 다른 방법으로 이어 갔어요',
   'steps.retrying': '안 돼서 {ai}가 다른 방법을 찾고 있어요',
   'steps.paused': '여기서 멈춤',

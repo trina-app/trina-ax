@@ -755,6 +755,8 @@ export const es: Record<MessageKey, string> = {
   'devEnvPreview.ended': 'El servidor de desarrollo se detuvo. Pida a la IA que lo inicie de nuevo.',
   'devEnvPreview.notSetUp': 'La vista previa no está configurada en este servidor. Consulte a su administrador.',
   'steps.failed': "Falló",
+  "steps.memoryForgotten": "Olvidado",
+  "steps.memoryGone": "No está en sus recuerdos",
   'steps.retried': "No funcionó, pero {ai} siguió de otra forma",
   'steps.retrying': "No funcionó; {ai} está probando otra forma",
   'steps.paused': "En pausa aquí",
