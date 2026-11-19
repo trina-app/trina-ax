@@ -1,4 +1,5 @@
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, dictationEventBody, dictationInstall, dictationState, MAX_DICTATION_BYTES, MAX_BADGE, MAX_CHUNK_BYTES, MAX_FILE_BYTES, MAX_PICK_BYTES, MAX_PICK_FILES, MAX_SHARE_TEXT, NAV_CAPABILITY, PHOTO_PICK_CAPABILITY, PICK_CHUNK_BYTES, pickChunkLength, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, safeFileName, sameTeam, SHARE_TEXT_CAPABILITY, googleOAuthUrl, validConfig, validPicks, validPushToken, type MobileConfig, type MobileMessage, type MobileReply, type PushPermission, type PushToken } from '../../../mobile/src/protocol'
+import type { DesktopBridge, DesktopDictationEvent } from '@mycel/shared'
 import { currentTheme } from './theme'
 
 type PhoneWindow = Window & { mycelMobile?: unknown; ReactNativeWebView?: { postMessage(raw: string): void } }
@@ -42,7 +43,7 @@ function request(message: MobileMessage, config: MobileConfig, timeoutMs = 60_00
     catch { clearTimeout(timer); pending.delete(key); reject(new Error('mobile_unavailable')) }
   })
 }
-const envelope = (config: MobileConfig, id = crypto.randomUUID()) => ({ v: 1 as const, nonce: config.nonce, generation: config.generation, id })
+const envelope = (config: MobileConfig, id: string = crypto.randomUUID()) => ({ v: 1 as const, nonce: config.nonce, generation: config.generation, id })
 function abortPending(preserveReset = false) {
   epoch++
   for (const [key, p] of pending) {
@@ -51,6 +52,8 @@ function abortPending(preserveReset = false) {
   }
   for (const controller of downloads) controller.abort()
   downloads.clear()
+  // the app fences its recordings with the page (dictation-v1): those waiting for their words hear it ended
+  dictationFenced()
 }
 /** Session identity stays in JS memory. Only an opaque generation reset crosses the native bridge, and whether the
  * person is out: signedOut (the status says signed-out, or one person's session gave way to another's) makes the app
@@ -391,4 +394,123 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
     event.preventDefault()
     void downloadToApp(anchor.href, anchor.getAttribute('download') || undefined).catch(reportMobileError)
   }, true)
+}
+
+// ---- dictation-v1: voice input written on the phone itself (docs/decisions/20261119-iphone-dictation.md)
+// The same shape as the Mac app's bridge (shared/src/desktop-bridge.ts `dictation`), so lib/macDictation.ts and
+// lib/useVoiceInput.ts run one state machine for both. The page records as always; its 16 kHz samples go to the app as
+// signed 16-bit base64 about every 0.1 s, the words come back as `mycel:mobile-dictation` events.
+export type PhoneDictationBridge = NonNullable<DesktopBridge['dictation']>
+/** samples per dictation-push: 0.1 s */
+const DICTATION_STEP = 1_600
+/** after Stop, how long the last words may take before the recording counts as stopped on the way */
+const DICTATION_DONE_MS = 15_000
+interface DictationRun { id: string; config: MobileConfig; seq: number; buffer: Int16Array; filled: number; done: ReturnType<typeof setTimeout> | null }
+const dictationRuns = new Map<number, DictationRun>()
+const dictationListeners = new Set<(e: DesktopDictationEvent) => void>()
+const installWatch = new Map<string, (percent: number) => void>()
+let dictationNext = 1, dictationListening = false, phoneBridge: { config: MobileConfig; bridge: PhoneDictationBridge } | null = null
+
+const dictationEmit = (e: DesktopDictationEvent) => { for (const f of dictationListeners) f(e) }
+function dictationEnd(n: number) {
+  const r = dictationRuns.get(n)
+  if (r?.done) clearTimeout(r.done)
+  dictationRuns.delete(n)
+}
+function dictationFenced() {
+  for (const n of [...dictationRuns.keys()]) { dictationEnd(n); dictationEmit({ id: n, event: 'error', code: 'fenced' }) }
+  installWatch.clear()
+}
+function dictationEvent(event: Event) {
+  const d = (event as CustomEvent<unknown>).detail as Record<string, unknown> | null
+  if (!d || typeof d !== 'object' || d.v !== 1 || d.type !== 'mobile-dictation' || typeof d.id !== 'string') return
+  const config = mobileApp()
+  if (!config || d.nonce !== config.nonce) return
+  const body = dictationEventBody(d)
+  if (!body) return
+  if (body.event === 'progress') { installWatch.get(d.id)?.(body.percent); return }
+  const n = [...dictationRuns].find(([, r]) => r.id === d.id)?.[0]
+  if (n === undefined) return
+  if (body.event === 'done' || body.event === 'error') dictationEnd(n)
+  dictationEmit(body.event === 'text' ? { id: n, event: 'text', final: body.final, text: body.text } : body.event === 'done' ? { id: n, event: 'done' } : { id: n, event: 'error', code: body.code })
+}
+function dictationSend(r: DictationRun, samples: Int16Array) {
+  if (!samples.length || !current(r.config)) return
+  const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength)
+  for (let off = 0; off < bytes.length; off += MAX_DICTATION_BYTES) {
+    const part = bytes.subarray(off, Math.min(bytes.length, off + MAX_DICTATION_BYTES))
+    try { (window as PhoneWindow).ReactNativeWebView?.postMessage(JSON.stringify({ ...envelope(r.config, r.id), type: 'dictation-push', seq: r.seq++, b64: base64(part) })) } catch { /* the app is gone: the stop's wait ends it */ }
+  }
+}
+function dictationFlush(r: DictationRun) {
+  if (!r.filled) return
+  dictationSend(r, r.buffer.slice(0, r.filled))
+  r.filled = 0
+}
+
+/** The phone app's on-device voice input, or null (a browser, Android, an iPhone app before 1.0.10). */
+export function phoneDictation(): PhoneDictationBridge | null {
+  const config = mobileApp()
+  if (!config?.capabilities.includes(DICTATION_CAPABILITY)) return null
+  if (phoneBridge && phoneBridge.config.nonce === config.nonce) return phoneBridge.bridge
+  if (!dictationListening) { dictationListening = true; window.addEventListener('mycel:mobile-dictation', dictationEvent) }
+  const now = () => mobileApp() ?? config
+  const bridge: PhoneDictationBridge = {
+    version: 1,
+    async check(language) {
+      const c = now()
+      const reply = await request({ ...envelope(c), type: 'dictation-check', language }, c, 15_000)
+      const state = dictationState(reply.dictation) ? reply.dictation : 'unsupported'
+      return state === 'unsupported' ? { state } : { state, locale: language }
+    },
+    async install(language, onProgress) {
+      const c = now(), env = envelope(c)
+      if (onProgress) installWatch.set(env.id, onProgress)
+      try {
+        // Apple's model can take minutes on a slow connection
+        const reply = await request({ ...env, type: 'dictation-install', language }, c, 30 * 60_000)
+        return dictationInstall(reply.installed) ? reply.installed : 'failed'
+      } finally { installWatch.delete(env.id) }
+    },
+    async start(language) {
+      const c = now(), n = dictationNext++
+      const r: DictationRun = { id: crypto.randomUUID(), config: c, seq: 0, buffer: new Int16Array(DICTATION_STEP), filled: 0, done: null }
+      dictationRuns.set(n, r)
+      try {
+        // before iOS 26 the phone may ask its Speech Recognition question first: the person answers it
+        const reply = await request({ ...envelope(c, r.id), type: 'dictation-start', language }, c, 120_000)
+        if (reply.started === true && dictationRuns.get(n) === r) return n
+      } catch { /* the server's way */ }
+      dictationEnd(n)
+      return null
+    },
+    push(n, samples) {
+      const r = dictationRuns.get(n)
+      if (!r || r.done) return
+      for (let i = 0; i < samples.length; i++) {
+        const v = Math.max(-1, Math.min(1, samples[i]!))
+        r.buffer[r.filled++] = v < 0 ? v * 0x8000 : v * 0x7fff
+        if (r.filled === DICTATION_STEP) dictationFlush(r)
+      }
+    },
+    stop(n) {
+      const r = dictationRuns.get(n)
+      if (!r || r.done) return
+      dictationFlush(r)
+      r.done = setTimeout(() => { if (dictationRuns.get(n) === r) { dictationEnd(n); dictationEmit({ id: n, event: 'error', code: 'timeout' }) } }, DICTATION_DONE_MS)
+      if (current(r.config)) void request({ ...envelope(r.config, r.id), type: 'dictation-stop' }, r.config, 10_000).catch(() => {})
+    },
+    cancel(n) {
+      const r = dictationRuns.get(n)
+      if (!r) return
+      dictationEnd(n)
+      if (current(r.config)) void request({ ...envelope(r.config, r.id), type: 'dictation-cancel' }, r.config, 10_000).catch(() => {})
+    },
+    onEvent(cb) {
+      dictationListeners.add(cb)
+      return () => void dictationListeners.delete(cb)
+    },
+  }
+  phoneBridge = { config, bridge }
+  return bridge
 }

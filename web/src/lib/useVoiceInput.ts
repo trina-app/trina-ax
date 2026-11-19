@@ -10,7 +10,8 @@
 // person talks: its words replace their own guesses in the box, nothing leaves the Mac, and this goes before the team
 // server's paths, in confidential chats too. The first tap fetches Apple's model for the language (that recording goes
 // the server's way, the bar says how far the model is); Intel, older macOS, a language the Mac lacks or a helper that
-// failed use the server.
+// failed use the server. The iPhone app (1.0.10) offers the same bridge with the phone's own recognizer (lib/mobile.ts
+// phoneDictation); its notes say "this phone".
 // The host renders components/VoiceBar.tsx (the bar, the mic, the live region) with what this returns and calls
 // onKeyDown from the box's own key handler after its "/", "#" or "@" list had its turn.
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
@@ -18,7 +19,7 @@ import { ApiError, SMALL_UPLOAD_MAX, type TranscribeResult } from '@mycel/shared
 import type { PieceAnswer } from '@mycel/shared/speech-pieces'
 import { api, API, errorText } from './api'
 import { LiveDictation } from './liveDictation'
-import { checkMac, macDictationBridge, macFailed, macLanguage, macReadiness, OnDeviceRun, prepareMac, watchMacReadiness, type MacDictationBridge } from './macDictation'
+import { checkMac, macDictationBridge, macFailed, macLanguage, macReadiness, OnDeviceRun, onPhone, prepareMac, watchMacReadiness, type MacDictationBridge } from './macDictation'
 import { desktop } from './desktop'
 import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
@@ -201,7 +202,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
         prepareMac(m.language, m.bridge)
         preparingNote.current = true
         const now = macReadiness(m.language)
-        return t('voice.macGettingReady', { percent: now.kind === 'preparing' ? now.percent : 0 })
+        return t(onPhone() ? 'voice.phoneGettingReady' : 'voice.macGettingReady', { percent: now.kind === 'preparing' ? now.percent : 0 })
       }
       return t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential')
     }
@@ -394,7 +395,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
                 const before = m.before ?? opts.current.text
                 if (text) putInBox(m, before.trim() ? `${before.trimEnd()} ${text}` : text)
                 // stopped on the way: what came stays, and the note says so
-                if (!ok) reject(new Error(words.current.t('voice.macStopped')))
+                if (!ok) reject(new Error(words.current.t(onPhone() ? 'voice.phoneStopped' : 'voice.macStopped')))
                 else resolve(!!text)
               })
             })
@@ -566,7 +567,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
   // the "getting ready" note follows the download, and goes once the Mac can take the recording
   useEffect(() => {
     if (!preparingNote.current) return
-    if (macNow?.kind === 'preparing') opts.current.onError(t('voice.macGettingReady', { percent: macNow.percent }))
+    if (macNow?.kind === 'preparing') opts.current.onError(t(onPhone() ? 'voice.phoneGettingReady' : 'voice.macGettingReady', { percent: macNow.percent }))
     else {
       preparingNote.current = false
       opts.current.onError(macNow?.kind === 'ready' ? null : t(opts.current.room ? 'voice.confidentialRoom' : 'voice.confidential'))
@@ -628,7 +629,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
         : voice.mode === 'hold'
           ? t(voice.via === 'touch' ? 'voice.holdTouch' : 'voice.holdSpace')
           : macNow?.kind === 'preparing'
-            ? t('voice.macPreparing', { percent: macNow.percent })
+            ? t(onPhone() ? 'voice.phonePreparing' : 'voice.macPreparing', { percent: macNow.percent })
             : voice.via === 'click' && holdCapable && !holdUsed
               ? t('voice.tryHold')
               : null

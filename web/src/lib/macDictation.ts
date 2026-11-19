@@ -7,13 +7,19 @@
 // Readiness per language (one store for every box): unknown until checked; ready; preparing while Apple's model for
 // it comes down (first use, with how far it is); server where this Mac cannot (Intel, macOS before 26, a language it
 // lacks, the helper failed).
+// The iPhone app (1.0.10, dictation-v1) offers the same bridge (lib/mobile.ts phoneDictation): the same states, the
+// phone's words for "this Mac" (onPhone).
 import type { DesktopDictationEvent } from '@mycel/shared'
 import { desktop, type DesktopBridge } from './desktop'
+import { phoneDictation } from './mobile'
 
 export type MacDictationBridge = NonNullable<DesktopBridge['dictation']>
 
-/** the bridge, inside a desktop app that offers it */
-export const macDictationBridge = (b: DesktopBridge | null = desktop()): MacDictationBridge | null => (b?.dictation && b.dictation.version >= 1 ? b.dictation : null)
+/** the bridge, inside a desktop app that offers it, else inside the iPhone app that does */
+export const macDictationBridge = (b: DesktopBridge | null = desktop()): MacDictationBridge | null => (b ? (b.dictation && b.dictation.version >= 1 ? b.dictation : null) : phoneDictation())
+
+/** voice input is written on the phone (the iPhone app), not on a Mac: the notes say "this phone" */
+export const onPhone = (b: DesktopBridge | null = desktop()): boolean => !b && !!phoneDictation()
 
 /** unknown: not asked yet; ready: this Mac transcribes it; model: it can once Apple's model is fetched (the next tap
  * starts that); preparing: the model comes down now, `percent` of it; server: the team server transcribes */

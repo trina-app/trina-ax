@@ -51,6 +51,44 @@ export const BADGE_CAPABILITY = 'badge-v1'
  * page's footer opens): the team stays until another one answered and the person said yes. The 나 tab's "다른 팀으로
  * 전환…" row. An app without it: the page shows no such row. */
 export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
+/** Optional, versioned: voice input transcribed on the phone itself (docs/decisions/20261119-iphone-dictation.md), as
+ * the Mac app does. The page records as always and asks `dictation-check` for its language (reply `dictation`: ready,
+ * needs-model or unsupported); `dictation-install` fetches Apple's model for it (progress as events, reply `installed`);
+ * `dictation-start` (the envelope id names the recording; reply `started`) is followed by `dictation-push` with the
+ * 16 kHz mono signed 16-bit little-endian samples (base64, in order by `seq`, never answered), then `dictation-stop`
+ * or `dictation-cancel`. The words come back as `mycel:mobile-dictation` events for that id (dictationEventScript):
+ * text (final false is a guess the next text replaces), done after stop, error. Nothing leaves the phone. Only the
+ * iPhone app with its Dictation module offers it; without it the team server transcribes, as before. */
+export const DICTATION_CAPABILITY = 'dictation-v1'
+/** One `dictation-push`: at most 1.5 s of sound (the page sends about 0.1 s at a time). */
+export const MAX_DICTATION_BYTES = 48_000
+/** The longest text one dictation event carries. */
+export const MAX_DICTATION_TEXT = 20_000
+/** ready: the phone transcribes the language now; needs-model: once Apple's model for it is here (dictation-install);
+ * unsupported: the team server transcribes it. */
+export type DictationState = 'ready' | 'needs-model' | 'unsupported'
+export type DictationInstall = 'installed' | 'failed' | 'unsupported'
+/** What one recording (or a model download, `progress`) on the phone says, by the envelope id that started it. */
+export type DictationEventBody =
+  | { event: 'text'; final: boolean; text: string }
+  | { event: 'done' }
+  | { event: 'error'; code: string }
+  | { event: 'progress'; percent: number }
+export type DictationEvent = Envelope & { type: 'mobile-dictation' } & DictationEventBody
+/** The app language as the phone's recognizer takes it: two or three lowercase letters. */
+export const dictationLanguage = (v: unknown): v is string => typeof v === 'string' && /^[a-z]{2,3}$/.test(v)
+export const dictationState = (v: unknown): v is DictationState => v === 'ready' || v === 'needs-model' || v === 'unsupported'
+export const dictationInstall = (v: unknown): v is DictationInstall => v === 'installed' || v === 'failed' || v === 'unsupported'
+/** A native event as the page may get it, or null (a bad shape, a text too long). */
+export function dictationEventBody(v: unknown): DictationEventBody | null {
+  if (!v || typeof v !== 'object') return null
+  const e = v as Record<string, unknown>
+  if (e.event === 'text') return typeof e.final === 'boolean' && typeof e.text === 'string' && e.text.length <= MAX_DICTATION_TEXT ? { event: 'text', final: e.final, text: e.text } : null
+  if (e.event === 'done') return { event: 'done' }
+  if (e.event === 'error') return { event: 'error', code: typeof e.code === 'string' && /^[a-z_-]{1,40}$/.test(e.code) ? e.code : 'failed' }
+  if (e.event === 'progress') return typeof e.percent === 'number' && Number.isFinite(e.percent) ? { event: 'progress', percent: Math.max(0, Math.min(100, Math.floor(e.percent))) } : null
+  return null
+}
 /** The largest icon number (shared/src/cloud-protocol/push-gateway.ts PUSH_GATEWAY_MAX_BADGE; a test keeps them equal). */
 export const MAX_BADGE = 9999
 /** The most files one pick returns: a message's attachment limit. The page asks for what its box still takes. */
@@ -107,10 +145,19 @@ export type MobileMessage = FileMessage | (Envelope & (
   | { type: 'badge'; count: number }
   // change-team-v1: the app's "다른 팀에 연결" screen over this team
   | { type: 'change-team' }
+  // dictation-v1: the language's state on this phone, Apple's model for it, and one recording (the envelope id): its
+  // start, its sound in order (never answered), its end or cancel
+  | { type: 'dictation-check'; language: string }
+  | { type: 'dictation-install'; language: string }
+  | { type: 'dictation-start'; language: string }
+  | { type: 'dictation-push'; seq: number; b64: string }
+  | { type: 'dictation-stop' }
+  | { type: 'dictation-cancel' }
 ))
 /** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
  * `photo-chunk` answer. */
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string }
+/** dictation/installed/started: the dictation-check, dictation-install and dictation-start answers. */
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string; dictation?: DictationState; installed?: DictationInstall; started?: boolean }
 export const pushPermission = (v: unknown): v is PushPermission => v === 'granted' || v === 'undetermined' || v === 'denied'
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff
@@ -163,6 +210,13 @@ export function parseMessage(raw: string): MobileMessage | null {
         || typeof m.offset !== 'number' || !Number.isSafeInteger(m.offset) || m.offset < 0 || m.offset >= MAX_FILE_BYTES || m.offset % PICK_CHUNK_BYTES !== 0) return null
       break
     case 'photo-done': break
+    case 'dictation-check': case 'dictation-install': case 'dictation-start': if (!dictationLanguage(m.language)) return null; break
+    case 'dictation-push': {
+      const n = base64Size(m.b64)
+      if (!seq(m.seq) || n === null || n > MAX_DICTATION_BYTES || n % 2 !== 0) return null
+      break
+    }
+    case 'dictation-stop': case 'dictation-cancel': break
     case 'badge': if (typeof m.count !== 'number' || !Number.isInteger(m.count) || m.count < 0 || m.count > MAX_BADGE) return null; break
     case 'push-registered': if (!deviceId(m.deviceId) || typeof m.removeKey !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(m.removeKey)) return null; break
     case 'external-open': if (m.purpose !== 'google-oauth' || typeof m.url !== 'string' || !googleOAuthUrl(m.url)) return null; break
