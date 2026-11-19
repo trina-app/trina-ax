@@ -96,7 +96,7 @@ check_handler() {
 if [ "$mode" = start ]; then
   deb=${2:?the .deb}
   step "install $(basename "$deb")"
-  sudo apt-get install -y "$(realpath "$deb")" > "$LOG_DIR/install.log" 2>&1 || { cat "$LOG_DIR/install.log"; fail "apt-get install failed"; }
+  sudo apt-get install -y "$(realpath "$deb")" > "$LOG_DIR/install.log" 2>&1 || { cat "$LOG_DIR/install.log"; fail "the install did not finish"; }
   check_installed "${NEW_VERSION:?}"
   done_step
   step "start"
@@ -104,7 +104,7 @@ if [ "$mode" = start ]; then
   check_handler
   done_step
   step "remove"
-  sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "apt-get remove failed"; }
+  sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "the remove did not finish"; }
   [ ! -e "/usr/bin/$EXE" ] && [ ! -f "$DESKTOP_FILE" ] && [ ! -f "$PROFILE" ] || fail "files left after remove"
   done_step
   echo "arm64 .deb: installed, started sandboxed, removed"
@@ -116,7 +116,7 @@ old=${2:?old .deb} new=${3:?new .deb} appimage=${4:?new AppImage}
 : "${OLD_VERSION:?}" "${NEW_VERSION:?}"
 
 step "1. install the old version ($OLD_VERSION)"
-sudo apt-get install -y "$(realpath "$old")" > "$LOG_DIR/install-old.log" 2>&1 || { cat "$LOG_DIR/install-old.log"; fail "apt-get install failed"; }
+sudo apt-get install -y "$(realpath "$old")" > "$LOG_DIR/install-old.log" 2>&1 || { cat "$LOG_DIR/install-old.log"; fail "the install did not finish"; }
 check_installed "$OLD_VERSION"
 done_step
 
@@ -128,7 +128,7 @@ check_handler
 done_step
 
 step "3. install the new version ($NEW_VERSION) over it"
-sudo apt-get install -y "$(realpath "$new")" > "$LOG_DIR/install-new.log" 2>&1 || { cat "$LOG_DIR/install-new.log"; fail "apt-get install over failed"; }
+sudo apt-get install -y "$(realpath "$new")" > "$LOG_DIR/install-new.log" 2>&1 || { cat "$LOG_DIR/install-new.log"; fail "the install over the old version did not finish"; }
 check_installed "$NEW_VERSION"
 check_handler
 [ -n "$(ls -A "$DATA")" ] || fail "the data folder is gone after the update"
@@ -137,7 +137,7 @@ done_step
 
 step "4. remove it"
 program_dir=$(dirname "$(installed_program)")
-sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "apt-get remove failed"; }
+sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "the remove did not finish"; }
 dpkg-query -W -f='${Status}' "$PACKAGE" 2> /dev/null | grep -q 'install ok installed' && fail "still installed"
 [ ! -e "/usr/bin/$EXE" ] || fail "/usr/bin/$EXE is left"
 [ ! -e "$program_dir/$EXE" ] || fail "$program_dir/$EXE is left"
@@ -152,7 +152,8 @@ echo "removed; the data folder stays"
 done_step
 
 step "5. the AppImage where the sandbox cannot run"
-sudo apt-get install -y libfuse2t64 > "$LOG_DIR/fuse.log" 2>&1 || { cat "$LOG_DIR/fuse.log"; fail "libfuse2t64 did not install"; }
+# FUSE 2 (libfuse2t64), which the AppImage needs, comes with the workflow's tools step
+dpkg-query -W -f='${Status}' libfuse2t64 2> /dev/null | grep -q 'install ok installed' || fail "libfuse2t64 is missing (the workflow installs it)"
 chmod +x "$appimage"
 log="$LOG_DIR/appimage.log"
 APPDATA=$(mktemp -d "${RUNNER_TEMP:-/tmp}/linux-appimage-data.XXXXXX")

@@ -283,10 +283,10 @@ jobs:
           grep -q "^version: $base-ci.2\$" desktop/release/latest-linux.yml
           grep -q "^version: $base-ci.2\$" desktop/release/latest-linux-arm64.yml
           dpkg-deb -I "desktop/release/$artifact-$base-ci.2-linux-arm64.deb" | grep -q 'Architecture: arm64'
-      - name: Tools for the check (a virtual display, window search, the link handler)
+      - name: Tools for the check (a virtual display, window search, the link handler, FUSE 2 for the AppImage)
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q xvfb xdotool xdg-utils > /dev/null
+          sudo apt-get install -y -q xvfb xdotool xdg-utils libfuse2t64 > /dev/null
       - name: Install, start, update over, uninstall; the AppImage without the sandbox
         env:
           LOG_DIR: ${{ runner.temp }}/linux-install-logs
