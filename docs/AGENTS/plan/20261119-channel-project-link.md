@@ -1,261 +1,299 @@
 # A channel linked to a project: one folder, the project's
 
-- Date (UTC): 2026-11-19 14:43
+- Date (UTC): 2026-11-19 14:43 (revision 2: 2026-11-19, after an independent review; the coordinator's decisions)
 - Branch: `plan/channel-project-link` (build branches: `feat/channel-project-link-server`, `feat/channel-project-link-web`)
 - Status: draft (the owner approved the direction on 2026-11-19; this plan settles the details)
 - Where: Team AX core (`server/src/rooms/`, `server/src/chat/projects.ts`, `server/src/chat/side-room.ts`,
-  `server/src/admin/folders.ts`, `shared/src/api/rooms.ts`, `shared/src/api/entities.ts`, `shared/src/api/chats.ts`,
-  `web/src/pages/Room.tsx`, `web/src/components/rooms/*`, `web/src/pages/Projects.tsx`,
-  `web/src/components/NewProjectDialog.tsx`, the six `web/src/i18n/*.ts`, `docs/site`). Why: rooms, projects, files
-  and permissions are core.
-- Version impact: **minor**: one additive table, new endpoints, optional API fields, a new way to do something.
+  `server/src/chat/turn.ts`, `server/src/admin/folders.ts`, `server/src/team-files/service.ts`, `shared/src/api/rooms.ts`,
+  `shared/src/api/entities.ts`, `web/src/pages/Room.tsx`, `web/src/components/rooms/*`, `web/src/pages/Projects.tsx`, the
+  six `web/src/i18n/*.ts`, `docs/site`). Why: rooms, projects, files and permissions are core.
+- Version impact: **minor** (one additive table, three endpoints, optional API fields, a new event line kind).
 
 ## Goal
 
-Teams make one channel per project. Today a file posted in that channel stays in the conversation storage
-(`.system/rooms`), and the project keeps its files in `projects/<name>`. The two know nothing of each other. The
-only link that exists is a group channel's header **Files** button, which opens the group's folder
-([20261116-room-group-folder-button](../../decisions/20261116-room-group-folder-button.md)).
+Teams make one channel per project. Today a file posted there stays in conversation storage (`.system/rooms`) while
+the project keeps its files in `projects/<name>`, and the two know nothing of each other; only a group channel's header
+**Files** button opens a folder (the group's; [20261116-room-group-folder-button](../../decisions/20261116-room-group-folder-button.md)).
 
-After this change there is one folder, the project's. A channel can be **linked to a project**. Its header Files
-button opens the project folder. A file posted there gets **Save to project** in one click. The AI in the channel's
-✦ side chat saves new documents to the project folder by default. A project's page shows its channel, or offers
-**Link a channel** and **Create a channel**.
+After this: one folder, the project's. A channel can be **linked to a project**. Its header Files button opens the
+project folder; a document posted there gets **Save to project** in one click; the ✦ side chat saves new documents to
+the project folder by default. A project's page shows its channel, or offers **Create a channel** (the main path) and
+**Link a channel**.
 
 ## Scope
 
-In:
-- A link between one private channel and one team project, made or removed from either side.
-- Creating a channel from a project's page, and an optional "Also create a channel" when a project is made with
-  people.
-- The header Files button, Save to project, and the side chat's default save place for a linked channel.
-- Live updates when a link, a project's access or a project's state changes.
+In: linking one private channel to one team project, from the channel's info or the project page; creating a channel
+from the project page; the Files button, Save to project, the side chat's save place and its narrow no-card rule; a
+neutral event line; live updates.
 
-Out (the owner said no):
-- Copying every channel file into the folder by itself.
-- Syncing channel members with project access, either way, at any time after the channel is made.
+Out (the owner): copying channel files into the folder by itself; syncing channel members and project access, either
+way, ever.
 
-Out (later, if asked for):
-- Joining a linked channel from the project page (see Open questions).
-- Posting project activity into the channel (Linear/Asana style notifications).
-- The project's instructions or files reaching the side chat as context. A side chat still never joins a project
-  ("A room's side chat never joins a project", docs/DECISIONS.md, `side_chat_no_project`).
+**Removed in revision 2** (coordinator, after review):
+- the channel "⋯" menu item (Link to a project / Unlink project): linking lives in the channel info and the project page
+  only;
+- unlinking by an owner or admin outside the project (or by any project manager who is not in the channel);
+- the new-project dialog's "Also create a channel" checkbox: making a project (folder, rules) and a channel in one step
+  cannot be one transaction, so it brings a "project made, channel not" state. A project made with people lands on its
+  page, where **Create a channel** is the first thing in the Channel box;
+- a Join button on the project page for a project member outside the channel (decided: none; see S3).
+
+Later, if asked: project activity posted into the channel (Linear/Asana style); the project's instructions or files as
+the side chat's context (a side chat still never joins a project: `side_chat_no_project`).
 
 ## Reference check (the idea, not the wording)
 
-- **Slack**: every channel has its own Files tab and one channel canvas. Files belong to the channel; there is no
-  outside folder. We keep "the channel has one place for its files" and point that place at the project folder.
-- **Linear** ([docs](https://linear.app/docs/slack), [changelog 2026-05-21](https://linear.app/changelog/2026-05-21-project-slack-channels)):
-  a project can have its own Slack channel. An admin can make Linear create one for each new project, and the
-  project's members are added to it. After that the two lists are separate. We keep three things from Linear:
-  create from the project, pre-fill the project's people, and no sync afterwards. We do not make it a team-wide
-  automatic setting: the choice is per project.
-- **Asana** ([help](https://help.asana.com/s/article/slack-and-asana)): a project is linked to a channel from the
-  project's settings, or from the channel with `/asana link`. Only the project's editors can link. We keep "both
-  sides can link" and "only someone who may edit the project links".
-- **Notion teamspaces**: the teamspace's members are its own list, not a chat's. This supports keeping channel
-  membership and project access apart.
+- **Slack**: a channel has its own Files tab and one canvas: one place for the channel's files. We keep "one place" and
+  point it at the project's folder.
+- **Linear** ([Slack docs](https://linear.app/docs/slack), [changelog 2026-05-21](https://linear.app/changelog/2026-05-21-project-slack-channels)):
+  a project can have its own Slack channel, made from the project with the project's members added; no sync afterwards.
+  We keep create-from-the-project, the pre-filled people and no sync; not a team-wide automatic setting.
+- **Asana** ([help](https://help.asana.com/s/article/slack-and-asana)): link from the project's settings or from the
+  channel; only the project's editors link. We keep both sides and "only someone who may edit the project".
+- **Notion teamspaces**: members are the teamspace's own list, not a chat's: supports keeping the two lists apart.
 
-## Decisions to settle
+## Decisions
 
-### D1. One channel per project, one project per channel (recommended)
+### D1. Cardinality: one project per channel (hard); one channel per project (an index, can be dropped)
 
-- **Why one:** the Files button and Save to project must have a single answer: "the project's folder". On the
-  project side, "the channel" is one row, not a list to manage, which fits the owner's preference for lean UI.
-  Slack and Linear also have one primary channel per project. A second channel ("#proj-x-design") can still work:
-  its people use Save to team folder… and pick the project folder, as today.
-- **Stored** in a new table, so older builds ignore it and a rollback loses nothing:
+```sql
+-- min_compatible_reader: 1
+CREATE TABLE room_project_links (
+  room_id    TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,       -- one project per channel: the key
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  linked_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
+  linked_at  TEXT NOT NULL
+);
+-- one channel per project: a separate unique index, so a later "several channels per project" drops only this
+CREATE UNIQUE INDEX room_project_links_project ON room_project_links(project_id);
+```
 
-  ```sql
-  -- min_compatible_reader: 1
-  CREATE TABLE room_project_links (
-    room_id    TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
-    project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
-    linked_by  TEXT REFERENCES users(id) ON DELETE SET NULL,
-    linked_at  TEXT NOT NULL
-  );
-  ```
+- Why a channel has one project: its Files button and Save to project need one answer. Why a project has one channel
+  for now: the project page shows one row, not a list; Slack and Linear show one primary channel. A second channel can
+  still save into the folder with Save to another folder….
+- Migration: next free B number; 426 is the highest on dev today, so **427**, checked again at build time against dev and
+  open PRs (`check:prepush` warns). `PRAGMA foreign_keys = ON` (db.ts) makes the cascades real; the deleting paths also
+  delete explicitly (D5), so nothing depends on the pragma alone.
+- `linked_by` is named in `auth/account-removal.ts KEPT_WITH_ACCOUNT` ("set null by the key; never shown") so the
+  account-removal coverage test passes.
 
-  Migration number: the next free number in the B range. On dev today the highest is 426, so the next is **427**.
-  Check `server/migrations/` on dev and the open PRs (`check:prepush` warns) at build time.
-- **Why a table, not `rooms.project_id`:** both sides have a unique key, deleting a project removes the link by
-  cascade, and `linked_by`/`linked_at` have a place to live.
+**Active link.** A row is *active* only when: the room is not archived, is kind `group` with a name (a private channel);
+the project has `trashed_with IS NULL`; and its `folder_path` is in the members-only zone (`inProjectZone`: exactly
+`projects/<name>`, two segments). Every read (`projectFor`, `Project.channel`, the save place, the event line's name)
+checks this; an inactive row behaves as no link. An inactive row never blocks a new link: the link write deletes the
+inactive row on either side in the same transaction (D3).
 
 ### D2. What can be linked
 
-- **Channel side:** only a **private channel**, meaning a named group room (kind `group` with a name, see
-  [20261117-named-groups-private-channels](../../decisions/20261117-named-groups-private-channels.md)). This is
-  what "Create a channel" makes, so it is what people make per project.
-  - Not a group DM: it has no name, and Slack does not link those either. Its "⋯ › Turn into a private channel"
-    comes first.
-  - Not a DM.
-  - Not the Everyone room.
-  - Not a **team channel** (`# leads`): it belongs to its group and already opens the group folder. One Files
-    button per header.
-- **Project side:** only a **team project** in `projects/<name>`, not in the trash. A personal project is "only me",
-  so a channel cannot share its folder. When a personal project gets people ("Add people"), it becomes a team project
-  and can then be linked.
+- Channel: only a **private channel** (a named group room, [20261117-named-groups-private-channels](../../decisions/20261117-named-groups-private-channels.md)).
+  Not a group DM (its "Turn into a private channel" comes first), a DM, Everyone, or a team channel (`# leads` keeps its
+  group folder; one Files button per header).
+- Project: only a team project whose folder is `projects/<name>` (`inProjectZone`), not in the trash. Personal projects,
+  and older team projects outside `projects/` (made before 2026-11-09), are refused. A project repointed by an admin to
+  a folder outside the zone makes its link inactive (D1); repointed back, active again.
 
-### D3. Who may link, unlink and create
+### D3. Who may link, unlink, create, and the error order
 
-- **Link:** a person who is both:
-  - a member of the channel and not a guest; and
-  - a reader of the project (`canSeeProject`) who can write its folder (`canWrite` on `folder_path`).
+**Link** (`PUT /api/rooms/:id/project`, also used by the project page's Link a channel): a non-guest member of the
+channel who reads the project (`canSeeProject`) and can write its folder (`canWrite(folder_path)`). An owner or admin
+outside the project cannot: they do not read its contents.
 
-  An owner or admin who manages a project without being a member (`member: false`) cannot link it. They do not read
-  its contents, and the link would open a door they cannot see behind ("Project contents only for members").
-- **Unlink:** anyone who could link it, or whoever manages the project (`mayManageProject`: its creator, the owner,
-  admins). Unlinking changes no files and no members.
-- **Create a channel for this project:** a member of the project who may link it (above), and is not a guest. The
-  server makes the private channel and the link in one transaction. The usual room checks apply: the hourly limit
-  `roomChannelLimit`, the guest rules, and active people only.
-- **Never audited by name.** Rooms are not audited ("admins do not learn who talks to whom"). One audit row
-  `room.project_linked` / `room.project_unlinked` with ids only, as the project area does for its own changes.
-  Recommended because a project's folder now has a new way in through the channel's ✦ save default.
+**Unlink** (`DELETE /api/rooms/:id/project`, from the channel info or the project page): the same person as Link (a
+channel member who reads and writes the project). Nobody else, admins included. A link no channel member can see any
+more is inactive for all of them and harmless; it goes when the channel or project goes.
 
-### D4. Who sees the link (the only permission is the folder rule)
+**Create a channel** (`POST /api/projects/:id/channel`): a non-guest who reads and writes the project.
 
-- `Room.project` is `{ id, name, folderPath }`. The server sends it only to a viewer for whom
-  `canSeeProject(project)` and `RuleSet.canList(folderPath)` both hold. This is the same test the group Files button
-  uses (`groupFolderFor`), with `projectFor(db, room, userId, rules)` beside it in `rooms/store.ts`.
-- A channel member who cannot open the project folder gets no `Room.project`. Their header has no button, their
-  files have no Save to project, their channel info has no project row, and the link is never mentioned to them. They
-  also get `canLinkProject: false` while the channel has a link, so they are never offered "Link to a project" and
-  then refused. This tells them only that they cannot link, never that a project exists.
-- On the project side, `Project.channel` is `{ roomId, name, memberCount, inIt: boolean }` for whoever reads the
-  project. A project member who is not in the channel sees its name and "You're not in this channel". There is no
-  join button (see Open questions). A private channel's name becomes visible to the project's members. The person
-  linking is told so in the confirm.
-- **Live:** the existing `afterAccessChange` → `groupFoldersChanged` path grows to cover linked channels. Before and
-  after a folder change, the people whose access changed and who sit in a linked channel whose project folder is at,
-  under or above a changed folder get `room.updated` when their answer changed. This is bounded the same way as
-  [20261116-live-folder-button](../../decisions/20261116-live-folder-button.md). Link, unlink, project rename, trash
-  and restore send `room.updated` to the channel's members, each event built by `roomOut` for its recipient, so
-  people who cannot see the project get an event with no `project`.
+**Error order** (each checked before the next, so an answer reveals nothing the caller could not already see):
 
-### D5. Lifecycle
+1. guest: 403 `forbidden` (the endpoints are not in `auth/guest-endpoints.ts`; the functions check again);
+2. room: not a member, archived or missing: **404**, the body of `GET /api/rooms/:id`'s missing room;
+3. room not a private channel: 409 `not_private_channel`;
+4. project: missing, not readable by the caller, or in the trash: **404**, the body of `GET /api/projects/:id`'s missing
+   project (one body for all three);
+5. project not in the zone (personal or legacy): 409 `project_not_linkable`;
+6. no write on the folder: 403 `project_write_needed`;
+7. the channel has an active link to another project: 409 `channel_linked` (the same project again: 200, unchanged);
+8. the project has an active channel: 409 `project_has_channel`. **One rule:** the error never names the channel, for
+   anyone. The caller reads the project, so the project page already shows them its channel (S3) where they may see it.
 
-| Event | What happens to the link | What people see |
-| --- | --- | --- |
-| Channel renamed | kept | the project row shows the new name on next load |
-| Channel archived (last person leaves) | deleted in the same transaction (`rooms/service.ts` archive paths) | the project page offers Link / Create again |
-| Project renamed | kept | tooltip and info row follow (`room.updated`) |
-| Project folder repointed by an admin | kept (by project id) | Files opens the new folder |
-| Project to the trash | kept, inactive: `canSeeProject` is false while `trashed_with` is set | no button, no Save, no AI default; the project page's trash note does not mention the channel |
-| Project restored | active again | everything returns, live |
-| Project deleted for good | deleted (cascade) | channel back to a plain private channel |
-| Member removed from project / leaves it | kept | that person loses the button live |
-| Channel member removed / leaves | kept | normal room behaviour |
-| Project becomes members-only for fewer people | kept | only the people still allowed keep the button |
+Unlink: steps 1–2, then "no active link" answers 204 as a success (idempotent), then 4 (a project the caller cannot read:
+404) and 6.
 
-A team project cannot go back to "only me" ("This can't go back to only you"), so no row is needed for that.
+**Transactions.** Link: `db.transaction(...).immediate()`; inside it re-read the room (member, not archived, named
+group) and the project (`trashed_with`, zone) and judge write with a fresh `RuleSet.load`; delete any inactive row with
+this `room_id` or this `project_id`; insert; write the event line (D4); write the audit row. After commit, `roomEvent(id,
+'updated')` to the channel's members (each built by `roomOut` for its recipient). The unique key settles a race: the
+second transaction fails with 409 `project_has_channel`.
 
-### D6. Save to project (the file action)
+Create: the rate limit and send token are taken as `createGroup` takes them (before its transaction). `createGroup`
+gets one optional hook, `inTx?: (roomId: string) => void`, run inside its existing transaction after the members and the
+`created` line: it re-checks the project (as Link steps 4–6, a fresh RuleSet) and inserts the link and the `project_linked`
+line. A throw rolls back the room, its members and a guest's claim (`claimGuestRoom` is in the same transaction).
+`roomEvent(id, 'added')` runs after commit as today.
 
-- In a linked channel, for someone with `Room.project` who can **write** the project folder root, the file chip's
-  save icon (hover/focus on a computer, see
-  [20261117-room-file-save-btn](../../decisions/20261117-room-file-save-btn.md)) becomes **Save to project**:
-  - one click, no sheet, no folder picker;
-  - the file goes into the **root of the project folder**;
-  - it uses the same server path as Save to team folder, so there is no new copy code.
-- The client calls `POST /api/rooms/:id/save-plan` with `folder` set to the project folder (an existing feature),
-  then `save-to-team`. This keeps every check: membership, message visible, not quarantined, ≤ 50 MB, never an
-  overwrite, `freeName` "(2)", same bytes saved once, file history.
-- **Why the root, not a suggested subfolder:** one click must land in a predictable place. The person moves it later
-  in Files. Hidden subfolders (a "Limit access" folder inside the project) are never a target.
-- **Falls back to the existing sheet**, with the project folder pre-selected and "Choose another folder…" still
-  available, when:
-  - any file looks personal (`files[].sensitive`, the existing per-file rule);
-  - the message has several files and some are already saved elsewhere;
-  - the plan says the root cannot be written.
-- **Toast:** "Saved to {project} · Open". Already saved: the chip shows "In project · {path}" (the existing "In team
-  folder" link, with project wording when the path is inside the linked project).
-- **The menu** (right-click, long press) has **Save to {project}** first, then **Save to another folder…** (today's
-  sheet, renamed only in a linked channel). Not linked: unchanged, **Save to team folder**.
-- **Who it is hidden from:**
-  - guests (they never save, as today);
-  - members without `Room.project`;
-  - members who can read but not write the root. They keep Save to team folder….
-- **The audience:** the sheet's "N people outside this conversation can see this folder" was the confirmation for a
-  hand-picked folder. Here the folder is the one the channel was deliberately linked to, so one click is like naming
-  the place. The link confirm (S2 below) says who can open the project, once. Recommended; listed as Q2 for the owner.
+**Audit** (ids only, no names: rooms are never audited by who talks to whom, but a project folder gets a new way in):
 
-### D7. The AI in a linked channel (side chat save place)
+```ts
+audit(db, { actor: userId, action: 'project.channel_link',   target: projectId, detail: { roomId, via: 'channel' | 'project' | 'create', replaced: boolean } })
+audit(db, { actor: userId, action: 'project.channel_unlink', target: projectId, detail: { roomId } })
+audit(db, { actor: null,   action: 'project.channel_unlink', target: projectId, detail: { roomId, reason: 'room_archived' | 'project_deleted' } })
+```
 
-- `savePlaceFor` (`chat/side-room.ts`) checks first: when the room has a link that is active for the asker, and the
-  asker can write the project folder, the place is the **project folder** (`{ path: folderPath }`). After that it
-  continues with today's order (group folder, Everyone → `shared/`, smallest group, own folder + share).
-- This is a "place the task names", so it is consistent with
-  [20261117-ai-save-my-files-default](../../decisions/20261117-ai-save-my-files-default.md) and the room save-place
-  decisions. They gain one line each.
-- The wider-audience card is unchanged in when it asks. A project has people outside the channel → the card asks
-  with its usual counts ("Save it to {project} (8 people, 5 of them can't see where it came from)?"), and Always
-  allow works as before. The save result's "Who can open the new file now …" line reports room people who cannot
-  open it. The AI says that line and does not share the file with them: no new permission path.
-- The `sideRoomSection` prompt line names the place as "this channel's project folder ({name})". The side chat
-  still does not read the project's instructions, files or chats, and stays out of `projects`.
-- An explicit save in the side chat (`askedToSave`, "one prompt at most") behaves as today, now into the project
-  folder.
+Admin paths that cut project paths for admins outside a project (members-only zone) need nothing here: no path is in it.
 
-### D8. Creating a channel from a project: pre-fill the project's people (recommended)
+### D4. Who sees what (no new permission path; what is really disclosed)
 
-- The Create dialog opens with the project's **members ticked**: the people who read it by its own rules, groups
-  expanded (`GET /api/projects/:id/people`). The owner and admins who only manage it are not ticked. The creator is
-  always in.
-- **Project guests** are listed **unticked**, with the existing guest line. A guest can be in one group chat, so
-  ticking them makes this their one group chat. A guest already in another group chat is greyed out with "A guest
-  can be in one group chat and one project."
-- People can untick or add others. This is a copy at creation time, never a sync afterwards (Linear does the same).
-- **Why pre-fill:** the owner's case is "the project's people talk in the project's channel". Starting from an empty
-  picker would make them retype a list the server already has.
+- `Room.project?: { id, name, folderPath, canSave }`, built per viewer in `roomOut` by `projectFor(db, room, userId,
+  rules)` (`rooms/store.ts`, beside `groupFolderFor`): present only for an **active** link and a viewer for whom
+  `canSeeProject` and `RuleSet.canList(folderPath)` hold. `canSave`: the viewer is not a guest and `canWrite(folderPath)`.
+  Rules read once per list (`rulesOnce`).
+- `Room.canLinkProject?: true`: a non-guest member, a private channel, and no active link (or an active link the viewer
+  sees: then the info row offers Unlink instead).
+- `Project.channel?: { roomId, name, memberCount, inIt }`: only an **active** link (an archived room is skipped), only for
+  someone who reads the project (`canSeeProject`), never with `member: false`, and **never for a guest who is not in the
+  channel** (withheld in the API, not only on screen). `Project.canLinkChannel?: true`: may link (D3) and no active
+  channel.
+
+**What is disclosed, plainly:**
+- To every channel member: that the channel was linked to *a* project (the event line, below), and, when they cannot see
+  it, no Link control (`canLinkProject` absent). Never the project's name, folder or people, unless they can open it.
+- To the project's readers (not guests outside the channel): the linked channel's **name and member count**, also when
+  they are not in it. A private channel's name is thereby visible to its project's members. The link confirm (S2) says so
+  before linking.
+- A refused link tells the caller only what they can see already (the error order above).
+
+**Event line.** A new `RoomEventLine` kind, stored as `{ type: 'project_linked', projectId }` / `{ type:
+'project_unlinked', projectId }` and written by `eventLine` in the link transaction. Sent per viewer: `{ type:
+'project_linked', project: { id, name } | null }`, the project only for a viewer who can open it now (the D4 test).
+Words: "{actor} linked this channel to a project" (no project: everyone else), "{actor} linked this channel to the project
+{name}" (those who can open it, the name a link to the project page); "{actor} unlinked this channel from a project" /
+"… from the project {name}". Like every event line: no badge, notice, push, menu, and never given to the AI. An older
+app shows its neutral `unknown` line. Create a channel writes the `created` line and then `project_linked`.
+
+**Live** (finding 9). `afterAccessChange` → `groupFoldersChanged` (`rooms/service.ts`) grows a second pass for linked
+channels: before the change, the linked group rooms of the people whose access changed (`teamRoomSeats` widened to
+`linkedRoomSeats`: `room_members` ⋈ `room_project_links` for those people); after the sync, for each person still in such
+a room whose project folder is at, under or above a changed folder, compare **both** `canList` (→ `Room.project`) and
+`canWrite` (→ `canSave`) before and after; send `room.updated` when either answer changed. Bounded like
+[20261116-live-folder-button](../../decisions/20261116-live-folder-button.md): only changed people, only linked rooms
+near a changed folder. Link, unlink, project rename, trash, restore and delete send `room.updated` to the channel's
+members (D5).
+
+**Client refetch** (finding 14): a linked channel's Files button, Save to project and the project row refetch the room
+(`GET /api/rooms/:id`) on a 404 from the folder or save (then hide what is gone) and on window focus; the project page
+refetches the project on focus, so `Project.channel` follows a rename or a leave without a socket event of its own.
+
+### D5. Lifecycle (where each event happens in code)
+
+| Event | Where | Link row | Who is told |
+| --- | --- | --- | --- |
+| Channel renamed | `rename` | kept | project page on next load / focus |
+| Last person leaves, is removed, or their account goes (archive) | `dropMembers`'s `run()` (also its `inTx` use from `sync`) | deleted in the same `run()` when `archived`; audit `reason: room_archived` | nobody in the room is left |
+| Project renamed | `PATCH /api/projects/:id` | kept | `room.updated` to the channel's members |
+| Folder repointed (admin) | the same PATCH | kept; inactive when outside the zone | `room.updated` |
+| Project folder (or a folder above) to the trash | `TeamFiles.remove` (sets `projects.trashed_with`) | kept, inactive | `room.updated` to the channels of the projects it marked (the ids the UPDATE touched, read before it) |
+| Restored from the trash | `TeamFiles` restore (the `back` ids, also a restore to another path) | active again if the new `folder_path` is in the zone | `room.updated` for `back` |
+| Purged from the trash | trash purge (`projects` row stays, `trashed_with` set) | kept, inactive | none (already inactive) |
+| Deleted for good | `DELETE /api/projects/:id` (both branches, also `ifEmpty`) | deleted explicitly in its transaction (and by cascade); audit `reason: project_deleted` | `room.updated` after commit |
+| Member loses read or write | `afterAccessChange` | kept | that person, live (D4) |
+| Channel member leaves (not the last) | `dropMembers` | kept | normal |
+
+A team project cannot go back to "only me", so that row is not needed.
+
+### D6. Save to project (one click, documents and media only)
+
+- Shown on a file in a linked channel to a viewer with `Room.project.canSave`, when the file is a **document or media
+  type** by its name's extension, checked case-insensitively after NFKC, from one shared list
+  `shared/src/files/plain-kinds.ts PROJECT_PLAIN_EXT` (also used by D7):
+  `md, txt, csv, pdf, doc, docx, xls, xlsx, ppt, pptx, hwp, hwpx, png, jpg, jpeg, gif, webp, heic, mp4, mov, webm, mp3,
+  m4a, wav`. (`svg` and `html` are not on it: they can hold script.)
+- **Falls back to the existing sheet** (project folder pre-selected, Choose another folder… kept) for everything else:
+  runnable or config names (`Makefile`, `conftest.py`, `package.json`, `.sh`, `.py`, `.js`, `.ts`, `.toml`, `.yml`, …: anything
+  not on the list), a dotfile, an instruction name (`instructionLike`: `CLAUDE.md`, `AGENTS.md`), a file that looks
+  personal (`files[].sensitive`), and a message whose files are not all one-click files.
+- One click: the client calls `POST /api/rooms/:id/save-plan` with `folder` = the project folder (existing), then
+  `save-to-team`, so every server check stays (member, message visible, not quarantined, ≤ 50 MB, never an overwrite,
+  "(2)" names, same bytes once, file history). The target is the **root** of the project folder: predictable for one
+  click; hidden subfolders are never a target. The server checks the list again (`save-to-team` with `oneClick: true`
+  refuses a name not on it with 409 `needs_sheet`), so an older or tampered client cannot skip the sheet for code.
+- **Toast:** "Saved to {project} · Open · Undo". When the plan's count of people outside this channel who can open the
+  folder is above 0: "Saved to {project} · {n} people outside this channel can open it · Undo" (Open stays in the
+  toast's action). Undo (10 seconds, the toast's life) moves the copies this save made (`existed: false` only) to the
+  trash through the normal file delete, each only if its bytes are still the saved sha256; a changed one stays ("It was
+  changed, so it stays in {project}").
+- Already saved: the chip shows "In project · {name}" (the existing "In team folder" link, project wording when the path
+  is inside the linked project).
+- Menu (right-click, long press): **Save to {project}** first, then **Save to another folder…** (today's sheet). Not
+  linked, or no `canSave`: unchanged, **Save to team folder**.
+- Never for guests (they never save), nor for members without `Room.project`.
+
+### D7. The AI in a linked channel's side chat
+
+**Where it saves** (`savePlaceFor`, `chat/side-room.ts`). Order, finding 10: (1) the asker is a guest → their own folder
+(the guest check now runs **first**, before every room kind); (2) the room has an active link, the asker sees it and can
+write the project folder → `{ path: folderPath, project: true }`; (3) today's order (group folder, Everyone → `shared/`,
+smallest group, own folder + share).
+
+**The prompt line** (`sideRoomSection`; the project name is user text, so quoted, cut to 100 characters and never
+treated as instructions):
+> This channel is linked to the project "{name}". Unless the person names another place, save new documents and media
+> from this channel in the project's folder {folderPath} (its top level, or a subfolder the person names). Not everyone
+> in this channel can necessarily open that folder: say who can open a saved file only from the save result's "Who can
+> open the new file now" line.
+
+**The narrow no-card rule** (the coordinator's decision; the owner's "fewer prompts"): in the linked channel's own side
+chat, a call that makes a **new** file whose name is on `PROJECT_PLAIN_EXT` inside the active linked project's folder
+needs **neither** the room card (after a room read) **nor** the wider-audience card. Why it is safe enough: the link was
+a deliberate choice whose confirm named the project's audience, and documents and media are not run by the project's dev
+environment. Implemented as one extra test in `turn.ts` beside `newPlainFile` / `ownFolderPlace`
+(`linkedProjectPlain`): it applies only when all hold:
+- the turn is a side chat (`side_room` set) of a room with an active link, judged at call time;
+- the path, as `authorize(..., 'write')` resolves it for the person, is inside that project's `folder_path` (not
+  another project, not `skills/`, no hidden segment, not `instructionLike`, not managed);
+- the file does not exist yet and was not trashed by an AI turn (`aiTrashed`);
+- the extension is on `PROJECT_PLAIN_EXT`;
+- the target folder's readers are no wider than the project folder's own readers (a subfolder with an extra share or
+  rule still asks: counted by the same reader as `widening()`);
+- not a confidential chat, not a scheduled run, not safe operations.
+
+Everything else asks exactly as today: code and config names (the `inProjectFolder` protection in `turn.ts` stays: "its
+dev environment may run a new file by its name (conftest.py, a Makefile, a package's scripts)"), an existing file, edits,
+moves, copies, `save_url` downloads, a file outside the project folder. This **supersedes**, for this case only, the "a
+project or managed folder … still asks" line of [20261116-room-link-save-one-prompt](../../decisions/20261116-room-link-save-one-prompt.md)
+and the wider-audience card's "always asks when anyone at the place cannot see a source" of
+[20261117-ai-save-my-files-default](../../decisions/20261117-ai-save-my-files-default.md); the decision file says so.
+The "Who can open the new file now" line stays on every save.
+
+### D8. Creating a channel from a project: pre-fill people only
+
+- The dialog pre-ticks the project's **people** (individuals, from `GET /api/projects/:id/people`, groups expanded into
+  their people; no group entries, so the channel never follows a group). The creator is always in. Owners and admins who
+  only manage it are not listed.
+- **Guests** of the project are listed **unticked** with the existing line (a guest can be in one group chat); a guest
+  already in another group chat is greyed out ("A guest can be in one group chat and one project.").
+- **Over 100:** a channel holds `ROOM_GROUP_MAX` = 100 people with me. When the project has more than 99 other people,
+  nothing is pre-ticked and one line says "This project has {n} people. A channel can hold up to 100: pick who to add."
+- A copy at creation, never a sync. Recommended because the owner's case is "the project's people talk in its channel".
 
 ### D9. Naming
 
-- The default name is the **project's name as typed**. It is not lowercased and spaces are not turned into hyphens.
-  Trina channel names are free text, and Korean names have no case. Slack's lowercase-hyphen rule would turn
-  "라마바 카페" into something people do not recognise.
-- The name is still editable before Create. Max `ROOM_NAME_MAX`. The same name as another channel is allowed, as
-  today.
-- Words (English first, Slack's terms):
-  - Channel, Private channel, Create a channel, Link a channel, Link to a project, Unlink;
-  - Files;
-  - Save to project, Save to another folder…;
-  - "Also create a channel".
-  - ko 채널 / 채널 만들기 / 채널 연결 / 프로젝트에 연결 / 연결 해제 / 프로젝트에 저장. ja, zh, es, id follow the
-    existing channel words of 20261116-sidebar-channels-dms.
+- Default name: the project's name as typed, editable (max `ROOM_NAME_MAX`). No forced lowercase or hyphens: Trina
+  channel names are free text and Korean names have no case. Duplicate channel names are allowed, as today.
+- Words (English first, Slack's terms): Channel, Create a channel, Link a channel, Link to a project, Unlink, Files, Save
+  to project, Save to another folder…. ko 채널 / 채널 만들기 / 채널 연결 / 프로젝트에 연결 / 연결 해제 / 프로젝트에 저장; ja,
+  zh, es, id follow 20261116-sidebar-channels-dms's channel words.
 
 ## API
 
-New optional fields:
-- `Room.project?: { id, name, folderPath }`: D4. Absent when there is no link, the viewer cannot open the project,
-  or the server is older.
-- `Room.canLinkProject?: boolean`: true for a private channel with no link (or a link the viewer can see), for a
-  non-guest member.
-- `Project.channel?: { roomId, name, memberCount, inIt }`: for project readers. `Project.canLinkChannel?: boolean`.
-
-New endpoints (owner `B`, not in `auth/guest-endpoints.ts`):
-- `PUT /api/rooms/:id/project` `{ projectId }`: link. Error answers:
-  - 409 `channel_linked`: this channel already has a link;
-  - 409 `project_has_channel`: the project already has a channel. When the caller can see that channel, its name is
-    in `params`;
-  - 409 `not_private_channel`;
-  - 409 `project_personal`;
-  - 409 `project_in_trash`;
-  - 404 for a project the caller cannot read, the same body as a missing one;
-  - 403 for a guest.
-- `DELETE /api/rooms/:id/project`: unlink. The same answer when there is no link.
-- `POST /api/projects/:id/channel` `{ name, memberIds }`: create a private channel and link it, 201 `Room`. Uses
-  `createGroup`'s checks, then inserts the link. Rolled back together.
-- Optional for the picker: `GET /api/rooms?linkable=1` returns my private channels with no link, and
-  `GET /api/projects?linkable=1` returns team projects I may link with no channel. Each is the existing list with a
-  filter, so there is no new read.
-
-Unchanged: `save-plan`, `save-to-team`, `saved-files`.
-
-`POST /api/projects` gains `channel?: { name?: string }`. When present and the project is made as a team project
-(people picked), the channel is made right after, with the same people, and linked. If channel creation fails, the
-project stays and the response carries `channelError` (the dialog says "The project was made; the channel wasn't.
-Try Create a channel on its page.").
+- `Room.project?`, `Room.canLinkProject?`, `Project.channel?`, `Project.canLinkChannel?` (D4); `RoomEventLine` kinds
+  `project_linked`, `project_unlinked` (D4).
+- `PUT /api/rooms/:id/project` `{ projectId }` → `Room`; `DELETE /api/rooms/:id/project` → 204;
+  `POST /api/projects/:id/channel` `{ name, userIds }` → 201 `Room` (D3, its errors and order).
+- `POST /api/rooms/:id/save-to-team` gains optional `oneClick: true` (409 `needs_sheet`, D6). `save-plan` unchanged.
+- Pickers reuse lists: `GET /api/rooms` (filter on the client: private channels with `canLinkProject`), `GET
+  /api/projects` (filter: `canLinkChannel`). No new reads.
+- `POST /api/projects` is unchanged (the checkbox was cut).
 
 ## Screens (per item; computer 1440, phone 390, light and dark)
 
@@ -266,7 +304,7 @@ Try Create a channel on its page.").
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │ 🔒 Launch site   7 members                 [📁 Files]             ✦   🔔   ⋯     │
 └──────────────────────────────────────────────────────────────────────────────────┘
-   tooltip on Files: "Open the Launch site project folder"
+   tooltip: "Open the Launch site project folder"
 
 390
 ┌──────────────────────────────────────┐
@@ -275,102 +313,71 @@ Try Create a channel on its page.").
 └──────────────────────────────────────┘
 ```
 
-- It is the same button as the group Files button: the same component, place, size and testid family
-  (`room-project-files`). It links to `/files?path=<folderPath>` and is pushed on history, so Back returns to the
-  channel.
-- A member who cannot open the project sees the header exactly as an unlinked channel looks today.
-- **Removed / not added:** no project chip or badge next to the name, no second button. The project's name lives in
-  the tooltip and the channel info.
+The group Files button's component, place and size (testid `room-project-files`), linking `/files?path=<folderPath>`,
+pushed on history. A member who cannot open the project sees today's header. Not added: a project chip by the name, a
+second button, an item in "⋯".
 
 ### S2. Channel info (opened from the name; MembersDialog)
 
 ```
 ┌ Launch site ───────────────────────────────── ✕ ┐
-│ Name   Launch site                         ✎     │
-│ Project  📁 Launch site            Unlink         │   ← one row; the name opens the project page
+│ Name     Launch site                       ✎     │
+│ Project  📁 Launch site                 Unlink    │   ← the name opens the project page
 │ ─────────────────────────────────────────────── │
 │ + Add people                                      │
-│ (members…)                                        │
 └───────────────────────────────────────────────────┘
 
-not linked, for a member who may link:
-│ Project  Not linked                Link to a project │
+not linked (canLinkProject):   │ Project  Not linked          Link to a project │
+linked, I can't see it:        (no Project row)
 ```
 
-- **Link to a project** opens a small picker: a search box and my team projects I may link. Projects that already
-  have a channel are greyed, with "Has a channel". Picking one opens a confirm:
-  - "Link #Launch site to the Launch site project?"
-  - "People in this channel who can open the project's folder get a Files button and Save to project. Others see no
-    change. The project's 8 members will see this channel's name on the project page."
-  - Buttons: Link / Cancel.
-- The channel's "⋯" menu gets one item, **Link to a project** or **Unlink project**. This is the one setting people
-  look for in a menu, as Rename is.
-- **Unlink** confirm: "Files saved to the project stay there. The channel's own files stay in the channel."
+- **Link to a project** picker: a search box and my team projects with `canLinkChannel`; projects that already have a
+  channel are not listed (`canLinkChannel` absent). **Empty:** "No projects to link. You can link a team project you're a
+  member of and can edit." with a link to Projects.
+- Confirm: "Link this channel to Launch site?" · "People here who can open the project's folder get a Files button and
+  Save to project; others see no change. Everyone here sees that the channel was linked to a project. The project's 8
+  members will see this channel's name on the project page." · Link / Cancel.
+- Unlink confirm: "Files saved to the project stay there. Files sent in the channel stay in the channel."
 
-### S3. Project page (team project, side column under Instructions and Files)
+### S3. Project page (team project; side column under Instructions and Files)
 
 ```
-1440 aside (320px)                         linked, I'm in it          linked, I'm not in it
-┌────────────────────────────────┐   ┌───────────────────────────┐   ┌───────────────────────────┐
-│ 📜 Instructions          Edit   │   │ # Channel                 │   │ # Channel                 │
-│ ─────────────────────────────── │   │ 🔒 Launch site · 7   Open  │   │ 🔒 Launch site · 7         │
-│ 📁 Files · 12 items      Open   │   └───────────────────────────┘   │ You're not in this channel│
-│ ─────────────────────────────── │                                   └───────────────────────────┘
-│ # Channel                       │   ← no channel, for someone who may link:
-│   Talk about this project with  │
-│   its people.                   │
-│   [+ Create a channel]  Link a  │   ← one secondary button + one text link
-│                         channel │
+no channel (canLinkChannel)          linked, I'm in it            linked, I'm not in it
+┌────────────────────────────────┐   ┌───────────────────────────┐   ┌──────────────────────────────┐
+│ # Channel                       │   │ # Channel                 │   │ # Channel                    │
+│   Talk about this project with  │   │ 🔒 Launch site · 7   Open  │   │ 🔒 Launch site · 7            │
+│   its people.                   │   └───────────────────────────┘   │ Ask someone in the channel   │
+│   [+ Create a channel]          │     ⋯ › Unlink (if I may)         │ to add you.                  │
+│   or Link a channel             │                                   └──────────────────────────────┘
 └────────────────────────────────┘
 ```
 
-- The empty state uses the existing `EmptySideBox` (as empty Instructions/Files do). Filled, it is the one-line
-  `DisclosureRow`, and its "⋯" has Unlink.
-- Phone 390: the aside is last (after the chats), as today. The row is one line. Create opens the dialog as a bottom
-  sheet.
-- Shown to nobody for:
-  - a personal project;
-  - a project in the trash;
-  - an owner or admin outside the project (`member: false`);
-  - a guest: they see the linked row if they are in the channel, otherwise nothing.
-- **Kept lean:** no channel preview, no message count, no members list here.
+- Empty: the existing `EmptySideBox`, **Create a channel** as its one button (the owner's main path), "or Link a channel"
+  as a text link. Filled: one `DisclosureRow`.
+- **Link a channel** picker: my private channels with `canLinkProject` and no link. **Empty:** "You have no private
+  channels without a project." with **Create a channel**.
+- Not shown: a personal or legacy project, a project in the trash, an owner or admin outside it (`member: false`), a
+  guest who is not in the channel (the API withholds it). Phone 390: the aside comes after the chats, as today; the row is
+  one line; dialogs are bottom sheets.
+- No Join button (decided). No channel preview, message count or members list here.
 
 ### S4. Create a channel (from S3)
 
 ```
 ┌ Create a channel for Launch site ────────────── ✕ ┐
-│ Channel name                                       │
-│ [ Launch site                              ]       │
-│ People                                             │
-│ [ Search people…                           ]       │
-│ ☑ Mina Kim   ☑ Leo Park   ☑ Sales (group: 4)       │   ← the project's members, ticked
+│ Channel name  [ Launch site                  ]     │
+│ People        [ Search people…               ]     │
+│ ☑ Mina Kim  ☑ Leo Park  ☑ Jun Lee  ☑ Sora Choi     │   ← the project's people, ticked (no group entries)
 │ ☐ Ari (guest) · this becomes their one group chat  │
-│ A private channel. Only the people you add can      │
+│ A private channel: only the people you add can     │
 │ read it. Its Files open this project's folder.      │
 │                               Cancel  [Create]     │
 └─────────────────────────────────────────────────────┘
 ```
 
-- This is the existing "Create a channel" picker (`PeoplePicker`, required name) with two things pre-filled and one
-  line of explanation. It is not a new dialog component.
+The existing Create a channel picker (`PeoplePicker`, required name) with name and people pre-filled and one line.
 
-### S5. New project dialog (only once people are picked)
-
-```
-┌ New project ─────────────────────────────────── ✕ ┐
-│ Name  [ Launch site                       ]        │
-│ People [ Mina Kim ✕  Leo Park ✕  + ]               │
-│ ☐ Also create a channel for this project           │   ← appears only when someone is picked
-│                               Cancel  [Create]     │
-└─────────────────────────────────────────────────────┘
-```
-
-- Off by default (the owner said optional). Not shown:
-  - with no people (a personal project);
-  - in "Move to project › New project" (its Undo deletes only an untouched project);
-  - for a guest;
-  - for a member whose team lets only admins share projects (no people field there).
-- The channel is named after the project and has the same people.
+### S5. New project dialog: unchanged (the checkbox was cut).
 
 ### S6. A file in a linked channel
 
@@ -379,132 +386,134 @@ computer (hover/focus)                         phone (long press sheet)
 ┌───────────────────────────────┐             ┌───────────────────────────┐
 │ 📄 quote-v2.pdf  1.2 MB  ⤓  📁⁺ │             │ Save to Launch site       │
 └───────────────────────────────┘             │ Save to another folder…   │
-   📁⁺ tooltip: "Save to Launch site"           │ Download                  │
-   after: 📁 link "In project · quote-v2.pdf"   │ …                         │
-                                               └───────────────────────────┘
-toast: "Saved to Launch site · Open"
+   📁⁺ tooltip "Save to Launch site"            │ Download                  │
+   saved: 📁 "In project · quote-v2.pdf"        └───────────────────────────┘
+toast: "Saved to Launch site · 3 people outside this channel can open it · Undo"
+deploy.sh, package.json: the icon opens the sheet ("Where should this go?", project pre-selected)
 ```
 
-- The icon keeps its 24 px slot, so the chip never changes width (the 11-17 rule).
+The icon keeps its 24 px slot (the 11-17 rule).
 
 ## Edge cases
 
-- **Member not in the project:** no button, no save, no info row, no AI default. The AI default for them falls back
-  to today's order (D4, D7).
-- **Hidden subfolders in the project:** the button opens the root. Files shows only what the rules allow. Save goes
-  to the root only. The AI's default is the root. A subfolder the person cannot see is never named.
-- **Guests:**
-  - a guest in the channel whose one project is this project sees the Files button;
-  - a guest never gets Save to project, never links, unlinks or creates (403), and is never ticked by default in S4;
-  - `canList` already applies `guestProjects`, so no new guest code is needed.
-- **Phone (390):** the header shows the folder icon only (as now). The info row and the project row fit one line, and
-  the project name truncates. S4 and S5 are bottom sheets. All of these are checked in light and dark mode.
-- **An existing per-project channel:** linked from its info or "⋯", or from the project page's **Link a channel**,
-  which opens my private channels with no link. Nothing in the channel changes. Files sent before the link stay in
-  the channel; each gets Save to project from then on.
-- **Two channels for one project:** the second link is refused (`project_has_channel`):
-  - the picker greys the project, with "Has a channel";
-  - someone who can see the first channel is told its name and can unlink it there first;
-  - the unique index makes a race safe: the second transaction fails.
-- **A group DM:** offered "Turn into a private channel" first (existing), then it can link.
-- **A team channel (`# leads`) or Everyone:** never offered.
-- **Safe operations (1A) on:** linking and creating still work (they are room and project rules). The AI default
-  still applies, and the wider-audience card asks as it does today under 1A.
-- **An admin who reads the project by membership:** behaves as a member. An admin outside it: manages (can unlink
-  from the project's "⋯") but never sees the channel's name. `Project.channel` is not sent with `member: false`.
-- **Account removal:** `linked_by` set null; nothing shown.
+- **Member not in the project:** no button, no save, no project row, no AI default (falls back to today's order); they
+  see the neutral "linked this channel to a project" line.
+- **Lost write only:** the button stays, Save to project goes (live, `canSave`), the AI default falls back.
+- **Hidden subfolders:** the button opens the root; Files shows what the rules allow; one-click and the AI default use
+  the root; the no-card rule refuses a subfolder wider than the root.
+- **Guests:** a guest in the channel whose one project is this one sees Files (`canList` applies `guestProjects`); never
+  Save to project, never links, unlinks or creates (403), never pre-ticked; `Project.channel` withheld when not in the
+  channel; the side chat's guest check runs first.
+- **Phone 390:** folder icon only in the header; one-line rows; sheets; checked light and dark.
+- **An existing per-project channel:** linked from its info or the project page's Link a channel; older files get Save to
+  project from then on; nothing in the channel changes.
+- **Two channels for one project:** the picker does not list a project with a channel; a race gets 409
+  `project_has_channel` (never naming the channel).
+- **A channel linked to a project that went to the trash or out of the zone:** inactive; it can link another project (the
+  inactive row is replaced in the same transaction).
+- **A project whose linked channel was archived:** the row went with the archive; an old row is skipped when read and
+  replaced on link.
+- **A group DM:** "Turn into a private channel" first. **Team channel / Everyone:** never offered.
+- **Safe operations (1A) on:** linking and creating work; the AI no-card rule does not apply (cards ask as today).
+- **Account removal:** `linked_by` set null; event lines keep their author as any line does.
 
 ## Steps
 
-1. Server: migration 427 (number checked at build time); `rooms/project-link.ts`
-   (link/unlink/create/projectFor); `roomOut` field; archive paths delete the link; endpoints and contract in
-   `shared/src/api`; `Project.channel`; the access-change fan-out; the audit rows; `POST /api/projects` `channel`.
-2. Server: `savePlaceFor` project step plus the prompt line.
-3. Web: header button, channel info row and ⋯ item, link picker and confirm.
-4. Web: project page row, Create dialog pre-fill, New project checkbox.
-5. Web: Save to project on chip and menu, the toast, "In project".
-6. i18n in six languages, `docs/site` user docs (channels page, projects page), `changes/channel-project-link.md`,
-   and decision file `docs/decisions/20261119-channel-project-link.md`. The older decisions get a "See also" line in
-   their own files only where they say otherwise (room save place, the save button).
+1. Server: migration 427; `rooms/project-link.ts` (active check, link, unlink, `projectFor`); `createGroup`'s `inTx`
+   hook; `dropMembers` deletes the link on archive; the trash, restore, repoint and delete hooks with their
+   `room.updated`; the event line kinds; `Room` and `Project` fields; three endpoints and contracts; the audit rows;
+   `KEPT_WITH_ACCOUNT`; the live pass in `groupFoldersChanged`.
+2. Server: `PROJECT_PLAIN_EXT`; `save-to-team` `oneClick`; `savePlaceFor` (guest first, then the link); the prompt line;
+   `turn.ts linkedProjectPlain`.
+3. Web: header button; channel info row, pickers with empty states, confirms; event line words; refetch on 404 and
+   focus.
+4. Web: project page row, Create dialog pre-fill and the over-100 line.
+5. Web: Save to project on chip and menu, the toast with the outside count and Undo, "In project".
+6. i18n in six languages; `docs/site` (channels and projects pages); `changes/channel-project-link.md`;
+   `docs/decisions/20261119-channel-project-link.md` (names what D7 supersedes).
 
 Two PRs (server, then web), batched with the day's other reviewed PRs per the batch rule.
 
 ## Risks
 
-- **Permissions:** the link grants nothing. Every read goes through `canSeeProject` + `canList`/`canWrite`, which is
-  checked again on each request. The main risk is leaking the **project name** or the **channel name**:
-  - `Room.project` is per viewer;
-  - `Project.channel` goes only to project readers;
-  - error bodies for an unseen project are the 404 of a missing one.
-
-  The security tests below are needed for this.
-- **AI widening:** the new default place can be wider than the room. The existing card and Always allow cover it,
-  with no new bypass. `askedToSave` keeps its "no wider-audience card" condition, so a project wider than the room
-  still asks.
-- **Performance:** `projectFor` adds one indexed lookup per private channel in `roomOut`, and the rules are read once
-  per list (`rulesOnce`).
-- **Migration:** additive, reader 1. A rollback build ignores the table.
+- **Disclosure:** the project's name goes only to those who can open it; a channel's name goes to the project's readers
+  (said in the confirm); the event line tells every channel member that a link exists. Covered by the security matrix.
+- **AI no-card rule:** a new path past two cards, narrowed to new document and media files in the linked project's own
+  audience, re-judged at call time; code and config names and wider subfolders still ask. The decision file names it,
+  and the security review of the server PR must look at it.
+- **One-click:** the server enforces the list (`oneClick`), so the sheet cannot be skipped for code by a client.
+- **Performance:** one indexed lookup per private channel in `roomOut`; rules once per list; the live pass bounded.
+- **Migration:** additive, reader 1; a rollback build ignores the table and shows `unknown` for the new lines.
 
 ## Tests
 
-- `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run check:prepush`; server tests under Bun
-  1.3.12.
-- New `tests/unit/b-rooms-project-link.test.ts`:
-  - link/unlink both sides and who may;
-  - one-to-one, including a race;
-  - kinds refused (DM, group DM, team, Everyone, personal project, trashed project);
-  - the per-viewer field (member, non-member, admin outside, guest in/out of the project);
-  - the live events (rule change, project membership change, leave, trash/restore, rename);
-  - archive deletes the link, and a project deleted for good cascades;
-  - create-from-project (pre-filled people, guest one-chat rule, rollback when the link fails);
-  - `POST /api/projects` with `channel`.
-- `tests/security/lib/rooms-cases.ts` and `access-request-cases.ts` style matrix rows for the three endpoints.
-  Assert no project name in any refused body, and no `Project.channel` for `member: false`.
-- `tests/unit/b-side-chat.test.ts`:
-  - a linked channel saves to the project folder;
-  - an asker who cannot write it falls back;
-  - the wider card still asks when the project is wider;
-  - trashed project → fallback.
-- `tests/unit/b-rooms-save-to-team.test.ts`: saving into the project root through the existing path, a personal
-  file → plan says sensitive.
-- Web unit: `room-save-sheet.test.tsx` (one-click vs fallback), `rooms-lib.test.ts`, `project-form` (checkbox only
-  with people).
-- Web e2e: `web/test/e2e/channel-project-link.spec.ts` (link from channel, link from project, create from project,
-  Files opens folder, Save to project, non-member sees nothing, live removal, 1440 and 390, light and dark).
-- AI scenario: `SAVE-0x`, "summarise this thread to a file" in a linked channel's side chat → project folder, one
-  card when wider.
+- `bun run typecheck`, `bun run check:i18n`, `bun run check:docs`, `bun run check:prepush`; server tests under Bun 1.3.12.
+- `tests/unit/b-rooms-project-link.test.ts`: link and unlink from both sides and who may; the error order (each step,
+  404 bodies equal to missing room / missing project); the kinds refused; personal, legacy (outside `projects/`), trashed
+  and repointed-out projects; one-to-one and the race; an inactive row replaced (trashed project, out-of-zone, archived
+  room); same project again is 200; `Room.project` per viewer (member, non-member, read-only member: `canSave` false,
+  admin outside, guest in/out); `Project.channel` (archived skipped, `member: false` none, guest outside none); the event
+  line per viewer (name or none), older client `unknown`; audit rows' shape; account removal; create-from-project
+  (pre-fill is the client's; server: link in `createGroup`'s transaction, rollback on a failed re-check incl. the guest
+  claim, rate limit); `dropMembers` archive deletes the link (leave, remove, `sync` of a gone account).
+- `tests/unit/b-rooms-project-link-live.test.ts`: `room.updated` on link, unlink, rename, repoint, trash (only marked
+  projects' channels), restore (also to another path, out of zone stays inactive), delete for good (both branches); the
+  access pass: read lost, write lost only, write regained, group membership change, unrelated folder sends nothing.
+- `tests/unit/b-side-chat.test.ts`: guest first; linked channel → project folder; no write → fallback; trashed /
+  out-of-zone → fallback; the prompt line (quoted, cut name).
+- `tests/unit/b-linked-project-no-card.test.ts`: a new `.md`/`.docx`/`.png` in the project root: no room card, no wider
+  card; `Makefile`, `conftest.py`, `package.json`, `x.sh`, `x.py`, `CLAUDE.md`, a dotfile: card; an existing file: card;
+  a subfolder with an extra share: card; another project's folder: card; not the side chat of that room: card; the link
+  removed mid-turn: card; confidential chat, scheduled run, safe operations: card; `save_url`: card.
+- `tests/unit/b-rooms-save-to-team.test.ts`: `oneClick` accepts the list and refuses others with `needs_sheet`
+  (case, NFKC, double extension `x.pdf.sh`); into the project root; Undo removes only `existed: false` copies with the
+  same bytes.
+- `tests/security/lib/rooms-cases.ts`: matrix rows for the three endpoints (guest, non-member, member without project
+  read, member with read only, admin outside, writer), asserting no project or channel name in any refused body.
+- Web unit: `room-save-sheet.test.tsx` (one-click vs sheet by name, toast with and without the outside count, Undo),
+  `rooms-lib.test.ts` (event line words), `project-channel-row.test.tsx` (the three states, the empty pickers, the
+  over-100 line), refetch on 404 and focus.
+- Web e2e `web/test/e2e/channel-project-link.spec.ts`: link from the channel, link from the project, create from the
+  project, Files opens the folder, Save to project, a code file opens the sheet, a non-member sees only the neutral line,
+  live removal, 1440 and 390, light and dark.
+- AI scenario `SAVE-0x`: "summarise this thread to a file" in a linked channel's side chat → a new `.md` in the project
+  folder with no card; "write a Makefile for it" → a card.
 
 ### QA rows to add (QA tab, English, one case per row; status at start / PR / dev merge)
 
 | Case | Expected |
 | --- | --- |
-| Link a private channel to a team project from channel info | Files button appears for members who can open the project; tooltip names the project |
-| Link from the project page (Link a channel) | Channel row shows on the project page; header button appears in the channel |
-| Create a channel for this project from the project page | Private channel made with the project's members pre-ticked; linked; opens |
-| New project with people + "Also create a channel" | Project and linked channel both made; channel named after the project |
-| Channel member not in the project | No Files button, no Save to project, no project row in info |
-| Remove a person from the project while they have the channel open | Their Files button disappears without reload |
-| Save to project on a file (computer) | One click, file in project root, toast with Open, chip shows "In project" |
-| Save to project on a phone (long press) at 390 | Menu shows Save to {project} first; works; dark mode readable |
-| Save a personal-looking file in a linked channel | Sheet opens instead (project pre-selected, Looks personal note) |
-| Side chat: "save the summary as a file" in a linked channel | Saved in the project folder; wider-audience card when the project has people outside the channel |
-| Second channel tries to link the same project | Refused; picker shows "Has a channel" |
-| Project moved to the trash, then restored | Button and save disappear, then return |
+| Link a private channel to a team project from channel info | Files button for members who can open the project; tooltip names it; neutral line for the others, named line for those who can open it |
+| Link from the project page (Link a channel) | Channel row on the project page; button in the channel |
+| Link a channel picker with no free private channels | Empty line and Create a channel |
+| Link to a project picker with no linkable projects | Empty line and a link to Projects |
+| Create a channel for this project | Private channel with the project's people pre-ticked, guests unticked; linked; opens |
+| Create a channel for a project of more than 99 people | Nobody pre-ticked; the 100 line |
+| Channel member not in the project | No button, no save, no project row; neutral line only |
+| Member who can read but not write the project | Button shown; no Save to project; Save to team folder stays |
+| Remove a person from the project while the channel is open | Button goes without reload |
+| Take only write away from a person | Save to project goes, button stays, without reload |
+| Save to project on a PDF (computer) | One click, project root, toast with Open and Undo |
+| Save to project when people outside the channel can open the project | Toast says how many; Undo removes the copy |
+| Save a `deploy.sh` or `package.json` in a linked channel | The sheet opens, project pre-selected |
+| Save a personal-looking file | The sheet opens with Looks personal |
+| Save to project on a phone (long press) at 390, dark | Save to {project} first; works; readable |
+| Side chat: "save the summary as a file" in a linked channel | New .md in the project folder, no card |
+| Side chat: "write a Makefile for this project" | A card asks |
+| Second channel tries to link the same project | Project not in the picker; a race is refused without naming the channel |
+| Project to the trash, then restored | Button and save go, then come back |
+| Channel linked to a trashed project links another project | Works |
 | Last person leaves the linked channel | Project page offers Create / Link again |
-| Guest in the channel and in the project | Sees Files, never Save to project, cannot link or create |
-| Admin outside the project | Project page shows no channel name; can unlink from the project's menu |
-| Unlink from channel info | Button goes; files already saved stay in the project |
+| Guest in the channel and the project | Sees Files; never Save to project; cannot link or create |
+| Guest in the project but not the channel | Project page shows no Channel row |
+| Admin outside the project | Project page shows no channel; no unlink anywhere |
+| Unlink from channel info | Button goes; saved files stay; unlink line |
+| Project member not in the channel | Row says "Ask someone in the channel to add you"; no Join button |
 
-## Open questions for the owner (short)
+## Open questions for the owner
 
-1. **Join from the project page?** A project member not in the linked channel sees "You're not in this channel".
-   Should they get a **Join** button? That would make project membership a way into a private channel. Recommended
-   for now: no; a channel member adds them.
-2. **One click with no audience line?** Save to project skips the sheet's "N people outside this conversation can see
-   this folder", because the link confirm already said who can open the project. Recommended: yes, one click as you
-   asked. The alternative is a toast that also says "8 people can open it".
-
-Everything else above is decided as recommended unless the owner says otherwise.
+None blocking. The coordinator decided on 2026-11-19: no Join button; one-click for documents and media only, with the
+outside count and Undo; the AI's narrow no-card rule; the neutral event line; the cuts above.
 
 ## Result
 
