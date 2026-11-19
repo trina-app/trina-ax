@@ -4,7 +4,8 @@
 //
 //   <feed>/<dir>/<channel>.json        the signed manifest of the channel (stable | beta), no-cache
 //   <feed>/<dir>/<version>/<file>      the office zip, the Windows installer and its electron-updater latest.yml, the
-//                                      Mac dmg, its update zip and latest-mac.yml;
+//                                      Mac dmg, its update zip and latest-mac.yml, the Linux .deb and AppImage
+//                                      files (x64, arm64) with latest-linux.yml and latest-linux-arm64.yml;
 //                                      never overwritten once published (publish.ts refuses a different file)
 //
 // <channel>.json is one object, {format: 1, payload: "<JSON text>", keyId, sig}: an Ed25519 signature over the exact
@@ -64,6 +65,12 @@ export const OfficeRelease = z.object({
    * electron-updater's latest-mac.yml that a team server puts into data/downloads so the desks' Mac apps update from it
    * (system/windows-app.ts, office/update.ts offerMac). Absent before 0.5.5; servers that do not know it drop it. */
   mac: z.object({ version: Version, dmg: ReleaseFile, zip: ReleaseFile, latestYml: ReleaseFile }).nullish(),
+  /** the Linux desktop app (docs/decisions/20261119-linux-desktop-app.md): the .deb and the AppImage of each processor,
+   * and electron-updater's latest-linux.yml / latest-linux-arm64.yml. A team server puts the two AppImages and the two
+   * yml files into data/downloads (office/update.ts offerLinux), so the desks' AppImages update from it; a .deb only
+   * reads `version` and says that a new one is out. Flat: scripts/release/publish.ts reads each value as one file.
+   * Absent before it shipped; servers that do not know it drop it. */
+  linux: z.object({ version: Version, appImageX64: ReleaseFile, appImageArm64: ReleaseFile, debX64: ReleaseFile, debArm64: ReleaseFile, latestYml: ReleaseFile, latestYmlArm64: ReleaseFile }).nullish(),
   /** staged roll-out (system/rollout.ts, the same rule as a Linux server's): the nightly run takes the release when it
    * is this Mac's turn. Absent: every office at once. Offices that do not know it drop it (zod strips unknown keys). */
   rollout: FeedRollout,
@@ -122,9 +129,15 @@ export function verifyRelease(text: string, o: VerifyContext): OfficeRelease {
   return r
 }
 
-/** every file a release names (the office zips, the Windows app's two, the Mac app's three) */
-export function releaseFiles(r: Pick<OfficeRelease, 'office' | 'windows' | 'mac'>): ReleaseFile[] {
-  return [...r.office, ...(r.windows ? [r.windows.installer, r.windows.latestYml] : []), ...(r.mac ? [r.mac.dmg, r.mac.zip, r.mac.latestYml] : [])]
+/** every file a release names (the office zips, the Windows app's two, the Mac app's three, the Linux app's six) */
+export function releaseFiles(r: Pick<OfficeRelease, 'office' | 'windows' | 'mac'> & Partial<Pick<OfficeRelease, 'linux'>>): ReleaseFile[] {
+  const l = r.linux
+  return [
+    ...r.office,
+    ...(r.windows ? [r.windows.installer, r.windows.latestYml] : []),
+    ...(r.mac ? [r.mac.dmg, r.mac.zip, r.mac.latestYml] : []),
+    ...(l ? [l.appImageX64, l.appImageArm64, l.debX64, l.debArm64, l.latestYml, l.latestYmlArm64] : []),
+  ]
 }
 
 /** What an installed version should do with a verified release. */

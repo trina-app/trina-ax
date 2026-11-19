@@ -13,6 +13,11 @@
 // installing steps aside (./update-launch.ts). An app that runs from the dmg or a translocated download cannot be
 // updated: one line offers "Move to Applications". A team server without latest-mac.yml (older than 0.5.5):
 // the old notice once per new version found in /downloads/index.json, with a button that opens Settings > Apps.
+// Linux AppImage (APPIMAGE set): the same as Windows, electron-updater's AppImage updater on
+// <team>/downloads/latest-linux.yml (latest-linux-arm64.yml on arm64) and the AppImage it names, checked against the
+// signed release (its `linux` entry for this processor); it replaces the AppImage when the app quits. Linux .deb: no
+// updater; the team's signed /downloads/<channel>.json is read and a newer `linux` version is said once, with a button
+// for the download page (docs/decisions/20261119-linux-desktop-app.md).
 // Store build (process.mas, process.windowsStore): off; the store updates it.
 import { closeSync, createReadStream, existsSync, openSync, readFileSync, readSync, rmSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -23,7 +28,7 @@ import { APP_DOWNLOADS, PRODUCT } from '@mycel/shared'
 import { t, type UiLocale } from '../common/i18n'
 import { partitionFor } from '../common/teams'
 import { CHECK_EVERY_MS, FIRST_CHECK_MS, feedUrlFor, genericFeed, macNotice, selfUpdatingMac, storeBuild, updateMode, type UpdateMode } from '../common/update'
-import { manifestSources, verificationRequired, verifyInstaller } from '../common/update-verify'
+import { linuxNotice, manifestSources, verificationRequired, verifyInstaller } from '../common/update-verify'
 import { idleRestartAllowed, readOnlyRefusal, stagedPending, type Resume } from '../common/update-guard'
 import { debug } from './debug'
 import { readPending, writePending, writeResume } from './update-launch'
@@ -63,17 +68,20 @@ export class DesktopUpdater {
   /** Squirrel.Mac refusals per version in this run (not about where the app runs): the second one says so */
   private squirrelFailed = new Map<string, number>()
 
-  /** Mac (Squirrel.Mac) or Windows (NSIS) install path */
+  /** Mac (Squirrel.Mac), or Windows (NSIS) and the Linux AppImage install path */
   private readonly mac: boolean
+  /** Linux: the AppImage installs like Windows; a .deb only gets the notice (checkLinux) */
+  private readonly linux: boolean
 
   /** `trust`: the release keys and product to check against, and the platform; tests only (default RELEASE_CHANNEL's,
    * process.platform) */
   constructor(private host: UpdaterHost, private trust: { keys?: readonly string[]; product?: string; platform?: NodeJS.Platform } = {}) {
     const platform = trust.platform ?? process.platform
     this.mac = platform === 'darwin'
+    this.linux = platform === 'linux'
     let pkg: unknown = null
     if (this.mac && app.isPackaged) { try { pkg = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) } catch {} }
-    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process), selfUpdatingMac(pkg))
+    this.mode = updateMode(platform, app.isPackaged, process.env.MYCEL_DESKTOP_UPDATE_TEST, storeBuild(process), selfUpdatingMac(pkg), process.env.APPIMAGE)
   }
 
   start() {
@@ -107,6 +115,7 @@ export class DesktopUpdater {
           if ((e as { code?: string }).code === 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND') await this.checkMac(team)
         }
       } else if (this.mode === 'auto-install') await this.checkWindows(team)
+      else if (this.mode === 'notice' && this.linux) await this.checkLinux(team)
       else if (this.mode === 'notice') await this.checkMac(team)
     } catch (e) {
       debug('update check failed', (e as Error).message)
@@ -129,7 +138,10 @@ export class DesktopUpdater {
 
   private async autoUpdater() {
     if (this.updater) return this.updater
-    const { autoUpdater } = await import('electron-updater')
+    const eu = await import('electron-updater')
+    // an AppImage always takes the AppImage updater: electron-updater would pick its .deb updater if a
+    // resources/package-type file ever came into the AppImage (the .deb build writes one into the shared unpacked folder)
+    const autoUpdater = this.linux && process.env.APPIMAGE && typeof eu.AppImageUpdater === 'function' ? new eu.AppImageUpdater() : eu.autoUpdater
     autoUpdater.autoDownload = false
     // no web installer: its package file would not be covered by the signed release
     autoUpdater.disableWebInstaller = true
@@ -214,7 +226,7 @@ export class DesktopUpdater {
         continue
       }
       if (text.length > MANIFEST_MAX) continue
-      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product, platform: this.mac ? 'mac' : 'windows' })
+      const v = verifyInstaller({ manifest: text, installerSha256, channel: src.channel, version, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product, platform: this.mac ? 'mac' : this.linux ? 'linux' : 'windows', arch: process.arch })
       if (v.ok) return { ...v, sha256: installerSha256 }
       debug('update manifest', src.url, v.reason)
       first ??= v.reason
@@ -241,7 +253,7 @@ export class DesktopUpdater {
     this.quitHandler = true
     app.once('quit', (_e, code) => {
       if (code !== 0 || !this.ready || !this.updater || !this.installsVerified()) return
-      // BaseUpdater.install (NSIS on Windows; the AppUpdater type does not name it)
+      // BaseUpdater.install (NSIS on Windows, the AppImage replaced on Linux; the AppUpdater type does not name it)
       ;(this.updater as unknown as { install(silent: boolean, runAfter: boolean): boolean }).install(true, false)
     })
   }
@@ -365,6 +377,45 @@ export class DesktopUpdater {
 
   private dismissedFile() {
     return join(app.getPath('userData'), 'update-notice.json')
+  }
+
+  /** Linux .deb: the team's signed release names a newer Linux app: one line once per version, with the download page
+   * (an edition without one: the team's Settings › Apps) */
+  private async checkLinux(team: { id: string; origin: string }) {
+    const base = feedUrlFor(team.origin)
+    if (!base) return
+    const ses = session.fromPartition(partitionFor(team.id, 'app'))
+    let n: { version: string } | null = null
+    for (const src of manifestSources(base, app.getVersion()).filter((x) => x.team)) {
+      try {
+        const res = await ses.fetch(src.url, { signal: AbortSignal.timeout(10_000), redirect: 'error', headers: { accept: 'application/json', 'cache-control': 'no-cache' } })
+        if (!res.ok || Number(res.headers.get('content-length') ?? 0) > MANIFEST_MAX) continue
+        const text = await res.text()
+        if (text.length > MANIFEST_MAX) continue
+        n = linuxNotice(text, { channel: src.channel, current: app.getVersion(), keys: this.trust.keys, product: this.trust.product })
+      } catch (e) { debug('linux update notice', src.url, (e as Error).message); continue }
+      // the team server offers one channel: its manifest decides
+      break
+    }
+    if (!n) return
+    let seen: string | null = null
+    try { seen = existsSync(this.dismissedFile()) ? (JSON.parse(readFileSync(this.dismissedFile(), 'utf8')) as { version?: string }).version ?? null : null } catch {}
+    if (seen === n.version) return
+    try { writeFileSync(this.dismissedFile(), JSON.stringify({ version: n.version })) } catch {}
+    const L = this.host.locale()
+    const opts = {
+      type: 'info' as const,
+      title: t(L, 'update.linux.title'),
+      message: t(L, 'update.linux.message', { version: n.version, current: app.getVersion() }),
+      detail: t(L, 'update.linux.detail'),
+      buttons: [t(L, 'update.linux.download'), t(L, 'update.linux.later')],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    }
+    const w = this.host.window()
+    const r = w && !w.isDestroyed() ? await dialog.showMessageBox(w, opts) : await dialog.showMessageBox(opts)
+    if (r.response === 0) { if (APP_DOWNLOADS.page) void shell.openExternal(APP_DOWNLOADS.page); else this.host.openApps() }
   }
 
   private async checkMac(team: { id: string; origin: string }) {

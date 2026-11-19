@@ -40,6 +40,43 @@ export const FOUND_PATTERNS: [RegExp, DesktopPlatform][] = [
 /** the update file name a Mac app downloads: <artifactBase>-<version>-mac-<arch>.zip (electron-builder's name) */
 export const MAC_ZIP_RE = new RegExp(`^${BASE}-\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z.]{1,40})?-mac-(?:universal|arm64|x64)\\.zip$`)
 
+const NAME_VERSION = '\\d{1,4}\\.\\d{1,4}\\.\\d{1,6}(?:-[0-9A-Za-z.]{1,40})?'
+/** the Linux desktop app per processor (electron-builder's names, desktop/electron-builder.config.ts linux): the yml
+ * electron-updater reads, the AppImage it names (the team server offers it) and the .deb (the download page only) */
+export const LINUX_APPS = {
+  x64: { yml: 'latest-linux.yml', appImageRe: new RegExp(`^${BASE}-${NAME_VERSION}-linux-x86_64\\.AppImage$`), appImage: (v: string) => `${PRODUCT.artifactBase}-${v}-linux-x86_64.AppImage`, deb: (v: string) => `${PRODUCT.artifactBase}-${v}-linux-amd64.deb` },
+  arm64: { yml: 'latest-linux-arm64.yml', appImageRe: new RegExp(`^${BASE}-${NAME_VERSION}-linux-arm64\\.AppImage$`), appImage: (v: string) => `${PRODUCT.artifactBase}-${v}-linux-arm64.AppImage`, deb: (v: string) => `${PRODUCT.artifactBase}-${v}-linux-arm64.deb` },
+} as const
+export type LinuxArch = keyof typeof LINUX_APPS
+export const LINUX_ARCHS = Object.keys(LINUX_APPS) as LinuxArch[]
+/** any Linux AppImage of the app (either processor) */
+export const LINUX_APPIMAGE_RE = new RegExp(`^${BASE}-${NAME_VERSION}-linux-(?:x86_64|arm64)\\.AppImage$`)
+/** any Linux .deb of the app (either processor) */
+export const LINUX_DEB_RE = new RegExp(`^${BASE}-${NAME_VERSION}-linux-(?:amd64|arm64)\\.deb$`)
+
+/** the `files:` entries of an electron-updater yml (url, sha512, size; quotes off) */
+export function ymlFiles(text: string): { url: string; sha512: string; size: number }[] {
+  return text.split(/^\s*-\s*url:/m).slice(1).map((b) => ({
+    url: /^\s*'?([^'\n]*?)'?\s*$/m.exec(b)?.[1] ?? '',
+    sha512: /^\s*sha512:\s*'?([^'\n]*?)'?\s*$/m.exec(b)?.[1] ?? '',
+    size: Number(/^\s*size:\s*(\d+)\s*$/m.exec(b)?.[1] ?? NaN),
+  }))
+}
+
+/** what `dir`'s latest-linux.yml / latest-linux-arm64.yml offer: per processor the version and the AppImage its `files:`
+ * list names (electron-builder lists the .deb in the same yml, in no fixed order, so `path:` may be the .deb) */
+export function linuxOfferedIn(dir: string): { arch: LinuxArch; version: string; appImage: string }[] {
+  const out: { arch: LinuxArch; version: string; appImage: string }[] = []
+  for (const arch of LINUX_ARCHS) {
+    let text: string
+    try { text = fs.readFileSync(path.join(dir, LINUX_APPS[arch].yml), 'utf8') } catch { continue }
+    const v = new RegExp(`^version:\\s*'?([^'\\n]*?)'?\\s*$`, 'm').exec(text)?.[1] ?? null
+    const img = ymlFiles(text).map((e) => e.url).find((u) => LINUX_APPS[arch].appImageRe.test(u))
+    if (v && VERSION.test(v) && img) out.push({ arch, version: v, appImage: img })
+  }
+  return out
+}
+
 /** what `dir`'s latest-mac.yml offers (version and zip), or null when there is none */
 export function macOfferedIn(dir: string): { version: string; zip: string } | null {
   let text: string

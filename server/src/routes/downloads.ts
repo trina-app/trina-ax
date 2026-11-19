@@ -12,7 +12,9 @@
 // - Only index.json, latest.yml (electron-updater's feed file the office updater puts next to the Windows installer,
 //   docs/OFFICE.md "자동 업데이트"), <channel>.json (the signed release that names that installer, which the Windows app
 //   checks before it installs), latest-mac.yml and the Mac update zip it names (the Mac app's feed, office/update.ts
-//   offerMac; the zip is no installer, so index.json does not list it) and the files index.json lists are served (one
+//   offerMac; the zip is no installer, so index.json does not list it), latest-linux.yml / latest-linux-arm64.yml and
+//   the AppImage each names in its files list (the Linux app's feed, office/update.ts offerLinux; not in index.json
+//   either) and the files index.json lists are served (one
 //   name, no folders), each opened like a team file
 //   (O_NOFOLLOW, a regular file with one link), once, and sent from that open file: a symlink, hard link or stray
 //   file in the folder stays private.
@@ -27,7 +29,7 @@ import type { AppEnv } from '../http/env'
 import type { AppContext } from '../context'
 import { contentDisposition, fileBody, parseRange, rangeStream, RANGE_MAX } from '../team-files/download'
 import { openChecked } from '../team-files/place'
-import { macOfferedIn, readIndex, SAFE_NAME } from '../office/desktop'
+import { linuxOfferedIn, macOfferedIn, readIndex, SAFE_NAME } from '../office/desktop'
 import { PRODUCT } from '@mycel/shared'
 
 export const INSTALLER_TYPES: Record<string, string> = {
@@ -36,10 +38,11 @@ export const INSTALLER_TYPES: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.yml': 'text/yaml; charset=utf-8',
   '.zip': 'application/zip',
+  '.appimage': 'application/octet-stream',
 }
 /** served without being listed in index.json: the list itself, the desktop app's update feed file and the signed release
  * manifest that names its installer (office/update.ts placeSignedManifest; the Windows app checks it before installing) */
-export const META_FILES = ['index.json', 'latest.yml', 'latest-mac.yml', 'stable.json', 'beta.json']
+export const META_FILES = ['index.json', 'latest.yml', 'latest-mac.yml', 'latest-linux.yml', 'latest-linux-arm64.yml', 'stable.json', 'beta.json']
 
 const text = (status: number, body: string, extra: Record<string, string> = {}) =>
   new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', ...extra } })
@@ -59,7 +62,7 @@ export async function serveDownload(req: Request, sub: string, dir: string | nul
   if (!dir || !fs.existsSync(dir)) return text(404, 'Not found\n')
   let name: string
   try { name = decodeURIComponent(sub.replace(/^\//, '')) } catch { return text(404, 'Not found\n') }
-  const listed = META_FILES.includes(name) || (SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name)) || macOfferedIn(dir)?.zip === name
+  const listed = META_FILES.includes(name) || (SAFE_NAME.test(name) && readIndex(dir).some((i) => i.file === name)) || macOfferedIn(dir)?.zip === name || linuxOfferedIn(dir).some((l) => l.appImage === name)
   if (!listed) return text(404, 'Not found\n')
   const file = path.join(path.resolve(dir), name)
   // the one open of this response (team-files/download.ts): the body is read from this descriptor, never from the name
