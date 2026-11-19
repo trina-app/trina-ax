@@ -1,1 +1,0 @@
-- Moving a team project to the trash now says where it goes and who can restore it: it stays in Files › Trash for the number of days your team keeps deleted files, and an admin or its creator can restore it. Files › Trash shows the whole folder path on a project's row when two trashed projects have the same name.

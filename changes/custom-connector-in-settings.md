@@ -1,1 +1,0 @@
-- Settings › Connectors: a member now sees "Not listed? Ask an admin to add it." right next to the search, where owners and admins have **Add custom connector**. Before, the line sat under the last Discover card, out of sight, so a member's screen had no Add and no reason why. Who may add a custom connector does not change: owners and admins.

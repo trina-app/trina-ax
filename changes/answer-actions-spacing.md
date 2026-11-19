@@ -1,1 +1,0 @@
-- On a phone the icons under an answer (copy, share, retry, save, model) now sit close together from the left, as on a computer.
