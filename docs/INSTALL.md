@@ -611,7 +611,7 @@ Alternatives:
   The member opens it and picks a new password, which signs them out everywhere else. A new link cancels the old
   one. The owner's own password is reset only on the server Mac (`bun run dev admin reset-link` in dev).
 
-**Mac desktop source build (advanced).** No Mac desktop DMG is published. A locally built client accepts loopback HTTP for evaluation and publicly trusted HTTPS team addresses for remote access. The office ZIP is the server bundle, not this client.
+**Mac desktop source build (advanced).** Releases since 0.5.5 publish a signed, notarized Mac DMG (`Trina-AX-<version>-mac-universal.dmg`); use it unless you need your own build. A locally built client accepts loopback HTTP for evaluation and publicly trusted HTTPS team addresses for remote access. The office ZIP is the server bundle, not this client.
 1. Build it:
    ```sh
    bun run dist:mac            # = cd desktop && bun run dist:mac
