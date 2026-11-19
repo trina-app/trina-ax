@@ -66,9 +66,10 @@ test('the app holds the microphone: ownMic after the check, levels to the wave, 
   expect(messages.filter(m => m.type === 'dictation-push')).toEqual([])
 })
 
-test('a recognizer that is not on the phone: the readiness is shared', async () => {
+test('a recognizer that is not on the phone is never used: the team server, whatever the team allows', async () => {
   onDevice = false
   const b = phoneDictation()!
-  expect(await checkMac('ko', b)).toEqual({ kind: 'ready', shared: true })
-  expect(macReadiness('ko')).toEqual({ kind: 'ready', shared: true })
+  expect(await b.check('ko')).toEqual({ state: 'unsupported' })
+  expect(await checkMac('ko', b)).toEqual({ kind: 'server' })
+  expect(macReadiness('ko')).toEqual({ kind: 'server' })
 })
