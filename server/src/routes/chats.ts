@@ -60,6 +60,7 @@ import { Audiences, accountSeesProject, chatFor, memberWhileTrashed, chatPeople,
 import { AnswerSight, type ChatHit } from '../chat/shared-answers'
 import { safeOpsEnabled } from '../safe-ops/runner'
 import { deleteProjectForGood } from '../chat/project-delete'
+import { channelForViewer, dropLinksInTx } from '../rooms/project-link'
 import { dropChatPins, dropUnseenPins, pin, pinsOf, unpin } from '../chat/pins'
 import { chatFoldersChanged, dropChatFolderItems, folderChatFilter } from '../chat/nav-folders'
 import { chatGroups, otherChats } from '../chat/chat-groups'
@@ -314,8 +315,12 @@ export const chatsRoutes: RouteModule = {
         const out = rt.store.toProject(r, false, { audience: aud.of(r).length, ...shared })
         return { ...out, instructions: '', member: false as const, canManage, canDelete, ...inTrash, ...membersView(ctx, r, p, canManage, creators, aud, { member: false }) }
       }
-      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud) }
+      // its private channel (rooms/project-link.ts): for someone who reads it, never a guest outside the channel
+      return { ...rt.store.toProject(r, canEdit, projectShare(ctx.db, ctx.files, r, aud, viewer)), canManage, canDelete, ...membersView(ctx, r, p, canManage, creators, aud), ...leaveState(ctx, r, p, aud), ...channelForViewer(ctx.db, r, viewer, rulesOfList(aud)) }
     }
+    /** the folder rules once per list of projects (one Audiences per list) */
+    const listRules = new WeakMap<Audiences, ReturnType<typeof ctx.files.rules>>()
+    const rulesOfList = (aud: Audiences) => { let r = listRules.get(aud); if (!r) { r = ctx.files.rules(); listRules.set(aud, r) } return r }
     /** A project the caller reads, or with `manage` one they manage: else 404 (the same answer as no project).
      * `trashed`: also a team project in the trash the caller is a member of (its card and page, its restore by its
      * creator); only where the answer is its name and state, never its contents. */
@@ -1263,6 +1268,8 @@ export const chatsRoutes: RouteModule = {
       if (skillsOn?.names.length) recordSkillsOn(ctx.db, auth.user.id, folder, skillsOn.paths, { id: r!.id, name: next.name }, 'project_folder')
       const after = rt.store.projectRow(r!.id)!
       if (after.instructions !== r!.instructions) notifyInstructionsChanged(ctx, after, auth.user)
+      // its linked channel shows its name and folder (rooms/project-link.ts): its members get the room again
+      if (after.name !== r!.name || after.folder_path !== r!.folder_path || after.trashed_with !== r!.trashed_with) roomsOf(ctx).projectsChanged([r!.id])
       // a project in the trash that an admin pointed at a folder is back as a restore brings it back: its paused tasks
       // and shared chats (chat/project-restore.ts; QA TC-1014, TC-1015). Since when: its folder's trash item, or (purged
       // since) the project's own trash record
@@ -1349,6 +1356,8 @@ export const chatsRoutes: RouteModule = {
           // and then the project stays too; nothing is lost). Already gone from disk: nothing to remove
           const abs = path.join(ctx.files.fx.root, ...r.folder_path.split('/'))
           if (fs.existsSync(abs) && !componentC(ctx).files.removeEmptyFolder(p.id, r.folder_path)) fail('conflict', tr('projectNotEmpty', locale), { params: { reason: 'project_not_empty' } })
+          // (a personal project never links a channel; any row goes with it all the same, explicitly)
+          dropLinksInTx(ctx.db, { projectId: r.id })
           ctx.db.query('DELETE FROM projects WHERE id = ?').run(r.id)
           audit(ctx.db, { actor: auth.user.id, action: 'project.delete', target: r.id, detail: null })
         })()

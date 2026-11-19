@@ -1472,6 +1472,15 @@ export class TeamFiles {
       // a folder holding a team project went to the trash: a guest whose one place it was is switched off (admin/guests.ts,
       // through the access-change hooks; the project's rules were parked, no afterAccessChange runs here)
       if (isDir && r.segs[0] !== 'users') runAccessHooks(this.ctx, userId)
+      // the projects it took along: their linked channels lose the Files button and Save to project now
+      // (rooms/project-link.ts: a link of a project in the trash is inactive); required lazily (rooms reach files)
+      if (isDir && r.segs[0] !== 'users') {
+        const marked = (this.ctx.db.query('SELECT id FROM projects WHERE trashed_with = ?').all(id) as { id: string }[]).map((x) => x.id)
+        if (marked.length) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          try { (require('../rooms/service') as typeof import('../rooms/service')).roomsOf(this.ctx).projectsChanged(marked) } catch (e) { this.ctx.log.warn('linked channels not told of a trash', { err: e }) }
+        }
+      }
     }
     // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
     // id goes into the audit row)

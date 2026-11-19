@@ -5,7 +5,7 @@ import { ChevronDown } from 'lucide-react'
 import { useId, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 
-export function DisclosureRow({ icon, label, badge, meta, action, children, testId }: {
+export function DisclosureRow({ icon, label, badge, meta, action, children, testId, detail }: {
   icon: ReactNode
   label: string
   /** next to the name (an "Experiment" badge) */
@@ -16,6 +16,9 @@ export function DisclosureRow({ icon, label, badge, meta, action, children, test
   action?: ReactNode
   children?: ReactNode
   testId?: string
+  /** a row without children only: words after the name on the same line that give way first (cut with "…"), such as
+   * the project's channel name; the row stays one line at any width */
+  detail?: ReactNode
 }) {
   const [open, setOpen] = useState(false)
   const id = useId()
@@ -26,9 +29,10 @@ export function DisclosureRow({ icon, label, badge, meta, action, children, test
           <span className="shrink-0 text-muted" aria-hidden>
             {icon}
           </span>
-          <span className="min-w-0 truncate font-medium">{label}</span>
+          <span className={detail ? 'shrink-0 font-medium' : 'min-w-0 truncate font-medium'}>{label}</span>
           {badge && <span className="shrink-0">{badge}</span>}
           {meta && <span className="shrink-0 text-xs text-faint">{meta}</span>}
+          {detail && <span className="flex min-w-0 flex-1 items-center gap-1.5">{detail}</span>}
         </span>
         {action && <span className="shrink-0 text-sm">{action}</span>}
       </div>

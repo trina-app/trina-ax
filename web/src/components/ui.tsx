@@ -589,6 +589,19 @@ export function Toaster() {
             {x.text}
             {x.detail && <span className="block text-xs text-faint">{x.detail}</span>}
           </span>
+          {x.more && (
+            <button
+              type="button"
+              className="shrink-0 rounded-md px-2 py-0.5 font-medium underline underline-offset-2"
+              onClick={() => {
+                x.more!.run()
+                dismiss(x.id)
+              }}
+              data-testid="toast-more"
+            >
+              {x.more.label}
+            </button>
+          )}
           {x.action?.primary ? (
             <Button
               size="sm"
@@ -605,6 +618,7 @@ export function Toaster() {
           ) : x.action && (
             <button
               type="button"
+              data-testid="toast-link"
               className="shrink-0 rounded-md px-2 py-0.5 font-medium underline underline-offset-2"
               onClick={() => {
                 x.action!.run()

@@ -79,6 +79,8 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   'rooms.members': { reach: 'explains' },
   'rooms.hide-pin': { reach: 'explains' },
   'rooms.files': { reach: 'acts', tools: ['room_file', 'save_room_file'] },
+  // the person links, unlinks and makes the channel on screens; the side chat's save into the linked project's folder is rooms.files' save (tests/unit/b-linked-project-no-card.test.ts)
+  'rooms.project-link': { reach: 'explains' },
   'rooms.search': { reach: 'acts', tools: ['room_read', 'rooms'] },
   'rooms.activity': { reach: 'explains' },
   'rooms.apps': { reach: 'explains' },

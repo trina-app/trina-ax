@@ -35,7 +35,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
@@ -59,9 +59,22 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       return w.t('rooms.event.joined', { actor })
     case 'removed':
       return w.t('rooms.event.removed', { actor, name: w.nameOf(e.user) })
+    // a private channel linked to a project or unlinked (docs/decisions/20261119-channel-project-link.md): the project's
+    // name only for a viewer who can open it (the server sends it then), else "a project"
+    case 'project_linked':
+    case 'project_unlinked': {
+      const k = projectEventKey(e)
+      return e.project ? w.t(k, { actor, name: e.project.name }) : w.t(k, { actor })
+    }
     case 'unknown':
       return w.t('rooms.event.unknown')
   }
+}
+
+/** The words of a project link line: named when the viewer can open the project, else neutral. */
+export function projectEventKey(e: Extract<RoomEventLine, { type: 'project_linked' | 'project_unlinked' }>): 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' {
+  if (e.type === 'project_linked') return e.project ? 'rooms.event.projectLinkedNamed' : 'rooms.event.projectLinked'
+  return e.project ? 'rooms.event.projectUnlinkedNamed' : 'rooms.event.projectUnlinked'
 }
 
 /** Messages of one author close together share one avatar, name and time: a new run after another author, a pause

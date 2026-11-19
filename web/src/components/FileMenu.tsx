@@ -45,14 +45,22 @@ export function useFileMenuItems(target: FileMenuTarget | null): MenuItem[] {
   const copyFileLink = useCopyTeamFileLink()
   if (!target) return []
   const icon = (I: typeof Link2) => <I size={14} className="shrink-0" aria-hidden />
-  const make: Record<FileMenuAction, () => MenuItem> = {
+  const make: Record<FileMenuAction, () => MenuItem | MenuItem[]> = {
     copyImage: () => ({ label: t('fileMenu.copyImage'), icon: icon(ImageIcon), onSelect: () => (target.copyImage ? target.copyImage() : copyImageFrom(target.image!, t)), testId: 'file-menu-copy-image' }),
     copyLink: () => ({ label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: () => void (target.teamFile ? copyFileLink(target.teamFile) : copyLink(target.link!)), testId: 'file-menu-copy-link' }),
     download: () => ({ label: t('common.download'), icon: icon(Download), onSelect: () => target.download!(), testId: 'file-menu-download' }),
-    saveToTeam: () => ({ label: t(target.team!.saved ? 'rooms.save.open' : 'rooms.save.action'), icon: icon(target.team!.saved ? FolderCheck : FolderInput), onSelect: () => target.team!.run(), testId: target.team!.saved ? 'file-menu-open-team' : 'file-menu-save-team' }),
+    saveToTeam: () => {
+      const team = target.team!
+      // a linked channel (docs/decisions/20261119-channel-project-link.md): Save to <project> first, then the sheet
+      if (team.project && !team.saved) return [
+        { label: team.project.label, icon: icon(FolderInput), onSelect: () => team.project!.run(), testId: 'file-menu-save-project' },
+        { label: t('rooms.save.another'), icon: icon(FolderInput), onSelect: () => team.run(), testId: 'file-menu-save-team' },
+      ]
+      return { label: t(team.saved ? 'rooms.save.open' : 'rooms.save.action'), icon: icon(team.saved ? FolderCheck : FolderInput), onSelect: () => team.run(), testId: team.saved ? 'file-menu-open-team' : 'file-menu-save-team' }
+    },
     ask: () => ({ label: t('sideChat.askAboutFile'), icon: <AiMark place="menu" />, onSelect: () => target.ask!(), testId: 'file-menu-ask' }),
   }
-  return fileMenuActions(target, canCopyImage()).map((a) => make[a]())
+  return fileMenuActions(target, canCopyImage()).flatMap((a) => make[a]())
 }
 
 type Point = { x: number; y: number }

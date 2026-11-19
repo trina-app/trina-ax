@@ -27,7 +27,7 @@ export interface FileMenuTarget {
   download?: (() => void) | null
   /** a room file: "Save to team folder", or once it is there where I can open it, "Open in team folder"
    * (docs/decisions/20261117-room-file-save-btn.md) */
-  team?: { saved: boolean; run: () => void } | null
+  team?: { saved: boolean; run: () => void; /** a linked channel's Save to <project>, first; then `run` is "Save to another folder…" */ project?: { label: string; run: () => void } } | null
   /** 트리나에게 묻기 */
   ask?: (() => void) | null
 }
