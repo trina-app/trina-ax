@@ -198,6 +198,7 @@ check "mycel-enroll.service unit" grep -q '^ExecStart=/usr/local/sbin/mycel-enro
 check "var-lib-mycel.mount unit (label axdata)" grep -q '^What=/dev/disk/by-label/axdata' /etc/systemd/system/var-lib-mycel.mount
 check "mycel units require the data disk" grep -q '^RequiresMountsFor=/var/lib/mycel' /etc/systemd/system/mycel-server.service.d/10-ax-data.conf
 check "data-disk resize udev rule" grep -q 'ID_FS_LABEL}=="axdata"' /etc/udev/rules.d/90-axdata-resize.rules
+check "data-disk resize guard (axdata-resize)" bash -c '[[ -x /usr/local/sbin/axdata-resize ]] && grep -q /usr/local/sbin/axdata-resize /etc/udev/rules.d/90-axdata-resize.rules'
 check "data-disk grow at mount (axdata-grow.service)" bash -c '[[ -L /etc/systemd/system/var-lib-mycel.mount.wants/axdata-grow.service ]]'
 if [[ -x /usr/local/sbin/mycel-link ]]; then pass "mycel-link binary"
 elif ec2; then fail "mycel-link binary" "missing on EC2 (build-ami.sh --link-bin)"

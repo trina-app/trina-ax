@@ -146,6 +146,9 @@ func (e *Enroller) cloud(mode *string) error {
 		if !exists(filepath.Join(e.P.Base, "root", "VERSION")) {
 			return fail("kit_incomplete", "reattach: %s holds no install (root/VERSION missing)", e.P.Base)
 		}
+		if exists(filepath.Join(e.P.Base, seedMarker)) {
+			return fail("kit_incomplete", "reattach: the kit copy onto %s never finished (%s)", e.P.Base, seedMarker)
+		}
 		e.kitVersion = e.readKitVersion()
 		e.setStep("apply", *mode)
 		if err := e.writeDefaults(); err != nil {
@@ -282,19 +285,42 @@ func (e *Enroller) checkURL(raw string) error {
 // ---------- seed ----------
 
 // seed copies the kit the template build staged on the OS disk into an empty BASE (a new data disk). An existing install
-// (root/VERSION present: a retried enroll, a self-host that installed directly) is left alone.
+// (root/VERSION present: a retried enroll, a self-host that installed directly) is left alone, unless the marker says
+// the copy onto it never finished (seed.go).
 func (e *Enroller) seed() error {
-	if exists(filepath.Join(e.P.Base, "root", "VERSION")) {
+	marker := filepath.Join(e.P.Base, seedMarker)
+	if exists(filepath.Join(e.P.Base, "root", "VERSION")) && !exists(marker) {
 		e.kitVersion = e.readKitVersion()
 		return nil
 	}
 	if !exists(filepath.Join(e.P.Seed, "root", "VERSION")) {
 		return fail("kit_incomplete", "no Team AX install in %s and no seed in %s (the image was built without the kit)", e.P.Base, e.P.Seed)
 	}
-	// cp -a keeps owners, modes, links and times (the seed was made by the kit installer with the fixed uids)
+	if exists(marker) {
+		fmt.Fprintf(e.Out, "mycel-enroll: seed: an earlier copy into %s did not finish, copying again\n", e.P.Base)
+	}
+	if err := writeSeedMarker(e.P.Base); err != nil {
+		return fail("seed_failed", "mark %s: %v", e.P.Base, err)
+	}
+	t0 := e.Now()
+	fmt.Fprintf(e.Out, "mycel-enroll: seed: start (%s -> %s)\n", e.P.Seed, e.P.Base)
+	// read every file once with many readers first: on EC2 the seed's blocks come from S3 on the first read, and a
+	// block once read stays on the volume, so the copy below reads at disk speed (seed.go defaultSeedReaders)
+	if n := e.seedReaders(); n > 0 {
+		st := readAhead(e.P.Seed, n)
+		fmt.Fprintf(e.Out, "mycel-enroll: seed: read ahead %d files, %d bytes in %.1fs (%d readers, %d errors)\n",
+			st.Files, st.Bytes, e.Now().Sub(t0).Seconds(), n, st.Errors)
+	}
+	t1 := e.Now()
+	// cp -a keeps owners, modes, links, hard links, times, ACLs and xattrs (file capabilities after the chown); the
+	// seed was made by the kit installer with the fixed uids. Over a half copy it replaces what is there.
 	if _, err := e.Run.Run(context.Background(), "cp", []string{"-a", e.P.Seed + "/.", e.P.Base + "/"}, nil); err != nil {
 		return fail("seed_failed", "copy the kit into %s: %v", e.P.Base, err)
 	}
+	if err := clearSeedMarker(e.P.Seed, e.P.Base); err != nil {
+		return fail("seed_failed", "finish the copy into %s: %v", e.P.Base, err)
+	}
+	fmt.Fprintf(e.Out, "mycel-enroll: seed: copied in %.1fs, %.1fs in all\n", e.Now().Sub(t1).Seconds(), e.Now().Sub(t0).Seconds())
 	e.kitVersion = e.readKitVersion()
 	return nil
 }

@@ -1,0 +1,45 @@
+#!/bin/sh
+# Team AX: grow the data file system (label axdata) to its device, only when the device is bigger.
+#   axdata-resize DEV
+# Run by 90-axdata-resize.rules (a block "change" event) and axdata-grow.service (each mount of the data disk).
+#
+# Why the size check: resize2fs opens the device for writing, even when there is nothing to do. udev watches disks and
+# sends a "change" event when a writer closes the device, so a bare resize2fs in the rule ran itself again: 100-160
+# runs of ax-axdata-resize.service in a first boot. dumpe2fs and blockdev only read, so they make no event, and after
+# one real grow the check ends the chain.
+#
+# A real grow (the hosting service makes the volume bigger for a plan upgrade, online or while stopped) is always many
+# block groups (1 GiB or more), so the check grows when the device is at least one block group bigger than the file
+# system. resize2fs can leave the last part of a device out when it is too small for a block group, so "any byte
+# bigger" would run it on every event again.
+set -eu
+
+DUMPE2FS=${AXDATA_DUMPE2FS:-/usr/sbin/dumpe2fs}
+BLOCKDEV=${AXDATA_BLOCKDEV:-/usr/sbin/blockdev}
+RESIZE2FS=${AXDATA_RESIZE2FS:-/usr/sbin/resize2fs}
+
+dev=${1:-}
+case "$dev" in
+  /dev/*) ;;
+  *) echo "axdata-resize: usage: axdata-resize /dev/DEVICE" >&2; exit 2 ;;
+esac
+
+head=$("$DUMPE2FS" -h "$dev" 2>/dev/null) || { echo "axdata-resize: $dev: no ext4 superblock, nothing to do" >&2; exit 0; }
+field() { printf '%s\n' "$head" | sed -n "s/^$1:[[:space:]]*\([0-9][0-9]*\)[[:space:]]*\$/\1/p" | head -n 1; }
+count=$(field 'Block count')
+bsize=$(field 'Block size')
+per_group=$(field 'Blocks per group')
+devbytes=$("$BLOCKDEV" --getsize64 "$dev")
+if [ -z "$count" ] || [ -z "$bsize" ] || [ -z "$per_group" ] || [ -z "$devbytes" ] || [ "$bsize" -eq 0 ]; then
+  # no resize2fs here: its close would bring the next event, and this one again (mycel-ctl data-grow still grows)
+  echo "axdata-resize: $dev: could not read the sizes, not growing" >&2
+  exit 1
+fi
+
+devblocks=$((devbytes / bsize))
+if [ "$((devblocks - count))" -lt "$per_group" ]; then
+  echo "axdata-resize: $dev: file system $((count * bsize)) bytes, device $devbytes bytes: nothing to grow"
+  exit 0
+fi
+echo "axdata-resize: $dev: growing the file system from $((count * bsize)) to $devbytes bytes"
+exec "$RESIZE2FS" "$dev"
