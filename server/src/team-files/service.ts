@@ -20,6 +20,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
 import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { skillsUnder } from '../skills/switch-on'
 import { skillEntriesOnDisk } from '../chat/skills'
 import { currentPlan } from '../system/limits'
@@ -179,7 +180,7 @@ export class TeamFiles {
     if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file`, 'not_folder')
     const out: FileEntry[] = []
     for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
-      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
       const c = [...r.segs, e.name]
       let st: fs.Stats
       try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
