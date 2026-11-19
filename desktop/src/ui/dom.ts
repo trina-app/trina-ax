@@ -4,6 +4,7 @@ import { fillPlurals } from '@mycel/shared/plural'
 import { SERVICE_HOSTS } from '@mycel/shared/service-hosts'
 import type { UiKey, UiLocale } from '../common/i18n'
 import type { PaneActivity } from '../common/pane-activity'
+import type { FindResult } from '../common/find-bar'
 
 export interface WelcomeState {
   mode: 'welcome' | 'team' | 'offline'
@@ -73,6 +74,16 @@ export interface MycelUi {
     retry(): void
     /** "Other teams" on the cannot-reach card: the app stops trying that team again by itself */
     leftOffline(): void
+  }
+  /** the find bar (Cmd/Ctrl+F) over the view it searches */
+  find: {
+    state(): Promise<{ text: string; seq: number; result: FindResult | null } | null>
+    /** Cmd+F again: this text, selected, with the keyboard in the field */
+    onOpen(cb: (o: { text: string; seq: number }) => void): () => void
+    onResult(cb: (r: FindResult | null) => void): () => void
+    query(text: string): void
+    step(forward: boolean): void
+    close(): void
   }
   /** the team address above the team's sign-in pages */
   hostbar: {

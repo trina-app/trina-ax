@@ -18,11 +18,13 @@ desktop/
     trust.ts               who may use the bridge (top frame of the app view, team origin only)
     file-chooser.ts        the store build's own open dialog for the team page's file input (multiple, folder, accept)
     i18n.ts                ko / en / id / ja / es strings of the desktop's own screens
+    find-bar.ts            Cmd/Ctrl+F: which view the find bar searches, where it sits, its keys and count
   src/main/
     main.ts                lifecycle, mycel-ui:// protocol, IPC (sender checks), menu
     app-window.ts          window layout (the browser's edge: drag, keys, window.json), teams, team page view,
                            direct-connection switching, file chooser (store build)
     security.ts            webPreferences, navigation / frame guards, permissions, WebRTC, RTCPeerConnection removal
+    find-bar.ts            the find bar's own view over the searched view (findInPage, found-in-page)
     direct.ts              /api/connect-info, pinned LAN probe, certificate pinning, session cookie mirroring
     pane/pane.ts           BrowserPane: tabs (WebContentsView), CDP tools, prompts, password and card-field refusal, cancel
     pane/net-guard.ts      office-network guard on the pane session (prompts, blocks, DNS rebinding stop)
@@ -92,3 +94,15 @@ Dev against the local team server: `bun run dev:server` at the repo root, then
 | `MYCEL_DESKTOP_TEAM` | team address to add and open at start (unpackaged builds only) |
 | `MYCEL_DESKTOP_TEST_PUBLIC_HOSTS` | names mapped to 127.0.0.1 and treated as public sites (unpackaged builds only; e2e) |
 | `MYCEL_DESKTOP_TEST_PRIVATE_HOSTS` | office-style names (e.g. `nas.lan`) mapped to 127.0.0.1 (unpackaged builds only; e2e) |
+
+## Find on the page
+
+Cmd+F (Ctrl+F), Edit › Find…, opens the find bar (`src/main/find-bar.ts`, `src/ui/findbar.ts`) over the top-right corner
+of the view the keyboard is in: the team page, or the in-app browser's tab (its toolbar counts as its tab), else the
+team page or the app's own screen. It is a separate small view, so the text typed into it is never part of the page it
+searches. The menu's accelerator only gets a key the page did not take: Chromium gives a key to the page first and
+hands it to the window's menu only when the page did not call preventDefault (macOS: performKeyEquivalent from the
+unhandled-key path; Windows and Linux: the unhandled keyboard event handler). A site with its own Cmd+F (a document
+editor in the in-app browser) keeps it; the team web app has no Cmd/Ctrl+F or Cmd/Ctrl+G of its own. In a plain
+browser the web app does nothing here, so the browser's own find stays. The bar closes when its view leaves the window
+(the team list, the browser closed, another tab). Tests: `tests/unit/e-find-bar.test.ts`, `e2e/find-bar.spec.ts`.

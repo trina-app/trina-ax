@@ -33,6 +33,14 @@ contextBridge.exposeInMainWorld('mycelUi', {
     onState: on('ui:hostbar'),
     teams: () => ipcRenderer.send('ui:hostbar-teams'),
   },
+  find: {
+    state: () => ipcRenderer.invoke('ui:find-state'),
+    onOpen: on('ui:find-open'),
+    onResult: on('ui:find-result'),
+    query: (text: string) => ipcRenderer.send('ui:find-query', String(text)),
+    step: (forward: boolean) => ipcRenderer.send('ui:find-step', forward !== false),
+    close: () => ipcRenderer.send('ui:find-close'),
+  },
   pane: {
     state: () => ipcRenderer.invoke('ui:pane-state'),
     onState: on('ui:pane-state'),
