@@ -419,8 +419,8 @@ function Gate() {
           <Route path="skills" element={<NotForGuests><Skills /></NotForGuests>} />
           {/* a share proposal of the owner's or admin's own (내 스킬 가져오기): the Claude Code notice leads here */}
           <Route path="skills/share/:id" element={<NotForGuests><SkillSharePage /></NotForGuests>} />
-          <Route path="scheduled" element={<NotForGuests><ScheduledList /></NotForGuests>} />
-          <Route path="scheduled/:id" element={<NotForGuests><ScheduledTask /></NotForGuests>} />
+          <Route path="scheduled" element={<NotForGuests><NotInFreeRoam><ScheduledList /></NotInFreeRoam></NotForGuests>} />
+          <Route path="scheduled/:id" element={<NotForGuests><NotInFreeRoam><ScheduledTask /></NotInFreeRoam></NotForGuests>} />
           {/* the welcome steps after /setup (owner only; pages/Welcome.tsx) */}
           <Route path="welcome" element={<NotForGuests><Welcome /></NotForGuests>} />
           {/* an outside AI app asks to use this server as the person (Connectors itself is in Settings, below) */}
@@ -568,8 +568,8 @@ function AfterSignIn() {
   return <Navigate to={signedInHome()} state={LANDING_STATE} replace />
 }
 
-/** A free-roam demo's visitor never uses the team's admin pages (server/src/demo/guard.ts refuses them): one line
- * instead, the dev environment's in its own words. */
+/** A free-roam demo's visitor never uses the team's admin pages or scheduled tasks (server/src/demo/guard.ts refuses
+ * them): one line instead, the dev environment's in its own words. */
 function NotInFreeRoam({ children }: { children: ReactNode }) {
   const freeRoam = useFreeRoam()
   const { pathname } = useLocation()

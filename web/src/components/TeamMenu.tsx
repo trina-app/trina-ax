@@ -20,6 +20,7 @@ import { teamAddressShown } from '../lib/team-address'
 import { switchTeam, useTeamSwitchWay } from '../lib/teamSwitch'
 import { showResume } from '../lib/welcome'
 import { isAdmin, isOwner, useMeStrict, useSession } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { useWelcome } from '../store/welcome'
 import { INVITE_STEP_STATE } from './onboarding/GoalCard'
 import { InviteStep } from './onboarding/InviteStep'
@@ -42,6 +43,9 @@ export function TeamMenu() {
   const button = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
   const admin = isAdmin(me)
+  // a free-roam demo: nobody is invited to the demo's team (server/src/demo/guard.ts refuses the invites)
+  const freeRoam = useFreeRoam()
+  const invite = admin && !freeRoam
   // "다른 팀으로 전환" for everyone: the desktop app's or phone app's team screen, a plain browser's dialog
   const canSwitch = useTeamSwitchWay() !== null
   const host = teamAddressShown(me.team.address)
@@ -118,6 +122,7 @@ export function TeamMenu() {
           <div role="separator" className="mx-1 mb-1.5 border-t border-line" />
           {admin && (
             <>
+              {invite && (
               <button
                 role="menuitem"
                 type="button"
@@ -130,6 +135,7 @@ export function TeamMenu() {
               >
                 <UserPlus size={16} className="text-muted" aria-hidden /> {t('teamMenu.invite')}
               </button>
+              )}
               <button
                 role="menuitem"
                 type="button"
