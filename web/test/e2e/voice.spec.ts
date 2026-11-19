@@ -537,7 +537,7 @@ test.describe('rooms', () => {
     await speech(page, 'local')
     expect((await page.request.post('/__test/speech-host', { data: { localMissing: ['ffmpeg'] } })).ok()).toBeTruthy()
     await page.reload()
-    await page.getByTestId('room-side-chat-button').click()
+    // the ✦ side chat was open, so it comes back by itself after a reload (QA TC-4963); a click on its button would close it
     await expect(side.getByTestId('side-chat-input')).toBeVisible()
     await expect(side.getByRole('button', { name: MIC })).toHaveCount(0)
   })
