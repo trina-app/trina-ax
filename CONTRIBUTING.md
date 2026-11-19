@@ -40,7 +40,7 @@ bun test tests/unit/release-notices.test.ts tests/unit/source-code-offer.test.ts
 
 ## Send a focused pull request
 
-1. Create a branch from current `main` in your fork or checkout.
+1. Create a branch from current `dev` in your fork or checkout, and open the pull request against `dev`. `main` only takes releases. Maintainers put reviewed pull requests into the `dev` merge queue; do not merge them yourself.
 2. Explain the problem, change and validation. Include a synthetic screenshot for visible UI changes.
 3. Update the relevant documentation alongside behavior changes. Keep unrelated formatting out of the diff.
    Do not edit CHANGELOG.md: put the user-visible notes in a new file `changes/<topic>.md`

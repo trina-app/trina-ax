@@ -23,7 +23,7 @@ AI agents meet Trina AX in two ways. Pick the page for yours.
 
 :::cards cols=2
 - icon=cpu | [How AI works inside Trina AX](runtime.md) | Engines, tools, permissions, confirmations and limits.
-- icon=plug | [Team AX MCP connector](mcp-connector.md) | Connect your own Claude to a team's files over MCP.
+- icon=plug | [Trina AX MCP connector](mcp-connector.md) | Connect your own Claude to a team's files over MCP.
 - icon=book-open | [SKILL.md format](skills-format.md) | The exact header and placement rules for skills.
 - icon=package | [Plugins](plugins.md) | Skill bundles and isolated native tools, installed by admins.
 :::

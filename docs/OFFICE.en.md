@@ -81,7 +81,7 @@ Run `bash "$OFFICE_DIR/office-uninstall.sh"` from the extracted kit to remove th
 - Voice input and recordings on Apple silicon (M1 or later): they work with no key. The kit's whisper-cli (Metal, signed with the Mac app's Developer ID and notarized) transcribes on the Mac, and macOS's afconvert, afinfo and avconvert decode the recordings (the converter sandbox, no network). While no provider is chosen and no OpenRouter key is saved, "On this server" is the default; the team's OpenRouter key is the alternative an admin can pick. The first use downloads the speech model once (about 490 MB, sha256 checked) and says so; installing downloads nothing. The AI reads the sound of m4a, mp3, wav, aiff and flac files and mp4 and mov videos, not a video's pictures; webm, mkv, avi and wma do not open.
 - Intel Macs: the AI cannot read video and audio files and says so (Linux servers read them as frames and a transcript); voice input needs an OpenRouter key.
 
-Use desktop/mobile browsers or the published `Trina-AX-Setup-<version>-win-x64.exe`. A Mac desktop DMG is not published; the office ZIP is the server. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration and legacy paths](CONFIGURATION.md).
+Use desktop/mobile browsers or the published `Trina-AX-Setup-<version>-win-x64.exe`. The signed Mac desktop DMG (`Trina-AX-<version>-mac-universal.dmg`, since 0.5.6) is on the same release; the office ZIP is the server. [Troubleshooting](TROUBLESHOOTING.md) · [FAQ](FAQ.md) · [Configuration and legacy paths](CONFIGURATION.md).
 
 ## Detailed offline procedures
 
@@ -156,7 +156,7 @@ For LAN fallback, configure each Windows user's trust once:
 
 Test one physical desk before repeating across the office. A changed IP/hostname or replacement CA needs a new card and trust checks; do not blindly click through warnings. The LAN path can serve local files during an internet outage, but cloud AI still needs internet.
 
-The optional published Windows desktop installer is `Trina-AX-Setup-<version>-win-x64.exe`. Verify its origin/checksum and the team's deployment policy before running it. An unsigned installer can trigger SmartScreen; if organizational policy blocks it, use the browser. The desktop client needs a publicly trusted HTTPS team address for remote access. A locally built Mac DMG is a separate, unpublished client, not the office server ZIP.
+The optional published Windows desktop installer is `Trina-AX-Setup-<version>-win-x64.exe`. Verify its origin/checksum and the team's deployment policy before running it. An unsigned installer can trigger SmartScreen; if organizational policy blocks it, use the browser. The desktop client needs a publicly trusted HTTPS team address for remote access. The published Mac DMG (signed and notarized since 0.5.6) is the desktop client, not the office server ZIP.
 
 To offer verified installers in Settings → Apps:
 

@@ -205,6 +205,6 @@ AI 需要的权限，例如把 **Contents**、**Issues** 和 **Pull requests** �
 ## 反方向
 
 你自己的 Claude（Claude Code、Claude Desktop 或 claude.ai）可以连接**到** Trina AX，并以你的权限使用你的文件。
-[了解 Team AX MCP 连接器](../../agents/mcp-connector.md)（英文）。
+[了解 Trina AX MCP 连接器](../../agents/mcp-connector.md)（英文）。
 
 面向开发者的完整说明：[集成](../../../INTEGRATIONS.md)（英文）。

@@ -15,8 +15,8 @@ Bug reports, docs fixes and small, focused improvements are welcome, in English 
 ## Send a pull request
 
 :::steps
-#### Branch from main
-Create a branch from current `main` in your fork or checkout.
+#### Branch from dev
+Create a branch from current `dev` in your fork or checkout, and open the pull request against `dev`. `main` only takes releases.
 
 #### Make one focused change
 Keep unrelated formatting out of the diff. Update docs with behaviour changes.

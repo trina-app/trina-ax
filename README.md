@@ -73,7 +73,7 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Trina is in every conversation.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, Trina's answer in the channel, and a thread open on the right"></td>
+<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Ask Trina beside any of them, in a side chat only you see.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, an answer sent to the channel, and a thread open on the right"></td>
 </tr>
 </table>
 

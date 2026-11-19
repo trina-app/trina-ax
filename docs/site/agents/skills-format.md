@@ -24,7 +24,7 @@ Return a table of items to review, with the reason for each. Do not approve or r
 
 | Field | Rule |
 |---|---|
-| `name` | Required. `a`–`z`, `0`–`9` and single hyphens, at most 64 characters. Must equal the folder name. |
+| `name` | Required. Lowercase letters (any language), digits and single hyphens between words, at most 64 characters. No spaces, dots or capitals. Must equal the folder name. |
 | `description` | Required. Not empty, at most 1024 characters. Say what the skill does and when to use it. |
 | `compatibility` | Optional. Not empty, at most 500 characters. |
 
@@ -34,13 +34,17 @@ Return a table of items to review, with the reason for each. Do not approve or r
 |---|---|
 | `skills/<name>/SKILL.md` | Team skill, for everyone who can read `skills/` |
 | `skills/<folder>/<name>/SKILL.md` | Team skill, for people who can read `<folder>` (one folder level below `skills/`) |
+| `groups/<group>/skills/<name>/SKILL.md` | Group skill, only for the members of that group |
+| `projects/<project>/skills/<name>/SKILL.md` | Project skill, only in that project's chats. It cannot reuse a name a wider skill already has. |
 | `users/<id>/skills/<name>/SKILL.md` | Personal skill, only for that person |
+
+When two skills have the same name, the personal one wins over the group's, and the group's over the team's.
 
 ## Limits
 
 | Limit | Value |
 |---|---|
-| File size | 128 KiB |
+| File size | 512 KiB |
 | Header size | 8 KiB |
 
 ## Writing a good skill

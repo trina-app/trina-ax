@@ -45,7 +45,7 @@ When on, a bundle's skills appear at `skills/<plugin id>/<skill>/SKILL.md`. That
 | Item | Rule |
 |---|---|
 | File | `.trinaplugin`: a POSIX tar, optionally gzipped |
-| Manifest | `trina-plugin.json`: id (reverse domain), SemVer version, provider, kind, names and descriptions in five languages, permissions, platforms, and every file's path, size and SHA-256 |
+| Manifest | `trina-plugin.json`: id (reverse domain), SemVer version, provider, kind, names and descriptions in English (Korean, Simplified Chinese, Japanese, Spanish and Indonesian optional), permissions, platforms, and every file's path, size and SHA-256 |
 | Permissions | `skills.company`, `files.read.selected`, `preview.render`, `runtime.native.isolated`, `model.send.preview-pixels` |
 | Format version | `schemaVersion` 1. Unknown fields, keys or permissions are refused. |
 

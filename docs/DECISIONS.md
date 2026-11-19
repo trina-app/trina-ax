@@ -4,6 +4,12 @@
 > (`<YYYYMMDD>-<topic>.md`); look there for anything decided after that day. Do not add sections or lines here
 > (`bun run check:docs` fails a PR that does); fixing a typo in an old entry is fine.
 > 2026-11-16부터 새 결정은 `docs/decisions/`에 한 파일씩 적는다. 이 파일은 그 전의 기록이다.
+>
+> **Reversed later (checked 2026-11-19), the later entry counts:** the knowledge graph ("K —", "지식 그래프로 더 빠른 답",
+> "뜻으로도 찾는 지식 그래프") was removed by "Knowledge graph removed"; "@트리나" in rooms ("대화방의 트리나" and its follow-ups)
+> by "Trina side chat, PR 2" and "Room @트리나 code removed" (the AI is the ✦ side chat); "Trina history by project" is
+> no longer the default ("Trina history: Group by defaults to None"); "Mac users get the App Store only" and "Mac App
+> Store 먼저" by [20261116-desktop-first-onboarding](decisions/20261116-desktop-first-onboarding.md) (the signed dmg).
 
 설계서 v3(팀 AX 플랫폼 구현 설계서)를 기준으로, 설계서에 없거나 애매한 부분을 구현하면서 정한 것들이다.
 형식: **결정** — 이유. (날짜는 모두 2026-10-21)

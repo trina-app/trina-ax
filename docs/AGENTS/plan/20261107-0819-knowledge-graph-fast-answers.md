@@ -1,5 +1,7 @@
 # The AI and the Files search answer from the knowledge graph, faster and cheaper
 
+> Superseded (2026-11-19): the knowledge graph was removed on 2026-11-11 and the AI finds files with list, glob, grep and read, see [20261111-0135-remove-knowledge-graph.md](20261111-0135-remove-knowledge-graph.md) and [20261111-0630-file-list.md](20261111-0630-file-list.md).
+
 - Date (UTC): 2026-11-07 08:19
 - Branch: `feat/knowledge-graph-fast-answers` (wave 1, PR #165); `feat/knowledge-graph-meaning` (waves 2 and 3, stacked
   on wave 1)

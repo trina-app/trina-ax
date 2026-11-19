@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>모두 검색.</b> ⌘K로 채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾아요.<br><br><img src="docs/site/images/search/palette.webp" alt="채팅, 기록, 프로젝트, 파일, 스킬, 예약 작업을 찾는 ⌘K 검색"></td>
 </tr>
 <tr>
-<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 모든 대화에 트리나가 있어요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널에 올라온 트리나의 답, 오른쪽에 열린 스레드"></td>
+<td colspan="2"><b>슬랙 같은 팀 채팅.</b> 전체·그룹 채널, 비공개 채널, DM, 그룹 대화, 스레드, @멘션까지 있어요. 웹, 데스크톱, 휴대폰에서 쓰고, 어느 대화에서든 옆에 나만 보는 채팅을 열어 트리나에게 물어봐요.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="팀 채팅의 Marketing 채널: 왼쪽에 채널과 DM, 이모지 반응과 @멘션, 채널로 보낸 답변, 오른쪽에 열린 스레드"></td>
 </tr>
 </table>
 

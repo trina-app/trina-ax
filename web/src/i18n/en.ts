@@ -1773,7 +1773,7 @@ export const en: Record<MessageKey, string> = {
   "pushGateway.problem.not_gateway": "This address isn't a push service for the phone app. Check the address with whoever runs it.",
   "pushGateway.problem.locked": "This is set in the server's settings, so it can't be changed here.",
   "audit.act.push.gateway": "Changed where phone notifications go",
-  'push.ask': "Get notified of new messages and @Trina answers?",
+  'push.ask': "Get notified of new messages and AI answers?",
   'push.turnOn': "Turn on notifications",
   'push.later': "Not now",
   'push.deniedPhone': "Notifications for this app are off in the phone's Settings.",

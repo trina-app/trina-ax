@@ -1773,7 +1773,7 @@ export const id: Record<MessageKey, string> = {
   "pushGateway.problem.not_gateway": "Alamat ini bukan layanan push untuk aplikasi ponsel. Periksa alamatnya dengan pengelolanya.",
   "pushGateway.problem.locked": "Ini diatur di pengaturan server, jadi tidak bisa diubah di sini.",
   "audit.act.push.gateway": "Mengubah jalur notifikasi ponsel",
-  'push.ask': "Terima notifikasi untuk pesan baru dan jawaban @Trina?",
+  'push.ask': "Terima notifikasi untuk pesan baru dan jawaban AI?",
   'push.turnOn': "Aktifkan notifikasi",
   'push.later': "Nanti",
   'push.deniedPhone': "Notifikasi aplikasi ini dimatikan di Pengaturan ponsel.",

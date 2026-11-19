@@ -1742,7 +1742,7 @@ export const zh: Record<MessageKey, string> = {
   "pushGateway.problem.not_gateway": "此地址不是手机应用的推送服务。请向负责运行它的人确认地址。",
   "pushGateway.problem.locked": "已在服务器设置中指定，无法在此更改。",
   "audit.act.push.gateway": "更改了手机通知的发送途径",
-  "push.ask": "有新消息和 @Trina 回答时通知你？",
+  "push.ask": "有新消息和 AI 回答时通知你？",
   "push.turnOn": "开启通知",
   "push.later": "以后再说",
   "push.deniedPhone": "此应用的通知已在手机“设置”中关闭。",

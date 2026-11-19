@@ -1772,7 +1772,7 @@ export const ko = {
   "pushGateway.problem.not_gateway": "이 주소는 휴대폰 앱용 푸시 서비스가 아니에요. 운영하는 분께 주소를 확인해 주세요.",
   "pushGateway.problem.locked": "서버 설정에서 정해져 있어 여기서는 바꿀 수 없어요.",
   "audit.act.push.gateway": "휴대폰 알림 경로 변경",
-  'push.ask': "새 메시지와 @트리나 답을 알림으로 받을까요?",
+  'push.ask': "새 메시지와 AI 답변을 알림으로 받을까요?",
   'push.turnOn': "알림 켜기",
   'push.later': "나중에",
   'push.deniedPhone': "휴대폰 설정에서 이 앱의 알림이 꺼져 있어요.",

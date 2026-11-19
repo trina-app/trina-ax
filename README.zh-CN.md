@@ -73,7 +73,7 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>全局搜索。</b> 用 ⌘K 搜索聊天、历史、项目、文件、技能和定时任务。<br><br><img src="docs/site/images/search/palette.webp" alt="搜索聊天、历史、项目、文件、技能和定时任务的 ⌘K 搜索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，每个对话里都有 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的 Trina 回答，右侧打开了一个话题"></td>
+<td colspan="2"><b>像 Slack 一样的团队聊天。</b> 全员和群组频道、私有频道、私信、群聊、话题和 @提及，网页、桌面和手机都能用，在任何对话旁边都能打开只有你能看到的聊天来问 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="团队聊天中的 Marketing 频道：左侧是频道和私信，有表情回应和 @提及、发到频道里的一条回答，右侧打开了一个话题"></td>
 </tr>
 </table>
 
