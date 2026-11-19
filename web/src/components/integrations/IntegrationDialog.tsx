@@ -15,6 +15,9 @@
 // "For: … · Change" and the sign-in note share one quiet line; Change opens who may use it under that line (not again
 // inside Advanced). Admin's Add first lists the Discover apps (`choices`, QA TC-189), a custom app by its address last;
 // a picked app is then like one added from Discover: its icon and name in the title, its address one small line.
+// Settings' "Add custom connector" in the desktop app (`local`) also adds a program on this computer (LocalApp.tsx
+// useLocalProgram): "Where does it run?" On the internet (this form) / On this computer (a command; the desktop app asks
+// once in its own window). A member, who adds no server by its address, gets only the program form (`local: 'only'`).
 // In the phone app a new connection of one's own is made on a computer (its sign-in has no way back to the app, and
 // its key and advanced settings are a computer's work): the dialog is then one line that says so, with no form.
 import clsx from 'clsx'
@@ -35,6 +38,7 @@ import { Button, Field, Modal, Switch, inputCls, useCopy } from '../ui'
 import { Tooltip } from '../Tooltip'
 import type { OAuthClientView } from '@mycel/shared/api'
 import { reserveSignInWindow } from './IntegrationRow'
+import { useLocalProgram } from './LocalApp'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const POLICIES: WritePolicy[] = ['ask', 'allow', 'deny']
@@ -47,7 +51,7 @@ type Who = 'team' | 'template'
 /** Who a new team connection or template is for until the admin chooses: the whole team. */
 export const TEAM_DEFAULT_ACCESS: IntegrationAccess = { everyone: true, groups: [], users: [] }
 
-export function IntegrationDialog({ scope, existing, template, connector, choices, others, startAs, onClose, onSaved, onSavedTemplate }: {
+export function IntegrationDialog({ scope, existing, template, connector, choices, others, startAs, local, onClose, onSaved, onSavedTemplate }: {
   scope: 'personal' | 'team'
   existing?: Integration
   /** editing this template (Admin) */
@@ -61,6 +65,9 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   others?: { id: string; name: string; logo: string; onPick: () => void }[]
   /** Admin: start as a template instead of one team key (a connector page's "As a template") */
   startAs?: Who
+  /** a new connection of one's own in the desktop app: also a program on this computer ('choice'), or only that ('only':
+   * a member, who adds no server by its address) */
+  local?: 'choice' | 'only'
   onClose: () => void
   /** saved. `signIn`: sign in at the service next, in the window reserved during the click (null: none could open) */
   onSaved: (i: Integration, signIn: { window: Window | null } | null) => void
@@ -88,6 +95,10 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
   const [picked, setPicked] = useState<Connector | undefined>()
   const [query, setQuery] = useState('')
   const conn = connector ?? picked
+  // where a new custom connector runs: the internet (this form) or this computer (useLocalProgram)
+  const offerLocal = !!local && scope === 'personal' && !existing && !template && !connector
+  const [where, setWhere] = useState<'internet' | 'computer'>(local === 'only' ? 'computer' : 'internet')
+  const program = useLocalProgram()
   // the list and the form share one dialog, so the keyboard moves on by hand: to the search after Back, to the form's
   // first field (or, for a listed app with no field, the dialog itself, which reads its title) after a pick
   const swapped = useRef(false)
@@ -242,6 +253,29 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
         </div>
       </Modal>
     )
+  const whereChoice = offerLocal && local === 'choice' ? (
+    <Choices<'internet' | 'computer'> legend={t('localApps.where')} value={where} onChange={setWhere}
+      options={[
+        { value: 'internet', label: t('localApps.internet'), desc: t('localApps.internetHint'), testId: 'integration-source-internet' },
+        { value: 'computer', label: t('localApps.program'), desc: t('localApps.otherHint'), testId: 'integration-source-local' },
+      ]} />
+  ) : null
+  // a program on this computer: its command, name and settings, and Connect (the desktop app asks next in its own window)
+  if (offerLocal && where === 'computer')
+    return (
+      <Modal open onClose={onClose} width={600} title={t('connectorsPage.addCustom')}
+        footer={<>
+          <Button variant="ghost" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="primary" busy={program.busy} onClick={() => void program.save().then((i) => { if (i) onSaved(i, null) })} data-testid="local-app-save">{t('localApps.connect')}</Button>
+        </>}>
+        <div className="space-y-4" data-testid="local-app-dialog">
+          {whereChoice}
+          {local === 'only' && <p className="text-sm text-muted">{t('localApps.intro')}</p>}
+          {program.fields}
+          {local === 'only' && <p className="text-xs text-faint" data-testid="local-app-address-ask-admin">{t('localApps.addressAskAdmin')}</p>}
+        </div>
+      </Modal>
+    )
   const title = template ? t('integrations.template.editTitle')
     : existing ? t('integrations.editTitle')
       : conn ? (
@@ -250,7 +284,7 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
           <span className="min-w-0 break-words">{t('integrations.discover.add', { name: conn.name })}</span>
         </span>
       )
-        : team ? t('integrations.addTeamTitle') : t('integrations.addTitle')
+        : team ? t('integrations.addTeamTitle') : offerLocal ? t('connectorsPage.addCustom') : t('integrations.addTitle')
   // the list of apps (Admin's Add): a search, the apps with their icons, a custom app by its address last
   if (picking) {
     const q = query.trim().toLowerCase()
@@ -335,6 +369,7 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
         }}
       >
         <div ref={body} className="space-y-4">
+          {whereChoice}
           {fromTeam && existing ? (
             <div className="space-y-1 text-sm" data-testid="integration-from-team">
               <p className="text-muted">{t('integrations.field.url')}: <span className="font-medium break-all text-ink">{existing.url}</span></p>

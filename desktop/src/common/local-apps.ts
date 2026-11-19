@@ -20,7 +20,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { insideAppDir, withoutAppImage } from './linux'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
@@ -36,6 +36,59 @@ const KILL_AFTER_MS = 2000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
 const HIDE_MIN = 4
 export const HIDDEN_VALUE = '[hidden]'
+
+/** Aside picks one of its accounts when `aside mcp` starts and keeps it until it is started again. When no open Aside
+ * Browser profile uses that account, browser_profiles lists none and its tools answer "none of its profiles use account
+ * u1 … rerun with --account u2" (seen 2026-11-19). For the listed Aside connector (isListedAside) this manager then
+ * starts Aside again with an account that has profiles and tries the call once more (the person types nothing; the
+ * program and the command they confirmed stay the same). When no account has any, the AI gets these words to pass on. */
+export const ASIDE_SIGNED_OUT = 'Aside Browser isn\'t signed in, so Aside cannot reach any browser profile. Tell the person exactly this, in their language and nothing more technical: "Aside Browser isn\'t signed in. Open Aside and sign in, then ask again."'
+
+/** The listed Aside connector's command exactly (`aside mcp`, LOCAL_APP_PRESETS): never a command the person typed. */
+export function isListedAside(spec: LocalAppSpec): boolean {
+  const preset = LOCAL_APP_PRESETS.find((p) => p.id === 'aside')?.spec
+  return !!preset && localCommandKey(spec) === localCommandKey(preset)
+}
+
+/** The words of an MCP answer: its text parts and its error message. */
+function answerTexts(answer: Record<string, unknown>): string[] {
+  const result = answer.result as { content?: { type?: string; text?: unknown }[] } | undefined
+  const error = answer.error as { message?: unknown } | undefined
+  return [...(Array.isArray(result?.content) ? result.content.map((c) => (typeof c?.text === 'string' ? c.text : '')) : []), typeof error?.message === 'string' ? error.message : '']
+}
+
+/** An Aside tools/call answer that says its account has no browser profile: browser_profiles with an empty list, or
+ * Aside's own "none of its profiles use account …" error. */
+export function asideAccountMismatch(tool: unknown, answer: Record<string, unknown>): boolean {
+  const texts = answerTexts(answer)
+  if (texts.some((x) => /none of its profiles use account/i.test(x))) return true
+  if (tool !== 'browser_profiles') return false
+  return texts.some((x) => { try { const v = JSON.parse(x) as { profiles?: unknown }; return Array.isArray(v.profiles) && v.profiles.length === 0 } catch { return false } })
+}
+
+/** The account Aside's own message says to use ("rerun with --account u2"), else null. */
+export function asideSuggestedAccount(answer: Record<string, unknown>): string | null {
+  for (const x of answerTexts(answer)) { const m = /--account\s+(u\d+)\b/i.exec(x); if (m) return m[1]!.toLowerCase() }
+  return null
+}
+
+/** The accounts `aside account list --json` shows with browser profiles, signed-in ones first ("u2"), without `not`. */
+export function asideAccountsWithProfiles(json: string, not: string | null = null): string[] {
+  try {
+    const v = JSON.parse(json) as { accounts?: { id?: unknown; hasSession?: unknown; profileBindings?: unknown[] }[] }
+    const list = (Array.isArray(v.accounts) ? v.accounts : []).filter((a) => typeof a.id === 'number' && Array.isArray(a.profileBindings) && a.profileBindings.length > 0)
+    return list.sort((a, b) => Number(b.hasSession === true) - Number(a.hasSession === true)).map((a) => `u${a.id as number}`).filter((u) => u !== not)
+  } catch { return [] }
+}
+
+/** The answer with ASIDE_SIGNED_OUT added as one more text part (a JSON-RPC error gets the words in its message). */
+export function withAsideSignedOut(answer: Record<string, unknown>): Record<string, unknown> {
+  const result = answer.result as { content?: unknown[] } | undefined
+  if (result && Array.isArray(result.content)) return { ...answer, result: { ...result, content: [...result.content, { type: 'text', text: ASIDE_SIGNED_OUT }] } }
+  const error = answer.error as { message?: unknown } | undefined
+  if (error && typeof error === 'object') return { ...answer, error: { ...error, message: `${typeof error.message === 'string' ? error.message : ''}\n\n${ASIDE_SIGNED_OUT}`.trim() } }
+  return answer
+}
 
 export interface LocalAppsDeps {
   /** The app's own window: "Connect this program?" with the exact command. true only on the person's yes there. */
@@ -191,6 +244,11 @@ interface Running {
   stderr: string
   exited: boolean
   onExit: Set<(why: string) => void>
+  /** the listed Aside started with `--account` this account (isListedAside) */
+  account?: string
+  /** start the program again before the next request (Aside had no signed-in account with a profile: once the person
+   * signs in, a fresh `aside mcp` picks it) */
+  restartNext?: boolean
 }
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } })
@@ -206,6 +264,8 @@ export class LocalApps {
   /** a connection's last initialize params: a program started again (Stop, new settings) under a client that already
    * initialized it is initialized with them before that client's next request */
   private initParams = new Map<string, unknown>()
+  /** the account the listed Aside runs with, per connection, once one with profiles was found (ASIDE_SIGNED_OUT) */
+  private asideAccount = new Map<string, string>()
   private spawn: typeof nodeSpawn
   constructor(private d: LocalAppsDeps) { this.spawn = d.spawn ?? nodeSpawn }
 
@@ -272,11 +332,13 @@ export class LocalApps {
     const dirs = (this.d.searchPath ?? defaultSearchPath)()
     const program = resolveProgram(spec.command, dirs)
     if (!program) return { failure: 'start_failed', error: `${spec.command} was not found on this computer` }
+    // the listed Aside with the account found to have profiles: the same program and command, one account chosen
+    const account = isListedAside(spec) ? this.asideAccount.get(ck) : undefined
     let child: ChildProcessWithoutNullStreams
     try {
-      child = this.spawn(program, spec.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
+      child = this.spawn(program, account ? [...spec.args, '--account', account] : spec.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
     } catch (e) { return { failure: 'start_failed', error: e instanceof Error ? e.message : String(e) } }
-    const r: Running = { key, child, waiting: new Map(), init: null, initializing: null, initialized: false, stderr: '', exited: false, onExit: new Set() }
+    const r: Running = { key, child, waiting: new Map(), init: null, initializing: null, initialized: false, stderr: '', exited: false, onExit: new Set(), account }
     this.running.set(ck, r)
     let buf = ''
     child.stdout.setEncoding('utf8')
@@ -297,7 +359,8 @@ export class LocalApps {
       r.exited = true
       if (this.running.get(ck) === r) this.running.delete(ck)
       for (const f of r.onExit) f(why)
-      this.d.onChange?.(team, call.connectionId, false)
+      // started again meanwhile (restartNext): it still runs
+      if (!this.running.has(ck)) this.d.onChange?.(team, call.connectionId, false)
     }
     child.on('error', (e) => gone(e.message))
     child.on('exit', (code, signal) => gone(`the program stopped (${signal ?? `exit ${code}`})${r.stderr.trim() ? `: ${r.stderr.trim().split('\n').slice(-3).join(' ')}` : ''}`))
@@ -338,14 +401,17 @@ export class LocalApps {
     })
   }
 
-  private async passMcp(team: string, call: LocalCall, key: string, signal: AbortSignal): Promise<Answer> {
+  private async passMcp(team: string, call: LocalCall, key: string, signal: AbortSignal, retried = false): Promise<Answer> {
     const m = call.message
+    const ck = this.k(team, call.connectionId)
+    // Aside had no signed-in account with a profile last time: a fresh process, so an account signed in since is used
+    const stale = this.running.get(ck)
+    if (stale?.restartNext && !stale.exited) { this.running.delete(ck); this.asideAccount.delete(ck); this.kill(stale) }
     const started = this.start(team, call, key)
     if ('failure' in started) return started
     const r = started
     const method = typeof m.method === 'string' ? m.method : ''
     const isRequest = m.id !== undefined && m.id !== null
-    const ck = this.k(team, call.connectionId)
     // one initialize per process: a later client gets the first answer under its own id
     const init = async (params: unknown): Promise<Answer | null> => {
       if (r.init) return null
@@ -375,7 +441,44 @@ export class LocalApps {
       if (failed) return failed
     }
     if (!r.initialized) { r.initialized = true; this.write(r, { jsonrpc: '2.0', method: 'notifications/initialized' }) }
-    return this.request(r, m, call.deadline, signal)
+    const answer = await this.request(r, m, call.deadline, signal)
+    if (method === 'tools/call' && isListedAside(call.spec) && 'message' in answer && answer.message && asideAccountMismatch((m.params as { name?: unknown } | undefined)?.name, answer.message)) {
+      // Aside's account has no open profile: start it again with one that has (its own message names one, else its
+      // account list) and try once more; with none, say it plainly and start fresh next time
+      const next = retried ? null : asideSuggestedAccount(answer.message) ?? (await this.asideAccounts(team, call, r.account ?? null))[0] ?? null
+      if (next && next !== r.account) {
+        this.asideAccount.set(ck, next)
+        this.running.delete(ck)
+        this.kill(r)
+        return this.passMcp(team, call, key, signal, true)
+      }
+      r.restartNext = true
+      return { message: withAsideSignedOut(answer.message) }
+    }
+    return answer
+  }
+
+  /** The listed Aside's accounts with browser profiles (`aside account list --json`, the same program, no shell). */
+  private asideAccounts(team: string, call: LocalCall, not: string | null): Promise<string[]> {
+    const dirs = (this.d.searchPath ?? defaultSearchPath)()
+    const program = resolveProgram(call.spec.command, dirs)
+    if (!program) return Promise.resolve([])
+    return new Promise((resolve) => {
+      let out = '', done = false
+      const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(asideAccountsWithProfiles(out, not)) }
+      let child: ChildProcessWithoutNullStreams
+      try {
+        child = this.spawn(program, ['account', 'list', '--json'], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), windowsHide: true }) as ChildProcessWithoutNullStreams
+      } catch { resolve([]); return }
+      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} finish() }, 10_000)
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', (c: string) => { if (out.length < 1024 * 1024) out += c })
+      child.stderr.on('data', () => {})
+      child.on('error', finish)
+      child.on('exit', finish)
+      child.stdin.on('error', () => {})
+      child.stdin.end()
+    })
   }
 
   // ---------------- adapter 'cli': declared tools, this manager is the MCP server ----------------

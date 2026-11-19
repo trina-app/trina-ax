@@ -7,9 +7,11 @@
 // values as one argument of its own or as stdin, never a command line.
 import { afterAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import type { LocalAppSpec, LocalCall } from '@mycel/shared/api'
-import { CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { ASIDE_SIGNED_OUT, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -226,5 +228,100 @@ describe('adapter (b): a declared CLI', () => {
     expect(over).toContain(`only the first 0 are shown]`)
     expect(over).not.toContain('e'.repeat(10))
     expect(h.apps.runningIds(TEAM)).toEqual([])
+  })
+})
+
+describe('Aside with an account no Aside Browser profile uses', () => {
+  /** the listed Aside (`aside mcp`) as a program named aside: the fake MCP server, with these accounts */
+  function asideHarness(env: Record<string, string>, spec: LocalAppSpec = { adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] }) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aside-acct-'))
+    fs.writeFileSync(path.join(dir, 'aside'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 })
+    const spawned: string[][] = []
+    const asked: string[][] = []
+    const confirmed = new Map<string, string>()
+    const apps = new LocalApps({
+      confirm: async (c) => { asked.push(c.lines); return true },
+      confirmed: (team, id) => confirmed.get(`${team}/${id}`) ?? null, setConfirmed: (team, id, h) => { confirmed.set(`${team}/${id}`, h) },
+      settings: () => env, isRoot: () => false, searchPath: () => [dir],
+      spawn: ((file: string, args: readonly string[], opts: unknown) => { spawned.push([...args]); return spawn(file, args, opts as never) }) as never,
+    })
+    all.push(apps)
+    let n = 0
+    const call = (message: Record<string, unknown>) => apps.call(TEAM, { callId: `a-${++n}`, turnId: null, connectionId: 'aside-1', name: 'Aside', spec, message, deadline: Date.now() + 10_000 })
+    const tool = (name: string) => call({ jsonrpc: '2.0', id: `t-${n + 1}`, method: 'tools/call', params: { name, arguments: {} } })
+    const texts = (r: Awaited<ReturnType<typeof call>>) => ((r.message?.result as { content?: { text: string }[] })?.content ?? []).map((c) => c.text)
+    const init = () => call({ jsonrpc: '2.0', id: 'i1', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
+    const mcpRuns = () => spawned.filter((a) => a[0] === 'mcp')
+    const done = () => { apps.stopAll(); fs.rmSync(dir, { recursive: true, force: true }) }
+    return { apps, spawned, asked, call, tool, texts, init, mcpRuns, done }
+  }
+
+  test('Aside names the account to use: it starts again with that account and the call works, asked once on the computer', async () => {
+    const h = asideHarness({ FAKE_ASIDE_GOOD: 'u2' })
+    try {
+      await h.init()
+      expect(h.texts(await h.tool('repl'))).toEqual(['ok as u2'])
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp', '--account', 'u2']])
+      // the same program and confirmed command: no second confirm
+      expect(h.asked).toHaveLength(1)
+      // and it stays on that account
+      expect(JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles).toHaveLength(1)
+      expect(h.mcpRuns()).toHaveLength(2)
+      expect(h.apps.runningIds(TEAM)).toEqual(['aside-1'])
+    } finally { h.done() }
+  })
+
+  test('an empty profile list: the account comes from Aside\'s account list (one with profiles, signed in first)', async () => {
+    const accounts = { accounts: [{ id: 1, hasSession: false, profileBindings: [] }, { id: 3, hasSession: false, profileBindings: [{}] }, { id: 2, hasSession: true, profileBindings: [{}] }] }
+    const h = asideHarness({ FAKE_ASIDE_GOOD: 'u2', FAKE_ASIDE_ACCOUNTS: JSON.stringify(accounts) })
+    try {
+      await h.init()
+      const r = h.texts(await h.tool('browser_profiles'))
+      expect(JSON.parse(r[0]!).profiles).toHaveLength(1)
+      expect(r).not.toContain(ASIDE_SIGNED_OUT)
+      expect(h.spawned).toContainEqual(['account', 'list', '--json'])
+      expect(h.mcpRuns().at(-1)).toEqual(['mcp', '--account', 'u2'])
+    } finally { h.done() }
+  })
+
+  test('no account has a profile: plain words for the person, no terminal steps; the next call starts Aside fresh', async () => {
+    const h = asideHarness({})
+    try {
+      await h.init()
+      const r = h.texts(await h.tool('browser_profiles'))
+      expect(r.at(-1)).toBe(ASIDE_SIGNED_OUT)
+      expect(ASIDE_SIGNED_OUT).toContain("Aside Browser isn't signed in. Open Aside and sign in, then ask again.")
+      expect(ASIDE_SIGNED_OUT).not.toContain('aside account')
+      expect(h.mcpRuns()).toEqual([['mcp']])
+      await h.tool('repl')
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp']])
+    } finally { h.done() }
+  })
+
+  test('a command the person typed is never changed, even when it is Aside', async () => {
+    const h = asideHarness({ FAKE_ASIDE_GOOD: 'u2' }, { adapter: 'mcp', command: 'aside', args: ['mcp', '--incognito'], env: [] })
+    try {
+      await h.init()
+      const r = h.texts(await h.tool('repl'))
+      expect(r).toHaveLength(1)
+      expect(r[0]).toContain('none of its profiles use account u1')
+      expect(h.mcpRuns()).toEqual([['mcp', '--incognito']])
+      expect(h.spawned.some((a) => a[0] === 'account')).toBe(false)
+    } finally { h.done() }
+  })
+
+  test('reading Aside\'s answers and account list', () => {
+    const err = { result: { content: [{ type: 'text', text: 'none of its profiles use account u1. Rerun with --account u2' }], isError: true } }
+    expect(asideAccountMismatch('repl', err)).toBe(true)
+    expect(asideSuggestedAccount(err)).toBe('u2')
+    expect(asideAccountMismatch('repl', { error: { code: -1, message: 'Aside: none of its profiles use account u3' } })).toBe(true)
+    expect(asideAccountMismatch('browser_profiles', { result: { content: [{ type: 'text', text: '{"profiles":[]}' }] } })).toBe(true)
+    expect(asideAccountMismatch('browser_profiles', { result: { content: [{ type: 'text', text: '{"profiles":[{"id":"p"}]}' }] } })).toBe(false)
+    expect(asideAccountMismatch('repl', { result: { content: [{ type: 'text', text: '{"profiles":[]}' }] } })).toBe(false)
+    expect(asideAccountsWithProfiles('{"accounts":[{"id":0,"profileBindings":[{}]},{"id":4,"hasSession":true,"profileBindings":[{}]}]}', 'u0')).toEqual(['u4'])
+    expect(asideAccountsWithProfiles('not json')).toEqual([])
+    expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] })).toBe(true)
+    expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp', '--account', 'u1'], env: [] })).toBe(false)
+    expect(isListedAside({ adapter: 'mcp', command: '/usr/local/bin/aside', args: ['mcp'], env: [] })).toBe(false)
   })
 })

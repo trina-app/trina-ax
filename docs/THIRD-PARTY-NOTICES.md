@@ -7,7 +7,7 @@
 | Team AX/Trina 코드 | [LICENSE](../LICENSE), [NOTICE](../NOTICE) | 별도 라이선스·권리 미확정 부분을 새로 허락하지 않음 |
 | 공유 cloud 프로토콜 | [폴더 한정 MIT](../shared/src/cloud-protocol/LICENSE) | ee/cloud 및 shared의 다른 폴더까지 확대하지 않음 |
 | 역사적 Trina 웹사이트 | [Apache-2.0](../editions/trina/branding/LICENSE.website-upstream.txt), [원 저작권 출처](../editions/trina/branding/NOTICE.website-upstream.md) | 새 서버판 전체가 Apache라는 뜻이 아님 |
-| 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
+| 외부 서비스 로고 | `web/public/icons/connectors`의 40개(MCP 서버 39개와 앱 커넥터의 Google Drive)와 그 뒤에 더한 파일(Claude, Codex, Slack, 2026-11-19의 Aside·ego lite). 파일별 출처는 아래 [외부 서비스 로고](#외부-서비스-로고-webpubliciconsconnectors) 표 | 각 로고는 그 소유자의 상표이고 서비스를 가리키는 데만 쓴다. 이 저장소의 라이선스가 로고에 권리를 주지 않는다. 파일별 출처와 이용 조건은 아직 확인되지 않았다 |
 | 대화방 앱 표시 | `web/public/icons/room-apps`의 `sentry.svg`, `github.svg`, `notion.svg`, `zendesk.svg`, `stripe.svg`: Simple Icons 16.37.0(npm `simple-icons`, CC0-1.0)의 같은 이름 파일을 바꾸지 않고 복사(2026-11-14). 아래 [대화방 앱 표시](#대화방-앱-표시-webpubliciconsroom-apps) | 각 표시는 그 소유자의 상표(Sentry: Functional Software, Inc., GitHub: GitHub, Inc.)이고 서비스를 가리키는 데만 쓴다. CC0는 상표권을 주지 않는다 |
 | 사이트 글꼴 | 사이트(ax.trina.app)와 함께 비공개 `trina-ax-core`로 옮김. OFL 원문·Trina UI 변경 기록도 그쪽에 있다 | 사이트 배포물에 함께 넣는다 |
 | 사이트 정적 출력 | 비공개 `trina-ax-core`의 `editions/trina/website/public/licenses/` | 실제 dist의 바이트 확인 필요; 대응 소스 제공과 별개 |
@@ -57,6 +57,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | 파일 | 출처 | 그 출처의 이용 조건 | 파일에서 알 수 있는 것 |
 |---|---|---|---|
 | `ahrefs.svg` | 미확인 | 미확인 | viewBox `0 0 128 128`; 만든 곳을 알려 주는 메타데이터 없음 |
+| `aside.png` | https://aside.com/icon.png (Aside 공식 사이트의 512×512 아이콘, 2026-11-19 받음, SHA-256 `949971a6…f0adea`; macOS `sips -Z 180`으로 180×180으로 줄임) | 이용 조건은 확인하지 않음(사이트에 브랜드 자료·로고 지침이 보이지 않음). 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. Aside 로고는 그 소유자의 상표다 | PNG 180×180 RGBA; Settings › Connectors의 Aside 카드·연결 페이지에 쓴다 |
 | `airtable.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Airtable</title>`; Simple Icons 배포 형식과 같음(추정) |
 | `atlassian.svg` | 미확인 | 미확인 | viewBox `0 0 256 256`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `brex.svg` | 미확인 | 미확인 | viewBox `0 0 24 24`; `<title>Brex</title>`; Simple Icons 배포 형식과 같음(추정) |
@@ -67,6 +68,7 @@ AI가 만드는 한글 문서(.hwpx, make_file, 2026-11-03)는 이 저장소의 
 | `cloudflare.svg` | 미확인 | 미확인 | viewBox `0 0 256 116`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `cloudinary.svg` | 미확인 | 미확인 | viewBox `0 0 256 168`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `codex.svg` | https://svgl.app/library/codex_light.svg (2026-11-11 받음; `style`·`width`·`height` 속성만 뺌) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Codex 로고는 OpenAI의 상표이고 OpenAI 브랜드 지침을 따른다 | viewBox `0 0 24 24`; `<title>Codex</title>`; 한 가지 `fill`(`#111`) path, 스크립트·외부 참조 없음; Settings › AI apps와 Admin › AI apps의 Codex에 쓴다 |
+| `ego-lite.svg` | https://lite.ego.app/favicon.svg (ego lite 공식 사이트, 2026-11-19 받음, SHA-256 `fbb16e6d…03d9c3b8`; 파일 안 주석: https://www.ego.app/icon.svg 와 같은 표시). 모양(path)은 그대로 두고, 밝은·어두운 화면용 `<style>`을 빼고 사이트의 밝은 화면 색 `#204493`을 `fill`로 넣고 `<title>`을 더함 | 이용 조건은 확인하지 않음(github.com/citrolabs/ego-lite와 사이트에 로고 지침이 보이지 않음). 다른 커넥터 로고처럼 서비스를 가리키는 데만 쓴다. ego 로고는 그 소유자의 상표다 | viewBox `0 0 16 16`; 한 가지 `fill` path, 스크립트·외부 참조 없음; Settings › Connectors의 ego lite 카드·연결 페이지에 쓴다 |
 | `figma.svg` | 미확인 | 미확인 | viewBox `0 0 54 80`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `gitlab.svg` | 미확인 | 미확인 | viewBox `0 0 32 32`; 만든 곳을 알려 주는 메타데이터 없음 |
 | `google-drive.svg` | https://svgl.app/library/drive.svg (2026-11-05 받음) | svgl 사이트·저장소의 이용 조건은 확인하지 않음. Google Drive 로고는 Google의 상표이고 Google 브랜드 지침을 따른다 | viewBox `0 0 87.3 78`; 여섯 색 path, 스크립트·외부 참조 없음; Settings › App connectors와 Admin › App connectors의 Google Drive에 쓴다 |

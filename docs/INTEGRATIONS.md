@@ -715,7 +715,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
   - an MCP server over stdio, such as `aside mcp`;
   - a plain CLI declared as tools, such as ego lite's `ego-browser nodejs` with the script on stdin and its guide from `ego-browser skill`.
 - **What the server keeps.** It is the person's own connection only. In the database it is a column `integrations.local_app` (migration 364), and the API calls it kind `local`. The server keeps the command's shape: the program, its arguments, the setting names and the CLI templates. It never keeps a setting's value.
-- **Adding one.** Only the person adds it, in Settings › Connectors › An app on your computer, in the desktop app. It cannot be added through `POST /api/integrations/local`'s team counterparts, templates, requests or the connect card.
+- **Adding one.** Only the person adds it, in Settings › Connectors in the desktop app: Aside and ego lite have cards of their own in Discover (+ connects their preset command, no picker; web/src/lib/localApps.ts), and any other program is Add custom connector › On this computer (a member, who adds no server by its address, gets only that choice). It cannot be added through `POST /api/integrations/local`'s team counterparts, templates, requests or the connect card.
 - **How calls travel.** The calls go through the local relay (`server/src/realtime/local-relay.ts`, the sibling of the browser relay) to the desktop window the message was sent from. They never go out over the network.
   - From anywhere else, the AI says that the app works only from the desktop app on that computer.
   - Scheduled runs, shared chats, rooms and sub-agents never get its tools.
