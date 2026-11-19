@@ -755,6 +755,8 @@ export const ja: Record<MessageKey, string> = {
   'devEnvPreview.ended': '開発サーバーは停止しました。AI にもう一度起動するよう頼んでください。',
   'devEnvPreview.notSetUp': 'このサーバーではプレビューが設定されていません。管理者に確認してください。',
   'steps.failed': "失敗",
+  "steps.memoryForgotten": "削除しました",
+  "steps.memoryGone": "あなたのメモリにありません",
   'steps.retried': "うまくいきませんでしたが、{ai}が別の方法で進めました",
   'steps.retrying': "うまくいかなかったので、{ai}が別の方法を試しています",
   'steps.paused': "ここで一旦停止",

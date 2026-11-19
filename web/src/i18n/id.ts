@@ -773,6 +773,8 @@ export const id: Record<MessageKey, string> = {
   'devEnvPreview.ended': 'Server dev berhenti. Minta AI untuk memulainya lagi.',
   'devEnvPreview.notSetUp': 'Pratinjau belum disiapkan di server ini. Tanyakan admin Anda.',
   'steps.failed': 'Gagal',
+  'steps.memoryForgotten': 'Sudah dilupakan',
+  'steps.memoryGone': 'Tidak ada di memori Anda',
   'steps.retried': 'Tidak berhasil, tapi {ai} melanjutkan dengan cara lain',
   'steps.retrying': 'Tidak berhasil; {ai} sedang mencoba cara lain',
   'steps.paused': 'Berhenti di sini',

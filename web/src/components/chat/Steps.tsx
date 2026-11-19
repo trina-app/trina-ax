@@ -183,6 +183,41 @@ function PreviewLine({ step }: { step: Step }) {
   )
 }
 
+/** the memory a finished remember step kept (its detail "memory:<id>"), or null */
+export function rememberedMemoryId(step: Pick<Step, 'tool' | 'detail'>): string | null {
+  if (step.tool !== 'remember' || !step.detail) return null
+  const m = /^memory:([A-Za-z0-9_-]{1,64})$/.exec(step.detail)
+  return m ? m[1]! : null
+}
+
+/** [Forget] on a "Remembered: …" step: the memory the AI just kept, taken back in place without opening Settings.
+ * Not found (forgotten already, or someone else's memory in a chat shared later) says so instead. */
+function ForgetMemory({ id }: { id: string }) {
+  const t = useT()
+  const locale = useLocale()
+  const [state, setState] = useState<'idle' | 'busy' | 'forgotten' | 'gone'>('idle')
+  if (state === 'forgotten' || state === 'gone') {
+    return <span className="shrink-0 text-xs text-muted" role="status" data-testid="step-memory-forgotten">{t(state === 'forgotten' ? 'steps.memoryForgotten' : 'steps.memoryGone')}</span>
+  }
+  const forget = async () => {
+    setState('busy')
+    try {
+      await api.call(API.deleteMemory, { params: { id } })
+      setState('forgotten')
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) { setState('gone'); return }
+      setState('idle')
+      toast({ level: 'error', text: errorText(e, locale, t('error.network')) })
+    }
+  }
+  return (
+    <button type="button" onClick={() => void forget()} disabled={state === 'busy'} data-testid="step-memory-forget"
+      className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline disabled:opacity-60">
+      {t('memory.forget')}
+    </button>
+  )
+}
+
 function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; marks: Omit<MarkContext, 'live'>; kids?: Step[] }) {
   const t = useT()
   const locale = useLocale()
@@ -200,7 +235,10 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const mark = stepMark(step, { live, ...marks })
   // a card that ran out: "답하지 않음" is said beside the line, so the row does not open just to say it again
   const unanswered = mark === 'unanswered'
-  const detail = unanswered ? undefined : words.detail
+  // remember's step keeps the new memory's id ("memory:<id>"): never shown as words, it is the step's own [Forget]
+  // (DECISIONS.md "도구가 자기 단계에 덧붙이는 정보": the screen's undo is DELETE /api/memories/:id; QA AP-065)
+  const memoryId = rememberedMemoryId(step)
+  const detail = unanswered || memoryId ? undefined : words.detail
   const expandable = !!(detail || step.sources?.length || step.images?.length || (subtask && (kids.length || hidden)))
   const running = mark === 'running'
   // a failure the AI went on past: "안 됐지만 트리나가 다른 방법으로 이어 갔어요" ("…찾고 있어요" while it answers and
@@ -241,6 +279,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       {cut ? <span className="shrink-0 text-xs text-muted" data-testid="step-cut">{cut}</span> : null}
       {step.sources?.length ? <span className="shrink-0 text-xs text-faint">{t('steps.results', { n: step.sources.length })}</span> : null}
       {stats ? <span className="shrink-0 text-xs text-faint" data-testid="subtask-stats">{stats}</span> : null}
+      {memoryId ? <ForgetMemory id={memoryId} /> : null}
       {step.posted && !expandable ? (
         <button type="button" onClick={() => (viewPost ? viewPost(step.posted!) : navigateTo(postPath(step.posted!)))} aria-label={t('steps.postViewLabel')}
           className="touch-hit shrink-0 rounded-sm text-xs font-medium text-ink underline-offset-2 hover:underline" data-testid="step-post-view">
