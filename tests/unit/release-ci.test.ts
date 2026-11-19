@@ -109,20 +109,35 @@ describe('the staged roll-out (tag message "Rollout: all", the manual run\'s inp
     expect(rolloutOf(`Rollout: all\n${NOTES}`, 'tag').rollout).toBe('all')
     expect(rolloutOf(NOTES, '').rollout).toBe('staged')
   })
-  test('the CLI rewrites the notes file and prints rollout= for $GITHUB_OUTPUT', async () => {
-    const f = path.join(T, 'notes.md')
-    fs.writeFileSync(f, `Rollout: all\n\n${NOTES}`)
+  test('the CLI only reads the tag message, writes the notes to --notes-out and prints rollout= for $GITHUB_OUTPUT', async () => {
+    const msg = path.join(T, 'tag-message.md')
+    const notes = path.join(T, 'notes.md')
+    fs.writeFileSync(msg, `Rollout: all\n\n${NOTES}`)
     const out: string[] = []
-    await main(['rollout', f, ''], (s) => out.push(s))
+    await main(['rollout', msg, '', '--notes-out', notes], (s) => out.push(s))
     expect(out.join('')).toBe('rollout=all\n')
-    expect(fs.readFileSync(f, 'utf8')).toBe(NOTES)
+    expect(fs.readFileSync(notes, 'utf8')).toBe(NOTES)
+    expect(fs.readFileSync(msg, 'utf8')).toBe(`Rollout: all\n\n${NOTES}`)
     out.length = 0
-    await main(['rollout', f], (s) => out.push(s))
+    await main(['rollout', notes], (s) => out.push(s))
     expect(out.join('')).toBe('rollout=staged\n')
+  })
+  test('checking a drafted tag message never changes it (0.5.20 was tagged without its "Rollout: all" line)', async () => {
+    const draft = path.join(T, 'tag-draft.txt')
+    const text = `${NOTES}\nRollout: all\n`
+    fs.writeFileSync(draft, text)
+    const out: string[] = []
+    await main(['rollout', draft], (s) => out.push(s))
+    await main(['rollout', draft, 'tag'], (s) => out.push(s))
+    expect(out.join('')).toBe('rollout=all\nrollout=all\n')
+    expect(fs.readFileSync(draft, 'utf8')).toBe(text)
+    await expect(main(['rollout', draft, '--notes-out', draft])).rejects.toThrow(/another file/)
+    await expect(main(['rollout', draft, '--notes-out'])).rejects.toThrow(/usage/)
+    expect(fs.readFileSync(draft, 'utf8')).toBe(text)
   })
   test('the workflow passes it from the tag message (or the input) to both feeds', () => {
     const wf = fs.readFileSync(path.join(ROOT, '.github/workflows/release.yml'), 'utf8')
-    expect(wf).toContain('bun scripts/release/release-ci.ts rollout notes/notes.md "$INPUT_ROLLOUT" | tee -a "$GITHUB_OUTPUT"')
+    expect(wf).toContain('bun scripts/release/release-ci.ts rollout notes/tag-message.md "$INPUT_ROLLOUT" --notes-out notes/notes.md | tee -a "$GITHUB_OUTPUT"')
     expect(wf).toContain('rollout: ${{ steps.notes.outputs.rollout }}')
     expect(wf).toContain('ROLLOUT: ${{ needs.prepare.outputs.rollout }}')
     const publishes = wf.split('\n').filter((l) => /bun scripts\/release\/publish(-server)?\.ts --channel/.test(l))
