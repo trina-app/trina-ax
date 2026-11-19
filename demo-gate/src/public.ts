@@ -211,6 +211,22 @@ export function createPublic(d: PublicDeps) {
     res.end()
   }
 
+  /** "Continue as Mina": a visitor whose instance session ended (signed out, or the session was revoked) is signed in
+   * as the demo's new hire again on THEIR OWN live instance. The instance's persona switch stays closed to visitors
+   * (DENY_PATHS); this is the only way back, since sign-in with a password is fenced in the demo. */
+  async function resume(req: http.IncomingMessage, res: http.ServerResponse) {
+    const origin = req.headers.origin
+    if ((origin && origin !== cfg.publicOrigin) || req.headers['sec-fetch-site'] === 'cross-site') return json(res, 403, { error: { code: 'forbidden' } })
+    await readForm(req)
+    const { inst } = visitorOf(req)
+    if (!inst) { res.writeHead(303, { location: '/', 'cache-control': 'no-store' }); return res.end() }
+    const cookies = await persona(inst)
+    if (!cookies) return json(res, 502, { error: { code: 'internal' } })
+    log.info('visitor resumed', { instance: inst.id })
+    res.writeHead(303, { location: '/', 'cache-control': 'no-store', 'set-cookie': cookies })
+    res.end()
+  }
+
   function health(res: http.ServerResponse) {
     const now = Date.now()
     const snapshotAgeMs: Record<string, number | null> = {}
@@ -256,6 +272,10 @@ export function createPublic(d: PublicDeps) {
     if (url.pathname === '/__demo/start') {
       if (req.method !== 'POST') { res.writeHead(303, { location: '/' }); return res.end() }
       return start(req, res)
+    }
+    if (url.pathname === '/__demo/resume') {
+      if (req.method !== 'POST') { res.writeHead(303, { location: '/' }); return res.end() }
+      return resume(req, res)
     }
     const verdict = pathVerdict(req.url ?? '/')
     if (verdict === 'bad') return json(res, 400, { error: { code: 'bad_request' } })

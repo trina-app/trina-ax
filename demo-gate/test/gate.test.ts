@@ -83,6 +83,32 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(fs.readFileSync(path.join(e.dir, 'data', 'seed.txt'), 'utf8')).toBe('seed ko')
   })
 
+  test('resume ("Continue as Mina"): a signed-out visitor gets a new session on their own instance, nobody else does', async () => {
+    const v = visitor()
+    await warm(g)
+    expect((await startVisit(g, v)).status).toBe(303)
+    const first = v.cookies.get('mycel-dev-sid')!
+    const dir = ((await (await get(g, v, '/echo')).json()) as { dir: string }).dir
+    // signed out on the instance: the session cookie is gone, the gate cookie stays
+    v.cookies.delete('mycel-dev-sid')
+    const r = await get(g, v, '/__demo/resume', { method: 'POST', headers: { origin: 'https://demo.trina.app' } })
+    expect(r.status).toBe(303)
+    expect(r.headers.get('location')).toBe('/')
+    const sid = r.headers.getSetCookie().find((c) => c.startsWith('mycel-dev-sid='))!
+    expect(sid).toMatch(/; Secure$/)
+    expect(v.cookies.get('mycel-dev-sid')).not.toBe(first)
+    expect(((await (await get(g, v, '/echo')).json()) as { dir: string }).dir).toBe(dir)
+    // another site cannot sign the visitor in again; a GET does nothing; a stranger without the gate cookie gets no session
+    expect((await get(g, v, '/__demo/resume', { method: 'POST', headers: { origin: 'https://evil.example' } })).status).toBe(403)
+    expect((await get(g, v, '/__demo/resume')).status).toBe(303)
+    const stranger = visitor()
+    const s = await get(g, stranger, '/__demo/resume', { method: 'POST', headers: { origin: 'https://demo.trina.app' } })
+    expect(s.status).toBe(303)
+    expect(s.headers.getSetCookie()).toEqual([])
+    // the instance's own persona switch stays closed to visitors
+    expect((await get(g, v, '/api/demo/persona', { method: 'POST', headers: { origin: 'https://demo.trina.app', 'content-type': 'application/json' }, body: '{"key":"newHire"}' })).status).toBe(404)
+  })
+
   test('the instance config and an environment built from scratch', async () => {
     const v = visitor()
     await warm(g)
