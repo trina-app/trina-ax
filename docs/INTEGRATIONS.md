@@ -724,7 +724,12 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
   - It starts the program from an argument list, never through a shell, and never runs as root.
   - Setting values are sealed with safeStorage. They are hidden in every answer before it leaves the computer, then `hide.ts` and `redact.ts` run as usual.
   - Stop and quitting the app end the program.
-- **Asking before changes.** Writes ask on the normal card with Always allow, like any connection.
+  - A declared CLI's answer is its stdout, then its stderr, also when it exits 0 (ego lite prints a script's
+    `console.log` on stderr). Both together are at most `CLI_OUTPUT_MAX` characters, so the answer stays one WebSocket
+    frame (under 16 MB): stderr gets what stdout leaves, and a cut stream ends with a note that says how much is missing.
+- **Asking before changes.** Writes ask on the normal card with Always allow, like any connection. A CLI tool's script
+  (its stdin argument) shows on the card as a code block, byte for byte with its indentation (`cardLines` `isCode`);
+  invisible characters, odd spaces and white space at line ends still mean no lines, and the exact JSON stays open.
 - **Turning it off.** The team switch `localApps` (Admin › Team settings › Members can connect apps on their computer) turns it off.
 
 ## Audit

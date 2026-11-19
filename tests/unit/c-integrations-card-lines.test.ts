@@ -104,4 +104,27 @@ describe('the values as labelled lines', () => {
     // emoji keep their joiner and selector
     expect(lines({ body: 'Team 👨\u200d👩\u200d👧 ❤\ufe0f 👍🏽 #\ufe0f\u20e3' })).toEqual([{ name: 'Content', value: 'Team 👨\u200d👩\u200d👧 ❤\ufe0f 👍🏽 #\ufe0f\u20e3' }])
   })
+
+  test('a script (a declared CLI\'s stdin) is a code line: byte for byte with its indentation; hidden text still means no lines', () => {
+    const code = (args: unknown) => cardLines(args, 'en', (k) => RECIPIENT.test(k), (k) => k === 'script')
+    // ego lite's run_script: indentation, runs of spaces, quotes and a final line break, all as sent
+    const script = 'const s = await taskSpace()\nconst p = await s.page()\nawait p.goto("https://en.wikipedia.org/wiki/Mycelium")\nif (p) {\n  console.log(await p.title())  // the title\n\tconsole.log("done")\n}\n'
+    expect(code({ script })).toEqual([{ name: 'Script', value: script, code: true }])
+    // the same text under a name that is not the script: plain lines' rule (indentation: no lines, the JSON open)
+    expect(code({ other: script })).toBeNull()
+    expect(lines({ script })).toBeNull()
+    // a short one-line script is a code line too, and other values stay plain lines beside it
+    expect(code({ script: 'console.log(1)', note: 'x' })).toEqual([{ name: 'Script', value: 'console.log(1)', code: true }, { name: 'Note', value: 'x' }])
+    // still no lines for what a code block would not show: invisible characters, another kind of space, white space at
+    // a line's end or the text's end, a Windows \r, more than two empty lines, an empty first line, two final breaks
+    for (const bad of ['a​b', 'a b', 'a \nb', 'a\t\nb', 'a ', 'a\r\nb', 'a\n\n\n\nb', '\na', 'a\n\n', 'x‮y'])
+      expect(code({ script: bad })).toBeNull()
+    // two empty lines in a row (a Python file's spacing) are shown
+    expect(code({ script: 'a\n\n\nb' })).toEqual([{ name: 'Script', value: 'a\n\n\nb', code: true }])
+    // only at the top, only text: a nested "script" is a plain value
+    expect(code({ opts: { script: '  x' } })).toBeNull()
+    expect(code({ script: ['a', '  b'] })).toBeNull()
+    expect(code({ list: ['a', 'b  c'] })).toBeNull()
+    expect(code({ script: '' })).toEqual([{ name: 'Script', value: '(empty)' }])
+  })
 })

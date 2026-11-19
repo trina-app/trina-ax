@@ -34,7 +34,7 @@ import { pinForm } from '../../chat/schedule-scope'
 import { approved, approvalsFor, dropApprovals, noteApproval } from '../../chat/card-approvals'
 import { HIDDEN } from './hide'
 import { say } from './text'
-import { cardLines, fieldWord, methodWord, toolTitle } from './card-lines'
+import { cardLines, fieldWord, methodWord, toolTitle, type CardLine } from './card-lines'
 import { readKind, readsHere } from './read-mark'
 import type { RemoteTool } from './mcp'
 import { byName, checkArgs, deferredLines, DEFERRED_LIST_BUDGET, FIND_TOOLS_DEFAULT, FIND_TOOLS_MAX, matchTools, oneLine, type FindEntry } from './deferred'
@@ -48,7 +48,7 @@ import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOL
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
-import { offlineWords, turnWindow, type LocalVia } from './local'
+import { localSpecOf, offlineWords, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
 export const MAX_RESULT_CHARS = 40_000
@@ -259,7 +259,7 @@ const GUEST_HERE = (name: string) => refusal({
  * every value that says where it goes, for a scheduled run's pinned recipients (pinTargets); `lines`: what the card shows
  * in the person's language (card-lines.ts), `exact` when those lines show all of `text`, which then sits behind "보내는
  * 내용 그대로 보기" (ConfirmDetail.exact); `request`: an HTTP API call (the card names a request). */
-interface Sent { text: string; fields: { name: string; value: string }[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: { name: string; value: string }[]; exact: boolean }; request?: boolean
+interface Sent { text: string; fields: CardLine[]; dest?: string[] | null; raw?: unknown; lines?: (L: Locale) => { fields: CardLine[]; exact: boolean }; request?: boolean
   /** the service's tool name (an MCP tool's call; none for api_request) */
   tool?: string
   /** the team files this call attaches, by their team paths (team-attach.ts) */
@@ -269,10 +269,18 @@ interface Sent { text: string; fields: { name: string; value: string }[]; dest?:
   via?: 'card' | 'chat' }
 
 /** The lines of a call's arguments for the card: every value labelled, or the recipients alone in words when lines
- * cannot show all of it (cardLines null: the JSON stays open). */
-function argLines(args: unknown, L: Locale): { fields: { name: string; value: string }[]; exact: boolean } {
-  const all = cardLines(args, L, (k) => RECIPIENT.test(k))
+ * cannot show all of it (cardLines null: the JSON stays open). `code`: the argument that is a script (a declared CLI's
+ * stdin), shown as a code block exactly as sent. */
+function argLines(args: unknown, L: Locale, code?: string): { fields: CardLine[]; exact: boolean } {
+  const all = cardLines(args, L, (k) => RECIPIENT.test(k), (k) => k === code)
   return all ? { fields: all, exact: true } : { fields: recipientFields(args).map((f) => ({ name: f.name.split('.').map((k) => fieldWord(k, L)).join(' › '), value: f.value })), exact: false }
+}
+
+/** The argument of an app on the person's computer that its program reads as a script on stdin (a declared CLI tool:
+ * ego lite's run_script), for the card's code block; none for any other connection or tool. */
+function scriptArg(row: Pick<Row, 'local_app'> | null, tool: string): string | undefined {
+  const spec = row?.local_app ? localSpecOf(row) : null
+  return spec?.adapter === 'cli' ? spec.tools.find((x) => x.name === tool)?.stdin : undefined
 }
 
 /** more than this cannot be checked on a card: such a write is refused, never shown cut */
@@ -974,8 +982,8 @@ function mcpTool(ctx: AppContext, b: BuildCtx, row: Row, tool: RemoteTool, name:
         // service calls it read-only now
         if (!t.readOnly || (tc.files.person?.roomsSeen && !tool.readOnly)) {
           // the files to attach come first on the card, by name, size and place; the rest shows the handles as sent
-          const withFiles = (L: Locale, l: { fields: { name: string; value: string }[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
-          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L)), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
+          const withFiles = (L: Locale, l: { fields: CardLine[]; exact: boolean }) => (files.length ? { ...l, fields: [...attachedLines(ctx, files, L, tc.userId), ...l.fields] } : l)
+          sent = { text: JSON.stringify(args ?? {}, null, 2), fields: withFiles(tc.locale, { fields: recipientFields(args), exact: false }).fields, dest: pinTargets(args), raw: args, lines: (L) => withFiles(L, argLines(args ?? {}, L, scriptArg(current, t.name))), tool: t.name, ...(files.length ? { attach: files.map((f) => f.rel) } : {}) }
           const answer = await gate(ctx, current, () => toolTitle(t), sent, b, tc)
           confirmed = answer !== false
           // a write that names a draft the person saw on a card: that draft may have changed (chat/card-approvals.ts)
