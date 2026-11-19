@@ -12,9 +12,9 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
-import { entryGuard, entryPins, hideDeniedNames, lockFolders, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
-import { SRT_PATHS, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
+import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
 import { ruleWorld, type RuleRow } from '../lib/rule-world'
 
 const ID = 'mycel'
@@ -207,8 +207,11 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   if (problems.length) throw new Error(problems.join('; '))
   // as the runner: the entries given one by one are checked first inside the sandbox, and srt's places and masks are
   // made read-only there, in every run (mounts.ts entryGuard, lockFolders)
-  const pinFiles = writePins(runTmp(BASE, owner), pinsNow, lockFolders(given, settings.filesystem.denyRead, TEAM), runId)
-  if (pinFiles) sh(`chown ${SRV}:${SRV} ${[pinFiles.paths, pinFiles.ids, pinFiles.places].filter(Boolean).map((f) => `'${f}'`).join(' ')}`)
+  // in the run's own guard folder, made new and read-only in the run (never the TMPDIR: RX1-RX4)
+  const gdir = runGuard(BASE, runId)!
+  const dropGuard = makeGuardDir(gdir)
+  const pinFiles = writePins(gdir, pinsNow, lockFolders(given, settings.filesystem.denyRead, TEAM))
+  sh(`chown -R ${SRV}:${SRV} '${path.dirname(gdir)}'`)
   const guard = entryGuard(pinFiles)
   // S18: the disk changes after the listing, before srt binds
   o.afterPins?.()
@@ -235,7 +238,7 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   const [a, b] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text()])
   await p.exited; clearTimeout(t)
   const code = fs.existsSync(exitFile) ? Number(fs.readFileSync(exitFile, 'utf8').trim()) : null
-  release()
+  release(); dropGuard()
   fs.rmSync(settingsFile, { force: true }); fs.rmSync(exitFile, { force: true })
   return { code, out: a + b }
 }
@@ -548,6 +551,14 @@ const attacks: { id: string; what: string; cmd: string; check: Check; o?: Parame
   { id: 'RW5', what: 'admin in a chat shared only with herself as audience (team root given whole, read-only): denied users/ places do not take silent writes', cmd: `echo x > ${TEAM}/users/bob/rw5.md || echo x > ${TEAM}/.system/rw5.md || echo x > ${TEAM}/rw5.md`, check: failsQuietly, o: { who: CAROL, shared: { chat: '01a1ed7a-0000-7000-8000-0000000000ca', within: null, audience: [CAROL] } } },
   { id: 'RW6', what: 'locked places listed: stat of places and given entries inside the sandbox', cmd: `stat -c '%A %n' ${TEAM} ${TEAM}/projects ${WEB} ${WEB}/docs ${WEB}/index.html ${TEAM}/shared 2>&1; true`, check: () => null, o: SPC },
   { id: 'RW4c', what: 'her own chat (no project): srt\'s masks over hidden folders and its places take no silent write', cmd: `mkdir ${TEAM}/users/rw4c || echo x > ${TEAM}/.system/rw4c || echo x > ${TEAM}/groups/marketing/salaries/rw4c || echo x > ${TEAM}/rw4c.md || mkdir ${TEAM}/groups/rw4c`, check: failsQuietly, o: { work: true } },
+  // review of PR #1372: a run swaps the person's TMPDIR for a link to a folder she may not open; the next run's first-
+  // line files must not be written through it (they are in the run's own guard folder)
+  { id: 'RX1', what: 'her own project run swaps its TMPDIR for a link to a folder she may not open (groups/finance)', cmd: `echo TMP=$TMPDIR; rm -rf "$TMPDIR" && ln -s ${TEAM}/groups/finance "$TMPDIR" && ls -ld "$TMPDIR"`, check: () => null },
+  { id: 'RX2', what: 'the next run of the same person: the server must not write its lock list through that link', cmd: 'true', check: () => null,
+    after: () => { const f = fs.readdirSync(`${TEAM}/groups/finance`).filter((n) => n.startsWith('.trina-')); return f.length ? `the server wrote into groups/finance: ${f.join(', ')}: ${JSON.stringify(fs.readFileSync(`${TEAM}/groups/finance/${f[0]}`, 'utf8')).slice(0, 400)}` : null } },
+  { id: 'RX3', what: 'same with her own home chat (person home): link TMPDIR to groups/finance', cmd: `rm -rf "$TMPDIR" && ln -s ${TEAM}/groups/finance "$TMPDIR"; true`, check: () => null, o: { work: true } },
+  { id: 'RX4', what: 'next home-chat run', cmd: 'true', check: () => null, o: { work: true },
+    after: () => { const f = fs.readdirSync(`${TEAM}/groups/finance`).filter((n) => n.startsWith('.trina-')); for (const t of [path.join(personHome(BASE, ME), 'tmp'), path.join(projectHome(BASE, ME, 'projects/one'), 'tmp')]) { fs.rmSync(t, { recursive: true, force: true }); fs.mkdirSync(t, { recursive: true }) } sh(`chown -R ${SRV}:${SRV} ${devenvPaths(BASE).root}`); return f.length ? `the server wrote into groups/finance: ${f.join(', ')}` : null } },
 ]
 
 fs.symlinkSync(`${BASE}/secrets`, `${DIR1}/escape`)
