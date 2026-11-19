@@ -100,9 +100,9 @@ import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
-import { apiContextSize, noteContextRefusal } from '../engine/api-context'
-import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-fit'
-import { historyFit } from './history-fit'
+import { apiContextSize, cloudGuess, noteContextRefusal } from '../engine/api-context'
+import { fitApiTools, toolsLeftOutNote } from '../engine/api-tools-fit'
+import { historyFit, toolBudgetFor } from './history-fit'
 import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
 import { dropKept } from '../integrations/connections/kept'
@@ -1135,19 +1135,20 @@ export class TurnExec {
       const size = await apiContextSize(api, { signal: this.abort.signal }).catch(() => null)
       if (this.stopReason) return
       if (size) {
-        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it: on a size
-        // the model's server stated or a refusal named, never on a guess (a proxy in front of a large model). A wrong
-        // refusal number is forgotten with the next answer that used more tokens (engine/api-context.ts)
-        const guess = !size.exact && size.source !== 'refusal'
-        if (!guess) apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
+        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it. Not on a
+        // guess for a cloud address (a proxy in front of a large model); a local server's guess (a model not loaded
+        // yet) cuts it, or Ollama cuts the prompt (QA TC-5087). A wrong refusal number is forgotten with the next
+        // answer that used more tokens (engine/api-context.ts)
+        const guess = cloudGuess(size, api.baseUrl)
+        if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
           this.error = engineError('model_too_small', spec.locale)
           return
         }
-        // a guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front of a
-        // large model, a local server that keeps its size to itself): the default window, as for an unknown model
+        // a cloud address's guess that the instructions and the whole tool list alone overflow tells nothing (a proxy
+        // in front of a large model): the default window, as for an unknown model
         if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
         else if (fit.limited) {
           historyBudget = fit.budget

@@ -22,6 +22,13 @@ export interface ContextSize { tokens: number; exact: boolean; source: 'ollama' 
 
 /** A local address that told nothing: what #1284's prompt budget assumes for it too (most local models run 8k-32k). */
 export const LOCAL_GUESS_TOKENS = 32_000
+/** the context an Ollama model loads with when neither its num_ctx nor OLLAMA_CONTEXT_LENGTH says otherwise (2048
+ * before Ollama 0.6), and LM Studio's default load size */
+export const OLLAMA_DEFAULT_TOKENS = 4_096
+export const OLLAMA_OLD_DEFAULT_TOKENS = 2_048
+export const LMSTUDIO_DEFAULT_TOKENS = 4_096
+/** a guess (a model not loaded yet) is looked at again this soon: once loaded, its server says the real size */
+const GUESS_CACHE_MS = 60_000
 /** a probe's answer is kept this long (a model loaded with another size is seen at most this late) */
 export const CONTEXT_CACHE_MS = 10 * 60_000
 /** a probe that learned nothing is not repeated for this long: a local server (just started, model loading) soon, a
@@ -134,8 +141,11 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
   try { origin = new URL(conf.baseUrl).origin } catch { return null }
   const local = isLocalApiAddress(conf.baseUrl)
   const same = (a: unknown) => typeof a === 'string' && (a === conf.model || a.replace(/:latest$/, '') === conf.model.replace(/:latest$/, ''))
-  // Ollama: a loaded model says the size it runs with (/api/ps context_length); else its num_ctx parameter. Its
-  // trained length is not what it runs with (Ollama starts it smaller unless told), so it is a guess only.
+  // Ollama: a loaded model says the size it runs with (/api/ps context_length); else its num_ctx parameter (in
+  // /api/show also before it is loaded). Without num_ctx a model loads with the server's default
+  // (OLLAMA_CONTEXT_LENGTH, which no API shows): 4096 when not set, 2048 before 0.6. That default, at most the
+  // trained length, is the guess (QA TC-5087: a 32k guess let Ollama cut every prompt of a 16k server until the
+  // model was loaded). Once loaded, /api/ps says the real size (a guess is cached only GUESS_CACHE_MS).
   const ps = await get(`${origin}/api/ps`) as any
   const loaded = Array.isArray(ps?.models) ? ps.models.find((m: any) => same(m?.name) || same(m?.model)) : null
   if (num(loaded?.context_length)) return { tokens: num(loaded.context_length)!, exact: true, source: 'ollama' }
@@ -144,14 +154,17 @@ async function probe(conf: ApiEngineConf, get: Get): Promise<ContextSize | null>
     const param = typeof show?.parameters === 'string' ? /(?:^|\n)\s*num_ctx\s+(\d+)/.exec(show.parameters) : null
     if (param && num(param[1])) return { tokens: num(param[1])!, exact: true, source: 'ollama' }
     const trained = show?.model_info && typeof show.model_info === 'object' ? Object.entries(show.model_info).find(([k]) => k.endsWith('.context_length'))?.[1] : null
-    return { tokens: Math.min(num(trained) ?? LOCAL_GUESS_TOKENS, LOCAL_GUESS_TOKENS), exact: false, source: 'ollama' }
+    const version = await get(`${origin}/api/version`) as any
+    const old = typeof version?.version === 'string' && /^0\.[0-5]\./.test(version.version)
+    const fallback = old ? OLLAMA_OLD_DEFAULT_TOKENS : OLLAMA_DEFAULT_TOKENS
+    return { tokens: Math.min(num(trained) ?? fallback, fallback), exact: false, source: 'ollama' }
   }
-  // LM Studio: the loaded size, else the most the model can take (it loads with a smaller one unless told: a guess)
+  // LM Studio: the loaded size, else what it loads a model with unless told (4096), at most the model's own most
   const lms = await get(`${origin}/api/v0/models/${encodeURIComponent(conf.model)}`) as any
   if (lms && typeof lms === 'object' && (lms.loaded_context_length !== undefined || lms.max_context_length !== undefined)) {
     if (lms.state === 'loaded' && num(lms.loaded_context_length)) return { tokens: num(lms.loaded_context_length)!, exact: true, source: 'lmstudio' }
     const most = num(lms.max_context_length)
-    if (most) return { tokens: Math.min(most, LOCAL_GUESS_TOKENS), exact: false, source: 'lmstudio' }
+    if (most) return { tokens: Math.min(most, LMSTUDIO_DEFAULT_TOKENS), exact: false, source: 'lmstudio' }
   }
   // llama.cpp's server: the size each request may use
   if (local) {
@@ -183,7 +196,7 @@ export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof 
   let size: ContextSize | null
   const hit = probed.get(k)
   const missFor = isLocalApiAddress(conf.baseUrl) ? LOCAL_MISS_CACHE_MS : CONTEXT_CACHE_MS
-  if (hit && now - hit.at < (hit.size ? CONTEXT_CACHE_MS : missFor)) size = hit.size
+  if (hit && now - hit.at < (hit.size ? (hit.size.exact ? CONTEXT_CACHE_MS : GUESS_CACHE_MS) : missFor)) size = hit.size
   else {
     let p = inflight.get(k)
     if (!p) {
@@ -198,7 +211,7 @@ export async function apiContextSize(conf: ApiEngineConf, o: { fetchFn?: typeof 
       }
       p = probe(conf, get).catch(() => null).finally(() => inflight.delete(k))
       // what this look-up learned, for every turn (one that stopped waiting included)
-      p.then((v) => probed.set(k, { size: v, at: Date.now() }))
+      p.then((v) => probed.set(k, { size: v, at: now }))
       inflight.set(k, p)
     }
     // the turn's Stop ends the wait at once (the probe goes on and its answer is kept)
@@ -226,6 +239,13 @@ async function boundedJson(r: Response): Promise<unknown | null> {
     parts.push(value)
   }
   try { return JSON.parse(new TextDecoder().decode(Buffer.concat(parts))) } catch { return null }
+}
+
+/** A guessed size for an address that is not local: it may be a proxy in front of a large model, so it neither cuts
+ * the tool list nor shrinks the history when the tools alone fill it (chat/turn.ts). A local server's guess (a model
+ * not loaded yet) does both, or Ollama cuts the prompt's start (QA TC-5087). */
+export function cloudGuess(size: ContextSize, baseUrl: string): boolean {
+  return !size.exact && size.source !== 'refusal' && !isLocalApiAddress(baseUrl)
 }
 
 /** tests: forget what was learned */

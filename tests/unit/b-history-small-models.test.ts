@@ -13,8 +13,8 @@ import { CHAT_ERROR_MESSAGES } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { estimateTokens, historyBlock, historyTrimmed, HISTORY_MAX_TOKENS, summaryWithin } from '../../server/src/chat/prompt'
 import { summaryTarget, uncovered, setSummaryAiForTests, resetSummaryStateForTests } from '../../server/src/chat/history-summary'
-import { ANSWER_ROOM_MIN, historyFit } from '../../server/src/chat/history-fit'
-import { apiContextSize, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
+import { ANSWER_ROOM_MIN, historyFit, toolBudgetFor } from '../../server/src/chat/history-fit'
+import { apiContextSize, cloudGuess, OLLAMA_DEFAULT_TOKENS, contextFromRefusal, isLocalApiAddress, LOCAL_GUESS_TOKENS, noteContextRefusal, noteContextUsage, PROBE_BODY_MAX, resetApiContextForTests } from '../../server/src/engine/api-context'
 import { API_GROUNDING_RULES, writeApiEngine, type ApiEngineConf } from '../../server/src/engine/api-agent'
 
 setDefaultTimeout(60_000)
@@ -79,6 +79,14 @@ describe('historyFit', () => {
     expect(f.budget).toBeGreaterThan(15_500)
     expect(f.budget).toBeLessThan(16_000)
   })
+  test('the tool budget: 35% of the context, but never more than the instructions leave (QA TC-5087, 16k)', () => {
+    expect(toolBudgetFor({ contextTokens: 200_000, instructions, message: 'hi' })).toBe(70_000)
+    // 16,384 - 3,276 room - 6,902 (6,001 * 1.15) = 6,206, / 1.15
+    const b = toolBudgetFor({ contextTokens: 16_384, instructions, message: 'hi' })
+    expect(b).toBeLessThan(Math.floor(16_384 * 0.35))
+    expect(b).toBeGreaterThan(5_000)
+    expect(toolBudgetFor({ contextTokens: 4_096, instructions, message: 'hi' })).toBe(0)
+  })
   test('an 8k model the instructions fill: no history, and it overflows', () => {
     const f = historyFit({ contextTokens: 8_192, instructions, tools, message: 'hi' })
     expect(f.budget).toBe(0)
@@ -103,20 +111,51 @@ describe('the context size', () => {
     return { fetchFn, seen }
   }
 
-  test('Ollama: the loaded size first, then num_ctx; its trained length is a guess only', async () => {
+  test('Ollama: the loaded size first, then num_ctx (also before the model is loaded); else the default, a guess', async () => {
     const a = server({ '/api/ps': { models: [{ name: 'qwen3:8b', model: 'qwen3:8b', context_length: 8192 }] } })
     expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'qwen3:8b'), { fetchFn: a.fetchFn })).toEqual({ tokens: 8192, exact: true, source: 'ollama' })
     resetApiContextForTests()
     const b = server({ '/api/ps': { models: [] }, '/api/show': { parameters: 'temperature 0.7\nnum_ctx 16384', model_info: { 'qwen3.context_length': 40960 } } })
     expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'qwen3:8b'), { fetchFn: b.fetchFn })).toEqual({ tokens: 16384, exact: true, source: 'ollama' })
     resetApiContextForTests()
-    const c = server({ '/api/ps': { models: [] }, '/api/show': { parameters: '', model_info: { 'llama.context_length': 8192 } } })
-    expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'llama3'), { fetchFn: c.fetchFn })).toEqual({ tokens: 8192, exact: false, source: 'ollama' })
+    // QA TC-5087: not loaded, no num_ctx: it loads with the server's default (4096), not its trained length
+    const c = server({ '/api/ps': { models: [] }, '/api/show': { parameters: '', model_info: { 'llama.context_length': 131072 } }, '/api/version': { version: '0.12.6' } })
+    expect(await apiContextSize(conf('http://127.0.0.1:11434/v1', 'llama3'), { fetchFn: c.fetchFn })).toEqual({ tokens: OLLAMA_DEFAULT_TOKENS, exact: false, source: 'ollama' })
+    resetApiContextForTests()
+    // before 0.6 the default was 2048; a model trained for less keeps its own length
+    const d = server({ '/api/ps': { models: [] }, '/api/show': { parameters: '', model_info: { 'llama.context_length': 131072 } }, '/api/version': { version: '0.5.7' } })
+    expect((await apiContextSize(conf('http://127.0.0.1:11434/v1', 'llama3'), { fetchFn: d.fetchFn }))?.tokens).toBe(2048)
+    resetApiContextForTests()
+    const e = server({ '/api/ps': { models: [] }, '/api/show': { model_info: { 'tiny.context_length': 1024 } } })
+    expect((await apiContextSize(conf('http://127.0.0.1:11434/v1', 'tiny'), { fetchFn: e.fetchFn }))?.tokens).toBe(1024)
+  })
+
+  test('a guess is looked at again after a minute: the loaded model then says its real size', async () => {
+    const routes: Record<string, unknown> = { '/api/ps': { models: [] }, '/api/show': { parameters: '' } }
+    const a = server(routes)
+    const c = conf('http://127.0.0.1:11434/v1', 'qwen3:4b')
+    const t0 = 5_000_000
+    expect((await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 }))?.exact).toBe(false)
+    routes['/api/ps'] = { models: [{ name: 'qwen3:4b', context_length: 16384 }] }
+    expect((await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 + 30_000 }))?.tokens).toBe(OLLAMA_DEFAULT_TOKENS)
+    expect(await apiContextSize(c, { fetchFn: a.fetchFn, now: t0 + 61_000 })).toEqual({ tokens: 16384, exact: true, source: 'ollama' })
+  })
+
+  test('a guess cuts the tool list only for a local address', () => {
+    const g = { tokens: 4096, exact: false, source: 'ollama' as const }
+    expect(cloudGuess(g, 'http://127.0.0.1:11434/v1')).toBe(false)
+    expect(cloudGuess(g, 'https://llm.example.com/v1')).toBe(true)
+    expect(cloudGuess({ ...g, exact: true }, 'https://llm.example.com/v1')).toBe(false)
+    expect(cloudGuess({ ...g, source: 'refusal' }, 'https://llm.example.com/v1')).toBe(false)
   })
 
   test('LM Studio: the loaded context length', async () => {
     const a = server({ '/api/v0/models/gemma-3-12b': { id: 'gemma-3-12b', state: 'loaded', max_context_length: 131072, loaded_context_length: 4096 } })
     expect(await apiContextSize(conf('http://localhost:1234/v1', 'gemma-3-12b'), { fetchFn: a.fetchFn })).toEqual({ tokens: 4096, exact: true, source: 'lmstudio' })
+    resetApiContextForTests()
+    // not loaded: it loads with its default (4096), not the most the model can take
+    const b = server({ '/api/v0/models/gemma-3-12b': { id: 'gemma-3-12b', state: 'not-loaded', max_context_length: 131072 } })
+    expect(await apiContextSize(conf('http://localhost:1234/v1', 'gemma-3-12b'), { fetchFn: b.fetchFn })).toEqual({ tokens: 4096, exact: false, source: 'lmstudio' })
   })
 
   test('llama.cpp /props, vLLM and OpenRouter model lists', async () => {
@@ -217,12 +256,15 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
   const requests: { system: string; tools: unknown[] }[] = []
   let promptTokens = 1
   let silent = false
+  let unloaded: { numCtx: number | null } | null = null
   const sse = (text: string) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\ndata: ${JSON.stringify({ choices: [], usage: { prompt_tokens: promptTokens, completion_tokens: 1 } })}\n\ndata: [DONE]\n\n`
 
   beforeAll(async () => {
     mock = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
       const p = new URL(req.url).pathname
       if (p === '/api/ps' && silent) return new Response('not found', { status: 404 })
+      if (p === '/api/ps' && unloaded) return Response.json({ models: [] })
+      if (p === '/api/show' && unloaded) return Response.json({ parameters: unloaded.numCtx ? `num_ctx ${unloaded.numCtx}` : 'temperature 0.7', model_info: { 'qwen3.context_length': 40960 } })
       if (p === '/api/ps') return Response.json({ models: [{ name: 'local-m', model: 'local-m', context_length: ctx }] })
       if (p !== '/v1/chat/completions') return new Response('not found', { status: 404 })
       const body = await req.json() as { messages: { role: string; content: string }[]; tools?: unknown[] }
@@ -240,7 +282,7 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     await alice.next('hello')
   })
   afterAll(async () => { setSummaryAiForTests(null); alice?.close(); await h.close(); mock.stop(true) })
-  beforeEach(() => { resetApiContextForTests(); resetSummaryStateForTests(); setSummaryAiForTests(() => null); refuse = null; requests.length = 0; promptTokens = 1; silent = false })
+  beforeEach(() => { resetApiContextForTests(); resetSummaryStateForTests(); setSummaryAiForTests(() => null); refuse = null; requests.length = 0; promptTokens = 1; silent = false; unloaded = null })
 
   const chatWithHistory = async () => {
     const chat = await h.api('alice').call(API.createChat, { body: { engine: 'api' } })
@@ -338,15 +380,42 @@ describe('a turn on a small local model (fake OpenAI-compatible server)', () => 
     expect(one.done.error?.params?.reason).toBe('context')
   })
 
-  test('a guessed size (a local address that says nothing) never cuts the tool list; a guess the tools alone fill is ignored', async () => {
+  test('a local address that says nothing (32k guess): the tool list is cut too, so the request fits the guess', async () => {
     silent = true
     const chat = await chatWithHistory()
     requests.length = 0
     const { done } = await ask(h, alice, 'alice', chat.id, 'hello')
     const r = requests.at(-1)!
-    expect(JSON.stringify(r.tools)).toContain('intro_deck')
-    // the whole list is more than the 32k guess: nothing is known, so the default window keeps the whole history
-    expect(r.system).toContain('ALPHA')
-    expect(done.historyTrimmed).toBeUndefined()
+    expect(JSON.stringify(r.tools)).not.toContain('intro_deck')
+    expect(estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools))).toBeLessThan(LOCAL_GUESS_TOKENS - ANSWER_ROOM_MIN)
+    expect(done.status).toBe('done')
+  })
+
+  test('QA TC-5087: an Ollama model not loaded yet, with num_ctx: its size fits the request and keeps the memory', async () => {
+    unloaded = { numCtx: 16384 }
+    const mem = await h.api('alice').call(API.createMemory, { body: { text: 'TC5087 memory: the code name is HERON.' } })
+    try {
+      const chat = await chatWithHistory()
+      requests.length = 0
+      const { done } = await ask(h, alice, 'alice', chat.id, 'what is the code name?')
+      const r = requests.at(-1)!
+      expect(estimateTokens(r.system) + estimateTokens(JSON.stringify(r.tools))).toBeLessThan(16384 - ANSWER_ROOM_MIN)
+      expect(r.system).toContain('HERON')
+      expect(done.status).toBe('done')
+    } finally { await h.api('alice').call(API.deleteMemory, { params: { id: mem.id } }) }
+  })
+
+  test('QA TC-5087: an Ollama model not loaded yet, without num_ctx: the default (4096) bounds the tools and history; no refusal on a guess', async () => {
+    unloaded = { numCtx: null }
+    const chat = await chatWithHistory()
+    requests.length = 0
+    const { done } = await ask(h, alice, 'alice', chat.id, 'hello')
+    const r = requests.at(-1)!
+    // a 4096 guess leaves room for the file tools only: the large ones are left out and named
+    expect(JSON.stringify(r.tools)).not.toContain('intro_deck')
+    expect(JSON.stringify(r.tools)).toContain('"read"')
+    expect(r.system).toContain('Tools this AI model cannot use')
+    expect(r.system).not.toContain('ALPHA')
+    expect(done.status).toBe('done')
   })
 })
