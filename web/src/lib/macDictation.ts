@@ -8,12 +8,16 @@
 // it comes down (first use, with how far it is); server where this Mac cannot (Intel, macOS before 26, a language it
 // lacks, the helper failed).
 // The iPhone app (1.0.10, dictation-v1) offers the same bridge (lib/mobile.ts phoneDictation): the same states, the
-// phone's words for "this Mac" (onPhone).
+// phone's words for "this Mac" (onPhone). The Android app's (1.0.10) holds the microphone itself (ownMic) and may be
+// `shared` (its recognizer is not on the phone).
 import type { DesktopDictationEvent } from '@mycel/shared'
 import { desktop, type DesktopBridge } from './desktop'
-import { phoneDictation } from './mobile'
+import { phoneDictation, type PhoneDictationBridge } from './mobile'
 
-export type MacDictationBridge = NonNullable<DesktopBridge['dictation']>
+export type MacDictationBridge = NonNullable<DesktopBridge['dictation']> | PhoneDictationBridge
+
+/** the app opens the microphone itself (the Android app): the page records nothing, the wave follows the app's level */
+export const ownMic = (b: MacDictationBridge): b is PhoneDictationBridge => 'ownMic' in b && b.ownMic === true
 
 /** the bridge, inside a desktop app that offers it, else inside the iPhone app that does */
 export const macDictationBridge = (b: DesktopBridge | null = desktop()): MacDictationBridge | null => (b ? (b.dictation && b.dictation.version >= 1 ? b.dictation : null) : phoneDictation())
@@ -21,9 +25,11 @@ export const macDictationBridge = (b: DesktopBridge | null = desktop()): MacDict
 /** voice input is written on the phone (the iPhone app), not on a Mac: the notes say "this phone" */
 export const onPhone = (b: DesktopBridge | null = desktop()): boolean => !b && !!phoneDictation()
 
-/** unknown: not asked yet; ready: this Mac transcribes it; model: it can once Apple's model is fetched (the next tap
- * starts that); preparing: the model comes down now, `percent` of it; server: the team server transcribes */
-export type MacReadiness = { kind: 'unknown' | 'ready' | 'model' | 'server' } | { kind: 'preparing'; percent: number }
+/** unknown: not asked yet; ready: this Mac transcribes it (`shared`: the Android phone's recognizer is not on the
+ * phone and may send the sound to its maker: only where the team's voice may go outside, never a confidential chat);
+ * model: it can once Apple's model is fetched (the next tap starts that); preparing: the model comes down now,
+ * `percent` of it; server: the team server transcribes */
+export type MacReadiness = { kind: 'unknown' | 'model' | 'server' } | { kind: 'ready'; shared?: boolean } | { kind: 'preparing'; percent: number }
 
 const UNKNOWN: MacReadiness = { kind: 'unknown' }
 const states = new Map<string, MacReadiness>()
@@ -54,7 +60,7 @@ export function checkMac(language: string, bridge: MacDictationBridge | null = m
   let c = checking.get(language)
   if (!c) {
     c = bridge.check(language).then(
-      (r): MacReadiness => ({ kind: r.state === 'ready' ? 'ready' : r.state === 'needs-model' ? 'model' : 'server' }),
+      (r): MacReadiness => (r.state === 'ready' ? ((r as { shared?: boolean }).shared ? { kind: 'ready', shared: true } : { kind: 'ready' }) : { kind: r.state === 'needs-model' ? 'model' : 'server' }),
       (): MacReadiness => ({ kind: 'server' }),
     )
     checking.set(language, c)

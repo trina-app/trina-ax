@@ -11,7 +11,9 @@
 // server's paths, in confidential chats too. The first tap fetches Apple's model for the language (that recording goes
 // the server's way, the bar says how far the model is); Intel, older macOS, a language the Mac lacks or a helper that
 // failed use the server. The iPhone app (1.0.10) offers the same bridge with the phone's own recognizer (lib/mobile.ts
-// phoneDictation); its notes say "this phone".
+// phoneDictation); its notes say "this phone". The Android app's (1.0.10) recognizer holds the microphone itself (the
+// page records nothing then, the wave follows its level), and one that is not on the phone (`shared`) is used only for
+// a team whose voice may go outside, never in a confidential chat.
 // The host renders components/VoiceBar.tsx (the bar, the mic, the live region) with what this returns and calls
 // onKeyDown from the box's own key handler after its "/", "#" or "@" list had its turn.
 import { useEffect, useLayoutEffect, useReducer, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
@@ -19,7 +21,7 @@ import { ApiError, SMALL_UPLOAD_MAX, type TranscribeResult } from '@mycel/shared
 import type { PieceAnswer } from '@mycel/shared/speech-pieces'
 import { api, API, errorText } from './api'
 import { LiveDictation } from './liveDictation'
-import { checkMac, macDictationBridge, macFailed, macLanguage, macReadiness, OnDeviceRun, onPhone, prepareMac, watchMacReadiness, type MacDictationBridge } from './macDictation'
+import { checkMac, macDictationBridge, macFailed, macLanguage, macReadiness, OnDeviceRun, onPhone, ownMic, prepareMac, watchMacReadiness, type MacDictationBridge } from './macDictation'
 import { desktop } from './desktop'
 import { markBusy } from './busy'
 import { RecorderError, useRecorder } from './recorder'
@@ -32,6 +34,16 @@ import { canOpenAppSettings, mobileApp, openAppSettings } from './mobile'
 import { CAP_MS, jobLabel, jobWaiting, VoiceInput, WARN_MS, type VoiceNote } from './voiceInput'
 import { useLocale, useT } from '../i18n'
 import { useJobs, waitForJob } from '../store/jobs'
+
+/** a recording the Mac or the phone transcribes: the box's text before its first words, the text it last put there
+ * (several words can come before the box renders again), and the Android app's level feed for the wave */
+type MacRec = { run: OnDeviceRun; before: string | null; shown: string | null; offLevel: (() => void) | null }
+
+/** the team lets voice input go to an outside service (Me.team.voiceInputOutside) */
+const outsideAllowed = () => {
+  const st = useSession.getState().status
+  return st.kind === 'signed-in' && st.me.team?.voiceInputOutside === true
+}
 
 /** this browser has held Space to talk once: the hint in a clicked recording stops */
 export const HOLD_USED_KEY = 'mycel.voice.holdUsed'
@@ -162,7 +174,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
   const live = useRef<{ run: LiveDictation; before: string | null } | null>(null)
   /** the recording this Mac transcribes now (lib/macDictation.ts): the box's text before its first words, and the
    * text it last put there (several words can come before the box renders again) */
-  const mac = useRef<{ run: OnDeviceRun; before: string | null; shown: string | null } | null>(null)
+  const mac = useRef<MacRec | null>(null)
   /** the note says the Mac's model is getting ready (it follows the progress, and goes once the model is there) */
   const preparingNote = useRef(false)
   /** abandon(): the recording goes without putting the box back (the box now shows another room's text) */
@@ -236,6 +248,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
     mac.current = null
     if (!m) return
     setHeard(false)
+    m.offLevel?.()
     m.run.cancel()
     const before = m.before
     if (!restore || noRestore.current || before === null) return
@@ -255,9 +268,10 @@ export function useVoiceInput(o: VoiceInputOptions) {
 
   /** A recording this Mac transcribes: false when its helper did not start (the server's way then). */
   const startOnMac = async (bridge: MacDictationBridge, language: string): Promise<boolean> => {
-    const m: { run: OnDeviceRun; before: string | null; shown: string | null } = {
+    const m: MacRec = {
       before: null,
       shown: null,
+      offLevel: null,
       run: new OnDeviceRun({
         bridge,
         language,
@@ -284,6 +298,12 @@ export function useVoiceInput(o: VoiceInputOptions) {
     }
     if (mac.current !== m) {
       m.run.cancel()
+      return true
+    }
+    // the Android app holds the microphone: the time and the wave as always, the level from the app
+    if (ownMic(bridge)) {
+      const outside = rec.current.startOutside()
+      m.offLevel = bridge.onLevel(outside.level)
       return true
     }
     await rec.current.start({ onSamples: (samples) => m.run.push(samples) }).then(
@@ -333,7 +353,8 @@ export function useVoiceInput(o: VoiceInputOptions) {
           const m = macHere()
           if (m) {
             const r = await checkMac(m.language, m.bridge)
-            if (r.kind === 'ready' && (await startOnMac(m.bridge, m.language))) return
+            // (a phone recognizer that is not on the phone: only for a team whose voice may go outside)
+            if (r.kind === 'ready' && (!r.shared || outsideAllowed()) && (await startOnMac(m.bridge, m.language))) return
             // the first tap: Apple's model comes down now, and this recording goes the server's way
             if (r.kind === 'model') prepareMac(m.language, m.bridge)
           }
@@ -391,6 +412,7 @@ export function useVoiceInput(o: VoiceInputOptions) {
                 signal.removeEventListener('abort', abort)
                 if (mac.current !== m) return
                 mac.current = null
+                m.offLevel?.()
                 setHeard(false)
                 // every word final now: the box shows them as the Mac wrote them
                 const before = m.before ?? opts.current.text
@@ -485,7 +507,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
         blocked: () => {
           if (!opts.current.blocked) return false
           const m = macHere()
-          return !m || macReadiness(m.language).kind !== 'ready'
+          const r = m ? macReadiness(m.language) : null
+          // (a phone recognizer that is not on the phone never takes a confidential chat)
+          return !r || r.kind !== 'ready' || r.shared === true
         },
         canStart: () => !elsewhere(),
         granted: () => permission.current === 'granted',

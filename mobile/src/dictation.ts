@@ -9,7 +9,7 @@ import { dictationEventBody, dictationInstall, dictationState, type DictationEve
 
 /** The app's Dictation module (modules/dictation/ios/DictationModule.swift), numbers for the recordings. */
 export interface DictationNative {
-  check(language: string): Promise<{ state?: unknown }>
+  check(language: string): Promise<{ state?: unknown; micInApp?: unknown; onDevice?: unknown }>
   install(n: number, language: string): Promise<unknown>
   start(n: number, language: string): Promise<boolean>
   push(n: number, b64: string): void
@@ -61,8 +61,16 @@ export class PhoneDictation {
   }
 
   async check(language: string): Promise<DictationState> {
-    const r = await this.native.check(language).catch(() => null)
-    return dictationState(r?.state) ? r.state : 'unsupported'
+    return (await this.checkDetail(language)).state
+  }
+
+  /** the state, and on Android (1.0.10) that the app holds the microphone (`micInApp`) and whether the recognizer is
+   * on the phone */
+  async checkDetail(language: string): Promise<{ state: DictationState; micInApp?: true; onDevice?: boolean }> {
+    const r = await this.native.check(language).catch(() => null) as { state?: unknown; micInApp?: unknown; onDevice?: unknown } | null
+    const state = dictationState(r?.state) ? r.state : 'unsupported'
+    if (state === 'unsupported' || r?.micInApp !== true) return { state }
+    return { state, micInApp: true, onDevice: r.onDevice !== false }
   }
 
   async install(owner: DictationOwner, language: string): Promise<DictationInstall> {

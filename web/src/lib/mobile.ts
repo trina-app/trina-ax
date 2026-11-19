@@ -402,7 +402,15 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
 // The same shape as the Mac app's bridge (shared/src/desktop-bridge.ts `dictation`), so lib/macDictation.ts and
 // lib/useVoiceInput.ts run one state machine for both. The page records as always; its 16 kHz samples go to the app as
 // signed 16-bit base64 about every 0.1 s, the words come back as `mycel:mobile-dictation` events.
-export type PhoneDictationBridge = NonNullable<DesktopBridge['dictation']>
+// The Android app (1.0.10) holds the microphone itself (`ownMic`: the page records nothing, the wave follows the app's
+// `level` events) and may have only a recognizer that is not on the phone (check's `shared`: lib/useVoiceInput.ts uses
+// it only where the team's voice may go outside, never in a confidential chat).
+export type PhoneDictationBridge = NonNullable<DesktopBridge['dictation']> & {
+  /** the app opens the microphone (Android): known after the first check */
+  ownMic: boolean
+  /** the app's input level (0-1) of its recordings, for the wave */
+  onLevel(cb: (level: number) => void): () => void
+}
 /** samples per dictation-push: 0.1 s */
 const DICTATION_STEP = 1_600
 /** after Stop, how long the last words may take before the recording counts as stopped on the way */
@@ -410,6 +418,7 @@ const DICTATION_DONE_MS = 15_000
 interface DictationRun { id: string; config: MobileConfig; seq: number; buffer: Int16Array; filled: number; done: ReturnType<typeof setTimeout> | null }
 const dictationRuns = new Map<number, DictationRun>()
 const dictationListeners = new Set<(e: DesktopDictationEvent) => void>()
+const levelListeners = new Set<(level: number) => void>()
 const installWatch = new Map<string, (percent: number) => void>()
 let dictationNext = 1, dictationListening: object | null = null, phoneBridge: { config: MobileConfig; bridge: PhoneDictationBridge } | null = null
 
@@ -433,6 +442,7 @@ function dictationEvent(event: Event) {
   if (body.event === 'progress') { installWatch.get(d.id)?.(body.percent); return }
   const n = [...dictationRuns].find(([, r]) => r.id === d.id)?.[0]
   if (n === undefined) return
+  if (body.event === 'level') { for (const f of levelListeners) f(body.level); return }
   if (body.event === 'done' || body.event === 'error') dictationEnd(n)
   dictationEmit(body.event === 'text' ? { id: n, event: 'text', final: body.final, text: body.text } : body.event === 'done' ? { id: n, event: 'done' } : { id: n, event: 'error', code: body.code })
 }
@@ -459,11 +469,19 @@ export function phoneDictation(): PhoneDictationBridge | null {
   const now = () => mobileApp() ?? config
   const bridge: PhoneDictationBridge = {
     version: 1,
+    ownMic: false,
+    onLevel(cb) {
+      levelListeners.add(cb)
+      return () => void levelListeners.delete(cb)
+    },
     async check(language) {
       const c = now()
       const reply = await request({ ...envelope(c), type: 'dictation-check', language }, c, 15_000)
       const state = dictationState(reply.dictation) ? reply.dictation : 'unsupported'
-      return state === 'unsupported' ? { state } : { state, locale: language }
+      if (state === 'unsupported') return { state }
+      if (reply.dictationMic === 'app') bridge.ownMic = true
+      // not on the phone (Android's default recognizer): the readiness says so (lib/macDictation.ts)
+      return { state, locale: language, ...(reply.dictationMic === 'app' && reply.dictationOnDevice === false ? { shared: true } : {}) } as Awaited<ReturnType<PhoneDictationBridge['check']>>
     },
     async install(language, onProgress) {
       const c = now(), env = envelope(c)

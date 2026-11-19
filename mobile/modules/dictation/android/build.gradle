@@ -1,0 +1,17 @@
+// The app's own Expo module (mobile/modules/dictation, linked by Expo's autolinking from mobile/modules): voice input
+// written by the phone's own speech recognizer while the person talks (DictationModule.kt).
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.trina'
+version = '1.0.0'
+
+expoModule {
+  v2 true
+}
+
+android {
+  namespace "app.trina.dictation"
+}

@@ -6,7 +6,7 @@ import * as Crypto from 'expo-crypto'
 import * as WebBrowser from 'expo-web-browser'
 import { getLocales } from 'expo-localization'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentRef, type ComponentType, type RefAttributes, type ReactNode } from 'react'
-import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
+import { AccessibilityInfo, ActivityIndicator, Alert, Appearance, AppState, BackHandler, PermissionsAndroid, findNodeHandle, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, TurboModuleRegistry, View, type TurboModule } from 'react-native'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { WebView as NativeWebView, type WebViewProps } from 'react-native-webview'
 import { dictationEventScript, documentId, documentScript, FileTransfers, loadStartFences, MobileReceiver, readNewDocument, replyScript, sameDocumentScript, StuckLoad, stillStuck, type PageNav } from './src/bridge'
@@ -54,9 +54,18 @@ const WebView = NativeWebView as unknown as ComponentType<WebViewProps & RefAttr
  * pictures of earlier screens (src/nav.ts swipeGate); null on Android and in a build without it. */
 interface EdgeSwipeModule { setEnabled(enabled: boolean): Promise<number> }
 const edgeSwipe = Platform.OS === 'ios' ? requireOptionalNativeModule<EdgeSwipeModule>('EdgeSwipe') : null
-/** iPhone: the app's own module (modules/dictation) that turns the page's voice input into words on the phone
- * (dictation-v1, src/dictation.ts); null on Android and in a build without it (the team server transcribes then). */
-const dictationNative = Platform.OS === 'ios' ? requireOptionalNativeModule<DictationNative>('Dictation') : null
+/** The app's own module (modules/dictation) that turns voice input into words on the phone (dictation-v1,
+ * src/dictation.ts); null in a build without it (the team server transcribes then). iPhone: the page's samples go in.
+ * Android (1.0.10): the phone's recognizer opens the microphone itself, so the app asks for it before a recording (the
+ * same permission the page's own recording asks for); a refusal is a recording that did not start (the page's own
+ * recording then asks again and shows its blocked-mic note). */
+const dictationModule = requireOptionalNativeModule<DictationNative>('Dictation')
+const dictationNative: DictationNative | null = !dictationModule ? null : Platform.OS !== 'android' ? dictationModule : {
+  check: l => dictationModule.check(l), install: (n, l) => dictationModule.install(n, l),
+  start: async (n, l) => (await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO).catch(() => null)) === PermissionsAndroid.RESULTS.GRANTED && dictationModule.start(n, l),
+  push: () => {}, stop: n => dictationModule.stop(n), cancel: n => dictationModule.cancel(n),
+  addListener: (e, cb) => dictationModule.addListener(e, cb),
+}
 /** The colours around the page: the page's look once it said (appearance-v1), the phone's before. */
 const Look = createContext<Palette>(LIGHT)
 type PageLook = { dark: boolean; system: boolean }

@@ -58,7 +58,13 @@ export const CHANGE_TEAM_CAPABILITY = 'change-team-v1'
  * 16 kHz mono signed 16-bit little-endian samples (base64, in order by `seq`, never answered), then `dictation-stop`
  * or `dictation-cancel`. The words come back as `mycel:mobile-dictation` events for that id (dictationEventScript):
  * text (final false is a guess the next text replaces), done after stop, error. Nothing leaves the phone. Only the
- * iPhone app with its Dictation module offers it; without it the team server transcribes, as before. */
+ * iPhone app with its Dictation module offers it; without it the team server transcribes, as before.
+ * The Android app (1.0.10, docs/decisions/20261119-android-dictation.md) offers the same with two additions an older page
+ * ignores: its `dictation-check` reply says `dictationMic: 'app'` (the phone's recognizer opens the microphone itself:
+ * the page records nothing and sends no `dictation-push`) and `dictationOnDevice: false` when the recognizer is not on
+ * the phone (the default one, asked to stay offline, may send the sound to its maker: the page uses it only where the
+ * team's voice may go outside, never in a confidential chat); its recordings also send `level` events (0-1) for the
+ * page's wave. */
 export const DICTATION_CAPABILITY = 'dictation-v1'
 /** One `dictation-push`: at most 1.5 s of sound (the page sends about 0.1 s at a time). */
 export const MAX_DICTATION_BYTES = 48_000
@@ -74,6 +80,7 @@ export type DictationEventBody =
   | { event: 'done' }
   | { event: 'error'; code: string }
   | { event: 'progress'; percent: number }
+  | { event: 'level'; level: number }
 export type DictationEvent = Envelope & { type: 'mobile-dictation' } & DictationEventBody
 /** The app language as the phone's recognizer takes it: two or three lowercase letters. */
 export const dictationLanguage = (v: unknown): v is string => typeof v === 'string' && /^[a-z]{2,3}$/.test(v)
@@ -86,6 +93,7 @@ export function dictationEventBody(v: unknown): DictationEventBody | null {
   if (e.event === 'text') return typeof e.final === 'boolean' && typeof e.text === 'string' && e.text.length <= MAX_DICTATION_TEXT ? { event: 'text', final: e.final, text: e.text } : null
   if (e.event === 'done') return { event: 'done' }
   if (e.event === 'error') return { event: 'error', code: typeof e.code === 'string' && /^[a-z_-]{1,40}$/.test(e.code) ? e.code : 'failed' }
+  if (e.event === 'level') return typeof e.level === 'number' && Number.isFinite(e.level) ? { event: 'level', level: Math.max(0, Math.min(1, e.level)) } : null
   if (e.event === 'progress') return typeof e.percent === 'number' && Number.isFinite(e.percent) ? { event: 'progress', percent: Math.max(0, Math.min(100, Math.floor(e.percent))) } : null
   return null
 }
@@ -156,8 +164,9 @@ export type MobileMessage = FileMessage | (Envelope & (
 ))
 /** files/tooBig: a `photo-pick` answer (the picked files, and the names of those left out for their size); b64: a
  * `photo-chunk` answer. */
-/** dictation/installed/started: the dictation-check, dictation-install and dictation-start answers. */
-export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string; dictation?: DictationState; installed?: DictationInstall; started?: boolean }
+/** dictation/installed/started: the dictation-check, dictation-install and dictation-start answers; dictationMic and
+ * dictationOnDevice: the Android app's check answer (DICTATION_CAPABILITY). */
+export interface MobileReply extends Envelope { type: 'mobile-result'; for: MobileMessage['type']; ok: boolean; seq?: number; error?: string; nextGeneration?: number; push?: PushToken; permission?: PushPermission; labelHash?: string; files?: PickedFile[]; tooBig?: string[]; b64?: string; dictation?: DictationState; dictationMic?: 'app'; dictationOnDevice?: boolean; installed?: DictationInstall; started?: boolean }
 export const pushPermission = (v: unknown): v is PushPermission => v === 'granted' || v === 'undetermined' || v === 'denied'
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const generation = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v > 0 && v < 0x7fffffff

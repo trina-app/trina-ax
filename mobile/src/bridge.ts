@@ -254,7 +254,12 @@ export class MobileReceiver {
       } else if (m.type === 'dictation-check' || m.type === 'dictation-install' || m.type === 'dictation-start' || m.type === 'dictation-stop' || m.type === 'dictation-cancel') {
         if (!this.dictation || !current.capabilities.includes(DICTATION_CAPABILITY)) throw new Error('unsupported')
         const owner = { id: m.id, nonce: m.nonce, generation: m.generation }
-        if (m.type === 'dictation-check') reply.dictation = await this.dictation.check(m.language)
+        if (m.type === 'dictation-check') {
+          const c = await this.dictation.checkDetail(m.language)
+          reply.dictation = c.state
+          // Android: the recognizer holds the microphone, and whether it is on the phone
+          if (c.micInApp) { reply.dictationMic = 'app'; reply.dictationOnDevice = c.onDevice !== false }
+        }
         else if (m.type === 'dictation-install') reply.installed = await this.dictation.install(owner, m.language)
         else if (m.type === 'dictation-start') reply.started = await this.dictation.start(owner, m.language)
         else if (m.type === 'dictation-stop') this.dictation.stop(owner)
