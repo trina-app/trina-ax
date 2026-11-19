@@ -1,11 +1,10 @@
 // Voice input on this Android phone, for the app's bridge (src/dictation.ts, capability dictation-v1;
 // docs/decisions/20261119-android-dictation.md): the same calls as the iPhone's module (ios/DictationModule.swift), but
 // the system's SpeechRecognizer opens the microphone itself (Android 12 cannot be handed the page's sound), so check()
-// says `micInApp` and the page records nothing then; push() is ignored. The recognizer is the phone's on-device one
-// where it has one (createOnDeviceSpeechRecognizer, Android 12+; Android 13+ says which languages it has and fetches a
-// missing one), else the phone's default recognizer asked to stay offline (EXTRA_PREFER_OFFLINE), which check() says
-// is not on the phone (`onDevice: false`: it may send the sound to its maker; the page uses it only where the team's
-// voice may go outside, never in a confidential chat). Partial results are guesses; Android ends an utterance at a
+// says `micInApp` and the page records nothing then; push() is ignored. Only the phone's on-device recognizer is used
+// (createOnDeviceSpeechRecognizer, Android 12+; Android 13+ says which languages it has and fetches a missing one):
+// never the phone's default recognizer, which may send the sound to its maker (2026-11-19 decision). A phone without an
+// on-device recognizer for the language says unsupported, and the team server transcribes. Partial results are guesses; Android ends an utterance at a
 // pause and the recognizer is started again at once until stop(). Events, by the id start() was given: text,
 // level (0-1, the page's wave), done (after stop, every word final), error (it ended on its own; the words stay).
 package app.trina.dictation
@@ -37,6 +36,11 @@ private const val STOP_TIMEOUT_MS = 2500L
 private const val LEVEL_EVERY_MS = 80L
 /** the longest text one event carries (src/protocol.ts MAX_DICTATION_TEXT) */
 private const val MAX_TEXT = 20_000
+/** after "ready for speech", this long before start() says yes: a recognizer that lacks the language (Google's
+ * offline Speech Services without that language pack, measured on the Note10) refuses it within a few milliseconds of
+ * being ready; that is a start that did not happen (the team server, silently), not a recording that stopped. The
+ * microphone already listens meanwhile, so no word is lost. */
+private const val CONFIRM_MS = 500L
 /** a model download (Android 13+) asked about every 2 s for this long, then 'failed' */
 private const val INSTALL_DEADLINE_MS = 65_000L
 
@@ -45,6 +49,8 @@ class DictationModule : Module() {
   private var session: Session? = null
   /** what check() found per locale: the on-device recognizer has it (true) or only the default one (false) */
   private val onDeviceFor = mutableMapOf<String, Boolean>()
+  /** locales a recognizer refused (no language pack): check() says unsupported for them until the app restarts */
+  private val refused = mutableSetOf<String>()
 
   override fun definition() = ModuleDefinition {
     Name("Dictation")
@@ -113,13 +119,15 @@ class DictationModule : Module() {
     val ctx = appContext.reactContext?.applicationContext
     if (ctx == null || !Regex("^[a-z]{2,3}$").matches(language)) { promise.resolve(mapOf("state" to "unsupported")); return }
     val tag = localeTag(language)
+    if (tag in refused) { promise.resolve(mapOf("state" to "unsupported")); return }
     val answer = { onDevice: Boolean? ->
       when (onDevice) {
         null -> mapOf("state" to "unsupported")
         else -> { onDeviceFor[tag] = onDevice; mapOf("state" to "ready", "locale" to tag, "onDevice" to onDevice, "micInApp" to true) }
       }
     }
-    val fallback = { answer(if (SpeechRecognizer.isRecognitionAvailable(ctx)) false else null) }
+    // no on-device recognizer for it: never the default one (it may send the sound out); the team server
+    val fallback = { answer(null) }
     if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)) { promise.resolve(fallback()); return }
     // Android 12 cannot say which languages it has on the phone: start() finds out (a language it lacks fails there)
     if (Build.VERSION.SDK_INT < 33) { promise.resolve(answer(true)); return }
@@ -180,6 +188,7 @@ class DictationModule : Module() {
     putExtra(RecognizerIntent.EXTRA_LANGUAGE, tag)
     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+    // (the on-device recognizer is offline anyway)
     putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, ctx.packageName)
     // a thinking pause does not end the utterance at once (recognizers may ignore it; the restart below covers that)
@@ -199,14 +208,15 @@ class DictationModule : Module() {
     private var lastLevel = 0L
     private var retries = 0
     private val startTimeout = Runnable { fail("start_timeout") }
+    private val confirm = Runnable { started?.invoke(true); started = null }
     private val stopTimeout = Runnable { finish() }
 
     fun begin(onStarted: (Boolean) -> Unit) {
       started = onStarted
       val r = try {
         when {
-          !onDevice -> SpeechRecognizer.createSpeechRecognizer(ctx)
-          // asked for the phone's own recognizer: never the default one in its place (it may send the sound out)
+          // only the phone's own recognizer: never the default one (it may send the sound out)
+          !onDevice -> null
           Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx) -> SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
           else -> null
         }
@@ -244,6 +254,7 @@ class DictationModule : Module() {
     private fun fail(code: String) {
       if (ended) return
       val s = started
+      if (code == "language") refused.add(tag)
       if (s != null) { started = null; ended = true; s(false); close(); return }
       if (stopping) { finish(); return }
       ended = true
@@ -262,7 +273,7 @@ class DictationModule : Module() {
     }
 
     private fun close() {
-      main.removeCallbacks(startTimeout); main.removeCallbacks(stopTimeout)
+      main.removeCallbacks(startTimeout); main.removeCallbacks(stopTimeout); main.removeCallbacks(confirm)
       val r = recognizer
       recognizer = null
       try { r?.cancel() } catch (_: Throwable) {}
@@ -278,7 +289,8 @@ class DictationModule : Module() {
         if (ready) return
         ready = true
         main.removeCallbacks(startTimeout)
-        started?.invoke(true); started = null
+        // yes once the recognizer kept the language for a moment (CONFIRM_MS)
+        main.postDelayed(confirm, CONFIRM_MS)
       }
       override fun onBeginningOfSpeech() {}
       override fun onRmsChanged(rmsdB: Float) {

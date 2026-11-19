@@ -8,8 +8,10 @@ export const ko = {
   // continue in the desktop app after setup, and its one-time sign-in (pages/OpenApp.tsx)
   "openApp.title": "{product} 앱에서 이어서 하세요",
   "openApp.why": "앱에서는 트리나가 이 컴퓨터의 업무 파일을 찾아 팀과 나눌 수 있어요.",
+  "openApp.whyLinux": "앱에서는 Aside나 ego lite처럼 이 컴퓨터의 프로그램을 AI가 쓸 수 있어요.",
   "openApp.mac": "Mac 앱에서 계속",
   "openApp.windows": "Windows 앱에서 계속",
+  "openApp.linux": "Linux 앱에서 계속",
   "openApp.browser": "브라우저에서 계속",
   "openApp.notOpened": "앱이 안 열렸나요? 앱을 설치한 뒤 버튼을 다시 눌러 주세요.",
   "openApp.download": "앱 내려받기",

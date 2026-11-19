@@ -1,8 +1,8 @@
 // Voice input written by the Android app's own recognizer (dictation-v1 with the Android check answer, lib/mobile.ts
 // phoneDictation; docs/decisions/20261119-android-dictation.md), with a stand-in for the app: the words show while recording, ✓ leaves
 // them final in the box, the page never opens the microphone and nothing goes to the team server; a confidential chat
-// records on an on-device recognizer, while a recognizer that is not on the phone never takes it (the team server's
-// note instead); a team whose voice stays on its server does not use such a recognizer at all.
+// records on an on-device recognizer, while a recognizer that is not on the phone is never used, whatever the team's
+// speech setting (the team server instead; in a confidential chat its note).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 import type { MobileConfig, MobileMessage, MobileReply } from '../../../mobile/src/protocol'
@@ -115,6 +115,19 @@ test('a recognizer that is not on the phone, for a team whose voice stays on its
   await expect(page.getByTestId('composer-input')).toHaveValue('받아쓴 문장입니다')
   expect((await phone(page)).starts).toBe(0)
   expect(await serverLog(page)).toEqual(['POST /api/transcribe'])
+})
+
+test('a recognizer that is not on the phone, for a team whose voice may go outside (OpenRouter): still the team server', async ({ page }) => {
+  await fakePhone(page, { onDevice: false })
+  await reset(page)
+  await speech(page, 'openrouter', true)
+  await signIn(page)
+  await page.getByRole('button', { name: MIC }).click()
+  await expect(page.getByRole('group', { name: '녹음 중' })).toBeVisible()
+  await page.waitForTimeout(600)
+  await page.getByRole('button', { name: '녹음 끝내기' }).click()
+  await expect(page.getByTestId('voice-bar')).toHaveCount(0)
+  expect((await phone(page)).starts).toBe(0)
 })
 
 test('Esc throws the phone\'s recording away: the box is back as it was and the app hears cancel', async ({ page }) => {

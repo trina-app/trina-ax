@@ -403,8 +403,8 @@ export function initMobile(errorHandler?: (error: unknown) => void): void {
 // lib/useVoiceInput.ts run one state machine for both. The page records as always; its 16 kHz samples go to the app as
 // signed 16-bit base64 about every 0.1 s, the words come back as `mycel:mobile-dictation` events.
 // The Android app (1.0.10) holds the microphone itself (`ownMic`: the page records nothing, the wave follows the app's
-// `level` events) and may have only a recognizer that is not on the phone (check's `shared`: lib/useVoiceInput.ts uses
-// it only where the team's voice may go outside, never in a confidential chat).
+// `level` events). Only a recognizer on the phone is used: an app that answers `dictationOnDevice: false` (a recognizer
+// that may send the sound to its maker) counts as unsupported, and the team server transcribes (2026-11-19 decision).
 export type PhoneDictationBridge = NonNullable<DesktopBridge['dictation']> & {
   /** the app opens the microphone (Android): known after the first check */
   ownMic: boolean
@@ -483,7 +483,9 @@ export function phoneDictation(): PhoneDictationBridge | null {
       if (state === 'unsupported') return { state }
       if (reply.dictationMic === 'app') bridge.ownMic = true
       // not on the phone (Android's default recognizer): the readiness says so (lib/macDictation.ts)
-      return { state, locale: language, ...(reply.dictationMic === 'app' && reply.dictationOnDevice === false ? { shared: true } : {}) } as Awaited<ReturnType<PhoneDictationBridge['check']>>
+      // not on the phone: never used, whatever the team's speech setting (the team server instead)
+      if (reply.dictationMic === 'app' && reply.dictationOnDevice !== true) return { state: 'unsupported' }
+      return { state, locale: language }
     },
     async install(language, onProgress) {
       const c = now(), env = envelope(c)

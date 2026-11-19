@@ -44,15 +44,24 @@ export const insidePhoneApp = (w: object) => typeof (w as { ReactNativeWebView?:
  * the Home Screen (navigator.standalone). */
 export const standaloneOf = (displayStandalone: boolean, navStandalone: unknown) => displayStandalone || navStandalone === true
 export const isStandalone = () => typeof window !== 'undefined' && standaloneOf(!!window.matchMedia?.('(display-mode: standalone)').matches, (navigator as { standalone?: boolean }).standalone)
-export type Platform = 'ios' | 'android' | 'mac' | 'windows' | 'other'
-/** iPadOS Safari says "Macintosh", so a Mac with touch points is an iPad. */
+export type Platform = 'ios' | 'android' | 'mac' | 'windows' | 'linux' | 'other'
+/** iPadOS Safari says "Macintosh", so a Mac with touch points is an iPad. Linux: a Linux desktop's browser (X11 or
+ * Wayland, "Linux" in the user agent; not FreeBSD and the like, whose "X11" user agent names no Linux), never Android (its user agent says Linux too), ChromeOS ("CrOS": the Linux
+ * desktop app does not run there) or an Android tablet asking for the desktop site (Chrome then sends a Linux desktop
+ * user agent, but the device has touch points and an ARM processor in navigator.platform; an ARM Linux laptop with a
+ * touchscreen is missed that way and gets no app link, the price of never offering a Linux app to a tablet). */
 export function platformOf(ua: string, navPlatform = '', maxTouchPoints = 0): Platform {
   if (/iPad|iPhone|iPod/.test(ua) || (navPlatform === 'MacIntel' && maxTouchPoints > 1)) return 'ios'
   if (/Android/i.test(ua)) return 'android'
   if (/Macintosh|Mac OS X/i.test(ua)) return 'mac'
   if (/Windows/i.test(ua)) return 'windows'
+  if (/CrOS/.test(ua)) return 'other'
+  if (/Linux/.test(ua)) return maxTouchPoints > 0 && /arm|aarch64/i.test(navPlatform) ? 'other' : 'linux'
   return 'other'
 }
+/** The computers the desktop app is made for (macOS, Windows, Linux): their browsers get its `<scheme>://` links. */
+export type DesktopPlatform = 'mac' | 'windows' | 'linux'
+export const desktopPlatform = (p: Platform): p is DesktopPlatform => p === 'mac' || p === 'windows' || p === 'linux'
 export function platform(): Platform {
   if (typeof navigator === 'undefined') return 'other'
   return platformOf(navigator.userAgent, navigator.platform, navigator.maxTouchPoints)

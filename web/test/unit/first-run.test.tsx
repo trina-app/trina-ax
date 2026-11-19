@@ -175,14 +175,14 @@ describe('on screen', () => {
 })
 
 describe('"앱에서 열기" on the join pages (phase 2)', () => {
-  const at = (platform: 'ios' | 'android' | 'mac' | 'windows' | 'other', path = `/join#t=${TOKEN}`) => ({ scheme: 'trina-ax', origin: 'https://acme.trina.app', path, platform, androidPackage: 'app.trina.ax' })
+  const at = (platform: 'ios' | 'android' | 'mac' | 'windows' | 'linux' | 'other', path = `/join#t=${TOKEN}`) => ({ scheme: 'trina-ax', origin: 'https://acme.trina.app', path, platform, androidPackage: 'app.trina.ax' })
   test('the token goes only where our own app receives it: Android names the package, iPhone gets none', async () => {
     const { openInAppHref } = await import('../../src/lib/team-link')
     const enc = encodeURIComponent(`https://acme.trina.app/join#t=${TOKEN}`)
     // Android: an intent link with our package; no other app that claims trina-ax can take it
     expect(openInAppHref(at('android'))).toBe(`intent://open?url=${enc}#Intent;scheme=trina-ax;package=app.trina.ax;end`)
-    // the computer: the desktop app's scheme
-    for (const p of ['mac', 'windows'] as const) expect(openInAppHref(at(p))).toBe(`trina-ax://open?url=${enc}`)
+    // the computer: the desktop app's scheme (Linux too: the .deb's menu entry answers it, QA TC-5352)
+    for (const p of ['mac', 'windows', 'linux'] as const) expect(openInAppHref(at(p))).toBe(`trina-ax://open?url=${enc}`)
     expect(openInAppHref(at('mac', '/invite/abc'))).toBe('trina-ax://open?url=https%3A%2F%2Facme.trina.app%2Finvite%2Fabc')
     // iPhone: a custom scheme can be claimed by any app and names no package: no link with a token
     expect(openInAppHref(at('ios'))).toBeNull()
@@ -198,7 +198,7 @@ describe('"앱에서 열기" on the join pages (phase 2)', () => {
   })
   test('only in a web browser, and only with a link for this system', async () => {
     const { openInAppHref, openInAppShown } = await import('../../src/lib/team-link')
-    for (const p of ['android', 'mac', 'windows'] as const) expect(openInAppShown('web', openInAppHref(at(p)))).toBe(true)
+    for (const p of ['android', 'mac', 'windows', 'linux'] as const) expect(openInAppShown('web', openInAppHref(at(p)))).toBe(true)
     for (const p of ['ios', 'other'] as const) expect(openInAppShown('web', openInAppHref(at(p)))).toBe(false)
     for (const c of ['desktop', 'mobile'] as const) expect(openInAppShown(c, openInAppHref(at('mac')))).toBe(false)
     for (const { id } of LOCALES) expect({ id, ok: (id === 'ko' || !/[가-힣]/.test(DICTS[id]['auth.openInApp'])) && DICTS[id]['auth.openInApp'].length > 0 }).toEqual({ id, ok: true })

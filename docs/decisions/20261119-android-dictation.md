@@ -27,13 +27,13 @@ iPhone and Android".
   `dictationMic: 'app'`, and the page sends no `dictation-push`. The bar's time and wave run as always, the wave from
   the recognizer's `level` events. The app asks for RECORD_AUDIO itself (the same permission the page's own recording
   asks for).
-- **Where it is allowed:** an on-device recognizer everywhere the mic shows, confidential chats included: the sound
-  never leaves the phone. The default recognizer only *prefers* offline and may send the sound to its maker (Google on
-  most phones) when it has no model, so it counts as an outside service: used only for a team whose voice input may
-  already go outside (OpenRouter, `voiceInputOutside`), and never in a confidential chat: the check reply says
-  `dictationOnDevice: false`, the page's readiness is `shared`. The module never swaps in the default recognizer for
-  one the page was told is on the phone. Everywhere else the team
-  server transcribes, as before. The team's "voice input off" still hides the mic.
+- **Where it is allowed (on-device only, decided 2026-11-19 after the first version):** only the phone's on-device
+  recognizer (`createOnDeviceSpeechRecognizer`), everywhere the mic shows, confidential chats included: the sound never
+  leaves the phone. The phone's default recognizer is never used, whatever the team's speech setting: it only
+  *prefers* offline and may send the sound to its maker (Google on most phones). A phone without an on-device recognizer
+  for the language answers `unsupported` (and the page also treats `dictationOnDevice: false` as unsupported), and the
+  team server transcribes, as before. The first version (#42) let the default recognizer run for teams whose voice may
+  go outside; that path is gone. The team's "voice input off" still hides the mic.
 - **Fallback:** see the table in the PR and below; an app without `dictation-v1` (1.0.9 and older, the iPhone), no
   recognizer, a language the phone lacks, a refused start or a recognizer that stops: the team server (the words
   already written stay).
@@ -43,14 +43,28 @@ iPhone and Android".
 | Android 1.0.9 or older, the iPhone, a browser | the team server (no `dictation-v1`) |
 | on-device recognizer with the language (Android 13+ checked; Android 12 tried at the start) | the phone, everywhere incl. confidential chats |
 | Android 13+, language supported but not installed | first tap: the server; the phone fetches the model meanwhile |
-| only the default recognizer, team voice may go outside, not confidential | the phone's default recognizer (prefer offline) |
-| only the default recognizer, team voice stays on the team server, or a confidential chat | the team server |
-| no recognizer, the recognizer refuses the language or does not start in 4 s | the team server (for the rest of the page) |
+| no on-device recognizer, or none for the language (only the default recognizer: the Note10) | the team server, any team setting, any chat |
+| the on-device recognizer refuses the language within 0.5 s of starting (Android 12 cannot check first) | the team server, silently (no "stopped" note), and for that language until the app restarts |
+| no start in 4 s | the team server (for the rest of the page) |
 | the recognizer stops during a recording | the words so far stay, the note says it stopped; later recordings: the server |
 | the microphone refused | the page's usual "microphone blocked" note with Open Settings |
 
-- **Measured on the Note10** (Galaxy Note10 SM-N971N, Android 12, Google Speech Services as the default recognizer):
-  MEASUREMENTS
+- **Measured on the Note10** (Galaxy Note10 SM-N971N, Android 12, 2026-11-19; side-by-side test build
+  `app.trina.ax.dictationtest`, the Play 1.0.9 install untouched):
+  - **No on-device recognizer:** `SpeechRecognizer.isOnDeviceRecognitionAvailable` is false (Samsung's Android 12 has no
+    on-device recognition service), so under the on-device rule the Note10 uses the team server for every language.
+  - The default recognizer is Google Speech Services (`com.google.android.tts`), whose recognizer is in fact Google's
+    offline one (SODA). It has the en-US pack but **no Korean pack**: Korean is refused within ~10 ms of starting
+    (`LANGUAGE_PACK_ERROR`, error 13), which is why a refusal right after the start is now a silent fallback.
+  - English through it (offline, macOS `say` sentences from the Mac speaker; 5 runs): first words 0.81-0.96 s after the
+    speech started, then 0.1-0.3 s behind the sound; every word final 0.12-0.21 s after Stop. One clip came through
+    whole, others stopped being heard after ~2 s at lower speaker volume: the set-up (speaker distance) limited it.
+  - Korean, **cloud** (a test-only build pointed at the Google app's online recognizer; never shipped; 13 of the 20
+    Zeroth clips before the run was stopped): 5 clips came back, with first words 1.50-1.89 s after the speech started,
+    every word final ~0.11 s after Stop, and 15.6% CER on those 5 (2 clips under 5%). 8 clips gave no words at all
+    through the speaker set-up, so the pooled CER (68%) says more about the set-up than the recognizer.
+  - Not measured: an on-device Korean recognizer (the Note10 has none), and live numbers without playing sound aloud
+    (playback through the speaker was stopped at the owner's request).
 - **Left out:** the iPhone (its own follow-up), Android 13+'s segmented sessions (`EXTRA_SEGMENTED_SESSION`, no gap
   between utterances; the Note10 is Android 12), handing the recognizer the page's sound (Android 13+), a setting to
   choose the phone or the server.

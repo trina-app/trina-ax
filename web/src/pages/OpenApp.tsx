@@ -1,5 +1,5 @@
 // "Continue in the Mac app" (docs/decisions/20261116-desktop-first-onboarding.md, lib/open-app.ts):
-// - /open-app, right after /setup in a Mac or Windows browser (and from the files line): one button that opens the
+// - /open-app, right after /setup in a Mac, Windows or Linux browser (and from the files line): one button that opens the
 //   desktop app on this team already signed in, one quiet "Continue in the browser". The button makes a one-time code
 //   (POST /api/auth/app-signin) and opens `<scheme>://open?url=<team>/app-signin#c=<code>`; the app asks first (its
 //   screen ④). The page cannot tell whether the app opened (no polling, no check): it says how to get the app and to
@@ -32,7 +32,7 @@ export function OpenApp() {
   const navigate = useNavigate()
   // from the files line (components/onboarding/OpenAppLine.tsx): "Continue in the browser" goes back there
   const fromLine = (useLocation().state as { openAppBack?: boolean } | null)?.openAppBack === true
-  // a phone, Linux or our own apps never get here from setup; opened anyway, the welcome steps as usual
+  // a phone or our own apps never get here from setup; opened anyway, the welcome steps as usual
   const computer = appComputer({ platform: platform(), client: clientKind(), origin: pageOrigin() })
   const [busy, setBusy] = useState(false)
   const [pressed, setPressed] = useState(false)
@@ -54,9 +54,10 @@ export function OpenApp() {
     }
   }
   return (
-    <AuthFrame title={t('openApp.title')} sub={t('openApp.why')} switcher={false}>
+    // Linux: no Find work files there (docs/decisions/20261119-linux-desktop-app.md "Off on Linux"), so its own reason
+    <AuthFrame title={t('openApp.title')} sub={t(computer === 'linux' ? 'openApp.whyLinux' : 'openApp.why')} switcher={false}>
       <Button variant="primary" className="w-full" busy={busy} onClick={() => void open()} data-testid="open-app-button">
-        {t(computer === 'mac' ? 'openApp.mac' : 'openApp.windows')}
+        {t(computer === 'mac' ? 'openApp.mac' : computer === 'windows' ? 'openApp.windows' : 'openApp.linux')}
       </Button>
       {error && <p className="mt-3 text-sm text-danger" role="alert" data-testid="open-app-error">{error}</p>}
       {pressed && !error && (
