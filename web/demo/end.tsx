@@ -6,9 +6,17 @@ import type { LiveState } from './live'
 
 export interface EndLinks {
   signup: { label: string; url: string }
-  /** the story's live demo, if it has one */
-  live?: { label: string; busy: string; url: string }
+  /** the story's live demo, if it has one (`retry`: the busy line's small "Try again") */
+  live?: { label: string; busy: string; url: string; retry?: string }
   state: LiveState
+  /** the busy line's "Try again": the gate's status is read again (web/demo/live.ts useLiveDemo) */
+  onRetry?: () => void
+}
+
+/** "Try again" after the busy line: small, a link-looking button (the gate may take a visitor a minute later) */
+function Retry(e: EndLinks & { testId: string }) {
+  if (!e.live?.retry || !e.onRetry) return null
+  return <button type="button" className="demo-live-retry" onClick={e.onRetry} data-testid={e.testId}>{e.live.retry}</button>
 }
 
 const offered = (e: EndLinks) => !!e.live && e.state !== 'busy'
@@ -27,7 +35,13 @@ export function EndLineLinks(e: EndLinks) {
   }
   return (
     <>
-      {e.live && <span className="demo-live-busy" role="status" data-testid="demo-live-busy">{e.live.busy}</span>}
+      {/* the busy line and its Try again on one line (a phone puts the line on its own row) */}
+      {e.live && (
+        <span className="demo-live-busy">
+          <span role="status" data-testid="demo-live-busy">{e.live.busy}</span>{' '}
+          <Retry {...e} testId="demo-live-retry" />
+        </span>
+      )}
       <a className="demo-next" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
     </>
   )
@@ -58,5 +72,10 @@ export function EndPopupButtons(e: EndLinks & { close: string; restart: string; 
 /** the popup's line while the live demo cannot take a visitor (under the recap) */
 export function EndPopupBusy(e: EndLinks) {
   if (!e.live || e.state !== 'busy') return null
-  return <p className="mt-2 text-sm text-muted" role="status" data-testid="demo-popup-live-busy">{e.live.busy}</p>
+  return (
+    <p className="mt-2 text-sm text-muted">
+      <span role="status" data-testid="demo-popup-live-busy">{e.live.busy}</span>{' '}
+      <Retry {...e} testId="demo-popup-live-retry" />
+    </p>
+  )
 }

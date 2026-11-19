@@ -204,6 +204,7 @@ export const ko: Strings = {
     explore: '둘러보기',
     tryLive: '이제 직접 써 보세요',
     liveBusy: '지금은 라이브 데모가 붐벼요',
+    liveRetry: '다시 확인',
     popupTitle: '미나의 첫날 끝 🎉',
     popupLine: '런칭 캠페인을 {time} 만에 끝냈어요. 보통은 2일 정도 걸려요.',
     recap: ['팀 파일 2개 읽기', '팀 스킬 브랜드 가이드 사용', 'Higgsfield로 결과물 4개 만들기', '대표님 승인', '에이전시에 메일 보내기'],

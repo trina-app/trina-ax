@@ -2,7 +2,7 @@
 // server behind demo-gate (demo.trina.app). The scripted demo never depends on it: before the button is offered, the
 // gate's public status (`/__demo/status`, `{ available }`, with CORS for the site) is read once with a short timeout; a
 // failure, a slow answer or `available: false` keeps only the plans link, with one line that the live demo is busy.
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 /** how long the status may take before the live demo counts as busy */
 export const LIVE_STATUS_TIMEOUT_MS = 2500
@@ -41,16 +41,23 @@ export async function liveAvailable(liveUrl: string, o: { fetch?: typeof fetch; 
   }
 }
 
-/** The live demo's state once the story's end shows (`on`); read once. No live demo in the story: busy, never asked. */
-export function useLiveDemo(liveUrl: string | null, on: boolean, o: { fetch?: typeof fetch; timeoutMs?: number } = {}): LiveState {
+/** The live demo's state once the story's end shows (`on`); read once, and again on `recheck` (the busy line's "Try
+ * again": the state is `checking` meanwhile). No live demo in the story: busy, never asked. */
+export function useLiveDemo(liveUrl: string | null, on: boolean, o: { fetch?: typeof fetch; timeoutMs?: number } = {}): [LiveState, () => void] {
   const [state, setState] = useState<LiveState>(liveUrl ? 'checking' : 'busy')
+  const [round, setRound] = useState(0)
   useEffect(() => {
     if (!on || !liveUrl) return
     let live = true
     void liveAvailable(liveUrl, o).then((ok) => { if (live) setState(ok ? 'available' : 'busy') })
     return () => { live = false }
-    // read once per address (the options are fixed for a page)
+    // read once per address and per "Try again" (the options are fixed for a page)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [on, liveUrl])
-  return state
+  }, [on, liveUrl, round])
+  const recheck = useCallback(() => {
+    if (!liveUrl) return
+    setState('checking')
+    setRound((n) => n + 1)
+  }, [liveUrl])
+  return [state, recheck]
 }

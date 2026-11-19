@@ -13,7 +13,7 @@
 // - FreeRoamUnavailable: a page a visitor cannot use here (the admin pages, the dev environment): one line.
 import clsx from 'clsx'
 import { CirclePause } from 'lucide-react'
-import { useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import type { DemoInfo } from '@mycel/shared/api'
 import { useT, type MessageKey } from '../../i18n'
@@ -37,6 +37,18 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
   const meter = demoMeter(info.used, info.cap)
   const person = personOf(info)
   const chips = out || meter.out ? [] : freeRoamSuggestions(info, t)
+  // more chips past the row's right edge (a phone's row scrolls sideways): the edge fades until the end is reached
+  const chipRow = useRef<HTMLUListElement>(null)
+  const [more, setMore] = useState(false)
+  const edge = useCallback(() => {
+    const el = chipRow.current
+    setMore(!!el && el.scrollWidth - el.scrollLeft - el.clientWidth > 2)
+  }, [])
+  useEffect(() => {
+    edge()
+    window.addEventListener('resize', edge)
+    return () => window.removeEventListener('resize', edge)
+  }, [edge, chips.length])
   const ask = async (text: string) => {
     if (sending || !me) return
     setSending(text)
@@ -57,7 +69,8 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
       {chips.length > 0 && (
         // phones: one row that scrolls sideways (never a second and third row of chips); hidden while the keyboard is up,
         // so the message box keeps the room
-        <ul aria-label={t('demo.free.tryLabel')} className="scroll-thin -mx-1 flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1 py-0.5 in-[.keyboard-open]:hidden max-md:order-2 md:flex-wrap md:overflow-visible" data-testid="free-roam-chips">
+        // the edge fades while more chips are past it (a phone's row cut at the edge read as the end of the list)
+        <ul ref={chipRow} onScroll={edge} aria-label={t('demo.free.tryLabel')} data-more={more || undefined} className="scroll-thin -mx-1 flex min-w-0 flex-1 gap-1.5 overflow-x-auto px-1 py-0.5 in-[.keyboard-open]:hidden max-md:order-2 max-md:data-more:[mask-image:linear-gradient(to_right,#000_calc(100%-2.5rem),transparent)] md:flex-wrap md:overflow-visible" data-testid="free-roam-chips">
           {chips.map((c) => (
             <li key={c.label} className="shrink-0">
               <button
@@ -83,12 +96,13 @@ export function FreeRoamBar({ info }: { info: DemoInfo }) {
   )
 }
 
-/** "Start free" (the demo file's sign-up address, a new tab); none when the demo names none */
-function StartFree({ info, size }: { info: DemoInfo; size?: 'sm' | 'md' }) {
+/** "Start free" (the demo file's sign-up address, a new tab); none when the demo names none. `first`: the dialog starts
+ * on it (the Modal's [data-autofocus]), so the sheet opens on its one action, not on ✕ with its tooltip */
+function StartFree({ info, size, first }: { info: DemoInfo; size?: 'sm' | 'md'; first?: boolean }) {
   const t = useT()
   if (!info.signupUrl) return null
   return (
-    <LinkButton variant="primary" size={size} href={info.signupUrl} data-testid="free-roam-start-free">
+    <LinkButton variant="primary" size={size} href={info.signupUrl} data-autofocus={first || undefined} data-testid="free-roam-start-free">
       {t('demo.free.limit.start')}
     </LinkButton>
   )
@@ -109,8 +123,9 @@ export function DemoLimitDialog() {
       width={440}
       footer={(
         <>
-          <Button onClick={close} data-testid="free-roam-look-around">{t('demo.free.limit.look')}</Button>
-          <StartFree info={info} />
+          {/* no sign-up address: Look around is the one action, and the dialog starts on it */}
+          <Button onClick={close} data-autofocus={info.signupUrl ? undefined : true} data-testid="free-roam-look-around">{t('demo.free.limit.look')}</Button>
+          <StartFree info={info} first />
         </>
       )}
     >

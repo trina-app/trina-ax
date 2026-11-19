@@ -11,6 +11,7 @@
 // caps of "Trina history by project"), with one line that says what is filtered and a way back.
 import { isGuestMe } from '../../lib/guests'
 import { useMe } from '../../store/session'
+import { useFreeRoam } from '../../store/demo'
 import { BookMarked, CalendarClock, Search, X } from 'lucide-react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
@@ -38,6 +39,8 @@ const GROUP_CAPS = { projects: 5, rows: 3 }
 export function TrinaPanel() {
   const t = useT()
   const guest = isGuestMe(useMe())
+  // a free-roam demo: no scheduled tasks (server/src/demo/guard.ts refuses them as background work)
+  const freeRoam = useFreeRoam()
   const waiting = useSkillsWaiting(!guest)
   const navigate = useNavigate()
   const setSearchOpen = useUi((s) => s.setSearchOpen)
@@ -63,9 +66,11 @@ export function TrinaPanel() {
           {/* scheduled tasks and the team's skills: not a guest's (components/GuestView.tsx) */}
           {!guest && (
             <>
-              <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
-                <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
-              </NavLink>
+              {!freeRoam && (
+                <NavLink to="/scheduled" className={panelRowActive} data-testid="nav-scheduled">
+                  <CalendarClock size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.scheduled')}</span>
+                </NavLink>
+              )}
               <NavLink to="/skills" className={panelRowActive} data-testid="nav-skills">
                 <BookMarked size={16} className="text-muted" aria-hidden /> <span className="truncate">{t('sidebar.skills')}</span>
                 {waiting > 0 && <CountPill text={badgeText(waiting)} label={t('skills.waitingReview', { n: waiting })} className="ml-auto" testId="nav-skills-count" />}

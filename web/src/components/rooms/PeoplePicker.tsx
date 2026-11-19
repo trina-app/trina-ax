@@ -26,6 +26,7 @@ import { GuestInviteFlow } from '../GuestInviteChoice'
 import { GuestTagFor } from '../GuestTag'
 import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
+import { useFreeRoam } from '../../store/demo'
 import { useRoomTitle } from './RoomIcon'
 import { isPrivateChannel } from '../../lib/rooms'
 
@@ -97,9 +98,11 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const [guestInvite, setGuestInvite] = useState(false)
   // a guest picked here is in another group chat already (409 guest_one_place): said under their row (or over the list)
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
-  const mayInviteGuest = !!room && room.kind === 'group' && !isGuestMe(me)
+  // a free-roam demo: no guest invites (server/src/demo/guard.ts refuses them)
+  const freeRoam = useFreeRoam()
+  const mayInviteGuest = !freeRoam && !!room && room.kind === 'group' && !isGuestMe(me)
   // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
-  const mayInviteGuestAnywhere = !inviting && !isGuestMe(me)
+  const mayInviteGuestAnywhere = !freeRoam && !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()
 
   // who may be picked: active people (the directory has no one else), never me, never someone already in the room

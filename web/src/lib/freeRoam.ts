@@ -84,8 +84,13 @@ export function demoAnswerKey(err: Pick<ApiErrorBody, 'params'> | null | undefin
 }
 
 /** Settings sections a free-roam visitor never sees: which AI account answers and how much it used (usage, AI
- * providers), the outside AI apps' page (the server's own connection details) and the dev environment's sites. */
-export const FREE_ROAM_HIDDEN_SETTINGS: ReadonlySet<string> = new Set(['usage', 'providers', 'ai-apps', 'dev-env-sites'])
+ * providers), the outside AI apps' page (the server's own connection details), the dev environment's sites, Security &
+ * devices (the password and the signed-in devices: the account is the demo's, server/src/demo/guard.ts refuses both) and
+ * Apps (the phone and computer apps connect to a team's address; a demo instance has none to give). */
+export const FREE_ROAM_HIDDEN_SETTINGS: ReadonlySet<string> = new Set(['usage', 'providers', 'ai-apps', 'dev-env-sites', 'security', 'apps'])
+/** pages under a Settings section a free-roam visitor never opens, even by address: deleting the demo's account, the
+ * password and the devices (the server refuses each) */
+export const FREE_ROAM_HIDDEN_PAGES: ReadonlySet<string> = new Set(['account-delete', 'security-password', 'security-devices'])
 
 /** "Continue as {name}" on the sign-in page: demo-gate signs the visitor back in as the demo's person on their own
  * instance (POST /__demo/resume, same origin); anything but a 2xx goes to its start instead (GET /__demo/start, which

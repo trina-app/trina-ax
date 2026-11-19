@@ -275,8 +275,8 @@ function Overlay({ server, signupUrl, liveUrl }: { server: DemoServer; signupUrl
   const end = e.endShown
   // the story's end: "Now try it yourself" while the live demo can take a visitor (web/demo/live.ts), read once it shows
   const liveEnd = server.script.end.live ? { ...server.script.end.live, url: liveUrl || server.script.end.live.url } : undefined
-  const liveState = useLiveDemo(liveEnd?.url ?? null, end)
-  const endLinks: EndLinks = { signup: { label: server.script.end.signup.label, url: signupUrl }, live: liveEnd, state: liveState }
+  const [liveState, recheckLive] = useLiveDemo(liveEnd?.url ?? null, end)
+  const endLinks: EndLinks = { signup: { label: server.script.end.signup.label, url: signupUrl }, live: liveEnd, state: liveState, onRetry: recheckLive }
   const here = !!step && atPlace(server, step.go, path)
   // in the room of a side-chat step with the side chat closed: the line already says the step (✦ is ringed)
   const inSideRoom = !!step && step.go !== 'home' && 'side' in step.go && path.startsWith(`/rooms/${server.idOf('room', step.go.side)}`)

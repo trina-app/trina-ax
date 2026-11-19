@@ -34,13 +34,16 @@ const START = './'
 // the page breaks no rule of the CSP it is served with (test/demo/serve.ts DEMO_CSP): a blocked load is a failure
 const blocked = new WeakMap<Page, string[]>()
 const LIVE_OK = process.env.DEMO_LIVE === 'available'
+/** how often the gate's status was asked (the busy line's Try again asks again) */
+const statusAsks = new Map<Page, number>()
 test.beforeEach(async ({ page }) => {
   const list: string[] = []
   blocked.set(page, list)
   page.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) list.push(m.text()) })
   // the live demo after the story (web/demo/live.ts) is never asked for real here: busy, so the end keeps the plans
   // link alone; DEMO_LIVE=available walks the other state (both: test/unit/demo-live-end.test.tsx)
-  await page.route('https://demo.trina.app/**', (r) => r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, json: { available: LIVE_OK } }))
+  statusAsks.set(page, 0)
+  await page.route('https://demo.trina.app/**', (r) => { statusAsks.set(page, (statusAsks.get(page) ?? 0) + 1); return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, json: { available: LIVE_OK } }) })
 })
 test.afterEach(({ page }) => { expect(blocked.get(page) ?? []).toEqual([]) })
 
@@ -215,6 +218,13 @@ for (const { branch, byGuide } of runs) {
     } else {
       if (script.end.live) await expect(page.getByTestId('demo-live-busy')).toHaveText(script.end.live.busy)
       await expect(page.getByTestId('demo-try-live')).toHaveCount(0)
+      // the busy line's small Try again asks the gate once more (still busy here)
+      if (script.end.live?.retry) {
+        const before = statusAsks.get(page) ?? 0
+        await page.getByTestId('demo-live-retry').click()
+        await expect.poll(() => statusAsks.get(page) ?? 0).toBe(before + 1)
+        await expect(page.getByTestId('demo-live-busy')).toHaveText(script.end.live.busy)
+      }
     }
     await shot(page, `${branch}-9-end`)
     // no card of the demo's own anywhere

@@ -4232,6 +4232,8 @@ export const es: Record<MessageKey, string> = {
   "demo.free.fenced": "No disponible en la demostración",
   "demo.free.devEnv": "El entorno de desarrollo no está disponible en la demostración.",
   "demo.free.continue": "Continuar como {name}",
+  "demo.free.profileFixed": "Su nombre y su correo son los de la demo y no se pueden cambiar.",
+  "demo.free.connectors": "Estos servicios están conectados para la demo. Aquí no se pueden conectar otros nuevos.",
   "welcome.files.who": "Solo {team} ve los archivos que suba aquí · Cada chat lo ve solo quien lo escribe",
   "welcome.files.whoCount": "Solo {n, plural, one {# persona} other {# personas}} de {team} ven los archivos que suba aquí · Cada chat lo ve solo quien lo escribe",
   "welcome.files.whoAlone": "Por ahora solo usted ve los archivos que suba aquí · Invite a su equipo y todos en {team} los verán",

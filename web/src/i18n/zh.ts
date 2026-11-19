@@ -4219,6 +4219,8 @@ export const zh: Record<MessageKey, string> = {
   "demo.free.fenced": "演示中不可用",
   "demo.free.devEnv": "演示中无法使用开发环境。",
   "demo.free.continue": "以{name}的身份继续",
+  "demo.free.profileFixed": "姓名和邮箱属于演示账号，无法更改。",
+  "demo.free.connectors": "这些服务已为演示连接好。演示中无法连接新的服务。",
   "welcome.files.who": "只有{team}能看到你在这里添加的文件 · 对话仅对各自本人可见",
   "welcome.files.whoCount": "只有{team}（{n, plural, one {#人} other {#人}}）能看到你在这里添加的文件 · 对话仅对各自本人可见",
   "welcome.files.whoAlone": "目前只有你能看到你在这里添加的文件 · 邀请团队成员后，{team}的所有人都能看到",

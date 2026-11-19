@@ -4,7 +4,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { useLocaleStore } from '../../src/i18n'
 import { EndLineLinks, EndPopupBusy, EndPopupButtons, type EndLinks } from '../../demo/end'
-import { liveAvailable, statusUrl } from '../../demo/live'
+import { liveAvailable, statusUrl, useLiveDemo } from '../../demo/live'
 import { en as minaEn } from '../../../scripts/demo/mina/strings/en'
 import { es as minaEs } from '../../../scripts/demo/mina/strings/es'
 import { id as minaId } from '../../../scripts/demo/mina/strings/id'
@@ -13,7 +13,7 @@ import { ko as minaKo } from '../../../scripts/demo/mina/strings/ko'
 import { zh as minaZh } from '../../../scripts/demo/mina/strings/zh'
 import { installDom, mount, removeDom } from './dom-host'
 
-const LIVE = { label: 'Now try it yourself', busy: 'The live demo is busy right now', url: 'https://demo.trina.app/?lang=en' }
+const LIVE = { label: 'Now try it yourself', busy: 'The live demo is busy right now', retry: 'Try again', url: 'https://demo.trina.app/?lang=en' }
 const SIGNUP = { label: 'See plans', url: 'https://ax.trina.app/pricing' }
 const links = (state: EndLinks['state']): EndLinks => ({ signup: SIGNUP, live: LIVE, state })
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -127,4 +127,45 @@ test('the story: every language has the button and the busy line (the address wi
   }
   // translated, not left in English
   for (const s of [minaKo, minaJa, minaEs, minaId, minaZh]) expect(s.end.tryLive).not.toBe(minaEn.end.tryLive)
+})
+
+describe('"Try again" after the busy line', () => {
+  test('the end line and the popup: a small Try again that reads the gate\'s status again', async () => {
+    let asked = 0
+    const m = await mount(<><EndLineLinks {...links('busy')} onRetry={() => asked++} /><EndPopupBusy {...links('busy')} onRetry={() => asked++} /></>)
+    try {
+      expect(m.get('demo-live-busy').textContent).toBe('The live demo is busy right now')
+      expect(m.get('demo-live-retry').textContent).toBe('Try again')
+      await m.click('demo-live-retry')
+      await m.click('demo-popup-live-retry')
+      expect(asked).toBe(2)
+    } finally { await m.unmount() }
+    // available, or no way to ask again: no Try again
+    const n = await mount(<><EndLineLinks {...links('available')} onRetry={() => asked++} /><EndLineLinks {...links('busy')} /></>)
+    try { expect(n.find('demo-live-retry')).toBeNull() } finally { await n.unmount() }
+  })
+
+  test('useLiveDemo: busy, then Try again asks the gate again and offers the live demo once it can take a visitor', async () => {
+    const answers = [false, true]
+    let calls = 0
+    const fake = (async () => { calls++; return json(200, { available: answers.shift() ?? false }) }) as unknown as typeof fetch
+    function Probe() {
+      const [state, recheck] = useLiveDemo(LIVE.url, true, { fetch: fake })
+      return <><p data-testid="state">{state}</p><EndLineLinks {...links(state)} onRetry={recheck} /></>
+    }
+    const m = await mount(<Probe />)
+    try {
+      await m.until(() => m.get('state').textContent === 'busy', 'busy')
+      expect(calls).toBe(1)
+      await m.click('demo-live-retry')
+      await m.until(() => m.get('state').textContent === 'available', 'available')
+      expect(calls).toBe(2)
+      expect(m.get('demo-try-live').getAttribute('href')).toBe(LIVE.url)
+    } finally { await m.unmount() }
+  })
+})
+
+test('every story language has the busy line\'s Try again', () => {
+  for (const s of [minaEn, minaKo, minaEs, minaId, minaJa, minaZh]) expect(s.end.liveRetry.trim().length).toBeGreaterThan(0)
+  expect(minaEn.end.liveRetry).toBe('Try again')
 })
