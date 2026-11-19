@@ -1,5 +1,6 @@
+import type { PhoneDictation } from './dictation'
 import { PhotoPicks, PhotoRefused } from './photos'
-import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
+import { APPEARANCE_CAPABILITY, BADGE_CAPABILITY, CHANGE_TEAM_CAPABILITY, base64Size, DICTATION_CAPABILITY, MAX_FILE_BYTES, NAV_CAPABILITY, parseMessage, PHOTO_PICK_CAPABILITY, PUSH_CAPABILITY, PUSH_LABEL_CAPABILITY, PUSH_PERMISSION_CAPABILITY, PUSH_REGISTERED_CAPABILITY, pushPermission, sameTeam, SHARE_TEXT_CAPABILITY, TRANSFER_IDLE_MS, validPicks, validPushToken, type DictationEvent, type FileMessage, type MobileConfig, type MobileReply, type PushPermission, type PushToken } from './protocol'
 export interface TransferIO {
   create(id: string, name: string, mime: string): Promise<void>
   append(id: string, b64: string): Promise<void>
@@ -142,6 +143,12 @@ export function replyScript(reply: MobileReply, bootstrap = ''): string {
   return `if(window.top===window.self&&window.mycelMobile&&window.mycelMobile.nonce===${JSON.stringify(reply.nonce)}){${bootstrap}window.dispatchEvent(new CustomEvent('mycel:mobile',{detail:${JSON.stringify(reply)}}));}true;`
 }
 
+/** The script that hands a dictation event (dictation-v1: the words of a recording on the phone) to the page: only to
+ * the document whose bridge started it (its nonce), like replyScript. */
+export function dictationEventScript(e: DictationEvent): string {
+  return `if(window.top===window.self&&window.mycelMobile&&window.mycelMobile.nonce===${JSON.stringify(e.nonce)}){window.dispatchEvent(new CustomEvent('mycel:mobile-dictation',{detail:${JSON.stringify(e)}}));}true;`
+}
+
 /** True at most once per `ms`: open-settings, so a page cannot keep sending the person to the phone's Settings. */
 export function onceEvery(ms: number, now: () => number = Date.now): () => boolean {
   let last = -Infinity
@@ -168,9 +175,9 @@ export interface PageNav { canGoBack: boolean; home: boolean }
  * (photo-pick-v1): the phone's photo picker and the picked files' bytes, fenced with the file transfers. */
 export class MobileReceiver {
   private enabled = true
-  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks, private changeTeam?: () => void) {}
+  constructor(readonly origin: string, public config: MobileConfig, private files: FileTransfers, private external: (url: string) => Promise<void>, private push?: PushBridge, private appearance?: (look: { dark: boolean; system: boolean }) => void, private nav?: (nav: PageNav) => void, private share?: (text: string) => Promise<void>, private photos?: PhotoPicks, private changeTeam?: () => void, private dictation?: PhoneDictation) {}
   private changeTeamOnce = onceEvery(3000)
-  private async fence() { await this.files.clear(); await this.photos?.clear() }
+  private async fence() { this.dictation?.clear(); await this.files.clear(); await this.photos?.clear() }
   /** The bridge is on and a photo pick is under way (the picker on screen, or its bytes not all fetched yet). */
   get picking(): boolean { return this.enabled && !!this.photos?.busy }
   async disable() { this.enabled = false; this.config = { ...this.config, generation: this.config.generation + 1 }; await this.fence() }
@@ -180,6 +187,11 @@ export class MobileReceiver {
     const m = parseMessage(raw), current = this.config
     if (!m || m.generation !== current.generation || m.nonce !== current.nonce) return null
     const reply: MobileReply = { v: 1, type: 'mobile-result', id: m.id, nonce: m.nonce, generation: m.generation, for: m.type, ok: true, ...('seq' in m ? { seq: m.seq } : {}) }
+    // dictation-v1's sound: in order, never answered (about ten a second)
+    if (m.type === 'dictation-push') {
+      if (this.dictation && current.capabilities.includes(DICTATION_CAPABILITY)) this.dictation.push({ id: m.id, nonce: m.nonce, generation: m.generation }, m.seq, m.b64)
+      return null
+    }
     if (m.type === 'session-reset') {
       // Fence old work synchronously, before the first await.
       this.config = { ...current, generation: current.generation + 1 }
@@ -239,6 +251,19 @@ export class MobileReceiver {
           reply.files = picks.files; reply.tooBig = picks.tooBig
         } else if (m.type === 'photo-chunk') reply.b64 = await this.photos.chunk({ ...owner, seq: m.seq, index: m.index, offset: m.offset })
         else await this.photos.done(owner)
+      } else if (m.type === 'dictation-check' || m.type === 'dictation-install' || m.type === 'dictation-start' || m.type === 'dictation-stop' || m.type === 'dictation-cancel') {
+        if (!this.dictation || !current.capabilities.includes(DICTATION_CAPABILITY)) throw new Error('unsupported')
+        const owner = { id: m.id, nonce: m.nonce, generation: m.generation }
+        if (m.type === 'dictation-check') {
+          const c = await this.dictation.checkDetail(m.language, { nonce: m.nonce, appMic: m.appMic === true })
+          reply.dictation = c.state
+          // Android: the recognizer holds the microphone, and whether it is on the phone
+          if (c.micInApp) { reply.dictationMic = 'app'; reply.dictationOnDevice = c.onDevice !== false }
+        }
+        else if (m.type === 'dictation-install') reply.installed = await this.dictation.install(owner, m.language)
+        else if (m.type === 'dictation-start') reply.started = await this.dictation.start(owner, m.language)
+        else if (m.type === 'dictation-stop') this.dictation.stop(owner)
+        else this.dictation.cancel(owner)
       } else await this.files.receive(m)
     } catch (error) { reply.ok = false; reply.error = error instanceof PushRefused || error instanceof PhotoRefused ? error.code : 'mobile_operation_failed' }
     return this.enabled && this.config === current ? reply : null
