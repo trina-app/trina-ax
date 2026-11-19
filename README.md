@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>Then press ☆ Star at the top of the page. A star helps more teams find Trina AX.</sub></p>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Set up once. Your whole team gets it.
 
 **One AI account for the whole team.** Connect one Claude or OpenAI API key, or a plan whose terms allow it, and everyone asks with it, with token limits per person, group or team.
@@ -48,6 +52,10 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 </tr>
 </table>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## What everyone does with it
 
 **Ask beside any room, send in one click.** A side chat only you see; one click sends Trina's answer into the room.
@@ -70,11 +78,11 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 <td width="50%"><b>Guests.</b> Invite people outside the company into a group chat or project, and choose whether they can use the AI.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="The Launch email group chat with Morgan Reyes, a guest from an agency: subject line options, a mention and Trina's answer"></td>
 </tr>
 <tr>
-<td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/site/images/usage/team.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
+<td width="50%"><b>Usage and limits.</b> Answers, tokens and estimated cost per person; token limits per person, group or team.<br><br><img src="docs/images/readme/v4/usage.webp" alt="The admin usage page: tokens, answers and estimated cost per person"></td>
 <td width="50%"><b>Search everything.</b> ⌘K across chats, history, projects, files, skills and scheduled tasks.<br><br><img src="docs/site/images/search/palette.webp" alt="The ⌘K search over chats, history, projects, files, skills and scheduled tasks"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Team chat, like Slack.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Ask Trina beside any of them, in a side chat only you see.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, an answer sent to the channel, and a thread open on the right"></td>
+<td colspan="2"><b>Team chat like Slack, but with Trina AI.</b> Channels for everyone and each group, private channels, direct messages, group chats, threads and @mentions, on the web, desktop and phone. Ask Trina beside any of them, in a side chat only you see.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="The Marketing channel in the team chat: channels and direct messages on the left, reactions and @mentions, an answer sent to the channel, and a thread open on the right"></td>
 </tr>
 </table>
 
@@ -84,6 +92,10 @@ One person sets things up on the team server. Everyone's AI has it from their fi
 - **Find work files.** The desktop app finds recent work files on your computer and adds the ones you pick.
 - **Documents.** Reads Hangul (HWP/HWPX) text; previews PDF and PowerPoint.
 - **Every device.** Mac, Windows, Linux, iPhone, Android and any browser, in six languages.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## Get started
 
@@ -110,6 +122,10 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Needs Bun 1.3.12 and Go 1.27+. Not a production install. [Walkthrough](docs/QUICKSTART.md)
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## How it works
 
 One server runs Claude Code and Codex as the engine. Every file request, from a person or their AI, goes through one permission check on the server. On a Linux server the engine runs as its own account inside a bubblewrap, Landlock and seccomp sandbox, with its shell and built-in file tools turned off: it reaches files only through Trina's tools. [Security and permissions](docs/security-and-permissions.md)
@@ -132,6 +148,10 @@ Trina provides the workspace, not the AI: connect Claude or OpenAI accounts and 
 
 </details>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Community
 
 If Trina AX helps your team, a ⭐ on GitHub helps other teams find it.
@@ -139,6 +159,10 @@ If Trina AX helps your team, a ⭐ on GitHub helps other teams find it.
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Releases](https://github.com/trina-app/trina-ax/releases/latest) · [Changes](CHANGELOG.md) · [Support](SUPPORT.md) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Development](docs/DEVELOPMENT.md) · [Configuration](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
 The app speaks English, Korean, Indonesian, Japanese, Spanish and Simplified Chinese. Fictional company and people in every picture.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## License
 

@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Después pulsa ☆ Star arriba de la página. Una estrella ayuda a que más equipos encuentren Trina AX.</sub></p>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Se configura una vez. Lo usa todo tu equipo.
 
 **Una sola cuenta de IA para todo el equipo.** Conecta una clave de API de Claude u OpenAI, o un plan cuyas condiciones lo permitan, y todo el equipo pregunta con ella, con límites de tokens por persona, grupo o equipo.
@@ -48,6 +52,10 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 </tr>
 </table>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Lo que hace cada uno con ello
 
 **Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú; con un clic, la respuesta de Trina llega a la conversación.
@@ -70,11 +78,11 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 <td width="50%"><b>Invitados.</b> Invita a personas de fuera de la empresa a un chat de grupo o a un proyecto, y decide si pueden usar la IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="El chat de grupo Launch email con Morgan Reyes, invitado de una agencia: opciones de asunto, una mención y la respuesta de Trina"></td>
 </tr>
 <tr>
-<td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona; límites de tokens por persona, grupo o equipo.<br><br><img src="docs/site/images/usage/team.webp" alt="La página de uso del admin: tokens, respuestas y coste estimado por persona"></td>
+<td width="50%"><b>Uso y límites.</b> Respuestas, tokens y coste estimado por persona; límites de tokens por persona, grupo o equipo.<br><br><img src="docs/images/readme/v4/usage.webp" alt="La página de uso del admin: tokens, respuestas y coste estimado por persona"></td>
 <td width="50%"><b>Busca en todo.</b> ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas.<br><br><img src="docs/site/images/search/palette.webp" alt="La búsqueda ⌘K en chats, historial, proyectos, archivos, skills y tareas programadas"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Chat de equipo, como Slack.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Pregunta a Trina junto a cualquiera de ellas, en un chat lateral que solo ves tú.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, una respuesta enviada al canal y un hilo abierto a la derecha"></td>
+<td colspan="2"><b>Chat de equipo como Slack, pero con Trina AI.</b> Canales para todos y para cada grupo, canales privados, mensajes directos, chats de grupo, hilos y @menciones, en la web, el escritorio y el móvil. Pregunta a Trina junto a cualquiera de ellas, en un chat lateral que solo ves tú.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="El canal Marketing del chat del equipo: canales y mensajes directos a la izquierda, reacciones y @menciones, una respuesta enviada al canal y un hilo abierto a la derecha"></td>
 </tr>
 </table>
 
@@ -85,6 +93,10 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 - **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
 - **Documentos.** Lee el texto de documentos hangul (HWP/HWPX) y previsualiza PDF y PowerPoint.
 - **En cualquier dispositivo.** Mac, Windows, Linux, iPhone, Android y cualquier navegador, en seis idiomas.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## Cómo empezar
 
@@ -111,6 +123,10 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Requiere Bun 1.3.12 y Go 1.27+. No es una instalación para producción. [Guía paso a paso](docs/QUICKSTART.md)
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Cómo funciona
 
 Un servidor ejecuta Claude Code y Codex como motor. Cada petición de archivos, de una persona o de su IA, pasa por una única comprobación de permisos en el servidor. En un servidor Linux, el motor corre con su propia cuenta dentro de un sandbox de bubblewrap, Landlock y seccomp, con su shell y sus herramientas de archivos integradas desactivadas: solo llega a los archivos con las herramientas de Trina. [Seguridad y permisos](docs/security-and-permissions.md)
@@ -133,6 +149,10 @@ Trina ofrece el espacio de trabajo, no la IA: conecta cuentas y planes de Claude
 
 </details>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## Comunidad
 
 Si Trina AX le sirve a tu equipo, una ⭐ en GitHub ayuda a que otros equipos lo encuentren.
@@ -140,6 +160,10 @@ Si Trina AX le sirve a tu equipo, una ⭐ en GitHub ayuda a que otros equipos lo
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [Versiones](https://github.com/trina-app/trina-ax/releases/latest) · [Cambios](CHANGELOG.md) · [Soporte](SUPPORT.md) · [Cómo contribuir](CONTRIBUTING.md) · [Seguridad](SECURITY.md) · [Desarrollo](docs/DEVELOPMENT.md) · [Configuración](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
 La app está en inglés, coreano, indonesio, japonés, español y chino simplificado. La empresa y las personas de todas las imágenes son ficticias.
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## Licencia
 

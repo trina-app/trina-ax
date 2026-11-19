@@ -20,6 +20,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
 <p align="center"><sub>同じ Claude、同じ依頼、違う結果。97秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ja.png" height="44" alt="GitHub で Trina AX にスター"></a><br><sub>そのあと、ページ上部の ☆ Star を押してください。スターがあると、より多くのチームが Trina AX を見つけやすくなります。</sub></p>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## 設定は一度だけ。チーム全員が使える。
 
 **AI アカウント1つでチーム全員が使える。** Claude か OpenAI の API キーを1つ（または規約上許されるプランを）接続すれば、チーム全員がそれで質問できます。トークン上限は人、グループ、チームごとに設定できます。
@@ -48,6 +52,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 </tr>
 </table>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## みんなでできること
 
 **どのトークの横でも聞けて、ワンクリックで送れる。** 自分にだけ見えるサイドチャットで聞いて、ワンクリックで Trina の回答をトークに送れます。
@@ -70,11 +78,11 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 <td width="50%"><b>ゲスト。</b> 社外の人をグループトークやプロジェクトに招待し、AI を使えるかどうかを決められます。<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="代理店のゲスト Morgan Reyes がいる Launch email グループトーク：件名の案、メンション、Trina の回答"></td>
 </tr>
 <tr>
-<td width="50%"><b>使用量と上限。</b> 人ごとの回答数、トークン、推定コスト。トークン上限は人、グループ、チームごとに。<br><br><img src="docs/site/images/usage/team.webp" alt="管理者の使用量画面：人ごとのトークン、回答数、推定コスト"></td>
+<td width="50%"><b>使用量と上限。</b> 人ごとの回答数、トークン、推定コスト。トークン上限は人、グループ、チームごとに。<br><br><img src="docs/images/readme/v4/usage.webp" alt="管理者の使用量画面：人ごとのトークン、回答数、推定コスト"></td>
 <td width="50%"><b>すべてを検索。</b> ⌘K でチャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探せます。<br><br><img src="docs/site/images/search/palette.webp" alt="チャット、履歴、プロジェクト、ファイル、スキル、予約タスクを探す ⌘K 検索"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Slack のようなチームチャット。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークでも、横の自分だけに見えるチャットで Trina に聞けます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた回答、右に開いたスレッド"></td>
+<td colspan="2"><b>Slack のようなチームチャットに、Trina AI 付き。</b> 全員・グループのチャンネル、非公開チャンネル、DM、グループトーク、スレッド、@メンション。Web、デスクトップ、スマホで使えて、どのトークでも、横の自分だけに見えるチャットで Trina に聞けます。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="チームチャットの Marketing チャンネル：左にチャンネルと DM、リアクションと @メンション、チャンネルに送られた回答、右に開いたスレッド"></td>
 </tr>
 </table>
 
@@ -85,6 +93,10 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **仕事のファイルを探す。** デスクトップアプリが手元のパソコンから最近の仕事のファイルを見つけ、選んだものだけ追加します。
 - **ドキュメント。** ハングル（HWP/HWPX）の本文を読み、PDF と PowerPoint をプレビューできます。
 - **どの端末でも。** Mac、Windows、Linux、iPhone、Android、そしてどのブラウザーからでも。6つの言語で。
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## はじめる
 
@@ -111,6 +123,10 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 Bun 1.3.12 と Go 1.27 以上が必要です。本番環境向けのインストールではありません。[詳しい手順](docs/QUICKSTART.md)
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## しくみ
 
 1台のサーバーで Claude Code と Codex がエンジンとして動きます。人でもその人の AI でも、ファイルへのリクエストはすべてサーバーの1つの権限チェックを通ります。Linux サーバーでは、エンジンは専用アカウントで bubblewrap、Landlock、seccomp のサンドボックス内で動きます。シェルと組み込みのファイルツールはオフなので、ファイルは Trina のツール経由でしか開けません。[セキュリティと権限](docs/security-and-permissions.md)
@@ -133,6 +149,10 @@ Trina が提供するのはワークスペースで、AI そのものではあ�
 
 </details>
 
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
+
 ## コミュニティ
 
 Trina AX がチームの役に立ったら、⭐ で応援してください。ほかのチームが見つけやすくなります。
@@ -140,6 +160,10 @@ Trina AX がチームの役に立ったら、⭐ で応援してください。�
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [リリース](https://github.com/trina-app/trina-ax/releases/latest) · [変更履歴](CHANGELOG.md) · [サポート](SUPPORT.md) · [貢献ガイド](CONTRIBUTING.md) · [セキュリティ](SECURITY.md) · [開発](docs/DEVELOPMENT.md) · [設定](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
 アプリは英語、韓国語、インドネシア語、日本語、スペイン語、簡体字中国語に対応しています。画像に出てくる会社と人物はすべて架空です。
+
+<br>
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
 ## ライセンス
 
