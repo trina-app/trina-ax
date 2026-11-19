@@ -17,7 +17,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>If Trina AX could help your team, a star helps more teams find it.</sub></p>
+<p align="center"><sub>Same Claude, same request, different result. The 97-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>Then press ☆ Star at the top of the page. A star helps more teams find Trina AX.</sub></p>
 
 ## Set up once. Your whole team gets it.
 
