@@ -535,12 +535,13 @@ describe('handleEvent', () => {
     const b = room({ name: 'acme-b', kind: 'group', unreadCount: 1, lastSeq: 1 })
     useRooms.setState({ rooms: [a, b], loaded: true })
     const get = () => useRooms.getState().rooms.find((r) => r.id === a.id)!
-    expect(totalUnread(useRooms.getState().rooms)).toBe(4)
+    // (a followed thread's reply is not on the row: QA TC-5363)
+    expect(totalUnread(useRooms.getState().rooms)).toBe(3)
     // the room read there: its messages; the "@" stays while the followed thread that mentions me has news (the server says so)
     useRooms.getState().handleEvent({ type: 'room.read', seq: 1, at: Date.now(), data: { roomId: a.id, lastReadSeq: 4, unreadCount: 0, mentioned: true } })
     expect(get()).toMatchObject({ unreadCount: 0, lastReadSeq: 4, mentioned: true, threadsUnread: 1 })
     expect(roomBadge(get())).toBe('@')
-    expect(totalUnread(useRooms.getState().rooms)).toBe(2)
+    expect(totalUnread(useRooms.getState().rooms)).toBe(1)
     // then the thread read there: my room as the server sees it now, and the thread's summary
     useRooms.getState().handleEvent({ type: 'room.updated', seq: 2, at: Date.now(), data: { roomId: a.id, change: 'updated', room: { ...get(), threadsUnread: 0, nextThreadId: null, mentioned: false } } })
     useRooms.getState().handleEvent({ type: 'room.thread', seq: 3, at: Date.now(), data: { roomId: a.id, rootId: root, thread: { replyCount: 1, lastReplyAt: at(3), repliers: [BEN], newReplies: false } } })

@@ -4,7 +4,7 @@
 // count n (the tab title, the Dock, the phone icon) and its dot.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Room } from '@mycel/shared/api'
-import { attentionCount, roomCounts, roomLightsDot, roomWantsMe } from '@mycel/shared/api'
+import { attentionCount, roomCounts, roomLightsDot, roomNoticeWanted, roomWantsMe } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { roomBadge, totalUnread } from '../../src/lib/rooms'
 import { chatsMark, unreadRooms } from '../../src/components/rail/railBadges'
@@ -27,17 +27,46 @@ describe('roomCounts', () => {
   test('mentions only: a mention shows "@" and counts', () => {
     expect(roomCounts(quietChannel({ unreadCount: 4, mentioned: true }))).toEqual({ bold: true, mention: true, number: 4, quiet: false, counts: true })
   })
-  test('mentions only: a reply in a thread I follow keeps its own rule (it counts)', () => {
-    expect(roomCounts(quietChannel({ threadsUnread: 1 }))).toEqual({ bold: true, mention: false, number: 1, quiet: false, counts: true })
+  test('mentions only: a reply in a thread I follow adds nothing to the row (the room\'s thread mark shows it)', () => {
+    expect(roomCounts(quietChannel({ threadsUnread: 1 }))).toEqual({ bold: true, mention: false, number: 0, quiet: false, counts: false })
+  })
+  // QA TC-5363: a room read to its end with a followed thread's new reply left is not bold (Slack: the channel goes by
+  // its timeline), on every surface that reads roomCounts; a followed reply that mentions me still shows "@"
+  test('read to the end, a followed thread\'s reply left: not bold, no number, at every level', () => {
+    for (const r of [quietChannel({ unreadCount: 0, threadsUnread: 1 }), dmAll({ unreadCount: 0, threadsUnread: 2 }), muted({ unreadCount: 0, threadsUnread: 1 })]) {
+      expect(roomCounts(r)).toMatchObject({ bold: false, mention: false, number: 0, counts: false })
+    }
+    expect(roomBadge(dmAll({ unreadCount: 0, threadsUnread: 2 }))).toBe('')
+    expect(unreadRooms([dmAll({ unreadCount: 0, threadsUnread: 2 })])).toBe(0)
+  })
+  test('read to the end, a followed reply that mentions me left: "@", bold, counted', () => {
+    expect(roomCounts(quietChannel({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toEqual({ bold: true, mention: true, number: 0, quiet: false, counts: true })
+    expect(roomBadge(dmAll({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toBe('@')
+  })
+  test('a followed reply adds to no number (the one count n: tab title, Dock, phone icon) but still gets the desktop notice while its switch is on, and the dot', () => {
+    expect(roomWantsMe(dmAll({ unreadCount: 0, threadsUnread: 1 }))).toBe(false)
+    expect(attentionCount([], [dmAll({ unreadCount: 0, threadsUnread: 1 })])).toMatchObject({ n: 0, unread: true })
+    // one that mentions me counts, as its "@" shows on the row
+    expect(roomWantsMe(quietChannel({ unreadCount: 0, threadsUnread: 1, mentioned: true }))).toBe(true)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1 }))).toBe(true)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1 }), false)).toBe(false)
+    expect(roomNoticeWanted(muted({ unreadCount: 0, threadsUnread: 1 }))).toBe(false)
+    expect(roomNoticeWanted(dmAll({ unreadCount: 0, threadsUnread: 1, hidden: true }))).toBe(false)
+    expect(roomLightsDot(quietChannel({ unreadCount: 0, threadsUnread: 1 }))).toBe(true)
+  })
+  test('the one count n and the rows agree: a room wants me exactly when it counts on its row', () => {
+    for (const r of [quietChannel(), quietChannel({ mentioned: true }), quietChannel({ unreadCount: 0, threadsUnread: 2 }), dmAll(), dmAll({ unreadCount: 0, threadsUnread: 1 }), dmAll({ unreadCount: 0, threadsUnread: 1, mentioned: true }), muted(), muted({ mentioned: true })]) {
+      expect(roomWantsMe(r)).toBe(roomCounts(r).counts)
+    }
   })
   test('a team room at its default level is mentions only; DMs and group chats are all messages (an older server too)', () => {
     expect(roomCounts(room({ unreadCount: 3, notify: level('mentions', false) })).counts).toBe(false)
     expect(roomCounts(room({ kind: 'all', unreadCount: 3 })).counts).toBe(false)
     expect(roomCounts(room({ kind: 'group', unreadCount: 3 })).number).toBe(3)
   })
-  test('all messages: unchanged, every unread message', () => {
+  test('all messages: every unread message of the timeline (a followed reply is not one)', () => {
     expect(roomCounts(dmAll())).toEqual({ bold: true, mention: false, number: 2, quiet: false, counts: true })
-    expect(roomCounts(dmAll({ threadsUnread: 1 })).number).toBe(3)
+    expect(roomCounts(dmAll({ threadsUnread: 1 })).number).toBe(2)
   })
   test('off: grey number, never counted, a mention included', () => {
     expect(roomCounts(muted())).toEqual({ bold: true, mention: false, number: 5, quiet: true, counts: false })

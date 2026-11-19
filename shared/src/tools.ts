@@ -180,11 +180,15 @@ export const EditHwpInput = z.strictObject({
 })
 export const EditHwpOutput = z.object({ path: z.string(), size: z.number(), sha256: z.string(), conflictCopyOf: z.string().optional() })
 
-/** A page a model wrote as text ("1", " 3 ") is the number; "last" stays. The JSON schema stays number or "last". */
-const numericText = (v: unknown) => (typeof v === 'string' && /^\s*\d+\s*$/.test(v) ? Number(v) : v)
+/** Text a model wrote with its own quotes kept: Claude Code hands a top-level text argument over as the model typed it,
+ * so page "1" can arrive as the three characters "1" with the quotes in them (TC-5347, found with the real engine;
+ * inside an object or a list the model writes JSON and the text arrives clean, so edit_pdf never showed it). One pair of straight or curly quotes around the whole text is dropped. */
+const unquote = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/^(["'`\u201c\u2018\u300c])(.*)(["'`\u201d\u2019\u300d])$/s, '$2').trim() : v)
+/** A page a model wrote as text ("1", " 3 ", '"1"') is the number; "last" stays. The JSON schema stays number or "last". */
+const numericText = (v: unknown) => { const t = unquote(v); return typeof t === 'string' && /^\d+$/.test(t) ? Number(t) : t === 'last' ? 'last' : v }
 const pageNo = (min: number) => z.preprocess(numericText, z.union([z.number().int().min(min).max(100_000), z.literal('last')]))
-/** A page list: a bare number (3) is the list "3". */
-const pdfPages = z.preprocess((v) => (typeof v === 'number' && Number.isInteger(v) ? String(v) : v), z.string().min(1).max(500))
+/** A page list: a bare number (3) is the list "3"; quotes the model kept around the list are dropped. */
+const pdfPages = z.preprocess((v) => (typeof v === 'number' && Number.isInteger(v) ? String(v) : unquote(v)), z.string().min(1).max(500))
 /** stamp_pdf: an image (a seal, a signature, a logo) put on one page of an existing PDF, saved as a new file
  * (server/src/tools/stamp-pdf.ts, server/src/files/pdf-stamp.ts). */
 export const STAMP_POSITIONS = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'] as const

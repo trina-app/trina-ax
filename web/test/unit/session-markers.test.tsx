@@ -109,9 +109,9 @@ describe('the one count n', () => {
     const plain = room({ kind: 'team', unreadCount: 2 })
     expect(attentionCount([], [plain])).toEqual({ n: 0, ask: false, chats: 0, chatAsk: false, unread: true })
     expect(iconBadge(attentionCount([], [plain]))).toBe('dot')
-    // the everyone room at its default, and a followed reply with "replies in threads I follow" off: the dot too
+    // the everyone room at its default, and a followed thread's reply (no number: QA TC-5363): the dot too
     expect(attentionCount([], [room({ kind: 'all', unreadCount: 1 })])).toMatchObject({ n: 0, unread: true })
-    expect(attentionCount([], [room({ kind: 'team', threadsUnread: 1 })], { threadReplies: false })).toMatchObject({ n: 0, unread: true })
+    expect(attentionCount([], [room({ kind: 'team', threadsUnread: 1 })])).toMatchObject({ n: 0, unread: true })
     // a muted room (끄기, older servers: muted only), my default "nothing" (level off without a level of its own), a hidden room: no dot
     expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true })])).toMatchObject({ n: 0, unread: false })
     expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true, notify: { own: 'off', byDefault: 'mentions', level: 'off' } })])).toMatchObject({ n: 0, unread: false })
@@ -128,13 +128,13 @@ describe('the one count n', () => {
     expect(roomLightsDot(room({ kind: 'team' }))).toBe(false)
   })
 
-  test('a room wants me by my level for it (the server\'s notice rule): DMs and group chats by default, mentions, followed replies', () => {
+  test('a room wants me by my level for it: DMs and group chats by default, mentions (a followed reply only with a mention)', () => {
     expect(roomWantsMe(room({ kind: 'dm', unreadCount: 1 }))).toBe(true)
     expect(roomWantsMe(room({ kind: 'group', unreadCount: 1 }))).toBe(true)
     expect(roomWantsMe(room({ kind: 'team', unreadCount: 5 }))).toBe(false)
     expect(roomWantsMe(room({ kind: 'team', unreadCount: 5, mentioned: true }))).toBe(true)
-    expect(roomWantsMe(room({ kind: 'team', threadsUnread: 1 }))).toBe(true)
-    expect(roomWantsMe(room({ kind: 'team', threadsUnread: 1 }), false)).toBe(false)
+    expect(roomWantsMe(room({ kind: 'team', threadsUnread: 1 }))).toBe(false)
+    expect(roomWantsMe(room({ kind: 'team', threadsUnread: 1, mentioned: true }))).toBe(true)
     // the room's own level: 모든 메시지 for a team room, 끄기 for a DM (mentions included)
     expect(roomWantsMe(room({ kind: 'team', unreadCount: 2, notify: { own: 'all', byDefault: 'mentions', level: 'all' } }))).toBe(true)
     expect(roomWantsMe(room({ kind: 'dm', unreadCount: 2, mentioned: true, notify: { own: 'off', byDefault: 'all', level: 'off' } }))).toBe(false)
