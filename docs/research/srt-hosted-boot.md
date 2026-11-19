@@ -1,6 +1,7 @@
 # srt on hosted team servers: install at boot from the plan
 
-Status: on branch `image/srt-in-ami`, not in an AMI yet. For Dion. 2026-11-05.
+Status: built (2026-11-05), merged to dev in PR #73 (`image/srt-in-ami`); `scripts/image/customize.sh` installs these
+files when the image has srt. For Dion.
 
 ## What
 
