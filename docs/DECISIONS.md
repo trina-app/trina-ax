@@ -25800,8 +25800,8 @@ default.
 - **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
   no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
   while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
-  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
-  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, an info log line
+  `phone push decision` with why), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
   the computer's own notification are unchanged.
 - **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
   heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still
@@ -27566,9 +27566,9 @@ default" above: self-hosted operators may want to change the phone push address,
   most 512 bytes are read and it ends after 5 s; only ok or the reason comes back. Not pinned to the checked address
   (unlike the send): a re-pointed name learns nothing but "not a gateway", and sends keep their own pinned check.
 - **The operator wins.** When `MYCEL_PUSH_GATEWAY` or server.json `push.gatewayUrl` is set (an address or off), the row
-  shows the value, has no control, and one line says where it is set ("Set in the server's settings
-  (MYCEL_PUSH_GATEWAY), so it can't be changed here."). A save is refused (409, reason `locked`). AppConfig carries who
-  set it as `push.setBy`.
+  shows the value, has no control, and one plain line says so ("Set in your team server's settings, so it can't be
+  changed here."; since 2026-11-19 without the variable or file name, which meant nothing to the people reading it). A
+  save is refused (409, reason `locked`). AppConfig carries who set it as `push.setBy`.
 - **Stored and applied.** The choice is the `push.gateway` row of the `settings` table (Off or Custom; Default removes
   the row, so a later change of the edition default reaches the team). The push service reads it on every use, so a
   change applies without a restart. A changed address leaves old device rows unused as before (`nativeConfigKey`):

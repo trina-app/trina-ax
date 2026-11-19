@@ -255,15 +255,6 @@ describe('the language hint (the app\'s language)', () => {
     expect(hits[1]!.body.language).toBeUndefined()
     expect(leftovers()).toEqual([])
   })
-  test('meeting notes keep a 400 as a refusal (the hint retry is voice input\'s only)', async () => {
-    replies = [() => new Response('bad field', { status: 400 })]
-    const fd = new FormData()
-    fd.set('language', 'ko')
-    fd.set('file', new File([new Uint8Array(piece(2))], 'piece.wav'))
-    const r = await A.json('/api/meetings/piece', { method: 'POST', body: fd, as: 'alice' })
-    expect(r.status).toBeGreaterThanOrEqual(400)
-    expect(hits).toHaveLength(1)
-  })
 })
 
 describe('limits in normal speech', () => {

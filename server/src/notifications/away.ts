@@ -19,12 +19,20 @@ import { getPreferences } from './preferences'
 export type PhoneDecision = { kind: 'send' } | { kind: 'cancel' } | { kind: 'wait'; until: number }
 
 export function phoneDecision(ctx: AppContext, userId: string): PhoneDecision {
+  return decidePhone(ctx, userId).decision
+}
+
+/** phoneDecision with a few words on why, for the server's log line of each phone push (push-service.ts): what the
+ * server knew then ("computer idle 12m; no window open", "no computer report; window silent 3m"). Only states and
+ * rounded times, never what the notice says. */
+export function decidePhone(ctx: AppContext, userId: string): { decision: PhoneDecision; reason: string } {
   try {
-    if (getPreferences(ctx.db, userId).phoneWhen === 'always') return { kind: 'send' }
+    if (getPreferences(ctx.db, userId).phoneWhen === 'always') return { decision: { kind: 'send' }, reason: 'setting: always' }
     const p = presenceFor(ctx)
-    if (!p) return { kind: 'send' }
+    if (!p) return { decision: { kind: 'send' }, reason: 'no presence on this server' }
     const warm = p.warmingUntil()
-    if (warm !== null) return { kind: 'wait', until: warm }
-    return p.inUse(userId) ? { kind: 'cancel' } : { kind: 'send' }
-  } catch { return { kind: 'send' } }
+    if (warm !== null) return { decision: { kind: 'wait', until: warm }, reason: 'server just started' }
+    const u = p.phoneUse(userId)
+    return { decision: u.inUse ? { kind: 'cancel' } : { kind: 'send' }, reason: u.why }
+  } catch { return { decision: { kind: 'send' }, reason: 'presence check failed' } }
 }

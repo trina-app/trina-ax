@@ -232,13 +232,6 @@ const ko = {
   'ctx.cut': '잘라내기',
   'ctx.paste': '붙여넣기',
   'ctx.selectAll': '모두 선택',
-  'meeting.askTitle': '이 회의를 기록할까요?',
-  'meeting.askDetail': '{app}가 내 마이크와 통화 소리를 듣고 오간 말을 글로 적어요. 소리는 조금씩 팀의 음성 인식 서비스로 보내 글로 바꾸고, 남기지 않아요. 통화하는 사람들에게 기록 중이라고 알려 주세요.',
-  'meeting.start': '시작',
-  'meeting.cancel': '취소',
-  'meeting.tray': '회의 기록 중',
-  'meeting.trayStop': '회의 기록 멈추기',
-  'meeting.switchBusy': '회의 기록을 먼저 멈춰 주세요.',
 } as const
 
 export type UiKey = keyof typeof ko
@@ -465,13 +458,6 @@ const en: Strings = {
   'ctx.cut': 'Cut',
   'ctx.paste': 'Paste',
   'ctx.selectAll': 'Select All',
-  'meeting.askTitle': 'Take notes of this meeting?',
-  'meeting.askDetail': "{app} listens to your microphone and the sound of your call, and writes down what is said. Pieces of the sound go to your team's speech service to be turned into text, and are not kept. Let everyone in the call know you're taking notes.",
-  'meeting.start': 'Start',
-  'meeting.cancel': 'Cancel',
-  'meeting.tray': 'Taking meeting notes',
-  'meeting.trayStop': 'Stop meeting notes',
-  'meeting.switchBusy': 'Stop the meeting notes first.',
 }
 
 const id: Strings = {
@@ -695,13 +681,6 @@ const id: Strings = {
   'ctx.cut': 'Potong',
   'ctx.paste': 'Tempel',
   'ctx.selectAll': 'Pilih Semua',
-  'meeting.askTitle': 'Catat rapat ini?',
-  'meeting.askDetail': '{app} mendengarkan mikrofon Anda dan suara panggilan, lalu menuliskan apa yang diucapkan. Potongan suara dikirim ke layanan suara tim Anda untuk diubah menjadi teks, dan tidak disimpan. Beri tahu semua orang di panggilan bahwa Anda sedang mencatat.',
-  'meeting.start': 'Mulai',
-  'meeting.cancel': 'Batal',
-  'meeting.tray': 'Mencatat rapat',
-  'meeting.trayStop': 'Berhenti mencatat rapat',
-  'meeting.switchBusy': 'Hentikan catatan rapat terlebih dahulu.',
 }
 
 const ja: Strings = {
@@ -925,13 +904,6 @@ const ja: Strings = {
   'ctx.cut': "切り取り",
   'ctx.paste': "貼り付け",
   'ctx.selectAll': "すべて選択",
-  'meeting.askTitle': 'この会議のメモを取りますか？',
-  'meeting.askDetail': '{app}がマイクと通話の音声を聞き、話された内容を書き留めます。音声は少しずつチームの音声認識サービスに送られて文字になり、保存されません。通話の参加者にメモを取っていることを伝えてください。',
-  'meeting.start': '開始',
-  'meeting.cancel': 'キャンセル',
-  'meeting.tray': '会議メモを取っています',
-  'meeting.trayStop': '会議メモを止める',
-  'meeting.switchBusy': '先に会議メモを止めてください。',
 }
 
 const es: Strings = {
@@ -1155,13 +1127,6 @@ const es: Strings = {
   'ctx.cut': "Cortar",
   'ctx.paste': "Pegar",
   'ctx.selectAll': "Seleccionar todo",
-  'meeting.askTitle': '¿Tomar notas de esta reunión?',
-  'meeting.askDetail': '{app} escucha su micrófono y el sonido de la llamada, y anota lo que se dice. El sonido se envía por partes al servicio de voz de su equipo para convertirlo en texto, y no se guarda. Avise a todos en la llamada de que está tomando notas.',
-  'meeting.start': 'Empezar',
-  'meeting.cancel': 'Cancelar',
-  'meeting.tray': 'Tomando notas de la reunión',
-  'meeting.trayStop': 'Dejar de tomar notas',
-  'meeting.switchBusy': 'Primero detenga las notas de la reunión.',
 }
 
 const zh: Strings = {
@@ -1385,13 +1350,6 @@ const zh: Strings = {
   'ctx.cut': '剪切',
   'ctx.paste': '粘贴',
   'ctx.selectAll': '全选',
-  'meeting.askTitle': '要记录这次会议吗？',
-  'meeting.askDetail': '{app}会收听你的麦克风和通话声音，把说的话记下来。声音会分段发送到团队的语音识别服务转成文字，不会保存。请告诉通话中的每个人你正在记录。',
-  'meeting.start': '开始',
-  'meeting.cancel': '取消',
-  'meeting.tray': '正在记录会议',
-  'meeting.trayStop': '停止记录会议',
-  'meeting.switchBusy': '请先停止会议记录。',
 }
 
 export const STRINGS: Record<UiLocale, Strings> = { ko, en, id, ja, es, zh }

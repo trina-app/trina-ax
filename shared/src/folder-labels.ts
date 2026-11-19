@@ -56,8 +56,9 @@ export const CHAT_FILES_FOLDER = { ko: '채팅 첨부', en: 'Chat attachments', 
 export const FROM_COMPUTER_DIR = 'From this computer'
 export const FROM_COMPUTER_LABEL = { ko: '이 컴퓨터에서', en: 'From this computer', id: 'Dari komputer ini', ja: 'このコンピューターから', es: 'De este ordenador', zh: '来自这台电脑' } as const satisfies T
 
-/** Meeting notes from the desktop app (docs/decisions/20261116-live-meeting-notes.md): users/<id>/<this>/, one name on
- * disk, shown in the person's words. */
+/** The folder the desktop app's meeting notes saved into: users/<id>/<this>/, one name on disk, shown in the person's
+ * words. Meeting notes were removed on 2026-11-19 (docs/decisions/20261119-remove-meeting-notes.md); the notes already
+ * saved are the person's files and stay, so their folder keeps its name in the person's language. */
 export const MEETINGS_DIR = 'Meetings'
 export const MEETINGS_LABEL = { ko: '회의', en: 'Meetings', id: 'Rapat', ja: '会議', es: 'Reuniones', zh: '会议' } as const satisfies T
 

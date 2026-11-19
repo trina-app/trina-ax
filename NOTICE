@@ -33,12 +33,10 @@ Component-specific scope:
   PNGs made from it) holds a few words of Geist as outlines (Copyright (c)
   2023 Vercel, in collaboration with basement.studio; SIL Open Font License
   1.1); no font file ships.
-- Meeting notes and voice input cut sound into pieces at pauses with rules ported from Yogurt
+- Voice input cuts sound into pieces at pauses with rules ported from Yogurt
   (github.com/FrigadeHQ/yogurt, app/src/main/asr/chunker.ts), MIT License,
   Copyright (c) 2026 Frigade: shared/src/speech-pieces.ts says so at
-  its top. desktop/native/meeting-audio/main.swift follows Yogurt's idea
-  (app/native/yogurt-audio) and is written for this repository. The MIT
-  permission notice: Permission is hereby granted, free of
+  its top. The MIT permission notice: Permission is hereby granted, free of
   charge, to any person obtaining a copy of this software and associated
   documentation files, to deal in the Software without restriction, subject to
   including the copyright notice and this permission notice in all copies or
