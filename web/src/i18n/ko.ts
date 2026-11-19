@@ -2801,6 +2801,7 @@ export const ko = {
   'system.queue': '대기열',
   'system.queueLine': '실행 {running} · 대기 {queued} · 최대 {max}',
   'system.generatedAt': '{date} 기준',
+  'system.errorReports': '이 서버가 잘 돌아가도록 오류 보고를 {host}에 보내요.',
   'system.check.ok': '정상',
   'system.check.warn': '주의',
   'system.check.fail': '문제',

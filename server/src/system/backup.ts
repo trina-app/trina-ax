@@ -15,6 +15,7 @@
 //              staged; the swap happens at the next start, before the DB is opened (applyPendingRestore), with the
 //              folder permissions of the current DB (keepFolderAccess: the team folder stays as it is now). Team-folder
 //              restores and moving to another Mac go through scripts/ (admin password) using restoreTeamTo().
+import { ERROR_REPORT_SALT_SETTING } from './error-reports'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
@@ -695,9 +696,9 @@ export function endSessions(file: string): void {
  * backup must not bring back a key the hosting service has replaced or taken away since. This month's count of its
  * free hours: restoring a backup must not give the month's hours back (credentials/hosted-speech.ts). The grace state
  * of the plan's storage limit: a restore must not give a new 7 days, and an old state must not cut a new period short
- * (system/storage.ts).
+ * (system/storage.ts). The key of the error reports' person stand-ins (system/error-reports.ts): a server's own.
  */
-export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY] as const
+export const SERVER_OWN_SETTINGS = [HOSTED_SPEECH_KEY_SETTING, HOSTED_SPEECH_USAGE_SETTING, GRACE_KEY, GRACE_TOLD_KEY, ERROR_REPORT_SALT_SETTING] as const
 const ownIn = SERVER_OWN_SETTINGS.map(() => '?').join(', ')
 
 /** Put the SERVER_OWN_SETTINGS rows of the database `live` (none when it is missing) into the copy `staged`. */

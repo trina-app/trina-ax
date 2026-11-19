@@ -30,6 +30,8 @@ export interface LoggerOptions {
   pretty?: boolean
   /** capture lines (tests) instead of stdout */
   sink?: (line: string) => void
+  /** every error line, before redaction (the opt-in error reports, system/error-reports.ts); must not throw or log */
+  onError?: (msg: string, fields?: Record<string, unknown>) => void
 }
 
 export function redact(v: unknown, depth = 0): unknown {
@@ -80,6 +82,7 @@ export function createLogger(o: LoggerOptions = {}, bindings: Record<string, unk
       ;(l === 'error' || l === 'warn' ? process.stderr : process.stdout).write(`${t.slice(11, 23)} ${l.padEnd(5)} ${m}${extra}\n`)
     } else process.stdout.write(line + '\n')
     s.file?.write(line)
+    if (level === 'error' && o.onError) try { o.onError(msg, fields) } catch { /* a report never breaks logging */ }
   }
   return {
     debug: (m, f) => emit('debug', m, f),

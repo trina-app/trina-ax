@@ -2763,6 +2763,7 @@ export const ja: Record<MessageKey, string> = {
   'system.queue': "待機列",
   'system.queueLine': "実行中 {running} · 待機中 {queued} · 最大 {max}",
   'system.generatedAt': "{date}時点",
+  'system.errorReports': 'このサーバーを安定して動かすため、エラー報告を {host} に送っています。',
   'system.check.ok': "正常",
   'system.check.warn': "警告",
   'system.check.fail': "問題あり",

@@ -2802,6 +2802,7 @@ export const id: Record<MessageKey, string> = {
   'system.queue': 'Antrean',
   'system.queueLine': '{running} berjalan · {queued} menunggu · maks {max}',
   'system.generatedAt': 'Per {date}',
+  'system.errorReports': 'Laporan galat dikirim ke {host} agar server ini tetap berjalan.',
   'system.check.ok': 'Normal',
   'system.check.warn': 'Perhatian',
   'system.check.fail': 'Bermasalah',

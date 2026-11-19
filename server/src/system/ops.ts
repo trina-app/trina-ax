@@ -32,6 +32,7 @@ import { configurePlan, currentPlan, effectiveConcurrency, planDiskBytes, planFi
 import { configureNotices, noticesFileProblem } from './managed'
 import { feature, hostKind, isHosted } from './deployment'
 import { pruneOld } from './retention'
+import { errorReports } from './error-reports'
 import { cleanDevenv } from './devenv-clean'
 import { busyOwners, srtConfig } from '../devenv/srt/runner'
 import { activityFacts, configureActivityStore } from './activity'
@@ -729,6 +730,7 @@ export class OpsService {
       disk: { teamFolderFreeBytes: bytesOrNull(cappedSnapshot()?.freeBytes ?? team?.free), dataFreeBytes: bytesOrNull(data?.free) },
       queue: q,
       checks,
+      ...(errorReports() ? { errorReports: { host: errorReports()!.host } } : {}),
       generatedAt: this.now().toISOString(),
     }
   }

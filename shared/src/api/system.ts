@@ -48,6 +48,9 @@ export const Diagnostics = z.object({
     rejected: z.object({ queue_full: z.number().int(), queue_full_user: z.number().int(), draining: z.number().int() }).optional(),
   }),
   checks: z.array(DiagnosticCheck),
+  /** the operator turned on error reports (MYCEL_ERROR_REPORT_URL): the receiver's host name only, for the line
+   * "Error reports are sent to <host>". Absent: off (or an older server) */
+  errorReports: z.object({ host: z.string() }).optional(),
   generatedAt: IsoTime,
 })
 export type Diagnostics = z.infer<typeof Diagnostics>
