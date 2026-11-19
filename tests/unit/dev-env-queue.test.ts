@@ -91,7 +91,7 @@ const fake: SrtSystem = {
     const r: FakeRun = { spec, state: 'active', resolve }
     runs.set(spec.runId, r)
     queueMicrotask(() => {
-      const m = /^echo (.*)$/.exec(spec.command)
+      const m = /^echo (.*)$/.exec(spec.command.split('\n').pop()!)
       if (!m) return
       fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); r.state = 'gone'; resolve({ code: 0, signal: null })
     })
@@ -389,7 +389,7 @@ describe('a restart of the server', () => {
     finish(runIdOf(rows().find((r) => r.name === 'long')!.unit))
     await pollSrt(h.ctx)
     expect(rows().find((r) => r.name === 'next')!.state).not.toBe('waiting')
-    expect([...runs.values()].some((r) => r.spec.command === 'echo lost')).toBe(false)
+    expect([...runs.values()].some((r) => r.spec.command.split('\n').pop() === 'echo lost')).toBe(false)
     expect(publish.filter((x) => x.user === 'erin')).toEqual([])
     expect(runResultsForAI(h.ctx, 'erin', chatE)).toEqual([])
   })

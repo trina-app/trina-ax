@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { hiddenNow, withHiddenFolders, type Access, type Principal } from '../../server/src/policy/access'
 import { sharedFolderView, sharedHiddenFolders, sharedPathAccess, viewAccess } from '../../server/src/devenv/srt/access'
-import { entryGuard, entryPins, hideDeniedNames, lockedTops, writePins } from '../../server/src/devenv/srt/mounts'
+import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, placeFolders, writePins } from '../../server/src/devenv/srt/mounts'
 import { authorize } from '../../server/src/policy/authorize'
 import { Denied } from '../../server/src/policy/errors'
 import { lockedTopsNote } from '../../server/src/devenv/tool'
@@ -152,8 +152,8 @@ describe('a run of a shared project chat', () => {
     // one stat for all of them, by its full path, from files in the run's TMPDIR (no long argument)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pins-'))
     const files = writePins(tmp, pins)!
-    expect(fs.readFileSync(files.paths, 'utf8').split('\0').filter(Boolean).sort()).toEqual(Object.keys(pins).sort())
-    expect(fs.readFileSync(files.ids, 'utf8').trim().split('\n')).toEqual(Object.values(pins))
+    expect(fs.readFileSync(files.paths!, 'utf8').split('\0').filter(Boolean).sort()).toEqual(Object.keys(pins).sort())
+    expect(fs.readFileSync(files.ids!, 'utf8').trim().split('\n')).toEqual(Object.values(pins))
     const guard = entryGuard(files)
     expect(guard).toContain('/usr/bin/xargs -0 /usr/bin/stat -c %d:%i --')
     expect(guard).toContain('exit 97')
@@ -169,6 +169,89 @@ describe('a run of a shared project chat', () => {
     }
     // a quote in a file name stays one argument
     expect(entryGuard({ paths: "/t/it's", ids: '/t/i' })).toContain(`'/t/it'\\''s'`)
+  })
+})
+
+// attacks S12, RV1, RV1d, RV6 (tests/linux/srt-attack.ts): srt's places above what is given (the team root, groups/, a
+// folder given entry by entry at any depth) are writable folders of the sandbox's tmpfs; the command's first line takes
+// their write bits, so a file made there fails instead of seeming written
+describe('srt\'s places above what is given', () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-places-')))
+  for (const d of ['shared/hr-limited', 'shared/repo', 'shared/deep/hr-deep', 'shared/deep/docs', `${F}/hr-PAYROLL`, `${F}/docs`]) fs.mkdirSync(path.join(root, d), { recursive: true })
+  fs.writeFileSync(path.join(root, 'shared/s.md'), 's'); fs.writeFileSync(path.join(root, 'shared/deep/ok.md'), 'ok')
+  const abs = (...r: string[]) => r.map((x) => (x === '' ? root : path.join(root, x)))
+  test('a read-only folder opened at any depth, and every folder above, up to the team root', () => {
+    const v = { read: ['shared'], write: [], denyRead: ['shared/deep/hr-deep'], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    expect(g.read.sort()).toEqual(['shared/deep/docs', 'shared/deep/ok.md', 'shared/hr-limited', 'shared/repo', 'shared/s.md'])
+    expect(placeFolders(g, root)).toEqual(abs('', 'shared', 'shared/deep'))
+    const both = { read: ['shared'], write: [], denyRead: ['shared/hr-limited', 'shared/deep/hr-deep'], denyWrite: [] }
+    expect(placeFolders(hideDeniedNames(both, root), root)).toEqual(abs('', 'shared', 'shared/deep'))
+  })
+  test('a writable folder given entry by entry is a place too; a folder given whole and what is inside it never are', () => {
+    const v = { read: ['shared'], write: [F], denyRead: [`${F}/hr-PAYROLL`], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    // projects/falcon is opened (lockedTops); shared is given whole: neither shared nor anything in it is a place
+    expect(placeFolders(g, root)).toEqual(abs('', 'projects', F))
+    expect(placeFolders({ read: [''], write: [], denyRead: [], denyWrite: [] }, root)).toEqual([])
+    // a read-only folder inside a writable one given whole: the writable one is the real folder, never locked
+    expect(placeFolders({ read: [`${F}/docs/x`], write: [F], denyRead: [], denyWrite: [] }, root)).toEqual(abs('', 'projects'))
+  })
+  test('every run: the places and srt\'s masks over hidden folders in the team folder; never a given folder, a file or a path outside', () => {
+    fs.mkdirSync(path.join(root, 'groups/marketing/skills'), { recursive: true }); fs.mkdirSync(path.join(root, 'users/alice'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'shared/secret.txt'), 'x')
+    const given = { read: ['shared', 'groups/marketing'], write: [F, 'users/alice'], denyRead: [], denyWrite: [] }
+    const deny = [path.join(root, 'users'), path.join(root, 'groups/marketing/skills'), path.join(root, F), path.join(root, 'shared/secret.txt'), '/var/lib/elsewhere', path.join(root, 'missing')]
+    const got = lockFolders(given, deny, root)
+    // a temp folder on a tmpfs: nothing is locked (inside the sandbox a mask could not be told from it)
+    if (Number(fs.statfsSync(root).type) === 0x01021994) { expect(got).toEqual([]); return }
+    expect(got).toContain(root)
+    expect(got).toContain(path.join(root, 'users'))
+    expect(got).toContain(path.join(root, 'groups/marketing/skills'))
+    // the start folder bound back writable (srtSettings puts it in denyRead), a masked file, outside, not on disk: never
+    for (const p of [path.join(root, F), path.join(root, 'shared/secret.txt'), '/var/lib/elsewhere', path.join(root, 'missing'), path.join(root, 'shared'), path.join(root, 'users/alice')]) expect(got).not.toContain(p)
+  })
+  test('the guard locks the places after the pin check; places alone, no pins', () => {
+    const v = { read: ['shared'], write: [], denyRead: ['shared/deep/hr-deep'], denyWrite: [] }
+    const g = hideDeniedNames(v, root)
+    const fresh = () => fs.mkdtempSync(path.join(os.tmpdir(), 'pins-places-'))
+    const files = writePins(fresh(), entryPins(v, g, root), placeFolders(g, root))!
+    expect(fs.readFileSync(files.places!, 'utf8')).toBe(abs('', 'shared', 'shared/deep').map((p) => p + '\0').join(''))
+    const guard = entryGuard(files)
+    expect(guard.indexOf('/bin/chmod a-w')).toBeGreaterThan(guard.indexOf('exit 97'))
+    // the files stay in the run's read-only guard folder, which the server removes after the run
+    expect(guard).not.toContain('/bin/rm')
+    expect(guard).not.toContain('hr-deep')
+    const only = writePins(fresh(), {}, abs(''))!
+    expect(only.paths).toBeUndefined()
+    expect(entryGuard(only)).not.toContain('exit 97')
+    expect(entryGuard(only)).toContain('/bin/chmod a-w')
+    expect(writePins(fresh(), {}, [])).toBeNull()
+    expect(() => writePins(fresh(), {}, abs(''), '../x')).toThrow()
+    // the lock touches only folders that are folders on a tmpfs inside the sandbox
+    expect(entryGuard(only)).toContain('[ -d "$__lock_dir" ] && [ ! -L "$__lock_dir" ]')
+    expect(entryGuard(only)).toContain('= tmpfs ]')
+  })
+  // review of PR #1372 (T1 RX1-RX4): a person's TMPDIR is in her HOME, which her runs write; a run there could leave a
+  // link the server would follow. The files go into a guard folder of the run that the server makes new
+  test('the guard folder is made new; a file is never written through a link left in its place', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'guard-'))
+    const hidden = fs.mkdtempSync(path.join(os.tmpdir(), 'hidden-target-'))
+    const dir = path.join(base, 'guard', 'run0123456789abc')
+    const drop = makeGuardDir(dir)
+    expect(fs.lstatSync(dir).isDirectory()).toBe(true)
+    expect(writePins(dir, {}, abs(''))!.places).toBe(path.join(dir, '.trina-places'))
+    drop()
+    expect(fs.existsSync(dir)).toBe(false)
+    // a link where the folder of the run would be: refused, nothing written at the target
+    fs.symlinkSync(hidden, dir)
+    expect(() => makeGuardDir(dir)).toThrow()
+    // and a link where a file of the run would be: wx does not follow it
+    const d2 = path.join(base, 'guard', 'run0123456789abd')
+    makeGuardDir(d2)
+    fs.symlinkSync(path.join(hidden, 'planted'), path.join(d2, '.trina-places'))
+    expect(() => writePins(d2, {}, abs(''))).toThrow()
+    expect(fs.readdirSync(hidden)).toEqual([])
   })
 })
 
