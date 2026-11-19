@@ -21,13 +21,20 @@
   - `/app-signin` → Continue is unchanged: it lands on Home with the landing state, which now finds the row and opens
     the steps where they stopped. "Continue setup · n/5" follows the existing rules (lib/welcome.ts setupRowState); while
     no AI answers, Home's no-AI card still stands in for it on Home.
-  - A row the setup made is **not opened** (`openedAt: null`) until the owner's first move in the steps (any PATCH of
-    the steps, the team's start, the brand action). Until then nothing from outside the steps changes it or waits for
+  - A row the setup made is **not opened** (`openedAt: null`) until the owner's first move in the steps: any change of
+    the steps except a ✕ on "Continue setup" alone (`dismissed`, and its undo: that declines the steps without entering
+    them), the team's start, the brand action. /welcome sends such a change itself as it opens (the first visit's start,
+    the AI step recorded as skipped while it is on screen, the team's start), so landing in the steps opens them, as the
+    row made by the first visit did before. Until then nothing from outside the steps changes it or waits for
     it, exactly as when there was no row: an upload's 팀 파일 record (`POST /api/onboarding/files/landed` answers
     `recorded: false`; security matrix `teamFilesLanded`), a pack install's 내 스킬, a shared skill, the brand
     materials before a visual skill install (no team group is made by it), the merges that wait for the steps' end, an
     admin's "sort the team's files" row. Reading the row (Home's landing, the setup row, /welcome) does not need it
     opened. A row without the field (every row from before) is opened.
+  - Rollback: a build from before this decision does not know `openedAt` and reads a row the setup made as any row, so
+    as opened: an upload or a pack install there can record a step the owner has not seen, and merges wait for the
+    steps. The steps then show as they always did; nothing is lost. A build with this decision again keeps whatever
+    `openedAt` holds.
   - Not changed: teams made before this (no row) get no row: an old team whose owner never opened the steps is not sent
     into them now. The command-line owner (`admin create-owner`) gets no row either. Members are not affected (the row is
     the owner's; members never read it).

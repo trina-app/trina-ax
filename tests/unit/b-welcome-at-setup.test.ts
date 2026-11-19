@@ -5,7 +5,9 @@ import { afterEach, expect, test } from 'bun:test'
 import { addMember, harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib'
 import fs from 'node:fs'
 import path from 'node:path'
-import { startWelcomeAtSetup, WELCOME_SETTING, welcomeOpened, welcomeUnfinishedFor } from '../../server/src/onboarding/welcome'
+import { recordShared, startWelcomeAtSetup, updateWelcome, WELCOME_SETTING, welcomeOpened, welcomeUnfinishedFor } from '../../server/src/onboarding/welcome'
+import { recordJoin, welcomeOf } from '../../server/src/onboarding/member-welcome'
+import { mergeWaits } from '../../server/src/skills/share-merge'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { WelcomeProgress } from '@mycel/shared/api'
 
@@ -127,4 +129,71 @@ test('the steps\' page opens the row: the team start (POST /api/onboarding/welco
   const c = await setupWith()
   await c.call('POST', '/api/onboarding/welcome/team')
   expect(welcomeOpened(h.ctx)).toBe(true)
+})
+
+const ownerIdOf = () => (h.ctx.db.query("SELECT id FROM users WHERE username = 'olga'").get() as { id: string }).id
+function newSharedFile(name: string) {
+  const file = path.join(h.ctx.files.fx.root, 'shared', name)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, '# x')
+  return `shared/${name}`
+}
+
+test('a ✕ on "Continue setup" alone does not open the steps: an upload records nothing, a pack install makes no team group', async () => {
+  h = await harness('b-welcome-at-setup-9')
+  const c = await setupWith()
+  const p = (await c.call('PATCH', '/api/onboarding/welcome', { dismissed: true })).progress
+  expect(p.dismissedAt).not.toBeNull()
+  expect(welcomeOpened(h.ctx)).toBe(false)
+  expect((await c.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('a.md') })).recorded).toBe(false)
+  await c.call('POST', '/api/onboarding/packs/general/install')
+  const after = (await c.call('GET', '/api/onboarding/welcome')).progress
+  expect(after.teamGroup).toBeUndefined()
+  expect(after.steps.skills).toBeNull()
+  // its undo alone neither
+  await c.call('PATCH', '/api/onboarding/welcome', { dismissed: false })
+  expect(welcomeOpened(h.ctx)).toBe(false)
+  // any other change opens them (the first visit's empty start, the AI step on screen)
+  await c.call('PATCH', '/api/onboarding/welcome', { step: { id: 'ai', state: 'skipped' } })
+  expect(welcomeOpened(h.ctx)).toBe(true)
+})
+
+test('unopened: no shared skill recorded, merges not held, an admin\'s "sort the team\'s files" row off, an admin\'s upload records nothing', async () => {
+  h = await harness('b-welcome-at-setup-10')
+  const c = await setupWith()
+  const ownerId = ownerIdOf()
+  const ada = await addMember(h, c, { username: 'ada', role: 'admin' })
+  recordJoin(h.ctx, { userId: ada.id, via: 'invite', invitedBy: ownerId })
+  recordShared(h.ctx, ownerId, [{ path: 'skills/weekly/SKILL.md', title: 'Weekly', recommended: true }])
+  expect((getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING) as Record<string, unknown>).shared).toBeUndefined()
+  // a merge chosen now does not wait for steps nobody opened (as with no row: it goes at once)
+  expect(welcomeUnfinishedFor(h.ctx, ownerId)).toBe(false)
+  expect(mergeWaits(h.ctx.db, ownerId)).toBe(false)
+  expect(welcomeOf(h.ctx, ada.id)!.organizeFiles).toBe(false)
+  expect((await ada.client.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('b.md') })).recorded).toBe(false)
+  // opened: each of them as before
+  updateWelcome(h.ctx, ownerId, {})
+  expect(mergeWaits(h.ctx.db, ownerId)).toBe(true)
+  expect(welcomeOf(h.ctx, ada.id)!.organizeFiles).toBe(true)
+  recordShared(h.ctx, ownerId, [{ path: 'skills/weekly/SKILL.md', title: 'Weekly', recommended: true }])
+  expect((getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING) as { shared?: { landing: string } }).shared?.landing).toBe('skills/weekly/SKILL.md')
+  expect((await ada.client.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('c.md') })).recorded).toBe(true)
+})
+
+test('the brand action from the steps (POST /api/onboarding/welcome/brand) opens the row', async () => {
+  h = await harness('b-welcome-at-setup-11')
+  const c = await setupWith()
+  await c.try('POST', '/api/onboarding/welcome/brand', { files: [] })
+  expect(welcomeOpened(h.ctx)).toBe(true)
+})
+
+test('a row from before this change (no openedAt) behaves as opened: an upload records 팀 파일, merges wait', async () => {
+  h = await harness('b-welcome-at-setup-12')
+  const c = await setupWith()
+  const raw = getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING)!
+  delete raw.openedAt
+  setSetting(h.ctx.db, WELCOME_SETTING, raw)
+  expect(mergeWaits(h.ctx.db, ownerIdOf())).toBe(true)
+  expect((await c.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('d.md') })).recorded).toBe(true)
+  expect((await c.call('GET', '/api/onboarding/welcome')).progress.steps.files).toBe('done')
 })

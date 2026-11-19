@@ -251,8 +251,12 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
   const raw = forWrite(ctx, now)
   const p = view(raw, now)
   const steps = raw.steps as Raw
-  // the owner's own change: the steps are opened (welcomeOpened)
-  if (raw[OPENED_AT] === null) raw[OPENED_AT] = now
+  // the owner's own change in the steps opens them (welcomeOpened): every PATCH /welcome sends, its automatic ones too
+  // (the first visit's start, the AI step recorded as skipped on screen), so landing in the steps opens them, as a row
+  // made by the first visit did before. Not a ✕ on "Continue setup" (`dismissed` alone): that declines the steps
+  // without entering them
+  const onlyDismiss = u.dismissed !== undefined && Object.entries(u).every(([k, v]) => k === 'dismissed' || v === undefined)
+  if (raw[OPENED_AT] === null && !onlyDismiss) raw[OPENED_AT] = now
   if (u.resultChatId !== undefined) {
     // the deck's chat: one of the caller's own, not deleted; recorded once it holds a message (a page that sends it
     // later: settleDeck records the kept chat when its message is in)
@@ -299,8 +303,11 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
 }
 
 // `openedAt` on the row: null while the row is only what the setup made (no step seen yet), the time of the owner's first
-// move in the steps after that (markWelcomeOpened, updateWelcome). A row without the field (every row from before
-// docs/decisions/20261119-welcome-steps-in-app.md) was made by the steps themselves: opened.
+// move in the steps after that: any change of the steps but a ✕ alone (updateWelcome; /welcome itself sends one as it
+// opens: the first visit's start or the AI step recorded on screen), the team's start (setupWelcomeTeam), the brand
+// action (markWelcomeOpened). A row without the field (every row from before
+// docs/decisions/20261119-welcome-steps-in-app.md) was made by the steps themselves: opened. A build from before that
+// decision reads a row the setup made as any row (it does not know the field): opened.
 const OPENED_AT = 'openedAt'
 
 /** The owner opened the steps: a row is there and it is not one the setup made that nobody has opened yet. What
@@ -574,7 +581,7 @@ export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppCo
   try {
     const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner'").get(userId)
     const s = stored(ctx)
-    if (!owner || !s.raw || s.raw[OPENED_AT] === null) return false
+    if (!owner || !s.raw || !welcomeOpened(ctx)) return false
     const now = new Date().toISOString()
     const raw: Raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
     settleDeck(ctx, raw)
