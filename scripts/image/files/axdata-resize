@@ -20,6 +20,7 @@ RESIZE2FS=${AXDATA_RESIZE2FS:-/usr/sbin/resize2fs}
 
 dev=${1:-}
 case "$dev" in
+  *[!A-Za-z0-9/._-]*) echo "axdata-resize: not one device name: $dev" >&2; exit 2 ;;
   /dev/*) ;;
   *) echo "axdata-resize: usage: axdata-resize /dev/DEVICE" >&2; exit 2 ;;
 esac

@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 17:50
 - Branch: `perf/enroll-parallel-seed`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`native/cmd/mycel-enroll/`, `scripts/image/files/`). Why: the hosted server image and its first
   boot program are core.
 - Version impact: patch (a faster first boot on hosted servers, no change to what the server does)
@@ -58,4 +58,10 @@ Out: replacing `cp -a` with a Go copier (see Decisions), Fast Snapshot Restore (
 
 ## Result
 
-(filled in at the end)
+- Seed: 32 readers (O_NOATIME on Linux) read the seed, then the same `cp -a`; marker `.seed-incomplete` with fsync
+  before the copy and sync before its removal. Go tests pass on macOS and on Linux as root (GNU cp, hard links, user
+  xattrs, `security.capability`, other owners; `-race`).
+- udev: `axdata-resize` checked on a mounted loop device: same size does nothing, an online grow grows once, the next
+  event does nothing. Not yet measured on EC2: check the seed log lines and `journalctl -b -u ax-axdata-resize` on the
+  next new hosted server.
+- Independent review: approve with nits; O_NOATIME, the one-device-name check and the README note were taken.

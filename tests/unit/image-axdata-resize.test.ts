@@ -85,6 +85,10 @@ describe('axdata-resize', () => {
     expect(garbled.code).toBe(1)
     expect(garbled.calls).toEqual([])
     expect(run(head(blocks20), '').calls).toEqual([])
+    // two lines from findmnt (stacked mounts) are not one device
+    const two = run(head(blocks20), 40 * GiB, '/dev/nvme1n1\n/dev/nvme2n1')
+    expect(two.code).toBe(2)
+    expect(two.calls).toEqual([])
     const bad = run(head(blocks20), 40 * GiB, 'nvme1n1')
     expect(bad.code).toBe(2)
     expect(bad.calls).toEqual([])

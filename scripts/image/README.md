@@ -55,7 +55,8 @@ image mode + the first-boot pieces (`mycel-enroll`).
   bigger than the filesystem (`dumpe2fs -h`, `blockdev --getsize64`). `resize2fs` opens the disk for writing, and its
   close makes udev send another `change`, so a bare `resize2fs` in the rule started `ax-axdata-resize.service` 100-160
   times in a first boot. Check on a server: `journalctl -b -u ax-axdata-resize | grep -c Started` is 0-2 after a boot,
-  and a grow of the volume still shows "growing the file system" once.
+  and a grow of the volume still shows "growing the file system" once. A grow smaller than one block group (128 MiB)
+  is left to `mycel-ctl data-grow`, which runs `resize2fs` itself.
 - `axdata-grow.service` (enabled, `WantedBy=var-lib-mycel.mount`): `axdata-resize` each time the data disk is mounted. EC2
   grows a volume while the instance is stopped, and the bigger disk shows up at boot as an `add` event, which the udev
   rule does not see.

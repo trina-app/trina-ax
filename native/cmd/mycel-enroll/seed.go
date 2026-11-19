@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -118,13 +119,17 @@ func readAheadDir(dir string, st *readAheadStats) []readAheadItem {
 		case t.IsRegular():
 			out = append(out, readAheadItem{path: p, whole: true})
 		}
-		// links, sockets, devices: cp -a makes them from the entry itself, there is nothing to read
+		// links, sockets, devices: cp -a makes them from the entry itself, there is nothing to read (their inodes
+		// sit in the same inode-table blocks as the files' inodes, which the opens above fetch)
 	}
 	return out
 }
 
 func readAheadFile(it readAheadItem, buf []byte, st *readAheadStats) []readAheadItem {
-	f, err := os.OpenFile(it.path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := os.OpenFile(it.path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|oNoatime, 0)
+	if err != nil && oNoatime != 0 && errors.Is(err, syscall.EPERM) { // O_NOATIME needs the owner or root
+		f, err = os.OpenFile(it.path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		atomic.AddInt64(&st.Errors, 1)
 		return nil
