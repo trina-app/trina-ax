@@ -5,8 +5,8 @@
 // - "내 AI 연결하기" opens one's own dialog (no password, as in Settings);
 // - Admin › AI connections keeps the full dialog (name, target, the whole notice);
 // - a failed answer without AI: the owner's words and "AI 연결하기", an admin told to tell the owner;
-// - Home's one card: the owner's way to connect; a member's "팀장이 AI를 연결하면 바로 쓸 수 있어요" with the ask and,
-//   only where the team allows it, a quiet "내 AI 연결하기".
+// - Home's one line (QA TC-5447): the owner's one button "Claude 연결하기" with the rest under "다른 방법"; a member's
+//   "아직 쓸 수 있는 AI가 없어요" with the ask and, only where the team allows it, a quiet "내 AI 연결하기".
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter } from 'react-router-dom'
@@ -224,76 +224,83 @@ describe('a failed answer with AI connected', () => {
   })
 })
 
-describe('Home\'s one card without AI', () => {
+describe('Home\'s one line without AI (QA TC-5447)', () => {
   const card = async (s: Partial<ReturnType<typeof useAiAccess.getState>>) => {
     useAiAccess.setState({ loaded: true, usable: false, requested: false, ...s })
     return mount(<MemoryRouter><NoAiCard /></MemoryRouter>)
   }
-  test('the owner: the welcome step\'s heading and way to connect', async () => {
+  test('the owner: one line, ONE button "Claude 연결하기", the other ways under "다른 방법"; no heading, no stack of three', async () => {
     const m = await card({ action: 'connect_team' })
     try {
       await m.until(() => m.find('welcome-ai-claude'), 'the Claude button')
-      expect(m.get('no-ai-card').textContent).toContain(ko('welcome.ai.title'))
-      // the welcome step's three ways, the same here
-      expect(m.find('welcome-ai-chatgpt')).not.toBeNull()
-      expect(m.find('welcome-ai-keys')).not.toBeNull()
-      // no line to Admin › AI accounts (fix/onboarding-after-setup)
-      expect(m.find('welcome-ai-engines')).toBeNull()
-      expect(m.find('welcome-ai-other')).toBeNull()
+      expect(m.get('no-ai-line').textContent).toBe(ko('home.noAi.connect'))
+      expect(m.get('welcome-ai-claude').textContent).toBe(ko('home.noAi.claude'))
+      expect(m.get('welcome-ai-claude').className).toContain('bg-accent')
+      expect(m.get('no-ai-card').querySelectorAll('button').filter((b) => b.className.includes('bg-accent'))).toHaveLength(1)
+      expect(m.get('no-ai-card').textContent).not.toContain(ko('welcome.ai.title'))
+      expect(m.get('no-ai-card').textContent).not.toContain(ko('welcome.ai.recommended'))
+      expect(m.find('welcome-ai-ways')).toBeNull()
+      // ChatGPT and the API keys wait in the menu, not on the page
+      expect(m.get('no-ai-other').textContent).toBe(ko('welcome.ai.other'))
+      expect(m.find('welcome-ai-chatgpt')).toBeNull()
+      expect(m.find('welcome-ai-keys')).toBeNull()
+      // Claude: the simple dialog on the Claude sign-in
+      await m.click('welcome-ai-claude')
+      await m.until(() => q('credential-submit'), 'the Claude dialog')
+      expect(q('plan-notice')).not.toBeNull()
+      expect(q('credential-password')).toBeNull()
     } finally { await m.unmount() }
   })
-  test('the owner\'s three ways each open the existing dialog on that way: ChatGPT\'s sign-in, the two API keys', async () => {
+  test('the owner\'s "다른 방법": ChatGPT\'s sign-in and the two API keys, each in the existing dialog', async () => {
     const m = await card({ action: 'connect_team' })
     try {
-      await m.until(() => m.find('welcome-ai-chatgpt'), 'the ways')
-      // ChatGPT: the device sign-in chosen, no list of ways, the terms in one line, no password
+      await m.until(() => m.find('no-ai-other'), 'the menu button')
+      await m.click('no-ai-other')
+      await m.until(() => m.find('welcome-ai-chatgpt'), 'the menu')
+      expect(m.get('welcome-ai-chatgpt').textContent).toContain(ko('welcome.ai.chatgpt'))
+      expect(m.get('welcome-ai-keys').textContent).toContain(ko('welcome.ai.keys'))
       await m.click('welcome-ai-chatgpt')
       await m.until(() => q('credential-submit'), 'the ChatGPT dialog')
       expect(submit().textContent).toBe(ko('credentials.chatgpt.start'))
       expect(q('kind-anthropic-oauth')).toBeNull()
-      expect(q('plan-notice')).not.toBeNull()
-      expect(q('credential-password')).toBeNull()
       await act(async () => { body().querySelectorAll('button').find((b) => b.textContent === ko('common.cancel'))?.click() })
       await m.until(() => !q('credential-submit'), 'closed')
-      // API 키로 연결: only the Claude and OpenAI keys to pick from, no subscription note
+      await m.click('no-ai-other')
+      await m.until(() => m.find('welcome-ai-keys'), 'the menu again')
       await m.click('welcome-ai-keys')
       await m.until(() => q('kind-anthropic-api-key'), 'the key dialog')
       expect(q('kind-openai-api-key')).not.toBeNull()
-      expect(q('kind-anthropic-oauth')).toBeNull()
       expect(q('kind-chatgpt')).toBeNull()
-      // picking one: the key field and no password, as in Admin › AI connections' simple form
-      await m.click(tick('kind-openai-api-key'))
-      await m.until(() => q('credential-secret'), 'the key field')
-      expect(q('credential-password')).toBeNull()
     } finally { await m.unmount() }
   })
-  test('a team that does not share subscriptions: only the key way, as the main button, with no warning about subscriptions in its dialog', async () => {
+  test('a team that does not share subscriptions: the key way is the one button, no "다른 방법"', async () => {
     shared = false
     const m = await card({ action: 'connect_team' })
     try {
       await m.until(() => m.find('welcome-ai-keys'), 'the key way')
       expect(m.find('welcome-ai-claude')).toBeNull()
-      expect(m.find('welcome-ai-chatgpt')).toBeNull()
+      expect(m.find('no-ai-other')).toBeNull()
       expect(m.get('welcome-ai-keys').className).toContain('bg-accent')
       await m.click('welcome-ai-keys')
       await m.until(() => q('kind-anthropic-api-key'), 'the key dialog')
       expect(q('shared-subscriptions-off')).toBeNull()
     } finally { await m.unmount() }
   })
-  test('a member: the owner connects; one ask; their own connection only where the team allows it', async () => {
+  test('a member: "아직 쓸 수 있는 AI가 없어요", one ask; their own connection only where the team allows it', async () => {
     let m = await card({ action: 'ask_owner' })
     try {
-      expect(m.get('no-ai-card').textContent).toContain(ko('aiConnect.member'))
+      expect(m.get('no-ai-line').textContent).toBe(ko('home.noAi.member'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('home.noAi.ask'))
       expect(m.find('no-ai-own')).toBeNull()
       await m.click('ai-access-button')
       await m.until(() => !m.find('ai-access-button'), 'asked')
-      expect(m.get('no-ai-card').textContent).toContain(ko('aiAccess.banner.asked'))
+      expect(m.get('no-ai-line').textContent).toBe(ko('aiAccess.banner.asked'))
       expect(calls.filter((c) => c.key === 'POST /api/me/ai-access/request')).toHaveLength(1)
     } finally { await m.unmount() }
     m = await card({ action: 'connect_own' })
     try {
-      expect(m.get('no-ai-card').textContent).toContain(ko('aiConnect.member'))
-      expect(m.get('ai-access-button').textContent).toBe(ko('aiAccess.askOwner'))
+      expect(m.get('no-ai-line').textContent).toBe(ko('home.noAi.member'))
+      expect(m.get('ai-access-button').textContent).toBe(ko('home.noAi.ask'))
       expect(m.get('no-ai-own').textContent).toBe(ko('aiAccess.connectOwn'))
       await m.click('no-ai-own')
       await m.until(() => q('kind-anthropic-oauth'), 'one\'s own dialog')

@@ -4844,6 +4844,13 @@ export const ja: Record<MessageKey, string> = {
   "welcome.ai.keys": "APIキーで接続",
   "welcome.ai.recommended": "おすすめ",
   "welcome.ai.other": "ほかの方法",
+  // Home without AI: one line under the greeting (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447)
+  "home.noAi.connect": "AIを接続すると、すぐに始められます。",
+  "home.noAi.claude": "Claudeを接続",
+  "home.noAi.member": "使えるAIがまだありません。",
+  "home.noAi.ask": "管理者に接続を頼む",
+  "home.noAi.typed": "送るには先にAIを接続してください。書いた内容はそのまま残ります。",
+  "home.noAi.typedMember": "AIが接続されると送れます。書いた内容はそのまま残ります。",
   "welcome.ai.notYet": "接続は保存しましたが、まだAIが応答できません。接続を確認するか、ほかの方法で接続してください。",
   "aiConnect.dialogTitle": "AI の接続",
   "aiConnect.terms": "このアカウントとプランをこの用途で使うことが提供元の規約で認められているか確認しました。{product}がその許可を与えることはできません。",

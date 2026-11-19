@@ -256,7 +256,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
     ready: (page) => page.getByTestId('often-asked').or(page.getByTestId('team-prepared')),
   },
   {
-    // no AI answers a member yet: the no-AI card at the top, the team's suggestions read-only
+    // no AI answers a member yet: the no-AI line under the greeting (QA TC-5447), the team's suggestions read-only
     name: 'member-no-ai',
     open: async (page) => {
       await teamWithSkills(page)
@@ -264,7 +264,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
       await signIn(page, BOB)
       await openTab(page, 'ai')
     },
-    ready: (page) => page.getByTestId('home-top').locator(':scope > *').first(),
+    ready: (page) => page.getByTestId('home-head').getByTestId('no-ai-card'),
   },
   {
     // the owner's team with no skills and no files yet: 스킬 넣기 · 팀 파일 넣기
@@ -279,7 +279,7 @@ const STATES: { name: string; open: (page: Page) => Promise<void>; ready: (page:
   },
 ]
 
-/** nothing on Home overlaps: the one thing at the top, the mark, the greeting, the suggestions and the card, in that
+/** nothing on Home overlaps: the one thing at the top, the mark, the greeting, the no-AI line, the suggestions and the card, in that
  * order down the page (measured scrolled to the end, where the docked card is in its own place: a page taller than the
  * screen scrolls under it); no page wider than the phone. Returns whether the page scrolls. */
 async function noOverlap(page: Page) {
@@ -297,7 +297,7 @@ async function noOverlap(page: Page) {
       return r.height > 0 ? { name, top: r.top + scroll.scrollTop, bottom: r.bottom + scroll.scrollTop } : null
     }
     return {
-      list: [at(q('[data-testid="home-top"]'), 'top'), at(q('[data-testid="home-mark"]'), 'mark'), at(q('h1'), 'greeting'), at(q('[data-testid="home-tail"]'), 'suggestions'), at(q('[data-testid="home-dock"]'), 'card')].filter((x) => !!x),
+      list: [at(q('[data-testid="home-top"]'), 'top'), at(q('[data-testid="home-mark"]'), 'mark'), at(q('h1'), 'greeting'), at(q('[data-testid="no-ai-card"]'), 'no-AI line'), at(q('[data-testid="home-tail"]'), 'suggestions'), at(q('[data-testid="home-dock"]'), 'card')].filter((x) => !!x),
       wide: document.documentElement.scrollWidth > innerWidth || scroll.scrollWidth > scroll.clientWidth,
       scrolls: scroll.scrollHeight > scroll.clientHeight + 1,
     }
