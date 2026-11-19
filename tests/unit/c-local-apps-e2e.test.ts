@@ -109,4 +109,25 @@ describe('server → relay → page → desktop manager → stdio MCP server', (
     expect(ran).toContain('ran 47 chars: "await page.goto(\\"https://example.com\\") // $(id)"')
     expect(r.done.steps.map((s: { label: string }) => s.label)).toEqual(['Ego · Read the guide', 'Ego · Run a browser script'])
   })
+
+  test('a script that changes something asks first: the card shows it as a code block, byte for byte, and the answer says what the program printed on stderr', async () => {
+    const FAKE_CLI = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-cli.ts')
+    const cli: LocalAppSpec = { adapter: 'cli', command: process.execPath, env: [], tools: [
+      { name: 'run_script', title: 'Run a browser script', description: 'Run a script', args: [FAKE_CLI, 'nodejs'], stdin: 'script', slots: [{ name: 'script', description: 'The script', type: 'string', required: true }], readOnly: false },
+    ] }
+    await h.api('alice', { window: DESK, client: 'desktop' }).call(API.createLocalIntegration, { body: { name: 'Ego two', slug: 'egotwo', spec: cli } })
+    const chat = await h.api('alice').call(API.createChat, { body: {} })
+    // indented, with a run of spaces and quotes: ODD_SPACE would refuse lines for it (the JSON open, escaped)
+    const script = 'const p = await page()\nif (p) {\n  await p.goto("https://en.wikipedia.org/wiki/Mycelium")  // STDERR_OUT\n}\n'
+    const started = await h.api('alice', { window: DESK, client: 'desktop' }).call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ tool: 'my_egotwo__run_script', args: { script }, sayResult: true }), clientMessageId: 'cm-' + crypto.randomUUID(), attachmentIds: [] } })
+    const card = await desk.next('turn.request', (f) => f.data.turnId === started.turnId, 30_000)
+    const q = card.data.request as { kind: string; requestId: string; options?: { value: string }[]; details?: { fields?: { name: string; value: string; code?: true }[]; exact?: true }[] }
+    expect(q.details?.[0]?.exact).toBe(true)
+    expect(q.details?.[0]?.fields).toEqual([{ name: 'Script', value: script, code: true }])
+    await h.api('alice').call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: q.requestId, answer: q.options![0]!.value } })
+    const done = await desk.next('message.done', (f) => f.data.messageId === started.assistantMessage.id, 40_000)
+    // ego lite prints the result on stderr and exits 0: it reaches the AI
+    expect(done.data.message.content).toContain('printed on stderr')
+    expect(done.data.message.content).toContain('line 499 of the long result')
+  })
 })
