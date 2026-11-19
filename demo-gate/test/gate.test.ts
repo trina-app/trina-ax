@@ -141,6 +141,9 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(JSON.stringify(e.config)).not.toContain(FAKE_CREDENTIAL)
     const mode = fs.statSync(path.join(e.dir, 'config', 'server.json')).mode & 0o777
     expect(mode).toBe(0o600)
+    // the snapshot's group-readable files are the instance user's alone in the clone (the server refuses a shared key)
+    expect(fs.statSync(path.join(e.dir, 'secrets', 'credentials.key')).mode & 0o077).toBe(0)
+    expect(fs.statSync(e.dir).mode & 0o077).toBe(0)
   })
 
   test('deny paths never reach the instance; WebSocket and HTTP denials alike', async () => {

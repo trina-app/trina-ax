@@ -376,7 +376,9 @@ export class Pool {
       const config = this.instanceConfig(snapConfig, inst)
       // clone, private folder, its config: all as the instance user
       this.runAs([...this.cfg.pool.cloneCommand, snap.base, dir])
-      this.runAs(['/bin/sh', '-c', 'chmod 700 "$0" && mkdir -p "$0/tmp"', dir])
+      // private to the instance user, every file: a snapshot is group-readable for the instance user to clone it, and
+      // the server refuses a group-readable key file (credentials/vault.ts key_unsafe; Gmail then reads "sign in again")
+      this.runAs(['/bin/sh', '-c', 'chmod -R go-rwx "$0" && mkdir -p "$0/tmp"', dir])
       this.runAs(['/bin/sh', '-c', 'umask 077 && cat > "$0" && chmod 600 "$0"', configFile], { input: config })
       const sub = (s: string) => s.replaceAll('{dir}', dir).replaceAll('{config}', configFile).replaceAll('{port}', String(inst.port)).replaceAll('{proxyPort}', String(inst.proxyPort))
       const argv = this.cfg.pool.command.map(sub)
