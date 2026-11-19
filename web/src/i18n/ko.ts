@@ -340,6 +340,10 @@ export const ko = {
   'setup.name': '내 이름',
   'setup.passwordHint': '8자 이상',
   'setup.create': '팀 만들고 시작하기',
+  'setup.titleHosted': "내 계정 만들기",
+  'setup.subHosted': "팀이 준비됐어요. 팀장 계정을 만들면 바로 시작할 수 있어요.",
+  'setup.fixedHint': "가입할 때 정했어요. 나중에 팀 설정에서 바꿀 수 있어요.",
+  'setup.createHosted': "계정 만들고 시작하기",
 
   'invite.title': '초대',
 
