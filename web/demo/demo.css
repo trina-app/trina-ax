@@ -114,7 +114,7 @@
 .demo-plans:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
 .demo-end-line > .demo-live-busy { font-size: 12px; }
 /* the busy line's "Try again": a small text link, not a second button */
-.demo-live-retry { font-size: 12px; text-decoration: underline; text-underline-offset: 2px; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.demo-live-retry { font-size: 12px; margin-left: 4px; text-decoration: underline; text-underline-offset: 2px; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 
 /* the guide line itself, when it is the one thing to press */
 .demo-glow { animation: demo-pulse 1.6s ease-in-out infinite; }

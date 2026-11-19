@@ -35,8 +35,13 @@ export function EndLineLinks(e: EndLinks) {
   }
   return (
     <>
-      {e.live && <span className="demo-live-busy" role="status" data-testid="demo-live-busy">{e.live.busy}</span>}
-      <Retry {...e} testId="demo-live-retry" />
+      {/* the busy line and its Try again on one line (a phone puts the line on its own row) */}
+      {e.live && (
+        <span className="demo-live-busy">
+          <span role="status" data-testid="demo-live-busy">{e.live.busy}</span>{' '}
+          <Retry {...e} testId="demo-live-retry" />
+        </span>
+      )}
       <a className="demo-next" href={e.signup.url} target="_blank" rel="noopener" data-testid="demo-signup">{e.signup.label} →</a>
     </>
   )
