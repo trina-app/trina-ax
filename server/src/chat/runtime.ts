@@ -44,7 +44,7 @@ import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peop
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
-import { answerText, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -128,6 +128,10 @@ export interface ChatRuntimeOptions {
   /** Status-only polling while installed startup waits for an idle launcher. */
   recoveryPollMs?: number
   askUserTimeoutMs?: number
+  /** the server's safety cards wait after the answer ends (chat/open-questions.ts CARD_LATER_TOOLS; default on). The
+   * test harness turns it off for the tests of each card's own logic, which then wait inside the call as a Slack
+   * question's card does; tests/unit/b-safety-cards-wait.test.ts runs with it on */
+  safetyCardsWait?: boolean
   timeZone?: string
   /** tests: a fixed --max-turns instead of the team setting */
   maxEngineTurns?: number
@@ -229,6 +233,8 @@ export class ChatRuntime {
   stallTimeoutMs: number
   /** an answer that ran this long tells the person when it ends (LONG_ANSWER_MS; a test may change it) */
   longAnswerMs: number
+  /** the server's safety cards wait after the answer ends (ChatRuntimeOptions.safetyCardsWait; tests may switch it) */
+  safetyCardsWait: boolean
   readonly queueStore: QueueStore
   readonly queueEpoch = newId()
   private queueRevision = 0
@@ -328,6 +334,7 @@ export class ChatRuntime {
     this.engines = o.engines ?? new LocalEngines(ctx)
     this.stallTimeoutMs = o.stallTimeoutMs ?? STALL_TIMEOUT_MS
     this.longAnswerMs = o.longAnswerMs ?? LONG_ANSWER_MS
+    this.safetyCardsWait = o.safetyCardsWait ?? true
     this.queueStore = new QueueStore(ctx.db)
     this.lastConcurrency = this.concurrency()
     // Plan updates can arrive outside the settings route. Lower C never kills existing turns.
@@ -845,8 +852,9 @@ export class ChatRuntime {
       try {
         if (!chat || chat.deleted_at || !t) throw new Error('the chat is gone')
         const locale = this.userLocale(q.user_id)
-        this.createTurn({ chat, userId: q.user_id, locale, windowId: t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
-          user: { parentId: q.message_id, content: answerText(ready.answers, ready.requests, tr('questionSkipped', locale), labelsHidden(this.db, isSharedRow(chat), q.message_id) ? tr('questionAnswered', locale) : undefined), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+        // a browser site's call runs again in the window whose browser it was for
+        this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
+          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, labelsHidden(this.db, isSharedRow(chat), q.message_id)), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
           answered: ready.answers })
       } catch (e) {
         this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })

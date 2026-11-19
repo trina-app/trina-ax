@@ -89,7 +89,7 @@ export const DELETE_REFUSAL = {
 export type DeleteRefusal = keyof typeof DELETE_REFUSAL
 
 /** What delete_files needs of the chat turn (chat/turn.ts TurnExec): narrow, so the rules here are tested on their own. */
-export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace'>>
+export type DeleteExec = Pick<TurnExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'files' | 'rt' | 'waitForPerson' | 'openRequests' | 'livePrincipal'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'callNow'>>
 
 /** Why delete_files is refused in this turn whatever is asked, or null: only the person's own chat, with them there. */
 export function deleteFilesRefusal(exec: Pick<DeleteExec, 'spec' | 'shared' | 'restricted' | 'templateRun' | 'roomsSeen' | 'otherAuthors' | 'fromSlack' | 'rt'> & Partial<Pick<TurnExec, 'alwaysPlace' | 'files'>>): DeleteRefusal | null {
@@ -261,7 +261,8 @@ export function deleteFilesTool(exec: DeleteExec): Tool {
     if (picked !== 'trash') {
       // "no", or no answer (closed, timed out, the answer stopped): no more delete cards in this answer
       s.declined = true
-      auditCall({ ...base, outcome: picked === null || picked === undefined ? 'no_answer' : 'declined', trashIds: [] }, target)
+      // a card that waits after the answer ends (chat/open-questions.ts): this call deleted nothing, the next turn runs it
+      auditCall({ ...base, outcome: picked === null || picked === undefined ? (exec.callNow?.deferred === requestId ? 'deferred' : 'no_answer') : 'declined', trashIds: [] }, target)
       return result(`The user did not allow this, so ${NONE.charAt(0).toLowerCase()}${NONE.slice(1)}. Do not delete or hide these another way (no move into another folder, no overwrite with empty content), and ask no other delete in this answer; ask the user what they want.`, 'not allowed by the user')
     }
     // everything again, then the moves, in one synchronous block (TeamFiles.trashAiPlan)

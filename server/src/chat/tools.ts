@@ -31,7 +31,7 @@ import { atLeast, isStaff, type Principal } from '../policy/access'
 import { walk } from '../policy/resolve'
 import { sideRoomOf } from './side-room'
 import { tr } from './i18n'
-import { questionsWaitInCall } from './open-questions'
+import { CARD_LATER_TOOLS, questionsWaitInCall } from './open-questions'
 import { optionWords, threadOptionWords } from './share-words'
 import { threadLook } from './thread-look'
 import { alwaysHere, withAlways } from './always-allow'
@@ -105,6 +105,9 @@ export interface Tool {
 const schema = (s: z.ZodType) => { const j = z.toJSONSchema(s, { target: 'draft-7' }) as Record<string, unknown>; delete j.$schema; return j }
 const text = (t: string, isError = false) => ({ content: [{ type: 'text' as const, text: t }], ...(isError ? { isError: true } : {}) })
 const zodText = (e: z.ZodError) => 'Invalid input: ' + e.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+
+/** a safety card's call result when the card waits after the answer ends */
+export const CARD_LATER_NOTE = 'Nothing was done yet: this needs the user\'s answer on the card that is now open for them, and the card waits until they answer. End your answer now: write at most one short line, call no more tools, and do not try another way. When they answer, this same call runs again with their answer and you get its result with their next message.'
 
 /** ask_user's result when its card waits after the answer ends (chat/open-questions.ts) */
 export const ASK_USER_LATER_NOTE = 'The card is open for the user and waits until they answer. End your answer now: write at most one short line, call no more tools, and do not answer the question yourself. Their answer comes as their next message in this chat; go on with the work from there.'
@@ -522,6 +525,22 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // (skills/guard.ts; a failed call left one for the rest of the turn)
   const run = set.call
   set.call = async (name, args, caller) => { try { return await run(name, args, caller) } finally { exec.dropSkillApproval(name, args); exec.releaseScheduleCover(name, args) } }
+  // a safety card of these tools waits after the answer ends (chat/open-questions.ts; TurnExec.cardLater): the call
+  // ends having done nothing, and the AI is told to end its answer; the next turn runs the call again with the answer
+  const once = set.call
+  set.call = async (name, args, caller) => {
+    const track = CARD_LATER_TOOLS.has(name) && (caller?.files ?? exec.files) === exec.files
+    if (!track) return once(name, args, caller)
+    const was = exec.callNow
+    const call = { name, args, deferred: null as string | null }
+    exec.callNow = call
+    try {
+      const out = await once(name, args, caller)
+      if (!call.deferred) return out
+      exec.markCallWaiting(name)
+      return { ...text(JSON.stringify({ waiting_for_user: true, note: CARD_LATER_NOTE })), summary: `${name} -> waits for the user's card (runs again with their answer)` }
+    } finally { exec.callNow = was }
+  }
   return set
 }
 

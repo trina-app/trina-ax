@@ -68,7 +68,8 @@ import { recordSkillUse } from '../admin/skill-usage'
 import { noteGoalRun } from '../onboarding/goal'
 import { notificationsOf, notifyEngineStartFailed } from '../notifications/service'
 import { noteChatAnswer } from '../notifications/chat-answers'
-import { answeredNote, saveQuestion } from './open-questions'
+import { takeAnsweredCalls, answeredNote, CARD_LATER_TOOLS, questionsWaitInCall, sameCard, saveQuestion, type WaitingCall } from './open-questions'
+import type { TurnToolSet } from '../turns'
 import { isLookUpTool, scheduleRunOutcome } from './schedule-outcome'
 import { validateTemplateTurn } from './schedule-templates'
 import { currentPlan, planLimits } from '../system/limits'
@@ -1112,7 +1113,13 @@ export class TurnExec {
     const invokedBlock = invoked ? skillBlock(invoked.skill, skillInput, 'invoked', { tokens: budget.skillTokens, scripts: toolSet.has('box_shell') }) : ''
     // this message answers the AI's questions of the answer before (chat/open-questions.ts): which ones, as the card gave them
     const answeredQ = answeredNote(rt.db, userMsg.id)
-    const answered = answeredQ ? `${answeredQ}\n\n` : ''
+    // the calls whose safety cards this message answers run again now, once (replayCalls)
+    // (taken once, by this turn: a regenerate of this message runs none of them again)
+    const waited = this.restricted ? { calls: [], ran: false } : takeAnsweredCalls(rt.db, userMsg.id, this.id)
+    const ranAgain = waited.calls.length ? await this.replayCalls(waited.calls, toolSet)
+      : waited.ran ? '<answered_cards>\nThe calls this message answered already ran, in an earlier answer to it. They do not run again: if the user still wants one of them, call it again (it asks them again).\n</answered_cards>' : ''
+    if (this.stopReason) return
+    const answered = (answeredQ ? `${answeredQ}\n\n` : '') + (ranAgain ? `${ranAgain}\n\n` : '')
     const message = skillNotShared + scheduled + continued + answered + (refs ? `${refs}\n\n` : '') + (hints ? `${hints}\n\n` : '') + (invokedBlock ? `${invokedBlock}\n\n` : '') + composeMessage(asSent, atts)
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
@@ -4401,6 +4408,76 @@ export class TurnExec {
     return true
   }
 
+  /** the main AI's call of a tool whose safety card may wait after the answer ends (chat/tools.ts CARD_LATER_TOOLS):
+   * set while it runs; `deferred` names the card it left open */
+  callNow: { name: string; args: unknown; deferred: string | null } | null = null
+  /** the call the person's answer runs again (replayCalls): its card takes their answer at once, once */
+  private replaying: { card: TurnRequest; answer: unknown; used: boolean } | null = null
+
+  /**
+   * A safety card raised inside a CARD_LATER_TOOLS call of the main AI, in a chat a person watches: kept with the call
+   * (chat/open-questions.ts) and shown with no time limit; the call goes on as if nobody answered (it changes nothing
+   * before its card) and chat/tools.ts tells the AI to end its answer. The person's answer starts the next turn, which
+   * runs the call again (replayCalls). True: the card was kept.
+   */
+  private cardLater(request: TurnRequest, o: { window?: string | null }): boolean {
+    const call = this.callNow
+    if (!call || call.deferred || questionsWaitInCall(this.spec.clientKind) || !CARD_LATER_TOOLS.has(call.name) || !this.rt.safetyCardsWait) return false
+    if (request.kind !== 'browser_site' && !(request.kind === 'ask_user' && request.origin === 'server')) return false
+    // what would be saved holds a stored connection secret of this person: never kept in the database, the card waits
+    // inside the call as before (with its time limit)
+    const r = this.redactor()
+    if (!nothingToHide(r)) { const raw = JSON.stringify(call.args ?? {}); if (r.hide(raw) !== raw) return false }
+    const { expiresAt: _no, ...card } = request as TurnRequest & { expiresAt?: string }
+    const window = o.window ?? null
+    saveQuestion(this.rt.db, { request: card as TurnRequest, chatId: this.spec.chatId, messageId: this.spec.assistantId, turnId: this.id, userId: this.spec.userId, call: { tool: call.name, args: call.args, window } })
+    call.deferred = request.requestId
+    this.questionsLeft++
+    const ev = { type: 'turn.request' as const, data: { turnId: this.id, chatId: this.spec.chatId, messageId: this.spec.assistantId, request: card as TurnRequest } }
+    if (window) this.rt.hub.publishTo(this.spec.userId, window, ev)
+    else this.rt.hub.publish(this.spec.userId, ev)
+    this.cardsChanged(window, true)
+    this.cardMissing.set(request.requestId, 'ended')
+    return true
+  }
+
+  /** The step of a call whose card waits after the answer: it says so (not a refusal) */
+  markCallWaiting(tool: string) {
+    const st = [...this.steps].reverse().find((x) => x.tool === tool && !x.parentId)
+    if (st) this.updateStep(st.id, { detail: tr('cardWaits', this.spec.locale) })
+  }
+
+  /**
+   * The calls whose safety cards this message answers (chat/open-questions.ts answeredCalls): each runs again now, once,
+   * through the same handler the engine's calls use (the person as they are now, the confidential lock, every check
+   * and card of the tool), before the engine starts. The card it raises takes the person's saved answer when it is the
+   * same card; a card that reads differently now is asked again (cardLater). What the AI is told, or ''.
+   */
+  private async replayCalls(calls: (WaitingCall & { answer: unknown })[], toolSet: TurnToolSet): Promise<string> {
+    const handler = makeHandler(this.rt.files, this.rt.db, { user: this.principal!, turnId: this.spec.turnId, files: this.files, signal: this.abort.signal }, toolSet)
+    const errors: EngineEvent[] = []
+    const out: string[] = []
+    for (const c of calls) {
+      if (this.stopReason) break
+      const id = `card-${crypto.randomUUID()}`
+      this.replaying = { card: c.card, answer: c.answer, used: false }
+      this.onEvent({ type: 'tool_start', id, name: TEAM_TOOL_PREFIX + c.tool, summary: '', input: c.args as Record<string, unknown> }, errors)
+      let said = '', ok = false
+      try {
+        const res = await handler({ jsonrpc: '2.0', id, method: 'tools/call', params: { name: c.tool, arguments: c.args, _meta: { 'claudecode/toolUseId': id } } })
+        const r = (res?.result ?? {}) as { content?: { type?: string; text?: string }[]; isError?: boolean }
+        said = (r.content ?? []).flatMap((x) => (x?.type === 'text' ? [String(x.text ?? '')] : [])).join('\n')
+        ok = !r.isError
+      } catch (e) { said = 'Error: internal error'; this.rt.log.warn('running a card\'s call again failed', { err: e, turn: this.id }) }
+      finally { this.replaying = null }
+      this.onEvent({ type: 'tool_end', id, ok, output: said.slice(0, 4000) }, errors)
+      out.push(`- ${c.tool} ${neutralizeTags(JSON.stringify(c.args ?? {})).slice(0, 2000)}: the user answered ${JSON.stringify(c.answer ?? null)}. It ran again now (every check made again) and returned:\n${neutralizeTags(said)}`)
+    }
+    this.attemptHadOutput = false
+    if (!out.length) return ''
+    return `<answered_cards>\nThis message is the user's answer to the card${out.length > 1 ? 's' : ''} your call${out.length > 1 ? 's' : ''} raised in your previous answer (the card waited until they answered). Each call ran again with their answer:\n${out.join('\n')}\nGo on from there.\n</answered_cards>`
+  }
+
   /** Show a card and wait for the answer; null = skipped / timed out / turn ended. The stall guard pauses meanwhile. */
   waitForPerson(request: TurnRequest, o: { window?: string | null; timeoutMs: number; exclusive?: boolean; askedAt?: number }): Promise<unknown> {
     // when the tool call asked (a card that waits behind another one keeps it): the engine's tool timeout counts from it
@@ -4408,6 +4485,11 @@ export class TurnExec {
     if (this.stopReason || this.abort.signal.aborted) { this.cardMissing.set(request.requestId, 'ended'); return Promise.resolve(null) }
     // a scheduled task runs with nobody watching: no card, every question and confirmation is "no answer"
     if (this.spec.clientKind === 'schedule') { this.cardMissing.set(request.requestId, 'unattended'); return Promise.resolve(null) }
+    // a call running again with the person's answer (replayCalls): the same card takes it at once
+    const rp = this.replaying
+    if (rp && !rp.used && sameCard(rp.card, request)) { rp.used = true; return Promise.resolve(rp.answer) }
+    // a safety card that waits after the answer ends (the call ends having done nothing)
+    if (this.cardLater(request, o)) return Promise.resolve(null)
     const held = this.exclusiveCard
     if (held) {
       return held.then(() => this.waitForPerson('expiresAt' in request && request.expiresAt ? { ...request, expiresAt: new Date(Date.now() + o.timeoutMs).toISOString() } as TurnRequest : request, o))

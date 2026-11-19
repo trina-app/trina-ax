@@ -37,6 +37,12 @@ export const TEXT = {
   questionSkipped: t('(질문 건너뜀)', '(Skipped the question)', '(Pertanyaan dilewati)', "（質問をスキップ）", "(Omitió la pregunta)", "（已跳过问题）"),
   /** the label of an answer's to-do step (todo_write): apps that know Step.todos show the checklist instead */
   todoList: t('할 일 목록', 'To-do list', 'Daftar tugas', "ToDoリスト", "Lista de tareas", "待办清单"),
+  /** the step of a call whose safety card waits after the answer ends (chat/open-questions.ts) */
+  cardWaits: t('카드에서 답을 기다려요', 'Waiting for your answer on the card', 'Menunggu jawaban Anda di kartu', "カードでの回答を待っています", "Esperando su respuesta en la tarjeta", "等待你在卡片上回答"),
+  /** a browser site card's answers, as the person's message after the card waited (chat/open-questions.ts answerText) */
+  siteOnce: t('이번만 허용', 'Allow once', 'Izinkan sekali', "今回だけ許可", "Permitir una vez", "仅本次允许"),
+  siteAlways: t('항상 허용', 'Always allow', 'Selalu izinkan', "常に許可", "Permitir siempre", "始终允许"),
+  siteDeny: t('허용 안 함', "Don't allow", 'Jangan izinkan', "許可しない", "No permitir", "不允许"),
   /** a picked option on the AI's question card in a shared chat whose labels may hold what others may not see
    * (chat/open-questions.ts labelsHidden) */
   questionAnswered: t('(AI의 질문에 답함)', "(Answered the AI's question)", '(Menjawab pertanyaan AI)', "（AIの質問に回答）", "(Respondió la pregunta de la IA)", "（已回答AI的问题）"),

@@ -163,6 +163,36 @@ describe('browser tools', () => {
     } finally { stop() }
   })
 
+  test('a browser site card waits after the answer (docs/decisions/20261119-safety-cards-wait.md): for that window only, and the answer opens it once in that window', async () => {
+    const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'text', text: 'wiki page' }] }))
+    // the window's browser was asked to open the address (each call once)
+    const calls = () => desk.frames.filter((f) => f.type === 'browser.call' && JSON.stringify(f.data.call.args).includes('192.168.10.9')).length
+    h.rt().safetyCardsWait = true
+    try {
+      const chat = await h.api('alice').call(API.createChat, { body: {} })
+      const r = await send(fake({ tool: 'navigate', args: { url: 'http://192.168.10.9/wiki' }, sayResult: true }))(chat.id)
+      const card = await desk.next('turn.request', (f) => f.data.turnId === r.turnId)
+      expect(card.data.request).toMatchObject({ kind: 'browser_site', host: '192.168.10.9' })
+      const d = await desk.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 20_000)
+      expect(JSON.parse(d.data.message.content)).toMatchObject({ waiting_for_user: true })
+      expect(calls()).toBe(0)
+      // after the answer ended: listed for the desktop window only, from the database
+      expect((await h.api('alice', { window: DESK }).call(API.listTurnRequests, { params: { id: chat.id } })).items.map((x) => x.request.requestId)).toEqual([card.data.request.requestId])
+      expect((await h.api('alice', { window: 'win-web-00001' }).call(API.listTurnRequests, { params: { id: chat.id } })).items).toEqual([])
+      // answered from that window only (another window of the same person: refused, the card stays)
+      const elsewhere = await h.req('alice', `/api/turns/${r.turnId}/answer`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-mycel-window': 'win-web-00001' }, body: JSON.stringify({ kind: 'browser_site', requestId: card.data.request.requestId, decision: 'always' }) })
+      expect(elsewhere.status).toBe(409)
+      await h.api('alice', { window: DESK, client: 'desktop' }).call(API.answerTurn, { params: { id: r.turnId }, body: { kind: 'browser_site', requestId: card.data.request.requestId, decision: 'once' } })
+      const u = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === r.assistantMessage.id, 20_000)
+      expect(u.data.message.content).toBe('Allow once')
+      const a = await desk.next('message.created', (f) => f.data.chatId === chat.id && f.data.message.parentId === u.data.message.id, 20_000)
+      await desk.next('message.done', (f) => f.data.messageId === a.data.message.id, 30_000)
+      // the call ran again once, in that window's browser; "once" is not remembered
+      expect(calls()).toBe(1)
+      expect(h.ctx.db.query("SELECT host FROM browser_site_grants WHERE user_id = 'alice' AND host = '192.168.10.9'").all()).toEqual([])
+    } finally { h.rt().safetyCardsWait = false; stop() }
+  })
+
   test('shared screenshot: saved in the chat attachment folder, shown under the step, image goes to the engine', async () => {
     const stop = serve(desk, (c) => ({ callId: c.callId, ok: true, content: [{ type: 'image', mime: 'image/png', data: PNG, shareToChat: true }] }))
     try {
