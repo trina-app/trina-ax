@@ -1740,7 +1740,7 @@ export const ja: Record<MessageKey, string> = {
   "pushGateway.problem.not_gateway": "このアドレスはスマホアプリ用のプッシュサービスではありません。運用している方にアドレスを確認してください。",
   "pushGateway.problem.locked": "サーバーの設定で決められているため、ここでは変更できません。",
   "audit.act.push.gateway": "スマホ通知の送り先を変更",
-  'push.ask': "新しいメッセージと@トリナの回答を通知で受け取りますか？",
+  'push.ask': "新しいメッセージとAIの回答を通知で受け取りますか？",
   'push.turnOn': "通知をオン",
   'push.later': "あとで",
   'push.deniedPhone': "端末の設定でこのアプリの通知がオフになっています。",

@@ -1740,7 +1740,7 @@ export const es: Record<MessageKey, string> = {
   "pushGateway.problem.not_gateway": "Esta dirección no es un servicio push para la app del teléfono. Confirme la dirección con quien lo administra.",
   "pushGateway.problem.locked": "Está definido en la configuración del servidor, así que no se puede cambiar aquí.",
   "audit.act.push.gateway": "Cambió adónde van las notificaciones del teléfono",
-  'push.ask': "¿Quiere recibir avisos de mensajes nuevos y de las respuestas de @Trina?",
+  'push.ask': "¿Quiere recibir avisos de mensajes nuevos y de las respuestas de la IA?",
   'push.turnOn': "Activar avisos",
   'push.later': "Ahora no",
   'push.deniedPhone': "Los avisos de esta aplicación están desactivados en los Ajustes del teléfono.",
