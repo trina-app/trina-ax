@@ -39,7 +39,7 @@ interface SessionState {
   pickLocale: (l: Locale) => void
   /** engine / model null = back to the team default. Shown at once; throws when refused (the screen is back to what the
    * account has); false: a newer pick replaced this one (its answer decides; nothing to say) */
-  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away' | 'mentionAllAsk'> & { engine?: UserPrefs['engine'] | null; model?: string | null; mentionAllAsk?: 'off' | null }) => Promise<boolean>
+  updatePrefs: (prefs: Omit<Partial<UserPrefs>, 'engine' | 'model' | 'away' | 'mentionAllAsk' | 'goalCard' | 'preparedCard'> & { engine?: UserPrefs['engine'] | null; model?: string | null; mentionAllAsk?: 'off' | null; goalCard?: 'hidden' | null; preparedCard?: 'hidden' | null }) => Promise<boolean>
   /** the person's language: one of their own, or null = follow the team default */
   setLocale: (l: Locale | null) => Promise<void>
   setTheme: (t: Theme) => Promise<void>

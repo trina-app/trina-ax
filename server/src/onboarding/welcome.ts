@@ -251,6 +251,12 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
   const raw = forWrite(ctx, now)
   const p = view(raw, now)
   const steps = raw.steps as Raw
+  // the owner's own change in the steps opens them (welcomeOpened): every PATCH /welcome sends, its automatic ones too
+  // (the first visit's start, the AI step recorded as skipped on screen), so landing in the steps opens them, as a row
+  // made by the first visit did before. Not a ✕ on "Continue setup" (`dismissed` alone): that declines the steps
+  // without entering them
+  const onlyDismiss = u.dismissed !== undefined && Object.entries(u).every(([k, v]) => k === 'dismissed' || v === undefined)
+  if (raw[OPENED_AT] === null && !onlyDismiss) raw[OPENED_AT] = now
   if (u.resultChatId !== undefined) {
     // the deck's chat: one of the caller's own, not deleted; recorded once it holds a message (a page that sends it
     // later: settleDeck records the kept chat when its message is in)
@@ -296,6 +302,59 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
   return r.progress
 }
 
+// `openedAt` on the row: null while the row is only what the setup made (no step seen yet), the time of the owner's first
+// move in the steps after that: any change of the steps but a ✕ alone (updateWelcome; /welcome itself sends one as it
+// opens: the first visit's start or the AI step recorded on screen), the team's start (setupWelcomeTeam), the brand
+// action (markWelcomeOpened). A row without the field (every row from before
+// docs/decisions/20261119-welcome-steps-in-app.md) was made by the steps themselves: opened. A build from before that
+// decision reads a row the setup made as any row (it does not know the field): opened.
+const OPENED_AT = 'openedAt'
+
+/** The owner opened the steps: a row is there and it is not one the setup made that nobody has opened yet. What
+ * records a step or holds something back for the steps from outside them (an upload's 팀 파일, a pack install's 내 스킬,
+ * a shared skill, the brand materials before a skill install, the merges that wait for the end, an admin's "sort the
+ * team's files" row) needs this, as it needed a row before: a team whose steps were never opened is never changed by
+ * them (security matrix: teamFilesLanded). */
+export function welcomeOpened(ctx: Pick<AppContext, 'db'>): boolean {
+  const s = stored(ctx)
+  return !!s.raw && s.raw[OPENED_AT] !== null
+}
+
+/** The owner's own move in the steps (the brand action from the steps' page): the row is opened. updateWelcome and
+ * setupWelcomeTeam open it too. */
+export function markWelcomeOpened(ctx: Pick<AppContext, 'db' | 'log'>): void {
+  try {
+    const s = stored(ctx)
+    if (!s.raw || s.raw[OPENED_AT] !== null) return
+    setSetting(ctx.db, WELCOME_SETTING, { ...s.raw, [OPENED_AT]: new Date().toISOString() })
+  } catch (err) { ctx.log.warn('the welcome steps were not marked opened', { err }) }
+}
+
+/**
+ * The team was just made (POST /api/setup, auth/accounts.ts setup): the owner's welcome steps start here, so every
+ * device resumes them (docs/decisions/20261119-welcome-steps-in-app.md). Before, the row was made only when /welcome
+ * opened once, and an owner who went on in the desktop app (/open-app) never had one: Home's landing and the setup row
+ * read none and showed nothing. `site`: the setup link's company website, normalized (anything else is dropped), for the
+ * company profile step. A row already there (a restored backup, a second call) is kept as it is: only a site it lacks is
+ * added. Never throws: the team exists whatever happens here, and /welcome still starts the row on its first visit.
+ */
+export function startWelcomeAtSetup(ctx: Pick<AppContext, 'db' | 'log'>, site: string | null | undefined): void {
+  try {
+    const s = stored(ctx)
+    if (s.row && !s.raw) return
+    const clean = site ? normalizeWebsite(site) : null
+    if (s.raw && (!clean || typeof s.raw.site === 'string')) return
+    const now = new Date().toISOString()
+    // `openedAt: null`: made here, not opened yet (welcomeOpened); the owner's first move in the steps sets it
+    const raw: Raw = s.raw ? { ...s.raw } : { ...fresh(now), [OPENED_AT]: null }
+    if (clean) raw.site = clean
+    raw.updatedAt = now
+    setSetting(ctx.db, WELCOME_SETTING, raw)
+  } catch (err) {
+    ctx.log.warn('the welcome steps were not started at setup', { err })
+  }
+}
+
 /**
  * How long a hidden setup row (✕) must stay hidden before it counts as the end of the steps for what waited for them
  * (docs/DECISIONS.md "W5": the merges into team skills). The row's undo toast lasts seconds; ✕ then undo inside this
@@ -331,7 +390,7 @@ export function welcomeUnfinishedFor(ctx: Pick<AppContext, 'db'>, userId: string
     const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL").get(userId)
     if (!owner) return false
     const p = readWelcome(ctx)
-    return !!p && !p.finishedAt && !dismissHeld(p)
+    return !!p && welcomeOpened(ctx) && !p.finishedAt && !dismissHeld(p)
   } catch { return false }
 }
 
@@ -449,6 +508,8 @@ function teamGroupFor(ctx: AppContext, userId: string, recorded: TeamGroupRef | 
 export function setupWelcomeTeam(ctx: AppContext, userId: string, locale: Locale): WelcomeTeamResult {
   const now = new Date().toISOString()
   const raw = forWrite(ctx, now)
+  // the team's start comes from the steps (their page, or the brand action once they are opened): opened
+  if (raw[OPENED_AT] === null) raw[OPENED_AT] = now
   let p = view(raw, now)
   if (!p.general) {
     const skills = listTeamSkills(ctx.files, ctx.files.principal(userId))
@@ -520,7 +581,7 @@ export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppCo
   try {
     const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner'").get(userId)
     const s = stored(ctx)
-    if (!owner || !s.raw) return false
+    if (!owner || !s.raw || !welcomeOpened(ctx)) return false
     const now = new Date().toISOString()
     const raw: Raw = { ...s.raw, steps: isObj(s.raw.steps) ? { ...s.raw.steps } : {} }
     settleDeck(ctx, raw)

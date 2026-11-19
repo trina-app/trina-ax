@@ -36,6 +36,7 @@ import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByU
 import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
+import { startWelcomeAtSetup } from '../onboarding/welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -182,6 +183,8 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
+  // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
+  startWelcomeAtSetup(ctx, b.site)
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
 }
 

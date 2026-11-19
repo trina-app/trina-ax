@@ -17,6 +17,7 @@ import { actionLabel } from './Audit'
 import { AdminPageHeader } from './common'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
+import { HomeCardsShowAgain } from '../../components/onboarding/CardHide'
 import { OldProjectsCard } from './OldProjectsCard'
 import { FolderShareNotice } from './FolderShareNotice'
 import { DevEnvOfferNotice } from './DevEnvOfferNotice'
@@ -75,6 +76,8 @@ export default function Home() {
       <OfficeMcpNotice />
 
       {owner && <OwnerSetup />}
+      {/* the team goal card hidden on Home (its "Hide"): brought back here, where the owner's checklist is */}
+      <HomeCardsShowAgain cards={['goalCard']} testId="admin-home-cards" />
 
       <section aria-labelledby="admin-home-areas">
         <h2 id="admin-home-areas" className="mb-2 text-title-sm font-semibold">

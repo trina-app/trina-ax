@@ -215,6 +215,10 @@ export const SetupBody = z.object({
    * server's default (MYCEL_TEAM_TZ, else its own zone, else UTC) */
   timeZone: z.string().min(1).max(64).optional(),
   owner: z.object({ username: Username, name: PersonName, password: Password, email: z.email().optional() }),
+  /** the company website the setup link carried (#site=…): kept with the welcome steps' progress, so the company profile
+   * step starts from it on any device, the desktop app too. Not an http(s) address, or too long: dropped, never an
+   * error (a setup never fails over it) */
+  site: z.string().max(300).optional().catch(undefined),
 })
 
 /** One-time reset link (admin-issued, 24 h; or owner recovery from the server Mac). Web page: /reset-password/<token>. */
@@ -252,7 +256,7 @@ export const UpdateMeBody = z.object({
   email: z.email().nullable().optional(),
   /** engine / model null = back to the team default ("내 기본 엔진/모델"); ignored for people who may not pick */
   /** `away` is not set here (PUT /api/me/away tells the team at once); one sent is dropped */
-  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional() }).optional(),
+  prefs: UserPrefs.omit({ away: true }).extend({ textSize: TextSize.optional(), engine: EngineId.nullable().optional(), model: z.string().max(100).nullable().optional(), listFolds: ListFolds.nullable().optional(), mentionAllAsk: z.literal('off').nullable().optional(), goalCard: z.literal('hidden').nullable().optional(), preparedCard: z.literal('hidden').nullable().optional() }).optional(),
 })
 
 /** PUT /api/me/web-access: my "Allow all websites" for the AI's web reads. Turning it on needs the version of the risk

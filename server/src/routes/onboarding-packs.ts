@@ -13,7 +13,7 @@ import type { AppContext } from '../context'
 import { fail } from '../http/errors'
 import { installSkillPack, onVisualSkillInstall, skillPackCatalog } from '../onboarding/skill-packs'
 import { ensureBrand } from '../onboarding/welcome-result'
-import { readWelcome, updateWelcome } from '../onboarding/welcome'
+import { readWelcome, updateWelcome, welcomeOpened } from '../onboarding/welcome'
 import type { RouteModule } from './module'
 
 /** The brand materials before a visual skill goes in, on the team owner's own press only (see above). One function, so
@@ -28,7 +28,7 @@ function recordInWelcome(ctx: AppContext, user: { id: string; role: string }): v
   if (user.role !== 'owner') return
   try {
     const p = readWelcome(ctx)
-    if (p && !p.finishedAt && p.steps.skills !== 'done') updateWelcome(ctx, user.id, { step: { id: 'skills', state: 'done' } })
+    if (p && welcomeOpened(ctx) && !p.finishedAt && p.steps.skills !== 'done') updateWelcome(ctx, user.id, { step: { id: 'skills', state: 'done' } })
   } catch (err) {
     ctx.log.warn('welcome step not recorded after a pack install', { err })
   }
