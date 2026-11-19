@@ -32,7 +32,7 @@ function team120(): Skill[] {
 
 describe('the list in the instructions', () => {
   const skills = team120()
-  test('120 skills: every name is in the list, the lines fit the budget, no path, descriptions cut at 160', () => {
+  test('120 skills: every name is in the list, the lines fit the budget, no path, descriptions cut at SKILL_LINE_DESCRIPTION_MAX', () => {
     const l = buildSkillList(skills, { order: descriptionOrder(skills, new Map()) })
     const text = l.lines.join('\n')
     expect(l.total).toBe(120)
@@ -91,11 +91,26 @@ describe('the list in the instructions', () => {
     expect(l.lines.join('\n')).not.toMatch(/<\/?(team_skill|turn_context)/)
   })
 
-  test('shortDescription: one line, at most 160 characters', () => {
+  test('shortDescription: one line, at most 400 characters (TC-4979: was 160, which cut the "use when …" part)', () => {
+    expect(SKILL_LINE_DESCRIPTION_MAX).toBe(400)
     expect(shortDescription('a\n b')).toBe('a b')
-    const d = shortDescription('가'.repeat(400))
-    expect([...d].length).toBe(160)
+    const d = shortDescription('가'.repeat(1000))
+    expect([...d].length).toBe(400)
     expect(d.endsWith('…')).toBe(true)
+    // a 300-character description with its "Use when" at the end comes whole
+    const full = 'Writes the weekly sales report from the CRM export and the shared sheet. '.repeat(3) + 'Use when someone asks for the weekly report or the sales numbers.'
+    expect(full.length).toBeGreaterThan(160)
+    expect(shortDescription(full)).toBe(full)
+  })
+
+  test('long descriptions still fit the 8,000-character budget: fewer described, every name listed', () => {
+    const many = Array.from({ length: 60 }, (_, i) => sk(`skills/team/s-${i}.md`, `skill-${i}`, `Does task ${i}. ` + 'More words about it. '.repeat(30)))
+    const l = buildSkillList(many, { order: descriptionOrder(many, new Map()) })
+    expect(l.lines.join('\n').length).toBeLessThanOrEqual(SKILL_LIST_BUDGET)
+    expect(l.unlisted).toBe(0)
+    expect(l.cut).toBe(true)
+    expect(l.described).toBeGreaterThan(0)
+    expect(l.described).toBeLessThan(60)
   })
 })
 

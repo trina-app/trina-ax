@@ -114,6 +114,38 @@ export function sha256Regular(abs: string, seen?: fs.Stats): string {
   } finally { fs.closeSync(fd) }
 }
 
+/**
+ * A copy of a regular, singly linked file (same refusals and `seen` as readRegular) into `dest`, a new file (0600):
+ * read and written in 4 MiB pieces without blocking the server, never whole in memory, and hashed on the way, so the
+ * hash is of the very bytes copied (a file that grows meanwhile is copied up to the size fstat gave). Refused over
+ * `maxBytes`. The caller removes `dest` on failure (it is in a work folder).
+ */
+export async function copyRegular(abs: string, dest: string, maxBytes: number, seen?: fs.Stats, signal?: AbortSignal): Promise<{ size: number; sha256: string }> {
+  const { fd, st } = openToRead(abs, seen)
+  let out: number | null = null
+  try {
+    if (st.size > maxBytes) throw new ToolError('file is too large')
+    out = fs.openSync(dest, C.O_WRONLY | C.O_CREAT | C.O_EXCL | C.O_NOFOLLOW, 0o600)
+    const h = crypto.createHash('sha256')
+    const buf = Buffer.allocUnsafe(Math.min(4 * 1024 * 1024, Math.max(1, st.size)))
+    const read = (pos: number, len: number) => new Promise<number>((ok, no) => fs.read(fd, buf, 0, len, pos, (e, n) => (e ? no(e) : ok(n))))
+    const write = (at: number, from: number, len: number) => new Promise<number>((ok, no) => fs.write(out!, buf, from, len, at, (e, n) => (e ? no(e) : ok(n))))
+    let pos = 0
+    while (pos < st.size) {
+      signal?.throwIfAborted()
+      const n = await read(pos, Math.min(buf.length, st.size - pos))
+      if (n <= 0) break
+      h.update(buf.subarray(0, n))
+      for (let w = 0; w < n;) w += await write(pos + w, w, n - w)
+      pos += n
+    }
+    return { size: pos, sha256: h.digest('hex') }
+  } finally {
+    fs.closeSync(fd)
+    if (out !== null) fs.closeSync(out)
+  }
+}
+
 /** Current sha256 of an existing regular file, or null if missing. */
 export function currentHash(abs: string): string | null {
   try { return sha256(readRegular(abs).bytes) } catch (e) { if (e instanceof ToolError && e.code === 'not_found') return null; throw e }

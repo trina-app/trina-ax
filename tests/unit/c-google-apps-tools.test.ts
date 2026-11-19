@@ -93,7 +93,8 @@ describe('calls', () => {
     const p = person('no')
     const t = turn('alice', { person: p })
     expect(t.prompt).toContain('Gmail (personal connection)')
-    expect([...t.tools.keys()].every((n) => n.startsWith('my_gmail__'))).toBe(true)
+    // (connection_result: the rest of a long answer of these tools, offered with any connection's tool, #1321)
+    expect([...t.tools.keys()].filter((n) => n !== 'connection_result').every((n) => n.startsWith('my_gmail__'))).toBe(true)
     // Docs and Sheets read tools send plain questions to drive_read (not connected here: the catalog says so)
     lib.calls = []
     const r = await t.call('my_gmail__search_gmail_messages', { query: 'lunch' })

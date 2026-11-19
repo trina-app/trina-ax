@@ -205,13 +205,17 @@ function legacyKoreanHead(head: Buffer, size: number, wholeFile: () => Buffer): 
 /** The text format of the cache. Change it when extractText gives other text for the same file (2: docx headers,
  * footers and comments, pptx notes and charts; 3: body lines that start like a section label are indented; 6: slide
  * labels, Word / Hangul headings, sheet ranges and `# row N` lines, OCR page breaks, files/locations.ts; 7: a Word
- * title, subtitle, author and date, and spreadsheet formulas next to their values), so the old text is made again. */
-export const TEXT_CACHE_VERSION = '7'
+ * title, subtitle, author and date, and spreadsheet formulas next to their values; 8: Word tracked changes and Excel
+ * charts, ooxml.ts), so the old text is made again. */
+export const TEXT_CACHE_VERSION = '8'
 /** older formats whose text is still right, only without the newer labels: kept at the update (grep goes on using it)
  * and made again in the background (OfficeCache.upgradeOld); any other older format is removed at start */
-const UPGRADABLE_VERSIONS = new Set(['5', '6'])
+const UPGRADABLE_VERSIONS = new Set(['5', '6', '7'])
 /** the formats whose text format 7 changed (a Word or OpenDocument title; spreadsheet formulas) */
 const V7_CHANGED = new Set(['docx', 'odt', 'xlsx', 'xls', 'ods'])
+/** format 8 changed only the text of .docx and .xlsx files (tracked changes, charts): another file of format 7 is still
+ * current, so a PDF, deck or Hangul file is not made again */
+const CHANGED_IN_8 = /\.(?:docx|xlsx)$/i
 const VERSION_FILE = '.format-version' // cache files all end in .txt, so no file of the team folder has this name
 /** What the folder's version file says: the oldest format whose server may use the folder's text as its own. Format 6
  * text only adds label lines that a format-5 server reads as plain text (it parses none of them), so the file keeps
@@ -301,8 +305,11 @@ export class OfficeCache {
   /** the file's cached text is of the current format (text kept from an upgradable older format is fresh, not current) */
   current(rel: string): boolean {
     const format = (this.provenance(rel) as { format?: string } | null)?.format
-    // format 7 changed only Word and spreadsheet text: a PDF's or a deck's format-6 text (OCR included) is not made again
-    return format === TEXT_CACHE_VERSION || (format === '6' && !V7_CHANGED.has(rel.slice(rel.lastIndexOf('.') + 1).toLowerCase()))
+    // format 7 changed only Word and spreadsheet text, format 8 only .docx and .xlsx text: a PDF's or a deck's format-6
+    // or format-7 text (OCR included) is not made again
+    if (format === TEXT_CACHE_VERSION) return true
+    if (format === '7') return !CHANGED_IN_8.test(rel)
+    return format === '6' && !V7_CHANGED.has(rel.slice(rel.lastIndexOf('.') + 1).toLowerCase())
   }
   cachePath(rel: string) { return path.join(this.dir, rel + '.txt') }
   /** the place index of a large text (files/place-index.ts) */

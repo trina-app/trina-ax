@@ -5,7 +5,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { makeHandler } from '../../server/src/mcp/protocol'
-import { fileSummaryOf } from '../../server/src/chat/turn'
+import { fileSummaryOf, instructionLike, roomChangeDetails, roomChangeWrites } from '../../server/src/chat/turn'
+import { patternName } from '../../server/src/tools/rename-pattern'
+import { GUEST_TURN_TOOLS } from '../../server/src/chat/guest-tools'
+import { PARENT_ONLY_TOOLS } from '../../server/src/chat/subagents'
+import { OWN_WORDS_TOOLS, ROOM_FILE_TOOLS, SHARED_TOOLS, namedPaths } from '../../server/src/rooms/ai-tools'
+import { stepLabel } from '@mycel/shared'
 import { makeCApp, type CApp, type Person } from '../lib/c-app'
 import { legacyProjectFolder } from '../lib/legacy-project'
 
@@ -480,6 +485,141 @@ describe('rename_file', () => {
     const taken = await call('alice', 'rename_file', { path: 'users/alice/새 이름.md', new_name: 'taken.md' })
     expect(taken.isError).toBe(true)
     expect(bytes('users/alice/taken.md').toString()).toBe('t')
+  })
+})
+
+// TC-4983: before, one rename_file call per file ("rename these 200 photos" took 200 calls)
+describe('rename_files', () => {
+  test('a list in one call: each with rename_file\'s checks, a failing item alone; no question; the turn in the history', async () => {
+    put('users/alice/batch/a.md', 'a'); put('users/alice/batch/b.md', 'b'); put('users/alice/batch/c.md', 'c'); put('users/alice/batch/taken.md', 't')
+    const p = ask(false)
+    const r = await call('alice', 'rename_files', { renames: [
+      { path: 'users/alice/batch/a.md', new_name: 'a-2026.md' },
+      { path: 'users/alice/batch/b.md', new_name: 'taken.md' },
+      { path: 'users/alice/batch/c.md', new_name: 'bad?.md' },
+      { path: 'groups/finance/budget.md', new_name: 'x.md' },
+      { path: 'users/alice/batch/c.md', new_name: 'twice.md' },
+    ] }, { person: p, turn: true })
+    expect(r.isError).toBe(false)
+    expect(p.questions).toHaveLength(0)
+    expect(r.text).toContain('Renamed 1:\n- users/alice/batch/a.md -> a-2026.md')
+    expect(r.text).toContain('- users/alice/batch/b.md: ')
+    expect(r.text).toContain('- users/alice/batch/c.md: invalid name')
+    expect(r.text).toContain('- groups/finance/budget.md: not found or no access')
+    expect(has('users/alice/batch/a-2026.md')).toBe(true)
+    expect(bytes('users/alice/batch/taken.md').toString()).toBe('t')
+    expect(has('users/alice/batch/b.md') && has('users/alice/batch/c.md')).toBe(true)
+    const ev = A.ctx.db.query("SELECT turn_id, detail FROM file_events WHERE path = 'users/alice/batch/a-2026.md' AND action = 'create' ORDER BY id DESC LIMIT 1").get() as { turn_id: string; detail: string }
+    expect(ev.turn_id).toBe(r.turnId!)
+    expect(JSON.parse(ev.detail)).toMatchObject({ movedFrom: 'users/alice/batch/a.md', tool: 'rename_files' })
+    const audit = A.ctx.db.query("SELECT summary FROM tool_events WHERE tool = 'rename_files' ORDER BY id DESC LIMIT 1").get() as { summary: string }
+    expect(audit.summary).toBe('rename_files 1/4')
+  })
+
+  test('200 photos by a pattern in one call; a regular expression with groups; only names directly inside the folder', async () => {
+    for (let i = 1; i <= 200; i++) put(`users/alice/photos/IMG_${String(i).padStart(4, '0')}.jpg`, `p${i}`)
+    put('users/alice/photos/notes.txt', 'n'); put('users/alice/photos/deeper/IMG_9999.jpg', 'deep')
+    const r = await call('alice', 'rename_files', { folder: 'users/alice/photos', find: 'IMG_', replace: 'trip-' }, { turn: true })
+    expect(r.isError).toBe(false)
+    expect(r.text).toContain('Renamed 200 in users/alice/photos:')
+    expect(r.text).not.toContain('more names match')
+    expect(has('users/alice/photos/trip-0001.jpg') && has('users/alice/photos/trip-0200.jpg')).toBe(true)
+    expect(has('users/alice/photos/IMG_0001.jpg')).toBe(false)
+    expect(has('users/alice/photos/notes.txt') && has('users/alice/photos/deeper/IMG_9999.jpg')).toBe(true)
+    // at the end of a name only (and the start, below): "jpg-notes.txt" keeps its "jpg"
+    put('users/alice/photos/jpg-notes.txt', 'j')
+    const re = await call('alice', 'rename_files', { folder: 'users/alice/photos', find: '.jpg', replace: '.jpeg', at: 'end' }, { turn: true })
+    expect(re.isError).toBe(false)
+    expect(has('users/alice/photos/trip-0001.jpeg') && has('users/alice/photos/jpg-notes.txt')).toBe(true)
+    expect((await call('alice', 'rename_files', { folder: 'users/alice/photos', find: 'trip-', replace: 'day-', at: 'start' })).text).toContain('Renamed 200')
+    expect(has('users/alice/photos/day-0200.jpeg')).toBe(true)
+    // nothing matches: said so
+    expect((await call('alice', 'rename_files', { folder: 'users/alice/photos', find: 'nothing-like-this', replace: 'x' })).text).toContain('Nothing was renamed')
+    // no regular expressions (review of #1327): regex is not an argument, and "(" is plain text
+    expect((await call('alice', 'rename_files', { folder: 'users/alice/photos', find: '(', replace: 'x', regex: true })).isError).toBe(true)
+    expect((await call('alice', 'rename_files', { folder: 'users/alice/photos', find: '(', replace: 'x' })).text).toContain('Nothing was renamed')
+    // a folder the person cannot see answers like a missing one
+    expect((await call('alice', 'rename_files', { folder: 'groups/finance', find: 'budget', replace: 'b' })).text).toContain('not found or no access')
+    // one way or the other, not both
+    expect((await call('alice', 'rename_files', { folder: 'users/alice/photos' })).isError).toBe(true)
+    expect((await call('alice', 'rename_files', { renames: [{ path: 'users/alice/photos/notes.txt', new_name: 'n.txt' }], folder: 'users/alice/photos', find: 'x' })).isError).toBe(true)
+  })
+
+  test('more than 500 matches: the first 500 are renamed, the answer says how many are left, a second call does the rest', async () => {
+    for (let i = 0; i < 520; i++) put(`users/alice/many/f-${i}.txt`, 'x')
+    const r = await call('alice', 'rename_files', { folder: 'users/alice/many', find: 'f-', replace: 'file-' })
+    expect(r.text).toContain('Renamed 500')
+    expect(r.text).toContain('20 more names match: at most 500 are renamed per call')
+    const rest = await call('alice', 'rename_files', { folder: 'users/alice/many', find: 'f-', replace: 'file-' })
+    expect(rest.text).toContain('Renamed 20')
+    expect(fs.readdirSync(path.join(A.team, 'users/alice/many')).filter((n) => n.startsWith('file-'))).toHaveLength(520)
+    // a list over 500 is refused by its input check
+    // (520 files made and renamed: room for a busy machine, 7 s seen under a load of 50)
+    expect((await call('alice', 'rename_files', { renames: Array.from({ length: 501 }, (_, i) => ({ path: `users/alice/many/file-${i}.txt`, new_name: `g-${i}.txt` })) })).isError).toBe(true)
+  }, 60_000)
+
+  test('offered wherever rename_file is (shared chats, guests, sub-agents); what it names; the room card sees where names land', () => {
+    for (const set of [SHARED_TOOLS, GUEST_TURN_TOOLS, ROOM_FILE_TOOLS, OWN_WORDS_TOOLS]) expect([set.has('rename_file'), set.has('rename_files')]).toEqual([true, true])
+    expect([PARENT_ONLY_TOOLS.has('rename_file'), PARENT_ONLY_TOOLS.has('rename_files')]).toEqual([false, false])
+    // every listed path and a pattern's folder count as read in a shared chat (its read card)
+    expect(namedPaths('rename_files', { renames: [{ path: 'a/x.md', new_name: 'y.md' }, { path: 'b/z.md', new_name: 'w.md' }] }).map((x) => x.value)).toEqual(['a/x.md', 'b/z.md'])
+    expect(namedPaths('rename_files', { folder: 'shared/photos', find: 'IMG', replace: 'p' }).map((x) => x.value)).toEqual(['shared/photos'])
+    // a rename onto an instruction file is seen before the call, from a list and from a pattern (the names it would make)
+    const tree = (p: string) => (p === 'shared/notes' ? ['readme.md', 'plan.md', 'sub/deep.md'] : [])
+    expect(roomChangeWrites('rename_files', { renames: [{ path: 'shared/notes/readme.md', new_name: 'CLAUDE.md' }] }, tree).targets.some(instructionLike)).toBe(true)
+    expect(roomChangeWrites('rename_files', { folder: 'shared/notes', find: 'readme', replace: 'CLAUDE', at: 'start' }, tree).targets.some(instructionLike)).toBe(true)
+    const plain = roomChangeWrites('rename_files', { folder: 'shared/notes', find: 'plan', replace: 'plan-v2' }, tree)
+    expect(plain.targets).toEqual(['shared/notes/plan-v2.md'])
+    expect(plain.targets.some(instructionLike)).toBe(false)
+    // past the scan limit or a pattern that cannot be read: counted as holding one
+    expect(roomChangeWrites('rename_files', { folder: 'shared/notes', find: 'x', replace: 'y' }, () => null).targets.some(instructionLike)).toBe(true)
+    // the card lists the files a pattern renames, old → new, the first 50 then "+N"
+    const card = roomChangeDetails('rename_files', { folder: 'shared/notes', find: 'plan', replace: 'plan-v2' }, 'en', undefined, undefined, '', tree)
+    expect(card[0]!.text).toBe('plan.md → plan-v2.md')
+    const many = Array.from({ length: 80 }, (_, i) => `IMG_${i}.jpg`)
+    expect(roomChangeDetails('rename_files', { folder: 'shared/p', find: 'IMG_', replace: 'p-' }, 'en', undefined, undefined, '', () => many)[0]!.text.split('\n')).toEqual([...many.slice(0, 50).map((n) => `${n} → ${n.replace('IMG_', 'p-')}`), '… +30'])
+    expect(stepLabel('rename_files', { folder: 'shared/photos', find: 'IMG', replace: 'p' }, 'en', new Set())).toBe('Rename files · shared/photos')
+    expect(stepLabel('rename_files', { renames: [{ path: 'a/x.md', new_name: 'y' }, { path: 'a/z.md', new_name: 'w' }] }, 'en', new Set())).toBe('Rename files · a/x.md +1')
+  })
+
+  test('matching is plain text in linear time: the patterns that took seconds as regular expressions finish at once', () => {
+    const t0 = performance.now()
+    for (const find of ['((a)+)+$', '((a+))+$', '(?:(a+))+$', '(a+)+$', '(a|aa)+$']) {
+      for (const name of ['a'.repeat(254) + '!', 'a'.repeat(255), `${'a'.repeat(120)}${find}${'a'.repeat(100)}`]) patternName(name, find, 'x')
+    }
+    expect(performance.now() - t0).toBeLessThan(100)
+    expect(patternName(`x${'(a+)+$'}y`, '(a+)+$', '-')).toBe('x-y')
+    expect(patternName('aaa', 'a', 'b')).toBe('bbb')
+    expect(patternName('IMG_1.IMG', 'IMG', 'p', 'start')).toBe('p_1.IMG')
+    expect(patternName('IMG_1.IMG', 'IMG', 'p', 'end')).toBe('IMG_1.p')
+    expect(patternName('same', 'x', 'y')).toBeNull()
+  })
+
+  test('each item is checked again when it runs: a folder that changed after the card cannot land an instruction file', async () => {
+    put('users/alice/late/a-notes.md', 'a'); put('users/alice/late/b-pack/readme.md', 'b')
+    // what a room's card would have weighed before the call: nothing instruction-like
+    const before = fs.readdirSync(path.join(A.team, 'users/alice/late'))
+    expect(roomChangeWrites('rename_files', { folder: 'users/alice/late', find: 'notes', replace: 'CLAUDE' }, () => before).targets.some(instructionLike)).toBe(false)
+    // ...then, before it runs, someone adds names that make the same pattern land on instruction files
+    put('users/alice/late/AGENTS-notes.md', 'planted'); put('users/alice/late/b-pack/SKILL.md', 'planted')
+    const r = await call('alice', 'rename_files', { renames: [{ path: 'users/alice/late/AGENTS-notes.md', new_name: 'AGENTS.md' }, { path: 'users/alice/late/b-pack', new_name: 'c-pack' }, { path: 'users/alice/late/a-notes.md', new_name: 'a-v2.md' }] }, { turn: true })
+    expect(r.text).toContain('users/alice/late/AGENTS-notes.md: rename_files does not make or move an instruction file')
+    expect(r.text).toContain('users/alice/late/b-pack: rename_files does not make or move an instruction file')
+    expect(has('users/alice/late/AGENTS-notes.md') && has('users/alice/late/b-pack/SKILL.md') && has('users/alice/late/a-v2.md')).toBe(true)
+    const p = await call('alice', 'rename_files', { folder: 'users/alice/late', find: '-notes', replace: '' }, { turn: true })
+    expect(p.isError).toBe(true)
+    expect(has('users/alice/late/AGENTS.md')).toBe(false)
+  })
+
+  test('skill folders stay out of reach, by the old name and the new one (also through "./")', async () => {
+    put('skills/batch-rule.txt', 'rule'); put('groups/marketing/drafts-b/x.md', 'x')
+    const one = await call('carol', 'rename_files', { renames: [{ path: './skills/batch-rule.txt', new_name: 'changed.txt' }, { path: 'groups/marketing/drafts-b', new_name: 'skills' }] }, { turn: true })
+    expect(one.isError).toBe(true)
+    expect(one.text).toContain('skills/')
+    expect(has('skills/batch-rule.txt') && has('groups/marketing/drafts-b/x.md')).toBe(true)
+    const pattern = await call('carol', 'rename_files', { folder: 'groups/marketing', find: 'drafts-b', replace: 'skills' }, { turn: true })
+    expect(pattern.isError).toBe(true)
+    expect(has('groups/marketing/drafts-b/x.md')).toBe(true)
   })
 })
 

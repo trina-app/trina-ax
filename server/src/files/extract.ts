@@ -1,5 +1,5 @@
 // Text for read/grep. Office formats: pandoc (docx/pptx/odt; the office worker adds the docx headers, footers and
-// comments and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
+// comments, tracked deletions and the pptx speaker notes and chart data that pandoc drops, ooxml.ts), SheetJS (xlsx/xls/ods) and hwp.ts (hwp/hwpx) in the office
 // worker (office-worker.ts, a bun child process), pdftotext (pdf). The same worker makes make_file's .hwpx
 // (officeWorkerWrite, files/hwpx-write.ts).
 // Plain text: UTF-8, else legacy Korean (CP949 / EUC-KR, the Korean Excel CSV default) when it decodes cleanly.
@@ -227,7 +227,8 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, e, ...askArg], stdin: bytes, readPaths: [path.dirname(script)],
       timeoutMs, maxStdout: OFFICE_TEXT_MAX + 1024 * 1024, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
-      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength) },
+      // OFFICE_DEADLINE_MS: the worker's end, so the charts of a workbook give way to its sheets (office-parse.ts withCharts)
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1', INPUT_BYTES: String(bytes.byteLength), OFFICE_DEADLINE_MS: String(Date.now() + timeoutMs) },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     if (r.killed === 'timeout') throw new ConverterStopped(tooComplex(`reading it took longer than ${timeoutMs / 1000} s`).message)
@@ -248,22 +249,24 @@ export async function officeWorkerText(e: string, bytes: Uint8Array, signal?: Ab
 export const OFFICE_WRITE_MAX = 64 * 1024 * 1024
 
 /** The bytes of a file the office worker makes (mode `hwpx-write`: make_file's Hangul document, files/hwpx-write.ts),
- * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message. */
-export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
+ * isolated and limited like its reads. A refusal of the request is a ToolError with the worker's own message.
+ * maxOut: the largest answer (the PDF tools take larger files: pdf-pages.ts PDF_OUTPUT_MAX); a larger request gets more
+ * time, as a read does (officeWorkerTimeoutMs). */
+export async function officeWorkerWrite(mode: string, request: Uint8Array, signal?: AbortSignal, maxOut = OFFICE_WRITE_MAX): Promise<Buffer> {
   const script = await officeWorkerScript()
   const timeoutMs = officeWorkerTimeoutMs(request.byteLength)
   return officeWorkerSlot(async () => {
     signal?.throwIfAborted()
     const r = await runIsolated({
       cmd: process.execPath, args: ['--smol', '--no-env-file', script, mode], stdin: request, readPaths: [path.dirname(script)],
-      timeoutMs, maxStdout: OFFICE_WRITE_MAX, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
+      timeoutMs, maxStdout: maxOut, maxRssMiB: OFFICE_WORKER_RSS_MIB, signal,
       env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0', NO_COLOR: '1' },
     })
     if (r.killed === 'aborted') signal?.throwIfAborted()
     const failed = (why: string) => new ToolError(`the document could not be made (${why}); nothing was saved`)
     if (r.killed === 'timeout') throw failed(`it took longer than ${timeoutMs / 1000} s`)
     if (r.killed === 'memory') throw failed(`it needed more than ${OFFICE_WORKER_RSS_MIB} MB of memory`)
-    if (r.killed === 'output') throw failed(`the file would be larger than ${OFFICE_WRITE_MAX / 1024 / 1024} MB`)
+    if (r.killed === 'output') throw failed(`the file would be larger than ${maxOut / 1024 / 1024} MB`)
     if (r.code === TOOL_ERROR_EXIT) throw new ToolError(r.stderr.trim().slice(0, 1500))
     if (r.code !== 0) throw failed(r.code === null || r.code >= 128 ? 'the writer ran out of memory or time' : `office writer: ${r.stderr.trim().split('\n')[0]?.slice(0, 200) || 'exit ' + r.code}`)
     return r.stdout
@@ -321,6 +324,9 @@ export async function extractText(name: string, original: Uint8Array, tools: Too
     }
     default: {
       if (tools.ocr && !tools.textLayerOnly && (IMAGE_EXT as readonly string[]).includes(e)) return ocr(tools.ocr, bytes, false, signal)
+      // UTF-16 text (Windows tools write it): its zero bytes are not binary (QA TC-4950)
+      const wide = utf16Text(bytes)
+      if (wide !== null) return wide
       const head = bytes.subarray(0, 8000)
       if (head.includes(0)) throw new ToolError('this is a binary file; it cannot be shown as text')
       return decodeText(bytes)
@@ -426,7 +432,7 @@ async function pandocBody(pandoc: string, e: 'docx' | 'pptx' | 'odt', bytes: Uin
   return quoteLines(await pipeThrough([...plain, ...(kind === 'headings' ? ['-s'] : [])], bytes, converterReadTimeoutMs(bytes.byteLength), signal))
 }
 
-const EXTRA_WHAT = { docx: 'headers, footers, comments and chart data', pptx: 'speaker notes and chart data' } as const
+const EXTRA_WHAT = { docx: 'headers, footers, comments, tracked changes and chart data', pptx: 'speaker notes and chart data' } as const
 
 /**
  * The parts of a .docx / .pptx that pandoc drops, from the office worker. When they cannot be read, a labelled line
@@ -441,6 +447,47 @@ async function extraText(e: 'docx' | 'pptx', bytes: Uint8Array, signal?: AbortSi
     if (stoppedFails && err instanceof ConverterStopped) throw err
     return notRead(err instanceof ToolError ? err.message.slice(0, 300) : 'the reader failed')
   }
+}
+
+/** C0 control characters that text never has (tab, line breaks and form feed are text) */
+const CONTROL = /[\u0000-\u0008\u000E-\u001F]/
+
+/**
+ * Is this the head of a UTF-16 text file? 'bom' with a byte-order mark (ripgrep reads such a file as text, and so does
+ * read). 'le' / 'be' without one, when it is plainly UTF-16: zero bytes on one side of the pairs only (the ASCII
+ * characters), in at least one pair in 16, and no control characters; ripgrep takes such a file for binary and skips it. Null otherwise.
+ */
+export function utf16Kind(head: Uint8Array): 'bom-le' | 'bom-be' | 'le' | 'be' | null {
+  if (head.length >= 2 && head[0] === 0xff && head[1] === 0xfe) return 'bom-le'
+  if (head.length >= 2 && head[0] === 0xfe && head[1] === 0xff) return 'bom-be'
+  const n = head.length & ~1
+  if (n < 4) return null
+  let even = 0, odd = 0
+  for (let i = 0; i < n; i += 2) { if (head[i] === 0) even++; if (head[i + 1] === 0) odd++ }
+  // a binary file has zero bytes on both sides; a UTF-16 one only on the high byte of its ASCII characters, and many:
+  // at least one pair in 16 (one stray zero byte in ASCII text is not UTF-16; security review of TC-4950)
+  const enough = Math.max(2, Math.ceil(n / 2 / 16))
+  const le = odd >= enough && even === 0, be = even >= enough && odd === 0
+  if (!le && !be) return null
+  const t = decodeUtf16(head.subarray(0, n), le ? 'utf-16le' : 'utf-16be', true)
+  return t !== null && !CONTROL.test(t) ? (le ? 'le' : 'be') : null
+}
+
+function decodeUtf16(bytes: Uint8Array, enc: 'utf-16le' | 'utf-16be', head = false): string | null {
+  // a head may end inside a surrogate pair
+  try { return new TextDecoder(enc, { fatal: !head }).decode(bytes) } catch { return null }
+}
+
+/**
+ * Text of a UTF-16 file (utf16Kind), the byte-order mark dropped as ripgrep drops it, so read and grep agree on lines
+ * and character positions; null when it is not UTF-16 text (or not valid UTF-16, or has control characters).
+ */
+export function utf16Text(bytes: Uint8Array): string | null {
+  const kind = utf16Kind(bytes.subarray(0, 8000))
+  if (!kind) return null
+  const le = kind === 'bom-le' || kind === 'le'
+  const t = decodeUtf16(kind.startsWith('bom') ? bytes.subarray(2) : bytes, le ? 'utf-16le' : 'utf-16be')
+  return t !== null && !CONTROL.test(t) ? t : null
 }
 
 /**

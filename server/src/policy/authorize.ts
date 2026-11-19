@@ -2,7 +2,7 @@
 import type { Quarantine } from '../safe-ops/quarantine'
 import fs from 'node:fs'
 import path from 'node:path'
-import { atLeast, inProjectZone, type Principal, type RuleSet } from './access'
+import { atLeast, hiddenNow, holdsHiddenNow, inProjectZone, type Principal, type RuleSet } from './access'
 import { Denied, ToolError } from './errors'
 import { badSegment, foldKey, hiddenEntry } from './names'
 import { parseInput, realpathCheck, walk } from './resolve'
@@ -43,6 +43,15 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
   const w = walk(fx.root, segs, fx.caseInsensitive, op === 'write' ? undefined : opts.dirs)
   const full = [...w.actual, ...w.missing]
 
+  // a shared project chat's call (policy/access.ts withHiddenFolders): a new entry, or a hidden one, directly in a
+  // folder that holds a hidden folder is refused with one text whatever the name, so a write cannot tell a hidden name
+  // from a free one (it would otherwise be "no access" against a new file made). The folder is one everyone in the chat
+  // may open; commands cannot add there either (srt/mounts.ts)
+  if (op === 'write') {
+    const hid = full.findIndex((_, i) => hiddenNow(user, full.slice(0, i + 1)))
+    const first = hid < 0 ? w.actual.length : Math.min(hid, w.actual.length)
+    if (first < full.length && holdsHiddenNow(user, full.slice(0, first))) throw new Denied(lockedTop(full.slice(0, first)))
+  }
   // permission is decided on the actual names (plus not-yet-existing names as typed)
   const acc = rules.access(user, full)
   if (op === 'list') { if (!rules.canList(user, full)) throw new Denied(hidden(input)) }
@@ -95,6 +104,9 @@ export function authorize(fx: FsCtx, rules: RuleSet, user: Principal, input: unk
     throw new ToolError('Generated output is download-only; indexing, text extraction and in-app previews are disabled.', 'safe_ops_quarantined')
   return { segs: full, rel: full.join('/'), abs: path.join(fx.root, ...full), exists, existing: w.actual.length, st: exists ? w.st : undefined }
 }
+
+/** The refusal of a new entry directly in a folder that holds a folder hidden in this call (a shared project chat). */
+export const lockedTop = (folder: readonly string[]) => `nothing new can be added directly in '${folder.join('/') || '/'}' in this shared chat: save it in one of its sub-folders`
 
 /**
  * The refusal of a write to a path the caller may not see. It must be the answer the same path would get if it were

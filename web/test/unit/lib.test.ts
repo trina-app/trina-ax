@@ -4,7 +4,7 @@ import type { DesktopBridge } from '@mycel/shared'
 import { BrowserRelay, NO_PANE_ERROR } from '../../src/lib/browserRelay'
 import { dateBucket, formatDateTime, formatRelative, formatSize, localDay } from '../../src/lib/format'
 import { baseName, crumbs, isConflictCopy, isInside, joinPath, nameProblem, parentPath } from '../../src/lib/paths'
-import { iconKind, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
+import { iconKind, previewFits, previewKind, previewLimit, PREVIEW_TEXT_MAX } from '../../src/lib/preview'
 import { errorText, PreviewTooLargeError, readBounded } from '../../src/lib/api'
 import { safeHref } from '../../src/lib/safeLinks'
 import { useJobs, waitForJob } from '../../src/store/jobs'
@@ -195,16 +195,26 @@ describe('previews read a bounded amount', () => {
     const big = await readBounded(new Response(stream(20_000), { headers: { 'content-length': '20000' } }), 10_000, { truncate: true })
     expect(big.size).toBe(10_001)
   })
-  test('limits per kind (tab 5)', () => {
-    expect(previewLimit('pdf')).toEqual({ max: 50 * 1024 * 1024, truncate: false })
-    expect(previewLimit('image')).toEqual({ max: 20 * 1024 * 1024, truncate: false })
-    expect(previewLimit('html')).toEqual({ max: PREVIEW_TEXT_MAX, truncate: true })
+  test('limits per kind (docs/decisions/20261118-audit2-web-limits.md)', () => {
+    // a PDF is read whole up to 50 MB and streamed past it; pictures are drawn whole up to 100 MB; Office stays 50 MB
+    expect(previewLimit('pdf')).toEqual({ max: 50 * 1024 * 1024, truncate: false, stream: true })
+    expect(previewLimit('image')).toEqual({ max: 100 * 1024 * 1024, truncate: false, stream: false })
+    expect(previewLimit('docx')).toEqual({ max: 50 * 1024 * 1024, truncate: false, stream: false })
+    expect(previewLimit('html')).toEqual({ max: PREVIEW_TEXT_MAX, truncate: true, stream: false })
+    // audio and video always play from the address: nothing is read whole, no size is too large
     for (const name of ['clip.webm', 'clip.mp4', 'recording.m4a']) {
-      expect(previewLimit(previewKind(name)!)).toEqual({ max: 60 * 1024 * 1024, truncate: false })
+      expect(previewLimit(previewKind(name)!)).toEqual({ max: 0, truncate: false, stream: true })
     }
   })
-  test('media allows exactly 60 MB and refuses one byte more, with or without Content-Length', async () => {
-    const { max } = previewLimit(previewKind('clip.webm')!)
+  test('no size is too large for audio, video or a PDF; pictures and Office files keep a limit', () => {
+    const GB = 1024 ** 3
+    for (const name of ['film.mp4', 'talk.mov', 'call.m4a', 'scan.pdf']) expect(previewFits(previewKind(name)!, 4 * GB)).toBe(true)
+    expect(previewFits('image', 100 * 1024 * 1024)).toBe(true)
+    expect(previewFits('image', 100 * 1024 * 1024 + 1)).toBe(false)
+    expect(previewFits('pptx', 50 * 1024 * 1024 + 1)).toBe(false)
+  })
+  test('a read allows exactly its max and refuses one byte more, with or without Content-Length', async () => {
+    const { max } = previewLimit('pdf')
     expect((await readBounded(new Response(stream(max, 1024 * 1024), {
       headers: { 'content-length': String(max) },
     }), max)).size).toBe(max)

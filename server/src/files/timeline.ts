@@ -60,7 +60,7 @@ export function fileTimelineWalk(db: Database, rel: string, o: { limit?: number;
     return out.length >= limit
   }
   const moveKind = (from: string, to: string, d: Record<string, unknown>): TimelineKind =>
-    d.tool === 'rename_file' || parentOf(from) === parentOf(to) ? 'renamed' : 'moved'
+    d.tool === 'rename_file' || d.tool === 'rename_files' || parentOf(from) === parentOf(to) ? 'renamed' : 'moved'
 
   outer: for (let reads = 0; reads < MAX_READS && cur; reads++) {
     const keys = selfAndAbove(cur)

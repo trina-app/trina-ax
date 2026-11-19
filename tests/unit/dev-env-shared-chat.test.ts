@@ -16,7 +16,7 @@ import type { SpawnSpec, SrtSystem, UnitInfo } from '../../server/src/devenv/srt
 import type { DevEnvPlan } from '../../server/src/devenv/srt/plan'
 import { pollSrt } from '../../server/src/devenv/jobs'
 import { newConsent, saveTeamSetting, teamSetting } from '../../server/src/devenv/setting'
-import { boxShellTool } from '../../server/src/devenv/tool'
+import { boxShellTool, lockedTopsNote } from '../../server/src/devenv/tool'
 import { sharedSection } from '../../server/src/chat/prompt'
 
 setDefaultTimeout(60_000)
@@ -31,7 +31,9 @@ const fake: SrtSystem = {
     const exited = new Promise<{ code: number | null; signal: string | null }>((r) => { resolve = r })
     // the settings file is removed when the run ends: read it now
     runs.set(spec.runId, { spec, settings: JSON.parse(fs.readFileSync(spec.settingsFile, 'utf8')), state: 'active', resolve })
-    const m = /^echo (.*)$/.exec(spec.command)
+    // (a shared run's command starts with the check of its pinned entries, srt/mounts.ts entryGuard: the AI's command
+    // is the last line)
+    const m = /^echo (.*)$/.exec(spec.command.split('\n').pop()!)
     if (m) queueMicrotask(() => { fs.appendFileSync(spec.stdoutFile, m[1] + '\n'); fs.writeFileSync(spec.exitFile, '0\n'); runs.get(spec.runId)!.state = 'gone'; resolve({ code: 0, signal: null }) })
     return { pid: 999_999, exited }
   },
@@ -60,6 +62,8 @@ const shell = (userId: string, shared: SharedRun | undefined, chatId = chat, sig
 const abs = (rel: string) => path.join(team, rel)
 const fsOf = (r: FakeRun) => r.settings.filesystem
 const readable = (r: FakeRun) => [...new Set([...fsOf(r).allowRead, ...fsOf(r).allowWrite])]
+/** every path a run's settings name (an entry of any list shows its name in the run) */
+const named = (r: FakeRun) => [...fsOf(r).allowRead, ...fsOf(r).allowWrite, ...fsOf(r).denyRead, ...fsOf(r).denyWrite]
 
 beforeAll(async () => {
   process.env.MYCEL_DEV_ENV = '1'
@@ -109,8 +113,15 @@ describe('a shared project chat', () => {
     expect(r.spec.cwd).toBe(fs.realpathSync(abs(P.folderPath)))
     // the turn ran it as a shared chat's run: a home of this command in the chat's folder
     expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
-    expect(fsOf(r).allowWrite).toContain(abs(P.folderPath))
-    expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    // the project folder holds a folder bob may not open: given entry by entry, that folder not even by its name
+    // (QA TC-4945, srt/mounts.ts), and the AI is told what it cannot change there
+    expect(fsOf(r).allowWrite).not.toContain(abs(P.folderPath))
+    expect(named(r).some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
+    expect(done.data.message.content).toContain(lockedTopsNote([P.folderPath]))
+    // the entries given one by one are checked inside the sandbox before the command (QA TC-4945 review)
+    expect(r.spec.command.split('\n')[0]).toMatch(/^\/usr\/bin\/xargs -0 \/usr\/bin\/stat -c %d:%i -- < '.+'.*exit 97/)
+    expect(r.spec.command.split('\n').pop()).toBe('echo hi')
+    expect(r.spec.command).not.toContain('secret')
     expect(readable(r).some((p) => p.startsWith(abs('users')))).toBe(false)
     expect(readable(r).filter((p) => p.startsWith(team + '/')).every((p) => p.startsWith(abs(P.folderPath)))).toBe(true)
     // the answer's record (chat/shared-answers.ts): the project folder, with alice and bob
@@ -123,8 +134,9 @@ describe('a shared project chat', () => {
     const r0 = await shell('alice', sharedRun(['alice', 'bob'], P.folderPath)).call({ command: 'echo ok' })
     expect(out(r0)).toContain('ok')
     const r = last()
-    expect(fsOf(r).allowWrite).toContain(abs(P.folderPath))
-    expect(fsOf(r).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    expect(fsOf(r).allowWrite).not.toContain(abs(P.folderPath))
+    expect(named(r).some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
+    expect(out(r0)).toContain(lockedTopsNote([P.folderPath]))
     expect(readable(r)).not.toContain(abs('users/alice'))
     expect(readable(r)).not.toContain(abs('shared'))
     expect(r.spec.env.HOME).toBe(path.join(chatHome(base, chat), r.spec.runId))
@@ -149,14 +161,28 @@ describe('a shared project chat', () => {
     expect([...readable(r), ...fsOf(r).denyRead].some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
   })
 
+  test('a cwd in the folder bob may not open is refused with the words of a folder that is not there (QA TC-4945)', async () => {
+    const tool = shell('alice', sharedRun(['alice', 'bob'], P.folderPath))
+    const n = runs.size
+    const hidden = out(await tool.call({ command: 'ls', cwd: 'secret' }))
+    const missing = out(await tool.call({ command: 'ls', cwd: 'no-such-folder' }))
+    expect(runs.size).toBe(n)
+    expect(hidden).toBe(missing)
+    expect(hidden).not.toContain('SECRET')
+  })
+
   test('each call reads the audience again: alone in the chat, alice\'s next command sees her restricted folder', async () => {
     const audience = ['alice', 'bob']
     const tool = shell('alice', sharedRun(audience, P.folderPath))
-    await tool.call({ command: 'echo 1' })
-    expect(fsOf(last()).denyRead).toContain(abs(`${P.folderPath}/secret`))
+    const one = await tool.call({ command: 'echo 1' })
+    expect(named(last()).some((p) => p.startsWith(abs(`${P.folderPath}/secret`)))).toBe(false)
+    expect(out(one)).toContain(lockedTopsNote([P.folderPath]))
     audience.splice(1, 1)
-    await tool.call({ command: 'echo 2' })
+    const two = await tool.call({ command: 'echo 2' })
+    // alone: the project folder whole again, her folder in it, no note
+    expect(fsOf(last()).allowWrite).toContain(abs(P.folderPath))
     expect(fsOf(last()).denyRead).not.toContain(abs(`${P.folderPath}/secret`))
+    expect(out(two)).not.toContain('cannot add, rename or delete')
   })
 
   test('the audience changes while a command runs: the next poll stops it', async () => {

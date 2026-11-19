@@ -2,7 +2,8 @@
 // (extract.ts, office-parse.ts, hwp.ts, native/ocr) leave structure in the text:
 //   - PDF: a form feed before each page after the first (pdftotext; mycel-ocr since 0.2.17)
 //   - spreadsheets: `# sheet: <name> · A1:F40 (tab-separated)` before each sheet, `# row N` where blank rows were left
-//     out; a quoted cell may span lines (an odd number of quotes so far means the row goes on)
+//     out; a quoted cell may span lines (an odd number of quotes so far means the row goes on); the `=== Excel charts`
+//     section after the sheets belongs to no sheet
 //   - PowerPoint: `=== Slide N ===` before each slide's text and each slide's notes and charts
 //   - Word, OpenDocument, Hangul: Markdown headings (`## 환불 정책`); a body line that starts like one is indented
 // From these this module tells the place of any line (grep results, a read by lines), cuts text into pieces that never
@@ -11,6 +12,7 @@
 // names without ranges, and no slides or sections.
 import type { SourceLoc } from '@mycel/shared/api'
 import { ext } from './extract'
+import { XLSX_CHARTS_SECTION } from './ooxml'
 
 export type Structure = 'pages' | 'sheets' | 'slides' | 'headings' | null
 
@@ -78,6 +80,11 @@ export function walkLine(s: WalkState, kind: Structure, raw: string, no: number,
     return onLine({ text: raw, loc: heading ? { kind: 'heading', heading } : null, key: heading ?? '', marker }, no) !== false
   }
   if (kind === 'sheets') {
+    // the workbook's charts come after its sheets (office-parse.ts withCharts): their lines belong to no sheet
+    if (!s.inQuote && XLSX_CHARTS_SECTION.test(raw)) {
+      s.sheet = null
+      return onLine({ text: raw, loc: null, key: '', marker: true }, no) !== false
+    }
     const m = s.inQuote ? null : SHEET.exec(raw)
     if (m) {
       // a new object (never changed in place): a state kept in a place index stays as it was

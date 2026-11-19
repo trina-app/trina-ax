@@ -36,6 +36,7 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_files: t('파일 옮기기', 'Move files', 'Pindahkan berkas', "ファイルを移動", "Mover archivos", "移动文件"),
   copy_files: t('파일 복사', 'Copy files', 'Salin berkas', "ファイルをコピー", "Copiar archivos", "复制文件"),
   rename_file: t('이름 바꾸기', 'Rename', 'Ganti nama', "名前を変更", "Cambiar nombre", "重命名"),
+  rename_files: t('이름 여러 개 바꾸기', 'Rename files', 'Ganti nama berkas', "複数の名前を変更", "Cambiar nombres", "批量重命名"),
   delete_files: t('휴지통으로 옮기기', 'Move to trash', 'Pindahkan ke tempat sampah', "ゴミ箱に移動", "Mover a la papelera", "移到回收站"),
   artifact: t('화면 만들기', 'Make a page', 'Buat halaman', "画面を作成", "Crear una página", "制作页面"),
   web_fetch: t('웹 페이지 가져오기', 'Fetch page', 'Ambil halaman', "ページを取得", "Obtener página", "获取网页"),
@@ -66,6 +67,8 @@ export const FILE_STEP_VERB: Record<string, T> = {
   move_skill: t('스킬 옮기기', 'Move skill', 'Pindahkan skill', "スキルを移動", "Mover habilidad", "移动技能"),
   skill_files: t('스킬 폴더 파일', 'Skill folder files', 'Berkas folder skill', "スキルフォルダーのファイル", "Archivos de carpeta de habilidades", "技能文件夹文件"),
   find_tools: t('쓸 수 있는 기능 찾기', 'Find features', 'Cari fitur', "使える機能を探す", "Buscar funciones", "查找功能"),
+  // the next part of a long answer of a connected service (server/src/integrations/connections/tools.ts)
+  connection_result: t('이어서 읽기', 'Read on', 'Baca lanjutan', "続きを読む", "Seguir leyendo", "继续阅读"),
   // no step under an answer (server/src/chat/turn.ts HIDDEN_STEP_TOOLS), but the activity log names it (QA TC-069)
   set_title: t('채팅 이름 짓기', 'Name the chat', 'Beri nama obrolan', "チャットに名前を付ける", "Poner nombre al chat", "给对话命名"),
   remember: t('기억하기', 'Remember', 'Ingat', "記憶", "Recordar", "记住"),
@@ -312,6 +315,11 @@ export function stepLabel(tool: string, input: unknown, locale: Locale, browserT
     case 'share_file': case 'unzip_file': return `${verb} · ${clip(a.path, 90)}`
     case 'move_files': case 'copy_files': return `${verb} · ${clip(a.to_folder, 90)}`
     case 'rename_file': return `${verb} · ${clip(a.path, 90)}`
+    case 'rename_files': {
+      // the folder of a pattern, else the first file and how many more ("+3": a number, the same in every language)
+      const items = Array.isArray(a.renames) ? a.renames.map((r: unknown) => (r as { path?: string } | null)?.path ?? '') : []
+      return typeof a.folder === 'string' ? `${verb} · ${clip(a.folder || '/', 90)}` : items.length ? `${verb} · ${clip(items[0], 80)}${items.length > 1 ? ` +${items.length - 1}` : ''}` : verb!
+    }
     case 'skill_files': return `${verb} · ${clip(a.path, 60)}${a.to_folder ? ` → ${clip(a.to_folder, 40)}` : a.new_name ? ` → ${clip(a.new_name, 40)}` : ''}`
     case 'delete_files': {
       // the first item and how many more ("+3": a number, the same in every language)
@@ -423,7 +431,7 @@ export function placeName(path: string, locale: Locale): string | null {
 }
 
 /** Tools whose step line ends in a team path ("<verb> · <path>"; edit_files adds "+N", hwp_render "#page"). */
-const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render'])
+const PATH_STEP_TOOLS = new Set(['list', 'glob', 'grep', 'search', 'knowledge_explore', 'read', 'write', 'edit', 'edit_files', 'make_file', 'edit_hwp', 'edit_office', 'stamp_pdf', 'edit_pdf', 'merge_pdfs', 'split_pdf', 'resize_images', 'unzip_file', 'make_zip', 'query_data', 'share_file', 'move_files', 'copy_files', 'rename_file', 'delete_files', 'save_url', 'hwp_render', 'rename_files'])
 
 /**
  * A step line (already in the language on screen, localizeStep) with its team path in words, and that path for a

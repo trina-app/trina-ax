@@ -25,6 +25,7 @@ import { inSkills } from '../skills/guard'
 import { componentC } from '../team-files/component'
 import { checkRegular } from '../team-files/place'
 import { makeWorkDir } from './isolate'
+import { commentDocxOutput } from './make-file-path'
 import { confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
 
@@ -45,7 +46,7 @@ export const COMMENT_DOCX_DESCRIPTION =
   'when you read it. Tracked changes (suggested edits) cannot be made here: say so plainly, and offer a comment instead.'
 
 /** where an `output` saves: a .docx ("x" and "x/" save x.docx) */
-export const commentDocxOutput = (o: string) => (ext(o) === 'docx' ? o : `${o.replace(/\/+$/, '')}.docx`)
+export { commentDocxOutput }
 
 export interface CommentedDocx { path: string; size: number; sha256: string; conflictCopyOf?: string; source: string; inPlace: boolean; added: DocxCommentResult['added'] }
 

@@ -14,8 +14,13 @@ import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
 
 export const PDF_PAGES_MODE = 'pdf-pages'
-/** all the PDFs (and images and the font) of one call together */
-export const PDF_PAGES_INPUT_MAX = 40 * 1024 * 1024
+/** all the PDFs (and images and the font) of one call together. Measured in the office worker (pdf-lib holds the
+ * input, its parsed objects and the new file at once): a 100 MB scan peaks near 1.05 GB of its 2 GB, a 200 MB one at
+ * 2 GB, so 100 MB leaves half for a PDF of many small objects (docs/decisions/20261118-audit2-file-caps.md) */
+export const PDF_PAGES_INPUT_MAX = 100 * 1024 * 1024
+/** the worker's answer for these tools: the new file(s) are about as large as what went in, plus added text and fonts
+ * (split_pdf's parts may overlap); larger is refused with "the file would be larger than ..." */
+export const PDF_OUTPUT_MAX = 160 * 1024 * 1024
 export const PDF_PAGES_FILES_MAX = 20
 export const PDF_PAGES_PARTS_MAX = 50
 export const PDF_PAGES_OPS_MAX = 30

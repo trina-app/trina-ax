@@ -17,7 +17,7 @@ Trina AX 把团队的文件、技能和工具放在一台服务器上。每个�
 
 https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 
-<p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数</p>
+<p align="center"><sub>同样的 Claude，同样的请求，不同的结果。97 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>如果 Trina AX 对你的团队有用，点个 Star 能让更多团队发现它。</sub></p>
 
 ## 只需设置一次，全队都能用
 
@@ -133,6 +133,8 @@ Trina 提供的是工作空间，不是 AI 本身：请接入你们获得授权�
 </details>
 
 ## 社区
+
+如果 Trina AX 帮到了你的团队，点个 ⭐ 能让更多团队找到它。
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [版本发布](https://github.com/trina-app/trina-ax/releases/latest) · [更新日志](CHANGELOG.md) · [获取支持](SUPPORT.md) · [参与贡献](CONTRIBUTING.md) · [安全](SECURITY.md) · [开发](docs/DEVELOPMENT.md) · [配置](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 

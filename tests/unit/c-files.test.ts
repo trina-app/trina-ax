@@ -364,6 +364,28 @@ describe('download', () => {
     const etag = full.headers.get('etag')!
     expect((await A.req('/api/files/download' + q({ path: 'shared/bin/data.bin' }), { as: 'alice', headers: { 'if-none-match': etag } })).status).toBe(304)
   })
+  // docs/decisions/20261118-audit2-web-limits.md: the preview's player and pdf.js read a team file from its inline
+  // address in parts, as a media element does (Fetch Metadata: video, no-cors); no size limit in the app
+  test('a player reads a team video in parts from the inline address; someone who may not read it gets 404', async () => {
+    const bytes = new Uint8Array(300_000).map((_, i) => (i * 3) % 256)
+    write('shared/media/all-hands.mp4', bytes)
+    const media = { range: 'bytes=4096-8191', 'sec-fetch-dest': 'video', 'sec-fetch-mode': 'no-cors' }
+    const part = await A.req('/api/files/download' + q({ path: 'shared/media/all-hands.mp4', disposition: 'inline' }), { as: 'alice', headers: media })
+    expect(part.status).toBe(206)
+    expect(part.headers.get('content-range')).toBe(`bytes 4096-8191/${bytes.length}`)
+    expect(part.headers.get('content-type')).toStartWith('video/mp4')
+    expect(part.headers.get('content-disposition')).toStartWith('inline')
+    expect(new Uint8Array(await part.arrayBuffer())).toEqual(bytes.slice(4096, 8192))
+    const pdf = new TextEncoder().encode('%PDF-1.7\n' + 'x'.repeat(5000))
+    write('shared/media/scan.pdf', pdf)
+    const page = await A.req('/api/files/download' + q({ path: 'shared/media/scan.pdf', disposition: 'inline' }), { as: 'alice', headers: { range: 'bytes=0-1023', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors' } })
+    expect(page.status).toBe(206)
+    expect(page.headers.get('content-type')).toStartWith('application/pdf')
+    expect((await page.arrayBuffer()).byteLength).toBe(1024)
+    // a folder alice may not read: the same 404 as any read, a range or not
+    write('groups/finance/clip.mp4', bytes)
+    expect((await A.req('/api/files/download' + q({ path: 'groups/finance/clip.mp4', disposition: 'inline' }), { as: 'alice', headers: media })).status).toBe(404)
+  })
   test('active content is never served as HTML from the team origin; names are encoded', async () => {
     write('shared/x/page.html', '<script>alert(1)</script>')
     const inline = await A.req('/api/files/download' + q({ path: 'shared/x/page.html', disposition: 'inline' }), { as: 'alice' })

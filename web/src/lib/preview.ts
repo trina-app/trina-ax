@@ -30,14 +30,26 @@ const KINDS: Record<string, PreviewKind> = {
 
 /** Text previews show this much of a file at most (the rest: "only the beginning is shown"). */
 export const PREVIEW_TEXT_MAX = 2_000_000
-/** Preview limits (tab 5): PDF and Office 50 MB, images 20 MB, audio / video 60 MB; text kinds read only their beginning. */
+/** Preview limits (docs/decisions/20261118-audit2-web-limits.md). `max`: the bytes read whole into this window for the
+ * viewer; `truncate`: text kinds read only their beginning (never "too large"); `stream`: past `max` the viewer reads
+ * the file from its address in parts instead (HTTP Range, the server's own route and session: FileBody `stream`), so
+ * there is no size limit. Audio and video always play from the address (`max` 0: playback starts at once); a PDF is
+ * read whole up to 50 MB (kept for a quick return) and in parts by pdf.js past it; pictures (drawn whole) 100 MB;
+ * Office files (parsed whole here) 50 MB. */
 const MB = 1024 * 1024
 const TEXT_KINDS: PreviewKind[] = ['markdown', 'text', 'csv', 'html', 'svg', 'xml']
-export function previewLimit(kind: PreviewKind): { max: number; truncate: boolean } {
-  if (TEXT_KINDS.includes(kind)) return { max: PREVIEW_TEXT_MAX, truncate: true }
-  if (kind === 'image') return { max: 20 * MB, truncate: false }
-  if (kind === 'audio' || kind === 'video') return { max: 60 * MB, truncate: false }
-  return { max: 50 * MB, truncate: false }
+export interface PreviewLimit { max: number; truncate: boolean; stream: boolean }
+export function previewLimit(kind: PreviewKind): PreviewLimit {
+  if (TEXT_KINDS.includes(kind)) return { max: PREVIEW_TEXT_MAX, truncate: true, stream: false }
+  if (kind === 'image') return { max: 100 * MB, truncate: false, stream: false }
+  if (kind === 'audio' || kind === 'video') return { max: 0, truncate: false, stream: true }
+  if (kind === 'pdf') return { max: 50 * MB, truncate: false, stream: true }
+  return { max: 50 * MB, truncate: false, stream: false }
+}
+/** Whether a file of `size` bytes has a preview of its kind (previewLimit: within `max`, or read only in part). */
+export function previewFits(kind: PreviewKind, size: number): boolean {
+  const limit = previewLimit(kind)
+  return limit.truncate || limit.stream || size <= limit.max
 }
 
 export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(name)] ?? null
@@ -48,8 +60,7 @@ export const previewKind = (name: string): PreviewKind | null => KINDS[extOf(nam
 export function opensWithoutServer(f: { name: string; size: number }): boolean {
   const kind = previewKind(f.name)
   if (!kind || serverPreview(f.name)) return false
-  const limit = previewLimit(kind)
-  return limit.truncate || f.size <= limit.max
+  return previewFits(kind, f.size)
 }
 
 /** A Hangul file (HWP, HWPX) sent in a room has the server's page preview while the HWP Preview plugin is on here
@@ -67,8 +78,7 @@ export function roomNoPreview(f: { name: string; size: number }, me: Pick<Me, 's
     if (!roomHwpPreview(f.name, me)) return 'unsupported'
     return f.size <= HWP_LIMITS.inputBytes ? null : 'large'
   }
-  const limit = previewLimit(kind)
-  return limit.truncate || f.size <= limit.max ? null : 'large'
+  return previewFits(kind, f.size) ? null : 'large'
 }
 
 /** Whether a room file has a preview here (roomNoPreview: a kind the app draws itself, or a Hangul file while the HWP

@@ -33,9 +33,11 @@ import { CoreUnavailableError } from '../context'
 import type { Running } from '../server'
 import type { LaunchHandle } from '../native'
 import type { LaunchRequest } from '@mycel/shared'
-import { atLeast, loadPrincipal, type Principal, type RuleSet } from '../policy/access'
+import { atLeast, loadPrincipal, withHiddenFolders, type HiddenFolders, type Principal, type RuleSet } from '../policy/access'
+import { sharedHiddenFolders } from '../devenv/srt/access'
 import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
+import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
@@ -83,6 +85,7 @@ import { devEnvDownReason } from '../devenv/srt/runner'
 import type { SharedRun } from '../devenv/srt/runner'
 import { addSources, clearScope, sourceKey, sourceLabel, sourceOf, sourceViewerCount, widening, type ReadSource } from './read-scope'
 import { authorize } from '../policy/authorize'
+import { Denied } from '../policy/errors'
 import { cardEndShort, cardNext, cardReason, refusal, SCREEN, type CardEnd } from '../policy/refusal'
 import { readRegular, sha256, sha256Regular } from '../files/store'
 import { hwpOutputPath } from '../files/hwpx-check'
@@ -97,9 +100,15 @@ import { issueProxyToken, revokeProxyTokens, type ProxyTurnEvent } from '../prox
 import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
-import { runApiAgent } from '../engine/api-agent'
+import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
 import { foldCardDetails } from './card-fold'
 import { apiSeesImages } from '../engine/api-vision'
+import { apiContextSize, noteContextRefusal } from '../engine/api-context'
+import { fitApiTools, toolsLeftOutNote, TOOLS_SHARE } from '../engine/api-tools-fit'
+import { historyFit } from './history-fit'
+import { HISTORY_MAX_TOKENS } from './prompt'
+import { listedTools } from '../mcp/protocol'
+import { dropKept } from '../integrations/connections/kept'
 import { makeHandler } from '../mcp/protocol'
 import { hasCredentialFor, resolveCredential, type CredEngine } from '../credentials/resolve'
 import { connectionRoute } from '../credentials/access'
@@ -138,7 +147,8 @@ import { missingReaders, readScope } from './read-scope'
 import { clearChatFolder } from './forget'
 import { publicStep, type ChatRow, type ProjectRow, type StoredStep } from './store'
 import { inPeopleAudience, isPeopleRow, peopleAudience } from './chat-audience'
-import { SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { OUTPUT_PATH_OF, SAVE_CARD_TOOLS, SEARCH_TOOLS, WRITE_TARGET_ARGS } from '../rooms/ai-tools'
+import { savePathArg } from '../tools/save-target'
 import { shownTimeZone } from '../system/time-zone'
 import { mayManageProject, projectMembersBy } from './projects'
 import { membersView } from './project-access'
@@ -293,6 +303,9 @@ const SAVE_ASK = new RegExp(['\\uC800\\uC7A5(?!\\uC18C)', '\\uD30C\\uC77C\\uB85C
 /** "don't save": 저장하지 / 저장 말고 / 저장 안, don't save, do not save, jangan simpan, no guardes */
 const SAVE_NOT = new RegExp(['\\uC800\\uC7A5\\s*(\\uD558\\uC9C0|\\uB9D0|\\uC548)', "\\b(don'?t|do not|never)\\s+save\\b", '\\bjangan\\s+simpan\\b', '\\bno\\s+guard'].join('|'), 'iu')
 
+/** The per-turn yes and no of a save card (sharedReadRefusal), apart from a read's of the same place */
+const SAVE_KEY = 'save:'
+
 export class TurnExec {
   content = ''
   /** a shared chat's steps keep a line that names paths aside (StoredStep.sv; ChatStore.viewSteps) */
@@ -305,6 +318,10 @@ export class TurnExec {
   /** the AI got only the recent part of the conversation: a fresh session's history was cut at 40,000 characters, or
    * the resumed session started that way (the chat says so under the answer) */
   historyTrimmed = false
+  /** the trim is the model's doing: its small context (chat/history-fit.ts), not a long chat */
+  historySmallModel = false
+  /** the API engine: a model of this many tokens has no room for any history next to this turn's instructions */
+  private apiFixedLeavesNoRoom: ((contextTokens: number) => boolean) | null = null
   /** after the answer: bring the chat's summary up to date for the next fresh session (chat/history-summary.ts) */
   private summaryAfter: (() => void) | null = null
   /** the attempt that answers started a fresh session (its prompt carried the history) */
@@ -598,7 +615,9 @@ export class TurnExec {
     } finally {
       // office mode: the engine could write the Mac user's ~/.claude.json; MCP servers planted there are removed
       if (this.spec.engine === 'claude-code') { try { guardOfficeClaudeJson(this.rt.ctx, 'turn') } catch (e) { this.rt.log.error('claude.json guard failed', { err: e, turn: this.id }) } }
-      await this.finish()
+      // the long connection answers kept for this answer (integrations/connections/kept.ts) go with it, also when
+      // finishing throws
+      try { await this.finish() } finally { dropKept(this.id) }
       // a seeded past chat of the demo (demo/replay.ts) says when it was
       if (this.replayDaysAgo) { try { backdateChat(this.rt.db, this.spec.chatId, this.replayDaysAgo) } catch (e) { this.rt.log.warn('demo backdate failed', { err: e, turn: this.id }) } }
     }
@@ -945,6 +964,8 @@ export class TurnExec {
     // a summary of the older part (docs/decisions/20261118-limits-context-summary.md): not for a guest (their tighter
     // limits stay), a confidential chat (only team files go to the AI there) or a draft chat (no team content)
     const summaryOn = !guestTurn && !confidential && !this.restricted
+    // the history window: HISTORY_MAX_TOKENS, or what a small model's context leaves (set below, chat/history-fit.ts)
+    let historyBudget: number | undefined
     const viewer = { userId: spec.userId, several, withheld: this.sharedWithheld }
     // the branch up to a message with its summary lines and their hash chain, made once per turn and message. The
     // attempts of this turn (a refusal retry, a failed resume, another connection, the Codex fallback) all reuse what
@@ -971,14 +992,14 @@ export class TurnExec {
      * file-list/service.ts), or no AI for it */
     const summaryJob = (leaf: string | null): Promise<unknown> | null => {
       const p = prep(leaf)
-      if (!summaryOn || !p.h.length || uncovered(p.h, summaryOf(leaf)) === 0) return null
+      if (!summaryOn || !p.h.length || (historyBudget !== undefined && historyBudget < 1) || uncovered(p.h, summaryOf(leaf), historyBudget) === 0) return null
       try {
         const owner = ownerId(rt.ctx)
         if (budgetBlock(rt.db, spec.userId, 'en') || (owner && budgetBlock(rt.db, owner, 'en'))) return null
       } catch { return null }
       const ai = summaryAi(rt.ctx)
       if (!ai) return null
-      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain })
+      return ensureSummary({ db: rt.db, log: rt.log, ai, chatId: spec.chatId, userId: spec.userId, history: p.h, lines: p.lines, chain: p.chain, budget: historyBudget })
     }
     const promptInput = (fresh: boolean): PromptInput => ({
       user: this.principal!, groupNames: rt.groupNames(this.principal!), locale: spec.locale, timeZone: rt.timeZone, personTimeZone: spec.timeZone,
@@ -990,6 +1011,7 @@ export class TurnExec {
       history: fresh ? prep(userMsg.parent_id).h : null, connected: toolSet.prompt.join('\n\n') || null, subagents, skillList,
       // the summary of what the window leaves out, as this person sees the chat (chat/history-summary.ts)
       historySummary: fresh ? summaryOf(userMsg.parent_id) : null,
+      historyBudget,
       roomReadable: this.roomReadable, shared, sideRoom,
       // a confidential chat: the AI is told which tools are off and why (prompt.ts confidentialRule)
       confidential: confidential ? (safeOpsEnabled() ? 'server' : 'chat') : null,
@@ -1017,7 +1039,9 @@ export class TurnExec {
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
     const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
       const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
-      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_trimmed === 1
+      this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
+      // cut only because the model's context is small: the default window would have held it (the chat says so)
+      this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
       this.ranFresh = fresh
       // a company profile draft: its own short instructions, none of the team's (onboarding/draft.ts)
       if (this.profileDraft) return draftSystemPrompt(this.profileDraft.scope, { locale: spec.locale, history: input.history })
@@ -1098,6 +1122,43 @@ export class TurnExec {
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
       return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
     }
+    // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
+    // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
+    // instructions, the tool list and the message leave, with room for the answer (chat/history-fit.ts). A model the
+    // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
+    // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
+    let apiToolBudget: number | undefined
+    /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
+    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
+      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    }
+    this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
+    if (api && !replay && !this.restricted) {
+      const size = await apiContextSize(api, { signal: this.abort.signal }).catch(() => null)
+      if (this.stopReason) return
+      if (size) {
+        // the tool list too is made to fit its share (engine/api-tools-fit.ts), as runApiAgent will send it: on a size
+        // the model's server stated or a refusal named, never on a guess (a proxy in front of a large model). A wrong
+        // refusal number is forgotten with the next answer that used more tokens (engine/api-context.ts)
+        const guess = !size.exact && size.source !== 'refusal'
+        if (!guess) apiToolBudget = Math.floor(size.tokens * TOOLS_SHARE)
+        const { tools, fit } = apiFit(size.tokens, apiToolBudget)
+        if (fit.overflows && size.exact) {
+          rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
+          this.error = engineError('model_too_small', spec.locale)
+          return
+        }
+        // a guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front of a
+        // large model, a local server that keeps its size to itself): the default window, as for an unknown model
+        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        else if (fit.limited) {
+          historyBudget = fit.budget
+          rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
+        }
+      }
+    }
     // a fresh session whose history does not fit: its summary first, waited for at most SUMMARY_WAIT_MS (the call goes
     // on and a later turn has it); a resumed Claude session has the whole conversation already. After a failed or too
     // slow summary of this chat: none for a while, then one in the background only (history-summary.ts summaryMode)
@@ -1116,7 +1177,7 @@ export class TurnExec {
         if (end === 'late') markSummaryFailed(spec.chatId, spec.userId)
         // the step says whether this answer has the summary (an error mark: it started with the recent part only)
         const got = summaryOf(userMsg.parent_id)
-        const used = !!got && uncovered(prep(userMsg.parent_id).h, got) === 0
+        const used = !!got && uncovered(prep(userMsg.parent_id).h, got, historyBudget) === 0
         this.updateStep(step.id, { status: used ? 'ok' : 'error', endedAt: new Date().toISOString() })
       }
     }
@@ -1398,14 +1459,21 @@ export class TurnExec {
         // it was a fixed 30)
         await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
           maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
-          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(),
+          beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget,
           images, onImagesRefused: () => setApiVisionTurn(spec.turnId, false) })
       } finally { this.continueMode = null; this.connectedSince = []; setApiVisionTurn(spec.turnId, false) }
       this.closeThinking()
       const err = errors.find((e) => e.type === 'error') as Extract<EngineEvent, { type: 'error' }> | undefined
       if (err && !this.stopReason) {
         rt.log.warn('engine attempt failed', { turn: this.id, engine: 'api', code: err.code, status: err.status, message: err.message.slice(0, 300) })
-        this.error = engineError(err.code, spec.locale, undefined, err.status)
+        // a refusal that names the model's context size: the model is small, not the chat too long (a new chat would
+        // not help); the size is kept, so the next turn's window fits it (engine/api-context.ts)
+        // only for a small model (below the default window) or one the instructions alone nearly fill; a large one
+        // refused for an oversized tool result keeps the usual "too long" words
+        const named = err.code === 'context' ? noteContextRefusal(api, err.message) : null
+        let small = false
+        if (named !== null) { try { small = named < HISTORY_MAX_TOKENS || !!this.apiFixedLeavesNoRoom?.(named) } catch { small = named < HISTORY_MAX_TOKENS } }
+        this.error = engineError(small ? 'model_too_small' : err.code, spec.locale, undefined, err.status)
       }
     }
     // "다른 AI로 대신 답하기" (Team settings), its limit case: only after the subscription limit / 429 path reported a
@@ -2603,7 +2671,7 @@ export class TurnExec {
   roomCardDetails(tool: string, input: unknown, own: ToolCard | null = this.toolCard(tool, input)): ConfirmDetailT[] {
     // a tool's own words (a connection's HTTP API call: "Read from Tasks", its address, the exact request one click away)
     // in place of its raw arguments one per line (QA TC-233)
-    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId)
+    const raw: ConfirmDetailT[] = own?.details ?? roomChangeDetails(tool, this.cardInput(tool, input), this.spec.locale, (ref, room) => this.roomFileName(ref, room), (p) => this.place(p), this.spec.userId, (p) => this.visibleTree(p))
     return raw.map((d) => ({
       ...d, text: this.redact(d.text),
       ...(d.fields ? { fields: d.fields.map((f) => ({ name: f.name, value: this.redact(f.value) })) } : {}),
@@ -3258,6 +3326,29 @@ export class TurnExec {
     return p ? chatAudienceOf(this.rt.db, this.rt.files, p, owner) : []
   }
 
+  /** A shared project chat's sub-folders that not everyone who sees it may open (devenv/srt/access.ts
+   * sharedHiddenFolders), hidden from the person for one tool call (policy/access.ts withHiddenFolders, set by
+   * mcp/protocol.ts; QA TC-4945): a listing, search, zip or path there answers as for a name that is not there, and no
+   * read card is about them. The audience as it is when the call starts. Anyone who cannot be loaded, nobody found, or
+   * a check that fails: every folder with rules of its own inside the project folder is hidden (fails closed). */
+  sharedHiddenScope(): HiddenFolders | null {
+    if (this.shared?.kind !== 'project') return null
+    const within = this.shared.project.folder_path
+    return withHiddenFolders(null, () => {
+      let rules: RuleSet
+      // (no rules to look at: the project folder itself is hidden, so the call finds nothing)
+      try { rules = this.rt.files.rules() } catch { return { userId: this.spec.userId, folders: [within] } }
+      const all = () => ({ userId: this.spec.userId, folders: rules.boundaryFolders().filter((f) => f.startsWith(within + '/')) })
+      try {
+        const me = this.livePrincipal()
+        const ids = this.sharedAudience()
+        const people = ids.map((id) => loadPrincipal(this.rt.db, id))
+        if (!ids.length || people.some((q) => !q)) return all()
+        return { userId: me.id, folders: sharedHiddenFolders(rules, me, people as Principal[], within) }
+      } catch (e) { this.rt.log.warn('shared hidden folders not worked out', { err: e, turn: this.id }); return all() }
+    })
+  }
+
   /**
    * Where a search without a path looks in a chat shared with people and groups (S4): never the sender's whole access
    * (it would reach their own folder and every place only they may read). The candidates are the team's top folders (not users/ or skills/) and
@@ -3375,8 +3466,10 @@ export class TurnExec {
    *   - a search looks into every folder under where it starts that the person may read, the person's own included;
    *   - a listing shows the names one level down: each entry the person sees there that is a folder with its own rules,
    *     or every entry when they may only list the folder.
+   * `o.writes` gets the keys of the places only a write argument named (a save into a place that is there already, and
+   * nothing read from it: the card says "save", docs/decisions/20261118-shared-save-card-wording.md).
    */
-  sharedSources(tool: string, input: unknown): ReadSource[] {
+  sharedSources(tool: string, input: unknown, o: { writes?: Set<string> } = {}): ReadSource[] {
     // share_with_person reads nothing into the chat: it grants the asker's own files to someone, behind their own card,
     // and gives back only the names the asker gave and the links (chat/share-with-person.ts)
     if (tool === 'share_with_person' || tool === 'stop_sharing' || tool === 'share_folder') return []
@@ -3401,18 +3494,38 @@ export class TurnExec {
         if (rules.canList(me, up)) return
       }
     }
-    const exists = (p: string) => { try { return authorize(fx, rules, me, p, 'list').exists } catch { return false } }
+    // a write target that would make a new name: the very check the write makes (authorize 'write', the path read as the
+    // tools read it: savePathArg). Anything else counts as there (fails closed): a name that is there, a look-alike of
+    // one ("already exists with almost the same name"), a file on the way ("not a folder"), a path that cannot be read.
+    // Only a refusal for no access is new: the tool refuses it with the same words whether something is there or not.
+    // (the path as the tool really writes it: an extension some tools add to `output`, OUTPUT_PATH_OF)
+    // (several when the tool picks among them: resize_images; new only when every one of them is)
+    const asWritten = (k: string, v: string): string[] => { const p = savePathArg(v); const f = k === 'output' ? OUTPUT_PATH_OF[tool] : undefined; return f ? [f(p, a)].flat() : [p] }
+    const fresh = (k: string, v: string) => asWritten(k, v).every((p) => {
+      try { return !authorize(fx, rules, me, p, 'write', { mustExist: false, createDirs: true }).exists }
+      catch (e) { return e instanceof Denied && /^(not found or no access: |read-only folder: )/.test(e.message) }
+    })
     const writes = new Set(WRITE_TARGET_ARGS[tool] ?? [])
+    // what a write argument named and what anything else did, by key (o.writes: the first and not the second)
+    const written = new Set<string>(), read = new Set<string>()
     // every path the call names, nested ones too (edit_pdf's operations, merge_pdfs' list: namedPaths)
     for (const { key: k, value: v } of namedPaths(tool, a)) {
       // a listing's own folder: below, by the names it shows
       if (tool === 'list' && k === 'path') continue
-      if (/^[a-z][a-z0-9+.-]*:/i.test(v)) continue
-      if (writes.has(k) && !exists(v)) continue
+      const w = writes.has(k)
+      if (!w && /^[a-z][a-z0-9+.-]*:/i.test(v)) continue
+      if (w && fresh(k, v)) continue
       // a copy this chat's save_chat_file made in the person's own folder, untouched since, taken as bytes only: read as
       // the chat's, not as its folder's (chat-file-tool.ts chatFileCopyOf)
-      if (!writes.has(k) && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
-      for (const p of this.roomNames(v)) note(p)
+      if (!w && chatFileCopyOf(this.rt.ctx, me.id, this.spec.chatId, tool, k, input, v)) { out.push({ type: 'chat', id: this.spec.chatId }); continue }
+      const from = out.length
+      for (const p of this.roomNames(w ? asWritten(k, v)[0]! : v)) note(p)
+      for (const s of out.slice(from)) (writes.has(k) ? written : read).add(sourceKey(s))
+    }
+    const named = out.length
+    const done = () => {
+      if (o.writes) for (const k of written) if (!read.has(k) && !out.slice(named).some((s) => sourceKey(s) === k)) o.writes.add(k)
+      return out
     }
     // a zip of a folder shows the names of everything under it (tools/make-zip.ts): like a search, every folder with
     // its own rules below each named folder that the person may read joins the sources (a restricted sub-folder too)
@@ -3442,7 +3555,7 @@ export class TurnExec {
         // files by the folder's readers; a folder they cannot list at all: what note() makes of the path
         try {
           const r = authorize(fx, rules, me, start, 'list')
-          if (!r.exists || !r.st?.isDirectory()) { note(start); return out }
+          if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
           let n = 0, files = false
           for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
             if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
@@ -3460,7 +3573,7 @@ export class TurnExec {
         } catch { note(start) }
       }
     }
-    return out
+    return done()
   }
 
   /**
@@ -3473,8 +3586,10 @@ export class TurnExec {
    * AI, or null to go on.
    */
   async confirmSharedRead(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<string | null> {
-    const no = await this.sharedReadRefusal(tool, input, o)
-    return no ? this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no) : null
+    const kind = { save: false }
+    const no = await this.sharedReadRefusal(tool, input, o, kind)
+    if (!no) return null
+    return kind.save ? this.sharedReadText(`Not saved (${tool}): nothing was saved there.`, no, { save: true }) : this.sharedReadText(`Not read (${tool}): nothing from that place was read.`, no)
   }
 
   /**
@@ -3483,11 +3598,24 @@ export class TurnExec {
    * open it (counts only), and where the person can read it instead. Before, every one of them said the person "did not
    * share it", also when nobody had decided anything.
    */
-  sharedReadText(done: string, no: SharedNo): string {
+  sharedReadText(done: string, no: SharedNo, o: { save?: boolean } = {}): string {
     const name = neutralizeTags(this.principal?.name ?? 'the user')
     const project = this.shared?.kind === 'project' ? `the people of the project "${neutralizeTags(this.shared.project.name)}" who see this shared chat` : 'the people who see this shared chat'
     const why = no === 'failed' ? { kind: 'failed' as const, what: 'who in this shared chat can open that place' } : no === 'declined'
       ? { kind: 'declined' as const, who: name } : cardReason(no, { who: name })
+    // a save (the save card): it is not saved, and the AI does not look for another place to put it
+    if (o.save) {
+      const dontSave = 'Do not try other paths or tools to save it, and do not mention the place or guess what is there'
+      return refusal({
+        done,
+        why,
+        also: no === 'failed' ? dontSave : `It needed a yes because some of ${project} cannot open that place. ${dontSave}`,
+        next: no === 'declined' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'unattended' ? 'tell the user it was not saved; they can save it from a chat of their own'
+          : no === 'failed' ? 'tell the user it was not saved; they can ask again, or save it from a chat of their own'
+          : 'tell the user it was not saved; they can ask again and answer the card, or save it from a chat of their own',
+      })
+    }
     const dont = 'Do not try other paths, searches or tools to get it, and do not mention the place or guess what is there'
     // a check that failed showed no card, and may have been about a place everyone can open: no "needed a yes" then
     return refusal({
@@ -3502,14 +3630,20 @@ export class TurnExec {
   }
 
   /** confirmSharedRead's decision: null to go on, or why it was refused. */
-  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}): Promise<SharedNo | null> {
+  private async sharedReadRefusal(tool: string, input: unknown, o: { step?: boolean } = {}, kind: { save: boolean } = { save: false }): Promise<SharedNo | null> {
     if (!this.shared) return null
     // the call's step says so (a call's own step only: an attachment or a "/name" skill has none)
-    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool); return why }
+    const refuse = (why: SharedNo) => { if (o.step !== false) this.skipStep(tool, kind.save); return why }
     let missing: { key: string; source: ReadSource; missing: string[] }[], audience: string[], sources: ReadSource[]
     let skillUse = false
+    // the places only a write argument named (a save into a place that is there already: sharedSources)
+    const writes = new Set<string>()
+    const saves = !!WRITE_TARGET_ARGS[tool] && !!SAVE_CARD_TOOLS[tool]
+    // (a check that fails below: a call that names only places it writes to is said as a save)
+    const named = saves ? namedPaths(tool, input) : []
+    kind.save = named.length > 0 && named.every((p) => WRITE_TARGET_ARGS[tool]!.includes(p.key))
     try {
-      sources = this.sharedSources(tool, input)
+      sources = this.sharedSources(tool, input, { writes })
       audience = this.sharedAudience()
       const rules = this.rt.files.rules()
       missing = missingReaders(this.rt.db, rules, sources, audience).map((m) => ({ key: sourceKey(m.source), ...m }))
@@ -3522,7 +3656,13 @@ export class TurnExec {
         const ids = audience.filter((id, i) => !people[i] || no.has(id))
         if (ids.length) { skillUse = true; missing.push({ key: `skill:${p}`, source: sourceOf(this.rt.db, rules, p), missing: ids }) }
       }
-      missing = missing.filter((m) => !this.sharedAllowed.has(m.key))
+      // a save into a place a yes of this turn covered, for a read (more than a save) or a save there
+      missing = missing.filter((m) => !this.sharedAllowed.has(m.key) && !(writes.has(m.key) && this.sharedAllowed.has(SAVE_KEY + m.key)))
+      // the save card (docs/decisions/20261118-shared-save-card-wording.md): every place it would name is one the call
+      // only saves into; anything it reads keeps the read card. Its yes and no are its own (SAVE_KEY): a yes to save in
+      // a place never lets a read of it through
+      kind.save = saves && !skillUse && missing.length > 0 && missing.every((m) => writes.has(m.key))
+      if (kind.save) missing = missing.map((m) => ({ ...m, key: SAVE_KEY + m.key }))
     } catch (e) { this.rt.log.warn('shared read check failed', { err: e, turn: this.id }); return refuse('failed') }
     // what goes in is recorded first, with who sees the chat now: an answer built on it stays with them and those who
     // may read it (chat/shared-answers.ts); a record that cannot be written is a refusal
@@ -3533,7 +3673,7 @@ export class TurnExec {
     const pendingKey = [...keys].sort().join('\u0000')
     let pending = this.sharedPending.get(pendingKey)
     if (!pending) {
-      pending = this.askSharedRead(tool, missing, audience.length, skillUse).finally(() => this.sharedPending.delete(pendingKey))
+      pending = this.askSharedRead(tool, missing, audience.length, skillUse, kind.save).finally(() => this.sharedPending.delete(pendingKey))
       this.sharedPending.set(pendingKey, pending)
     }
     const decision = await pending
@@ -3544,23 +3684,24 @@ export class TurnExec {
     return this.noteSharedReads(sources, audience, true) ? null : refuse('failed')
   }
 
-  /** The card itself and its audit row: 'shared' = "읽고 공유하기", else why not. */
-  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false): Promise<SharedDecision> {
+  /** The card itself and its audit row: 'shared' = "읽고 공유하기" (a save card: "저장하기"), else why not. */
+  private async askSharedRead(tool: string, missing: { source: ReadSource; missing: string[] }[], audience: number, skillUse = false, save = false): Promise<SharedDecision> {
     const L = this.spec.locale
     const labels = { mine: tr('sharedScopeMine', L), root: tr('scopeRoot', L), room: tr('scopeRoom', L), chat: tr('scopeChatFiles', L) }
     const places = [...new Set(missing.map((m) => sourceLabel(this.rt.db, m.source, this.spec.userId, labels, { ownNames: true, place: (p) => this.place(p) })))]
     const who = new Set(missing.flatMap((m) => m.missing))
     const scheduled = this.spec.clientKind === 'schedule'
-    const { value: answer, missing: none } = await this.askAlways('shared_read', {
+    const { value: answer, missing: none } = await this.askAlways(save ? 'shared_save' : 'shared_read', {
       kind: 'ask_user', origin: 'server', requestId: crypto.randomUUID(),
-      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place)
-      question: tr(skillUse ? 'sharedSkillConfirm' : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
-      options: [{ label: tr('sharedReadYes', L), value: 'share' }, { label: tr('sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
+      // a group's skill some of them may not use (not in the group): "…cannot use this skill" (they may see the place);
+      // a save into a place that is there already: "…wants to save a file in" (nothing is read from it)
+      question: tr(skillUse ? 'sharedSkillConfirm' : save ? (SAVE_CARD_TOOLS[tool] === 'many' ? 'sharedSaveManyConfirm' : 'sharedSaveConfirm') : 'sharedReadConfirm', L, { sources: places.join(', '), n: String(audience), m: String(who.size) }),
+      options: [{ label: tr(save ? 'sharedSaveYes' : 'sharedReadYes', L), value: 'share' }, { label: tr(save ? 'sharedSaveNo' : 'sharedReadNo', L), value: 'skip' }], multiple: false, allowText: false,
       expiresAt: new Date(Date.now() + this.rt.askUserTimeoutMs()).toISOString(),
     } as TurnRequest & { options: { label: string; value: string }[] }, 'share')
     const yes = answer === 'share' || (Array.isArray(answer) && answer.length === 1 && answer[0] === 'share')
     const decision = yes ? 'shared' : scheduled ? 'unattended' : answer === null || answer === undefined ? 'no_answer' : 'declined'
-    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id } }) }
+    try { auditLog(this.rt.db, { actor: this.spec.userId, action: 'chat.shared_read', target: this.spec.chatId, detail: { decision, tool, places: places.length, cannotSee: who.size, audience, turnId: this.id, ...(save ? { save: true } : {}) } }) }
     catch (e) { this.rt.log.warn('shared read audit failed', { err: e, turn: this.id }) }
     // the AI's text goes by how the card ended (a closed card without a choice is a no; scheduled: nobody asked)
     return yes ? 'shared' : scheduled ? 'unattended' : none ?? 'declined'
@@ -3673,8 +3814,8 @@ export class TurnExec {
   }
 
   /** The step of a call refused on the read card: one neutral line, no path, not red (sharedSkipped). */
-  private skipStep(tool: string) {
-    const label = tr('sharedReadSkipped', this.spec.locale)
+  private skipStep(tool: string, save = false) {
+    const label = tr(save ? 'sharedSaveSkipped' : 'sharedReadSkipped', this.spec.locale)
     this.patchToolStep(tool, (st) => { this.sharedSkipped.add(st.id); return { label, sv: undefined, detail: undefined } as Partial<StoredStep> })
   }
 
@@ -4695,9 +4836,9 @@ export class TurnExec {
     const db = this.rt.db
     try {
       this.afterTool()
-      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, updated_at = ? WHERE id = ?').run(
+      db.query('UPDATE messages SET content = ?, steps = ?, status = ?, error = ?, files = ?, stop_reason = ?, history_trimmed = ?, history_small_model = ?, updated_at = ? WHERE id = ?').run(
         this.content, JSON.stringify(this.storedSteps()), status, this.error ? JSON.stringify(this.error) : null, files ? JSON.stringify(files) : null,
-        stopReason, this.historyTrimmed ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
+        stopReason, this.historyTrimmed ? 1 : 0, this.historyTrimmed && this.historySmallModel ? 1 : 0, new Date().toISOString(), this.spec.assistantId)
       messageSaved = true
       if (stopReason) db.query('UPDATE turns SET stop_reason = ? WHERE id = ?').run(stopReason, this.id)
       // the answer's "참고한 파일" (files/sources.ts): what every agent of the turn read or saw passages of. A failure
@@ -4888,11 +5029,6 @@ export const ROOM_CHANGE_PREVIEW = 400
 /** at most this much of it is sent at all (with the whole length said): a card is read, not a file viewer */
 export const ROOM_CHANGE_FULL = 100_000
 
-/** A team path as the file layer reads it (policy/resolve.ts parseInput: no empty or "." names), NFC; null when it is
- * not one (the tool refuses it). */
-function teamSegs(p: unknown): string[] | null {
-  try { return parseInput(p).map((x) => x.normalize('NFC')) } catch { return null }
-}
 
 /** Files that tell an AI what to do: team skills and rules (skills/), a person's skills, and instruction files by name,
  * matched on the path as the file layer resolves it (any spelling: "./", "//", "a/./b", a trailing "/", letter case).
@@ -4933,12 +5069,13 @@ export function writeTargetOf(tool: string, input: unknown, source: (p: string) 
   return p.trim() ? { path: p, mayBeNew } : null
 }
 
-export function instructionLike(rel: string): boolean {
-  const segs = teamSegs(rel)
-  if (!segs?.length) return false
-  const p = segs.join('/')
-  return inSkills(p) || /^users\/[^/]+\/skills(\/|$)/i.test(p) || /^(CLAUDE|AGENTS|GEMINI|SKILL)\.md$/i.test(segs.at(-1)!)
-}
+// instructionLike and teamSegs live in tools/rename-pattern.ts (rename_files checks them when it runs too)
+export { instructionLike }
+
+/** a rename_files pattern's card lists this many of the files it renames, then "+N" */
+const ROOM_RENAME_SHOWN = 50
+/** rename_files' `at` as the call gives it (anything else: anywhere, as the input check would refuse it anyway) */
+const renameAt = (v: unknown): RenameAt => (v === 'start' || v === 'end' ? v : 'anywhere')
 
 /** at most this many names of a folder a room change would carry are looked at (more: treated as unknown) */
 export const ROOM_CHANGE_SCAN_MAX = 2000
@@ -5004,6 +5141,18 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
       const segs = teamSegs(a.path)
       return { targets: segs?.length ? landing(str(a.path), segs.slice(0, -1), str(a.new_name)) : [], shown: false }
     }
+    case 'rename_files': {
+      // a list: each lands as rename_file's; a pattern: the new names of what is directly in the folder, worked out as
+      // the tool does (tools/rename-pattern.ts patternName); past ROOM_CHANGE_SCAN_MAX, counted as holding an instruction
+      // file (it might). The tool checks every item again when it runs (the folder may change after this card)
+      if (Array.isArray(a.renames)) {
+        return { targets: a.renames.flatMap((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; const segs = teamSegs(str(x.path)); return segs?.length ? landing(str(x.path), segs.slice(0, -1), str(x.new_name)) : [] }), shown: false }
+      }
+      const folder = teamSegs(str(a.folder)) ?? []
+      const under = tree(str(a.folder))
+      if (under === null || !str(a.find)) return { targets: [[...folder, 'SKILL.md'].join('/')], shown: false }
+      return { targets: under.filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : landing([...folder, n].join('/'), folder, to) }), shown: false }
+    }
   }
   // any other change (a tool added later): every string it is given may be a place it writes
   return { targets: Object.values(a).flatMap(list), shown: false }
@@ -5016,7 +5165,7 @@ export function roomChangeWrites(tool: string, input: unknown, tree: (p: string)
  * after the preview). edit_files lists every file and the replacement. A tool without its own lines shows its
  * arguments one per line.
  */
-function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = ''): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
+export function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (ref: string, room?: string) => string | null = () => null, place: (path: string) => string = (p) => p, me = '', tree: (p: string) => string[] | null = () => null): { label: string; text: string; fields?: { name: string; value: string }[]; collapsedAt?: number; noSize?: boolean }[] {
   const a = input && typeof input === 'object' && !Array.isArray(input) ? input as Record<string, unknown> : {}
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const paths = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === 'string' ? [v] : [])
@@ -5070,6 +5219,19 @@ function roomChangeDetails(tool: string, input: unknown, L: Locale, roomFile: (r
       return detail([field('roomAiChangeFolder', place(str(a.to_folder)))], paths(a.paths).map(at).join('\n'), [str(a.to_folder)], true)
     case 'rename_file':
       return detail([field('roomAiChangeFile', at(str(a.path))), field('roomAiChangeNewName', str(a.new_name))], '')
+    case 'rename_files': {
+      // each rename on a line ("old → new"), or the folder and the pattern
+      if (Array.isArray(a.renames)) {
+        const lines = a.renames.map((r) => { const x = r && typeof r === 'object' ? r as Record<string, unknown> : {}; return `${at(str(x.path))} → ${str(x.new_name)}` })
+        return detail([], lines.join('\n'), [], true)
+      }
+      // a pattern: the files it would rename now, old → new (the first ROOM_RENAME_SHOWN, then "+N"); the tool renames
+      // no others (it checks each again when it runs)
+      const under = tree(str(a.folder))
+      const now = (under ?? []).filter((n) => !n.includes('/')).flatMap((n) => { const to = patternName(n, str(a.find), str(a.replace), renameAt(a.at)); return to === null ? [] : [`${n} → ${to}`] })
+      const shown = now.slice(0, ROOM_RENAME_SHOWN).join('\n') + (now.length > ROOM_RENAME_SHOWN ? `\n… +${now.length - ROOM_RENAME_SHOWN}` : '')
+      return detail([field('roomAiChangeFolder', place(str(a.folder))), field('roomAiChangeNewName', `${str(a.find)} → ${str(a.replace)}`)], shown, [], true)
+    }
     case 'save_connector_file':
       return detail([field('roomAiChangeSaveAs', str(a.save_as) ? at(str(a.save_as)) : me ? place(`users/${me}/downloads`) : 'users/…/downloads/')], tr('roomAiChangeNotShown', L, { from: str(a.file) }), [str(a.save_as)])
     case 'save_url':

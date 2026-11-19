@@ -33,6 +33,7 @@ import { imageSlot } from '../files/vision'
 import { makeWorkDir, runIsolated } from './isolate'
 import { cellValue, confirmSources, placeProduced } from './make-file'
 import type { ToolRegistry } from './registry'
+import { editOfficeOutput } from './make-file-path'
 
 export const EDIT_OFFICE_TOOL = 'edit_office'
 const text = (max: number) => z.string().max(max)
@@ -106,8 +107,8 @@ async function reencodePicture(ctx: AppContext, bytes: Uint8Array, rel: string, 
   if (r.killed || r.code !== 0 || !ok) throw new ToolError(`change ${i + 1}: '${rel}' could not be read as a picture (${r.killed ? 'too large or too slow to read' : (r.stderr.trim().split('\n')[0] ?? '').replace(/^resize: /, '') || 'damaged'}); nothing was saved`)
   return out
 }
-/** where an `output` saves: the source's format ("x" and "x/" save x.docx for a .docx) */
-export const editOfficeOutput = (o: string, src: string) => { const x = ext(src); return ext(o) === x ? o : `${o.replace(/\/+$/, '')}.${x}` }
+/** where an `output` saves: the source's format (make-file-path.ts, so the shared chat's save card weighs the same path) */
+export { editOfficeOutput }
 
 /** the parts an edit of each kind may change, add or remove; everything else must keep its bytes */
 const MAY: Record<OfficeKind, { changed: RegExp; added: RegExp | null; removed: RegExp | null }> = {

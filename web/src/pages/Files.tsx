@@ -32,7 +32,7 @@ import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, t
 import { api, API, errorText, fileUrl, isApiError, startDownload, versionDownloadUrl } from '../lib/api'
 import { canChange, canShare, chatDraggable, clickSelect, dragPayload, dragSet, dropRefusal, failureList, FILES_MOVE_DRAG_TYPE, isFixed, moveMany, projectSkillsOn, selectable, sendWidening, widenedBy, selectionState, shareMany, toggleAll, trashMany, type DropRefusal, type Outcome } from '../lib/bulkFiles'
 import { formatDateTime, formatShortDateTime, formatSize, intlTag } from '../lib/format'
-import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
+import { groupTrash, mergePage, placeWords, purgeIn, retentionDays, sameNamedProjects, showWhoSwitch, trashPlace, type PlaceWords } from '../lib/trashList'
 import { ListRow } from '../components/list/List'
 import { useGoBack } from '../lib/back'
 import { useBackLabel } from '../lib/backStack'
@@ -1898,6 +1898,7 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
   }
   const groups = useMemo(() => groupTrash(items ?? []), [items])
   const days = useMemo(() => retentionDays(items ?? []), [items])
+  const sameNamed = useMemo(() => sameNamedProjects(groups), [groups])
   const toggle = (key: string) =>
     setOpen((cur) => {
       const next = new Set(cur)
@@ -1922,7 +1923,7 @@ function TrashView({ projects }: { projects: readonly { name: string; folderPath
     <ul data-testid="trash-list">
       {groups.map((g) => {
         const latest = g.items[0]!
-        const p = trashPlace(latest, place)
+        const p = trashPlace(latest, place, sameNamed.has(g.key))
         const Icon = p.kind === 'project' ? FolderKanban : ICONS[iconKind(p.name, p.kind === 'folder')]
         const many = g.items.length > 1
         const opened = many && open.has(g.key)

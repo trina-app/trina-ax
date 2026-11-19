@@ -17,6 +17,9 @@ import { claudeCost, claudePrice, openaiCost, openaiPrice } from '../credentials
 import { LinkGuard } from './api-links'
 import { dropEmptyLinks, FailedSteps, failedStepsNote, ReadLog } from './api-honest'
 import { VISION_TEXT } from '../files/vision-text'
+import { fitApiTools, toolsLeftOutNote, type ApiTool } from './api-tools-fit'
+import { noteContextUsage } from './api-context'
+import { TOOL_OUTPUT_MAX } from './api-output'
 
 /** `setBy: 'admin'`: the address was set by an admin, not the owner: it is checked to be a public address before every call
  * (system/egress.ts apiEngineFetch), as the address may name a private place through DNS or a redirect */
@@ -26,8 +29,8 @@ export interface ApiEngineConf { baseUrl: string; model: string; label: string; 
 
 /** rounds of one answer when the caller gives none (a chat turn gives the team's answerStepLimit, chat/turn.ts) */
 const MAX_STEPS = 30
-/** characters of one tool result the model gets (toolContent); a longer result is cut (chat/prompt.ts SKILL_TOOL_LIMIT) */
-export const TOOL_OUTPUT_MAX = 30_000
+// characters of one tool result the model gets (toolContent): in api-output.ts, which chat/prompt.ts reads too
+export { TOOL_OUTPUT_MAX }
 /** the end of a cut tool result that is kept (a read's next call is there) */
 const TOOL_OUTPUT_TAIL = 1_000
 
@@ -41,6 +44,7 @@ export const API_GROUNDING_RULES = [
   '- Give a link to a team file only by copying it exactly from a make_file or share_file result (or from this conversation). Never build a link yourself and never invent hosts, preview, Drive or download links. To link a file you saved with write or another tool, call share_file first.',
   '- State facts, numbers and quotes only when a tool result, a file or the user gave them. If you do not know, say so plainly; do not guess statistics or sources.',
   '- If a tool returns an error, read it, fix the call and try again, or tell the user what went wrong. Do not say a step worked when its tool failed.',
+  '- When the user declines a card (a tool result says they said no), do not try to do the same thing another way; say it was not done.',
 ].join('\n')
 
 /** Added to the instructions when the model takes images (engine/api-vision.ts): a Chat Completions tool message holds
@@ -269,6 +273,8 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
   }
   // a round that asked for tools goes on after this usage (continues: the turn may stop it at the budget before its
   // tool calls run); the answer's last round never does
+  // a request this large went through: a smaller size a refusal named was wrong (engine/api-context.ts)
+  if (usage) noteContextUsage(conf, (usage as { prompt_tokens?: unknown }).prompt_tokens)
   if (usage) emit({ ...usageEvent(conf.model, usage, requestId), ...(calls.some(Boolean) && finish !== 'length' ? { continues: true } : {}) })
   // the model stopped at its output limit (max_tokens): the answer is cut off, and a tool call in it may be too (its
   // arguments half written). Nothing more is sent: another round would cost again and could only repeat the cut
@@ -341,6 +347,10 @@ export function toolContent(out: string, links: string[]): string {
   return `${text}\n\nLinks for the user from this result (copy them exactly; there are no other links to these files):\n${links.slice(0, 20).map((l) => `- ${l}`).join('\n')}`
 }
 
+/** The MCP tool list as Chat Completions functions (what each request sends; chat/history-fit.ts counts it). */
+export const apiToolsOf = (list: readonly { name: string; description: string; inputSchema: unknown }[]): ApiTool[] =>
+  list.map((t) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+
 /**
  * Run one turn: system prompt + the message, the turn's tools offered as functions, tool calls answered through `rpc`
  * (the MCP handler), until the model answers without tools (or maxSteps rounds, the team's limit in a chat turn: then a 'limit' event). Events go to `emit`
@@ -368,15 +378,22 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
   /** the model takes images (engine/api-vision.ts): the pictures tool results give go to it, after the round's results;
    * `onImagesRefused` when the provider refused them after all (the round goes again without them) */
   images?: boolean
-  onImagesRefused?: () => void }): Promise<void> {
+  onImagesRefused?: () => void
+  /** a model with a small context: the most estimated tokens the tool list may take (engine/api-tools-fit.ts) */
+  toolBudget?: number }): Promise<void> {
   // the hosted cloud: every call's address is checked first (public https only, system/egress.ts)
   const fetchFn = apiEngineFetch(o.fetchFn ?? fetch, { publicCheck: o.conf.setBy === 'admin' })
+  // the tools left out for a small model, named in the instructions (engine/api-tools-fit.ts)
+  let left: string[] = []
   const listTools = async () => {
     const listed = await o.rpc({ jsonrpc: '2.0', id: 'l', method: 'tools/list', params: {} })
-    return (listed?.result?.tools ?? []).map((t: { name: string; description: string; inputSchema: unknown }) => ({ type: 'function', function: { name: t.name, description: t.description.slice(0, 1024), parameters: t.inputSchema } }))
+    const fit = fitApiTools(apiToolsOf(listed?.result?.tools ?? []), o.toolBudget)
+    left = fit.left
+    return fit.tools
   }
   let tools = await listTools()
-  const systemPrompt = `${o.systemPrompt}\n\n${API_GROUNDING_RULES}${o.images ? `\n${API_IMAGE_RULE}` : ''}`
+  const instructions = () => [o.systemPrompt, `${API_GROUNDING_RULES}${o.images ? `\n${API_IMAGE_RULE}` : ''}`, toolsLeftOutNote(left)].filter(Boolean).join('\n\n')
+  const systemPrompt = instructions()
   const guard = new LinkGuard(o.publicOrigins)
   // links that earlier answers of this chat showed (history in the instructions or the message) stay allowed
   guard.allow(o.systemPrompt)
@@ -412,7 +429,7 @@ export async function runApiAgent(o: { conf: ApiEngineConf; systemPrompt: string
     if (step > 0 && !held.tooLong) o.beforeRound?.()
     held.tooLong = null
     if (o.signal.aborted) return
-    if (step > 0 && o.toolsChanged?.()) tools = await listTools()
+    if (step > 0 && o.toolsChanged?.()) { tools = await listTools(); messages[0] = { role: 'system', content: instructions() } }
     let r: Awaited<ReturnType<typeof complete>>
     try { r = await complete(o.conf, messages, tools, roundEmit, o.signal, { fetchFn, headersTimeoutMs: o.headersTimeoutMs ?? HEADERS_TIMEOUT_MS, activity: o.activity, round, images: pictures }) } catch (e) {
       showCut()

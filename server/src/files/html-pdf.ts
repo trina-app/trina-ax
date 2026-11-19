@@ -35,6 +35,7 @@ import { REPO_ROOT } from '../app-config'
 import { bundledFontDir } from '../config'
 import { dirBytes, isolatedCommand, isolation, makeWorkDir, treeRssKiB } from '../tools/isolate'
 import { killPrintLeaf, makePrintLeaf, PRINT_ONE_MIB, printCgroup, printCgroupState, printLeafPeak } from '../system/cgroups'
+import { sanitizePdfLinks } from './pdf-links'
 import { killTree } from '../system/kill-tree'
 
 /** The address the page has in the browser: a reserved name (RFC 2606) that never resolves. */
@@ -692,8 +693,12 @@ async function printPage(cdp: Cdp, race: <T>(x: Promise<T>) => Promise<T>, req: 
   const pages = pdfPageCount(pdf)
   if (pages > L.maxPages) throw new HtmlPdfError('pages', `the page prints to more than ${L.maxPages} PDF pages`)
   if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-')) || pages < 1) throw new HtmlPdfError('browser', 'the browser did not produce a PDF')
+  // the browser turned the page's <a href> into link annotations: any that leaves the file for other than the web or
+  // mail (file:, a share, javascript:, ms-msdt:, a relative path) is made inert before the PDF is saved (TC-4949)
+  let safe: Buffer = pdf
+  try { const s = await sanitizePdfLinks(pdf); safe = Buffer.from(s.bytes) } catch (e) { throw new HtmlPdfError('browser', `the PDF's links could not be checked (${String((e as Error).message).slice(0, 80)})`) }
   return {
-    pdf, pages, assets: [...assets.entries()].filter(([, a]) => a).map(([p]) => p),
+    pdf: safe, pages, assets: [...assets.entries()].filter(([, a]) => a).map(([p]) => p),
     blocked: [...blocked].slice(0, 20), blockedCount: blocked.size, scripts: hasScripts(html), ms: Date.now() - started,
   }
 }

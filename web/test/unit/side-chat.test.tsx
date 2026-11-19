@@ -8,7 +8,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from 'bun:test'
 import { act } from 'react'
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom'
-import { MESSAGE_ATTACHMENTS_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
+import { MESSAGE_ATTACHMENTS_MAX, MESSAGE_TEXT_MAX, PRODUCT_NAMED_AFTER_AI, SIDE_CHAT_QUICK, SIDE_CHAT_SEND, uuidv7, type Attachment, type Chat, type Me, type Message as MessageT, type ServerEvent } from '@mycel/shared/api'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { SideChatPanel, withQuote, withThread } from '../../src/components/rooms/SideChatPanel'
@@ -24,6 +24,7 @@ import { useSendQueue } from '../../src/store/sendQueue'
 import { useRooms } from '../../src/store/rooms'
 import { sideChatOf, useSideChats } from '../../src/store/sideChats'
 import { useSession } from '../../src/store/session'
+import { useUi } from '../../src/store/ui'
 import { forgetTeamAttach } from '../../src/lib/teamAttach'
 import { keepSideChatOpen, resetSideChatOpenForTest } from '../../src/lib/sideChatOpenKeep'
 import { FakeEvent, installDom, mount, removeDom, type FakeElement, type Mounted } from './dom-host'
@@ -677,6 +678,35 @@ test('a picture pasted into the box shows as itself at once (not pasted as text)
     await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the dropped file attached')
     expect(drop.defaultPrevented).toBe(true)
     expect(uploads.map((u) => u.name)).toEqual(['image.png', 'acme-drop.pdf'])
+  } finally {
+    await m.unmount()
+  }
+})
+
+// docs/decisions/20261118-audit2-web-limits.md: the box took 20,000 characters and cut a longer paste without a word
+test('a paste past what a message holds goes in as a text file, never cut; the box itself has no 20,000 limit', async () => {
+  signIn()
+  const id = uuidv7()
+  serve(id, [], UNSEEN)
+  const m = await mount(<MemoryRouter><SideChatPanel roomId={team.id} roomTitle="Marketing" onClose={() => {}} /></MemoryRouter>)
+  try {
+    await m.until(() => !!m.find('side-chat-open-full'), 'the chat found')
+    expect(m.get('side-chat-input').getAttribute('maxlength')).toBeNull()
+    const pasteText = async (text: string) => {
+      const e = Object.assign(new FakeEvent('paste', { bubbles: true, cancelable: true }), { clipboardData: { files: [], items: [], getData: (k: string) => (k === 'text/plain' ? text : '') } })
+      m.get('side-chat-input').dispatchEvent(e)
+      await m.settle()
+      return e
+    }
+    // 50,000 characters: the box's own text, as the full chat's box (the browser pastes it)
+    expect((await pasteText('a'.repeat(50_000))).defaultPrevented).toBe(false)
+    expect(chips(m)).toHaveLength(0)
+    // past 200,000: every character goes in as a file, and the person is told
+    const long = 'b'.repeat(MESSAGE_TEXT_MAX + 1)
+    expect((await pasteText(long)).defaultPrevented).toBe(true)
+    await m.until(() => chips(m)[0]?.getAttribute('data-status') === 'done', 'the text file attached')
+    expect(uploads.map((u) => u.name)).toEqual([`${en('composer.pastedTextName')}.txt`])
+    expect(useUi.getState().toasts.map((t) => t.text)).toContain(en('composer.pastedAsFile', { max: MESSAGE_TEXT_MAX.toLocaleString('en') }))
   } finally {
     await m.unmount()
   }

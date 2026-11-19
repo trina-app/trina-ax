@@ -1,0 +1,6 @@
+- The AI can rename many files in one go ("rename these 200 photos to trip-…"): by a list, or by a find-and-replace of plain text in the names in a folder, up to 500 at a time. Each rename has the same checks as renaming one file.
+- The AI can read a long Google Drive file to the end, part by part. It stopped at the first 100,000 characters.
+- The AI sees more of each skill's description (up to 400 characters, was 160), so it picks the right skill more often. It also sees more of a connected service's tool descriptions, and can look up 25 tools at once.
+- The company profile can be up to 8,000 characters (was 2,000), with more room for products, customers and expressions to avoid. The AI reads all of it.
+- When the AI opens a web page or downloads a file, it asks the site for your language first, then English. It asked for Korean first for everyone.
+- Each person can keep up to 50 scheduled tasks (was 20).

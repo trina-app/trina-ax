@@ -15,7 +15,7 @@ export type ProfileField = z.infer<typeof ProfileField>
 
 /** Characters per field (and the source lines). Together they keep the prompt block under PROFILE_BLOCK_MAX. */
 export const PROFILE_LIMITS = {
-  website: 200, name: 80, oneLine: 120, products: 400, audience: 300, avoid: 300,
+  website: 200, name: 80, oneLine: 120, products: 3000, audience: 1500, avoid: 1000,
   /** tone: at most this many chips, each at most toneItem characters */
   toneCount: 4, toneItem: 20,
   sources: 10, sourceUrl: 500, excerpt: 200,
@@ -24,8 +24,9 @@ export const PROFILE_LIMITS = {
 } as const
 /** A brand colour as the profile keeps it: "#rrggbb", lower case. */
 export const BrandColor = z.string().regex(/^#[0-9a-f]{6}$/)
-/** The rendered facts of a profile (labels included) in the AI's instructions: at most this many characters. */
-export const PROFILE_BLOCK_MAX = 2000
+/** The rendered facts of a profile (labels included) in the AI's instructions: at most this many characters (2,000
+ * before the second limits audit, TC-4980; Claude Code reads a CLAUDE.md of any length). */
+export const PROFILE_BLOCK_MAX = 8000
 /** A draft from pasted text: at most this many characters of it. */
 export const PROFILE_TEXT_MAX = 8000
 
