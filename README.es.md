@@ -7,7 +7,8 @@
 <b>La IA que comparte todo tu equipo.</b><br>
 Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí,<br>y cada archivo que abre se comprueba con los permisos de quien preguntó.
 
-<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-es.png" height="40" alt="Descargar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-es.png" height="40" alt="Descargar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-es.png" height="40" alt="Descargar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-es.png" height="40" alt="Descargar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a><br>
+<sub>Linux: .deb y AppImage (x64, arm64) en la <a href="https://ax.trina.app/download">página de descargas</a></sub>
 
 [Sitio web](https://ax.trina.app) · [Documentación](docs/README.md) · [Planes](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
@@ -83,12 +84,12 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 - **Notas de reuniones.** La app de Mac (macOS 14.4 o posterior) toma notas de las llamadas de Zoom, Meet y Teams.
 - **Encuentra archivos de trabajo.** La app de escritorio encuentra archivos de trabajo recientes en tu ordenador y añade los que elijas.
 - **Documentos.** Lee el texto de documentos hangul (HWP/HWPX) y previsualiza PDF y PowerPoint.
-- **En cualquier dispositivo.** Mac, Windows, iPhone, Android y cualquier navegador, en seis idiomas.
+- **En cualquier dispositivo.** Mac, Windows, Linux, iPhone, Android y cualquier navegador, en seis idiomas.
 
 ## Cómo empezar
 
 - **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
-- **Apps:** [Mac, iPhone, Android y Windows](https://ax.trina.app/download), o cualquier navegador.
+- **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
 <b>Autoalojamiento con Docker</b> (Linux, o un Mac con OrbStack)

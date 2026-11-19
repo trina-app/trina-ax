@@ -66,6 +66,62 @@ People join by pasting the invite link (or the team link) into the app's first s
 - **The team address** is in Settings › Apps for everyone signed in, with a copy button.
 - **Tapped links**: the apps open `*.trina.app` invite links directly (universal links, app links). On a domain of your own a tapped link opens the browser; the join page's **Open in the app** (`trina-ax://open?url=…`) opens the desktop or phone app. Either way the app first asks "Connect to {host}?" and loads nothing before the answer.
 
+## Desktop app on Linux
+
+This part is about the team's desktop app on a Linux computer, not the server. It is built for x64 and arm64. Get it
+from the [download page](https://ax.trina.app/download) or from the GitHub Release of a version, and pick by system:
+
+| File | For | Updates |
+|---|---|---|
+| `Trina-AX-<v>-linux-amd64.deb`, `Trina-AX-<v>-linux-arm64.deb` | Ubuntu 24.04, Debian 12 and 13 and systems built on them | the app says when a new version is out; install the new .deb over the old one |
+| `Trina-AX-<v>-linux-x86_64.AppImage`, `Trina-AX-<v>-linux-arm64.AppImage` | other distributions (Fedora, Arch, …) | by itself, from your team server, after the signed release names the file; it is replaced when the app quits |
+
+**The .deb** (open it in App Center, or from a terminal):
+
+```sh
+sudo apt install ./Trina-AX-<v>-linux-amd64.deb
+```
+
+It adds the app to the app grid, makes `trina-ax://` links (the web's **Open in the app**) open it, and installs an
+AppArmor profile (`/etc/apparmor.d/trina-ax`), so Chromium's sandbox can run where Ubuntu 24.04 blocks user namespaces.
+`sudo apt remove trina-ax` takes all of that away. Your data stays in `~/.config/Team AX`; delete that folder to
+remove it too.
+
+**The AppImage:**
+
+```sh
+chmod +x Trina-AX-<v>-linux-x86_64.AppImage
+./Trina-AX-<v>-linux-x86_64.AppImage
+```
+
+- **FUSE 2:** an AppImage needs FUSE 2 (`fuse-libs` on Fedora, `fuse2` on Arch, `libfuse2t64` on Ubuntu 24.04).
+- **Sandbox:** the app runs only inside Chromium's sandbox. Where the system blocks user namespaces for programs without
+  an AppArmor profile (Ubuntu 24.04 and later), the AppImage cannot use it: the app says "Install the .deb instead" and
+  quits. Use the .deb there. Do not start the app with `--no-sandbox`; it refuses that too.
+- It adds no menu entry and no link handler. Use the .deb if you want `trina-ax://` links.
+- For self-updates, keep the file in a folder you can write to (for example `~/Applications`).
+
+**Keyring:** "Apps on your computer" keeps setting values (tokens, keys) in the system keyring through the Secret
+Service: GNOME Keyring or KWallet. Without one in your session (for example a bare window manager, or Xfce without
+`gnome-keyring`), the settings are not saved and the app says so; the connection still works without them. Your sign-in
+cookies are protected by the same keyring when there is one, as in Chrome.
+
+**Check a download** against the release's signed checksums (from a version's GitHub Release):
+
+```sh
+V=<version> # for example 0.5.18
+BASE="https://github.com/trina-app/trina-ax/releases/download/v$V"
+F="Trina-AX-$V-linux-amd64.deb"
+curl -fLO "$BASE/$F" -fLO "$BASE/SHA256SUMS" -fLO "$BASE/SHA256SUMS.sig"
+sha256sum --ignore-missing -c SHA256SUMS
+# the signature of SHA256SUMS, with this repository's release keys (needs Bun)
+git clone --depth 1 --branch "v$V" https://github.com/trina-app/trina-ax trina-ax-src
+bun trina-ax-src/scripts/release/release-ci.ts verify-sums SHA256SUMS
+```
+
+`verify-sums` checks `SHA256SUMS.sig` with the release keys in the source of that version, then every file listed in
+`SHA256SUMS` that is in the same folder. The in-app updates check the same release signature by themselves.
+
 ## Download, verify, check
 
 Use a new download directory. Resolve the latest release once and use the same version for all files:

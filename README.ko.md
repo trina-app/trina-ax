@@ -7,7 +7,8 @@
 <b>팀 모두가 같이 쓰는 AI.</b><br>
 트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작하고,<br>AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
 
-<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ko.png" height="40" alt="맥용 다운로드"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ko.png" height="40" alt="Windows용 다운로드"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a>
+<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ko.png" height="40" alt="맥용 다운로드"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ko.png" height="40" alt="Windows용 다운로드"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a><br>
+<sub>Linux: .deb와 AppImage(x64, arm64)는 <a href="https://ax.trina.app/download">다운로드 페이지</a>에 있어요</sub>
 
 [웹사이트](https://ax.trina.app) · [문서](docs/README.md) · [요금제](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
@@ -83,12 +84,12 @@ https://github.com/user-attachments/assets/4d795cf7-202c-4299-9d74-d0d569a1869f
 - **회의록.** 맥 앱(macOS 14.4 이상)이 Zoom, Meet, Teams 통화를 받아 적어요.
 - **업무 파일 찾기.** 데스크톱 앱이 내 컴퓨터의 최근 업무 파일을 찾아 주고, 고른 것만 올려요.
 - **문서.** 한글(HWP/HWPX) 글을 읽고, PDF와 PPT를 미리 봐요.
-- **어느 기기에서든.** 맥, Windows, 아이폰, 안드로이드, 어떤 브라우저에서든. 6개 언어로요.
+- **어느 기기에서든.** 맥, Windows, Linux, 아이폰, 안드로이드, 어떤 브라우저에서든. 6개 언어로요.
 
 ## 시작하기
 
 - **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
-- **앱:** [맥, 아이폰, 안드로이드, Windows](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
+- **앱:** [맥, Windows, Linux, 아이폰, 안드로이드](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)
 
 <b>Docker로 직접 설치</b> (리눅스, 또는 OrbStack을 쓰는 맥)
