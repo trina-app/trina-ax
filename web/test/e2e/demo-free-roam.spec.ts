@@ -22,7 +22,7 @@ const INFO = (used: number): DemoInfo => ({
     { label: "Check Chris's reply", prompt: "Did Chris reply to the banner mail? What did he say?" },
     { label: "What's in Brand assets?", prompt: "What's in our Brand assets folder?" },
   ] },
-} as DemoInfo)
+})
 const FEATURES_OFF = { connectionChange: false, selfUpdate: false, officeUpdate: false, connectedFolders: false, apiEngineAnyUrl: false, hostDiagnostics: false, pluginFileInstall: false }
 const shots = process.env.FREE_ROAM_SHOTS
 

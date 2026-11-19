@@ -51,7 +51,7 @@ export interface FreeRoamSuggestion { label: string; prompt: string }
  * else the built-in ones (their words are the label and the prompt).
  */
 export function freeRoamSuggestions(info: DemoInfo, t: (key: MessageKey) => string): FreeRoamSuggestion[] {
-  const own = (info as { freeRoam?: { suggestions?: unknown } }).freeRoam?.suggestions
+  const own: unknown = info.freeRoam?.suggestions
   if (Array.isArray(own)) {
     const list = own.flatMap((x): FreeRoamSuggestion[] => {
       const o = x as { label?: unknown; prompt?: unknown } | null

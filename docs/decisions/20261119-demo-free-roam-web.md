@@ -20,10 +20,10 @@
   component can ask `freeRoamNow()` (store/session canChooseEngine).
 
 - **Rule: the bar.** It takes the demo bar's place at the top, in the page's flow, so it never covers a message box.
-  It says "You're {name} at {company}, a made-up company. Try anything." and shows 2-3 suggestions. They come from the
-  demo info's `suggestions[locale]` if a later server sends them, else the person's `questions` from the demo file,
-  else built-in ones ("Make next week's social posts", "Check Chris's reply", "What's in our Brand assets folder?").
-  **A tap sends the suggestion as a new chat**, the existing pattern of the scripted demo's questions
+  It says "You're {name} at {company}, a made-up company. Try anything." and shows 2-3 suggestions. They come from
+  GET /api/demo `freeRoam.suggestions` (the demo content's, each a short `label` on the chip and the `prompt` it
+  sends), else the person's `questions` from the demo file, else built-in ones ("Make next week's social posts",
+  "Check Chris's reply", "What's in our Brand assets folder?"). **A tap sends the suggestion's prompt as a new chat**, the existing pattern of the scripted demo's questions
   (components/demo/Demo.tsx DemoQuestions). Filling a box would not work: the bar is on every screen and a box is not.
   On phones the suggestions are one row that scrolls sideways and hides while the keyboard is up. Home does not show
   the same suggestions a second time.
@@ -52,7 +52,9 @@
   - Nobody picks the AI, and "answered by" is gone (canChooseEngine is false).
   - The admin pages show one line instead. The dev environment's line is "The dev environment isn't available in the
     demo.". The server refuses all of these anyway.
-  - The sign-in page shows only "Continue as {name}", a link to the gate's `/__demo/start`.
+  - The sign-in page shows only "Continue as {name}". It POSTs to the gate's `/__demo/resume` (same origin), which
+    signs the visitor back in on their own instance. A 2xx opens the app; anything else, or no answer, goes to
+    `/__demo/start` (lib/freeRoam.ts resumeFreeRoam).
 
 - **Rule: the scripted demo's handoff.**
   - At the story's end the overlay reads `https://demo.trina.app/__demo/status?lang=<locale>` once, with a 2.5 s
@@ -74,8 +76,6 @@
 - **Left out:**
   - a test of ✦ in a room at the limit (the side chat's box uses the same hook, useDemoOut, as the chat's box, which
     the e2e covers);
-  - the gate re-signing a visitor who signed out. `/__demo/start` with GET goes to `/`, which a visitor with an
-    instance reaches signed out again. That is demo-gate's to handle.
 
 - **Tests:**
   - web/test/unit/demo-free-roam.test.tsx;
