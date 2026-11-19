@@ -218,6 +218,9 @@ test('audio and video play from the file\'s address at once, never read whole he
   expect([u.searchParams.get('path'), u.searchParams.get('disposition')]).toEqual(['videos/all-hands.mp4', 'inline'])
   // the address and the session only: no key, no token
   expect([...u.searchParams.keys()].sort()).toEqual(['disposition', 'path'])
+  // on its own dark stage, never on a document's paper (QA TC-5367; the layout: e2e media-preview-stage.spec.ts)
+  expect(video.get('media-stage').getAttribute('data-kind')).toBe('video')
+  expect(video.get('media-stage').className).toContain('bg-[#0d0d0c]')
   const call = await draw({ source: 'room', roomId: 'r1', fileId: 'f1', name: 'call.m4a' })
   expect(call.get('preview-audio').getAttribute('src')).toBe('/api/rooms/r1/files/f1')
   const kept = await draw({ source: 'chat', chatId: 'c1', fileId: 'f2', name: 'clip.webm' })
