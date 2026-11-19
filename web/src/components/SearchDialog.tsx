@@ -39,8 +39,8 @@ import clsx from 'clsx'
 import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
-import { nameMatch, searchWords } from '@mycel/shared'
-import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchHit, type RoomSearchRoom, type Schedule } from '@mycel/shared/api'
+import { nameMatch, parseSearch, searchWords } from '@mycel/shared'
+import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
 import { formatRelative, listTime } from '../lib/format'
@@ -306,11 +306,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // files whose name holds the text, and whether that search failed
   const [names, setNames] = useState<{ q: string; items: FileEntry[]; failed: boolean } | null>(null)
   // room messages that hold the text, the next page's cursor, whether that search failed; how many rows show
-  const [hits, setHits] = useState<{ q: string; items: RoomSearchHit[]; rooms: Map<string, RoomSearchRoom>; next: string | null; failed: boolean } | null>(null)
+  const [hits, setHits] = useState<{ q: string; items: RoomSearchHit[]; rooms: Map<string, RoomSearchRoom>; next: string | null; failed: boolean; near?: boolean; filters?: RoomSearchFilters } | null>(null)
+  // messages: the best match first (as Slack's "Most relevant"), or the newest first
+  const [sort, setSort] = useState<RoomSearchSort>('relevant')
   const [hitsShown, setHitsShown] = useState(MESSAGES_FEW)
   const [hitsMore, setHitsMore] = useState(false)
   // files sent in rooms whose name holds the text, and whether that search failed
-  const [roomFiles, setRoomFiles] = useState<{ q: string; items: RoomFileSearchHit[]; rooms: Map<string, RoomSearchRoom>; failed: boolean } | null>(null)
+  const [roomFiles, setRoomFiles] = useState<{ q: string; items: RoomFileSearchHit[]; rooms: Map<string, RoomSearchRoom>; failed: boolean; filters?: RoomSearchFilters } | null>(null)
   // another text or type: back to the first row
   const setTab = (x: SearchType | ((x: SearchType) => SearchType)) => {
     setTabState(x)
@@ -343,6 +345,20 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }, [])
   const people = usePeopleList()
   const roomTitle = useRoomTitle()
+  const where = useWhere()
+  // the messages' order, above the results when messages are found (the dialog keeps the keys in the box)
+  const sortMenu = useMemo(() => (
+    <MenuButton
+      label={`${t('search.sort')}: ${t(sort === 'relevant' ? 'search.sortRelevant' : 'search.sortRecent')}`}
+      heading={t('search.sort')}
+      compact
+      testId="search-sort"
+      buttonClassName="gap-1 px-2! py-0.5! text-xs"
+      focusBack={() => inputRef.current?.focus()}
+      icon={<>{t(sort === 'relevant' ? 'search.sortRelevant' : 'search.sortRecent')}<ChevronDown size={12} aria-hidden /></>}
+      items={(['relevant', 'recent'] as const).map((x) => ({ label: t(x === 'relevant' ? 'search.sortRelevant' : 'search.sortRecent'), checked: sort === x, onSelect: () => { setSort(x); inputRef.current?.focus() }, testId: `search-sort-${x}` }))}
+    />
+  ), [sort, t])
   // "Needs attention": the 트리나 list's own chats and markers (one source: the same rows, the same rule, the same view)
   const listed = useChats((s) => s.chats)
   const listLoaded = useChats((s) => s.chatsLoaded)
@@ -367,6 +383,12 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
 
   const query = norm(q.trim())
   const words = useMemo(() => searchWords(query), [query])
+  // the room messages' and room files' own reading of the text (shared/src/search-text.ts parseSearch): from: and in:,
+  // "quoted phrases", each word by its part without a Korean particle or an English ending (what is marked in their rows)
+  const parts = useMemo(() => parseSearch(query), [query])
+  const terms = parts.terms
+  // from: or in: in the text: only the rooms' messages and files are searched (nothing else has a sender or a room)
+  const filtered = parts.from.length > 0 || parts.in.length > 0
   // What the server's answers are kept by: the words as the server reads them (searchWords), with only the letters it
   // takes in any case folded, so a space more or such a letter in another case asks nothing again and shows what is
   // there, and nothing else is taken for the same search. Chats, room messages and room files: LIKE, A–Z only ("Été" and
@@ -377,11 +399,14 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const foundNow = found?.q === key ? found.items : null
   const errorNow = error?.q === key ? error.text : null
   const namesNow = names?.q === namesKey ? names : null
-  const hitsNow = hits?.q === key ? hits : null
+  const hitsKey = `${sort}:${key}`
+  // a change of order keeps the other order's messages in sight until its own answer comes (nothing jumps under the menu)
+  const hitsFresh = hits?.q === hitsKey
+  const hitsNow = hitsFresh || (hits && hits.q.slice(hits.q.indexOf(':') + 1) === key) ? hits : null
   const roomFilesNow = roomFiles?.q === key ? roomFiles : null
   // chats by title and content, on the server
   useEffect(() => {
-    if (!query) return
+    if (!query || filtered) return
     let live = true
     const ctrl = new AbortController()
     const asked = key
@@ -399,11 +424,11 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
+  }, [key, filtered])
   // files by name, on the server, only where file rows are shown: the team's files and the files sent in my rooms
   const wantNames = !!query && (tab === 'all' || tab === 'files')
   useEffect(() => {
-    if (!wantNames) return
+    if (!wantNames || filtered) return
     let live = true
     const ctrl = new AbortController()
     const asked = namesKey
@@ -419,7 +444,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [namesKey, wantNames])
+  }, [namesKey, wantNames, filtered])
   useEffect(() => {
     if (!wantNames) return
     let live = true
@@ -427,7 +452,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const asked = key
     const timer = setTimeout(() => {
       api.call(API.searchRoomFiles, { query: { q: q.trim(), limit: ROOM_FILES_PAGE }, signal: ctrl.signal }).then(
-        (r) => live && setRoomFiles({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), failed: false }),
+        (r) => live && setRoomFiles({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), failed: false, filters: r.filters }),
         () => live && !ctrl.signal.aborted && setRoomFiles({ q: asked, items: [], rooms: new Map(), failed: true }),
       )
     }, 200)
@@ -447,10 +472,10 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (!wantMessages) return
     let live = true
     const ctrl = new AbortController()
-    const asked = key
+    const asked = hitsKey
     const timer = setTimeout(() => {
-      api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE }, signal: ctrl.signal }).then(
-        (r) => live && setHits({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), next: r.nextCursor, failed: false }),
+      api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, sort }, signal: ctrl.signal }).then(
+        (r) => live && setHits({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), next: r.nextCursor, failed: false, near: r.near, filters: r.filters }),
         () => live && !ctrl.signal.aborted && setHits({ q: asked, items: [], rooms: new Map(), next: null, failed: true }),
       )
     }, 200)
@@ -460,16 +485,16 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, wantMessages])
+  }, [hitsKey, wantMessages])
   /** 메시지 더 보기: more of what is here, and the next page when that runs out (kept only for the same text) */
   const moreHits = () => {
-    if (!hitsNow) return
+    if (!hitsNow || !hitsFresh) return
     const want = hitsShown + MESSAGES_PAGE
     setHitsShown(want)
     if (want <= hitsNow.items.length || !hitsNow.next || hitsMore) return
     setHitsMore(true)
-    const asked = key
-    api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, cursor: hitsNow.next } }).then(
+    const asked = hitsKey
+    api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, cursor: hitsNow.next, sort } }).then(
       (r) => {
         setHits((h) => (h?.q === asked ? { ...h, items: [...h.items, ...r.items.filter((x) => !h.items.some((y) => y.id === x.id))], rooms: new Map([...h.rooms, ...r.rooms.map((x) => [x.id, x] as const)]), next: r.nextCursor } : h))
         setHitsMore(false)
@@ -585,6 +610,17 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const allMcp = ok(mcp)?.items ?? []
     const out: Section[] = []
     const push = (id: string, label: string, rows: Row[]) => rows.length && out.push({ id, label, rows })
+    // the messages found: "Close matches" when nothing matched as typed; what from: and in: were read as
+    const pushMessages = () => {
+      if (!hitsNow) return
+      const f = hitsNow.filters
+      const label = hitsNow.near ? t('search.messagesNear') : [
+        t('search.messages'),
+        ...(f?.from.length ? [t('search.fromWho', { name: f.from.map((p) => p.name).join(', ') })] : []),
+        ...(f?.in.length ? [t('search.inWhere', { room: f.in.map((r) => where(r, undefined)).join(', ') })] : []),
+      ].join(' · ')
+      push('messages', label, [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
+    }
     const typeLabel = (x: SearchType) => t(TAB_LABEL[x])
 
     if (!query) {
@@ -625,18 +661,24 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       return out
     }
     if (tab === 'rooms') {
-      push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle, ROOMS_FEW).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
-      if (hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
+      if (!filtered) push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle, ROOMS_FEW).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
+      pushMessages()
       // "Files you sent" is the conversations' too: found here by its words
       push('actions', t('search.actions'), actions.filter((a) => a.key === 'act:sentFiles' && has(query, a.title, a.terms)))
       return out
     }
 
     const few = tab === 'all' ? 4 : 50
+    // from: or in: in the text: the rooms' messages and files only
+    if (filtered) {
+      if (tab === 'all') pushMessages()
+      if (tab === 'all' || tab === 'files') push('files', typeLabel('files'), (roomFilesNow?.items ?? []).map(roomFileRow).slice(0, tab === 'all' ? FILES_FEW : undefined))
+      return out
+    }
     // a name jump first, matched here in the lists the app has (they may load a moment after the text)
     if (tab === 'all') push('people', t('search.roomsPeople'), roomsAndPeople(myRooms, people ?? [], meId, query, roomTitle).map((x) => ('room' in x ? roomRow(x.room, x.name) : personRow(x.person))))
     if (tab === 'all' || tab === 'chats') push('chats', typeLabel('chats'), titleFirst(foundNow ?? [], words).slice(0, tab === 'all' ? 5 : 30).map(historyRow))
-    if (tab === 'all' && hitsNow) push('messages', t('search.messages'), [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
+    if (tab === 'all') pushMessages()
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (!guest && (tab === 'all' || tab === 'skills')) push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
     if (!guest && (tab === 'all' || tab === 'scheduled')) push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
@@ -651,7 +693,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest])
+  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -719,12 +761,14 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // only with AI): docs/DECISIONS.md "Search results and Open in Files for guests"
   const types = guest ? SEARCH_TYPES.filter((x) => x === 'all' || x === 'rooms' || x === 'files' || (x === 'projects' && guestHasProject) || (x === 'chats' && !guestAiOff)) : SEARCH_TYPES
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
-  const loading = (tab === 'all' && !!query && ((foundNow === null && !errorNow) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && (namesNow === null || roomFilesNow === null))
+  // a from:/in: that named nobody or none of my conversations (the messages' answer, or the room files' on 파일)
+  const missingFilters = (wantMessages ? hitsNow?.filters : wantNames ? roomFilesNow?.filters : undefined)?.missing
+  const loading = (tab === 'all' && !!query && (((foundNow === null && !errorNow) && !filtered) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow && !filtered : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && ((namesNow === null && !filtered) || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
-  // the first match of every word, marked
-  const mark = (text: string): ReactNode => {
-    const spans = wordSpans(text, words)
+  // the first match of every word, marked (a room message or file: of each term, parseSearch)
+  const mark = (text: string, by: readonly string[] = words): ReactNode => {
+    const spans = wordSpans(text, by.map(norm))
     if (!spans.length) return text
     const out: ReactNode[] = []
     let at = 0
@@ -839,11 +883,15 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
           </div>
           )}
         </div>
+        {wantMessages && !!hitsNow?.items.length && !hitsNow.near && (tab === 'all' || tab === 'rooms') && (
+          <div className="flex shrink-0 justify-end px-3 pt-1" data-testid="search-sort-bar">{sortMenu}</div>
+        )}
         <div ref={listRef} id="search-results" role="listbox" aria-label={t('search.title')} className="scroll-thin min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[56vh]">
           {errorNow && <p className="px-3 py-2 text-sm text-danger">{errorNow}</p>}
           {failed && <p className="px-3 py-2 text-sm text-danger">{t('search.loadFailed')}</p>}
           {(namesNow?.failed || roomFilesNow?.failed) && wantNames && <p className="px-3 py-2 text-sm text-danger" data-testid="search-names-failed">{t('search.fileNamesFailed')}</p>}
           {hitsNow?.failed && wantMessages && <p className="px-3 py-2 text-sm text-danger" data-testid="search-messages-failed">{t('search.messagesFailed')}</p>}
+          {!!missingFilters?.length && <p className="px-3 py-2 text-sm text-muted" data-testid="search-filter-missing">{t('search.filterMissing', { filters: missingFilters.join(', ') })}</p>}
           {sections.map((s) => (
             <div key={s.id} role="group" aria-labelledby={`sh-${s.id}`} data-testid={`search-section-${s.id}`} className="pb-1">
               <p id={`sh-${s.id}`} className="px-3 pt-3 pb-1.5 text-xs text-faint">{s.label}</p>
@@ -863,7 +911,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                       className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm', lit(r) && 'bg-hover')}
                       data-testid="search-room-file"
                     >
-                      <RoomFileHit hit={r.roomFile.hit} room={r.roomFile.room} name={mark(r.title)} />
+                      <RoomFileHit hit={r.roomFile.hit} room={r.roomFile.room} name={mark(r.title, terms)} />
                       {on && <CornerDownLeft size={15} className="shrink-0 text-faint max-md:hidden" aria-hidden />}
                     </div>
                   )
@@ -880,7 +928,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
                       className={clsx('flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2', lit(r) && 'bg-hover')}
                       data-testid="search-message"
                     >
-                      <MessageHit hit={r.hit.hit} room={r.hit.room} text={mark(hitText(r.hit.hit, words))} />
+                      <MessageHit hit={r.hit.hit} room={r.hit.room} text={mark(hitText(r.hit.hit, hitsNow?.near ? words : terms), hitsNow?.near ? words : terms)} />
                       {on && <CornerDownLeft size={15} className="shrink-0 text-faint max-md:hidden" aria-hidden />}
                     </div>
                   )
@@ -1012,6 +1060,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
           <Hint label={t('search.hintClose')} keys={['Esc']} />
           <Hint label={t('search.hintType')} keys={['←', '→']} />
           <Hint label={t('search.hintOpen')} keys={['↵']} />
+          <Hint label={t('search.hintFilters')} keys={['from:', 'in:', '" "']} />
           {active?.chat && <Hint label={t('search.hintActions')} keys={[onMac() ? '⌥' : 'Alt', '↵']} />}
         </div>
       </div>
