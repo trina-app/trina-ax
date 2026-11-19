@@ -107,6 +107,25 @@ test('the list row: away from its computer is neutral, a failure needs attention
   expect(connectionRowStatus({ ...base, kind: 'mcp', lastErrorReason: 'local_offline' })).toBe('attention')
 })
 
+test('on the web, an app that works on its computer ("Connected" there): "Works in the desktop app" on its page and its row', async () => {
+  const working: Integration = { ...aside, status: 'connected', lastError: null, lastErrorReason: null }
+  expect(connectionRowStatus(working)).toBe('elsewhere')
+  expect(connectionRowStatus({ ...working, kind: 'mcp' })).toBe('connected')
+  const m = await mount(<Page i={working} />)
+  try {
+    expect(m.get('connection-status').getAttribute('data-state')).toBe('elsewhere')
+    expect(m.get('connection-status').textContent).toBe(translate('en', 'localApps.status.desktopOnly'))
+  } finally { await m.unmount() }
+  // in the desktop app it is what the computer said
+  ;(globalThis as Record<string, unknown>)[DESKTOP_BRIDGE_GLOBAL] = {
+    bridgeVersion: 1,
+    localApps: { version: 1, run: async () => ({}), cancel() {}, stop() {}, running: async () => [], onRunning: () => () => {}, setSettings: async () => 'saved', settingNames: async () => [] },
+  }
+  expect(connectionRowStatus(working)).toBe('connected')
+  const d = await mount(<Page i={working} />)
+  try { expect(d.get('connection-status').getAttribute('data-state')).toBe('connected') } finally { await d.unmount() }
+})
+
 test('settings lines: NAME=value only', () => {
   expect(settingLines('A_KEY=x=1\n\n  B=  ')).toEqual({ A_KEY: 'x=1', B: '' })
   expect(settingLines('not a line')).toBeNull()

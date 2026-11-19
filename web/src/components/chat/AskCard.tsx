@@ -449,9 +449,13 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
                     <div key={j} className="contents">
                       <dt className="min-w-14 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></dt>
                       {/* a long value scrolls in place, so the next name stays near; the marks are highlighted here too */}
-                      <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
-                        <Marked text={f.value} marks={d.marks} />
-                      </dd>
+                      {f.code ? (
+                        <dd className="min-w-0" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></dd>
+                      ) : (
+                        <dd className={clsx('min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]', f.value.length > 600 && 'scroll-thin max-h-48 overflow-auto')} tabIndex={f.value.length > 600 ? 0 : undefined} data-testid="ask-detail-value">
+                          <Marked text={f.value} marks={d.marks} />
+                        </dd>
+                      )}
                     </div>
                   ))}
                 </dl>
@@ -497,7 +501,11 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
               {d.fields.map((f, j) => (
                 <div key={j} className="flex gap-3">
                   <span className="max-w-[40%] shrink-0 text-faint [overflow-wrap:anywhere]"><Marked text={f.name} marks={d.marks} /></span>
-                  <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
+                  {f.code ? (
+                    <span className="min-w-0 flex-1" data-testid="ask-detail-value"><CodeValue text={f.value} label={f.name} marks={d.marks} /></span>
+                  ) : (
+                    <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]" data-testid="ask-detail-value"><Marked text={f.value} marks={d.marks} /></span>
+                  )}
                 </div>
               ))}
             </div>
@@ -507,6 +515,16 @@ function Details({ items, plain }: { items: ConfirmDetail[]; plain?: boolean }) 
         </div>
       ))}
     </div>
+  )
+}
+
+/** A script as it runs (a field with `code`: a declared CLI's stdin), in a code block: every space, tab and line as sent,
+ * never wrapped or trimmed (a long line scrolls sideways); the marks highlighted as in any value. */
+function CodeValue({ text, label, marks }: { text: string; label: string; marks?: string[] }) {
+  return (
+    <pre className="scroll-thin max-h-64 overflow-auto rounded bg-subtle px-2 py-1 font-mono text-code-sm leading-5 whitespace-pre [tab-size:4]" tabIndex={0} aria-label={label} data-testid="ask-detail-code">
+      <Marked text={text} marks={marks} />
+    </pre>
   )
 }
 

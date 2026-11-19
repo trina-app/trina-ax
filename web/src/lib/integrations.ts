@@ -4,6 +4,7 @@
 // Keys are write-only: the form only ever holds a key the person is typing now; a stored one is `hasSecret`.
 import { ApiError, ERROR_MESSAGES, INTEGRATION_TOOLS_OLD_MAX, type Integration, type IntegrationAccess, type IntegrationAuth, type IntegrationInput, type RemoteIntegrationKind as IntegrationKind, type IntegrationPatch, type IntegrationRequestInput, type IntegrationRequestState, type IntegrationStatus, type IntegrationTemplate, type OAuthClientInput, type OAuthClientView, type WritePolicy } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
+import { desktop } from './desktop'
 
 /** how the connection proves who it is: sign in at the service (an API: with your own app), a key, or nothing */
 export type SignInMethod = 'oauth' | 'key' | 'none'
@@ -466,13 +467,16 @@ export function awaitingFirstSignIn(i: Pick<Integration, 'auth' | 'hasSecret'>):
  * the team has members' own connections off → "Off", whatever its state (not used, not signed in again: QA TC-2930);
  * never signed in → "로그인 필요" like its page (QA TC-205), never "Connected" or "Reconnect"; a lapsed sign-in →
  * Reconnect; any other problem → Needs attention. */
-/** An app on a computer whose last check came from somewhere else (the web, the phone app, another computer): not a
- * fault, so it never shows as an error; it says where it works instead (ConnectionPage, ConnectorRow). */
-export const awayFromComputer = (i: Pick<Integration, 'kind' | 'lastErrorReason'>): boolean => i.kind === 'local' && i.lastErrorReason === 'local_offline'
+/** An app on a computer read away from it: its last check came from somewhere else (another computer), or this window
+ * is not the desktop app at all (the web, the phone app: the server never checks it from there, so its last state is
+ * the desktop's "Connected", which would read as usable here). Not a fault, so it never shows as an error; it says
+ * where it works instead (ConnectionPage, ConnectorRow). A real failure on the computer stays one. */
+export const awayFromComputer = (i: Pick<Integration, 'kind' | 'lastErrorReason'> & Partial<Pick<Integration, 'status'>>): boolean =>
+  i.kind === 'local' && (i.lastErrorReason === 'local_offline' || (i.status === 'connected' && !desktop()?.localApps))
 
 export function connectionRowStatus(i: Pick<Integration, 'auth' | 'hasSecret' | 'status' | 'personalOff'> & Partial<Pick<Integration, 'kind' | 'lastErrorReason'>>): 'off' | 'signin' | 'connected' | 'reconnect' | 'attention' | 'elsewhere' {
   if (i.personalOff) return 'off'
-  if (i.kind && awayFromComputer({ kind: i.kind, lastErrorReason: i.lastErrorReason })) return 'elsewhere'
+  if (i.kind && awayFromComputer({ kind: i.kind, lastErrorReason: i.lastErrorReason, status: i.status })) return 'elsewhere'
   if (awaitingFirstSignIn(i)) return 'signin'
   return i.status === 'connected' ? 'connected' : i.status === 'needs_auth' ? 'reconnect' : 'attention'
 }
