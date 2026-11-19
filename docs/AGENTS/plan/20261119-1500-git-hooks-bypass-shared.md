@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 15:00
 - Branch: `fix/git-hooks-bypass-shared`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`server/src/devenv/srt/`, `tests/linux/srt-attack.ts`). Why: the Linux and Mac run sandbox is core.
 - Version impact: patch
 - QA: TC-5348 (P1, qa.trina.app 0.5.18-dev fec2dbb)
