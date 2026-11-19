@@ -24,7 +24,7 @@ Empat skill siap pakai disertakan dalam produk, dalam bahasa tim (Korea atau Ing
 | `skills/general/` | Company slide deck, Promo cards, Promo video | Owner memilihnya di langkah penyiapan **Pilih skill yang akan dipakai tim**, atau owner atau admin menambahkannya nanti di **Skill yang tersedia** |
 | `skills/work/` | Natural writing | Sama seperti di atas |
 
-- **Di langkah penyiapan**, setiap skill punya satu baris dan **Contoh**. Company slide deck, Promo cards, dan Promo video sudah tercentang jika profil perusahaan sudah disimpan (skill itu dibuat dari profil tersebut); Natural writing awalnya tidak tercentang. Tombolnya menyebut apa yang akan masuk, misalnya **Tambahkan Company profile·Promo cards·Promo video**.
+- **Di langkah penyiapan**, setiap skill punya satu baris dan **Contoh**. Company slide deck, Promo cards, dan Promo video sudah tercentang jika profil perusahaan sudah disimpan (skill itu dibuat dari profil tersebut); Natural writing awalnya tidak tercentang. Tombolnya menyebut berapa banyak yang masuk, misalnya **Tambahkan 3 skill**.
 - **Di Skill yang tersedia**, owner dan admin melihat satu baris terlipat di bawah daftar, **Skill yang disiapkan Trina AX · 2 lagi**, berisi skill yang belum dimiliki tim. Buka baris itu, centang yang Anda inginkan (awalnya tidak ada yang tercentang), lalu tekan **Tambahkan ke tim**. Baris ini tersembunyi selama Anda mencari dan hilang jika tim sudah memiliki semuanya. Skill yang disertakan di versi berikutnya hanya menambah jumlahnya: tidak ada pemberitahuan.
 - **Contoh** menunjukkan apa yang dibuat skill itu untuk perusahaan rekaan, Example Coffee, dan dari mana skill itu berasal.
 

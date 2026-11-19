@@ -97,7 +97,7 @@ With **Read conversations** the app reads your conversations (channels, includin
 - Messages and files are other people's words. The answers mark them as data, never instructions. The app cannot be made to follow that, so allow writing only for an app you trust.
 - `room_send` goes through the app's own rules: only conversations you are in, the same sending rate, threads and mentions as in the app. Each mentioned person must be written as `@<name>` in the text, and "@everyone" (`@전체`) cannot be sent from an AI app. Writing `@Trina` in a conversation asks nothing: Trina answers only in your own side chat beside it.
 - The message looks exactly like one you typed. Nothing marks it as sent by an app.
-- What the app read (files, and messages of conversations) is not sent where people who could not see it would read it. The connection forgets what it read after an hour without tool calls.
+- What the app read (files, and messages of conversations) is not sent where people who could not see it would read it. What it read is kept per session: each new session (a new Claude Code run or conversation) starts with nothing read. Only calls that come without a session id forget what they read after an hour without tool calls.
 - Neither reading nor sending writes an audit entry, and no message, name or conversation is logged.
 - A connection made before conversations came to AI apps never gains them. **Settings › Trina AX MCP** shows "Connect again to use conversations" under it: disconnect it and connect again.
 

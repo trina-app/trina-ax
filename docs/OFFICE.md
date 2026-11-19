@@ -36,7 +36,7 @@
 > printed on the Mac, `teamax card`). The first-run setup is refused over the internet. No sudo, no relay. Bundle:
 > `bun run build:office`; control: `~/TeamAX/teamax`. The latest release is on GitHub Releases and on the Trina update feed
 > (`https://updates.trina.app`, live since 2026-10-29). The Mac checks `<feed>/office/<channel>.json` nightly;
-> `teamax update now` installs at once (section 6). The Mac desktop app is the signed DMG on GitHub Releases (since 0.5.5).
+> `teamax update now` installs at once (section 6). The Mac desktop app is the signed DMG on GitHub Releases (since 0.5.6).
 
 ## 1. 준비물
 
@@ -284,7 +284,7 @@ bash ./TrinaAX-office-VERSION/office-install.sh
 ```
 
 설치기는 기존 데이터·팀 폴더·설정을 유지하며 앱을 교체합니다. 인증서가 바뀐 경우 데스크 카드를 다시 확인하세요.
-Mac 데스크톱 앱(서명·공증된 DMG, 0.5.5부터)과 Windows 설치 파일은 GitHub Releases에서 따로 받습니다.
+Mac 데스크톱 앱(서명·공증된 DMG, 0.5.6부터)과 Windows 설치 파일은 GitHub Releases에서 따로 받습니다.
 
 ### 피드 업데이트의 동작
 
@@ -680,7 +680,7 @@ bun·ripgrep·pandoc·cloudflared(2026.10.0, Cloudflare 서명)는 GitHub 릴리
 
 ## 부록 C. 윈도우 데스크톱 앱 (키트)
 
-공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 0.5.5부터 릴리스에 서명·공증된 `Trina-AX-<버전>-mac-universal.dmg`로 들어 있고, 아래 DMG 단계는 그 파일에도 같습니다.
+공개 Windows 릴리스 이름은 `Trina-AX-Setup-<버전>-win-x64.exe`입니다. `build-office.ts --with-desktop`의 별도 키트는 ZIP 옆 복사본을 `Trina-AX-Setup-<버전>-x64.exe`로 바꿀 수 있으므로, 그 키트의 `desktop.sha256`에 적힌 정확한 이름을 사용하세요. Mac DMG는 0.5.6부터 릴리스에 서명·공증된 `Trina-AX-<버전>-mac-universal.dmg`로 들어 있고, 아래 DMG 단계는 그 파일에도 같습니다.
 
 데스크 대부분은 Edge 앱이면 됩니다. AI가 웹사이트를 직접 열어 읽고 클릭해야 하는 자리만 데스크톱 앱을 씁니다(앱 안
 브라우저 창, 사이트마다 묻기). 그 팀용 설치 파일은 개발 맥에서 만듭니다(맥에서 윈도우용으로 빌드됨, wine 필요 없음):
@@ -726,7 +726,7 @@ SmartScreen `추가 정보 → 실행`, 맥은 `시스템 설정 → 개인정�
 - **서명**: `서명 확인됨`은 실제 검사가 통과했을 때만입니다(윈도우: `osslsigncode verify`, 맥: Gatekeeper
   `spctl -a -t open --context context:primary-signature`). 인증서가 붙어 있기만 하거나 ad-hoc 서명인 파일은 `서명 있음(확인 안
   됨)`이고, 설정 → 앱은 SmartScreen·Gatekeeper 단계를 계속 보여 줍니다. 윈도우 빌드는 아직 서명하지 않으므로 `서명 없음`.
-  맥 dmg는 0.5.5부터 Developer ID로 서명·공증되어(`docs/RELEASE-CI.md` "Mac app") 이 맥에서 `서명 확인됨`이 됩니다. 서명된 맥 앱은
+  맥 dmg는 0.5.6부터 Developer ID로 서명·공증되어(`docs/RELEASE-CI.md` "Mac app") 이 맥에서 `서명 확인됨`이 됩니다. 서명된 맥 앱은
   업데이트 6단계가 `/downloads/`에 두는 업데이트 zip과 `latest-mac.yml`로 윈도우 앱처럼 스스로 업데이트합니다.
 - **맥 dmg**: `-mac-universal.dmg`(인텔·애플 실리콘 모두)를 올리세요. `-mac-arm64.dmg`를 올리면 설정 → 앱에 "Apple Silicon(M1
   이후) 맥 전용"이 붙고, 같은 버전이면 universal이 우선입니다.

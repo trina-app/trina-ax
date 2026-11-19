@@ -88,7 +88,7 @@ git push origin v0.3.0-beta.1
 
 2의 job은 동시에 돈다(build-office만 build-mac-whisper 뒤). publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
-- **맥 데스크톱 앱(dmg)은 0.5.5부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
+- **맥 데스크톱 앱(dmg)은 0.5.6부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
@@ -110,7 +110,7 @@ Worker(`scripts/release/worker.js`)는 이 경로만 읽기 전용으로 내준�
 ### 설치에 닿는 방법
 
 - 사무실 맥: 매일 밤 `<feed>/<officeDir>/<channel>.json`을 본다(`docs/OFFICE.md` 6장).
-- 데스크톱 앱(윈도우, 그리고 0.5.5부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
+- 데스크톱 앱(윈도우, 그리고 0.5.6부터 서명된 맥 dmg): 피드를 직접 보지 않는다. 팀 서버(리눅스·호스팅은 `system/windows-app.ts`, 사무실 맥은 업데이트 6단계)가 서명된 목록을 확인한 뒤 설치 파일(맥은 업데이트 zip)과 `latest.yml`/`latest-mac.yml`, 그 목록을 `/downloads/`에 둔다. 앱은 4시간마다 `/downloads/`를 보고, 받은 파일이 서명된 목록에 있는 것과 같을 때만 설치한다(맥은 그다음 Squirrel.Mac이 같은 Developer ID 팀의 서명인지 한 번 더 본다).
 - 리눅스 서버: `<feed>/server/<channel>.json`과 `.sig`를 본다.
   - 앱만 바뀐 릴리스는 서버가 업데이트 창(기본 03:00–05:00) 안에서 스스로 적용한다. stable은 그 서버의 차례가 온 뒤다(아래 "단계적 배포"; root 타이머·사무실 맥도 같다).
   - root 부분(실행기·샌드박스·유닛, root가 따로 두는 1A 프로그램 `mycel-safeops`·`pandoc`)이 바뀐 릴리스는 `mycel-update.timer`(15분마다 확인, 팀의 업데이트 시간 안에서)가 적용한다.

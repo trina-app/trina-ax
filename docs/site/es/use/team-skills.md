@@ -24,7 +24,7 @@ El producto incluye cuatro habilidades ya preparadas, en el idioma del equipo (c
 | `skills/general/` | Company slide deck, Promo cards, Promo video | El propietario las elige en el paso de configuración **Elija las habilidades que usará su equipo**, o un propietario o administrador las añade después en **Habilidades disponibles** |
 | `skills/work/` | Natural writing | Igual |
 
-- **En los pasos de configuración**, cada habilidad tiene una línea y **Ejemplo**. Company slide deck, Promo cards y Promo video vienen marcadas si se guardó el perfil de la empresa (se crean a partir de él); Natural writing empieza sin marcar. El botón nombra lo que se añade, por ejemplo **Añadir Company profile·Promo cards·Promo video**.
+- **En los pasos de configuración**, cada habilidad tiene una línea y **Ejemplo**. Company slide deck, Promo cards y Promo video vienen marcadas si se guardó el perfil de la empresa (se crean a partir de él); Natural writing empieza sin marcar. El botón dice cuántas entran, por ejemplo **Añadir 3 habilidades**.
 - **En Habilidades disponibles**, los propietarios y administradores ven una línea plegada bajo la lista, **Habilidades preparadas por Trina AX · 2 más**, con las que el equipo todavía no tiene. Ábrala, marque las que quiera (al principio no hay nada marcado) y pulse **Añadir al equipo**. La línea se oculta mientras busca y desaparece cuando el equipo ya las tiene todas. Una habilidad que llega en una versión posterior solo aumenta el número: no hay ningún aviso.
 - **Ejemplo** muestra lo que crea la habilidad para una empresa inventada, Example Coffee, y de dónde viene la habilidad.
 

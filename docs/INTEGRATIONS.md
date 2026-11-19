@@ -176,7 +176,7 @@ advances the safe-operations policy generation); web: `web/src/components/integr
 ## Asking a member to connect
 
 Some services log every call as the person whose key it is, so that key belongs in the member's personal connection.
-An admin cannot add a personal connection for someone else. Instead, Admin › Connected apps › "Requests to members"
+An admin cannot add a personal connection for someone else. Instead, Admin › Connected apps › "Ask a member to connect"
 sends one member a request with the service filled in (kind, name, address, key or sign-in, the key's header, usage
 notes for an API). The member gets an inbox entry and a banner, and the admin can copy a link
 (`/settings/connectors?request=<id>`; only that member, signed in, can open it). In Settings › Connectors the
@@ -737,7 +737,7 @@ Decision: [Apps on your own computer as connectors](decisions/20261118-local-app
 - Admin audit log: `integration.create`, `integration.update` (also access changes, with before/after, a completed
   sign-in: `changed: ["signIn"]`, and a tool turned on or off: `changed: ["tools"]`), `integration.delete`. Team connections are named with their host; a member's own
   connections only by scope, kind and auth (no name or address).
-- Requests to members: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
+- Ask a member to connect: `integration_request.create` / `.withdraw` (the admin) and `.complete` / `.decline` (the
   member), with the member, kind, name, host and auth the admin filled in.
 - Each call is a `tool_events` row with a summary only: the tool, `api_request <connection> <METHOD> <path> -> <status>`,
   "confirmed by the user" or why it was refused. No arguments, bodies, query strings or secrets.
