@@ -19,8 +19,8 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, extname, join, normalize, resolve, sep } from 'node:path'
-import { app, clipboard, ClipboardItem, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
-import { DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
+import { app, clipboard, ClipboardItem, dialog, Menu, nativeImage, nativeTheme, protocol, session, shell, type IpcMainEvent, type IpcMainInvokeEvent, ipcMain, type MenuItemConstructorOptions } from 'electron'
+import { APP_DOWNLOADS, DESKTOP_BRIDGE_GLOBAL, DESKTOP_BRIDGE_VERSION, PRODUCT } from '@mycel/shared'
 import { BrowserCall, LocalCall, LOCAL_APPS_BRIDGE_VERSION, type LocalResult } from '@mycel/shared/api'
 import { errorResult } from '../common/browser-result'
 import { asUiLocale, DEFAULT_UI_LOCALE, STRINGS, t, type UiKey, type UiLocale } from '../common/i18n'
@@ -33,6 +33,7 @@ import { DOCK_DOT, dockBadgeOf } from '../common/notify'
 import { clipboardPng } from '../common/context-menu'
 import { storeBuild } from '../common/update'
 import { windowsAppUserModelId } from '../common/app-id'
+import { refusesUnsandboxed, registersLinkHandler } from '../common/linux'
 import { AppWindow, type AllowAllOutcome } from './app-window'
 import { workFilesVersion } from './work-files'
 import { scanAsk } from '../common/work-files'
@@ -114,8 +115,13 @@ protocol.registerSchemesAsPrivileged([{ scheme: UI_SCHEME, privileges: { standar
 // to the first one ('second-instance' below) and exits at once. app.quit() did not: will-quit holds the first quit back
 // to write cookies, so the second app could still reach whenReady, open a window, start the updater and write
 // teams.json next to the first one. app.exit skips will-quit; and the second app sets up nothing (`primary`).
-let primary = app.requestSingleInstanceLock()
-if (!primary) app.exit(0)
+// A packaged AppImage that its AppRun started without Chromium's sandbox (user namespaces blocked, Ubuntu 24.04): one
+// dialog that points to the .deb, then quit, before anything else is set up (common/linux.ts refusesUnsandboxed)
+const linuxStart = { platform: process.platform, packaged: app.isPackaged, env: process.env }
+const unsandboxed = refusesUnsandboxed({ ...linuxStart, noSandbox: app.commandLine.hasSwitch('no-sandbox') })
+if (unsandboxed) app.whenReady().then(refuseUnsandboxed)
+let primary = !unsandboxed && app.requestSingleInstanceLock()
+if (!primary && !unsandboxed) app.exit(0)
 // an update an earlier run left ready (./update-launch.ts): while ShipIt is still installing this app, this start steps
 // aside at once (ShipIt drops the update when the app is open again; a waiter opens the new version when it is done)
 let updateFailed: string | null = null
@@ -131,7 +137,8 @@ if (primary && (app.isPackaged || process.env.MYCEL_DESKTOP_UPDATE_TEST) && !sto
 // Links from outside (`trina-ax://open?url=<team link>`, the web's "앱에서 열기"; docs/DECISIONS.md "First run, phase 2"):
 // the packaged app answers the scheme (the dmg, Mac App Store and Microsoft Store builds also declare it in their
 // manifests: electron-builder.config.ts protocols). A development run does not take it over unless asked.
-if (primary && app.isPackaged) app.setAsDefaultProtocolClient(LINK_SCHEME)
+// On Linux only the .deb registers it (its menu entry, extraMetadata.desktopName); an AppImage has no entry to name.
+if (primary && registersLinkHandler(linuxStart)) app.setAsDefaultProtocolClient(LINK_SCHEME)
 else if (primary && process.env.MYCEL_DESKTOP_REGISTER_SCHEME === '1' && process.argv[1]) app.setAsDefaultProtocolClient(LINK_SCHEME, process.execPath, [resolve(process.argv[1])])
 /** a link that started the app (Windows, Linux: its command line; macOS: open-url before the window exists) */
 let launchLink: string | null = linkFromArgv(process.argv)
@@ -151,6 +158,21 @@ if (primary) app.on('open-url', (e, url) => {
   e.preventDefault()
   onLink(url)
 })
+
+/** "install the .deb" (refusesUnsandboxed above): the language last picked in this app, else English */
+async function refuseUnsandboxed() {
+  console.warn('[desktop] the AppImage was started without the sandbox: not running')
+  let L: UiLocale = DEFAULT_UI_LOCALE
+  try { L = new TeamsStore(app.getPath('userData')).loadLocale() ?? kit.locale ?? DEFAULT_UI_LOCALE } catch {}
+  const buttons = APP_DOWNLOADS.page ? [t(L, 'sandbox.download'), t(L, 'sandbox.quit')] : [t(L, 'sandbox.quit')]
+  try {
+    const r = await dialog.showMessageBox({ type: 'error', title: t(L, 'sandbox.title'), message: t(L, 'sandbox.message', { app: PRODUCT.displayName }), detail: t(L, 'sandbox.detail'), buttons, defaultId: 0, cancelId: buttons.length - 1, noLink: true })
+    if (APP_DOWNLOADS.page && r.response === 0) await shell.openExternal(APP_DOWNLOADS.page)
+  } catch (e) {
+    console.warn('[desktop] sandbox dialog', (e as Error).message)
+  }
+  app.exit(0)
+}
 
 let win: AppWindow | undefined
 /** a connector sign-in's one-time return address on 127.0.0.1, for the team the window shows (common/sign-in-return.ts) */

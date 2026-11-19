@@ -87,7 +87,8 @@
 2. The desktop app's program manager, the confirm window, adapter (a), tried with real Aside.
 3. Adapter (b) and the web Settings screens.
 4. **Later:** Windows and Linux (the desktop app starts programs the same way, but the confirm, the known tools'
-   commands and the tests are macOS first).
+   commands and the tests are macOS first). Linux: [20261119-linux-desktop-app.md](20261119-linux-desktop-app.md)
+   ("Apps on your computer": the AppImage's environment left out, `/snap/bin`, the keyring check).
 
 ## Open questions
 

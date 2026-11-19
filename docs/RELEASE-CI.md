@@ -544,7 +544,7 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
 (`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
-`scripts/ci/windows-install-check.ps1`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 세 job이 돈다. 비밀값은 쓰지 않는다
+`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
 (서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
 결정: `docs/decisions/20261116-desktop-checks.md`.
 
@@ -553,6 +553,9 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 | Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
 | Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
+| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb는 `desktop-linux-arm64-deb` |
+| Linux package (arm64: install and start) | ubuntu-24.04-arm | 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
+| Desktop e2e (Linux, subset) | ubuntu-24.04 | `desktop/e2e/linux.config.ts`: smoke, desktop, quit, settings, language, offline, update, local-apps. 맥 e2e처럼 가짜 팀 이름, web 빌드, rhwp. xvfb + `dbus-run-session` + `gnome-keyring-daemon --unlock`(local-apps.spec이 설정을 봉인한다), `XDG_CURRENT_DESKTOP=GNOME`. node_modules의 Electron에는 AppArmor 프로필이 없어 이 run만 `kernel.apparmor_restrict_unprivileged_userns=0`, `--no-sandbox`는 쓰지 않는다. dev push에도 돈다 | `desktop-e2e-linux` |
 
 - **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고
   취소됐다("The job was not acquired by Runner of type hosted even after multiple attempts", "Due to capacity constraints, jobs
@@ -567,6 +570,10 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 - **윈도우 검사는 실제 PC를 쓰지 않는다.** 순서: 깨끗한 runner 프로필 확인 → `/S` 설치(제거 항목·파일·바로가기, 서명 상태
   NotSigned/Valid 보고) → 버린 데이터 폴더(`MYCEL_DESKTOP_USER_DATA`)로 앱 실행, `trina-ax://` 처리기 확인 → 업데이터와 같은
   `--updated /S --force-run`으로 덮어 설치(새 버전, 처리기 유지, 앱 재시작) → 조용한 제거(항목·파일·바로가기·처리기 삭제, 데이터는 남음).
+- **리눅스 검사는 Ubuntu 24.04의 샌드박스 규칙을 직접 켠다.** 스크립트가 `kernel.apparmor_restrict_unprivileged_userns=1`을 설정한다:
+  러너 이미지가 바뀌어도 .deb는 제 AppArmor 프로필로 샌드박스를 쓰고, AppImage는 AppRun이 `--no-sandbox`를 붙여 앱이 거절해야 한다.
+  AppImage의 자체 업데이트(받기, 서명된 릴리스와 대조, 끝날 때 교체)는 업데이터 설정과 `verifyInstaller`의 단위 테스트와 QA 행이
+  맡는다(살아 있는 업데이트 시험에는 서명된 가짜 피드가 필요하다). 결정: `docs/decisions/20261119-linux-desktop-app.md`.
 - **Electron이 안 끝나도 job은 멈추지 않는다.** 단독 fixture는 `desktop/e2e/fixture-run.ts`로 돌린다: 결과 줄이 나오면 SIGKILL로 끝낸다
   (#1015). 로그는 `desktop/e2e/.work/logs/`.
 - **비용**: 공개 레포라 hosted runner는 무료. 경로 필터, PR마다 `cancel-in-progress`, bun 저장소와 Electron·electron-builder 내려받기 캐시.
@@ -574,7 +581,9 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 - **실패했을 때**: e2e는 artifact의 html 리포트와 fixture 로그를 본다. dmg는 step summary의 `FAIL` 줄이 설정의 어느 값과 다른지 말한다
   (artifact의 dmg를 열어 본다; 서명이 없으니 우클릭 › 열기). 윈도우는 step summary와 `install-check.log`. 설치 파일이 0이 아닌 코드로 끝나면 만든 electron-builder 버전, sha256, Application 이벤트 로그(`installer-crash-events.txt`)를 남긴다(QA TC-3590). 재시도는 없다: 설치 파일이 죽으면 사람에게도 죽을 수 있다.
 - 손으로 돌리기: `bun run --cwd desktop dist:mac:arm64 && bun scripts/ci/dmg-check.ts desktop/release` (맥),
-  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`.
+  `cd desktop && bun build.ts && bunx playwright test -c e2e/ci.config.ts`; 리눅스(Ubuntu 24.04, sudo):
+  `bun run --cwd desktop dist:linux && scripts/ci/linux-install-check.sh full <old.deb> <new.deb> <new.AppImage>`
+  (환경 변수는 desktop.yml의 linux-packages job).
 
 ## 13. 릴리스용 맥 러너 (self-hosted, 사무실 맥)
 
