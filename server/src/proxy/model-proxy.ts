@@ -497,7 +497,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           // the subscription's own limit: this connection stays out until it resets; the turn moves on or ends
           await up.body?.cancel().catch(() => {})
           const until = new Date(Date.now() + s * 1000)
-          broker.onLongLimit(cred.credentialId, until)
+          // (a free-roam demo's stand-in is never held out: the answer ends, the next one tries the gate again)
+          if (marks) broker.onLongLimit(cred.credentialId, until)
           o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
           return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }

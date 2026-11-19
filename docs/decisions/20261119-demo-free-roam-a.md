@@ -44,7 +44,14 @@
   - its marks are cleared, and every other connection is switched off;
   - team subscriptions are turned on, and members' own connections are turned off.
 
-  The proxy sends the stand-in as a Bearer with the OAuth beta, and the gate puts the real token in its place. In
+  The proxy sends the stand-in as a Bearer with the OAuth beta, and the gate puts the real token in its place.
+  The stand-in only ever goes to the gate:
+  - the model upstream is the gate, and readDemoFile refuses any other;
+  - a check (verifySecret: adding, replacing or checking a connection, all fenced anyway) returns "unverified" and
+    sends nothing;
+  - markInvalid, markNoCredit and markNeedsReconnect do nothing to a free-roam server's connection (credentials/store.ts
+    standIn);
+  - a long 429 ends the answer, but the connection is not held out until it resets. In
   freeRoam no upstream answer marks the stand-in: not a 401, and not a 400, 402 or 403 (proxy/model-proxy.ts `marks`,
   broker.freeRoam). Such an answer is passed on as it came. A loopback upstream normally "speaks for the account"
   (anthropic-refusal.ts), but here it is the gate. The one exception is the gate's own stop: a 403 `budget_exceeded`

@@ -18,7 +18,8 @@ import { setSetting } from '../../server/src/admin/settings'
 import { DEMO_AI_LABEL, demoRestError, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
 import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
-import { CLAUDE_TOKEN_RE } from '../../server/src/credentials/validate'
+import { CLAUDE_TOKEN_RE, verifySecret } from '../../server/src/credentials/validate'
+import { markInvalid, markNeedsReconnect, markNoCredit } from '../../server/src/credentials/store'
 import { addMember, harness, withOwner, type Client, type Harness } from './a-lib'
 import { ask, startHarness, type Harness as BHarness, type TestSocket } from '../lib/b-harness'
 import { makeEnv } from '../lib/env'
@@ -297,7 +298,7 @@ describe('what a visitor reads when a free-roam answer fails', () => {
       const done = (await ask(h, sock, 'alice', chat, '@fake ' + JSON.stringify({ fail: 'Claude AI usage limit reached|1767225600' }))).done
       sock.close()
       expect(done.status).toBe('error')
-      expect(done.error).toEqual({ code: done.error.code, message: 'The demo is busy, try again in a bit.', params: { reason: 'demo_busy' } })
+      expect(done.error).toEqual({ code: done.error!.code, message: 'The demo is busy, try again in a bit.', params: { reason: 'demo_busy' } })
     } finally { await h.close() }
   })
 
@@ -315,11 +316,13 @@ describe('what a visitor reads when a free-roam answer fails', () => {
 
 describe('the model proxy on a free-roam demo', () => {
   const env = makeEnv('demo-free-roam-proxy')
-  let answer: { status: number; body: unknown } = { status: 200, body: {} }
+  let answer: { status: number; body: unknown; headers?: Record<string, string> } = { status: 200, body: {} }
+  let hits = 0
   const upstream = Bun.serve({
     port: 0, hostname: '127.0.0.1',
     async fetch() {
-      if (answer.status !== 200) return Response.json(answer.body, { status: answer.status, headers: { 'request-id': 'req_011CTestDemo' } })
+      hits++
+      if (answer.status !== 200) return Response.json(answer.body, { status: answer.status, headers: { 'request-id': 'req_011CTestDemo', ...answer.headers } })
       return Response.json({ id: 'm', model: 'claude-sonnet-5-5', content: [], usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 1000 } })
     },
   })
@@ -356,6 +359,20 @@ describe('the model proxy on a free-roam demo', () => {
       expect([row.status, row.status_code, row.limited_until]).toEqual(['ok', null, null])
     }
     expect(events.some((e) => e.ev.type === 'credential')).toBe(false)
+  })
+
+  test('no check, long limit or mark of any kind touches the stand-in; a check sends nothing anywhere', async () => {
+    hits = 0
+    expect(await verifySecret(t.cc, 'anthropic-oauth', 'sk-ant-oat01-demo' + 'x'.repeat(40))).toEqual({ result: 'unverified', upstreamStatus: null })
+    expect(hits).toBe(0)
+    markInvalid(t.cc, cred, 'upstream_401', 401)
+    markNoCredit(t.cc, cred)
+    markNeedsReconnect(t.cc, cred, 'refresh_failed')
+    // a subscription's long limit: the answer ends, the connection is not held out
+    answer = { status: 429, body: err('rate_limit_error', 'limit'), headers: { 'retry-after': '7200' } }
+    expect((await call()).status).toBe(403)
+    const row = getRow(env.db, cred)!
+    expect([row.status, row.status_code, row.limited_until]).toEqual(['ok', null, null])
   })
 
   test('the gate\'s own stop (403 budget_exceeded, no request-id) ends the turn as a budget stop, nothing marked', async () => {
