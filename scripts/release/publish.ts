@@ -5,6 +5,7 @@
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
 //       [--mac desktop/release/<artifactBase>-Y-mac-universal.dmg]       (its .zip and latest-mac.yml next to it)
+//   bun scripts/release/publish.ts --check-linux <dir> --version <v>   (only checks the Linux build, signs nothing)
 //       [--linux desktop/release]   (the folder of the Linux build: the two .deb, the two AppImage files,
 //                                    latest-linux.yml and latest-linux-arm64.yml)
 //       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--rollout staged|all] [--if-newer]
@@ -258,13 +259,14 @@ export function linuxApp(feed: string, version: string, dir: string, arts: Artif
   }
   const want = (f: string) => { if (!fs.existsSync(f)) throw new Error(`${f} not found: the Linux build writes it (bun run --cwd desktop dist:linux)`); return f }
   const v = ymlVersion(want(path.join(dir, LINUX_APPS.x64.yml)))
+  if (v !== version) throw new Error(`${LINUX_APPS.x64.yml} names version ${v}, not ${version}`)
   const one = (arch: keyof typeof LINUX_APPS) => {
     const a = LINUX_APPS[arch]
     const yml = want(path.join(dir, a.yml))
     if (ymlVersion(yml) !== v) throw new Error(`${a.yml} names version ${ymlVersion(yml)}, not ${v} like ${LINUX_APPS.x64.yml}`)
     const appImage = want(path.join(dir, a.appImage(v)))
     const deb = want(path.join(dir, a.deb(v)))
-    checkLatestLinuxYml(fs.readFileSync(yml, 'utf8'), v, { file: path.basename(appImage), sha512: sha256(appImage, 'sha512', 'base64'), size: fs.statSync(appImage).size })
+    checkLatestLinuxYml(fs.readFileSync(yml, 'utf8'), v, { file: path.basename(appImage), sha512: sha256(appImage, 'sha512', 'base64'), size: fs.statSync(appImage).size }, a.yml)
     const ie = describe(feed, version, appImage, 'application/octet-stream')
     const de = describe(feed, version, deb, 'application/vnd.debian.binary-package')
     const ye = describe(feed, version, yml, 'text/yaml; charset=utf-8')
@@ -276,6 +278,15 @@ export function linuxApp(feed: string, version: string, dir: string, arts: Artif
 }
 
 async function main() {
+  // release.yml checks the Linux build before the office feed step: a Linux file that would not pass here drops the Linux
+  // app from this release (a warning) instead of failing the feed step, which would hold back the office and Windows files
+  if (arg('--check-linux')) {
+    const version = arg('--version')
+    if (!version || !VERSION_RE.test(version)) throw new Error('--check-linux <dir> needs --version <version>')
+    const l = linuxApp(DEFAULT_FEED, version, path.resolve(arg('--check-linux')!), [])
+    console.log(`Linux desktop app ${l.version}: ${[l.appImageX64, l.appImageArm64, l.debX64, l.debArm64].map((f) => f.file).join(', ')} OK`)
+    return
+  }
   const channel = arg('--channel') as Channel | undefined
   if (channel !== 'stable' && channel !== 'beta') throw new Error('--channel stable|beta is required')
   const version = arg('--version') ?? (JSON.parse(fs.readFileSync(path.join(REPO, 'server', 'package.json'), 'utf8')) as { version: string }).version

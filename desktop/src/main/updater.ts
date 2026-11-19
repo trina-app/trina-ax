@@ -138,7 +138,10 @@ export class DesktopUpdater {
 
   private async autoUpdater() {
     if (this.updater) return this.updater
-    const { autoUpdater } = await import('electron-updater')
+    const eu = await import('electron-updater')
+    // an AppImage always takes the AppImage updater: electron-updater would pick its .deb updater if a
+    // resources/package-type file ever came into the AppImage (the .deb build writes one into the shared unpacked folder)
+    const autoUpdater = this.linux && process.env.APPIMAGE && typeof eu.AppImageUpdater === 'function' ? new eu.AppImageUpdater() : eu.autoUpdater
     autoUpdater.autoDownload = false
     // no web installer: its package file would not be covered by the signed release
     autoUpdater.disableWebInstaller = true

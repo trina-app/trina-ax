@@ -175,7 +175,11 @@ describe('desktop downloads only (office_only) and the Mac runner', () => {
     expect(pub.if).not.toContain('build-linux-desktop')
     expect(step('publish', 'Office feed (zip + Windows installer)').if).not.toContain('linux-desktop')
     const feed = step('publish', 'Office feed (zip + Windows installer)').run!
-    expect(feed).toContain('if [ "$LINUX_DESKTOP_OK" = true ]; then linux=(--linux in/release-linux-desktop); fi')
+    // the Linux build is checked first (publish.ts --check-linux); one that fails is left out, never fails the feed step
+    expect(feed).toContain('if [ "${{ steps.desktop.outputs.linux_desktop }}" = true ]; then linux=(--linux in/release-linux-desktop); fi')
+    const which = step('publish', 'Which desktop builds are here').run!
+    expect(which).toContain('! bun scripts/release/publish.ts --check-linux in/release-linux-desktop --version "$VERSION"')
+    expect(which.indexOf('--check-linux')).toBeLessThan(which.indexOf('echo "linux_desktop=$LINUX_DESKTOP_OK" >> "$GITHUB_OUTPUT"'))
     expect(wf.split('\n').filter((l) => /bun scripts\/release\/publish\.ts --channel/.test(l)).every((l) => l.includes('"${linux[@]}"'))).toBe(true)
     expect(step('publish', 'Which desktop builds are here').run).toContain('build-linux-desktop did not pass: no Linux desktop app in this release')
     expect(step('publish', 'SHA256SUMS and its signature').run).toContain('cp in/release-linux-desktop/*.deb in/release-linux-desktop/*.AppImage assets/')

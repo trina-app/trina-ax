@@ -513,6 +513,12 @@ jobs:
           echo "office=$OFFICE_OK" >> "$GITHUB_OUTPUT"
           echo "windows=$WINDOWS_OK" >> "$GITHUB_OUTPUT"
           echo "mac=$MAC_OK" >> "$GITHUB_OUTPUT"
+          # the Linux build must also pass publish.ts's own checks (each yml against its AppImage, the version): if not,
+          # it is left out of this release here, so the office feed step below never fails on it
+          if [ "$LINUX_DESKTOP_OK" = true ] && ! bun scripts/release/publish.ts --check-linux in/release-linux-desktop --version "$VERSION"; then
+            echo "::warning::the Linux desktop build did not pass publish.ts --check-linux: no Linux desktop app in this release"
+            LINUX_DESKTOP_OK=false
+          fi
           echo "linux_desktop=$LINUX_DESKTOP_OK" >> "$GITHUB_OUTPUT"
           if [ "$OFFICE_OK" = true ]; then ls -l in/release-office; else echo "::warning::build-office did not pass: no office zip in this release"; fi
           if [ "$WINDOWS_OK" = true ]; then ls -l in/release-windows; else echo "::warning::build-windows did not pass: no Windows installer in this release"; fi
@@ -563,7 +569,7 @@ jobs:
           mac=()
           if [ "$MAC_OK" = true ]; then mac=(--mac "$(ls in/release-mac/*-mac-universal.dmg)"); fi
           linux=()
-          if [ "$LINUX_DESKTOP_OK" = true ]; then linux=(--linux in/release-linux-desktop); fi
+          if [ "${{ steps.desktop.outputs.linux_desktop }}" = true ]; then linux=(--linux in/release-linux-desktop); fi
           bun scripts/release/publish.ts --channel "$CHANNEL" --version "$VERSION" --office "$zip" --windows "$exe" "${mac[@]}" "${linux[@]}" --notes-file in/release-notes/notes.md --rollout "$ROLLOUT"
           # a stable release is also the beta channel's newest, unless beta is already ahead (the beta channel has no ramp)
           if [ "$CHANNEL" = stable ]; then
@@ -589,7 +595,7 @@ jobs:
           if [ "$OFFICE_OK" = true ]; then cp in/release-office/*-mac.zip assets/; fi
           if [ "$WINDOWS_OK" = true ]; then cp in/release-windows/*-Setup-*-win-x64.exe assets/; fi
           if [ "$MAC_OK" = true ]; then cp in/release-mac/*-mac-universal.dmg assets/; fi
-          if [ "$LINUX_DESKTOP_OK" = true ]; then cp in/release-linux-desktop/*.deb in/release-linux-desktop/*.AppImage assets/; fi
+          if [ "${{ steps.desktop.outputs.linux_desktop }}" = true ]; then cp in/release-linux-desktop/*.deb in/release-linux-desktop/*.AppImage assets/; fi
           bun scripts/release/release-ci.ts sums assets "$TEAMAX_RELEASE_KEY" assets/*
           bun scripts/release/release-ci.ts verify-sums assets/SHA256SUMS
       - name: Remove the release key

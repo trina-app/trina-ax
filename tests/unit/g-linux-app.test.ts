@@ -255,6 +255,8 @@ describe('the publisher', () => {
     // an AppImage that is not the one its yml names, or a missing file: stopped
     fs.writeFileSync(path.join(dir, n.arm64.img), crypto.randomBytes(2048))
     expect(() => linuxApp(FEED, v, dir, [])).toThrow(/sha512 or size/)
+    // the build of another version than the release's: stopped
+    expect(() => linuxApp(FEED, '0.5.18', dir, [])).toThrow(/names version 0.5.17, not 0.5.18/)
     fs.rmSync(path.join(dir, n.arm64.deb))
     expect(() => linuxApp(FEED, v, dir, [])).toThrow(/not found/)
   })
