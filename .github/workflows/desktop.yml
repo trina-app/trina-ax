@@ -406,11 +406,9 @@ jobs:
           export KEYRING_CHECK="$RUNNER_TEMP/keyring-check.cjs"
           xvfb-run -a -s '-screen 0 1440x900x24' dbus-run-session -- bash -c '
             set -e
-            # an unlocked "login" keyring with an empty password, named as the default one (otherwise the first write
-            # asks, through a prompt nobody answers, to create a keyring)
-            mkdir -p ~/.local/share/keyrings
-            printf login > ~/.local/share/keyrings/default
-            echo -n "" | gnome-keyring-daemon --unlock --components=secrets > /dev/null
+            # an unlocked "login" keyring for this run. A password is needed: with an empty one gnome-keyring creates no
+            # login collection, and the first write waits on a prompt nobody can answer (tried in ubuntu:24.04)
+            echo -n ci-keyring | gnome-keyring-daemon --unlock --components=secrets > /dev/null
             # the keyring answers on the session bus, and Electron picks it (never basic_text)
             echo -n probe | timeout 20 secret-tool store --label=probe ci probe || { echo "::error::the secret service did not store a value"; exit 1; }
             [ "$(timeout 20 secret-tool lookup ci probe)" = probe ] || { echo "::error::the secret service does not answer"; exit 1; }
