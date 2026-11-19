@@ -23,7 +23,12 @@ export interface GateConfig {
   /** the header with the visitor's address, believed only from a loopback peer (the tunnel); '' = socket address */
   clientIpHeader: string
   turnstile: { siteKey: string; secretFile: string; verifyUrl: string }
-  ai: { mode: AiMode; credentialFile: string; upstream: string }
+  ai: {
+    mode: AiMode; credentialFile: string; upstream: string
+    /** model ids a request may name (an id, or the id with a -YYYYMMDD date); any other model is rewritten to defaultModel */
+    models: string[]
+    defaultModel: string
+  }
   pool: {
     /** <snapshotsDir>/<locale>/<snapshot>/{manifest.json, base/} */
     snapshotsDir: string
@@ -48,6 +53,15 @@ export interface GateConfig {
     /** PATH of an instance */
     path: string
     sweepMs: number
+    /** the user instances run as (never the gate's own: it can read the credential); null only with allowSameUser */
+    runAs: { uid: number; gid: number } | null
+    /** tests and development only: instances may run as the gate's own user */
+    allowSameUser: boolean
+    /** sudo, when the gate is not root: every touch of an instance (clone, start, kill, measure, remove) goes through
+     * `sudo -n -u #uid -g #gid` */
+    sudo: string
+    /** an instance folder over this many MB ends its instance (the sweeper measures it with du) */
+    diskCapMB: number
   }
   limits: {
     startsPerHour: number
@@ -58,11 +72,35 @@ export interface GateConfig {
     streamWaitMs: number
     /** global daily cap of weighted tokens (UTC day) */
     dailyWeightedTokens: number
+    /** model requests at once per instance (one visitor), inside maxStreams */
+    streamsPerInstance: number
+    /** the gate's own cap per instance: the instance's demo limit (GET /api/demo cap) × this */
+    instanceCapMargin: number
   }
   links: { scriptedDemo: string; pricing: string; statusOrigins: string[] }
 }
 
 export class ConfigError extends Error {}
+
+/** The models a demo request may name: the Sonnet ids (the demo's team default, build-snapshot.ts) and the small Haiku
+ * ids Claude Code uses for its side calls (titles, summaries). Opus, which a subscription turn picks when nobody chose
+ * a model (server/src/engine/claude.ts SUBSCRIPTION_DEFAULT_MODEL), is not one of them. */
+export const DEFAULT_MODELS: readonly string[] = [
+  'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-sonnet-4-6', 'claude-sonnet-4-5',
+  'claude-haiku-5-5', 'claude-haiku-4-5',
+]
+export const DEFAULT_MODEL = 'claude-sonnet-5-5'
+
+/** Why the instances may not start as configured, or null. Instances that run as the gate's own user can read its
+ * credential file, so that is refused unless allowSameUser (tests, development). */
+export function instanceUserProblem(cfg: Pick<GateConfig, 'pool'>, gateUid: number): string | null {
+  const r = cfg.pool.runAs
+  if (cfg.pool.allowSameUser) return null
+  if (!r) return 'config: pool.runAs {uid, gid} is required (instances must not run as the gate\'s own user, which can read the AI credential); allowSameUser: true is for tests only'
+  if (r.uid === gateUid) return `config: pool.runAs.uid ${r.uid} is the gate's own user; instances would read the AI credential`
+  if (r.uid === 0) return 'config: pool.runAs must not be root'
+  return null
+}
 
 /** instancesDir + "/" + 8-character id stays at most this long, so the server's sockets inside fit 104 bytes */
 export const MAX_INSTANCES_DIR = 40
@@ -113,6 +151,18 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
   if (!Array.isArray(range) || range.length !== 2 || !(range[0] > 1024 && range[1] >= range[0] + 1 && range[1] < 65536)) throw new ConfigError('config: pool.portRange must be [from, to] above 1024')
   const instancesDir = abs(p.instancesDir, 'pool.instancesDir')
   if (instancesDir.length + 9 > MAX_INSTANCES_DIR) throw new ConfigError(`config: pool.instancesDir is too long (${instancesDir.length} bytes; at most ${MAX_INSTANCES_DIR - 9}, the instances' unix sockets must fit 104 bytes)`)
+  if (!command.some((x) => (x as string).includes('{dir}') || (x as string).includes('{config}'))) throw new ConfigError('config: pool.command must name {config} or {dir} (the sweeper only kills a process group whose command line holds its folder)')
+  let runAs: { uid: number; gid: number } | null = null
+  if (p.runAs !== undefined && p.runAs !== null) {
+    const r = isObj(p.runAs) ? p.runAs : {}
+    const id = (v: unknown, name: string) => { if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw new ConfigError(`config: pool.runAs.${name} must be a numeric id`); return v }
+    runAs = { uid: id(r.uid, 'uid'), gid: id(r.gid, 'gid') }
+  }
+  if (p.allowSameUser !== undefined && typeof p.allowSameUser !== 'boolean') throw new ConfigError('config: pool.allowSameUser must be true or false')
+  const models = ai.models === undefined ? [...DEFAULT_MODELS] : ai.models
+  if (!Array.isArray(models) || !models.length || models.some((x) => typeof x !== 'string' || !/^[a-z0-9][a-z0-9.-]{1,80}$/.test(x))) throw new ConfigError('config: ai.models must be a list of model ids')
+  const defaultModel = str(ai.defaultModel, 'ai.defaultModel', DEFAULT_MODEL)
+  if (!(models as string[]).includes(defaultModel)) throw new ConfigError('config: ai.defaultModel must be one of ai.models')
   const env = isObj(p.env) ? p.env : {}
   for (const [key, v] of Object.entries(env)) if (typeof v !== 'string' || !/^[A-Z][A-Z0-9_]*$/.test(key)) throw new ConfigError('config: pool.env must map NAMES to strings')
   const origins = Array.isArray(k.statusOrigins) ? k.statusOrigins.filter((x): x is string => typeof x === 'string') : ['https://ax.trina.app']
@@ -124,7 +174,7 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
     pauseFile: abs(raw.pauseFile ?? path.join(String(raw.stateDir ?? '.'), 'PAUSE'), 'pauseFile'),
     clientIpHeader: str(raw.clientIpHeader, 'clientIpHeader', 'cf-connecting-ip').toLowerCase(),
     turnstile: { siteKey: str(t.siteKey, 'turnstile.siteKey'), secretFile: abs(t.secretFile, 'turnstile.secretFile'), verifyUrl },
-    ai: { mode, credentialFile: abs(ai.credentialFile, 'ai.credentialFile'), upstream },
+    ai: { mode, credentialFile: abs(ai.credentialFile, 'ai.credentialFile'), upstream, models: models as string[], defaultModel },
     pool: {
       snapshotsDir: abs(p.snapshotsDir, 'pool.snapshotsDir'),
       instancesDir,
@@ -142,6 +192,10 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
       env: env as Record<string, string>,
       path: str(p.path, 'pool.path', '/usr/bin:/bin:/usr/sbin:/sbin'),
       sweepMs: num(p.sweepMs, 'pool.sweepMs', 60_000),
+      runAs,
+      allowSameUser: p.allowSameUser === true,
+      sudo: str(p.sudo, 'pool.sudo', '/usr/bin/sudo'),
+      diskCapMB: num(p.diskCapMB, 'pool.diskCapMB', 1024),
     },
     limits: {
       startsPerHour: num(l.startsPerHour, 'limits.startsPerHour', 3),
@@ -150,6 +204,8 @@ export function parseConfig(raw: unknown, base: string): GateConfig {
       maxStreams: num(l.maxStreams, 'limits.maxStreams', 4),
       streamWaitMs: num(l.streamWaitMs, 'limits.streamWaitMs', 30_000),
       dailyWeightedTokens: num(l.dailyWeightedTokens, 'limits.dailyWeightedTokens', 30_000_000),
+      streamsPerInstance: Math.max(1, num(l.streamsPerInstance, 'limits.streamsPerInstance', 2)),
+      instanceCapMargin: Math.max(1, num(l.instanceCapMargin, 'limits.instanceCapMargin', 1.2)),
     },
     links: {
       scriptedDemo: str(k.scriptedDemo, 'links.scriptedDemo', 'https://ax.trina.app/demo'),

@@ -2,6 +2,7 @@
 //   node demo-gate/test/fake-instance.ts --config <server.json>
 // It listens where the gate's server.json says and answers what the gate needs (health, the persona sign-in), plus
 // /echo (what reached it: path, headers, its config and environment) and a WebSocket echo on /ws.
+import { spawn } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import http from 'node:http'
@@ -26,6 +27,13 @@ const server = http.createServer((req, res) => {
     })
     return
   }
+  // what the real server's GET /api/demo says, from the demo file (the gate checks it before the instance is warm)
+  if (url.pathname === '/api/demo') {
+    let d: { kind?: string; builder?: boolean; limitTokens?: number } = {}
+    try { d = JSON.parse(fs.readFileSync(process.env.MYCEL_DEMO!, 'utf8')) } catch {}
+    res.writeHead(200, { 'content-type': 'application/json' })
+    return res.end(JSON.stringify({ company: 'Steepling', kind: d.kind ?? 'freeRoam', ...(d.builder ? { builder: true } : {}), used: 0, cap: d.limitTokens ?? 300_000 }))
+  }
   if (url.pathname === '/echo' || url.pathname.startsWith('/api/')) {
     res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': ['seen=1; Path=/; Domain=example.com'] })
     return res.end(JSON.stringify({ path: req.url, method: req.method, headers: req.headers, dir: process.cwd(), config, env: process.env }))
@@ -42,4 +50,11 @@ server.on('upgrade', (req, sock) => {
   sock.on('error', () => {})
 })
 server.listen(config.listen.port, '127.0.0.1')
+// a helper in the same process group, as the real server's launcher and engines are (the sweeper must end it too);
+// its command line names the instance folder, like theirs
+if (fs.existsSync('spawn-child')) {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', process.cwd()], { stdio: 'ignore' })
+  fs.writeFileSync('child-pid', String(child.pid))
+  fs.writeFileSync('leader-pid', String(process.pid))
+}
 process.on('SIGTERM', () => process.exit(0))

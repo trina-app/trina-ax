@@ -304,6 +304,25 @@ describe.skipIf(skip)('gate: model upstream', () => {
     expect((await g.health()).dailyTokens).toBe(before + 450)
   })
 
+  test('the model pin: Sonnet and the small Haiku pass, any other model is sent as the default Sonnet', async () => {
+    upstream.set(() => Response.json({ type: 'message', usage: {} }))
+    const sent = async (model: unknown, p?: string) => {
+      upstream.seen.length = 0
+      const r = await msg(a, { body: { model, messages: [{ role: 'user', content: 'hi' }], max_tokens: 10 }, path: p })
+      expect(r.status).toBe(200)
+      await r.text()
+      return (JSON.parse(upstream.seen[0]!.body) as { model: unknown }).model
+    }
+    expect(await sent('claude-sonnet-5-5')).toBe('claude-sonnet-5-5')
+    expect(await sent('claude-sonnet-4-5-20250929')).toBe('claude-sonnet-4-5-20250929')
+    expect(await sent('claude-haiku-4-5-20251001')).toBe('claude-haiku-4-5-20251001')
+    expect(await sent('claude-opus-4-8')).toBe('claude-sonnet-5-5')
+    expect(await sent('claude-opus-5-5', '/v1/messages/count_tokens')).toBe('claude-sonnet-5-5')
+    expect(await sent('claude-sonnet-5-5-evil')).toBe('claude-sonnet-5-5')
+    expect(await sent(undefined)).toBe('claude-sonnet-5-5')
+    expect(g.log()).toContain('"model request: model pinned","instance"')
+  })
+
   test('429 (and a rejected unified window) answer neutrally and pause calls for a while', async () => {
     upstream.set(() => new Response(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'limit' } }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': '5' } }))
     const r = await msg(a)
@@ -314,6 +333,151 @@ describe.skipIf(skip)('gate: model upstream', () => {
     expect((await msg(a)).status).toBe(503)
     expect(upstream.seen.length).toBe(0)
     expect((await g.health()).upstream.cooldownUntil).not.toBeNull()
+  })
+})
+
+describe.skipIf(skip)('gate: per-instance limits', () => {
+  test('the gate\'s own cap per instance: the instance\'s demo limit × 1.2, then budget_exceeded', async () => {
+    // the fake instance's GET /api/demo says cap = limitTokens
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], demo: { limitTokens: 1000 } })
+    try {
+      await warm(g)
+      const u = instanceUpstream(g, fs.readdirSync(g.instancesDir)[0]!)
+      upstream.set(() => Response.json({ type: 'message', usage: { input_tokens: 700, output_tokens: 0 } }))
+      expect((await msg(u)).status).toBe(200)
+      expect((await msg(u)).status).toBe(200) // 1400 >= 1200 after this one
+      const r = await msg(u)
+      expect(r.status).toBe(403)
+      expect(r.headers.get('request-id')).toBeNull()
+      expect(await r.json()).toEqual({ type: 'error', error: { type: 'permission_error', message: 'budget_exceeded' } })
+      // the global day is not used up: it is this instance's cap
+      expect((await g.health()).dailyTokens).toBe(1400)
+      expect(g.log()).toContain('"model request stopped: instance cap"')
+    } finally { await g.stop() }
+  })
+
+  test('one instance gets at most streamsPerInstance streams; another instance is still served', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { warmPerLocale: 2 }, limits: { maxStreams: 4, streamsPerInstance: 1, streamWaitMs: 300 } })
+    try {
+      await warm(g, 2)
+      const [ia, ib] = fs.readdirSync(g.instancesDir)
+      const a = instanceUpstream(g, ia!), b = instanceUpstream(g, ib!)
+      let release!: () => void
+      const held = new Promise<void>((ok) => { release = ok })
+      upstream.set(async () => { await held; return Response.json({ type: 'message', usage: {} }) })
+      const first = msg(a)
+      await Bun.sleep(100)
+      const t0 = Date.now()
+      const second = await msg(a)
+      expect(second.status).toBe(503)
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(250)
+      const other = msg(b)
+      await Bun.sleep(100)
+      expect((await g.health()).streams).toBe(2)
+      release()
+      expect((await first).status).toBe(200)
+      expect((await other).status).toBe(200)
+      expect(g.log()).toContain('"model request: instance stream limit"')
+    } finally { await g.stop() }
+  })
+
+  test('an instance over its disk cap ends; its visitor sees "session ended"', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { diskCapMB: 1 } })
+    try {
+      await warm(g)
+      const v = visitor()
+      expect((await startVisit(g, v)).status).toBe(303)
+      const e = await (await get(g, v, '/echo')).json() as { dir: string }
+      await Bun.sleep(700)
+      expect(fs.existsSync(e.dir)).toBe(true) // under the cap: it stays
+      fs.writeFileSync(path.join(e.dir, 'big.bin'), Buffer.alloc(3 * 1024 * 1024, 1))
+      await until(() => !fs.existsSync(e.dir), 8000, 'instance removed')
+      expect(g.log()).toContain('"instance over its disk cap"')
+      const html = await (await get(g, v, '/')).text()
+      expect(html).toContain('Start again')
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: the instance user and the fence check', () => {
+  test('refuses to start when instances would run as the gate\'s own user', async () => {
+    await expect(startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { allowSameUser: false } })).rejects.toThrow(/pool\.runAs/)
+    const uid = process.getuid!()
+    await expect(startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], pool: { allowSameUser: false, runAs: { uid, gid: process.getgid!() } } })).rejects.toThrow(/gate's own user/)
+  })
+
+  for (const [what, demo] of [['a builder demo', { builder: true }], ['a scripted demo', { kind: 'scripted' }]] as const) {
+    test(`${what} never gets warm; its snapshot is marked bad`, async () => {
+      const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], demo })
+      try {
+        await until(() => g.log().includes('snapshot refused: not a fenced free-roam demo'), 8000, 'refused')
+        await Bun.sleep(500)
+        const h = await g.health()
+        expect(h.pool.warm).toBe(0)
+        expect(h.snapshotAgeMs.en).toBeNull()
+        expect(fs.readdirSync(g.instancesDir)).toEqual([])
+        expect(await (await fetch(`${g.base}/__demo/status`)).json()).toEqual({ available: false })
+      } finally { await g.stop() }
+    })
+  }
+
+  test('a snapshot without manifest.demoFile is not used', async () => {
+    const g = await startGate({
+      upstream: upstream.url, turnstile: turnstile.url, locales: ['en'],
+      before: ({ snapshotsDir }) => {
+        const m = path.join(snapshotsDir, 'en', 'snap-1', 'manifest.json')
+        const j = JSON.parse(fs.readFileSync(m, 'utf8'))
+        delete j.demoFile
+        fs.writeFileSync(m, JSON.stringify(j))
+      },
+    })
+    try {
+      await Bun.sleep(800)
+      const h = await g.health()
+      expect(h.pool.warm + h.pool.starting).toBe(0)
+      expect(h.snapshotAgeMs.en).toBeNull()
+    } finally { await g.stop() }
+  })
+})
+
+describe.skipIf(skip)('gate: process groups', () => {
+  const alive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
+  const pids = (dir: string) => until(() => {
+    const c = Number(fs.readFileSync(path.join(dir, 'child-pid'), 'utf8')), l = Number(fs.readFileSync(path.join(dir, 'leader-pid'), 'utf8'))
+    return c > 1 && l > 1 ? { child: c, leader: l } : null
+  }, 5000, 'pid files')
+
+  test('an instance whose leader dies is ended with its whole group', async () => {
+    const g = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], files: { 'spawn-child': '' } })
+    try {
+      await warm(g)
+      const dir = path.join(g.instancesDir, fs.readdirSync(g.instancesDir)[0]!)
+      const p = await pids(dir)
+      expect(alive(p.child)).toBe(true)
+      process.kill(p.leader, 'SIGKILL')
+      await until(() => !alive(p.child), 10_000, 'child ended')
+      await until(() => !fs.existsSync(dir), 5000, 'folder removed')
+    } finally { await g.stop() }
+  })
+
+  test('after a gate crash, the next gate ends the orphan\'s group even when its leader is gone', async () => {
+    const g1 = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], files: { 'spawn-child': '' } })
+    await warm(g1)
+    const dir = path.join(g1.instancesDir, fs.readdirSync(g1.instancesDir)[0]!)
+    const p = await pids(dir)
+    await g1.crash()
+    process.kill(p.leader, 'SIGKILL')
+    await Bun.sleep(200)
+    expect(alive(p.child)).toBe(true)
+    const g2 = await startGate({ upstream: upstream.url, turnstile: turnstile.url, locales: ['en'], root: g1.root })
+    try {
+      await until(() => !alive(p.child), 10_000, 'orphan child ended')
+      await until(() => !fs.existsSync(dir), 5000, 'orphan folder removed')
+      expect(g2.log()).toContain('"orphan removed"')
+    } finally {
+      try { process.kill(p.child, 'SIGKILL') } catch {}
+      await g2.stop()
+    }
   })
 })
 
@@ -475,7 +639,7 @@ describe.skipIf(skip)('gate: pool', () => {
         fs.writeFileSync(path.join(instancesDir, 'abcdef12', '.gate-pid'), '999999')
         const old = path.join(snapshotsDir, 'en', 'snap-0')
         fs.mkdirSync(path.join(old, 'base'), { recursive: true })
-        fs.writeFileSync(path.join(old, 'manifest.json'), JSON.stringify({ codeVersion: '9.9.9', locale: 'en', createdAt: new Date(Date.now() - 2 * 86400_000).toISOString() }))
+        fs.writeFileSync(path.join(old, 'manifest.json'), JSON.stringify({ codeVersion: '9.9.9', locale: 'en', createdAt: new Date(Date.now() - 2 * 86400_000).toISOString(), demoFile: 'demo.json' }))
         const t = new Date(Date.now() - 2 * 3600_000)
         fs.utimesSync(old, t, t)
       },

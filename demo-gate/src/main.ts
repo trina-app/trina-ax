@@ -4,7 +4,7 @@
 // the model upstream the instances call. See demo-gate/README.md.
 import fs from 'node:fs'
 import http from 'node:http'
-import { ConfigError, loadConfig, readSecretFile } from './config.ts'
+import { ConfigError, instanceUserProblem, loadConfig, readSecretFile } from './config.ts'
 import { createLog } from './log.ts'
 import { Pool } from './pool.ts'
 import { createPublic } from './public.ts'
@@ -25,6 +25,10 @@ async function main() {
   if (!file) throw new ConfigError('usage: node demo-gate/src/main.ts --config <gate.json>')
   const cfg = loadConfig(file)
   const log = createLog(undefined, process.env.DEMO_GATE_QUIET === '1')
+  // instances never run as the gate's own user: that user can read the credential file
+  const userProblem = instanceUserProblem(cfg, process.getuid?.() ?? -1)
+  if (userProblem) throw new ConfigError(userProblem)
+  if (cfg.pool.allowSameUser) log.warn('instances run as the gate\'s own user (allowSameUser): tests and development only')
   // both secrets must be there and private before anything listens (the values stay in their files)
   readSecretFile(cfg.ai.credentialFile)
   readSecretFile(cfg.turnstile.secretFile)

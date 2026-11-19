@@ -54,6 +54,35 @@ export function pathVerdict(rawUrl: string): 'ok' | 'deny' | 'bad' {
   return DENY_PATHS.some((re) => re.test(folded) || re.test(r)) ? 'deny' : 'ok'
 }
 
+/** The eight 16-bit groups of an IPv6 address (a dotted IPv4 tail counts as two), or null when it is not one. */
+export function ipv6Groups(s: string): number[] | null {
+  let a = s.replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase()
+  if (!net.isIPv6(a)) return null
+  const v4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a)
+  if (v4) {
+    const b = v4.slice(1).map(Number)
+    a = a.slice(0, v4.index) + ((b[0]! << 8) | b[1]!).toString(16) + ':' + ((b[2]! << 8) | b[3]!).toString(16)
+  }
+  const [head, tail] = a.includes('::') ? a.split('::') as [string, string] : [a, null]
+  const h = head ? head.split(':') : []
+  const t = tail === null ? [] : tail ? tail.split(':') : []
+  const fill = tail === null ? 0 : 8 - h.length - t.length
+  const all = [...h, ...Array(Math.max(0, fill)).fill('0'), ...t].map((x) => parseInt(x, 16))
+  return all.length === 8 && all.every((x) => Number.isInteger(x) && x >= 0 && x <= 0xffff) ? all : null
+}
+
+/** The address a visitor is counted by: IPv4 as it is (IPv4-mapped IPv6 too), IPv6 as its /64, written out in full
+ * (2001:db8::1 and 2001:0db8:0:0::2 are the same visitor). */
+export function visitorAddress(raw: string): string {
+  const s = raw.trim()
+  if (net.isIPv4(s)) return s
+  const g = ipv6Groups(s)
+  if (!g) return s
+  // ::ffff:a.b.c.d (IPv4-mapped) is that IPv4 visitor
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return [g[6]! >> 8, g[6]! & 255, g[7]! >> 8, g[7]! & 255].join('.')
+  return g.slice(0, 4).map((x) => x.toString(16).padStart(4, '0')).join(':') + '::/64'
+}
+
 export function parseCookies(h: string | undefined): Map<string, string> {
   const m = new Map<string, string>()
   for (const part of (h ?? '').split(';')) {
@@ -110,11 +139,7 @@ export function createPublic(d: PublicDeps) {
   const ipOf = (req: http.IncomingMessage): string => {
     const peer = req.socket.remoteAddress ?? ''
     const h = cfg.clientIpHeader ? req.headers[cfg.clientIpHeader] : undefined
-    let ip = isLoopback(peer) && typeof h === 'string' && h.trim() ? h.split(',')[0]!.trim() : peer
-    if (ip.startsWith('::ffff:')) ip = ip.slice(7)
-    // one IPv6 visitor holds a /64
-    if (ip.includes(':')) ip = ip.split(':').slice(0, 4).join(':') + '::/64'
-    return ip
+    return visitorAddress(isLoopback(peer) && typeof h === 'string' && h.trim() ? h.split(',')[0]!.trim() : peer)
   }
   const visitorOf = (req: http.IncomingMessage): { token: string | null; inst: Instance | null } => {
     const token = parseCookies(req.headers.cookie).get(VISITOR_COOKIE) ?? null

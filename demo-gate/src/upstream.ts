@@ -11,7 +11,7 @@ import { readSecretFile } from './config.ts'
 import type { GateLog } from './log.ts'
 import {
   BUDGET_STATUS, FORWARD_REQUEST_HEADERS, NEUTRAL_HEADERS, NEUTRAL_STATUS, SseRewriter, allowedResponseHeaders, betaFor,
-  budgetError, isPromptTooLong, mergeUsage, neutralError, weighted, type Usage,
+  budgetError, isPromptTooLong, mergeUsage, neutralError, pinModel, weighted, type Usage,
 } from './model.ts'
 import type { Instance } from './pool.ts'
 import type { GateState } from './state.ts'
@@ -54,6 +54,14 @@ export interface UpstreamStatus { streams: number; waiting: number; cooldownUnti
 
 export function createUpstream(d: UpstreamDeps) {
   const sem = new Semaphore(d.cfg.limits.maxStreams)
+  /** each instance's own stream limit, inside the global one: one visitor never takes every stream */
+  const perInstance = new Map<string, Semaphore>()
+  const instanceSem = (id: string) => {
+    let s = perInstance.get(id)
+    if (!s) { s = new Semaphore(d.cfg.limits.streamsPerInstance); perInstance.set(id, s) }
+    return s
+  }
+  const dropIdle = (id: string, s: Semaphore) => { if (s.active === 0 && s.waiting === 0 && perInstance.get(id) === s) perInstance.delete(id) }
   let cooldownUntil = 0
   let lastStatus: number | null = null
   let credentialRefusedAt: number | null = null
@@ -110,6 +118,12 @@ export function createUpstream(d: UpstreamDeps) {
       d.log.info('model request stopped: daily cap or pause', { instance: inst.id })
       return send(res, BUDGET_STATUS, budgetError())
     }
+    // the gate's own per-visitor cap (the instance's demo limit with a margin): the instance stops itself first; this
+    // holds even if its own count went wrong
+    if (inst.cap > 0 && inst.tokens >= inst.cap) {
+      d.log.info('model request stopped: instance cap', { instance: inst.id, tokens: inst.tokens, cap: inst.cap })
+      return send(res, BUDGET_STATUS, budgetError())
+    }
     if (Date.now() < cooldownUntil) return neutral(res)
 
     // the request body (the instance's proxy checked it; it is passed on as it came)
@@ -118,10 +132,21 @@ export function createUpstream(d: UpstreamDeps) {
     try {
       for await (const c of req) { size += (c as Buffer).length; if (size > MAX_BODY) throw new Error('too large'); chunks.push(c as Buffer) }
     } catch { return neutral(res) }
+    // the model pin: a model outside the allow-list becomes the default Sonnet (model.ts pinModel says why)
+    const pinned = pinModel(Buffer.concat(chunks), d.cfg.ai.models, d.cfg.ai.defaultModel)
+    if (pinned.was !== null) d.log.info('model request: model pinned', { instance: inst.id, asked: pinned.was, sent: d.cfg.ai.defaultModel })
 
-    if (!(await sem.acquire(d.cfg.limits.streamWaitMs))) { d.log.warn('model request: no free stream', { instance: inst.id }); return neutral(res) }
+    // a stream of this instance's own, then one of the gate's; both within the same wait
+    const waitUntil = Date.now() + d.cfg.limits.streamWaitMs
+    const own = instanceSem(inst.id)
+    if (!(await own.acquire(d.cfg.limits.streamWaitMs))) { dropIdle(inst.id, own); d.log.warn('model request: instance stream limit', { instance: inst.id }); return neutral(res) }
+    if (!(await sem.acquire(Math.max(0, waitUntil - Date.now())))) {
+      own.release(); dropIdle(inst.id, own)
+      d.log.warn('model request: no free stream', { instance: inst.id })
+      return neutral(res)
+    }
     let released = false
-    const release = () => { if (!released) { released = true; sem.release() } }
+    const release = () => { if (!released) { released = true; sem.release(); own.release(); dropIdle(inst.id, own) } }
     res.on('close', release)
     const abort = new AbortController()
     res.on('close', () => { if (!res.writableFinished) abort.abort() })
@@ -138,7 +163,7 @@ export function createUpstream(d: UpstreamDeps) {
 
     let up: Response
     try {
-      up = await fetch(d.cfg.ai.upstream + apiPath + url.search, { method: 'POST', headers, body: Buffer.concat(chunks), redirect: 'manual', signal: abort.signal })
+      up = await fetch(d.cfg.ai.upstream + apiPath + url.search, { method: 'POST', headers, body: new Uint8Array(pinned.body), redirect: 'manual', signal: abort.signal })
     } catch {
       if (!abort.signal.aborted) d.log.warn('upstream unreachable', { instance: inst.id })
       release()

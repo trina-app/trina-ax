@@ -66,6 +66,8 @@ export interface Gate {
   log: () => string
   health(): Promise<any>
   stop(): Promise<void>
+  /** a crash: SIGKILL, its instances stay behind, the folder is kept (a second gate on `root` sweeps them) */
+  crash(): Promise<void>
 }
 
 export interface GateOpts {
@@ -79,20 +81,27 @@ export interface GateOpts {
   locales?: string[]
   /** made before the gate starts (orphan test) */
   before?: (g: { instancesDir: string; snapshotsDir: string }) => void
+  /** the snapshots' demo.json (the fake instance's GET /api/demo reads it); default {} = a fenced free-roam demo */
+  demo?: Record<string, unknown>
+  /** extra files in every snapshot's base folder (name -> content) */
+  files?: Record<string, string>
+  /** start on the folder of an earlier gate (after its crash()), as a restarted gate */
+  root?: string
 }
 
-function writeSnapshot(dir: string, locale: string, version: string, name = 'snap-1', createdAt = new Date().toISOString()) {
+function writeSnapshot(dir: string, locale: string, version: string, name = 'snap-1', createdAt = new Date().toISOString(), o: { demo?: Record<string, unknown>; files?: Record<string, string>; noDemoFile?: boolean } = {}) {
   const s = path.join(dir, locale, name)
   fs.mkdirSync(path.join(s, 'base', 'config'), { recursive: true })
   fs.mkdirSync(path.join(s, 'base', 'data'), { recursive: true })
   fs.mkdirSync(path.join(s, 'base', 'secrets'), { recursive: true })
-  fs.writeFileSync(path.join(s, 'manifest.json'), JSON.stringify({ codeVersion: version, locale, createdAt, config: 'config/server.json', demoFile: 'demo.json' }))
+  fs.writeFileSync(path.join(s, 'manifest.json'), JSON.stringify({ codeVersion: version, locale, createdAt, config: 'config/server.json', ...(o.noDemoFile ? {} : { demoFile: 'demo.json' }) }))
+  for (const [k, v] of Object.entries(o.files ?? {})) fs.writeFileSync(path.join(s, 'base', k), v)
   fs.writeFileSync(path.join(s, 'base', 'config', 'server.json'), JSON.stringify({
     listen: { host: '127.0.0.1', port: 1 }, dataDir: '../data',
     engine: { authMode: 'managed', modelUpstream: 'https://elsewhere.example' },
     relay: { url: 'wss://relay.example/connect', teamName: 'x' }, update: { channel: 'beta', feedUrl: 'https://feed.example', auto: true },
   }))
-  fs.writeFileSync(path.join(s, 'base', 'demo.json'), '{}')
+  fs.writeFileSync(path.join(s, 'base', 'demo.json'), JSON.stringify(o.demo ?? {}))
   fs.writeFileSync(path.join(s, 'base', 'data', 'seed.txt'), `seed ${locale}`)
   return s
 }
@@ -102,15 +111,17 @@ export async function startGate(o: GateOpts): Promise<Gate> {
   if (!NODE) throw new Error('node is not on PATH')
   const id = crypto.randomBytes(3).toString('hex')
   // short: the instances' sockets must fit 104 bytes (config refuses a long instancesDir)
-  const root = `/tmp/tdg-${id}`
+  const root = o.root ?? `/tmp/tdg-${id}`
   const instancesDir = path.join(root, 'i')
   const snapshotsDir = path.join(root, 'snap')
-  fs.rmSync(root, { recursive: true, force: true })
-  fs.mkdirSync(instancesDir, { recursive: true })
   const locales = o.locales ?? ['en', 'ko']
-  for (const l of locales) writeSnapshot(snapshotsDir, l, o.snapshotVersion ?? '9.9.9')
-  fs.writeFileSync(path.join(root, 'cred'), FAKE_CREDENTIAL, { mode: 0o600 })
-  fs.writeFileSync(path.join(root, 'turnstile'), 'test-turnstile-secret', { mode: 0o600 })
+  if (!o.root) {
+    fs.rmSync(root, { recursive: true, force: true })
+    fs.mkdirSync(instancesDir, { recursive: true })
+    for (const l of locales) writeSnapshot(snapshotsDir, l, o.snapshotVersion ?? '9.9.9', undefined, undefined, { demo: o.demo, files: o.files })
+    fs.writeFileSync(path.join(root, 'cred'), FAKE_CREDENTIAL, { mode: 0o600 })
+    fs.writeFileSync(path.join(root, 'turnstile'), 'test-turnstile-secret', { mode: 0o600 })
+  }
   o.before?.({ instancesDir, snapshotsDir })
   const from = (portBase += 100)
   const pauseFile = path.join(root, 'PAUSE')
@@ -127,6 +138,8 @@ export async function startGate(o: GateOpts): Promise<Gate> {
       warmPerLocale: 1, maxLive: 10, ttlHours: 24, sweepMs: 300, startTimeoutMs: 10_000,
       command: [NODE, '--disable-warning=ExperimentalWarning', path.join(ROOT, 'demo-gate/test/fake-instance.ts'), '--config', '{config}'],
       portRange: [from, from + 99],
+      // the tests run everything as one user (hosting refuses that: pool.runAs)
+      allowSameUser: true,
       ...o.pool,
     },
     limits: { startsPerHour: 100, startsPerDay: 100, livePerIp: 10, maxStreams: 4, streamWaitMs: 2000, dailyWeightedTokens: 1_000_000, ...o.limits },
@@ -134,7 +147,7 @@ export async function startGate(o: GateOpts): Promise<Gate> {
   }
   const cfgFile = path.join(root, 'gate.json')
   fs.writeFileSync(cfgFile, JSON.stringify(cfg))
-  const logFile = path.join(root, 'gate.log')
+  const logFile = path.join(root, `gate-${id}.log`)
   const fd = fs.openSync(logFile, 'a')
   const p = Bun.spawn([NODE, '--disable-warning=ExperimentalWarning', path.join(ROOT, 'demo-gate/src/main.ts'), '--config', cfgFile], {
     cwd: ROOT, stdout: fd, stderr: fd,
@@ -143,10 +156,11 @@ export async function startGate(o: GateOpts): Promise<Gate> {
   })
   const log = () => { try { return fs.readFileSync(logFile, 'utf8') } catch { return '' } }
   const started = await until(() => {
-    if (p.exitCode !== null) throw new Error('gate exited: ' + log())
     const line = log().split('\n').find((l) => l.includes('"gate started"'))
-    return line ? JSON.parse(line) as { publicPort: number; upstreamPort: number } : null
+    if (line) return JSON.parse(line) as { publicPort: number; upstreamPort: number }
+    return p.exitCode !== null ? { exited: true as const } : null
   }, 15_000, 'gate start').catch((e) => { throw new Error(`${(e as Error).message}\n${log()}`) })
+  if ('exited' in started) throw new Error('gate exited: ' + log())
   const base = `http://127.0.0.1:${started.publicPort}`
   const g: Gate = {
     base, upstreamBase: `http://127.0.0.1:${started.upstreamPort}`, root, instancesDir, pauseFile, log,
@@ -156,6 +170,10 @@ export async function startGate(o: GateOpts): Promise<Gate> {
       await Promise.race([p.exited, Bun.sleep(10_000)])
       try { p.kill('SIGKILL') } catch {}
       fs.rmSync(root, { recursive: true, force: true })
+    },
+    async crash() {
+      p.kill('SIGKILL')
+      await Promise.race([p.exited, Bun.sleep(5_000)])
     },
   }
   return g

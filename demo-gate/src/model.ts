@@ -117,3 +117,25 @@ export class SseRewriter {
     return ev
   }
 }
+
+/** Is `model` one of `allowed`: the id itself, or the id with a date (claude-haiku-4-5-20251001)? */
+export function modelAllowed(model: unknown, allowed: readonly string[]): boolean {
+  return typeof model === 'string' && allowed.some((a) => model === a || (model.startsWith(a + '-') && /^\d{8}$/.test(model.slice(a.length + 1))))
+}
+
+/**
+ * The model pin: a request body that names a model outside the allow-list gets `fallback` instead (the default Sonnet).
+ * We rewrite rather than refuse: the instance's turn then still answers (a refusal would read as "busy" on every try
+ * when a turn asks for Opus, which a subscription turn does when nobody chose a model), and the cost stays Sonnet's.
+ * Returns the body to send, and the model the request named when it was changed (for the log). A body that is not a
+ * JSON object is passed on as it came (the instance's proxy checked it; Anthropic refuses it).
+ */
+export function pinModel(body: Buffer, allowed: readonly string[], fallback: string): { body: Buffer; was: string | null } {
+  let j: unknown
+  try { j = JSON.parse(body.toString('utf8')) } catch { return { body, was: null } }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { body, was: null }
+  const m = (j as { model?: unknown }).model
+  if (modelAllowed(m, allowed)) return { body, was: null }
+  ;(j as { model: string }).model = fallback
+  return { body: Buffer.from(JSON.stringify(j)), was: typeof m === 'string' ? m.slice(0, 60) : typeof m }
+}

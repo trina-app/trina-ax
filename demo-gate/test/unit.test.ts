@@ -4,14 +4,15 @@ import { describe, expect, test } from 'bun:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ConfigError, parseConfig } from '../src/config.ts'
+import { ConfigError, DEFAULT_MODELS, instanceUserProblem, parseConfig } from '../src/config.ts'
 import { createLog } from '../src/log.ts'
 import {
   BUSY_TEXT, NEUTRAL_HEADERS, NEUTRAL_STATUS, OAUTH_BETA, SseRewriter, allowedResponseHeaders, betaFor, budgetError,
-  isPromptTooLong, neutralError, weighted,
+  isPromptTooLong, modelAllowed, neutralError, pinModel, weighted,
 } from '../src/model.ts'
 import { localeOf, renderPage } from '../src/pages.ts'
-import { cookiesForInstance, pathVerdict, secureCookie } from '../src/public.ts'
+import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
+import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
 // the instance's own reading of upstream answers: the gate's answers must never mark its AI connection
 import { accountRefusal } from '../../server/src/proxy/anthropic-refusal.ts'
@@ -201,6 +202,84 @@ describe('config', () => {
     bad({ ai: { credentialFile: 'cred', upstream: 'https://u:p@api.anthropic.com' } })
     bad({ pool: { ...base.pool, locales: ['fr'] } })
     bad({ publicOrigin: 'https://demo.trina.app/path' })
+    // the sweeper finds an instance's processes by its folder on their command line
+    bad({ pool: { ...base.pool, command: ['node', 'x.ts', '--port', '{port}'] } })
+    bad({ pool: { ...base.pool, runAs: { uid: 'demo' } } })
+    bad({ ai: { credentialFile: 'cred', models: ['claude-sonnet-5-5'], defaultModel: 'claude-opus-4-8' } })
+    bad({ ai: { credentialFile: 'cred', models: [] } })
+  })
+  test('the instance user: never the gate\'s own, unless allowSameUser (tests)', () => {
+    const c = (pool: Record<string, unknown>) => parseConfig({ ...base, pool: { ...base.pool, ...pool } }, '/srv')
+    expect(instanceUserProblem(c({}), 501)).toMatch(/pool\.runAs .*required/)
+    expect(instanceUserProblem(c({ runAs: { uid: 501, gid: 20 } }), 501)).toMatch(/gate's own user/)
+    expect(instanceUserProblem(c({ runAs: { uid: 0, gid: 0 } }), 501)).toMatch(/root/)
+    expect(instanceUserProblem(c({ runAs: { uid: 502, gid: 20 } }), 501)).toBeNull()
+    expect(instanceUserProblem(c({ allowSameUser: true }), 501)).toBeNull()
+    expect(c({ runAs: { uid: 502, gid: 20 } }).pool).toMatchObject({ runAs: { uid: 502, gid: 20 }, allowSameUser: false, sudo: '/usr/bin/sudo', diskCapMB: 1024 })
+    expect(parseConfig(base, '/srv').limits).toMatchObject({ streamsPerInstance: 2, instanceCapMargin: 1.2 })
+    expect(parseConfig(base, '/srv').ai).toMatchObject({ models: [...DEFAULT_MODELS], defaultModel: 'claude-sonnet-5-5' })
+  })
+  test('how the gate runs things as the instance user', () => {
+    const c = parseConfig({ ...base, pool: { ...base.pool, runAs: { uid: 502, gid: 20 } } }, '/srv')
+    expect(runMode(c, 501)).toBe('sudo')
+    expect(runMode(c, 0)).toBe('root')
+    expect(runMode(parseConfig({ ...base, pool: { ...base.pool, allowSameUser: true } }, '/srv'), 501)).toBe('same')
+    expect(asInstanceUser(c, 'sudo', ['/bin/rm', '-rf', '--', '/tmp/tdg/ab'])).toEqual({ argv: ['/usr/bin/sudo', '-n', '-u', '#502', '-g', '#20', '--', '/bin/rm', '-rf', '--', '/tmp/tdg/ab'] })
+    expect(asInstanceUser(c, 'root', ['/bin/true'])).toEqual({ argv: ['/bin/true'], uid: 502, gid: 20 })
+    // sudo drops the environment: env -i sets exactly the instance's, sh enters its folder
+    expect(sudoStartArgv(c, '/tmp/tdg/ab', { HOME: '/tmp/tdg/ab', MYCEL_CONFIG: '/tmp/tdg/ab/config/server.json' }, ['/usr/local/bin/bun', 'main.ts'])).toEqual([
+      '/usr/bin/sudo', '-n', '-u', '#502', '-g', '#20', '--', '/usr/bin/env', '-i', 'HOME=/tmp/tdg/ab', 'MYCEL_CONFIG=/tmp/tdg/ab/config/server.json',
+      '/bin/sh', '-c', 'cd -- "$0" && exec "$@"', '/tmp/tdg/ab', '/usr/local/bin/bun', 'main.ts',
+    ])
+  })
+  test('process groups: below a pid, and only ours by the folder on a command line', () => {
+    const table = [
+      { pid: 100, ppid: 1, pgid: 100, command: 'sudo -n -u #502 -- env -i … bun main.ts --config /tmp/tdg/ab/config/server.json' },
+      { pid: 101, ppid: 100, pgid: 101, command: 'bun main.ts --config /tmp/tdg/ab/config/server.json' },
+      { pid: 102, ppid: 101, pgid: 101, command: 'mycel-launcher --agent-root /tmp/tdg/ab/data/agents' },
+      { pid: 200, ppid: 1, pgid: 200, command: 'something else' },
+    ]
+    expect(groupsBelow(100, table).sort()).toEqual([100, 101])
+    expect(ownsGroup(101, '/tmp/tdg/ab', table)).toBe(true)
+    expect(ownsGroup(200, '/tmp/tdg/ab', table)).toBe(false)
+    expect(ownsGroup(101, '/tmp/tdg/cd', table)).toBe(false)
+  })
+})
+
+describe('visitor address', () => {
+  test('IPv6 is grouped by its full /64, whatever the spelling; IPv4-mapped is the IPv4 visitor', () => {
+    expect(visitorAddress('203.0.113.7')).toBe('203.0.113.7')
+    expect(visitorAddress('2001:db8::1')).toBe('2001:0db8:0000:0000::/64')
+    expect(visitorAddress('2001:0DB8:0:0:ffff::2')).toBe('2001:0db8:0000:0000::/64')
+    // the compressed form used to give "2001:db8::1::/64" (the first four ':'-parts of a shortened address)
+    expect(visitorAddress('2001:db8:5::1')).toBe('2001:0db8:0005:0000::/64')
+    expect(visitorAddress('2001:db8:5:0:1::')).toBe('2001:0db8:0005:0000::/64')
+    expect(visitorAddress('2001:db8:5:7:1:2:3:4')).toBe('2001:0db8:0005:0007::/64')
+    expect(visitorAddress('2001:db8:5:7:1:2:3:4')).not.toBe(visitorAddress('2001:db8:5:8::1'))
+    expect(visitorAddress('::1')).toBe('0000:0000:0000:0000::/64')
+    expect(visitorAddress('::ffff:198.51.100.4')).toBe('198.51.100.4')
+    expect(visitorAddress('::FFFF:c633:6404')).toBe('198.51.100.4')
+    expect(visitorAddress('fe80::1%en0')).toBe('fe80:0000:0000:0000::/64')
+    expect(visitorAddress('[2001:db8::1]')).toBe('2001:0db8:0000:0000::/64')
+    expect(visitorAddress('not an address')).toBe('not an address')
+  })
+})
+
+describe('model pin', () => {
+  test('Sonnet and Haiku ids (dated too) pass; anything else becomes the default Sonnet', () => {
+    expect(modelAllowed('claude-sonnet-4-5-20250929', DEFAULT_MODELS)).toBe(true)
+    expect(modelAllowed('claude-haiku-4-5', DEFAULT_MODELS)).toBe(true)
+    expect(modelAllowed('claude-opus-4-8', DEFAULT_MODELS)).toBe(false)
+    expect(modelAllowed('claude-sonnet-5-5-x', DEFAULT_MODELS)).toBe(false)
+    expect(modelAllowed(42, DEFAULT_MODELS)).toBe(false)
+    const b = (o: unknown) => Buffer.from(JSON.stringify(o))
+    const same = b({ model: 'claude-haiku-5-5', max_tokens: 1 })
+    expect(pinModel(same, DEFAULT_MODELS, 'claude-sonnet-5-5')).toEqual({ body: same, was: null })
+    const p = pinModel(b({ model: 'claude-opus-5-5', max_tokens: 1 }), DEFAULT_MODELS, 'claude-sonnet-5-5')
+    expect(p.was).toBe('claude-opus-5-5')
+    expect(JSON.parse(p.body.toString())).toEqual({ model: 'claude-sonnet-5-5', max_tokens: 1 })
+    const junk = Buffer.from('not json')
+    expect(pinModel(junk, DEFAULT_MODELS, 'claude-sonnet-5-5').body).toBe(junk)
   })
 })
 
