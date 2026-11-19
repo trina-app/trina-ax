@@ -45,7 +45,10 @@ start_app() {
     set -u
     "$0" > "$1" 2>&1 &
     pid=$!
-    if ! timeout 60 xdotool search --sync --onlyvisible --class "^$2\$" > /dev/null; then
+    # polled, not `search --sync`: one search dies on an X BadWindow when a window goes away while it is read
+    found=0
+    for _ in $(seq 1 120); do xdotool search --onlyvisible --class "^$2\$" > /dev/null 2>&1 && { found=1; break; }; sleep 0.5; done
+    if [ "$found" != 1 ]; then
       echo "no window within 60 s"; kill "$pid" 2> /dev/null; exit 3
     fi
     echo "window: $(xdotool search --onlyvisible --class "^$2\$" getwindowname 2> /dev/null | head -n 1)"
@@ -166,10 +169,13 @@ HOME="$HOME_DIR" MYCEL_DESKTOP_USER_DATA="$APPDATA" timeout 150 xvfb-run -a -s '
   set -u
   "$0" > "$1" 2>&1 &
   pid=$!
-  if ! timeout 60 xdotool search --sync --onlyvisible --name "\.deb" > /dev/null; then
+  # polled (see start_app): windows of the app come and go while its dialog opens
+  found=0
+  for _ in $(seq 1 120); do xdotool search --onlyvisible --name "\.deb" > /dev/null 2>&1 && { found=1; break; }; sleep 0.5; done
+  if [ "$found" != 1 ]; then
     echo "no .deb dialog within 60 s"; kill "$pid" 2> /dev/null; exit 3
   fi
-  echo "dialog: $(xdotool search --onlyvisible --name "\.deb" getwindowname | head -n 1)"
+  echo "dialog: $(xdotool search --onlyvisible --name "\.deb" getwindowname 2> /dev/null | head -n 1)"
   if xdotool search --onlyvisible --class "^$2\$" getwindowname 2> /dev/null | grep -qv "\.deb"; then echo "the app opened a window"; kill "$pid"; exit 4; fi
   # Escape is Quit (the cancel button)
   xdotool search --onlyvisible --name "\.deb" windowactivate --sync key --clearmodifiers Escape 2> /dev/null || xdotool key Escape
