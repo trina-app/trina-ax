@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 15:34
 - Branch: `feat/demo-free-roam-gate`
-- Status: in progress
+- Status: done (code and tests; not deployed: hosting is its own step)
 - Where: `demo-gate/` (new standalone service, like `relay/`), `package.json` (test script), `.github/workflows/ci.yml`
   (one step next to the relay suite), `tsconfig.json` (include). Why: the gate is its own process in front of the
   per-visitor instances and holds the only real AI credential; no server code changes (PR A/B own `server/`).
@@ -64,11 +64,17 @@ tunnel, Turnstile site: private ops).
 
 ## Steps
 
-1. Plan (this file). 
+1. Plan (this file).
 2. `demo-gate/src`: config, log, pages, limits, pool, upstream, proxy, main.
 3. Tests, CI step, README, changes fragment.
 4. Checks: typecheck, check:docs, check:prepush, the new suite.
 
 ## Result
 
-(filled in at the end)
+- `demo-gate/src`: config, log, pages, state (IP starts, daily tokens), pool, upstream, public (pages, start, proxy),
+  main. No dependencies; runs with `node demo-gate/src/main.ts --config <file>`.
+- 86 tests in `demo-gate/test` (unit + a real Node gate with fake instances), green under Bun 1.3.12 and 1.4;
+  `bun run test:demo-gate`, in `bun run test` and in CI's full run next to the relay suite.
+- Open: the instance's turn gets no "budget" event for the gate's 403 (only its own proxy sends one), so a global cap
+  stop shows the generic failure until PR A maps `budget_exceeded` in the engine's error text; visitor routing is in
+  memory (a gate restart ends every session); `/__demo/status` is public (available or not, nothing else).
