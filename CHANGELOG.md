@@ -5,8 +5,13 @@ This file summarizes user-visible changes; it is not a list of every commit.
 
 ## Unreleased
 
-## 0.5.19 — 2026-11-19
+## 0.5.20 — 2026-11-19
 
+- 0.5.19 was not published (its tag exists, but its release run did not start because of a workflow permission, and nothing was published). Everything that was going to be in 0.5.19 is in 0.5.20 and listed here.
+- Desktop app: **Cmd+F** (Ctrl+F on Windows and Linux), or Edit › Find…, opens a find bar on the screen in front: the team page or the in-app browser. Selected text fills it, matches are highlighted with "2 of 5", Enter or Cmd+G goes to the next one, Shift+Enter or Shift+Cmd+G to the one before, and Esc closes it. A site with its own Cmd+F keeps it.
+- Security: a git hook that someone left in a shared project folder no longer runs in another person's command, also when the command sets git's hooks folder itself (`git -c core.hooksPath=…`, `--config-env`, a bare repository, `git -C`). Files that git could run as hooks in shared folders lose their run permission before and after each command, when the server starts, and when Files moves, copies or restores them.
+- **Finding messages** (search, ⌘K): a Korean word finds it with any particle after it ("회의를" finds "회의") and an English word its other forms ("deploys" finds "deployed"). Put a phrase in quotes to find it exactly, and narrow with `from:` a person (`from:me`) or `in:` a channel or a direct message (`in:#marketing`, `in:@name`). Messages are shown best match first (or newest first, from the menu above them), and a typing mistake still finds close matches.
+- A video or sound file opened from a conversation, Files or the AI chat now plays on a dark background, centred and as large as the window allows, instead of a small box at the top of a white page. A picture opened in the file viewer is centred on the same dark stage.
 - Voice input in the Android app now uses only a speech recognizer that works on the phone itself, so your voice never goes to the phone maker's servers. Phones without one for your language (for example a Galaxy Note10 on Android 12 for Korean) keep using the team server, whatever the team's speech setting.
 - **Voice input on Android** (phone app 1.0.10, Google Play; not published yet): in the Android app your words show in the message box while you talk, written by the phone's own speech recognizer. On a phone whose recognizer works on the phone, the sound never leaves it, so this also works in confidential chats. Phones without a recognizer for your language keep using the team server.
 - While you dictate, the message box grows with your words, as it does when you type, instead of keeping one line and scrolling. It keeps its height when a recording starts.

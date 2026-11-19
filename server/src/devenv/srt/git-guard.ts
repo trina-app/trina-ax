@@ -16,6 +16,8 @@
 // Not covered: a command that calls git by its full path (/usr/bin/git) skips the wrapper (the environment's settings
 // still hold); git's own sub-processes (a recursing checkout) read the submodules' config without the wrapper, which
 // checked them before. See docs/decisions/20261118-devenv-git-hooks.md.
+// The command line wins over these settings (`git -c core.hooksPath=…`, GIT_CONFIG_COUNT of its own, --config-env): the
+// hooks themselves are never executable in a shared folder (hook-sweep.ts, QA TC-5348).
 
 /** git, npm and Python settings of every run: nothing from a repository or the home runs by itself. */
 export function gitEnv(): Record<string, string> {
@@ -69,6 +71,8 @@ export function dangerousGitSetting(key: string, value: string): string | null {
   if (section === 'pager' && !/^(true|false|yes|no|on|off|1|0)?$/i.test(value.trim())) return 'pager'
   if (k === 'interactive.difffilter') return k
   if (section === 'trailer' && sub && (last === 'command' || last === 'cmd')) return 'trailer.command'
+  // config hooks of newer git (hook.<name>.command runs on the event of hook.<name>.event)
+  if (section === 'hook' && sub && last === 'command') return 'hook.command'
   if (section === 'sendemail' && /smtpserver$/.test(last)) return 'sendemail.smtpserver'
   if ((section === 'browser' || section === 'man') && sub && (last === 'cmd' || last === 'path')) return `${section}.cmd`
   if (k === 'web.browser' || k === 'help.browser' || k === 'instaweb.httpd') return k

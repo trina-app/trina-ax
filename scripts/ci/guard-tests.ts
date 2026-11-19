@@ -43,6 +43,8 @@ export const GUARD_TESTS = [
   'tests/unit/release-channel.test.ts', // one place for where updates come from
   'tests/unit/ci-unit-shard.test.ts', // every test file runs in exactly one CI shard
   'tests/unit/brand-light-icons.test.ts', // every app icon (iOS dark/tinted, Android, web push, desktop) is the light tile
+  // added 2026-11-19 after the v0.5.19 release run failed at start-up: ci.yml asked for more than release.yml grants it
+  'tests/unit/workflow-permissions.test.ts', // a called workflow's jobs stay within the caller's permissions
 ]
 
 if (import.meta.main) {
