@@ -1,4 +1,4 @@
-# A PDF read by pages stops at the tool output limit in tokens, not only in characters (QA AP-004)
+# PDF reads: the tool output limit in tokens, and whole-document questions read every page (QA AP-004)
 
 - Date (UTC): 2026-11-19 13:30
 - Branch: `fix/pdf-read-token-cap`
@@ -23,14 +23,17 @@ not fit, the pages wait for another call, and the note names it: `pages: "N-M"`,
 document, read every page this way". A first page that alone does not fit is cut at a line end and says to read the
 rest with offset/limit. The room-file read (`room_file` by pages) uses the same function and its `reserve`.
 
-## Not in this PR (owner decision)
+## Whole-document questions read every page (owner decision 2026-11-19: option b)
 
-- The read tool's words and the `pages_required` refusal still offer grep and offset/limit. A rule that a
-  whole-document question reads every page in parts (no grep sampling) is a prompt change.
-- Put the whole extracted text in context as claude.ai does, or raise Claude Code's MCP output limit: cost and
-  latency trade-offs.
+F02 (English, 80 pages) pages 1-20 are about 5,000 tokens, so no cut there: the AI chose to read 20 pages and grep
+the rest. The owner chose to change the tools' words (not to put the whole text in context, not a higher MCP limit).
+`WHOLE_PDF_RULE` (files/vision.ts): "For a question about the whole document (a summary, every chapter, a check of all
+of it), read every page in parts of 20 (…) before you answer; grep finds a passage, it does not read the document." It
+is in the read tool's description (shared/src/tools.ts), chat_file's, the pages_required refusal of read and room_file
+(grep and offset/limit only to look up one passage), and the note of a read cut at the tool output limit.
 
 ## Steps
 
 1. Token cap in pdfPagesForModel. Done.
 2. Tests: 18 dense Korean pages, a single page too long. They fail without the fix. Done.
+3. WHOLE_PDF_RULE in the read words and refusals; tests check the descriptions, the refusals and the cut note. Done.

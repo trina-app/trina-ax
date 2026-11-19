@@ -68,6 +68,9 @@ export const VISION_SMALL_BYTES = 150_000
 /** PDF pages per read call, and the most pages a read may give without `pages` (Claude Code's Read contract) */
 export const PDF_PAGES_PER_READ = 20
 export const PDF_PAGES_WITHOUT_RANGE = 10
+/** A question about a whole PDF reads every page (QA AP-004: the AI read pages 1-20 of 80 and grep-searched the rest,
+ * so it could miss what a search does not find). In the read tools' words and in the pages_required refusal. */
+export const WHOLE_PDF_RULE = `For a question about the whole document (a summary, every chapter, a check of all of it), read every page in parts of ${PDF_PAGES_PER_READ} (pages "1-${PDF_PAGES_PER_READ}", "${PDF_PAGES_PER_READ + 1}-${PDF_PAGES_PER_READ * 2}", … to the last page) before you answer; grep finds a passage, it does not read the document.`
 /** One tool result as the engine takes it. Claude Code cuts an MCP result over MAX_MCP_OUTPUT_TOKENS (25,000 by default):
  * it leaves out the images past the limit and tells the AI the output was truncated. A PDF read stops adding page images
  * below that and names the pages to read in another call (review of feat/vision-read). */

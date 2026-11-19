@@ -14,10 +14,12 @@ import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
 import { heicTools } from '../../server/src/files/heic-preview'
-import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_FULL_BYTES, VISION_TURN_FULL_NEW, VISION_TURN_IMAGES, b64Len, parsePages, sessionPicturesKept, setApiVisionTurn, smallForModel, turnImageCaps, visionTools } from '../../server/src/files/vision'
+import { imageTokens, PDF_PAGES_PER_READ, READ_OUTPUT_TOKENS, WHOLE_PDF_RULE, textTokens, VISION_FITTED_IMAGES, VISION_SIDE_MAX, VISION_SMALL_BYTES, VISION_SMALL_SIDE, VISION_TURN_BYTES, VISION_TURN_FULL, VISION_TURN_FULL_BYTES, VISION_TURN_FULL_NEW, VISION_TURN_IMAGES, b64Len, parsePages, sessionPicturesKept, setApiVisionTurn, smallForModel, turnImageCaps, visionTools } from '../../server/src/files/vision'
 import { issueProxyToken, PROXY_BODY_MAX } from '../../server/src/proxy/model-proxy'
 import { confidentialChat } from '../../server/src/safe-ops/confidential'
 import { TurnFiles } from '../../server/src/files/service'
+import { CHAT_FILE_DESCRIPTION } from '../../server/src/chat/chat-file-tool'
+import { FILE_TOOLS } from '@mycel/shared'
 
 setDefaultTimeout(60_000)
 // making the fixture team (pandoc, an app) can take long on a busy CI machine: a hook that times out keeps running into
@@ -206,6 +208,8 @@ describe('PDF pages (Claude Code Read contract)', () => {
     const no = await h.call('read', { file_path: `${ALICE}/eleven.pdf` })
     expect(no.result.isError).toBe(true)
     expect(texts(no)).toContain('has 11 pages: read it in parts with pages')
+    // QA AP-004: a whole-document question reads every page, not a grep sample
+    expect(texts(no)).toContain(WHOLE_PDF_RULE)
     const some = await h.call('read', { file_path: `${ALICE}/eleven.pdf`, pages: '10-11' })
     expect(texts(some)).toContain('This is page number 11')
     expect(texts(some)).not.toContain('This is page number 9 ')
@@ -277,6 +281,16 @@ describe('PDF pages (Claude Code Read contract)', () => {
       expect(images(rest)).toHaveLength(10)
       expect(texts(rest)).not.toContain('Not shown in this read')
     } finally { page.mockRestore() }
+  })
+
+  // QA AP-004 (owner decision b): the read tools' own words say a whole-document question reads every page in parts
+  test('the read and chat_file descriptions and the cut note say to read every page for a whole-document question', async () => {
+    expect(WHOLE_PDF_RULE).toContain('read every page in parts of 20')
+    expect(FILE_TOOLS.read.description).toContain(WHOLE_PDF_RULE)
+    expect(CHAT_FILE_DESCRIPTION).toContain(WHOLE_PDF_RULE)
+    const ctx = A.toolCtx('alice' as any, A.turn('alice', A.chat('alice')))
+    const r = await A.ctx.files.pdfPagesForModel(ctx, { label: `${ALICE}/k.pdf`, bytes: new Uint8Array(), layers: dense(18) }, Array.from({ length: 18 }, (_, i) => i + 1))
+    expect(r.notes.join('\n')).toContain(WHOLE_PDF_RULE)
   })
 
   // QA AP-004: page text counted only in characters (200,000): 18 dense Korean pages are about 34,000 tokens, and

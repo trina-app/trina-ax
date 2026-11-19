@@ -45,7 +45,7 @@ import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, VISION_SESSION_SHRINK_SHARE, VISION_TURN_FULL_NEW, turnImageCaps, visionBlock,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, WHOLE_PDF_RULE, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, VISION_SESSION_SHRINK_SHARE, VISION_TURN_FULL_NEW, turnImageCaps, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
@@ -941,7 +941,7 @@ export class FileService {
     const layers = await pdfLayer(src.bytes, tools, ctx.signal)
     const n = layers.length
     const pages = pagesToRead(a.pages, n)
-    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call). ${WHOLE_PDF_RULE} To look up one passage only, read the lines of its text layer that grep reports with offset/limit.`, 'pages_required')
 
     const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
     for (const t of notes) appendText(content, t)
@@ -1064,7 +1064,7 @@ export class FileService {
       images++
     }
     const notes: string[] = []
-    if (textLater.length) notes.push(`Not shown in this read: page${textLater.length === 1 ? '' : 's'} ${pageList(textLater)} (with ${textLater.length === 1 ? 'it' : 'them'} the result would pass the tool output limit). Read ${textLater.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(textLater).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}. To answer about the whole document, read every page this way before you answer.`)
+    if (textLater.length) notes.push(`Not shown in this read: page${textLater.length === 1 ? '' : 's'} ${pageList(textLater)} (with ${textLater.length === 1 ? 'it' : 'them'} the result would pass the tool output limit). Read ${textLater.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(textLater).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}. ${WHOLE_PDF_RULE}`)
     if (later.length) notes.push(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}.`)
     if (blocked.length) notes.push(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
     else if (noPixels) notes.push(why(block!))
