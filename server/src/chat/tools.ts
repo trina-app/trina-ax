@@ -822,6 +822,19 @@ function skillTools(exec: TurnExec, scripts: () => boolean): Tool[] {
 }
 
 // ---------------- move_skill ----------------
+/** A group's or project's skill that holds code (files that are not Markdown), copied or moved into the team's or the
+ * person's own skills: the card says who wrote that code and that it can run with the access of whoever uses it there
+ * (QA TC-4932: a group or project skill's scripts never run where they are; a team or own skill's do). '' otherwise. */
+export function copyCodeLine(plan: Pick<MovePlan, 'from' | 'to' | 'files'>, L: Locale): string {
+  if (plan.to.level !== 'team' && plan.to.level !== 'personal') return ''
+  const n = plan.files.filter((f) => !/\.md$/i.test(f.path)).length
+  if (!n) return ''
+  if (plan.from.level === 'group') return skillText('copyCodeGroup', L, { group: plan.from.group.name, n: String(n) })
+  if (plan.from.level === 'project') return skillText('copyCodeProject', L, { project: plan.from.project.name, n: String(n) })
+  return ''
+}
+
+// ---------------- move_skill ----------------
 // One skill to another level (skills/move.ts, docs/DECISIONS.md "Project skills"), as the Skills page's 옮기기 moves it,
 // or a copy of it (`keep`, with `name` for a new name) when the person asks for one: the same checks, then the person's
 // yes on the server's card, which the AI cannot write. The card says who newly gets the skill, who stops getting it and
@@ -933,6 +946,7 @@ function moveSkillTool(exec: TurnExec): Tool {
         `${head}\n${changeLine(plan, L)}\n${editorsLine(plan, L)}`,
         plan.shadows ? skillText('moveShadows', L, { name: plan.name, where: plan.shadows }) : '',
         why,
+        copyCodeLine(plan, L),
       ].filter(Boolean).join('\n\n')
       // names only where the person may see who is there; the counts are in the line above
       const card = (ids: readonly string[]) => peopleText(peopleNames(ctx, ids, L, 5), L)

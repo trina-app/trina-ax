@@ -32,6 +32,7 @@ import type { SourceLoc } from '@mycel/shared/api'
 import { atomicWrite, conflictCopyName, fileEvent, moveToTrash, readHead, readRegular, recordConflictCopy, saveVersion, sha256 } from './store'
 import { newId } from '../db'
 import { consumeSkillApproval, editedText, requireSkillApproval } from '../skills/guard'
+import { refuseSkillScriptCopy } from '../skills/script-copies'
 import { skillWriteNote } from '../chat/skills'
 import { cpuBudget, currentPlan, readMaxBytes } from '../system/limits'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -1759,12 +1760,15 @@ export class FileService {
       if (!before) throw new ToolError(`read '${r.rel}' first (with read) before overwriting it`, 'not_read')
       if (sha256(cur) !== before) return this.conflict(ctx, r.segs, data, `write ${r.rel}`)
       if (sha256(cur) === sha256(data)) return { text: `No change: ${r.rel} already has this content`, summary: `${tool} ${r.rel} -> unchanged` }
+      // a copy of a group or project skill's script is never saved by the AI (skills/script-copies.ts, QA TC-4932)
+      refuseSkillScriptCopy(ctx, this.fx.root, r.rel, data, this.mayReadNow(ctx))
       requireSkillApproval(ctx, r.rel, data)
       saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
       atomicWrite(this.fx.root, r.segs, data)
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'update', size: data.length, sha256: sha256(data), detail: { tool } })
       this.changed(ctx, r.rel, 'update')
     } else {
+      refuseSkillScriptCopy(ctx, this.fx.root, r.rel, data, this.mayReadNow(ctx))
       requireSkillApproval(ctx, r.rel, data)
       atomicWrite(this.fx.root, r.segs, data, { createDirs: true })
       fileEvent(this.db, { turnId: ctx.turnId, userId: ctx.user.id, path: r.rel, action: 'create', size: data.length, sha256: sha256(data), detail: { tool } })
@@ -1803,6 +1807,7 @@ export class FileService {
     if (n > 1 && !a.replace_all) throw new ToolError(`old_string appears ${n} times; add more surrounding text to make it unique, or set replace_all`)
     const data = Buffer.from(apply(), 'utf8')
     this.limits(ctx, r.rel, data.length)
+    refuseSkillScriptCopy(ctx, this.fx.root, r.rel, data, this.mayReadNow(ctx))
     requireSkillApproval(ctx, r.rel, data)
     saveVersion(this.db, this.fx.root, r.rel, cur, { userId: ctx.user.id, turnId: ctx.turnId })
     atomicWrite(this.fx.root, r.segs, data)
@@ -1812,6 +1817,11 @@ export class FileService {
     ctx.files.readHashes.set(r.rel, sha256(data))
     ctx.files.bytesWritten += data.length
     return { text: `Edited ${r.rel} (${a.replace_all ? n : 1} replacement${(a.replace_all ? n : 1) > 1 ? 's' : ''})${skillWriteNote(this.fx.root, r.rel, data)}`, summary: `edit ${r.rel} -> ${a.replace_all ? n : 1} replacements` }
+  }
+
+  /** may the writer read `rel` now (by the folder rules): the copy refusal names only such a path (skills/script-copies.ts) */
+  private mayReadNow(ctx: ToolCtx): (rel: string) => boolean {
+    return (rel) => { try { return atLeast(this.rules().access(ctx.user, rel.split('/')), 'read') } catch { return false } }
   }
 
   /** 'changed' event { path, action, userId, turnId } for live file-screen updates (component C publishes files.changed) */
@@ -1838,6 +1848,7 @@ export class FileService {
     if (badSegment(name)) name = `conflict-${Date.now()}-${segs[segs.length - 1]}`
     const copy = [...dir, name]
     // the card showed the save at `rel`: its conflict copy right next to it is that same save
+    refuseSkillScriptCopy(ctx, this.fx.root, copy.join('/'), data, this.mayReadNow(ctx))
     requireSkillApproval(ctx, copy.join('/'), data, rel)
     atomicWrite(this.fx.root, copy, data)
     consumeSkillApproval(ctx, rel)
