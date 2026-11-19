@@ -1,1 +1,0 @@
-- A helper (sub-agent) no longer has the promo video tool; videos stay with the main AI. Running a data query on the chat's own untouched copy of a file no longer asks to read your personal folder.

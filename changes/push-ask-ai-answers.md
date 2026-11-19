@@ -1,1 +1,0 @@
-- The question that asks to turn on phone notifications now reads "Get notified of new messages and AI answers?" It no longer names "@Trina", which no longer answers in rooms.

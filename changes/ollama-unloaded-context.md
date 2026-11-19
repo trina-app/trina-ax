@@ -1,1 +1,0 @@
-- With a local Ollama or LM Studio model that is not loaded yet, Trina no longer sends more than the model can read on the first messages. Ollama cut those messages from the start, so the AI forgot the team's instructions and memories for a few minutes.

@@ -1,1 +1,0 @@
-- A model on this computer or the local network (Ollama, LM Studio) that takes minutes to read a long request is now waited for. It no longer fails with "Couldn't reach the AI service" after 90 seconds; Stop still works at any moment. Cloud addresses keep the 90-second limit.
