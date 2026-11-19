@@ -85,3 +85,6 @@ Out:
   text, so one pair serves five languages); five team skills instead of eight, shot narrow so the text reads in a
   half-width cell; the usage picture without the admin side menu (`v4/usage.webp`, from the Acme demo); the team chat
   title says "like Slack, but with Trina AI".
+- Follow-up (founder, 11/19): the film now opens on its "So we built Trina AX" frame (GitHub shows the first frame
+  before play and has no poster setting) and has English captions burned in, timed from the narration (GitHub's
+  player has no caption tracks, so they cannot be turned off). Posted as a comment on #34.
