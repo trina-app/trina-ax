@@ -1,1 +1,0 @@
-- Scanned PDF pages and video frames also go smaller after the first 16 pictures of an answer, so a chat that collects many scans keeps working. Asking the AI to look at a picture again in the same answer shows it at full size (a few times an answer). A long chat with many pictures keeps working: after very picture-heavy answers the next answer starts from the chat's summary.
