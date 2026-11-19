@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-19 08:17
 - Branch: `fix/stamp-pdf-live-and-dotfiles`
-- Status: in progress
+- Status: done
 - Where: Team AX core (`shared/src/tools.ts`, `server/src/devenv/srt/placeholders.ts` and the listings that skip them, `tests/linux/srt-attack.ts`). Why: tool inputs and the Linux run sandbox are core.
 - Version impact: patch
 
@@ -25,3 +25,8 @@
 ## Checks
 
 typecheck, prepush, the PDF and dev-env unit suites, tests/security; T1 in Docker (colima arm64, AppArmor userns restriction off for the run).
+
+## Result
+
+- TC-5347: fixed at the cause; verified with `claude -p` (Haiku) against a stdio MCP server with the real schema: `{"page":"\"1\""}` now reads as page 1.
+- TC-5349: the names stay on the disk while a run lives (bwrap needs them; the disk cannot be avoided without breaking the deny) but are never shown. T1 (Docker, arm64) all 114 held incl. PH1 and HOSTMODES.

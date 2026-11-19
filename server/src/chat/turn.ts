@@ -39,6 +39,7 @@ import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
@@ -2792,7 +2793,7 @@ export class TurnExec {
       let ents: fs.Dirent[]
       try { ents = fs.readdirSync(d.abs, { withFileTypes: true }) } catch { continue }
       for (const e of ents) {
-        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(d.abs, e.name))) continue
         const segs = [...d.segs, e.name], rel = [...d.rel, e.name]
         if (e.isDirectory() ? !rules.canList(me, segs) : !atLeast(rules.access(me, segs), 'read')) continue
         out.push(rel.join('/'))
@@ -3586,7 +3587,7 @@ export class TurnExec {
           if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
           let n = 0, files = false
           for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
-            if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+            if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
             const segs = [...r.segs, e.name]
             if (++n > 2000) {
               // too many to look at one by one: the folder's readers, and each folder with its own rules in it by name
