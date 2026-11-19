@@ -11,7 +11,9 @@ export function mobileApp(): MobileConfig | null {
 interface Pending { config: MobileConfig; type: MobileMessage['type']; seq?: number; resolve: (reply: MobileReply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }
 const pending = new Map<string, Pending>()
 const downloads = new Set<AbortController>()
-let epoch = 0, busy = false, picking = false, initialized = false
+let epoch = 0, busy = false, picking = false
+/** the window initMobile listens on (one per page; the unit tests give each file its own) */
+let initialized: object | null = null
 let sessionKey: string | null = null
 // No one is signed in on this page (status signed-out: the sign-in page at a cold start, a sign-out, an expired
 // session), and whether the app has heard it since: it is told once per bridge, also when the bridge comes later.
@@ -365,8 +367,8 @@ async function sendBadge(again = false): Promise<void> {
   }
 }
 export function initMobile(errorHandler?: (error: unknown) => void): void {
-  if (typeof window === 'undefined' || initialized) return
-  initialized = true; onError = errorHandler ?? onError
+  if (typeof window === 'undefined' || initialized === window) return
+  initialized = window; onError = errorHandler ?? onError
   window.addEventListener('mycel:mobile', receive)
   window.addEventListener('mycel:mobile-ready', () => {
     abortPending(); barrier = Promise.resolve()
@@ -409,7 +411,7 @@ interface DictationRun { id: string; config: MobileConfig; seq: number; buffer: 
 const dictationRuns = new Map<number, DictationRun>()
 const dictationListeners = new Set<(e: DesktopDictationEvent) => void>()
 const installWatch = new Map<string, (percent: number) => void>()
-let dictationNext = 1, dictationListening = false, phoneBridge: { config: MobileConfig; bridge: PhoneDictationBridge } | null = null
+let dictationNext = 1, dictationListening: object | null = null, phoneBridge: { config: MobileConfig; bridge: PhoneDictationBridge } | null = null
 
 const dictationEmit = (e: DesktopDictationEvent) => { for (const f of dictationListeners) f(e) }
 function dictationEnd(n: number) {
@@ -453,7 +455,7 @@ export function phoneDictation(): PhoneDictationBridge | null {
   const config = mobileApp()
   if (!config?.capabilities.includes(DICTATION_CAPABILITY)) return null
   if (phoneBridge && phoneBridge.config.nonce === config.nonce) return phoneBridge.bridge
-  if (!dictationListening) { dictationListening = true; window.addEventListener('mycel:mobile-dictation', dictationEvent) }
+  if (dictationListening !== window) { dictationListening = window; window.addEventListener('mycel:mobile-dictation', dictationEvent) }
   const now = () => mobileApp() ?? config
   const bridge: PhoneDictationBridge = {
     version: 1,

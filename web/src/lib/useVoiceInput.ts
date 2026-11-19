@@ -269,8 +269,9 @@ export function useVoiceInput(o: VoiceInputOptions) {
           if (text) setHeard(true)
         },
         // the helper stopped on the way: the words so far stay, the recording ends, the server takes the next ones
-        onFail: () => {
-          macFailed(language)
+        // (the phone app's fence, a page that loaded again or a session reset, is no fault of the phone's: it stays)
+        onFail: (code) => {
+          if (code !== 'fenced') macFailed(language)
           if (mac.current === m) void self.current?.finish()
         },
       }),

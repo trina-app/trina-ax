@@ -63,8 +63,10 @@ public enum DictationEngine {
     if #available(iOS 26.0, macOS 26.0, *) {
       if only == nil || only == .analyzer, SpeechTranscriber.isAvailable,
          let id = pickLocale(language, Set(await SpeechTranscriber.supportedLocales.map { $0.identifier(.bcp47) })) {
-        let installed = await AssetInventory.status(forModules: [analyzerModule(Locale(identifier: id))]) == .installed
-        return DictationCheck(state: installed ? "ready" : "needs-model", locale: id, engine: .analyzer)
+        // a status of unsupported (this phone cannot run it after all) falls through to the dictation model
+        let status = await AssetInventory.status(forModules: [analyzerModule(Locale(identifier: id))])
+        if status == .installed { return DictationCheck(state: "ready", locale: id, engine: .analyzer) }
+        if status != .unsupported { return DictationCheck(state: "needs-model", locale: id, engine: .analyzer) }
       }
       if only == nil || only == .dictation, let id = pickLocale(language, Set(await DictationTranscriber.supportedLocales.map { $0.identifier(.bcp47) })) {
         let status = await AssetInventory.status(forModules: [dictationModule(Locale(identifier: id))])
@@ -175,7 +177,11 @@ final class AnalyzerSession: DictationSession, @unchecked Sendable {
   private let format: AVAudioFormat
   private let converter: AVAudioConverter?
   private let analyzer: SpeechAnalyzer
-  private var results: Task<Void, Never>?
+  private var resultsTask: Task<Void, Never>?
+  private var results: Task<Void, Never>? {
+    get { lock.lock(); defer { lock.unlock() }; return resultsTask }
+    set { lock.lock(); resultsTask = newValue; lock.unlock() }
+  }
   private let emit: DictationEmit
 
   private init(analyzer: SpeechAnalyzer, format: AVAudioFormat, feed: AsyncStream<AnalyzerInput>.Continuation, emit: @escaping DictationEmit) {
@@ -205,7 +211,10 @@ final class AnalyzerSession: DictationSession, @unchecked Sendable {
       try await analyzer.prepareToAnalyze(in: format)
       try await analyzer.start(inputSequence: stream)
     } catch {
+      // nothing of it stays: the stream ends, the analyzer stops, its results with it
+      feed.finish()
       s.results?.cancel()
+      await analyzer.cancelAndFinishNow()
       throw DictationError.start
     }
     return s
@@ -265,14 +274,17 @@ final class AnalyzerSession: DictationSession, @unchecked Sendable {
   }
 }
 
-/** Before iOS 26: SFSpeechRecognizer on the phone only (requiresOnDeviceRecognition). Each result is the whole text so
- * far, so every partial one is the guess; the final one is kept. */
+/** Before iOS 26: SFSpeechRecognizer on the phone only (requiresOnDeviceRecognition). Each partial result is the whole
+ * text of the stretch so far, so it is the guess; the final one is kept. After a pause iOS 17 and later may start the
+ * partial results again from the beginning: the stretch before is then kept (sent as final) first, so its words stay. */
 final class LegacySession: DictationSession, @unchecked Sendable {
   private let request = SFSpeechAudioBufferRecognitionRequest()
   private var task: SFSpeechRecognitionTask?
   private let lock = NSLock()
   private var finished = false
   private var stopped = false
+  /** the newest partial text: the guess of the stretch now */
+  private var stretch = ""
   private let emit: DictationEmit
   private let recognizer: SFSpeechRecognizer
   private let floatFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
@@ -309,13 +321,24 @@ final class LegacySession: DictationSession, @unchecked Sendable {
     let final = result?.isFinal == true || error != nil
     if final { finished = true }
     let wasStopped = stopped
+    let before = stretch
+    let text = result?.bestTranscription.formattedString ?? ""
+    let restarted = result != nil && LegacySession.restarted(before, text)
+    if result != nil { stretch = result!.isFinal ? "" : text }
     lock.unlock()
-    if let result { emit(["event": "text", "final": result.isFinal, "text": result.bestTranscription.formattedString]) }
-    if result?.isFinal == true { emit(["event": "done"]) }
-    else if error != nil {
-      // the recognizer ends with "no speech" when nothing was said: after stop that is just the end
-      if wasStopped { emit(["event": "done"]) } else { emit(["event": "error", "code": "recognizer"]) }
-    }
+    if restarted { emit(["event": "text", "final": true, "text": before]) }
+    if let result { emit(["event": "text", "final": result.isFinal, "text": text]) }
+    else if error != nil && !before.isEmpty { emit(["event": "text", "final": true, "text": before]) }
+    // after Stop the end is done; before it (the recognizer gave up by itself, or "no speech" for a long while) the
+    // recording ended on the way: the words so far stay and the page says so
+    if final { emit(wasStopped ? ["event": "done"] : ["event": "error", "code": "ended"]) }
+  }
+
+  /** a partial that starts the stretch again: shorter than the one before and not its beginning */
+  static func restarted(_ before: String, _ now: String) -> Bool {
+    let b = before.lowercased(), n = now.lowercased()
+    guard !b.isEmpty, n.count < b.count else { return false }
+    return !b.hasPrefix(String(n.prefix(min(3, n.count))))
   }
 
   func push(_ data: Data) {
