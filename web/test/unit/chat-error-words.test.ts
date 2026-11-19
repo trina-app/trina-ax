@@ -100,3 +100,27 @@ test('a connection sign-in that did not finish is said in words, never as its st
   }
   for (const other of ['scope_denied', '', null]) expect(flowReasonKey(other)).toBe('integrations.signIn.failed')
 })
+
+test('AI usage used up until a known time: everyone reads until when; the owner and admins where to add another account, a member to ask an admin', () => {
+  const providers = `${translate('en', 'admin.title')} › ${translate('en', 'admin.providers')}`
+  const word = (role: 'owner' | 'admin' | 'member', until: boolean) => {
+    const { key, where } = chatErrorText('usage_used_up', role, false, until)
+    return translate('en', key, { ...(where ? { path: adminPath((k: MessageKey) => translate('en', k), where) } : {}), date: 'Nov 21, 3:00 PM' })
+  }
+  for (const role of ['owner', 'admin'] as const) {
+    expect(word(role, true)).toContain('Nov 21, 3:00 PM')
+    expect(word(role, true)).toContain(providers)
+    expect(word(role, false)).toContain(providers)
+  }
+  expect(word('member', true)).toContain('Nov 21, 3:00 PM')
+  expect(word('member', true)).toContain('Ask your admin')
+  expect(word('member', true)).not.toContain('›')
+  // never "for now, try again a bit later" (that is the short wait's words)
+  for (const l of LOCALES) for (const role of ['owner', 'member'] as const) {
+    const { key } = chatErrorText('usage_used_up', role, false, true)
+    const text = translate(l, key, { path: 'X', date: 'D' })
+    expect([l, role, text.includes('D'), text.includes('{')]).toEqual([l, role, true, false])
+    expect(text).not.toBe(CHAT_ERROR_MESSAGES.rate_limit[l])
+    expect([l, JARGON.test(text)]).toEqual([l, false])
+  }
+})

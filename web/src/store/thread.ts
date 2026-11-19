@@ -86,6 +86,10 @@ export function applyCreated(messages: ViewMessage[], msg: Message): ViewMessage
     const next = messages.slice()
     // keep streamed text if the event's copy is older than what deltas already gave us
     const cur = next[i]!
+    // a running copy that comes after the answer's end (it waited for a read of the chat, or two publishes crossed) never
+    // takes the end back: an answer that failed at once stayed on "Thinking…" with Stop until a reload (owner report
+    // 2026-11-19; mergeFresh keeps the finished copy the same way)
+    if (msg.status === 'streaming' && cur.status !== 'streaming' && !cur.local) return messages
     next[i] = cur.status === 'streaming' && msg.status === 'streaming' && cur.content.length > msg.content.length ? { ...msg, content: cur.content, steps: cur.steps } : msg
     return next
   }

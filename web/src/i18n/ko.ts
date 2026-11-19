@@ -522,6 +522,10 @@ export const ko = {
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.ko,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.ko,
+  'chat.error.usage_used_up': CHAT_ERROR_MESSAGES.usage_used_up.ko,
+  "chat.error.usage_used_up_until": "{date}까지 쓸 수 있는 AI 사용량을 다 써서 지금은 답할 수 없어요. 관리자에게 AI 사용량을 늘려 달라고 해 주세요.",
+  "chat.error.admin.usage_used_up": "AI 사용량을 다 썼어요. 계속 쓰려면 {path}에서 다른 AI 계정을 연결해 주세요.",
+  "chat.error.admin.usage_used_up_until": "{date}까지 쓸 수 있는 AI 사용량을 다 썼어요. 그 전에 계속 쓰려면 {path}에서 다른 AI 계정을 연결해 주세요.",
   'chat.error.context': CHAT_ERROR_MESSAGES.context.ko,
   'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.ko,
   'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.ko,

@@ -523,6 +523,10 @@ export const en: Record<MessageKey, string> = {
 
   'chat.error.auth': CHAT_ERROR_MESSAGES.auth.en,
   'chat.error.rate_limit': CHAT_ERROR_MESSAGES.rate_limit.en,
+  'chat.error.usage_used_up': CHAT_ERROR_MESSAGES.usage_used_up.en,
+  "chat.error.usage_used_up_until": "The AI usage has run out until {date}, so the AI can't answer. Ask your admin to add more AI usage.",
+  "chat.error.admin.usage_used_up": "The AI usage has run out for now. To keep going, connect another AI account in {path}.",
+  "chat.error.admin.usage_used_up_until": "The AI usage has run out until {date}. To keep going before then, connect another AI account in {path}.",
   'chat.error.context': CHAT_ERROR_MESSAGES.context.en,
   'chat.error.timeout': CHAT_ERROR_MESSAGES.timeout.en,
   'chat.error.wall_timeout': CHAT_ERROR_MESSAGES.wall_timeout.en,
