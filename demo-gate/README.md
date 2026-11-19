@@ -35,7 +35,7 @@ refuses to start otherwise) and are read again when they change.
 | `pool.command` | | the instance's argv; `{config}`, `{dir}`, `{port}`, `{proxyPort}` are filled in. Name `{config}` or `{dir}` in it: the sweeper only kills an orphan whose command line holds its folder |
 | `pool.cloneCommand` | `cp -c -R` (macOS, APFS clone), `cp -R` elsewhere | argv before `<snapshot base> <instance dir>` |
 | `pool.warmPerLocale`, `pool.maxLive`, `pool.ttlHours` | 2, 10, 24 | |
-| `pool.env`, `pool.path` | `{}`, `/usr/bin:/bin:/usr/sbin:/sbin` | the instance env is built from scratch: these plus HOME/TMPDIR (inside the clone), `MYCEL_CONFIG`, `MYCEL_PUBLIC_ORIGINS`, `MYCEL_SPEECH_PREFETCH=0`, `MYCEL_RELAY_URL=''`, `MYCEL_PUSH_GATEWAY=off`, `MYCEL_DEMO` |
+| `pool.env`, `pool.path` | `{}`, `/usr/bin:/bin:/usr/sbin:/sbin` | the instance env is built from scratch: these plus HOME/TMPDIR (inside the clone), `MYCEL_CONFIG`, `MYCEL_PUBLIC_ORIGINS`, `MYCEL_SPEECH_PREFETCH=0`, `MYCEL_RELAY_URL=''`, `MYCEL_PUSH_GATEWAY=off`, `MYCEL_DEMO`. The server finds Claude Code (`claude`), `rg` and the document tools on this PATH only (HOME is the clone), so put the folder of the instance user's Claude Code binary on it; without it every chat fails |
 | `limits.startsPerHour`, `startsPerDay`, `livePerIp` | 3, 6, 2 | per visitor address (IPv6: per /64), from `CF-Connecting-IP` on a loopback peer |
 | `limits.maxStreams`, `streamWaitMs` | 4, 30000 | model requests at once; a request that waits longer gets the neutral answer |
 | `limits.dailyWeightedTokens` | 30 000 000 | global cap per UTC day |

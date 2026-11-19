@@ -25,6 +25,7 @@
     "command": ["/usr/local/bin/bun", "/opt/demo/server/src/main.ts", "--config", "{config}"],
     "portRange": [19200, 19399],
     "startTimeoutMs": 90000,
+    "path": "/opt/demo/claude/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     "env": { "MYCEL_LOG_LEVEL": "info" }
   },
   "limits": {
