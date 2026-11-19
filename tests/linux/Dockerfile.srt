@@ -41,5 +41,5 @@ COPY server/migrations /opt/mycel/server/migrations
 COPY server/assets /opt/mycel/server/assets
 COPY resources /opt/mycel/resources
 COPY tests/lib /opt/mycel/tests/lib
-COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts /opt/mycel/tests/linux/
+COPY tests/linux/srt-attack.ts tests/linux/srt-subagent.ts tests/linux/sweep-as.ts /opt/mycel/tests/linux/
 CMD ["bun", "/opt/mycel/tests/linux/srt-attack.ts"]

@@ -34,6 +34,7 @@ import { checkRegular, copyTeamFile, freeName, hashFile, hashOpen, installFile, 
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { folderSharesOf } from '../files/folder-shares'
+import { sweepEntrySync } from '../devenv/srt/hook-sweep'
 import { readerCheck, shareAbove, shareReaders } from '../files/share-readers'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
 
@@ -904,6 +905,7 @@ export class TeamFiles {
       }
       throw e
     }
+    this.hookSafe(path.join(this.root, ...target))
     this.moveTextCache(fr.rel, toRel, isDir)
     // what was moved, put aside: the caller settles it (settleAside)
     return o.fresh ? aside : null
@@ -1207,6 +1209,7 @@ export class TeamFiles {
     if (o.dryRun) return { viewersAdded: added }
     this.assertSharedConfirmed(tr.segs, added, o.confirm)
     const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
+    this.hookSafe(tr.abs)
     fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
     this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
@@ -1309,6 +1312,11 @@ export class TeamFiles {
     return size
   }
 
+  /** A git hook that a move, copy or restore puts in place loses its exec bit (QA TC-5348, devenv/srt/hook-sweep.ts): a
+   * run sweeps only when it starts and ends, and these keep a file's mode. Never fails the move. */
+  private hookSafe(abs: string) {
+    try { sweepEntrySync(abs, { visible: { read: [this.root], deny: [path.join(this.root, 'users')] } }) } catch (e) { this.ctx.log.warn('a git hook could not be made safe after a move', { err: String((e as Error)?.message ?? e) }) }
+  }
   private moveTextCache(from: string, to: string, isDir: boolean) {
     const office = this.ctx.files.office
     try {
@@ -2213,6 +2221,7 @@ export class TeamFiles {
       sharesRestored(this.ctx.db, t.id, t.original_path, r.rel)
     }
     this.ctx.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    this.hookSafe(r.abs)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])

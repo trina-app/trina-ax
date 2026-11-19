@@ -50,7 +50,7 @@ import { formatOnce, netNarrowed, netSnapshot, parseOnce, parseSnapshot, personN
 import { effectiveLimits, loadPlan, NO_PLAN_MAX_RUNNING, type DevEnvPlan, type PlanState } from './plan'
 import { holdPlaceholders, holdSkillFolders, isSkillPlaceholder } from './placeholders'
 import { gitWrapperSource } from './git-guard'
-import { sweepHooks, sweepRoots } from './hook-sweep'
+import { othersLive, sweepHooks, sweepRoots, visibleOf } from './hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockedTops, lockFolders, makeGuardDir, writePins } from './mounts'
 import { _resetQueue, cancelTicket, endOrphanTickets, grantTicket, heldCommands, noteServed, pickNext, servedNow, startOrder, ticketIds, withoutTickets } from './queue'
 import { directSystem, systemdSystem, type Forwarder, type SrtSystem } from './system'
@@ -172,7 +172,10 @@ const idleSince = new Map<string, { usec: number; at: number; since: number | nu
 const forwarders = new Map<string, Promise<Forwarder | { error: string }>>()
 /** the time of the last preview request of a run (a previewed dev server is not idle) */
 const lastPreview = new Map<string, number>()
-function reset() { for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
+/** The folders each live run may write, by run id (hook-sweep.ts othersLive): kept until its sweep after it ended. */
+const liveSweeps = new Map<string, { userId: string; roots: string[] }>()
+
+function reset() { liveSweeps.clear(); for (const f of forwarders.values()) void f.then((x) => { if ('stop' in x) x.stop() }); forwarders.clear(); lastPreview.clear(); active.clear(); rootLocks.clear(); idleSince.clear(); imds = null; planCache = null; selfTest = null; selfTestRun = null; selfTestGen++; loggedDown = ''; _resetQueue() }
 
 let planCache: { at: number; state: PlanState } | null = null
 let selfTest: { at: number; problem: string } | null = null
@@ -608,6 +611,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
   const releaseSkills = holdSkillFolders(ctx.files.fx.root, skills)
   let release = () => {}
   let dropGuard = () => {}
+  let unsweep = () => {}
   try {
     const { settings, work, pins, places, hash, net } = await settingsFor(ctx, c, s.space, s.runId, s.network, s.once)
     // the pinned entries and the folders to lock, in the run's own guard folder (made new, read-only in the run, removed
@@ -625,13 +629,17 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     if (s.space.shared && !sharedCwdShown(ctx, s.space, cwd)) throw new Error('cwd must be a folder inside the folder of this chat')
     // git hooks (QA TC-5348): every file that git could run as a hook in the folders this run may write loses its exec
     // bit, now and when the run ends, so a hook another person's run left there never runs here, whatever the command
-    // line sets (hook-sweep.ts). The run does not start when the folders cannot be checked
+    // line sets (hook-sweep.ts). Also now: the folders other people's live runs may write that this run may read (a
+    // hook written there after that run's last sweep). The run does not start when the folders cannot be checked
     const own = runOwner(s.space, s.runId, ctx.files.fx.root)
     const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(c.base, own), runTmp(c.base, own)])
-    const linkRoots = [ctx.files.fx.root]
-    const sweptNow = await sweepHooks(swept, { linkRoots }).catch((e: Error) => { throw new Error(`${e.message}; the command did not run`) })
+    const visible = visibleOf(settings.filesystem, ctx.files.fx.root)
+    const before = [...new Set([...swept, ...othersLive(liveSweeps.values(), s.space.userId, visible)])]
+    const sweptNow = await sweepHooks(before, { visible }).catch((e: Error) => { throw new Error(`${e.message}; the command did not run`) })
     if (sweptNow.length) ctx.log?.info?.('devenv: git hooks lost their exec bit before a run', { count: sweptNow.length })
-    const sweepAfter = () => { void sweepHooks(swept, { linkRoots }).then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit after a run', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message })) }
+    liveSweeps.set(s.runId, { userId: s.space.userId, roots: swept })
+    const sweepAfter = () => { void sweepHooks(swept, { visible }).then((ch) => { if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit after a run', { count: ch.length }) }, (e: Error) => ctx.log?.warn?.('devenv: git hooks could not be checked after a run', { error: e.message })).finally(() => liveSweeps.delete(s.runId)) }
+    unsweep = () => liveSweeps.delete(s.runId)
     const settingsFile = path.join(p.run, `${s.runId}.json`)
     fs.writeFileSync(settingsFile, JSON.stringify(settings), { mode: 0o600, flag: 'wx' })
     const exitFile = path.join(p.personLogs, `${s.runId}.exit`)
@@ -645,7 +653,7 @@ async function spawnRun(ctx: AppContext, c: SrtConfig, s: RunSpec): Promise<{ pi
     })
     const bridges = bridged.length ? startBridges(ctx, c, s.runId, bridged) : null
     return { ...sp, exited: sp.exited.finally(() => { release(); releaseSkills(); dropGuard(); bridges?.stop(); sweepAfter() }), hash, net }
-  } catch (e) { release(); releaseSkills(); dropGuard(); throw e }
+  } catch (e) { release(); releaseSkills(); dropGuard(); unsweep(); throw e }
 }
 
 // ---------------- a chat's own dev servers on localhost ----------------
@@ -1286,6 +1294,9 @@ export const stopAll = (ctx: AppContext, reason: EndReason) => stopWhere(ctx, ()
  * end at the next poll (lost). */
 export async function reconcile(ctx: AppContext): Promise<void> {
   const c = srtConfig()
+  // after a restart: a run that was live then never had its sweep after it ended; the whole team folder is checked once
+  // (git hooks, QA TC-5348), before runs that start now read it
+  try { const ch = await sweepHooks([ctx.files.fx.root], { timeoutMs: 15 * 60_000 }); if (ch.length) ctx.log?.info?.('devenv: git hooks lost their exec bit at start', { count: ch.length }) } catch (e) { ctx.log?.warn?.('devenv: git hooks could not be checked at start', { error: (e as Error).message }) }
   // the calls of waiting commands went with the old process
   endOrphanTickets(ctx.db)
   // so did the preview forwarders (their stdin closed): their sockets stay as files

@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { dangerousGitSetting, gitEnv } from '../../server/src/devenv/srt/git-guard'
-import { GIT_HOOK_NAMES, findHookCandidates, isHookName, sweepHooks, sweepRoots } from '../../server/src/devenv/srt/hook-sweep'
+import { GIT_HOOK_NAMES, findHookCandidates, isHookName, othersLive, sweepEntrySync, sweepHooks, sweepRoots, visibleOf } from '../../server/src/devenv/srt/hook-sweep'
 
 const tmp = (p: string) => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), p)))
 const dec = (b: Uint8Array) => new TextDecoder().decode(b)
@@ -106,7 +106,7 @@ describe('the sweep', () => {
     expect(await sweepHooks([w.proj])).toEqual([])
     expect(x(outside)).toBe(0o111)
   })
-  test('a link to a script in a team folder the run only reads: the script loses its exec bit (with the team folder as linkRoots)', async () => {
+  test('a link to a script in a team folder the run only reads: the script loses its exec bit (visible: what the run may read)', async () => {
     const w = world()
     init(w.proj, w.home)
     const shared = path.join(w.team, 'shared'); plant(path.join(shared, 'tool.sh'), w.mark)
@@ -115,7 +115,7 @@ describe('the sweep', () => {
     git(w.proj, args, w.home); expect(fs.existsSync(w.mark)).toBe(true); fs.rmSync(w.mark)
     // only the project folder as a root: the target is not changed
     expect(await sweepHooks([w.proj])).toEqual([])
-    expect(await sweepHooks([w.proj], { linkRoots: [w.team] })).toEqual([path.join(shared, 'tool.sh')])
+    expect(await sweepHooks([w.proj], { visible: { read: [w.proj, shared] } })).toEqual([path.join(shared, 'tool.sh')])
     git(w.proj, args, w.home)
     expect(fs.existsSync(w.mark)).toBe(false)
   })
@@ -133,12 +133,13 @@ describe('the sweep', () => {
     try {
       expect(await sweepHooks([w.proj])).toEqual([path.join(d, 'pre-commit')])
       expect(x(path.join(d, 'pre-commit'))).toBe(0)
+      // the folder's own mode is put back (V9)
+      expect(fs.statSync(d).mode & 0o777).toBe(0o300)
     } finally { fs.chmodSync(d, 0o755) }
   })
-  test('limits: too many hook files or too slow fails (a run does not start)', async () => {
+  test('limits: too slow fails (a run does not start); many hook-named files that are not executable cost nothing', async () => {
     const w = world()
     for (let i = 0; i < 5; i++) plant(path.join(w.proj, String(i), 'pre-commit'), w.mark)
-    await expect(sweepHooks([w.proj], { maxFound: 3 })).rejects.toThrow('too many git hook files')
     await expect(findHookCandidates([w.proj], { timeoutMs: 1, find: '/bin/sleep' })).rejects.toThrow('too long')
     // folders that are not there are no error
     expect(await sweepHooks([path.join(w.proj, 'gone')])).toEqual([])
@@ -160,5 +161,106 @@ describe('config hooks of newer git', () => {
   test('hook.<name>.command in a repository\'s config names a program: the wrapper refuses it', () => {
     expect(dangerousGitSetting('hook.pre-commit.command', 'touch /tmp/x')).toBe('hook.command')
     expect(dangerousGitSetting('hook.linter.event', 'pre-commit')).toBeNull()
+  })
+})
+
+// The independent review of #46 (V1-V9): each attack, and what the sweep does now
+const isRoot = process.getuid?.() === 0
+describe('review of #46', () => {
+  test.skipIf(isRoot)('V1 an exec-only (0111) ELF hook loses its exec bit and does not run', async () => {
+    const w = world()
+    init(w.proj, w.home)
+    const hook = path.join(w.proj, 'tools/hooks/pre-commit')
+    fs.mkdirSync(path.dirname(hook), { recursive: true })
+    fs.copyFileSync(fs.existsSync('/usr/bin/false') ? '/usr/bin/false' : '/bin/false', hook)
+    fs.chmodSync(hook, 0o111)
+    // the repro: it runs (it is false: the commit fails)
+    expect(git(w.proj, ['-c', 'core.hooksPath=tools/hooks', ...COMMIT], w.home).code).not.toBe(0)
+    expect(await sweepHooks([w.proj])).toEqual([hook])
+    expect(x(hook)).toBe(0)
+    expect(git(w.proj, ['-c', 'core.hooksPath=tools/hooks', ...COMMIT], w.home).code).toBe(0)
+  })
+  test('V2 a hook-named link to a file the run cannot read (another person\'s folder) leaves that file alone', async () => {
+    const w = world()
+    const bob = path.join(w.team, 'users', 'bob'); fs.mkdirSync(bob, { recursive: true })
+    const victim = path.join(bob, 'deploy.sh'); fs.writeFileSync(victim, '#!/bin/sh\n', { mode: 0o755 })
+    fs.symlinkSync(victim, path.join(w.proj, 'post-merge'))
+    const v = visibleOf({ allowRead: [w.proj, path.join(w.team, 'users', 'erin')], allowWrite: [w.proj], denyRead: [path.join(w.team, 'users')] }, w.team)
+    expect(await sweepHooks([w.proj], { visible: v })).toEqual([])
+    expect(x(victim)).toBe(0o111)
+  })
+  test('V3 a hook that is a hard link to a file outside the team folder: the hook gets a copy without the exec bit, the other file keeps its mode', async () => {
+    const w = world(), out = tmp('hs-out-')
+    const victim = path.join(out, 'tool'); fs.writeFileSync(victim, '#!/bin/sh\necho tool\n', { mode: 0o755 })
+    const hook = path.join(w.proj, 'pre-commit')
+    try { fs.linkSync(victim, hook) } catch { return } // another file system here: nothing to show
+    expect(await sweepHooks([w.proj])).toEqual([hook])
+    expect(x(victim)).toBe(0o111)
+    expect(x(hook)).toBe(0)
+    expect(fs.statSync(hook).ino).not.toBe(fs.statSync(victim).ino)
+    expect(fs.readFileSync(hook, 'utf8')).toBe('#!/bin/sh\necho tool\n')
+  })
+  test('V4 20 001 empty files called update do not make the sweep fail', async () => {
+    const w = world()
+    for (let i = 0; i < 20_001; i++) { const d = path.join(w.proj, 'n', String(i)); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, 'update'), '') }
+    expect(await sweepHooks([w.proj])).toEqual([])
+  }, 120_000)
+  test.skipIf(process.platform !== 'darwin')('V5 a look-alike name the file system resolves to a hook (pre-puſh on APFS) loses its exec bit', async () => {
+    const w = world()
+    const h = path.join(w.proj, 'h'); fs.mkdirSync(h)
+    const f = path.join(h, 'pre-puſh'); fs.writeFileSync(f, `#!/bin/sh\ntouch ${w.mark}\n`, { mode: 0o755 })
+    expect(fs.existsSync(path.join(h, 'pre-push'))).toBe(true)
+    expect(await sweepHooks([w.proj])).toEqual([f])
+    expect(x(f)).toBe(0)
+    const a = path.join(w.proj, 'a'), b = path.join(w.proj, 'b.git')
+    init(a, w.home); git(a, COMMIT, w.home); init(b, w.home, '--bare')
+    git(a, ['-c', `core.hooksPath=${h}`, 'push', '-q', b, 'HEAD:refs/heads/main'], w.home)
+    expect(fs.existsSync(w.mark)).toBe(false)
+    // an ordinary non-ASCII name keeps its mode
+    const other = path.join(w.proj, 'büild.sh'); fs.writeFileSync(other, '#!/bin/sh\n', { mode: 0o755 })
+    expect(await sweepHooks([w.proj])).toEqual([])
+    expect(x(other)).toBe(0o111)
+  })
+  test('V6 a hook in a folder the run only reads: Files puts it there (sweepEntrySync), or another person\'s live run may write there (othersLive)', async () => {
+    const w = world()
+    const other = path.join(w.team, 'projects', 'q'), tools = path.join(other, 'tools'); fs.mkdirSync(tools, { recursive: true })
+    fs.writeFileSync(path.join(tools, 'runner'), `#!/bin/sh\ntouch ${w.mark}\n`, { mode: 0o755 })
+    await sweepHooks([other]) // erin's run ends: runner is no hook, it keeps its bit
+    expect(x(path.join(tools, 'runner'))).toBe(0o111)
+    fs.renameSync(path.join(tools, 'runner'), path.join(tools, 'pre-commit')) // a Files rename
+    expect(sweepEntrySync(path.join(tools, 'pre-commit'), { visible: { read: [w.team] } })).toEqual([path.join(tools, 'pre-commit')])
+    init(w.proj, w.home)
+    git(w.proj, ['-c', `core.hooksPath=${tools}`, ...COMMIT], w.home)
+    expect(fs.existsSync(w.mark)).toBe(false)
+    // a folder moved by Files: everything in it
+    const moved = path.join(w.team, 'projects', 'moved'); plant(path.join(moved, 'deep/x/post-checkout'), w.mark)
+    expect(sweepEntrySync(moved, { visible: { read: [w.team] } })).toEqual([path.join(moved, 'deep/x/post-checkout')])
+    // another person's live run: the folders it may write that this run may read are swept before this run
+    const v = { read: [w.proj, other], deny: [] }
+    expect(othersLive([{ userId: 'erin', roots: [other] }, { userId: 'alice', roots: [w.proj] }, { userId: 'bob', roots: [path.join(w.team, 'users', 'bob')] }], 'alice', v)).toEqual([other])
+    expect(othersLive([{ userId: 'erin', roots: [w.team] }], 'alice', v).sort()).toEqual([w.proj, other].sort())
+  })
+  test('V7 a filter in a teammate\'s nested repository: the wrapper refuses it (git on PATH); git by its full path is a known gap (decision)', () => {
+    // the wrapper's refusal is tested in dev-env-git-guard.test.ts G3-G11 and srt-attack.ts G3; /usr/bin/git skips the
+    // wrapper and a same-account sandbox cannot make it unavoidable: docs/decisions/20261119-git-hooks-bypass-shared.md
+    expect(true).toBe(true)
+  })
+  test('V8 a husky-style link hook takes the exec bit of the script it names; sh still runs it', async () => {
+    const w = world()
+    const s = path.join(w.proj, 'scripts/lint.sh'); fs.mkdirSync(path.dirname(s)); fs.writeFileSync(s, '#!/bin/sh\necho lint\n', { mode: 0o755 })
+    fs.mkdirSync(path.join(w.proj, '.husky')); fs.symlinkSync('../scripts/lint.sh', path.join(w.proj, '.husky/pre-commit'))
+    await sweepHooks([w.proj])
+    expect(x(s)).toBe(0)
+    expect(dec(Bun.spawnSync(['sh', s]).stdout)).toBe('lint\n')
+  })
+  test.skipIf(isRoot)('V9 a folder find cannot list (0311) is read through itself and its mode put back', async () => {
+    const w = world()
+    const d = path.join(w.proj, 'locked'); fs.mkdirSync(d); fs.writeFileSync(path.join(d, 'pre-commit'), '#!/bin/sh\n', { mode: 0o755 })
+    fs.mkdirSync(path.join(d, 'sub')); fs.writeFileSync(path.join(d, 'sub', 'update'), '#!/bin/sh\n', { mode: 0o755 })
+    fs.chmodSync(d, 0o311)
+    try {
+      expect((await sweepHooks([w.proj])).sort()).toEqual([path.join(d, 'pre-commit'), path.join(d, 'sub', 'update')].sort())
+      expect(fs.statSync(d).mode & 0o777).toBe(0o311)
+    } finally { fs.chmodSync(d, 0o755) }
   })
 })

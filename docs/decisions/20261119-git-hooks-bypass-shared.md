@@ -3,7 +3,7 @@
 - Date: 2026-11-19
 - Status: accepted
 - Supersedes: none. Adds to [20261118-devenv-git-hooks.md](20261118-devenv-git-hooks.md) (its rule 1 alone did not hold)
-- Branch: fix/git-hooks-bypass-shared (QA TC-5348, P1, qa.trina.app 0.5.18-dev fec2dbb)
+- Branch: fix/git-hooks-bypass-shared (QA TC-5348, P1, qa.trina.app 0.5.18-dev fec2dbb; independent review of #46)
 
 - **Ask:** every run gets `core.hooksPath=/dev/null` from its environment (`GIT_CONFIG_COUNT`), and srt write-protects
   the top `.git/hooks` and `.git/config`. But a command line wins over the environment: in a shared project folder
@@ -12,61 +12,97 @@
   sub-folder, `git -C` into another repository, a bare repository (`--git-dir`, or a push into it: its `pre-receive`),
   and `/usr/bin/git`, which skips the wrapper. A hook written in a repository made in the same command also stayed on
   the disk with its exec bit.
-- **Rule: the guard is the exec bit on the disk, not git's settings.** git runs a hook only when the file is
-  executable (Linux: it skips it with "hint: … ignored because it's not set as executable"; macOS: the ACL of the run
-  folders makes `access` say yes, and the exec then fails with "cannot exec": no hook runs either way), whatever the
-  settings name. So the server (`server/src/devenv/srt/hook-sweep.ts`, outside the sandbox) takes the exec bits of every
-  file that git could run as a hook in every folder a run may write (the team folders of its view, a shared chat's work
-  folder; not the run's own home and temp folder):
-  - a file with a hook's name (the 28 names of githooks(5), any letter case: macOS folders ignore it) at any depth, in
-    any folder, since `core.hooksPath` may name any folder; `.sample` files and other names keep their mode;
-  - a link with a hook's name: its target, when that is in one of those folders (git follows the link); a link out of
-    them (a system program) is left alone;
-  - **before the run starts**: what earlier runs of anyone left there. The run does not start when the folders cannot
-    be checked whole (more than 20 000 hook files, over 30 s, a folder that cannot be opened): fail closed;
-  - **after the run ends**: what the run wrote, so a later run of another person, and a reader of that folder from
-    another project, finds no executable hook. It does not hold up the command's answer.
-  - Each file is opened without following a link (`O_NOFOLLOW`, `O_NONBLOCK`: a FIFO does not hang) and its real path
-    and device and inode are checked to be inside the swept folders before `fchmod`, so a folder swapped for a link
-    meanwhile never makes the server change a file outside them. `find -P` lists; when it cannot read a folder, a walk
-    of our own opens it (a folder git can search but not list could hide a hook from `find` only).
+
+## First choice asked for: a git wrapper no command can go around. Not doable on srt
+
+The coordinator's first layer was the wrapper bound read-only over every git binary in the sandbox, so the real git is
+reached only through it. On srt 0.0.81 that cannot be made to hold:
+
+- srt's settings have `denyRead`, `allowRead`, `allowWrite`, `denyWrite` and `allowGitConfig` only
+  (`sandbox-config.js` FilesystemConfigSchema). Linux binds each path onto itself, a denied file gets `/dev/null`
+  (`linux-sandbox-utils.js`); there is no bind of one file over another path. (The masked-file binds are srt's
+  credential masking, which rewrites secrets in text files; not a way to put another program in place.)
+- Even with such a bind the wrapper must run the real git, so the real git must be executable in the same sandbox, by
+  the same account: whatever path the wrapper execs, the command can exec (its path is in the wrapper's source, which
+  the command can read). On Debian 13 `/usr/lib/git-core` has 149 executable entry points (`git-receive-pack`,
+  `git-upload-pack`, … are links to `git`); hiding all of them breaks git's own scripted commands, which run `git`
+  from that folder.
+- The command cannot change its own mounts: srt refuses nested user namespaces (its seccomp helper, or bubblewrap
+  `--disable-userns`, `SRT_ALLOW_NESTED_USERNS=0`), so no first line can remount or hide anything after srt.
+- A run may also bring its own git (a static build from the network, `pip install dulwich`).
+
+The only design that would make it hold is a git run outside the command's sandbox (the wrapper sends argv, stdio
+and cwd to the server, which runs git in a second sandbox of the same person with git visible only there) while git
+is hidden from every run. That is a project of its own (stdio and signals over a socket, a second srt start per git
+call, ~0.3 s each); not in this change.
+
+So the wrapper stays what it was (rule 2 of 2026-11-18: it refuses a repository's settings that run a program, now also
+`hook.<name>.command`), and the guard for hooks is the file's exec bit, which no command line can change for git.
+
+## Rule: the exec bit on the disk
+
+git runs a hook only when the file is executable (Linux: skipped with "hint: … ignored because it's not set as
+executable"; macOS: the ACL of the run folders makes `access` say yes, then the exec fails with "cannot exec": no hook
+runs either way), whatever the settings name. `server/src/devenv/srt/hook-sweep.ts` (on the server, outside the
+sandbox) takes the exec bits of every file git could run as a hook:
+
+- **What is a hook:** an executable file git would open by one of the 28 hook names of githooks(5): the name in any
+  ASCII letter case, and on macOS any other name APFS resolves a hook's name to (`pre-puſh` is opened as `pre-push`):
+  such a file (every executable non-ASCII name) is checked by looking each hook's name up in its folder, as git does.
+  Only executable files are counted, so many empty `update` files cost nothing and fail nothing (review V4).
+- **A hook-named link:** its target loses the bit when the target is a file the run may read (its view, without
+  personal folders): another person's folder, a hidden sub-folder or a system program is never changed (review V2).
+  A husky-style link to `scripts/lint.sh` takes that script's bit; `sh scripts/lint.sh` still runs it (review V8,
+  kept: with no unavoidable wrapper, the link is a way to run the script as a hook).
+- **A file with more than one name** (a hard link, possibly to a file outside the team folder on macOS): the hook's
+  name gets a copy of its own without the exec bit; the other name keeps its mode (review V3).
+- **How:** Linux: an `O_PATH|O_NOFOLLOW` descriptor and chmod through `/proc/self/fd`, so an exec-only (0111) file is
+  changed too (review V1); macOS: the descriptor, else `lchmod`. Each is checked by device and inode first; paths are
+  resolved by hand (lstat, readlink; nothing opened). A hook that is still executable after that fails the sweep.
+- **Where and when:**
+  - before a run starts: the folders it may write, and the folders other people's live runs may write that it may
+    read (`runner.ts` liveSweeps: a job or dev server may write a hook there after its last sweep; review V6, R2b).
+    The run does not start when they cannot be checked in 30 s or a hook cannot be made safe (fail closed);
+  - after a run ends: the folders it may write (not holding up its answer);
+  - when the server starts (`reconcile`): the whole team folder once, for runs that were live during a restart;
+  - when Files moves, copies or restores an entry (`team-files/service.ts` hookSafe): that entry, all of a folder
+    (a rename keeps a file's mode: review V6, R2).
+  - `find -P` lists (only executable files and links); when it cannot list a folder, a walk of our own looks the hook
+    names up in it and lists it with a read bit given for that moment, through the folder itself, then put back
+    (review V9).
 - **What runs:** a hook the run writes itself keeps its bit until the run ends, so a person's own hooks may run in her
-  own command (`git -c core.hooksPath=…`), as Claude Code would let them. An ordinary executable file (`build.sh`,
-  `node_modules/.bin` targets, a venv's scripts) keeps its exec bit: running project code on purpose stays possible
-  (rule 4 of the decision of 2026-11-18).
-- **Other options, and why not:**
-  - a git wrapper alone: `/usr/bin/git`, `git-core/git` and a copy of git skip it, and the command line wins over it;
-  - a `noexec` mount of the shared project for runs of other people, or a Landlock execute rule: srt 0.0.81 has no
-    `noexec` and blocks nested user namespaces (`--disable-userns`), so the command cannot be given one, and both
-    would stop every executable of the folder (`node_modules/.bin`, `.venv/bin`, `./build.sh`): npm, Python venvs and
-    build scripts of a shared project would no longer run;
-  - masking each hooks folder empty in the run: `core.hooksPath` may name any folder, and a mask holds only what
-    exists as the run starts;
-  - a seccomp rule cannot see file names.
-- **Not covered, said plainly:**
-  - a command that runs a teammate's file by itself: `sh .git/hooks/pre-commit`, `chmod +x` it and then git, a
-    `-c core.fsmonitor=./x`, `-c alias.x='!./x'` or `-c core.sshCommand=./x` that names the program on the command
-    line. That is asking for the file to run, like `./build.sh`.
-  - a hook written by another person's job or dev server that runs at the same moment as this command, in a folder
-    the command then names as its hooks folder. Commands of one folder run one at a time (runner.ts withRootLock),
-    jobs and dev servers do not. The window ends when that job ends (its sweep).
-  - config hooks of a newer git (`hook.<name>.command`) run a command, not a file: a repository's setting is refused by
-    the wrapper (rule 2 of the decision of 2026-11-18, now with `hook.command`); one on the command line is the
-    command's own, as above.
-  - a file with a hook's name that is not a hook (a script called `update`) loses its exec bit in a shared folder;
-    `sh update` still runs it.
-- **Other files that run by themselves, looked at (TC-5348):**
-  - in scope and covered here: git hooks, also the ones a `pre-commit` (Python) or husky set-up installs: they are
-    hook-named files in a hooks folder; `.pre-commit-config.yaml` itself runs only through such a hook or an asked-for
-    `pre-commit run`.
-  - project code by intent (rule 4 of 2026-11-18, unchanged): `package.json` scripts and a project `.npmrc` with
-    `npm`, `setup.py` / `pyproject.toml` with `pip`, Makefiles with `make`, Python files next to an asked-for `python`.
-    The command names the tool on the folder; Claude Code runs them the same way.
-  - nothing runs them here: `.envrc` (no direnv), `.vscode/tasks.json` and `launch.json` (no editor), `.bashrc` and
-    `.profile` of the folder (srt runs `bash -c`, no login or interactive shell, and HOME is the run's own).
-- **Tests:** `tests/unit/dev-env-hook-sweep.test.ts` (each bypass with the real git by its full path: first the
-  repro, the hook runs; then after the sweep it does not; every hook name, letter case, links in and out, a FIFO, an
-  unlistable folder, the limits, a person's own hook in her command), `tests/unit/dev-env-command-access.test.ts` (the
-  runner sweeps before a run and after it), `tests/linux/srt-attack.ts` G12-G21 on real srt (G1 and G16a: the hooks
-  erin's command wrote have no exec bit once it ended; G21: her ordinary script and alice's own hook still run).
+  own command (`git -c core.hooksPath=…`), as Claude Code would let them. Ordinary executables (`build.sh`,
+  `node_modules/.bin` targets, venv scripts) keep their bit. A person's own hooks lose the bit at the start of her
+  next command too (review 6b): the sweep cannot tell her file from another person's, and the default
+  `core.hooksPath=/dev/null` runs none anyway.
+
+## Not covered, said plainly
+
+- **git by its full path and a repository's settings** (review V7/finding 9, there before this change): `/usr/bin/git`
+  skips the wrapper, so a filter, diff or merge driver, `core.sshCommand` or `gpg.program` in a repository a teammate
+  made in a sub-folder runs in Alice's `/usr/bin/git add`. See the first section: no same-account sandbox can force
+  the wrapper. git on PATH (what the AI, npm, make and editors run) is refused.
+- A command that runs a teammate's file by itself: `sh .git/hooks/pre-commit`, `chmod +x` it and then git, a
+  `-c core.fsmonitor=./x`, `-c alias.x='!./x'` or `-c core.sshCommand=./x` that names the program on the command line.
+- A hook written by another person's live job or dev server **during** this command (after its start sweep): the
+  next command of the folder sweeps it. Commands of one folder run one at a time (runner.ts withRootLock).
+- Between a server restart and the end of its first sweep of the team folder, a hook left by a run that was live at
+  the restart, in a folder the next run only reads.
+- Linux folders with case-folding (`chattr +F`) are not looked up as on macOS (none on the servers).
+
+## Other files that run by themselves (TC-5348)
+
+- In scope and covered here: git hooks, also the ones a `pre-commit` (Python) or husky set-up installs.
+- Project code by intent (rule 4 of 2026-11-18, unchanged): `package.json` scripts and a project `.npmrc` with `npm`,
+  `setup.py` / `pyproject.toml` with `pip`, Makefiles with `make`, Python files next to an asked-for `python`.
+- Nothing runs them here: `.envrc` (no direnv), `.vscode/tasks.json` and `launch.json` (no editor), `.bashrc` and
+  `.profile` of the folder (srt runs `bash -c`, HOME is the run's own).
+
+## Tests
+
+`tests/unit/dev-env-hook-sweep.test.ts` (each bypass with the real git by its full path: the repro, then the sweep;
+the review's V1-V9), `tests/unit/dev-env-command-access.test.ts` (the runner sweeps before and after a run),
+`tests/linux/srt-attack.ts` G12-G21, R1-R4 and R2b on real srt, with the sweep run as the server account
+(`tests/linux/sweep-as.ts`).
+
 - **Version impact:** patch.

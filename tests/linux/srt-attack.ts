@@ -12,7 +12,7 @@ import path from 'node:path'
 import { RuleSet, type Access, type Principal } from '../../server/src/policy/access'
 import { folderView, sharedFolderView, sharedPathAccess } from '../../server/src/devenv/srt/access'
 import { gitWrapperSource } from '../../server/src/devenv/srt/git-guard'
-import { sweepHooks, sweepRoots } from '../../server/src/devenv/srt/hook-sweep'
+import { othersLive, sweepRoots, visibleOf, type Visible } from '../../server/src/devenv/srt/hook-sweep'
 import { entryGuard, entryPins, hideDeniedNames, lockFolders, makeGuardDir, writePins } from '../../server/src/devenv/srt/mounts'
 import { holdPlaceholders, SRT_DENY_DIRS, SRT_DENY_FILES } from '../../server/src/devenv/srt/placeholders'
 import { SRT_PATHS, runGuard, chatHome, chatLogs, chatWork, devenvPaths, projectHome, isFull, personHome, personLogs, resolveRunCwd, runEnv, runHome, runLogs, runTmp, sharedLogs, sharedWork, sharedWorkKey, srtSettings, settingsProblems, wrappedArgv } from '../../server/src/devenv/srt/config'
@@ -178,6 +178,13 @@ process.env.GH_TOKEN = `${CANARY}-gh-token`; process.env.ANTHROPIC_API_KEY = `${
 // ---- one run, as the runner does it (no scope) ----
 const SRT_NAMES = new Set([...SRT_DENY_FILES, ...SRT_DENY_DIRS.flatMap((d) => d.split('/').map((_, i, a) => a.slice(0, i + 1).join('/')))])
 let n = 0
+/** the runner's live runs and the folders each may write (runner.ts liveSweeps) */
+const live = new Map<string, { userId: string; roots: string[] }>()
+/** the hook sweep as the runner does it: as the server account (sweep-as.ts). Null, or why it failed */
+function sweepAs(a: { roots?: string[]; entry?: string; visible?: Visible }): string | null {
+  const r = Bun.spawnSync(['setpriv', `--reuid=${SRV}`, `--regid=${SRV}`, '--init-groups', '--', process.execPath, path.join(import.meta.dir, 'sweep-as.ts'), JSON.stringify(a)], { cwd: '/', env: { PATH: process.env.PATH! } })
+  return r.exitCode === 0 ? null : (r.stderr.toString().trim() || `exit ${r.exitCode}`)
+}
 async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: string; extra?: string[]; user?: string[]; full?: boolean; during?: () => void; afterPins?: () => void; timeoutMs?: number; work?: boolean; start?: string; who?: Principal; people?: (typeof ALICE | typeof CAROL)[]; shared?: { chat: string; within: string | null; audience: Principal[] }; rawCwd?: boolean } = {}): Promise<{ code: number | null; out: string; refused?: string }> {
   const runId = `attack${String(++n).padStart(10, '0')}`
   const sh_ = o.shared
@@ -236,7 +243,11 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   // as the runner (spawnRun): every file git could run as a hook in the folders the run may write loses its exec bit
   // before the run, and again after it (QA TC-5348, hook-sweep.ts)
   const swept = sweepRoots(settings.filesystem.allowWrite, [runHome(BASE, owner), runTmp(BASE, owner)])
-  await sweepHooks(swept, { linkRoots: [TEAM] })
+  const visible = visibleOf(settings.filesystem, TEAM)
+  // and the folders other people's live runs may write that this run may read (runner.ts liveSweeps)
+  const first = sweepAs({ roots: [...new Set([...swept, ...othersLive(live.values(), who.id, visible)])], visible })
+  if (first !== null) { release(); dropGuard(); return { code: null, out: first, refused: 'sweep' } }
+  live.set(runId, { userId: who.id, roots: swept })
   const p = Bun.spawn(argv, { cwd, env: runEnv({ base: BASE, userId: who.id, teamRoot: TEAM, work, sharedChat, runId, projectFolder, logKey }), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' })
   const t = setTimeout(() => p.kill('SIGKILL'), o.timeoutMs ?? 60_000)
   if (o.during) setTimeout(o.during, 1500)
@@ -244,7 +255,8 @@ async function run(command: string, o: { network?: 'open' | 'offline'; cwd?: str
   await p.exited; clearTimeout(t)
   const code = fs.existsSync(exitFile) ? Number(fs.readFileSync(exitFile, 'utf8').trim()) : null
   release(); dropGuard()
-  await sweepHooks(swept, { linkRoots: [TEAM] })
+  const after = sweepAs({ roots: swept, visible }); live.delete(runId)
+  if (after !== null) console.log(`     note: the sweep after ${runId} failed: ${after}`)
   fs.rmSync(settingsFile, { force: true }); fs.rmSync(exitFile, { force: true })
   return { code, out: a + b }
 }
@@ -427,6 +439,27 @@ ls -l tools/hooks/pre-commit build.sh && echo PLANTED`,
   { id: 'G21', what: 'legitimate work: erin\'s ordinary script runs, and a hook alice writes in her own command runs there', o: { start: 'projects/gitp' },
     cmd: `./build.sh && mkdir own21 && cd own21 && /usr/bin/git init -q && printf '#!/bin/sh\\necho OWN-HOOK-RAN\\n' > .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit && /usr/bin/git -c core.hooksPath=.git/hooks ${GID} commit -q --allow-empty -m own`,
     check: both(ok, has('BUILD-OK'), has('OWN-HOOK-RAN'), hookNotRun) },
+  // ---- independent review of #46 (variants R1-R4): each is written as the fix must behave ----
+  { id: 'R1a', what: 'erin: an exec-only (0111) ELF hook (a copy of /bin/false) in tools2/hooks', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `mkdir -p tools2/hooks && cp /bin/false tools2/hooks/pre-commit && chmod 0111 tools2/hooks/pre-commit && ls -l tools2/hooks/pre-commit && echo PLANTED`,
+    check: both(ok, has('PLANTED')), after: () => noExec(`${GITP}/tools2/hooks/pre-commit`) },
+  { id: 'R1b', what: 'alice: core.hooksPath=tools2/hooks: the exec-only hook does not run (it is /bin/false: running = commit fails)', o: { start: 'projects/gitp' },
+    cmd: `/usr/bin/git -c core.hooksPath=tools2/hooks ${GID} commit -q --allow-empty -m r1 && echo COMMITTED; ls -l tools2/hooks/pre-commit`, check: has('COMMITTED') },
+  { id: 'R2', what: 'alice: a hook in a folder her run only reads (shared/hk), made a hook by a Files rename that keeps the mode', o: { start: 'projects/gitp' },
+    before: () => {
+      fs.mkdirSync(`${TEAM}/shared/hk`, { recursive: true }); fs.writeFileSync(`${TEAM}/shared/hk/runner`, `#!/bin/sh\necho HOOK-RAN; touch ${GMARK}\n`, { mode: 0o755 }); sh(`chown -R ${SRV}:${SRV} ${TEAM}/shared/hk`)
+      // as Files does (team-files/service.ts relocate, then hookSafe on what it moved)
+      fs.renameSync(`${TEAM}/shared/hk/runner`, `${TEAM}/shared/hk/pre-commit`)
+      const why = sweepAs({ entry: `${TEAM}/shared/hk/pre-commit`, visible: { read: [TEAM], deny: [`${TEAM}/users`] } }); if (why) throw new Error(why)
+    },
+    cmd: `ls -l ${TEAM}/shared/hk/pre-commit; /usr/bin/git -c core.hooksPath=${TEAM}/shared/hk ${GID} commit -q --allow-empty -m r2 && echo COMMITTED`, check: both(has('COMMITTED'), hookNotRun) },
+  { id: 'R3', what: 'erin: a hook-named link to bob\'s personal script (users/bob, hidden from her): the sweep does not change it', o: { who: ERIN, start: 'projects/gitp' },
+    before: () => { fs.mkdirSync(`${TEAM}/users/bob`, { recursive: true }); fs.writeFileSync(`${TEAM}/users/bob/tool.sh`, '#!/bin/sh\n', { mode: 0o755 }); sh(`chown -R ${SRV}:${SRV} ${TEAM}/users/bob`) },
+    cmd: `cat ${TEAM}/users/bob/tool.sh; ln -s ${TEAM}/users/bob/tool.sh post-merge && echo LINKED`, check: has('LINKED'),
+    after: () => (fs.statSync(`${TEAM}/users/bob/tool.sh`).mode & 0o111 ? null : 'the sweep took the exec bit of a file in bob\'s personal folder') },
+  { id: 'R4', what: 'erin: a hard link from the project to a file outside it (srt mounts: EXDEV)', o: { who: ERIN, start: 'projects/gitp' },
+    cmd: `ln ${TEAM}/shared/s.md pre-rebase 2>&1; ln /opt/mycel/package.json pre-auto-gc 2>&1; echo TRIED`, check: has('TRIED'),
+    after: () => (fs.existsSync(`${GITP}/pre-rebase`) || fs.existsSync(`${GITP}/pre-auto-gc`) ? 'a hard link out of the project folder was made' : null) },
   // the home of a project folder's runs is not the home of her own chats (review of #1297)
   { id: 'H1', what: 'alice\'s run in the project folder leaves a file in its home', o: { start: 'projects/gitp' },
     cmd: 'echo HOME=$HOME; touch $HOME/PLANTED-IN-PROJECT-HOME && echo PLANTED', check: both(ok, has(`HOME=${PROJECT_HOME}`), has('PLANTED')) },
@@ -658,6 +691,17 @@ for (const a of attacks) {
   const other = second ? await second : { code: null, out: '' }
   const why = !first.out.includes('SELF=DEV-OF-RUN-ONE') ? `the run did not reach its own dev server: ${first.out.slice(0, 200)}` : other.code !== 0 ? `the second run did not run: ${other.out.slice(0, 200)}` : other.out.includes('DEV-OF-RUN-ONE') ? 'another run reached the dev server' : null
   console.log(`${why ? 'FAIL' : 'pass'} L1 a run's dev server is not reachable from another run (each its own localhost)${why ? `\n     ${why}` : ''}`)
+  if (why) failed++
+}
+// R2b (review of #46): erin's live run writes a hook in a folder alice's run only reads, after erin's run started; alice's
+// command starts while erin's still runs: its sweep takes the folders of other people's live runs too (runner.ts liveSweeps)
+{
+  let second: Promise<{ code: number | null; out: string }> | null = null
+  const plant = `mkdir -p hk2 && sleep 2 && printf '#!/bin/sh\\necho HOOK-RAN; touch ${GMARK}\\n' > hk2/pre-commit && chmod +x hk2/pre-commit && echo PLANTED; sleep 8; true`
+  const first = await run(plant, { who: ERIN, start: 'shared', during: () => { setTimeout(() => { second = run(`ls -l ${TEAM}/shared/hk2/pre-commit; /usr/bin/git -c core.hooksPath=${TEAM}/shared/hk2 ${GID} commit -q --allow-empty -m r2b && echo COMMITTED`, { start: 'projects/gitp' }) }, 2500) } })
+  const other = second ? await second : { code: null, out: '' }
+  const why = !first.out.includes('PLANTED') ? `erin's run did not plant: ${first.out.slice(0, 200)}` : !other.out.includes('COMMITTED') ? `alice's commit did not run: ${other.out.slice(0, 300)}` : hookNotRun(other)
+  console.log(`${why ? 'FAIL' : 'pass'} R2b a hook written by another person's live run in a folder this run only reads does not run${why ? `\n     ${why}` : ''}`)
   if (why) failed++
 }
 { const m1 = modesNow(); const ch = [...MODES0].filter(([p, m]) => m1.has(p) && m1.get(p) !== m).map(([p, m]) => `${p}: ${m} -> ${m1.get(p)}`); console.log(ch.length ? `FAIL HOSTMODES changed on disk: ${ch.slice(0, 20).join(' | ')}` : `pass HOSTMODES no mode or owner changed on disk (${MODES0.size} entries)`); if (ch.length) failed++ }
