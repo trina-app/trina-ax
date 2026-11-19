@@ -45,8 +45,14 @@
     its pinned recipients, not anyone's Always allow ("nobody to ask"; H2);
   - writes files only in the task's save folder (while it has not lapsed) and the maker's own folder; a move or rename
     also counts where its sources are (M1).
-  When every user message on the branch is the maker's own, nobody else could have steered it, and it runs like any of
-  their runs. Also: a teammate's message sent while a run goes waits in the shared chat's queue (409 `shared_chat_busy`,
+  Other people's words also reach a run without a message of theirs (re-review of #1353): in a shared chat the run is
+  also steerable once the chat holds content someone else wrote (`chats.others_words`: a teammate's file the run read),
+  a room's (`rooms_seen`), outside content kept in the session or carried by earlier answers (`session_tainted`), or a
+  quote on the branch (`quotesOnBranch`: "> Bob: …", "Ask Trina about this"). These are read again at every check, so
+  a read during the run restricts the rest of it. Only when the branch holds the maker's own messages and none of these
+  marks is set, nobody else could have steered it, and it runs like any of their runs. Whatever is on the branch, a run
+  in a shared chat never skips the shared read card with an Always allow: that card protects the people who see the
+  chat, not the maker. Also: a teammate's message sent while a run goes waits in the shared chat's queue (409 `shared_chat_busy`,
   the queued sends of #1280); a private task that runs more often than hourly keeps one chat for its runs, one under
   the other; a person has at most 2 scheduled runs queued or running at once (the next occurrence is retried, Run now
   says why: `schedule_too_many`); whether the maker may still continue the shared chat, the allowed addresses and that

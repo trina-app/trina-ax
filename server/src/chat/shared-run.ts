@@ -5,18 +5,28 @@
 // on the run's branch is the maker's own, nobody else could have steered it, and it runs like any of their runs.
 import type { Database } from 'bun:sqlite'
 import { isSharedRow } from './shared'
+import { quotesOnBranch } from './read-rooms'
 
 /** A scheduled run in a shared chat whose branch holds a message someone other than its maker wrote (by the run's
  * turn id). Fails closed: a turn or chat it cannot read counts as steerable when the turn is a scheduled one. */
 export function steerableRun(db: Database, turnId: string | null | undefined): boolean {
   if (!turnId) return false
-  const t = db.query(`SELECT t.client_kind, t.user_id, t.user_message_id, c.shared_at, c.project_id, c.people_shared_at
+  // read again at every call: a read during the run (a teammate's file, a room, a page) sets the chat's marks
+  const t = db.query(`SELECT t.client_kind, t.user_id, t.user_message_id, t.message_id, c.shared_at, c.project_id, c.people_shared_at,
+      c.others_words, c.rooms_seen, c.session_tainted
     FROM turns t LEFT JOIN chats c ON c.id = t.chat_id WHERE t.id = ?`).get(turnId) as
-    { client_kind: string | null; user_id: string; user_message_id: string | null; shared_at: string | null; project_id: string | null; people_shared_at: string | null } | null
+    { client_kind: string | null; user_id: string; user_message_id: string | null; message_id: string | null; shared_at: string | null; project_id: string | null; people_shared_at: string | null
+      others_words: number | null; rooms_seen: number | null; session_tainted: number | null } | null
   if (!t || t.client_kind !== 'schedule') return false
-  // (a chat made private again keeps the earlier messages of the people it was shared with: weighed the same way, so
-  // the chat's state now does not matter; a chat nobody else ever wrote in has none)
-  void isSharedRow
+  // in a shared chat, other people's words also come in without a message of theirs (re-review of #1353): a file
+  // someone else wrote that the run read (chats.others_words), a room (rooms_seen), outside content kept in the session
+  // and the earlier answers that carry it (session_tainted), a quote ("> Bob: …", "Ask Trina about this") on the branch
+  if (isSharedRow(t)) {
+    if (t.others_words || t.rooms_seen || t.session_tainted) return true
+    try { if (quotesOnBranch(db, t.message_id ?? t.user_message_id ?? '')) return true } catch { return true }
+  }
+  // (a chat made private again keeps the earlier messages of the people it was shared with: weighed by their authors
+  // below, whatever the chat's state now; a chat nobody else ever wrote in has none)
   // the branch from the run's own message up to the first one (its parents)
   const seen = new Set<string>()
   let id = t.user_message_id
