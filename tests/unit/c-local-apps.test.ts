@@ -31,6 +31,8 @@ beforeAll(async () => {
 })
 afterAll(async () => { stop?.(); desk?.close(); web?.close(); await h?.close() })
 
+/** connections whose confirm the fake desktop app has had Connect pressed on */
+const connectNow = new Set<string>()
 /** the desktop app: answer local.call as an MCP server would (initialize, tools/list, tools/call echo) */
 function serveLocal(sock: TestSocket) {
   const done = new Set<string>()
@@ -43,6 +45,8 @@ function serveLocal(sock: TestSocket) {
       const m = call.message as { id?: string; method: string; params?: { name?: string; arguments?: { text?: string } } }
       seen.push({ method: m.method, connectionId: call.connectionId, turnId: call.turnId })
       if (call.name === 'Declined') { sock.send({ type: 'local.result', result: { callId: call.callId, ok: false, failure: 'declined', error: 'Cancel' } }); continue }
+      // the desktop app's confirm still open when the check stops waiting; once Connect is pressed (connectNow) it answers
+      if (call.name === 'Unconfirmed' && !connectNow.has(call.connectionId)) { sock.send({ type: 'local.result', result: { callId: call.callId, ok: false, failure: 'unconfirmed', error: 'not pressed yet' } }); continue }
       const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } }
         : m.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Say it back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { readOnlyHint: true } }] }
         : m.method === 'tools/call' ? { content: [{ type: 'text', text: `echo: ${m.params?.arguments?.text ?? ''}` }] }
@@ -121,6 +125,26 @@ describe('kind local: the person\'s own, through their desktop window', () => {
     expect(d).toMatchObject({ status: 'error', lastErrorReason: 'local_declined' })
     expect(d.lastError).toContain('Cancel')
     await h.api('alice').call(API.deleteIntegration, { params: { id: d.id } })
+  })
+
+  test('the confirm not answered in time: stored as waiting for the person, in words that point to the desktop app\'s window; a later Connect checks again', async () => {
+    const u = await deskApi().call(API.createLocalIntegration, { body: { name: 'Unconfirmed', spec: { ...SPEC, args: ['mcp', '--host', 'u'] } } })
+    expect(u).toMatchObject({ status: 'error', lastErrorReason: 'local_confirm' })
+    expect(u.lastError).toBe('Waiting for you to confirm in the desktop app. Press Connect there.')
+    expect(u.lastError).not.toContain("didn't answer")
+    // Connect pressed later: the page checks again (useIntegrationActions on DesktopBridge.localApps.onConfirmed)
+    connectNow.add(u.id)
+    const again = await deskApi().call(API.refreshIntegration, { params: { id: u.id }, body: {} })
+    expect(again).toMatchObject({ status: 'connected', lastErrorReason: null })
+    await h.api('alice').call(API.deleteIntegration, { params: { id: u.id } })
+  })
+
+  test('a confirm still open is a reason of its own; a turn waits five minutes for it', async () => {
+    const { LocalError } = await import('../../server/src/integrations/connections/local')
+    const e = new LocalError('unconfirmed', 'x')
+    expect(e.reason).toBe('local_confirm')
+    const { CONFIRM_WAIT_MS } = await import('../../server/src/integrations/connections/local')
+    expect(CONFIRM_WAIT_MS).toBe(5 * 60_000)
   })
 
   test('a new command is checked again (the desktop app asks again for it); the same one changes nothing', async () => {

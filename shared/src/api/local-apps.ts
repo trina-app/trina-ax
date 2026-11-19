@@ -144,6 +144,9 @@ export const LocalFailure = z.enum([
   'failed',
   /** the desktop app is too old for this kind of call */
   'too_old',
+  /** the confirm on the computer is still open: the person has not pressed Connect yet (it stays open; a later Connect
+   * makes the page check again) */
+  'unconfirmed',
 ])
 export type LocalFailure = z.infer<typeof LocalFailure>
 

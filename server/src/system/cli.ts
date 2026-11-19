@@ -8,6 +8,8 @@
 //                                                its own as pre-update)
 //   list-backups                                 JSON list
 //   archive --out <file> [--password-stdin]      DB + team folder in one .tar.zst(.age) stream, for an external disk
+//   archive --zip --out <file.zip>               the plain ZIP for people: folders, chats as text and JSON, README.txt
+//                                                (system/team-export-zip.ts); not encrypted, not for restore-archive
 //   restore-archive --in <file> --to <dir> [--password-stdin]
 //                                                decrypt + unpack into a NEW folder; it appears only when the whole
 //                                                archive decrypted and unpacked cleanly and the DB passes its check
@@ -42,7 +44,8 @@
 //   relay-key [--sign-register <slug> <ts>] [--sign-rotate <teamId>] [--sign-reattach <tenantId> <teamId> <ts>]
 //   setup-status | setup-token-rotate
 //   cloud-backup prepare --kind daily|manual|pre-update|final [--local-id <id>] | cloud-backup upload  (stdin JSON)
-//   archive --passphrase-random --upload         the whole team, age with a random passphrase, to presigned URLs (stdin)
+//   archive --passphrase-random --upload         the whole team, age with a random passphrase, to presigned URLs (stdin);
+//                                                with `zip` in stdin also the plain ZIP, age to the CP's one-time key
 //   restore-artifacts --dir <chain> --to <dir>   rebuild db/ + team/ from a downloaded, decrypted off-site chain
 //   restore-verify --dir <chain> --expect JSON   the same into a throwaway folder, compared with the backup's totals
 //   cloud-status [--onboarding]                  the app's part of TenantStatus (system/cloud-tenant.ts)
@@ -80,6 +83,8 @@ import { walkTree } from './manifest'
 import { backupWalk } from './regenerable'
 import { ageDecrypt, ageEncrypt, isAgeFile, readFileChunks, writeAtomic, zstdCompress, zstdDecompress } from './streams'
 import { extractTar, tarStream, type TarEntryInput } from './tar'
+import { teamExportEntries } from './team-export-zip'
+import { zipOut } from './zip-out'
 import { compareVersions, UpdateManager } from './update'
 import { updateWindowAnswer } from './update-job'
 import { existingInstallId, getTeamSettings, teamTimeZone } from '../admin/settings'
@@ -178,6 +183,19 @@ export async function main(argv: string[]): Promise<number> {
       }
       const dest = arg(args, '--out')
       if (!dest) throw new Error('archive needs --out <file>')
+      if (args.includes('--zip')) {
+        // the plain ZIP for people (folders, chats as text and JSON, README.txt): not encrypted, not for restoring
+        const tmpDb = path.join(cfg.dataDir, `archive-${process.pid}.sqlite`)
+        await vacuumInto(dbFile, tmpDb)
+        try {
+          withoutHostingKey(tmpDb)
+          const w = await writeAtomic(zipOut(teamExportEntries({ dbFile: tmpDb, teamRoot: cfg.teamRoot })), path.resolve(dest), 0o600)
+          out({ file: path.resolve(dest), size: w.size, sha256: w.sha256, encrypted: false })
+        } finally {
+          await fsp.rm(tmpDb, { force: true })
+        }
+        return 0
+      }
       const pw = await readPassword(args)
       const tmpDb = path.join(cfg.dataDir, `archive-${process.pid}.sqlite`)
       await vacuumInto(dbFile, tmpDb)

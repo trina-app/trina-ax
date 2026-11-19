@@ -389,6 +389,9 @@ export interface DesktopBridge {
     stop(connectionId: string): void
     running(): Promise<string[]>
     onRunning(cb: (s: { id: string; running: boolean }) => void): () => void
+    /** Connect was pressed in the confirm after the call that asked stopped waiting (the page checks the connection
+     * again by itself). Optional: desktop apps before this addition do not have it. */
+    onConfirmed?(cb: (s: { id: string }) => void): () => void
     setSettings(connectionId: string, values: Record<string, string>): Promise<'saved' | 'unavailable' | 'invalid'>
     settingNames(connectionId: string): Promise<string[]>
   }
