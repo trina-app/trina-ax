@@ -620,7 +620,10 @@ describe('the read card', () => {
 // ---------------- tools and instructions ----------------
 describe('what a shared turn has', () => {
   test('SHARED_TOOLS keeps out the person\'s own and the room tools; a turn offers nothing else', async () => {
-    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search', 'schedule_create']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    for (const t of ['remember', 'forget', 'set_title', 'connect_service', 'room_read', 'rooms', 'room_file', 'save_room_file', 'drive_search']) expect(SHARED_TOOLS.has(t)).toBe(false)
+    // in a shared chat everything is shared (docs/decisions/20261118-shared-schedules-any-frequency.md): schedules and
+    // videos, behind the asker's own cards and with this chat's gates
+    for (const t of ['schedule_create', 'schedule_list', 'schedule_delete', 'generate_video', 'promo_video', 'save_promo_video']) expect(SHARED_TOOLS.has(t)).toBe(true)
     // commands: fenced to what everyone in the chat may read (docs/decisions/20261118-devenv-shared-chats.md)
     expect(SHARED_TOOLS.has('box_shell')).toBe(true)
     const chat = await newShared()

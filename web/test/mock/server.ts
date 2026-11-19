@@ -1714,7 +1714,7 @@ export class MockServer {
   }
 
   /** The edit card of a scheduled task (server/src/tools/schedules.ts scheduleCard, mode 'edit'), in Korean. */
-  scheduleEditRequest(x: Schedule, b: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday?: number | null; day?: number | null; date?: string | null; projectId: string | null; saveFolder?: string | null; saveSources?: string[] }) {
+  scheduleEditRequest(x: Schedule, b: { title: string; prompt: string; repeat: Schedule['repeat']; time: string; weekday?: number | null; weekdays?: number[] | null; day?: number | 'last' | null; date?: string | null; everyMinutes?: number | null; cron?: string | null; projectId: string | null; saveFolder?: string | null; saveSources?: string[] }) {
     if (x.templateId) throw new Fail('conflict', 409, '이 예약 작업은 이 방법으로 바꿀 수 없어요. 화면을 새로 고친 뒤 다시 해 주세요.', undefined, { reason: 'schedule_template' })
     const bad: Record<string, string> = {}
     if (!b.title.trim() || b.title.trim().length > 80) bad['body.title'] = '이 칸을 확인해 주세요.'
@@ -1723,7 +1723,11 @@ export class MockServer {
     if (b.repeat === 'once' && (!b.date || b.date < now().slice(0, 10))) fail('validation', 400, '그 시각은 이미 지났어요. 앞으로의 날짜와 시각을 골라 주세요.', { 'body.date': '그 시각은 이미 지났어요. 앞으로의 날짜와 시각을 골라 주세요.' })
     const project = b.projectId ? this.projects.find((p) => p.id === b.projectId) ?? fail('validation', 400, '그 프로젝트를 찾을 수 없거나 열 수 없어요.', { 'body.projectId': 'not found' }) : null
     const days = ['일요일', '월요일', '화요일', '수요일', '목요일', '금요일', '토요일']
-    const when = b.repeat === 'once' ? `${b.date} ${b.time}에 한 번` : b.repeat === 'daily' ? `매일 ${b.time}` : b.repeat === 'weekdays' ? `평일(월–금) ${b.time}` : b.repeat === 'weekly' ? `매주 ${days[b.weekday ?? 0]} ${b.time}` : `매월 ${b.day}일 ${b.time}`
+    // the kinds of server/src/chat/schedule-timing.ts too: several weekdays, the last day, every N minutes, cron
+    const when = b.repeat === 'once' ? `${b.date} ${b.time}에 한 번` : b.repeat === 'daily' ? `매일 ${b.time}` : b.repeat === 'weekdays' ? `평일(월–금) ${b.time}`
+      : b.repeat === 'weekly' ? `매주 ${(b.weekdays?.length ? b.weekdays : [b.weekday ?? 0]).map((d) => days[d]).join(' 및 ')} ${b.time}`
+      : b.repeat === 'interval' ? `${b.date} ${b.time}부터 ${b.everyMinutes}분마다` : b.repeat === 'cron' ? `반복 일정(cron) "${b.cron}"`
+      : b.day === 'last' ? `매월 마지막 날 ${b.time}` : `매월 ${b.day}일 ${b.time}`
     const urls = [...new Set(b.prompt.match(/https?:\/\/[^\s<>"')]+/g) ?? [])]
     const long = urls.filter((u) => new URL(u).search.length - 1 > 200), opens = urls.filter((u) => !long.includes(u))
     const lines = [`예약 작업을 이렇게 바꿀까요? 예약 작업은 아무도 지켜보지 않을 때 아래 지시문을 그대로 실행해요. 지시문과 주소를 확인해 주세요.\n\n제목: ${b.title.trim()}\n일정: ${when}${project ? `\n프로젝트: ${project.name}` : ''}`]
@@ -1738,7 +1742,7 @@ export class MockServer {
     const details = [{ label: '지시문', text: b.prompt.trim() }]
     if (opens.length) details.push({ label: '실행 때 묻지 않고 여는 주소', text: opens.join('\n') })
     if (long.length) details.push({ label: '실행 때 열지 않는 주소(긴 쿼리)', text: long.join('\n'), marks: long.map((u) => new URL(u).search) } as never)
-    const key = JSON.stringify([b.title.trim(), b.prompt.trim(), b.repeat, b.time, b.weekday ?? null, b.day ?? null, b.date ?? null, b.projectId, folder, kept.map((y) => y.key)])
+    const key = JSON.stringify([b.title.trim(), b.prompt.trim(), b.repeat, b.time, b.weekday ?? null, b.weekdays ?? null, b.day ?? null, b.date ?? null, b.everyMinutes ?? null, b.cron ?? null, b.projectId, folder, kept.map((y) => y.key)])
     const sends = !!x.personalSends?.length
     return { kind: 'ask_user' as const, origin: 'server' as const, requestId: `schedule-edit-${x.id}-${Bun.hash(key).toString(36)}`, allowText: false, multiple: false,
       question: lines.join('\n\n'), options: sends ? [{ label: '바꾸기(연결 서비스에 보내기 허용)', value: 'save_write' }, { label: '바꾸기(연결 서비스에는 보내지 않음)', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }] : [{ label: '바꾸기', value: 'save' }, { label: '바꾸지 않기', value: 'cancel' }], details }
@@ -5401,7 +5405,7 @@ export class MockServer {
         const r = this.scheduleEditRequest(x, c.body)
         if (c.body.requestId !== r.requestId) throw new Fail('conflict', 409, '예약 작업이나 연결 서비스가 그 사이에 바뀌었어요. 카드를 다시 확인해 주세요.', undefined, { reason: 'schedule_card_changed' })
         if (!r.options.some((o) => o.value === c.body.answer)) fail('validation', 400, '이 확인은 카드의 버튼으로만 답할 수 있어요.')
-        if (c.body.answer !== 'cancel') Object.assign(x, { title: c.body.title.trim(), prompt: c.body.prompt.trim(), repeat: c.body.repeat, time: c.body.time, weekday: c.body.weekday ?? null, day: c.body.day ?? null, date: c.body.date ?? null,
+        if (c.body.answer !== 'cancel') Object.assign(x, { title: c.body.title.trim(), prompt: c.body.prompt.trim(), repeat: c.body.repeat, time: c.body.time, weekday: c.body.weekday ?? c.body.weekdays?.[0] ?? null, weekdays: c.body.weekdays ?? (c.body.weekday != null ? [c.body.weekday] : null), day: c.body.day ?? null, date: c.body.date ?? null, everyMinutes: c.body.everyMinutes ?? null, cron: c.body.cron ?? null,
           projectId: c.body.projectId, needsReview: false, reviewSince: null,
           ...(c.body.saveFolder !== undefined ? { saveFolder: c.body.saveFolder, saveLapsed: null } : {}),
           ...(c.body.saveSources ? { saveSources: (x.saveSources ?? []).filter((y) => c.body.saveSources!.includes(y.key)) } : {}),
@@ -6218,6 +6222,11 @@ export class MockServer {
         repeat: tpl === 'weekly-summary' ? 'weekly' : tpl ? 'daily' : (body.repeat as Schedule['repeat'] | undefined) ?? 'weekly', time: '09:00', weekday: tpl === 'daily-file-index' ? null : 1, day: null, date: null, projectId: null,
         enabled: body.enabled !== false, resumeBlockedReason: null, nextRunAt: body.enabled === false ? null : new Date(Date.now() + 86400_000).toISOString(), lastRunAt: null, lastChatId: null, needsReview: false, reviewSince: null,
         ...(tpl ? { templateId: tpl, templateVersion: 1, sourcePath: 'shared/회의록', outputPath: `users/${owner.id}/reports` } : {}),
+        // the kinds of server/src/chat/schedule-timing.ts, and the shared chat a task made there posts in
+        ...(Array.isArray(body.weekdays) ? { weekdays: body.weekdays as number[], weekday: (body.weekdays as number[])[0] ?? null } : {}),
+        ...(typeof body.everyMinutes === 'number' ? { everyMinutes: body.everyMinutes, date: now().slice(0, 10) } : {}),
+        ...(typeof body.cron === 'string' ? { cron: body.cron } : {}),
+        ...(body.postsIn && typeof body.postsIn === 'object' ? { postsIn: body.postsIn as { chatId: string; title: string } } : {}),
         // what its card lets runs save and send (server/src/chat/schedule-scope.ts): "saveFolder" and "lapsed" in the body
         ...(typeof body.saveFolder === 'string' ? { saveFolder: body.saveFolder, saveReaders: 30, saveLapsed: body.lapsed === true ? 'rules' as const : null,
           saveSources: [{ key: `user:${owner.id}`, kind: 'mine' as const, name: null }, { key: 'room:r1', kind: 'room' as const, name: '영업팀' }],

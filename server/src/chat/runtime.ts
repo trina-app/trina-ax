@@ -961,7 +961,9 @@ export class ChatRuntime {
     substitutedFrom?: EngineId
     /** the person's device time zone (TurnSpec.timeZone) */
     timeZone?: string
-    user?: { parentId: string | null; content: string; attachments: Attachment[]; clientMessageId: string }
+    /** `parentId` a function: read inside the admission transaction from the chat `chat()` returned (a scheduled run that
+     * continues an existing chat under its newest answer) */
+    user?: { parentId: string | null | ((chat: ChatRow) => string | null); content: string; attachments: Attachment[]; clientMessageId: string }
     answerTo?: MessageRow
     scheduled?: { id: string; dueAt: string; commit(chatId: string): void }
     /** the user message answers the AI's open questions (chat/open-questions.ts): the engine message names them */
@@ -998,7 +1000,7 @@ export class ChatRuntime {
       // the next quiet moment gives the first in line a fresh grace period (shared-waiting.ts)
       this.sharedWaiting.turnStarted(chat.id)
       if (o.user) {
-        userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
+        userMessageId = this.store.insertMessage({ chatId: chat.id, parentId: typeof o.user.parentId === 'function' ? o.user.parentId(chat) : o.user.parentId, role: 'user', authorId: o.userId, content: o.user.content,
           attachments: o.user.attachments, status: 'done', clientMessageId: o.user.clientMessageId, autoSent: !!o.scheduled })
         if (o.answered?.length) saveAnswered(this.db, userMessageId, o.answered)
       }
