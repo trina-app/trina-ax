@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 
 const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+const LINUX_FIREFOX = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 const dir = process.env.OPEN_APP_SHOTS
 const WIDTHS = [1440, 390] as const
@@ -190,6 +191,27 @@ test.describe('in a Mac browser', () => {
     await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
+  })
+})
+
+// QA TC-5352 / TC-5072: a Linux browser was "other" and /open-app sent it Home, so it could never hand the sign-in back
+test.describe('in a Linux browser', () => {
+  test.use({ userAgent: LINUX_FIREFOX, locale: 'en-US', viewport: { width: 1440, height: 900 } })
+  test('/open-app offers the Linux app and makes its link; no files line (no Find work files on Linux)', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/open-app')
+    await expect(page.getByTestId('open-app-button')).toHaveText('Continue in the Linux app')
+    await expect(page.getByTestId('auth-frame')).toContainText('the AI can use programs on this computer')
+    await expect(page.getByTestId('auth-frame')).not.toContainText('find work files')
+    const minted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/auth/app-signin'))
+    await page.getByTestId('open-app-button').click()
+    await minted
+    await expect(page.getByTestId('open-app-after')).toBeVisible()
+    await page.goto('/files?path=users/olga')
+    // the folder has loaded (rows or its empty state), and My files has no line
+    await expect(page.getByTestId('file-table').or(page.getByTestId('files-empty-upload'))).toBeVisible()
+    await expect(page.getByTestId('open-app-line')).toHaveCount(0)
   })
 })
 

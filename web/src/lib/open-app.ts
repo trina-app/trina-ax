@@ -1,24 +1,25 @@
 // "Continue in the Mac app" (docs/decisions/20261116-desktop-first-onboarding.md): right after making the team on /setup,
-// a Mac or Windows browser goes to /open-app (pages/OpenApp.tsx), whose one button opens the desktop app on this team
-// already signed in, with a one-time code (server/src/auth/app-signin.ts). Finding work files on the computer works only
-// in the desktop app; people who stay in the browser see one quiet line in the files step and in My files
+// a Mac, Windows or Linux browser goes to /open-app (pages/OpenApp.tsx), whose one button opens the desktop app on this
+// team already signed in, with a one-time code (server/src/auth/app-signin.ts). Finding work files on the computer works
+// only in the Mac and Windows app; people who stay in the browser see one quiet line in the files step and in My files
 // (components/OpenAppLine.tsx). Pure rules here, unit-tested in web/test/unit/open-app.test.ts.
 import { openInAppHref } from './team-link'
-import type { Platform } from './pwa'
+import { desktopPlatform, type DesktopPlatform, type Platform } from './pwa'
 
 export const OPEN_APP_PATH = '/open-app'
 export const APP_SIGNIN_PATH = '/app-signin'
 
-export type AppComputer = 'mac' | 'windows'
+export type AppComputer = DesktopPlatform
 
 /**
- * The computer whose desktop app this page can hand the person to: a web browser (not our desktop or phone app) on macOS
- * or Windows (the systems with the desktop app; an iPad that says "Mac" is a phone here, lib/pwa.ts), on a team the app
- * can open from a link: https (the app opens no plain-http link from outside; desktop/src/common/address.ts
- * readDesktopLink) or this machine (development and the tests). null everywhere else (phones, Linux, inside the apps).
+ * The computer whose desktop app this page can hand the person to: a web browser (not our desktop or phone app) on macOS,
+ * Windows or Linux (the systems with the desktop app; an iPad that says "Mac" is a phone here, an Android tablet or a
+ * Chromebook is not Linux, lib/pwa.ts), on a team the app can open from a link: https (the app opens no plain-http link
+ * from outside; desktop/src/common/address.ts readDesktopLink) or this machine (development and the tests). null
+ * everywhere else (phones, inside the apps).
  */
 export function appComputer(o: { platform: Platform; client: 'web' | 'desktop' | 'mobile'; origin: string }): AppComputer | null {
-  if (o.client !== 'web' || (o.platform !== 'mac' && o.platform !== 'windows')) return null
+  if (o.client !== 'web' || !desktopPlatform(o.platform)) return null
   let u: URL
   try { u = new URL(o.origin) } catch { return null }
   const local = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(u.hostname)
@@ -28,12 +29,16 @@ export function appComputer(o: { platform: Platform; client: 'web' | 'desktop' |
 /** This page's origin ('' where there is none: tests without a page address) */
 export const pageOrigin = (): string => (typeof window !== 'undefined' && window.location ? window.location.origin : '')
 
-/** Where /setup goes once the team is made: /open-app on a Mac or Windows browser, else the welcome steps. */
+/** Where /setup goes once the team is made: /open-app on a Mac, Windows or Linux browser, else the welcome steps. */
 export const afterSetupPath = (o: Parameters<typeof appComputer>[0]): string => (appComputer(o) ? OPEN_APP_PATH : '/welcome')
 
-/** The files step's and My files' line ("… works in the Mac and Windows app. Open the app"): a computer's browser, never a
- * guest (they have no My files and no files step). */
-export const openAppLineShown = (o: Parameters<typeof appComputer>[0] & { guest: boolean }): boolean => !o.guest && appComputer(o) !== null
+/** The files step's and My files' line ("… works in the Mac and Windows app. Open the app"): a Mac or Windows browser,
+ * never a guest (they have no My files and no files step). Not Linux: the Linux app has no Find work files
+ * (docs/decisions/20261119-linux-desktop-app.md "Off on Linux"), so the line would promise what it cannot do. */
+export const openAppLineShown = (o: Parameters<typeof appComputer>[0] & { guest: boolean }): boolean => {
+  const c = appComputer(o)
+  return !o.guest && (c === 'mac' || c === 'windows')
+}
 
 /** The desktop app's link for a fresh code: `<scheme>://open?url=<origin>/app-signin#c=<code>` (the code only in the
  * fragment, which no server or proxy log sees). null on another system. */

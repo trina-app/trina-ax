@@ -59,6 +59,16 @@ test('every icon file make.py and make-icons.ts write is the light tile', () => 
   for (const f of ['icon-192.png', 'icon-512.png']) lightAt(path.join(icons, f), [[0.5, 0.07], [0.5, 0.93]])
   // the desktop app: the macOS grid's 824 px tile on a 1024 px canvas
   lightAt(path.join(root, 'desktop/build-resources/icon.png'), [[0.5, 0.12], [0.5, 0.88]])
+  // the Linux app's sizes (QA TC-5353: GNOME's hicolor lookup stops at 512, so each size is its own file); every file is
+  // the size its name says
+  const linux = path.join(root, 'desktop/build-resources/linux-icons')
+  const sizes = fs.readdirSync(linux).map((n) => Number(/^(\d+)x\1\.png$/.exec(n)?.[1])).sort((a, b) => a - b)
+  expect(sizes).toEqual([16, 24, 32, 48, 64, 128, 256, 512])
+  for (const n of sizes) {
+    const img = decodePng(new Uint8Array(fs.readFileSync(path.join(linux, `${n}x${n}.png`))))!
+    expect({ n, w: img.width, h: img.height }).toEqual({ n, w: n, h: n })
+    if (n >= 48) lightAt(path.join(linux, `${n}x${n}.png`), [[0.5, 0.14], [0.5, 0.86]])
+  }
   // make.py draws the dark mark only for the launch screen's dark-mode twin (a mark on nothing), never on a tile
   const make = fs.readFileSync(path.join(L, 'make.py'), 'utf8').split('\n')
   expect(make.filter((line) => /scaled\(['"]dark['"]/.test(line)).map((line) => line.match(/write\(f'\{M\}\/([\w-]+)\.svg'/)?.[1])).toEqual(['splash-icon-dark'])

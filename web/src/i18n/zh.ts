@@ -9,8 +9,10 @@ export const zh: Record<MessageKey, string> = {
   // continue in the desktop app after setup, and its one-time sign-in (pages/OpenApp.tsx)
   "openApp.title": "在 {product} 应用中继续",
   "openApp.why": "在应用中，Trina 可以找到这台电脑上的工作文件，并与团队共享。",
+  "openApp.whyLinux": "在应用中，AI 可以使用这台电脑上的程序，例如 Aside 或 ego lite。",
   "openApp.mac": "在 Mac 应用中继续",
   "openApp.windows": "在 Windows 应用中继续",
+  "openApp.linux": "在 Linux 应用中继续",
   "openApp.browser": "在浏览器中继续",
   "openApp.notOpened": "没有打开？请安装应用，然后再按一次按钮。",
   "openApp.download": "下载应用",

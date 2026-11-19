@@ -546,7 +546,7 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
 (`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
-`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
+`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, `scripts/ci/appimage-runtime-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
 (서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
 결정: `docs/decisions/20261116-desktop-checks.md`.
 
@@ -555,8 +555,8 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 | Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
 | Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
-| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb는 `desktop-linux-arm64-deb` |
-| Linux package (arm64: install and start) | ubuntu-24.04-arm | 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
+| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/appimage-runtime-check.sh`: 두 AppImage 런타임에 버전 없는 라이브러리(`libz.so` 같은 것) 없음(`readelf -d`), x86_64는 Fedora 42 컨테이너에서 `--appimage-version` → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, `Icon=` 이름의 256·512 px PNG와 scalable SVG, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb와 AppImage는 `desktop-linux-arm64-deb` |
+| Linux package (arm64: install and start) | ubuntu-24.04-arm | arm64 AppImage 런타임 검사(Fedora 42 컨테이너에서 `--appimage-version`), 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
 | Desktop e2e (Linux, subset) | ubuntu-24.04 | `desktop/e2e/linux.config.ts`: smoke, desktop, quit, settings, language, offline, update, local-apps. 맥 e2e처럼 가짜 팀 이름, web 빌드, rhwp. xvfb + `dbus-run-session` + 비밀번호를 준 `gnome-keyring-daemon --unlock`(빈 비밀번호면 login 모음이 생기지 않는다; local-apps.spec이 설정을 봉인한다), `XDG_CURRENT_DESKTOP=GNOME`. node_modules의 Electron에는 AppArmor 프로필이 없어 이 run만 `kernel.apparmor_restrict_unprivileged_userns=0`, `--no-sandbox`는 쓰지 않는다. dev push에도 돈다 | `desktop-e2e-linux` |
 
 - **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고

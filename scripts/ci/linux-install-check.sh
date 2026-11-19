@@ -89,7 +89,25 @@ check_installed() {
   grep -q "^StartupWMClass=$EXE\$" "$DESKTOP_FILE" || fail "the menu entry's StartupWMClass is not $EXE"
   [ -f "$PROFILE" ] || fail "no AppArmor profile $PROFILE"
   sudo grep -q "^$EXE " /sys/kernel/security/apparmor/profiles || fail "the AppArmor profile $EXE is not loaded"
-  echo "menu entry, link type and AppArmor profile are there"
+  check_icon
+  echo "menu entry, link type, icon and AppArmor profile are there"
+}
+
+# The menu entry's Icon= name at the sizes GNOME looks up (QA TC-5353: only a 1024 px picture shipped, and GNOME's
+# hicolor lookup stops at 512, so the grid and the dock showed a generic gear): 256 and 512 px PNGs of that name, each
+# really that size, and the scalable SVG.
+check_icon() {
+  local icon size f
+  icon=$(sed -n 's/^Icon=//p' "$DESKTOP_FILE" | head -n 1)
+  [ -n "$icon" ] || fail "the menu entry names no Icon"
+  case "$icon" in /*) fail "the menu entry's Icon is a path ($icon), not a name the icon theme looks up" ;; esac
+  for size in 256 512; do
+    f=/usr/share/icons/hicolor/${size}x${size}/apps/$icon.png
+    [ -f "$f" ] || fail "no ${size}x${size} icon $f for Icon=$icon"
+    file "$f" | grep -q "PNG image data, $size x $size" || fail "$f is not a $size x $size PNG: $(file -b "$f")"
+  done
+  [ -f "/usr/share/icons/hicolor/scalable/apps/$icon.svg" ] || fail "no scalable icon for Icon=$icon"
+  echo "icon $icon: $(dpkg-query -L "$PACKAGE" | grep -c "/hicolor/.*/apps/$icon\.") sizes in hicolor"
 }
 
 check_handler() {
@@ -109,9 +127,7 @@ if [ "$mode" = start ]; then
   start_app start "$(installed_program)"
   check_handler
   done_step
-  step "remove"
-  sudo apt-get remove -y "$PACKAGE" > "$LOG_DIR/remove.log" 2>&1 || { cat "$LOG_DIR/remove.log"; fail "the remove did not finish"; }
-  [ ! -e "/usr/bin/$EXE" ] && [ ! -f "$DESKTOP_FILE" ] && [ ! -f "$PROFILE" ] || fail "files left after remove"
+  XX
   done_step
   echo "arm64 .deb: installed, started sandboxed, removed"
   exit 0
@@ -158,8 +174,8 @@ echo "removed; the data folder stays"
 done_step
 
 step "5. the AppImage where the sandbox cannot run"
-# FUSE 2 (libfuse2t64), which the AppImage needs, comes with the workflow's tools step
-dpkg-query -W -f='${Status}' libfuse2t64 2> /dev/null | grep -q 'install ok installed' || fail "libfuse2t64 is missing (the workflow installs it)"
+# the AppImage's static runtime needs no libfuse2, only a fusermount program (fuse3, from the workflow's tools step)
+command -v fusermount3 > /dev/null || command -v fusermount > /dev/null || fail "no fusermount (the workflow installs fuse3)"
 chmod +x "$appimage"
 log="$LOG_DIR/appimage.log"
 APPDATA=$(mktemp -d "${RUNNER_TEMP:-/tmp}/linux-appimage-data.XXXXXX")

@@ -61,8 +61,8 @@ export const commandHash = (spec: LocalAppSpec) => crypto.createHash('sha256').u
 /** where a program named without a path is looked for: PATH, then the places tools install themselves to (an app
  * started from the Dock gets a short PATH on macOS) */
 export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = os.homedir(), platform: string = process.platform): string[] {
-  // Linux also: Ubuntu's snap programs
-  const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
+  // Homebrew's own folder only on the Mac (Apple silicon); Linux also: Ubuntu's snap programs
+  const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
   // never the AppImage's own mount (Linux): its programs are the app's, not the person's
   return [...new Set([...(env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extra])].filter((d) => !insideAppDir(d, env.APPDIR))
 }

@@ -4,6 +4,7 @@
 // GUID come from it), so an update after a rename replaces the old app instead of installing a second one.
 // The office server recognizes the installers by <artifactBase>-Setup-<v>-x64.exe / <artifactBase>-<v>-mac-*.dmg
 // (server/src/office/desktop.ts), built from the same PRODUCT.
+import path from 'node:path'
 import { PRODUCT } from '../shared/src/product'
 import { winSignOptions } from './scripts/win-sign'
 import { DESKTOP_APP_ID } from './src/common/app-id'
@@ -122,16 +123,28 @@ export default {
     // the menu entry's file name (and its StartupWMClass) follows extraMetadata.desktopName, as Electron's app_id does
     syncDesktopName: true,
     artifactName: `${A}-\${version}-linux-\${arch}.\${ext}`,
-    icon: 'build-resources/icon.png',
+    // the icon at every size the hicolor theme looks up (16…512, build-resources/linux-icons/<n>x<n>.png, written by
+    // editions/trina/branding/logo/make.py from scripts/trina-icon.svg): GNOME's lookup stops at 512, so the one 1024 px
+    // picture this used to be showed a generic gear in the app grid and the dock (QA TC-5353)
+    icon: 'build-resources/linux-icons',
     synopsis: `${PRODUCT.displayName} desktop app`,
     maintainer: 'TreeSoop <contact@trina.app>',
   },
   // only the package's name (apt install/remove <it>, dpkg-query): the default would be the product name, which has a
-  // space and capitals. No `depends`: it would replace the default list of libraries.
-  deb: { packageName: LINUX_EXECUTABLE },
+  // space and capitals. No `depends`: it would replace the default list of libraries. `fpm` adds the scalable icon
+  // (hicolor/scalable/apps/<executable>.svg, any size) next to the sized PNGs electron-builder installs from linux.icon.
+  deb: { packageName: LINUX_EXECUTABLE, fpm: [`${path.join(__dirname, 'scripts', 'trina-icon.svg')}=/usr/share/icons/hicolor/scalable/apps/${LINUX_EXECUTABLE}.svg`] },
   // electron-builder's default for the AppImage's own menu entry is `AppRun --no-sandbox %U` (used by AppImageLauncher,
   // Gear Lever, appimaged): the app refuses that start, so the entry passes nothing (AppRun still adds the flag by itself
   // only where the sandbox cannot run, and then the app says to install the .deb)
   appImage: { executableArgs: [] },
+  // The AppImage's runtime (the small program at the start of the file that mounts it): AppImage's own static type2
+  // runtime (electron-builder-binaries appimage@1.0.3, runtime 20251108, pinned by checksum in app-builder-lib). The
+  // default legacy toolset (appimage-12.0.1) ships an arm64 runtime linked against the unversioned `libz.so`, which only
+  // zlib's -devel package provides, so the arm64 AppImage did not start on a stock Fedora (QA TC-5356; its x64 runtime
+  // names libz.so.1). The static runtime needs no shared library at all and no libfuse2: only a fusermount or
+  // fusermount3 program, which GNOME and KDE desktops already have (docs/decisions/20261119-linux-desktop-app.md
+  // "Packages"). CI checks the runtime of both AppImages (scripts/ci/appimage-runtime-check.sh).
+  toolsets: { appimage: '1.0.3' },
   publish: [{ provider: 'generic', url: 'https://localhost.invalid/downloads/', channel: 'latest' }],
 }
