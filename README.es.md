@@ -18,7 +18,7 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 https://github.com/user-attachments/assets/2d0b9459-eae5-4e14-9486-ea81b0fd056c
 
-<p align="center"><sub>Mismo Claude, misma petición, distinto resultado. La historia en 97 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Después pulsa ☆ Star arriba de la página. Una estrella ayuda a que más equipos encuentren Trina AX.</sub></p>
+<p align="center"><sub>Lo que puede hacer la IA de un nuevo empleado el primer día. La historia en 80 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Después pulsa ☆ Star arriba de la página. Una estrella ayuda a que más equipos encuentren Trina AX.</sub></p>
 
 <br>
 
