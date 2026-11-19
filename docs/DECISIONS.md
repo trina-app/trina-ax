@@ -25800,8 +25800,8 @@ default.
 - **Slack's default.** Slack (help "Configure your Slack notifications"): while you are active on desktop, mobile gets
   no push; inactive, it does. Discord does the same with no way out. Slack's docs describe no catch-up of what arrived
   while you were active, and neither do we: **a phone push is decided once, when it would go.** The person at Trina
-  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, a debug log line with reason
-  `at_trina`), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
+  then saw it on the computer: that phone push is **cancelled** (state `cancelled`, an info log line
+  `phone push decision` with why), never held and never sent later. Away: it goes as before. The notice itself, the Inbox, the badges and
   the computer's own notification are unchanged.
 - **At Trina** (`Presence.inUse`, memory only, never shown to anyone): a window of the person's in use (`active`) and
   heard from within 60 s (`PRESENCE_SILENT_MS`: a computer that slept or lost its network while its socket is still

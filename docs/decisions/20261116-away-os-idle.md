@@ -43,3 +43,12 @@
   10 minutes → send, locked → send, no window → send, two computers, hidden browser tab → idle, the endpoint's own-person,
   body, CSRF, guest, sleep-clock and signed-out checks), `tests/unit/e-presence-activity.test.ts`, `tests/unit/e-system-activity.test.ts`.
 - **Version impact:** patch (a fix; the new call is additive). Needs the server and the desktop app (0.5.10).
+- **Log (2026-11-19).** The owner's iPhones rang again on 0.5.16 for DMs while they worked at the Mac, and nothing on
+  the server said why (the report is memory only, the cancel was a debug line). Every phone decision is now one info
+  line, `phone push decision`: the notice kind, `send` / `cancel` / `wait`, the device's last six id characters and a
+  few words on what the server knew (`Presence.phoneUse`: `computer in use (input 4s ago)`, `computer idle 12m; window
+  idle`, `computer locked; window on that computer`, `computer report old (2m); window silent 3m`, `no computer
+  report; no window open`, `browser or app window active`, `set themselves away`, `setting: always`). The report
+  itself logs `computer report` (state and rounded idle time) on a sign-in's first report and on each change between
+  in use, idle and locked, not every 30 s. Never what a notice says. Tests: `tests/unit/b-push-away.test.ts`,
+  `tests/unit/b-presence-computer.test.ts`.

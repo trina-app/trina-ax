@@ -11,7 +11,7 @@
 //   2. On the real app: POST /api/me/computer (the caller's own, strict body, CSRF), then phoneDecision cancel / send.
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { Presence, PRESENCE_COMPUTER_FRESH_MS, PRESENCE_COMPUTER_IDLE_MS, PRESENCE_SILENT_MS, type PresenceClock } from '../../server/src/realtime/presence'
-import { phoneDecision } from '../../server/src/notifications/away'
+import { decidePhone, phoneDecision } from '../../server/src/notifications/away'
 import { presenceFor } from '../../server/src/realtime/presence'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { addMember, harness, withOwner, type Harness } from './a-lib'
@@ -163,6 +163,47 @@ describe('presence: the computer in use, Trina in the back', () => {
   })
 })
 
+describe('why, for the log of each phone decision (owner 2026-11-19: the phone rang at the Mac and nothing said why)', () => {
+  test('each state names itself: in use, idle, locked, old or no report, window idle or silent, away', () => {
+    const m = machine()
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'no computer report; no window open' })
+    m.p.computer('ana', 'mac', { idleMs: 4000, locked: false })
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'computer in use (input 4s ago)' })
+    m.p.computer('ana', 'mac', { idleMs: 12 * 60_000, locked: false })
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'computer idle 12m; no window open' })
+    m.p.computer('ana', 'mac', { idleMs: 0, locked: true })
+    m.p.open('ana', 'w1')
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'computer locked; window on that computer' })
+    m.clock.advance(PRESENCE_COMPUTER_FRESH_MS + 1000)
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'computer report old (1m); window silent 1m' })
+    // the old report was dropped: the next look says none
+    m.p.activity('ana', 'w1', 'idle')
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'no computer report; window idle' })
+    m.p.activity('ana', 'w1', 'active')
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'browser or app window active' })
+    m.p.close('ana', 'w1')
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: true, why: 'window closed while in use (grace)' })
+    m.p.setAway('ana', true)
+    expect(m.p.phoneUse('ana')).toEqual({ inUse: false, why: 'set themselves away' })
+    // inUse is the same answer
+    expect(m.p.inUse('ana')).toBe(false)
+  })
+
+  test('a report says what changed only on a change, not every 30 s', () => {
+    const m = machine()
+    expect(m.p.computer('ana', 'mac', { idleMs: 1000, locked: false })).toBe('in use')
+    m.clock.advance(30_000)
+    expect(m.p.computer('ana', 'mac', { idleMs: 31_000, locked: false })).toBeNull()
+    expect(m.p.computer('ana', 'mac', { idleMs: PRESENCE_COMPUTER_IDLE_MS, locked: false })).toBe('idle')
+    expect(m.p.computer('ana', 'mac', { idleMs: 0, locked: true })).toBe('locked')
+    // another sign-in of hers is its own first report
+    expect(m.p.computer('ana', 'laptop', { idleMs: 0, locked: true })).toBe('locked')
+    // a report after an old one (the computer slept) is told again
+    m.clock.advance(PRESENCE_COMPUTER_FRESH_MS + 1)
+    expect(m.p.computer('ana', 'mac', { idleMs: 0, locked: true })).toBe('locked')
+  })
+})
+
 describe('on the real app: POST /api/me/computer and phoneDecision', () => {
   let h: Harness | undefined
   afterEach(async () => { await h?.close(); h = undefined })
@@ -177,8 +218,16 @@ describe('on the real app: POST /api/me/computer and phoneDecision', () => {
     // the warm-up after a start: wait (decided at its end)
     while (pr.warmingUntil() !== null) await new Promise((r) => setTimeout(r, 200))
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'send' })
+    expect(decidePhone(h.ctx, nora.id).reason).toBe('no computer report; no window open')
+    const lines: [string, Record<string, unknown> | undefined][] = []
+    const info = h.ctx.log.info.bind(h.ctx.log)
+    h.ctx.log.info = (msg, fields) => { lines.push([msg, fields]); info(msg, fields) }
     await nora.client.call('POST', '/api/me/computer', { idleMs: 3000, locked: false })
     expect(phoneDecision(h.ctx, nora.id)).toEqual({ kind: 'cancel' })
+    expect(decidePhone(h.ctx, nora.id).reason).toBe('computer in use (input 3s ago)')
+    // the server log says the desktop app reported, and what (once per change, not every 30 s)
+    await nora.client.call('POST', '/api/me/computer', { idleMs: 4000, locked: false })
+    expect(lines.filter(([m]) => m === 'computer report').map(([, f]) => f)).toEqual([{ user: nora.id, state: 'in use', idle: '3s' }])
     // someone else's computer never quiets nora's phone
     expect(phoneDecision(h.ctx, mia.id)).toEqual({ kind: 'send' })
     await nora.client.call('POST', '/api/me/computer', { idleMs: PRESENCE_COMPUTER_IDLE_MS + 1, locked: false })
