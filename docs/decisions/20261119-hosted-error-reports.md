@@ -54,11 +54,12 @@ are generic and must be readable by anyone; the hosting service's address, key a
   `params.status`), never from the answer's text or the error's words. `tests/unit/hosted-error-reports.test.ts`
   plants all of these and checks no body holds them, and checks the exact field list.
 - **Admin › System › Server health** shows one line while it is on: "Error reports are sent to <host> to keep this
-  server running." (the receiver's host name only, from `GET /api/admin/diagnostics` `errorReports.host`; owners and
-  admins). No line when it is off. No new box, button or page.
-- **Where the hosting service's config lives:** only in its private setup. Its address and key, the project, ~30 days of
-  retention and turning it on for the servers it runs are set there (the team server's environment file,
+  server running." (the receiver's host name only, from `GET /api/admin/diagnostics` `errorReports.host`; the owner,
+  who is the one who sees Server health). No line when it is off. No new box, button or page.
+- **Where the hosting service's config lives:** only in its private setup. Its address and key, the project and turning it on for the servers it runs are set there (the team server's environment file,
   `/etc/default/mycel`, written when a server is created), never in this repository.
+- **Retention: 90 days** (owner, 2026-11-19). The hosting service keeps reports in its Sentry project on the plan it
+  already has, which keeps error events 90 days and cannot shorten that; no deletion job and no plan change.
 - **Privacy policy:** the hosting service's privacy policy needs one sentence saying hosted servers send error reports
   (what is in them, what never is, how long they are kept) and that self-installed servers send nothing. The wording is
   the hosting service's; it is not part of this repository.
