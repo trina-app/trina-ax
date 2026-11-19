@@ -30,7 +30,7 @@ PROFILE=/etc/apparmor.d/$EXE
 # the folder the app keeps its data in (a fresh one per check run; never the runner's own)
 DATA=$(mktemp -d "${RUNNER_TEMP:-/tmp}/linux-app-data.XXXXXX")
 # its own home too: xdg-mime and the link handler write ~/.config/mimeapps.list
-export HOME_DIR=$(mktemp -d "${RUNNER_TEMP:-/tmp}/linux-app-home.XXXXXX")
+HOME_DIR=$(mktemp -d "${RUNNER_TEMP:-/tmp}/linux-app-home.XXXXXX")
 
 installed_program() { dpkg-query -L "$PACKAGE" | grep -E "/$EXE\$" | grep '^/opt/' | head -n 1; }
 
