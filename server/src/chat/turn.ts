@@ -2929,8 +2929,12 @@ export class TurnExec {
     // channel can open the place, that card asks (with its counts); its yes is this call's
     if (!o.noCover && this.askedToSave() && this.linkedProjectPlain(tool, input, o.widen)) {
       if (need) {
-        const no = await this.askWidening(need, { details: widenDetails, extra: instruction })
-        if (no) return refuse(no.end, { also: `More people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
+        // the room's card too (room: true, the #678 combined-card rule): "Always allow" for saving wider alone never
+        // skips it, so other people's channel words never reach people outside the channel with no card at all
+        const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)?.id ?? ''
+        const why = !sameRoomOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction, ...(why ? { why } : {}), room: true })
+        if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
         this.roomAllowed.add(key)
       }
       return null

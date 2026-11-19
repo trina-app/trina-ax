@@ -222,7 +222,7 @@ A team project cannot go back to "only me", so that row is not needed.
   `save-to-team`, so every server check stays (member, message visible, not quarantined, ≤ 50 MB, never an overwrite,
   "(2)" names, same bytes once, file history). The target is the **root** of the project folder: predictable for one
   click; hidden subfolders are never a target. The server checks the list again (`save-to-team` with `oneClick: true`
-  refuses a name not on it with 409 `needs_sheet`), so an older or tampered client cannot skip the sheet for code.
+  refuses a name not on it with 409 `needs_sheet`): a guard on the one-click path only: the same person may still save any file there through the sheet (the ordinary save, with their own write access), which is the person's own choice, not a bypass.
 - **Toast:** "Saved to {project} · Open · Undo". When the plan's count of people outside this channel who can open the
   folder is above 0: "Saved to {project} · {n} people outside this channel can open it · Undo" (Open stays in the
   toast's action). Undo (10 seconds, the toast's life) moves the copies this save made (`existed: false` only) to the
@@ -458,7 +458,7 @@ Two PRs (server, then web), batched with the day's other reviewed PRs per the ba
   wider-audience card still asks when people outside the channel can open the target; code and config names and wider
   subfolders still ask. The decision file names it,
   and the security review of the server PR must look at it.
-- **One-click:** the server enforces the list (`oneClick`), so the sheet cannot be skipped for code by a client.
+- **One-click:** the server checks the list for `oneClick` saves (409 `needs_sheet`): a guard on the one-click path only: the same person may still save any file there through the sheet (the ordinary save, with their own write access), which is the person's own choice, not a bypass.
 - **Performance:** one indexed lookup per private channel in `roomOut`; rules once per list; the live pass bounded.
 - **Migration:** additive, reader 1; a rollback build ignores the table and shows `unknown` for the new lines.
 

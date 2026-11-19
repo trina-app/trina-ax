@@ -17,7 +17,7 @@ import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { keptMediaCache } from '../auth/media-key'
 import { mapErrors } from '../team-files/errors'
-import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
+import { savedFiles, savePlan, saveToTeam, undoSave } from '../rooms/save-to-team'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -73,6 +73,7 @@ export const roomsRoutes: RouteModule = {
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
     // a private channel linked to a team project (rooms/project-link.ts; docs/decisions/20261119-channel-project-link.md)
+    kit.handle(API.undoRoomSave, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => undoSave(ctx, auth.user.id, params.id, body.fileId, body.path), 'body.path'))
     kit.handle(API.linkRoomProject, ({ c, auth, params, body }) => rooms.linkProject(auth.user.id, params.id, body.projectId, body.via ?? 'channel', c.get('locale')))
     kit.handle(API.unlinkRoomProject, ({ c, auth, params, query }) => rooms.unlinkProject(auth.user.id, params.id, query.via ?? 'channel', c.get('locale')))
     kit.handle(API.createProjectChannel, ({ c, auth, params, body }) => rooms.createProjectChannel(auth.user.id, params.id, body.name, body.userIds, c.get('locale')))

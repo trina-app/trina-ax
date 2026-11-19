@@ -243,6 +243,8 @@ test.describe('a phone, dark', () => {
     const row = page.getByTestId('project-channel-name')
     await expect(row).toBeVisible()
     expect((await row.boundingBox())!.x + (await row.boundingBox())!.width).toBeLessThanOrEqual(390)
+    // one line at 390: the whole Channel row is one row's height
+    expect((await page.getByTestId('project-channel').boundingBox())!.height).toBeLessThan(60)
   })
 })
 

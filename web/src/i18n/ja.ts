@@ -7004,6 +7004,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.save.undo": "元に戻す",
   "rooms.save.undone": "「{project}」から取り除きました",
   "rooms.save.undoChanged": "変更されたため、「{project}」に残しました",
+  "rooms.save.undoFailed": "保存を元に戻せませんでした。コピーはプロジェクトのフォルダーに残っています。",
   "rooms.save.inProject": "プロジェクト内 · {name}",
   "projects.channel.title": "チャンネル",
   "projects.channel.empty": "このプロジェクトのメンバーと話しましょう。",

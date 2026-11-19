@@ -410,4 +410,31 @@ describe('oneClick (Save to project)', () => {
     const { fileId: doc } = await sendFile('alice', plain.id, 'doc.docx', 'doc')
     expect(await reason(await h.req('erin', `/api/rooms/${plain.id}/save-to-team`, json({ fileIds: [doc], folder: root, oneClick: true })))).toBe('needs_sheet')
   })
+
+  test('Undo (save-undo): the copy goes only while it has the room file\'s own bytes; a changed one stays; only a recorded place', async () => {
+    const project = await h.api('alice').call(API.createProject, { body: { name: 'Undo', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' } })
+    const channel = await h.api('alice').call(API.createRoom, { body: { kind: 'group', userIds: ['erin'], name: 'Undo talk' } }) as Room
+    const r = await h.req('alice', `/api/rooms/${channel.id}/project`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ projectId: project.id }) })
+    const root = ((await r.json()) as Room).project!.folderPath
+    const undo = (fileId: string, p: string) => h.req('erin', `/api/rooms/${channel.id}/save-undo`, json({ fileId, path: p }))
+    const { fileId } = await sendFile('alice', channel.id, 'brief.pdf', 'brief bytes')
+    const saved = (await (await h.req('erin', `/api/rooms/${channel.id}/save-to-team`, json({ fileIds: [fileId], folder: root, oneClick: true }))).json()) as RoomSaveResult
+    const p = saved.saved[0]!.path
+    const u1 = await undo(fileId, p)
+    expect(u1.status).toBe(200)
+    expect(await u1.json()).toEqual({ removed: true })
+    expect(fs.existsSync(team(p))).toBe(false)
+    // saved again, then changed by someone: it stays
+    const again = (await (await h.req('erin', `/api/rooms/${channel.id}/save-to-team`, json({ fileIds: [fileId], folder: root, oneClick: true }))).json()) as RoomSaveResult
+    const p2 = again.saved[0]!.path
+    fs.writeFileSync(team(p2), 'brief bytez')
+    expect(await (await undo(fileId, p2)).json()).toEqual({ removed: false })
+    expect(fs.existsSync(team(p2))).toBe(true)
+    // a place this save never recorded: 404, nothing touched
+    fs.writeFileSync(team(`${root}/other.pdf`), 'brief bytes')
+    expect((await undo(fileId, `${root}/other.pdf`)).status).toBe(404)
+    expect(fs.existsSync(team(`${root}/other.pdf`))).toBe(true)
+    // someone outside the room: 404
+    expect((await h.req('bob', `/api/rooms/${channel.id}/save-undo`, json({ fileId, path: p2 }))).status).toBe(404)
+  })
 })

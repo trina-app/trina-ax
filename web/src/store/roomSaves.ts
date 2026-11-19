@@ -6,7 +6,7 @@ import { create } from 'zustand'
 import { isProjectPlainName } from '@mycel/shared'
 import type { Locale, Room } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { needsSheet, oneClickIds, oneClickOk, undoablePaths } from '../lib/roomSave'
+import { needsSheet, oneClickIds, oneClickOk, undoableCopies } from '../lib/roomSave'
 import { useRooms } from './rooms'
 import { toast } from './ui'
 import { useSession } from './session'
@@ -74,11 +74,6 @@ useSession.subscribe((st) => {
 export const UNDO_MS = 10_000
 type SaveWords = { t: (key: string, params?: Record<string, string | number>) => string; locale: Locale; open: (path: string) => void }
 
-/** sha256 of a team file now (GET /api/files/content reads it for any file); null: gone or not readable. */
-async function shaOf(path: string): Promise<string | null> {
-  try { return (await api.call(API.content, { query: { path, maxBytes: 1 } })).sha256 } catch { return null }
-}
-
 /**
  * Save to project, one click: the message's files go to the root of the linked project's folder when every one is a
  * document or media kind and none looks personal (the plan says), else the sheet opens with the project's folder
@@ -99,10 +94,8 @@ export async function saveToProject(roomId: string, project: NonNullable<Room['p
     }
     const r = await api.call(API.saveRoomFilesToTeam, { params: { id: roomId }, body: { fileIds: oneClickIds(plan), folder: project.folderPath, oneClick: true } })
     useRoomSaves.getState().put(roomId, r.saved)
-    // the bytes as saved, read now: Undo takes back only a copy that still has them
-    const made = undoablePaths(r.saved)
-    const shas = new Map<string, string | null>()
-    void Promise.all(made.map(async (p) => shas.set(p, await shaOf(p))))
+    // Undo takes back only the copies this save made (the server checks them against the room file's own bytes)
+    const made = undoableCopies(r.saved)
     const outside = plan.folder?.outside ?? 0
     const first = r.saved[0]?.path
     toast({
@@ -111,7 +104,7 @@ export async function saveToProject(roomId: string, project: NonNullable<Room['p
       ...(outside > 0 ? { detail: t('rooms.save.savedProjectOutside', { n: outside }) } : {}),
       ms: UNDO_MS,
       ...(first ? { more: { label: t('rooms.save.openSaved'), run: () => w.open(first) } } : {}),
-      ...(made.length ? { action: { label: t('rooms.save.undo'), run: () => void undoSave(roomId, project, made, shas, w) } } : {}),
+      ...(made.length ? { action: { label: t('rooms.save.undo'), run: () => void undoSave(roomId, project, made, w) } } : {}),
     })
   } catch (e) {
     if (needsSheet(e)) { sheet(); return }
@@ -120,15 +113,18 @@ export async function saveToProject(roomId: string, project: NonNullable<Room['p
   }
 }
 
-async function undoSave(roomId: string, project: NonNullable<Room['project']>, paths: string[], saved: Map<string, string | null>, w: SaveWords) {
+async function undoSave(roomId: string, project: NonNullable<Room['project']>, copies: { fileId: string; path: string }[], w: SaveWords) {
   const t = w.t
-  let changed = 0
+  // one call per copy: the server moves it to the trash only while it still has the room file's own bytes, in one step
+  // (POST /api/rooms/:id/save-undo); "changed" only when the server said so, never for a failure to ask
+  let changed = 0, failed = 0
   const gone = new Set<string>()
-  for (const p of paths) {
-    const was = saved.get(p) ?? null
-    const now = await shaOf(p)
-    if (!was || !now || was !== now) { if (now) changed++; continue }
-    try { await api.call(API.remove, { query: { path: p } }); gone.add(p) } catch { changed++ }
+  for (const c of copies) {
+    try {
+      const r = await api.call(API.undoRoomSave, { params: { id: roomId }, body: c })
+      if (r.removed) gone.add(c.path)
+      else changed++
+    } catch { failed++ }
   }
   // the chips say "saved" no more for what went
   if (gone.size) useRoomSaves.setState((s) => {
@@ -136,5 +132,6 @@ async function undoSave(roomId: string, project: NonNullable<Room['project']>, p
     for (const [id, path] of Object.entries(room)) if (gone.has(path)) delete room[id]
     return { byRoom: { ...s.byRoom, [roomId]: room } }
   })
-  toast(changed ? { level: 'info', text: t('rooms.save.undoChanged', { project: project.name }) } : { level: 'success', text: t('rooms.save.undone', { project: project.name }) })
+  if (failed) toast({ level: 'error', text: t('rooms.save.undoFailed') })
+  else toast(changed ? { level: 'info', text: t('rooms.save.undoChanged', { project: project.name }) } : { level: 'success', text: t('rooms.save.undone', { project: project.name }) })
 }

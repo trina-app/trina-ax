@@ -230,8 +230,8 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
 /** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it.
  * `oneClick` (Save to project in a linked channel, docs/decisions/20261119-channel-project-link.md): without the sheet, so
  * only into the top of the channel's active linked project folder and only documents and media by name
- * (shared/src/files/plain-kinds.ts) that do not look personal; anything else is 409 needs_sheet and nothing is saved, so
- * an older or changed client cannot skip the sheet for code or config. */
+ * (shared/src/files/plain-kinds.ts) that do not look personal; anything else is 409 needs_sheet and nothing is saved. A
+ * guard on the one-click path only: the person may still save any file there through the sheet (a plain save). */
 export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, oneClick = false, locale: Locale = DEFAULT_LOCALE): Promise<RoomSaveResult> {
   noGuests(ctx, userId)
   const files = componentC(ctx).files
@@ -310,4 +310,27 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
   return { saved }
+}
+
+/** POST /api/rooms/:id/save-undo (Save to project's Undo; docs/decisions/20261119-channel-project-link.md D6): the copy
+ * of this room file at `path` (a place the save recorded) goes to the trash through the normal file delete, only while
+ * its bytes are still the room file's own (its sha256, not a hash read later). The bytes are read and hashed and the
+ * file moved in one synchronous step, so nothing of this server changes it in between; changed or gone: it stays and
+ * `removed` is false. Write access is checked by the delete itself. */
+export function undoSave(ctx: AppContext, userId: string, roomId: string, fileId: string, savedPath: string): { removed: boolean } {
+  noGuests(ctx, userId)
+  const f = lookup(ctx, userId, roomId, fileId)
+  const rel = savedPath.normalize('NFC').replace(/^\/+|\/+$/g, '')
+  if (!ctx.db.query('SELECT 1 FROM room_file_saves WHERE file_id = ? AND path = ?').get(f.file.id, rel)) return fail('not_found')
+  const files = componentC(ctx).files
+  const user = files.principal(userId)
+  let a
+  try { a = authorize(files.fx, files.rules(), user, rel, 'write', { mustExist: true }) } catch { return { removed: false } }
+  if (!a.st?.isFile() || a.st.size !== f.file.size) return { removed: false }
+  let bytes: Uint8Array
+  try { bytes = readRegular(a.abs, SMALL_UPLOAD_MAX).bytes } catch { return { removed: false } }
+  if (new Bun.CryptoHasher('sha256').update(bytes).digest('hex') !== f.file.sha256) return { removed: false }
+  files.remove(userId, a.rel, null)
+  ctx.db.query('DELETE FROM room_file_saves WHERE file_id = ? AND path = ?').run(f.file.id, rel)
+  return { removed: true }
 }

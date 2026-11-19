@@ -284,6 +284,12 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (r.status >= 400 && (r.text.includes('Team plan') || r.text.includes(C.groupName))) throw new Error(`${who}: a refusal names the project or the channel: ${r.text.slice(0, 200)}`)
     },
   },
+  // Save to project's Undo: the DM's two people pass the room checks and meet 404 (no save recorded at that place);
+  // everyone else is refused as for the room, and nothing is moved
+  undoRoomSave: {
+    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-undo`, { fileId: w.ids.dmFile, path: 'shared/never-saved-here.png' }), scope: 'room-dm',
+    check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && r.status !== 404) throw new Error(`${who}: save-undo of an unrecorded place answered ${r.status}`) },
+  },
   // a channel made from Team plan: its members pass the checks (201, or 409 project_has_channel once it has one);
   // everyone else is refused without the project's name
   createProjectChannel: {

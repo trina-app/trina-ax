@@ -1204,12 +1204,16 @@ function ProjectChannelBox({ project: p, people, onChanged }: { project: Project
             )}
           </span>
         }
+        // one line at any width (390 included): the channel's name gives way first
+        detail={
+          <span className="flex min-w-0 items-center gap-1.5" data-testid="project-channel-name">
+            <Lock size={13} className="shrink-0 text-faint" aria-hidden />
+            <span className="min-w-0 truncate text-ink" title={ch.name}>{ch.name}</span>
+            <span className="shrink-0 text-xs text-faint">· {ch.memberCount}</span>
+            <span className="sr-only">{t('rooms.members', { n: ch.memberCount })}</span>
+          </span>
+        }
       />
-      <p className="-mt-2 flex min-w-0 items-center gap-1.5 pb-3 pl-[26px] text-sm" data-testid="project-channel-name">
-        <Lock size={13} className="shrink-0 text-faint" aria-hidden />
-        <span className="min-w-0 truncate font-medium text-ink">{ch.name}</span>
-        <span className="shrink-0 text-xs text-faint">· {t('rooms.members', { n: ch.memberCount })}</span>
-      </p>
       {!ch.inIt && <p className="-mt-2 pb-3 pl-[26px] text-xs text-muted" data-testid="project-channel-ask">{t('projects.channel.askToJoin')}</p>}
     </div>
   )

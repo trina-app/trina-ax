@@ -74,8 +74,11 @@ export const instructionName = (name: string) => /^(claude|agents|gemini|skill)\
 /** The files a one-click save sends: each file still to save, a copy of another once (it follows that file). */
 export const oneClickIds = (plan: PlanFiles) => filesToSave(plan).map((f) => f.id)
 
-/** The copies Undo may take back: the ones this save made (`existed` false), each path once. */
-export const undoablePaths = (saved: RoomSaveResult['saved']) => [...new Set(saved.filter((s) => !s.existed).map((s) => s.path))]
+/** The copies Undo may take back: the ones this save made (`existed` false), each path once, with its room file. */
+export const undoableCopies = (saved: RoomSaveResult['saved']): { fileId: string; path: string }[] => {
+  const seen = new Set<string>()
+  return saved.filter((s) => !s.existed && !seen.has(s.path) && !!seen.add(s.path)).map((s) => ({ fileId: s.fileId, path: s.path }))
+}
 
 /** Is a saved path inside the linked project's folder (the chip then says "In project · <name>")? */
 export const inProjectFolder = (path: string, folder: string) => path === folder || path.startsWith(folder.replace(/\/+$/, '') + '/')

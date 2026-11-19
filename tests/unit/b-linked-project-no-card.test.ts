@@ -13,6 +13,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, uuidv7, type Room, type RoomMessage, type TurnRequest } from '@mycel/shared/api'
 import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { CONFIRMED } from '../lib/schedule-card'
 
 setDefaultTimeout(180_000)
 const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
@@ -120,7 +121,7 @@ describe('the linked channel\'s side chat', () => {
       expect(r.cards.length).toBeGreaterThanOrEqual(1)
     }
     expect(fs.readFileSync(at(`${root}/old-${tag}.md`), 'utf8')).toBe('old\n')
-    for (const t of targets) if (!t.endsWith('CLAUDE.md')) expect(exists(t)).toBe(false)
+    for (const t of targets) expect(exists(t)).toBe(false)
   })
 
   test('not that channel\'s side chat, or the link removed before the call: the card', async () => {
@@ -138,5 +139,57 @@ describe('the linked channel\'s side chat', () => {
     const b = await run('alice', chat, `save it as a file\n${fake(roomRead(roomId), write(`${root}/gone-${tag}.md`, 'x\n'), { say: 'x' })}`)
     expect(b.cards.length).toBeGreaterThanOrEqual(1)
     expect(exists(`${root}/gone-${tag}.md`)).toBe(false)
+  })
+
+  test('a person\'s "Always allow" for saving wider alone never skips the card: the combined card still asks (review of #69, VD)', async () => {
+    const { roomId, root } = await linked(['erin', 'bob'])
+    await send('erin', roomId, 'Booth: 2 tables')
+    h.ctx.db.query("INSERT INTO card_always_allow (user_id, kind, created_at) VALUES ('alice', 'save_wider', ?) ON CONFLICT DO NOTHING").run(new Date().toISOString())
+    try {
+      const chat = await sideChat('alice', roomId)
+      const tag = uuidv7().slice(-6)
+      const r = await run('alice', chat, `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/wide-${tag}.md`, 'x\n'), { say: 'x' })}`)
+      expect(r.cards).toHaveLength(1)
+      expect(exists(`${root}/wide-${tag}.md`)).toBe(false)
+    } finally { h.ctx.db.query("DELETE FROM card_always_allow WHERE user_id = 'alice'").run() }
+  })
+
+  test('a confidential chat, safe operations, save_url: the card (nothing saved without it)', async () => {
+    const { roomId, root } = await linked()
+    await send('erin', roomId, 'notes')
+    const tag = uuidv7().slice(-6)
+    // a confidential chat (safe operations' material mark)
+    const conf = await sideChat('alice', roomId)
+    h.ctx.db.query('INSERT INTO safe_ops_chats (chat_id, material) VALUES (?, 1)').run(conf)
+    const a = await run('alice', conf, `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/conf-${tag}.md`, 'x\n'), { say: 'x' })}`)
+    expect(exists(`${root}/conf-${tag}.md`)).toBe(false)
+    expect(a.cards.length).toBeGreaterThanOrEqual(1)
+    // safe operations on for the team
+    const was = process.env.MYCEL_SAFE_OPS_1A
+    process.env.MYCEL_SAFE_OPS_1A = '1'
+    try {
+      const chat = await sideChat('alice', roomId)
+      await run('alice', chat, `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/safe-${tag}.md`, 'x\n'), { say: 'x' })}`)
+      expect(exists(`${root}/safe-${tag}.md`)).toBe(false)
+    } finally { if (was === undefined) delete process.env.MYCEL_SAFE_OPS_1A; else process.env.MYCEL_SAFE_OPS_1A = was }
+    // save_url: the name comes from what it downloads; never past the card
+    const chat = await sideChat('alice', roomId)
+    await run('alice', chat, `save it as a file\n${fake(roomRead(roomId), { tool: 'save_url', args: { url: 'http://127.0.0.1:9/brief.pdf', save_as: `${root}/url-${tag}.pdf` } }, { say: 'x' })}`)
+    expect(exists(`${root}/url-${tag}.pdf`)).toBe(false)
+  })
+
+  test('a scheduled run never takes the rule: its task text is not the person asking, so nothing is saved there unanswered', async () => {
+    const { roomId, root } = await linked()
+    await send('erin', roomId, 'notes')
+    const tag = uuidv7().slice(-6)
+    const rt = h.rt()
+    const prompt = `save the summary as a file\n${fake(roomRead(roomId), write(`${root}/run-${tag}.md`, 'x\n'), { say: 'done' })}`
+    const now = new Date()
+    const made = rt.schedules.create('alice', { title: 'Linked run', prompt, repeat: 'daily', time: '09:00' }, new Date(now.getTime() - 2 * 86_400_000), CONFIRMED)
+    expect(rt.schedules.runDue(now)).toContain(made.id)
+    const chatId = rt.schedules.get('alice', made.id)!.last_chat_id!
+    const end = Date.now() + 90_000
+    while (Date.now() < end && (h.ctx.db.query("SELECT status FROM messages WHERE chat_id = ? AND role = 'assistant'").get(chatId) as { status: string } | null)?.status !== 'done') await Bun.sleep(100)
+    expect(exists(`${root}/run-${tag}.md`)).toBe(false)
   })
 })

@@ -25,8 +25,8 @@
     channel. Event lines name the project only to a viewer who can open it. Audit rows (`project.channel_link`,
     `project.channel_unlink`) name the project only: a group room by its kind, never its id.
   - **Save to project** is one click for documents and media by name (`shared/src/files/plain-kinds.ts`), into the top of
-    the project folder; anything else, and personal-looking files, go through the save sheet. The server enforces it
-    (`oneClick`, 409 `needs_sheet`).
+    the project folder; anything else, and personal-looking files, go through the save sheet. The server checks the
+    list for a one-click save (`oneClick`, 409 `needs_sheet`): a guard on the one-click path only: the same person may still save any file there through the sheet (the ordinary save, with their own write access), which is the person's own choice, not a bypass.
   - The channel's side chat saves new documents in the project folder by default (the guest check first). In that side
     chat, when the person's own message asked to save (`askedToSave`), a new document or media file in the project's
     folder needs no room card (`chat/turn.ts linkedProjectPlain`); the wider-audience card still asks when people
