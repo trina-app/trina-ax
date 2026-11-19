@@ -1,6 +1,6 @@
 ---
 title: Habilidades del equipo
-description: Convierta la forma de trabajar de su equipo en instrucciones SKILL.md reutilizables, con las mismas reglas de carpetas que los archivos.
+description: Convierta la forma de trabajar de su equipo en instrucciones SKILL.md reutilizables, con los mismos permisos de carpetas que los archivos.
 ---
 
 Una habilidad es un procedimiento reutilizable en un archivo `SKILL.md`. Le dice a la IA cómo hace su equipo una tarea. No entrena el modelo y nunca da acceso adicional.
@@ -70,7 +70,7 @@ Un proyecto del equipo en `projects/<project>/` puede tener habilidades propias 
 
 :::steps
 #### Cree la carpeta
-Cree `skills/<name>/` en Archivos. El nombre usa `a`–`z`, `0`–`9` y guiones, y coincide con el nombre de la carpeta.
+Cree `skills/<name>/` en Archivos. El nombre usa letras minúsculas (de cualquier idioma), dígitos y guiones sueltos, sin espacios, puntos ni mayúsculas, y coincide con el nombre de la carpeta.
 
 #### Escriba SKILL.md
 Empiece con un encabezado y luego el procedimiento.

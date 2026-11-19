@@ -29,7 +29,7 @@ página ni en una imagen.
 | Preguntar a Trina AX desde Slack | Un administrador una vez, y después cada persona una vez | **Administración › Apps conectadas › Slack** | [Slack](slack.md) |
 | Que la IA use Notion, Linear, Atlassian, Figma, GitHub y otras apps | Usted para sí mismo, un administrador para el equipo | **Configuración › Conectores** o **Administración › Apps conectadas** | [Notion, Linear y otras apps](mcp.md) |
 | Que la IA use el sistema propio de su empresa (una API) o una app que necesita su propia app de inicio de sesión, como NAVER WORKS | Un administrador | **Administración › Apps conectadas** › **Añadir por su dirección** | [La API de su empresa](api-connections.md) |
-| Usar sus archivos de Trina AX desde Claude o ChatGPT | Usted | **Configuración › Trina AX MCP** | [Conector MCP de Team AX](../../agents/mcp-connector.md) (en inglés) |
+| Usar sus archivos de Trina AX desde Claude o ChatGPT | Usted | **Configuración › Trina AX MCP** | [Conector MCP de Trina AX](../../agents/mcp-connector.md) (en inglés) |
 
 Para abrir **Configuración**, elija su foto en la parte inferior de la barra de la izquierda y después **Configuración**
 (en el teléfono, la pestaña **Yo**). **Administración** está en el mismo menú para el propietario y los administradores.

@@ -27,7 +27,7 @@ Trina AX에는 두 가지를 연결해요.
 | Slack에서 Trina AX에게 묻기 | 관리자가 한 번, 그다음 각자 한 번 | **관리자 › 연결한 서비스 › Slack** | [Slack](slack.md) |
 | AI가 Notion, Linear, Atlassian, Figma, GitHub 같은 앱을 쓰게 하기 | 나는 나를 위해, 관리자는 팀을 위해 | **설정 › 커넥터** 또는 **관리자 › 연결한 서비스** | [Notion, Linear와 다른 앱](mcp.md) |
 | AI가 회사 시스템(API)이나 NAVER WORKS처럼 내 로그인 앱이 필요한 서비스를 쓰게 하기 | 관리자 | **관리자 › 연결한 서비스** › **주소로 직접 추가** | [회사 API](api-connections.md) |
-| Claude나 ChatGPT에서 Trina AX 파일 쓰기 | 나 | **설정 › Trina AX MCP** | [Team AX MCP 커넥터](../../agents/mcp-connector.md) (영어) |
+| Claude나 ChatGPT에서 Trina AX 파일 쓰기 | 나 | **설정 › Trina AX MCP** | [Trina AX MCP 커넥터](../../agents/mcp-connector.md) (영어) |
 
 **설정**은 왼쪽 막대 맨 아래에 있는 내 사진을 누른 뒤 **설정**을 고르면 열려요(폰에서는 **나** 탭). 팀장과
 관리자에게는 같은 메뉴에 **관리자**도 있어요.

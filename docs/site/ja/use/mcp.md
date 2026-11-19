@@ -183,6 +183,6 @@ GitHub は他のアプリが独自にログインすることを認めていな�
 
 ## 逆の方向
 
-逆に、あなた自身の Claude（Claude Code、Claude Desktop、claude.ai）から **Trina AX に** つないで、あなたの権限でファイルを使うこともできます。[Team AX MCP コネクターについて読む](../../agents/mcp-connector.md)（英語）。
+逆に、あなた自身の Claude（Claude Code、Claude Desktop、claude.ai）から **Trina AX に** つないで、あなたの権限でファイルを使うこともできます。[Trina AX MCP コネクターについて読む](../../agents/mcp-connector.md)（英語）。
 
 開発者向けの詳しい情報：[Integrations](../../../INTEGRATIONS.md)（英語）。

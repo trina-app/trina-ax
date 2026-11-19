@@ -35,7 +35,7 @@ Semua yang ada di dalamnya hanya untuk Anda; hal yang berlaku untuk seluruh tim 
 | Kelompok | Bagian |
 |---|---|
 | **Akun** | Profil, Keamanan & perangkat, Penggunaan, Memori, Diizinkan untuk Trina (dan Browser, lihat di bawah) |
-| **Koneksi** | Konektor, Penyedia AI (jika tim mengizinkan anggota menambahkan akun mereka sendiri), Trina AX MCP |
+| **Koneksi** | Konektor, Penyedia AI (jika tim mengizinkan anggota menambahkan akun mereka sendiri), Trina AX MCP, Situs lingkungan pengembangan (jika lingkungan pengembangan dinyalakan untuk Anda) |
 | **Aplikasi** | Notifikasi, Aplikasi, Tentang |
 
 [Tamu](guests.md) hanya melihat bagian miliknya sendiri, seperti Profil dan Notifikasi. Tamu yang memakai akunnya sendiri menghubungkan akun Claude atau ChatGPT-nya di **Penyedia AI**.

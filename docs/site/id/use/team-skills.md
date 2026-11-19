@@ -1,6 +1,6 @@
 ---
 title: Skill tim
-description: Ubah cara kerja tim Anda menjadi instruksi SKILL.md yang bisa dipakai ulang, diatur dengan aturan folder yang sama seperti file.
+description: Ubah cara kerja tim Anda menjadi instruksi SKILL.md yang bisa dipakai ulang, diatur dengan izin folder yang sama seperti file.
 ---
 
 Skill adalah prosedur yang bisa dipakai ulang dalam sebuah file `SKILL.md`. Skill memberi tahu AI cara tim Anda mengerjakan suatu tugas. Skill tidak melatih model dan tidak pernah memberi akses tambahan.
@@ -70,7 +70,7 @@ Proyek tim di `projects/<project>/` bisa punya skill sendiri di folder `skills/`
 
 :::steps
 #### Buat foldernya
-Buat `skills/<name>/` di File. Namanya memakai `a`–`z`, `0`–`9`, dan tanda hubung, dan harus sama dengan nama folder.
+Buat `skills/<name>/` di File. Namanya memakai huruf kecil (dalam bahasa apa pun), angka, dan tanda hubung tunggal, tanpa spasi, titik, atau huruf kapital, dan harus sama dengan nama folder.
 
 #### Tulis SKILL.md
 Mulai dengan header, lalu prosedurnya.
