@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-18 23:59
 - Branch: `feat/linux-desktop-feed`
-- Status: in progress
+- Status: done
 - Where: server/src/office, server/src/system, server/src/routes, scripts/release, desktop/src (updater),
   .github/workflows/release.yml. Why: the release and the update path live there (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, the signed office manifest gains an optional `linux` field and a new download
@@ -56,4 +56,13 @@ under Bun 1.3.12.
 
 ## Result
 
-Filled in at the end.
+Built as planned. Differences from the decision file's text:
+
+- The release job checks `desktop/dist` (the app's code, as build-windows does) and `desktop/release` (electron-builder's
+  output, the packages and the unpacked apps) with `scripts/plugins/release-check.ts`; the decision file named
+  `desktop/dist` only, which does not hold the packages.
+- SHA256SUMS is written in release.yml's publish job (`release-ci.ts sums`), not by publish.ts: the four Linux files are
+  copied into its assets when build-linux-desktop passed.
+- The .deb notice reuses `update-notice.json` (the Mac notice's file; a Linux app never runs the Mac notice).
+- The pure check for the .deb is `linuxNotice` in `desktop/src/common/update-verify.ts`; tests in
+  `tests/unit/g-linux-app.test.ts` and `tests/unit/office-update-desktop-updater.test.ts`.

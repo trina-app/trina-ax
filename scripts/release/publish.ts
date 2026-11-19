@@ -5,6 +5,8 @@
 //       [--office dist/office/<officeBundle>-X-mac.zip]
 //       [--windows desktop/release/<artifactBase>-Setup-Y-win-x64.exe]   (its latest.yml must be next to it)
 //       [--mac desktop/release/<artifactBase>-Y-mac-universal.dmg]       (its .zip and latest-mac.yml next to it)
+//       [--linux desktop/release]   (the folder of the Linux build: the two .deb, the two AppImage files,
+//                                    latest-linux.yml and latest-linux-arm64.yml)
 //       [--min-from 0.2.0-0] [--notes "…" | --notes-file F] [--rollout staged|all] [--if-newer]
 //       [--out DIR [--feed http://127.0.0.1:PORT]] [--dry-run]
 //
@@ -16,7 +18,9 @@
 // desktop/release/<artifactBase>-Setup-<version>-win-x64.exe; names from shared/src/product.ts). Then:
 //   1. checks the files: the zip holds <officeBundle>-<version>/app/VERSION = version; latest.yml names the installer
 //      with its sha512 and size; latest-mac.yml names the Mac update zip (and the dmg) with theirs. The Mac app is the
-//      Developer ID signed, notarized build (scripts/release/mac-app.ts checked it); without --mac the release has none
+//      Developer ID signed, notarized build (scripts/release/mac-app.ts checked it); without --mac the release has none.
+//      latest-linux.yml and latest-linux-arm64.yml list their processor's AppImage with its sha512 and size; without
+//      --linux the release has no Linux app
 //   2. refuses to go back: the channel's current manifest (if any) must be older (the same version only re-uploads
 //      identical files; --if-newer: a newer channel is left as it is, no error), and a file already published under
 //      <dir>/<version>/ is never replaced by a different one (compared by content, not size)
@@ -37,7 +41,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { compareVersions } from '../../server/src/system/update'
 import { DEFAULT_FEED, fileUrl, manifestUrl, OFFICE_PRODUCT, OFFICE_RELEASE_KEYS, releaseFiles, signRelease, verifyRelease, VERSION_RE, type Channel, type OfficeRelease, type ReleaseFile } from '../../server/src/office/release'
-import { checkLatestMacYml, checkLatestYml } from '../../server/src/office/update'
+import { checkLatestLinuxYml, checkLatestMacYml, checkLatestYml } from '../../server/src/office/update'
+import { LINUX_APPS } from '../../server/src/office/desktop'
 import { inheritRollout, newRollout, rampText } from '../../server/src/system/rollout'
 import type { Bucket } from './cloudflare'
 import { readReleaseKey } from './keygen'
@@ -92,11 +97,11 @@ export interface Artifact { key: string; file: string; type: string; meta: Relea
 
 /** The manifest of a release: a stable one gets the staged roll-out unless `rollout` is 'all' (the tag message's
  * `Rollout: all`, docs/RELEASE-CI.md), a beta one none (server/src/system/rollout.ts newRollout). */
-export function officeRelease(o: { channel: Channel; version: string; minFrom: string; notes: string; office: ReleaseFile; windows: OfficeRelease['windows']; mac?: OfficeRelease['mac']; rollout: 'staged' | 'all'; now?: Date; salt?: string }): OfficeRelease {
+export function officeRelease(o: { channel: Channel; version: string; minFrom: string; notes: string; office: ReleaseFile; windows: OfficeRelease['windows']; mac?: OfficeRelease['mac']; linux?: OfficeRelease['linux']; rollout: 'staged' | 'all'; now?: Date; salt?: string }): OfficeRelease {
   const rollout = newRollout(o.channel, o.rollout, o.salt)
   return {
     format: 1, product: OFFICE_PRODUCT, channel: o.channel, version: o.version, minFrom: o.minFrom, publishedAt: (o.now ?? new Date()).toISOString(), notes: o.notes,
-    office: [{ ...o.office, arch: 'universal' }], windows: o.windows, ...(o.mac ? { mac: o.mac } : {}), ...(rollout ? { rollout } : {}),
+    office: [{ ...o.office, arch: 'universal' }], windows: o.windows, ...(o.mac ? { mac: o.mac } : {}), ...(o.linux ? { linux: o.linux } : {}), ...(rollout ? { rollout } : {}),
   }
 }
 
@@ -113,14 +118,14 @@ export function versionManifestAction(existing: string | null, release: OfficeRe
   const text = (fs: ReleaseFile[]) => fs.map((f) => `${f.file} ${f.sha256} ${f.size}`).sort().join('\n')
   const files = (r: OfficeRelease) => text(releaseFiles(r))
   const office = (r: OfficeRelease) => text(r.office)
-  type App = OfficeRelease['windows'] | OfficeRelease['mac']
+  type App = OfficeRelease['windows'] | OfficeRelease['mac'] | OfficeRelease['linux']
   const app = (a: App) => (a ? `${a.version}\n${text(Object.values(a).filter((v): v is ReleaseFile => typeof v === 'object' && v !== null))}` : null)
   if (prev.version !== release.version) throw new Error(`${key} is the manifest of ${prev.version}: look at it by hand`)
-  if (files(prev) === files(release) && app(prev.windows) === app(release.windows) && app(prev.mac) === app(release.mac)) return 'keep'
-  // a re-run that adds the Windows or the Mac app to a release published without it: the same office files, and every
-  // desktop app the first manifest named is named again unchanged
+  if (files(prev) === files(release) && app(prev.windows) === app(release.windows) && app(prev.mac) === app(release.mac) && app(prev.linux) === app(release.linux)) return 'keep'
+  // a re-run that adds the Windows, the Mac or the Linux app to a release published without it: the same office files,
+  // and every desktop app the first manifest named is named again unchanged
   const adds = (a: App, b: App) => (a ? app(a) === app(b) : true)
-  if (office(prev) === office(release) && adds(prev.windows, release.windows) && adds(prev.mac, release.mac)) return 'upload'
+  if (office(prev) === office(release) && adds(prev.windows, release.windows) && adds(prev.mac, release.mac) && adds(prev.linux, release.linux)) return 'upload'
   throw new Error(`${key} is already published with other files: publish a new version instead`)
 }
 
@@ -243,6 +248,33 @@ export async function publishToFeed(o: OfficeFeedRun): Promise<'published' | 'he
   return 'published'
 }
 
+/** --linux <dir>: the Linux build's six files (electron-builder's names, server/src/office/desktop.ts LINUX_APPS), each
+ * yml checked against its AppImage; their artifacts are added to `arts` */
+export function linuxApp(feed: string, version: string, dir: string, arts: Artifact[]): NonNullable<OfficeRelease['linux']> {
+  const ymlVersion = (yml: string) => {
+    const y = readLatestYml(fs.readFileSync(yml, 'utf8'))
+    if (!y.version || !VERSION_RE.test(y.version)) throw new Error(`${yml}: no version`)
+    return y.version
+  }
+  const want = (f: string) => { if (!fs.existsSync(f)) throw new Error(`${f} not found: the Linux build writes it (bun run --cwd desktop dist:linux)`); return f }
+  const v = ymlVersion(want(path.join(dir, LINUX_APPS.x64.yml)))
+  const one = (arch: keyof typeof LINUX_APPS) => {
+    const a = LINUX_APPS[arch]
+    const yml = want(path.join(dir, a.yml))
+    if (ymlVersion(yml) !== v) throw new Error(`${a.yml} names version ${ymlVersion(yml)}, not ${v} like ${LINUX_APPS.x64.yml}`)
+    const appImage = want(path.join(dir, a.appImage(v)))
+    const deb = want(path.join(dir, a.deb(v)))
+    checkLatestLinuxYml(fs.readFileSync(yml, 'utf8'), v, { file: path.basename(appImage), sha512: sha256(appImage, 'sha512', 'base64'), size: fs.statSync(appImage).size })
+    const ie = describe(feed, version, appImage, 'application/octet-stream')
+    const de = describe(feed, version, deb, 'application/vnd.debian.binary-package')
+    const ye = describe(feed, version, yml, 'text/yaml; charset=utf-8')
+    arts.push(ie, de, ye)
+    return { appImage: ie.meta, deb: de.meta, yml: ye.meta }
+  }
+  const x = one('x64'), a = one('arm64')
+  return { version: v, appImageX64: x.appImage, appImageArm64: a.appImage, debX64: x.deb, debArm64: a.deb, latestYml: x.yml, latestYmlArm64: a.yml }
+}
+
 async function main() {
   const channel = arg('--channel') as Channel | undefined
   if (channel !== 'stable' && channel !== 'beta') throw new Error('--channel stable|beta is required')
@@ -298,9 +330,11 @@ async function main() {
     mac = { version: y.version, dmg: de.meta, zip: ze.meta, latestYml: ye.meta }
   }
 
+  const linux = arg('--linux') ? linuxApp(feed, version, path.resolve(arg('--linux')!), arts) : null
+
   const rolloutMode = arg('--rollout') ?? 'staged'
   if (rolloutMode !== 'staged' && rolloutMode !== 'all') throw new Error('--rollout staged|all')
-  const release = officeRelease({ channel, version, minFrom, notes, office: arts[0]!.meta, windows, mac, rollout: rolloutMode })
+  const release = officeRelease({ channel, version, minFrom, notes, office: arts[0]!.meta, windows, mac, linux, rollout: rolloutMode })
   console.log(release.rollout ? `rollout: staged, ${rampText(release.rollout.ramp!)} (from publishedAt)` : 'rollout: none, every office at once')
   const pem = readReleaseKey()
   const signed = signRelease(release, pem)

@@ -156,6 +156,33 @@ describe('desktop downloads only (office_only) and the Mac runner', () => {
     const names = yaml.jobs.publish!.steps!.map((s) => s.name)
     expect(names.indexOf('The published Linux files (office_only)')).toBeLessThan(names.indexOf('Office feed (zip + Windows installer)'))
   })
+  test('the Linux desktop app rides along: built without secrets (office_only too), published only when it passed, never holding back the release', () => {
+    const job = yaml.jobs['build-linux-desktop']! as { if?: string; needs?: unknown; 'runs-on'?: string; environment?: unknown; steps?: { name?: string; run?: string; with?: Record<string, string> }[] }
+    expect(job.if).toBeUndefined()
+    expect(job.needs).toBe('prepare')
+    expect(job['runs-on']).toBe('ubuntu-24.04')
+    expect(job.environment).toBeUndefined()
+    expect(JSON.stringify(job)).not.toContain('secrets.')
+    const build = job.steps!.find((x) => x.run?.includes('dist:linux'))!
+    expect(build.run).toContain('bun run --cwd desktop dist:linux -- "-c.extraMetadata.version=$VERSION"')
+    expect(build.run).toContain('bun scripts/plugins/release-check.ts desktop/dist desktop/release')
+    expect(build.run).toContain('for y in latest-linux.yml latest-linux-arm64.yml')
+    const up = job.steps!.find((x) => x.with?.name === 'release-linux-desktop')!
+    for (const f of ['*-linux-amd64.deb', '*-linux-arm64.deb', '*-linux-x86_64.AppImage', '*-linux-arm64.AppImage', 'latest-linux.yml', 'latest-linux-arm64.yml']) expect(up.with!.path).toContain(`desktop/release/${f}`)
+    // publish waits for it but does not need it to pass; the office feed's condition never names it
+    const pub = yaml.jobs.publish! as { needs?: string[]; if?: string }
+    expect(pub.needs).toContain('build-linux-desktop')
+    expect(pub.if).not.toContain('build-linux-desktop')
+    expect(step('publish', 'Office feed (zip + Windows installer)').if).not.toContain('linux-desktop')
+    const feed = step('publish', 'Office feed (zip + Windows installer)').run!
+    expect(feed).toContain('if [ "$LINUX_DESKTOP_OK" = true ]; then linux=(--linux in/release-linux-desktop); fi')
+    expect(wf.split('\n').filter((l) => /bun scripts\/release\/publish\.ts --channel/.test(l)).every((l) => l.includes('"${linux[@]}"'))).toBe(true)
+    expect(step('publish', 'Which desktop builds are here').run).toContain('build-linux-desktop did not pass: no Linux desktop app in this release')
+    expect(step('publish', 'SHA256SUMS and its signature').run).toContain('cp in/release-linux-desktop/*.deb in/release-linux-desktop/*.AppImage assets/')
+    const gh = step('github-release', 'Create the release (or add the files to it on a re-run)').run!
+    expect(gh).toContain('missing+=("Linux (desktop app)")')
+    expect(gh).toContain('[ "$LINUX_DESKTOP_OK" = true ]; then')
+  })
   test('the office zip runner: the input, else the repository variable, else macos-15', () => {
     expect(yaml.jobs['build-office']!['runs-on']).toBe("${{ inputs.mac_runner || vars.RELEASE_MAC_RUNNER || 'macos-15' }}")
   })
