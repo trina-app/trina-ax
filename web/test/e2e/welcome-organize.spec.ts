@@ -29,7 +29,7 @@ test('propose → change a row → remove a row → rename a new folder → [이
   await page.request.post('/__test/organize', { data: { project: { name: 'A사 리뉴얼', match: 'A사' } } })
   await toFiles(page)
   // the start's description says where they go and that the AI reads them (no grey line of its own)
-  await expect(page.getByTestId('welcome-team-files-desc').first()).toContainText('AI가 파일 내용을 읽고 팀 전체가 보는 전사 공유에 정리해 드려요.')
+  await expect(page.getByTestId('welcome-team-files-desc').first()).toContainText('올린 뒤에는 읽어서 팀 전체가 보는 전사 공유에 정리해요.')
   await expect(page.getByTestId('welcome-team-files-organize-line')).toHaveCount(0)
   await page.getByTestId('welcome-team-files-input').setInputFiles(FILES)
   // reading, with the count of files read
