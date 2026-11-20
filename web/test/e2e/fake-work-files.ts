@@ -3,7 +3,8 @@
 // gives the list set with look(), with an id per file; read() gives bytes only for ids of its latest look and logs each
 // read; openSettings() is counted. Part 5: `wide` offers the wide look (scan logs what it was asked), and `fullDisk`
 // (a Mac) answers Full Disk Access as the test sets it (setFullDisk), counting Open Settings and Reopen. Version 2
-// (the default, TC-3300): add(ids) records what the page named at Add, and read() gives only those. Used by
+// (the default, TC-3300): add(ids) records what the page named at Add, and read() gives only those. `refuse` ids read as
+// changed since the look, `missing` ids as deleted since it (TC-219). Used by
 // find-work-files.spec.ts and shots-find-work-files.spec.ts.
 import { expect, type Page } from '@playwright/test'
 
@@ -11,11 +12,11 @@ export type Meta = { name: string; root?: 'documents' | 'desktop' | 'downloads' 
 export type Root = { id: 'documents' | 'desktop' | 'downloads' | 'cloud' | 'folder' | 'messenger' | 'home' | 'drive'; place?: string; state: string; cut?: boolean; tooBig?: number; oneDrive?: boolean }
 
 /** Installed before the app's scripts: a desktop bridge whose workFiles answers like the app's main process. */
-export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; pick?: boolean; pickFolder?: string; wide?: boolean; fullDisk?: 'granted' | 'denied'; platform?: 'darwin' | 'win32' } = {}) {
+export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; missing?: string[]; pick?: boolean; pickFolder?: string; wide?: boolean; fullDisk?: 'granted' | 'denied'; platform?: 'darwin' | 'win32' } = {}) {
   await page.addInitScript((opts) => {
-    type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; asks: unknown[]; reads: string[]; adds: string[][]; added: Set<string>; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string>; fullDisk: string; fdSettings: number; fdRelaunch: number; fdChecks: number }
+    type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; asks: unknown[]; reads: string[]; adds: string[][]; added: Set<string>; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string>; fullDisk: string; fdSettings: number; fdRelaunch: number; fdChecks: number; refuseAdds: number }
     const w = window as unknown as { mycelDesktop: unknown; __app: D; __look: (files: unknown[], roots: unknown[]) => void }
-    const d: D = { picks: 0, pickFiles: [], answer: null, scans: 0, asks: [], reads: [], adds: [], added: new Set(), files: [], roots: [], settings: 0, latest: new Set(), fullDisk: opts.fullDisk ?? 'denied', fdSettings: 0, fdRelaunch: 0, fdChecks: 0 }
+    const d: D = { picks: 0, pickFiles: [], answer: null, scans: 0, asks: [], reads: [], adds: [], added: new Set(), files: [], roots: [], settings: 0, latest: new Set(), fullDisk: opts.fullDisk ?? 'denied', fdSettings: 0, fdRelaunch: 0, fdChecks: 0, refuseAdds: 0 }
     w.__app = d
     w.__look = (files, roots) => { d.files = files as D['files']; d.roots = roots }
     ;(w as unknown as { __pick: (f: unknown[]) => void }).__pick = (f) => { d.pickFiles = f }
@@ -56,6 +57,8 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
         onProgress: (cb: (p: unknown) => void) => { progress.push(cb); return noop },
         ...((opts.version ?? 2) >= 2 ? { add: async (ids: string[]) => {
           d.adds.push([...ids])
+          // the press did not reach the app in time (refuseAdds(): the next n adds)
+          if (d.refuseAdds > 0) { d.refuseAdds--; return { state: 'refused' } }
           if (!ids.every((id) => d.latest.has(id))) return { state: 'refused' }
           for (const id of ids) d.added.add(id)
           return { state: 'added' }
@@ -64,6 +67,8 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
           d.reads.push(id)
           // version 2: only what the page named at Add (the app refuses every other id)
           if ((opts.version ?? 2) >= 2 && !d.added.has(id)) return { ok: false, reason: 'unknown' }
+          // refuse: changed on disk since the look; missing: deleted since the look (TC-219)
+          if (d.latest.has(id) && (opts.missing ?? []).includes(id)) return { ok: false, reason: 'missing' }
           if (!d.latest.has(id) || (opts.refuse ?? []).includes(id)) return { ok: false, reason: d.latest.has(id) ? 'changed' : 'unknown' }
           const f = d.files.find((x) => x.id === id)!
           return { ok: true, bytes: new TextEncoder().encode(`content of ${f.name}`.padEnd(f.size, '.')) }
@@ -104,3 +109,5 @@ export async function notNow(page: Page) {
   await page.getByTestId('find-work-share-skip').click()
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
 }
+/** The app turns down the next `n` adds (the press did not reach it in time). */
+export const refuseAdds = (page: Page, n: number) => page.evaluate((x) => { (window as unknown as { __app: { refuseAdds: number } }).__app.refuseAdds = x }, n)
