@@ -194,8 +194,8 @@ export const skillsWaitForComputer = (p: WelcomeProgress | null) =>
  * The setup row (components/onboarding/SetupRow.tsx; docs/DECISIONS.md "W5"), the owner's one way back to the steps
  * from every page: `hidden`, `resume` ("설정 이어서 하기 · 2/5", or "남은 일: 팀 파일" with one step left: setupRowWords;
  * → /welcome at its step) or `ai` (while no AI answers: "AI 연결하기", the connect dialog). Never on /welcome itself;
- * while unfinished and not hidden (showResume). Without AI it hides on Home, where the no-AI card stands. On a phone it
- * hides on Home, whose own quiet row under the message box says the same; on a computer it replaces that row.
+ * while unfinished and not hidden (showResume). Without AI it hides on Home, where the no-AI card stands. It hides on
+ * Home (a phone and a computer), whose own top row says the same (docs/decisions/20261120-my-setup-card.md).
  * `aiReady`: AI answers the owner (or not known yet).
  */
 export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiReady: boolean; computer: boolean; home?: boolean }): 'hidden' | 'resume' | 'ai' | 'left' {
@@ -207,7 +207,8 @@ export function setupRowState(p: WelcomeProgress | null, o: { path: string; aiRe
   if (putOffSteps(p, o.aiReady, o.computer).length) return !o.aiReady || (home && !o.computer) ? 'hidden' : 'left'
   if (!showResume(p, o.computer)) return 'hidden'
   if (!o.aiReady) return home ? 'hidden' : 'ai'
-  return home && !o.computer ? 'hidden' : 'resume'
+  // on Home the top row says it (WelcomeResume, on a computer too: docs/decisions/20261120-my-setup-card.md)
+  return home ? 'hidden' : 'resume'
 }
 
 /**

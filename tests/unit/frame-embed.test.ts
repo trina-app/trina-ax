@@ -11,6 +11,7 @@ setDefaultTimeout(30_000)
 
 let A: CApp
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+const JS = Buffer.from('window.THREE = { REVISION: "181" } // ü\n')
 const put = (rel: string, b: Buffer | string) => { const p = path.join(A.team, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, b) }
 const get = (as: Person, p: string, embedIn?: string) =>
   A.req(`/api/files/download?${new URLSearchParams({ path: p, disposition: 'attachment', preview: 'true', ...(embedIn !== undefined ? { embedIn } : {}) })}`, { as })
@@ -27,6 +28,12 @@ beforeAll(async () => {
   put('shared/page.html', '<img src="/users/alice/me.png">')
   put('users/alice/me.png', PNG)
   put('users/alice/page.html', '<img src="me.png">')
+  // script files of a page (web/src/lib/frame-scripts.ts): the same rule as images
+  put('groups/marketing/warehouse/index.html', '<script src="lib/three.min.js"></script>')
+  put('groups/marketing/warehouse/lib/three.min.js', JS)
+  put('groups/marketing/salaries/keys.js', JS)
+  put('projects/falcon/public/app.html', '<script type="module" src="../lib/main.js"></script>')
+  put('projects/falcon/lib/main.js', JS)
 })
 afterAll(() => A?.close())
 
@@ -67,5 +74,39 @@ describe('download with embedIn', () => {
     expect((await get('carol', 'groups/marketing/salaries/chart.png')).status).toBe(200)
     expect((await get('alice', 'users/alice/me.png')).status).toBe(200)
     expect((await get('alice', 'groups/marketing/salaries/chart.png')).status).toBe(404)
+  })
+})
+
+describe('download with embedIn: script files (AP-080)', () => {
+  test('a library next to the page is given, byte for byte', async () => {
+    const r = await get('alice', 'groups/marketing/warehouse/lib/three.min.js', 'groups/marketing/warehouse/index.html')
+    expect(r.status).toBe(200)
+    expect(Buffer.from(await r.arrayBuffer()).equals(JS)).toBe(true)
+  })
+  test('a script some readers of the page cannot read is refused (403 embed_narrower), even for a viewer who reads both', async () => {
+    for (const [as, file, page] of [
+      ['carol', 'groups/marketing/salaries/keys.js', 'groups/marketing/warehouse/index.html'],
+      ['alice', 'projects/falcon/lib/main.js', 'projects/falcon/public/app.html'],
+    ] as const) {
+      const r = await get(as, file, page)
+      expect(r.status).toBe(403)
+      const body = await r.json() as { error: { code: string; params?: { reason?: string } } }
+      expect(body.error.params?.reason).toBe('embed_narrower')
+    }
+  })
+  test('a script the viewer cannot read is not given (404), whatever the page', async () => {
+    expect((await get('alice', 'groups/marketing/salaries/keys.js', 'groups/marketing/warehouse/index.html')).status).toBe(404)
+    expect((await get('bob', 'groups/marketing/warehouse/lib/three.min.js', 'groups/marketing/warehouse/index.html')).status).toBe(404)
+  })
+  test('a path above the team root is refused, for the file and for the page', async () => {
+    for (const [file, page] of [
+      ['../outside.js', 'groups/marketing/warehouse/index.html'],
+      ['groups/../../outside.js', 'groups/marketing/warehouse/index.html'],
+      ['/etc/hosts', 'groups/marketing/warehouse/index.html'],
+      ['groups/marketing/warehouse/lib/three.min.js', '../index.html'],
+    ]) {
+      const r = await get('carol', file!, page)
+      expect(r.status === 400 || r.status === 404).toBe(true)
+    }
   })
 })

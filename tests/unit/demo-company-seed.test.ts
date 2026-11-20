@@ -21,6 +21,9 @@ import { en as minaEn } from '../../scripts/demo/mina/strings/en'
 import { ko as minaKo } from '../../scripts/demo/mina/strings/ko'
 import { en as steeplingEn } from '../../scripts/demo/steepling/strings/en'
 import { ko as steeplingKo } from '../../scripts/demo/steepling/strings/ko'
+import { richEn } from '../../scripts/demo/steepling/strings/rich.en'
+import { richKo } from '../../scripts/demo/steepling/strings/rich.ko'
+import { FLOORS, MESSAGES, NEW_PEOPLE } from '../../scripts/demo/steepling/rich'
 
 const OWNER_PASSWORD = 'a random owner password for tests 1'
 const BASE = 'http://team.localhost'
@@ -121,7 +124,7 @@ for (const dir of CONTENTS) {
 // Steepling at the end of the scripted story "Mina's first day" (scripts/demo/steepling; the free-roam demo's snapshot is
 // seeded from it). The content is made from the scripted demo's own strings, so the cast and names are the same; the
 // seed here also runs the state a story ends in (rooms, chats, connections, the welcome inviter) through the builder's
-// routes, which answer only with the demo file's builder: true.
+// routes, which answer only with the demo file's builder: true (English; Korean is checked for the same structure).
 for (const locale of STEEPLING_LOCALES) {
   describe(`Steepling at the end of the story (${locale})`, () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `steepling-${locale}-`))
@@ -140,9 +143,10 @@ for (const locale of STEEPLING_LOCALES) {
       expect(c.company.teamName).toBe(story.company)
       expect(c.company.locale).toBe(locale)
       const names = [c.company.owner.name, ...c.company.people.map((p) => p.name)].sort()
-      expect(names).toEqual((['daniel', 'mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const).map((id) => story.people[id].name).sort())
+      const rich = locale === 'ko' ? richKo : richEn
+      expect(names).toEqual([...(['daniel', 'mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const).map((id) => story.people[id].name), ...(Object.keys(NEW_PEOPLE) as (keyof typeof NEW_PEOPLE)[]).map((id) => rich[`${id}.name`])].sort())
       expect(c.company.owner).toMatchObject({ username: 'daniel', group: story.marketingGroup })
-      expect(c.company.projects.map((p) => p.name)).toEqual([story.project.name])
+      expect(c.company.projects.map((p) => p.name)).toEqual([story.project.name, rich['p3.name'], rich['p4.name'], rich['p5.name']])
       expect(c.files).toContain(`projects/${story.project.name}/${story.paths.banner}`)
       expect(c.files.filter((f) => f.startsWith('skills/')).sort()).toEqual(STEEPLING_SKILLS.map((k) => `skills/${k}/SKILL.md`).sort())
       expect(c.company.freeRoam?.suggestions.length).toBeGreaterThanOrEqual(2)
@@ -165,6 +169,10 @@ for (const locale of STEEPLING_LOCALES) {
       if (locale === 'ko') expect(fs.readFileSync(path.join(c.filesDir, 'skills/social-posts/SKILL.md'), 'utf8')).toContain('\n  title: SNS 글 쓰기\n')
     })
 
+    // the server seed runs for English only (CI time: it is the slow part); Korean has the same structure, checked
+    // without a server below ("the richer Steepling, without a server": the same ids, people, rooms, messages, threads,
+    // chats, files and fakes), and its own words, skills and paths here and there
+    if (locale !== 'en') return
     test('seeded with the end of the story: checks, rooms, projects, shared chats, connections, the inviter', async () => {
       h = await harness(`demo-steepling-${locale}`, { demo: c.demoFile({ replays: null, builder: true }) })
       const r = await seedDemo({ baseUrl: BASE, setupToken: SETUP_TOKEN, fetch: appFetch, company: c.seed, ownerPassword: OWNER_PASSWORD, locale: c.company.locale })
@@ -181,10 +189,19 @@ for (const locale of STEEPLING_LOCALES) {
       }
 
       const mina = await as('mina')
-      // her rooms: everyone, #Marketing, two DMs, the group chat; all read, the story's messages there
+      // her rooms: everyone, #Marketing, the DMs, the private channels, the handover group DM. Read but for what the content
+      // marks unread: Nadia's mention in Customer voice, Sara's reply in the Social calendar thread, Omar's DM
       const rooms = (await mina.call(API.listRooms)).items
-      expect(rooms.length).toBe(5)
-      expect(rooms.every((x) => x.unreadCount === 0)).toBe(true)
+      expect(rooms.length).toBe(c.company.rooms.length)
+      const unread = (slug: string) => { const r = rooms.find((x) => x.id === s.rooms[slug]!.id)!; return [r.unreadCount, r.threadsUnread] }
+      for (const x of c.company.rooms) expect(unread(x.slug), x.slug).toEqual(x.slug === 'customer-voice' || x.slug === 'dm-omar' ? [1, 0] : x.slug === 'social-calendar' ? [0, 1] : [0, 0])
+      // Activity: those two and Sara's reply under the banner answer; nothing at the build's time
+      const inbox = await mina.call(API.listNotifications, { query: { limit: 100 } })
+      expect(inbox.unreadCount).toBe(3)
+      expect(inbox.items.every((n) => Date.parse(n.createdAt) < Date.now() - 10 * 60_000)).toBe(true)
+      // the thread replies are in their threads
+      const cv = (await mina.call(API.listRoomMessages, { params: { id: s.rooms['customer-voice']!.id }, query: { limit: 200 } })).items
+      expect(cv.reduce((n, m) => n + (m.thread?.replyCount ?? 0), 0)).toBe(2)
       const texts = async (id: string) => (await mina.call(API.listRoomMessages, { params: { id }, query: { limit: 200 } })).items.map((m) => m.body)
       const all = await texts(s.rooms.everyone!.id)
       expect(all.some((t) => t.includes(story.events.ceoShoutout))).toBe(true)
@@ -200,10 +217,13 @@ for (const locale of STEEPLING_LOCALES) {
       expect(Date.now() - times[0]!).toBeGreaterThan(24 * 3600_000)
 
       // the project, and the others' chats shared in it
-      const project = (await mina.call(API.listProjects)).items.find((p) => p.name === story.project.name)!
-      expect(project).toBeTruthy()
-      const inProject = (await mina.call(API.listChats, { query: { limit: 50, projectId: project.id } })).items.map((x) => x.title)
-      for (const x of c.company.chats.filter((y) => y.project)) expect(inProject, x.slug).toContain(x.title)
+      const projects = (await mina.call(API.listProjects)).items
+      expect(projects.map((p) => p.name).sort()).toEqual(c.company.projects.map((p) => p.name).sort())
+      for (const x of c.company.chats.filter((y) => y.project)) {
+        const project = projects.find((p) => p.name === x.project)!
+        const inProject = (await mina.call(API.listChats, { query: { limit: 50, projectId: project.id } })).items.map((y) => y.title)
+        expect(inProject, x.slug).toContain(x.title)
+      }
       const mine = (await mina.call(API.listChats, { query: { limit: 50 } })).items.map((x) => x.title)
       expect(mine).toContain(story.answers.company.prompt)
       expect(mine).toContain(story.answers.mail.prompt)
@@ -226,6 +246,71 @@ for (const locale of STEEPLING_LOCALES) {
   })
 }
 
+// The richer Steepling (scripts/demo/steepling/rich.ts and strings/rich.<locale>.ts): one structure for both languages,
+// words that fit a chat, a file or an answer, skills that name files that are there, and enough of everything
+describe('the richer Steepling, without a server', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'steepling-rich-'))
+  afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }))
+  const made = Object.fromEntries(STEEPLING_LOCALES.map((l) => [l, loadContent(writeSteepling(l, path.join(tmp, l)))])) as Record<(typeof STEEPLING_LOCALES)[number], DemoContent>
+  const shape = (c: DemoContent) => ({
+    people: c.company.people.map((p) => p.username),
+    rooms: c.company.rooms.map((r) => [r.slug, r.kind, r.people ?? null, r.messages.map((m) => [m.from, m.minutesAgo, m.reactions.length, m.files.length, m.unread ?? false, (m.thread ?? []).map((t) => [t.from, t.minutesAgo, t.unread ?? false])])]),
+    chats: c.company.chats.map((x) => [x.slug, x.username, x.turns.length, x.thread?.length ?? 0]),
+    projects: c.company.projects.map((p) => [p.by, p.members.length, p.channel]),
+    files: c.files.length, gmail: c.fakes.gmail?.messages.map((m) => [m.threadId, m.labels]), drive: c.fakes.drive?.files.length,
+  })
+
+  test('en and ko have the same structure; no empty line or TODO in either', () => {
+    expect(shape(made.ko)).toEqual(shape(made.en))
+    for (const rich of [richEn, richKo]) for (const [k, v] of Object.entries(rich)) {
+      expect(v.trim(), k).not.toBe('')
+      expect(v, k).not.toMatch(/\bTODO\b/)
+    }
+    // every id the words name became a name or a path
+    for (const l of STEEPLING_LOCALES) expect(JSON.stringify(made[l].company)).not.toMatch(/@\{|\{file:[^}/]+\}|\{project:p\d\}/)
+  })
+
+  test('short enough to be cheap to read: messages, answers, files', () => {
+    for (const l of STEEPLING_LOCALES) {
+      const c = made[l]
+      const words = Object.keys(MESSAGES).map((id) => (l === 'ko' ? richKo : richEn)[id as keyof typeof MESSAGES])
+      for (const t of words) expect(t.length, t).toBeLessThanOrEqual(300)
+      for (const id of ['c.p3.1', 'c.p4.1', 'c.p5.1', 'c.p5.2', 'c.who.1'] as const) expect((l === 'ko' ? richKo : richEn)[`${id}.answer`].length, id).toBeLessThanOrEqual(1500)
+      for (const f of c.files.filter((x) => /\.(md|csv)$/.test(x))) expect(fs.statSync(path.join(c.filesDir, f)).size, `${l} ${f}`).toBeLessThanOrEqual(4096)
+    }
+  })
+
+  test('every team path a skill names is there, in its language', () => {
+    for (const l of STEEPLING_LOCALES) {
+      const c = made[l]
+      for (const rel of c.files.filter((f) => f.startsWith('skills/'))) {
+        for (const [, p] of fs.readFileSync(path.join(c.filesDir, rel), 'utf8').matchAll(/`((?:shared|groups|projects)\/[^`]+)`/g)) {
+          expect(c.files.includes(p!) || c.files.some((f) => f.startsWith(p!.endsWith('/') ? p! : `${p}/`)), `${l} ${rel}: ${p}`).toBe(true)
+        }
+      }
+    }
+  })
+
+  test('the content clears the snapshot\'s floors (a thin build fails there too)', () => {
+    for (const l of STEEPLING_LOCALES) {
+      const c = made[l].company
+      const mine = c.rooms.filter((r) => r.kind === 'all' || r.kind === 'team' || r.people?.includes('mina'))
+      expect(c.projects.length).toBeGreaterThanOrEqual(FLOORS.projects)
+      expect(mine.length).toBeGreaterThanOrEqual(FLOORS.rooms)
+      expect(mine.filter((r) => r.kind !== 'dm' && (r.kind !== 'group' || r.name)).length).toBeGreaterThanOrEqual(FLOORS.channels)
+      expect(mine.reduce((n, r) => n + r.messages.length, 0)).toBeGreaterThanOrEqual(FLOORS.roomMessages)
+      expect(mine.reduce((n, r) => n + r.messages.filter((m) => m.thread?.length).length, 0)).toBeGreaterThanOrEqual(FLOORS.threads)
+      expect(mine.reduce((n, r) => n + r.messages.reduce((x, m) => x + (m.thread?.length ?? 0), 0), 0)).toBeGreaterThanOrEqual(FLOORS.threadReplies)
+      expect(c.checks[0]!.opens.length).toBeGreaterThanOrEqual(FLOORS.filesOpened)
+      expect(c.checks[0]!.skills?.length).toBe(FLOORS.skills)
+      expect(new Set(made[l].fakes.gmail!.messages.map((m) => m.threadId)).size).toBeGreaterThanOrEqual(FLOORS.gmailThreads)
+      // the planned unread: Nadia's mention, Sara's thread reply, Omar's DM; nothing else
+      const unread = c.rooms.flatMap((r) => r.messages.flatMap((m) => [...(m.unread ? [r.slug] : []), ...(m.thread ?? []).filter((t) => t.unread).map(() => `${r.slug} thread`)]))
+      expect(unread.sort()).toEqual(['customer-voice', 'dm-omar', 'social-calendar thread'])
+    }
+  })
+})
+
 describe('the builder\'s routes are not there without the demo file\'s builder: true', () => {
   test('404 for the owner on a demo server without it, and on a server without a demo', async () => {
     const c = loadContent(DEFAULT_CONTENT)
@@ -239,6 +324,12 @@ describe('the builder\'s routes are not there without the demo file\'s builder: 
         const users = (await owner.call(API.listUsers)).items
         const err = await owner.call(API.demoBuilderWelcome, { body: { userId: users[1]!.id, inviterId: users[2]!.id } }).then(() => null, (e) => e as ApiError)
         expect(err?.status).toBe(404)
+        // the free-roam audit's two (QA TC-5614, TC-5618): not there either
+        const id = '01a1f758-2656-7058-84d5-497e9999f691'
+        for (const call of [
+          () => owner.call(API.demoBuilderThreadTimes, { body: { chatId: id, times: [{ replyId: id, at: new Date().toISOString() }] } }),
+          () => owner.call(API.demoBuilderFileTimes, { body: { times: [{ path: 'shared/a.md', at: new Date().toISOString() }], hideFromRecent: ['skills'] } }),
+        ]) expect((await call().then(() => null, (e) => e as ApiError))?.status).toBe(404)
       } finally { await h.close() }
     }
   }, 180_000)

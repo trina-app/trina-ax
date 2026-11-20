@@ -496,7 +496,7 @@ describe('the top of Home: one thing', () => {
     } finally { await m.unmount() }
   }
 
-  test('setup unfinished: on a phone only the quiet "설정 이어서 하기 · n/4" row (the steps a phone shows, QA TC-271), no goal card; on a computer the goal card (the list panel\'s setup row stands for the steps, docs/DECISIONS.md "W5")', async () => {
+  test('setup unfinished: only the quiet "설정 이어서 하기 · n/4" row on a phone (the steps a phone shows, QA TC-271), "n/5" on a computer (docs/decisions/20261120-my-setup-card.md), no goal card', async () => {
     welcome = fresh(); teamGoal = goal()
     const media = globalThis.matchMedia
     globalThis.matchMedia = ((q: string) => ({ matches: q === '(max-width: 767.98px)', addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} })) as unknown as typeof matchMedia
@@ -508,7 +508,9 @@ describe('the top of Home: one thing', () => {
       expect(stepTotal(null, true, false)).toBe(4)
       expect({ ...t, resume: null }).toEqual({ resume: null, goal: null, dots: false })
     } finally { globalThis.matchMedia = media }
-    expect(await top('owner')).toEqual({ resume: null, goal: 'open', dots: false })
+    const c = await top('owner')
+    expect(c.resume).toBe(`${translate('ko', 'setupRow.resume')} · 2/${stepTotal(null, true, true)}`)
+    expect({ ...c, resume: null }).toEqual({ resume: null, goal: null, dots: false })
   })
   test('setup finished or hidden: only the goal card; an admin gets the card at once', async () => {
     teamGoal = goal()

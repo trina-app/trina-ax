@@ -31,7 +31,7 @@ import { useLocale, useT } from '../i18n'
 import { aiName } from '../lib/tabs'
 import { CodeBlock, Markdown } from './LazyMarkdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
-import ExternalImagesNote from './ExternalImagesNote'
+import ExternalImagesNote, { FrameNotes, hasFrameNotes } from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import { useMe } from '../store/session'
 import { fileRead, keptFile, sameBytes } from '../store/teamFiles'
@@ -401,7 +401,8 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
   // the page's team images and clips as data: URLs (lib/frame-files.ts), each only if everyone who can read this page
   // can read it too (embedIn); null while they are fetched
   const phoneFit = useMediaQuery(PAGE_FIT_QUERY)
-  const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined })
+  // (and, in a frame that runs scripts, its team script files: lib/frame-scripts.ts)
+  const files = useFrameFiles(page, { folder: path === null ? null : parentPath(path), embedIn: path ?? undefined, scripts: scripts === true })
   if (text === null) return null
   const cut = blob.size > MAX_TEXT && <p className="px-4 pb-4 text-xs text-faint">{t('preview.truncated')}</p>
   if (kind === 'markdown') {
@@ -438,10 +439,10 @@ function TextKinds({ kind, blob, name, path }: { kind: PreviewKind; blob: Blob; 
     const frame = scripts
       ? <SandboxFrame html={wrapHtml(files.html, location.origin, kind === 'html' ? { gutter: true, fit } : {})} fit={fit} title={name} className={clsx('h-full min-h-[70vh] w-full border-0 bg-white', fit && 'flex-1')} />
       : <StaticFrame html={files.html} title={name} gutter={kind === 'html'} fit={fit} className="min-h-[70vh] w-full flex-1 border-0 bg-white" />
-    if (!files.external) return frame
+    if (scripts ? !hasFrameNotes(files) : !files.external) return frame
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <ExternalImagesNote count={files.external} />
+        {scripts ? <FrameNotes files={files} /> : <ExternalImagesNote count={files.external} />}
         {frame}
       </div>
     )

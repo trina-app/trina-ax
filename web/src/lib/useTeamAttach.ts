@@ -14,16 +14,17 @@ export function useTeamAttach() {
   const userId = useMe()?.user.id ?? '-'
   const chats = useChats((s) => s.chats)
   const target = currentChatTarget(userId)
-  // a draft id ("new", "project:<id>") is a chat that is not created yet
-  const title = !target ? null : target === 'new' || target.startsWith('project:') ? t('chat.untitled') : chats.find((c) => c.id === target)?.title || t('chat.untitled')
+  // its name when the list knows it; a draft ("new", "project:<id>") or a chat the list has not loaded (a project's)
+  // has none, and the menu says "Add to current chat" instead of a made-up "Untitled" (QA TC-5744)
+  const title = !target || target === 'new' || target.startsWith('project:') ? null : chats.find((c) => c.id === target)?.title?.trim() || null
   const report = (r: AttachResult) => {
     if (r.added > 0 && !r.failed) toast({ level: 'success', text: t('files.addedToChat') })
     else if (r.added > 0) toast({ level: 'info', text: t('files.addedSome', { n: String(r.added), failed: String(r.failed) }) })
     else toast({ level: 'error', text: r.error ?? t('error.network') })
   }
   return {
-    /** the chat "Add to current chat" goes to, by name (null: none open in this tab) */
-    target: target ? { id: target, title: title! } : null,
+    /** the chat "Add to current chat" goes to (null: none open in this tab), by name when it has one */
+    target: target ? { id: target, title } : null,
     // the chat the files go to must show: a big side panel (lib/sidePanel.ts) goes back side by side first
     addToChat: (paths: string[]) => {
       setPanelExpanded(false)

@@ -94,6 +94,8 @@
     - **heavy:** the dev environment, voice (transcribe), the MP4 render of a promo video, plugins.
     - **usage:** the person's own usage (`GET /api/me/usage`: engine, model, cost in US dollars) and the engine and
       model list (`GET /api/engines`). They name the real AI account's engine, model and spending (QA TC-5578).
+    - **skills:** "Bring my skills" for members (`POST /api/skills/suggestions/batch`): it reads a folder of the
+      visitor's own computer into the team (QA TC-5613; the owners' and admins' way in is an admin endpoint).
 
     The test lists each endpoint and checks the answer.
   - **Off-contract routes** answer 404 in freeRoam: every route but the web app's, its WebSocket and the app links

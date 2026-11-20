@@ -13,7 +13,7 @@ import { waitFor } from '../lib/wait'
 import { getChatRuntime } from '../../server/src/chat/runtime'
 import { organizeSystemPrompt, parseOrganize } from '../../server/src/onboarding/files-organize-ai'
 import { applyOrganize, filesOrganized, ORGANIZED_SETTING, startOrganize } from '../../server/src/onboarding/files-organize'
-import { recordJoin, welcomeOf } from '../../server/src/onboarding/member-welcome'
+import { recordJoin, welcomeAnswer, welcomeOf } from '../../server/src/onboarding/member-welcome'
 import { updateWelcome } from '../../server/src/onboarding/welcome'
 import { fileEvent } from '../../server/src/files/store'
 import { teamDefaultLocale } from '../../server/src/admin/settings'
@@ -272,13 +272,13 @@ describe('the plan on the fake engine, applying it, the routes, the admins\' row
     recordJoin(h.ctx, { userId: 'carol', via: 'invite', invitedBy: 'dana' })
     recordJoin(h.ctx, { userId: 'alice', via: 'invite', invitedBy: 'dana' })
     h.ctx.db.query("DELETE FROM settings WHERE key = 'onboarding.welcome'").run()
-    expect(welcomeOf(h.ctx, 'carol')!.organizeFiles).toBe(false)
+    expect((welcomeAnswer(h.ctx, 'carol').organizeFiles ?? false)).toBe(false)
     updateWelcome(h.ctx, 'dana', {})
-    expect(welcomeOf(h.ctx, 'carol')!.organizeFiles).toBe(true)
-    expect(welcomeOf(h.ctx, 'alice')!.organizeFiles).toBe(false)
+    expect((welcomeAnswer(h.ctx, 'carol').organizeFiles ?? false)).toBe(true)
+    expect((welcomeAnswer(h.ctx, 'alice').organizeFiles ?? false)).toBe(false)
     put('shared/w/x 양식.md')
     const carol = { id: 'carol', role: 'admin' as const }
     applyOrganize(h.ctx, carol, await planOf(carol, ['shared/w/x 양식.md']), [{ from: 'shared/w/x 양식.md', folder: '양식' }])
-    expect(welcomeOf(h.ctx, 'carol')!.organizeFiles).toBe(false)
+    expect((welcomeAnswer(h.ctx, 'carol').organizeFiles ?? false)).toBe(false)
   })
 })
