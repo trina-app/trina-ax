@@ -7,8 +7,9 @@ import { describe, expect, test } from 'bun:test'
 import { WORK_FILES_BRIDGE_VERSION, folderLabel, FROM_COMPUTER_DIR, type DesktopBridge, type WorkFileMeta, type WorkFileRead } from '@mycel/shared'
 import { FolderUpload, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { personalPath } from '../../src/lib/teamFiles'
-import { confirmAdd, docsFromScan, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
+import { carried, carryOver, confirmAdd, docsFromScan, isStale, lookAgainHelps, STALE_MS, workReadReason, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
 import { folderWords } from '../../src/lib/folderLabels'
+import { translate } from '../../src/i18n'
 
 const meta = (name: string, o: Partial<WorkFileMeta> = {}): WorkFileMeta => ({ id: `id-${name}`, root: 'documents', folder: '', name, ext: name.split('.').pop()!, size: 10, modified: Date.UTC(2026, 9, 3, 12), ...o })
 
@@ -402,5 +403,49 @@ describe('Not now on the Full Disk Access screen, for 30 days (this team, this p
     s.setItem('mycel.findWork.fullDiskLater:u-bob', 'soon')
     expect(fullDiskLater('u-bob', now, s)).toBe(false)
     expect(fullDiskLater('u-bob', now, null)).toBe(false)
+  })
+})
+
+describe('a file changed or gone since the look (TC-219)', () => {
+  const t = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('en', key, params)
+  test('the app\'s reason in words, never the browser\'s; Look again only where a new look helps', () => {
+    expect(workReadReason(new WorkFileReadError('changed'), t)).toBe('Changed on this computer since the look')
+    expect(workReadReason(new WorkFileReadError('missing'), t)).toBe('No longer on this computer')
+    expect(workReadReason(new WorkFileReadError('expired'), t)).toBe('Look again to add this file')
+    expect(workReadReason(new WorkFileReadError('cloudTimeout', 'onedrive'), t)).toContain('OneDrive')
+    expect(workReadReason(new Error('x'), t)).toBeNull()
+    for (const r of ['changed', 'missing', 'expired', 'unknown', 'unreadable'] as const) expect(lookAgainHelps(new WorkFileReadError(r))).toBe(true)
+    expect(lookAgainHelps(new WorkFileReadError('limit'))).toBe(false)
+    expect(lookAgainHelps(new WorkFileReadError('cloudTimeout', 'icloud'))).toBe(false)
+    expect(lookAgainHelps(new Error('network'))).toBe(false)
+  })
+  test('one changed and one deleted file fail with the app\'s reason; the other ticked files still go', async () => {
+    const reads: Record<string, WorkFileRead> = { 'id-b.pdf': { ok: false, reason: 'changed' }, 'id-c.pdf': { ok: false, reason: 'missing' } }
+    const docs = docsFromScan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf'), meta('d.pdf')], async (id) => reads[id] ?? { ok: true, bytes: new Uint8Array(10) })
+    const uploaded: string[] = []
+    const c: FolderUploadCalls = { maxFileSize: 1 << 30, mkdir: async () => {}, isFolder: async () => false, upload: async (_f, path) => { uploaded.push(path); return { kind: 'path', entry: { path } } }, discard: async () => {} }
+    const run = new FolderUpload({ files: docs.map((d) => ({ rel: d.rel, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }, 'users/u1', c)
+    await run.start()
+    expect(uploaded.sort()).toEqual(['users/u1/a.pdf', 'users/u1/d.pdf'])
+    const why = Object.fromEntries(run.view.failures.map((f) => [f.path, workReadReason(f.error, t)]))
+    expect(why).toEqual({ 'b.pdf': 'Changed on this computer since the look', 'c.pdf': 'No longer on this computer' })
+  })
+  test('a list over 50 minutes old looks again before Add (the app reads a look\'s files for an hour)', () => {
+    const at = Date.UTC(2026, 10, 20, 9)
+    expect(STALE_MS).toBe(50 * 60_000)
+    expect(isStale(0, at)).toBe(false)
+    expect(isStale(at, at + STALE_MS - 1)).toBe(false)
+    expect(isStale(at, at + STALE_MS)).toBe(true)
+    expect(isStale(at, at + 2 * 60 * 60_000)).toBe(true)
+  })
+  test('a new look keeps the ticks: still there (changed ones said), gone ones named, one already added neither', () => {
+    const before = docsFromScan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf'), meta('d.pdf')], async () => ({ ok: false, reason: 'unknown' }))
+    const after = docsFromScan([meta('a.pdf'), meta('b.pdf', { size: 99 }), meta('d.pdf'), meta('e.pdf')], async () => ({ ok: false, reason: 'unknown' }))
+    // d.pdf is in the target by now (added): not offered, not gone
+    const found = after.filter((d) => d.name !== 'd.pdf')
+    const r = carryOver(carried(before), after, found)
+    expect([...r.ticks].sort()).toEqual(['Documents/a.pdf', 'Documents/b.pdf'])
+    expect([...r.changed]).toEqual(['Documents/b.pdf'])
+    expect(r.gone).toEqual(['c.pdf'])
   })
 })

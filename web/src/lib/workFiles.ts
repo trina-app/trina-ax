@@ -101,6 +101,49 @@ export class WorkFileReadError extends Error {
   }
 }
 
+/** Why a file of a run did not go, in words, when the desktop app said why (null: not the app's read). An app before
+ * 'missing' says 'unreadable' for a deleted file: "Look again to add this file". */
+export function workReadReason(e: unknown, t: (key: 'files.findWork.why.changed' | 'files.findWork.why.missing' | 'files.findWork.why.limit' | 'files.findWork.why.cloudTimeout' | 'files.findWork.why.lookAgain' | 'files.findWork.cloudGeneric', params?: Record<string, string | number>) => string): string | null {
+  if (!(e instanceof WorkFileReadError)) return null
+  if (e.reason === 'changed') return t('files.findWork.why.changed')
+  if (e.reason === 'missing') return t('files.findWork.why.missing')
+  if (e.reason === 'limit') return t('files.findWork.why.limit')
+  if (e.reason === 'cloudTimeout') return t('files.findWork.why.cloudTimeout', { provider: cloudName(e.cloud ?? 'cloud', t) })
+  return t('files.findWork.why.lookAgain')
+}
+
+/** A new look would help this file (changed, gone, the look too old or replaced): not a limit or a slow cloud. */
+export const lookAgainHelps = (e: unknown) => e instanceof WorkFileReadError && e.reason !== 'limit' && e.reason !== 'cloudTimeout'
+
+/** A list this old looks again before Add (TC-219): the app reads a look's files for an hour after it (sessionMs), and
+ * the reads take a while too. */
+export const STALE_MS = WORK_FILES_LIMITS.sessionMs - 10 * 60_000
+export const isStale = (lookedAt: number, now = Date.now()) => lookedAt > 0 && now - lookedAt >= STALE_MS
+
+/** Files the person ticked, carried into a new look ("Look again", or Add on a list over an hour old). */
+export interface CarriedFile { key: string; name: string; size: number; modified: number }
+export const carried = (docs: readonly Pick<LocalDoc, 'key' | 'name' | 'size' | 'modified'>[]): CarriedFile[] => docs.map((d) => ({ key: d.key, name: d.name, size: d.size, modified: d.modified }))
+
+/** The carried files in the new look: those still there are ticked again (`changed`: another size or date now, the new
+ * version is what goes), `gone` are no longer on this computer (by name). One the target has by now (`all` but not
+ * `found`: it was added) is neither. */
+export function carryOver(carry: readonly CarriedFile[], all: readonly LocalDoc[], found: readonly LocalDoc[]): { ticks: Set<string>; changed: Set<string>; gone: string[] } {
+  const now = new Map(found.map((d) => [d.key, d]))
+  const seen = new Set(all.map((d) => d.key))
+  const ticks = new Set<string>()
+  const changed = new Set<string>()
+  const gone: string[] = []
+  for (const c of carry) {
+    const d = now.get(c.key)
+    if (d) {
+      if (ticks.size >= TEAM_FILES_LIMITS.perUpload) continue
+      ticks.add(d.key)
+      if (d.size !== c.size || d.modified !== c.modified) changed.add(d.key)
+    } else if (!seen.has(c.key)) gone.push(c.name)
+  }
+  return { ticks, changed, gone }
+}
+
 /** A cloud's name as the person knows it ("the cloud" when the app could not tell which). */
 export const CLOUD_NAMES: Record<Exclude<WorkCloudProvider, 'cloud'>, string> = { icloud: 'iCloud', onedrive: 'OneDrive', googleDrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' }
 export const cloudName = (c: WorkCloudProvider, t: (key: 'files.findWork.cloudGeneric') => string) => (c === 'cloud' ? t('files.findWork.cloudGeneric') : CLOUD_NAMES[c])
