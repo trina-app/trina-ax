@@ -162,14 +162,18 @@ test.describe('a phone (390): the welcome steps', () => {
 test.describe('a computer (1440)', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
-  test('Files: Upload opens the computer\'s file window at once, as before', async ({ page }) => {
+  // (owner 11-20: one 올리기 for files and folders, so a computer's Files has a menu first: 파일 / 폴더 올리기; the
+  // decision's note of 11-20)
+  test('Files: Upload opens its menu, and 파일 올리기 opens the computer\'s file window', async ({ page }) => {
     await reset(page)
     await signIn(page)
     await file(page, 'groups/leads/a.txt')
     await page.goto('/files?path=groups%2Fleads')
     await shot(page, 'files-1440')
-    const chooser = page.waitForEvent('filechooser')
     await page.getByTestId('upload-button').click()
+    await expect(page.getByRole('menu').getByRole('menuitem')).toHaveText([t['files.uploadFiles'], t['files.uploadFolder']])
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByTestId('upload-files').click()
     const c = await chooser
     expect(c.isMultiple()).toBe(true)
     await expect(page.getByRole('menu')).toHaveCount(0)

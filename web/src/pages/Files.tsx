@@ -25,7 +25,7 @@
 // projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
 // moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronDown, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
@@ -99,7 +99,7 @@ const LONG_PRESS_MS = 500
 const PROJECTS_AGE_MS = 15_000
 const LONG_PRESS_SLOP = 10
 
-/** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
+/** phones have no folder picker (the attribute can be there and do nothing): 올리기 is then the plain file button, no menu */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
 
 /** POST /api/files/move's and a trash restore's answer: the item as the server has it now */
@@ -220,6 +220,11 @@ function Files() {
   // not drag rows (a long press there is the selection, and a row cannot be dropped anywhere useful on that screen)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const touchPhone = useMediaQuery('(max-width: 767.98px) and (pointer: coarse)')
+  // a touch-only screen (an iPad): no 폴더 올리기 in the 올리기 menu (WebKit's folder window is unreliable), so 올리기 is
+  // the plain button; drop still takes folders
+  const coarse = useMediaQuery('(pointer: coarse)')
+  const anyFine = useMediaQuery('(any-pointer: fine)')
+  const menuFolder = canPickFolder && !(coarse && !anyFine)
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
   // "Who can see it" (components/FolderAccess.tsx): the folder whose panel is open, from the chip or a row's ⋯
@@ -1054,23 +1059,35 @@ function Files() {
               </Button>
             </Tooltip>
             )}
-            {canPickFolder && !projectsTop && (
-              <>
-                <Tooltip label={t('files.uploadFolder')}>
-                  <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} data-testid="folder-upload-button">
-                    <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
-                  </Button>
-                </Tooltip>
-              </>
-            )}
             {!projectsTop && findWork.button}
-            {!projectsTop && (
+            {/* 올리기: one button for files and folders (owner 11-20, docs/decisions/20261118-our-file-picker-everywhere.md):
+                a small menu (파일 올리기 / 폴더 올리기) where the folder can be written and the browser picks folders, as
+                Drive and Dropbox do (one window cannot pick both); else today's plain button, to the file window at once
+                (off in a read-only folder; a touch-only tablet: WebKit's folder window is unreliable there) */}
+            {!projectsTop && (canWrite && menuFolder ? (
+              <MenuButton
+                bare
+                label={t('files.upload')}
+                testId="upload-button"
+                buttonClassName={buttonClass({ variant: 'primary', size: 'sm' })}
+                icon={
+                  <>
+                    <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
+                    <ChevronDown size={14} className="-mr-0.5 -ml-0.5" aria-hidden data-testid="upload-button-caret" />
+                  </>
+                }
+                items={[
+                  { label: t('files.uploadFiles'), icon: <Upload size={16} className="shrink-0 text-muted" aria-hidden />, onSelect: () => fileInput.current?.click(), testId: 'upload-files' },
+                  { label: t('files.uploadFolder'), icon: <FolderUp size={16} className="shrink-0 text-muted" aria-hidden />, onSelect: () => folderInput.current?.click(), testId: 'folder-upload-button' },
+                ]}
+              />
+            ) : (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
                 <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
               </Button>
             </Tooltip>
-            )}
+            ))}
           </div>
         )}
       </div>

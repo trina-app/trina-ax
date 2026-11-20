@@ -91,7 +91,7 @@ import { Tooltip } from '../Tooltip'
 import { IconButton, useAnnounce, useMediaQuery } from '../ui'
 import { VoiceBar, VoiceHeld, VoiceLive, VoiceMic, VoiceProgress } from '../VoiceBar'
 import { CalmNotice, LoadError } from '../LoadError'
-import { AiFace } from './AiFace'
+import { AiFace, AiMark } from './AiFace'
 import { RoomSideColumn } from './RoomSideColumn'
 import type { SentHere } from './SendHere'
 import { appChip } from '../../lib/roomApps'
@@ -689,7 +689,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
 
   const body = (
     // files dropped anywhere on the panel go with the next question (the overlay over the panel shows the drop)
-    <FileDropZone className="flex min-h-0 flex-1 flex-col" target={dropTarget} data-testid="side-chat-panel">
+    // tinted (--c-aside, a light wash of the brand's soft accent) and marked with ✦ and "Only you" in its header, so my
+    // private side chat never reads as the room's thread, which opens in the same place on the plain surface (the owner,
+    // 2026-11-20; QA TC-5675)
+    <FileDropZone className="flex min-h-0 flex-1 flex-col bg-aside [--sticky-bg:var(--c-aside)] [--typing-bg:var(--c-aside)]" target={dropTarget} data-testid="side-chat-panel">
       <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
         {!closeX && (
           <IconButton tip label={t('sideChat.close')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="side-chat-back">
@@ -697,8 +700,10 @@ export function SideChatPanel({ roomId, roomTitle, onClose, seed = null, frame =
           </IconButton>
         )}
         <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
+          <span className="flex shrink-0 self-center" data-testid="side-chat-mark"><AiMark place="nav" /></span>
           <span className="shrink-0 text-title-sm font-semibold text-ink">{t('sideChat.title', { name })}</span>
           <span className="truncate text-xs text-faint" data-testid="side-chat-room">{roomTitle}</span>
+          <span className="flex shrink-0 gap-2 text-xs text-faint" data-testid="side-chat-only-you"><span aria-hidden>·</span>{t('sideChat.onlyYou')}</span>
         </h2>
         {/* a phone's room shows this panel full screen already: no "open full screen" there (the chat is in the history
             too); the file viewer's sheet keeps it */}

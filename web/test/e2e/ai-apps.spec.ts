@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { realErrors, reset, signIn, watchConsole } from './helpers'
 
 const RESOURCE = 'https://team.example/mcp'
-const app = { id: 'synthetic-grant', clientName: 'Synthetic Claude', scopes: ['mcp:read', 'mcp:write', 'offline_access'], createdAt: '2026-11-05T01:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z', currentSession: true }
+const app = { id: 'synthetic-grant', clientName: 'Synthetic Claude', scopes: ['mcp:read', 'mcp:write', 'offline_access'], createdAt: '2026-11-05T01:00:00.000Z', expiresAt: '2099-01-01T00:00:00.000Z' }
 const BOB = { username: 'bob', password: 'bob password 1' }
 
 /** GET /api/connectors/remote like a server with the connector on (or off); `state.items` is what it lists. */

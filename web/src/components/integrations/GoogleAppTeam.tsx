@@ -3,7 +3,8 @@
 //  - One row in the page's Team settings, "Shared Google account": Connect for the team on its right while there is
 //    none; once connected the account, who uses it and how many, who connected it, and ⋯ with Change people, Reconnect
 //    and Remove.
-//  - The dialog is Drive share's (DriveShares.tsx): Google sign-in, one line to confirm the account, then who may use it
+//  - The dialog is Drive share's (DriveShares.tsx): Google sign-in, the account to confirm (Cancel and Connect this
+//    account in the footer, one Cancel on screen; QA TC-5625), then who may use it
 //    (the same people picker as team connections), Save. A new one is used by nobody until Save; closing before the
 //    first Save removes it again, so a half-made one never stays.
 // Members' own connections are not touched by any of this. The server decides everything that matters.
@@ -21,6 +22,7 @@ import { useSignInFlow, type SignInOps } from '../settings/DriveConnection'
 import { CardMenu } from './AppConnectorCard'
 import { AccessPicker } from './IntegrationDialog'
 import { SignInSteps } from './GoogleAppConnector'
+import { DialogSignInActions } from './GoogleAccount'
 import { useAdminGroups, useAdminUsers } from '../../store/adminPeople'
 
 const NOBODY: IntegrationAccess = { everyone: false, groups: [], users: [] }
@@ -123,12 +125,12 @@ function TeamDialog({ app, team, step: first, isNew, onStatus, onClose }: {
       footer={step === 'people' ? <>
         <Button onClick={() => void close()} disabled={busy}>{t('common.cancel')}</Button>
         <Button variant="primary" busy={busy} onClick={() => void save()} data-testid="gapp-team-save">{t('common.save')}</Button>
-      </> : <Button onClick={() => void close()}>{t('common.cancel')}</Button>}>
+      </> : <DialogSignInActions ready={f.flow?.state === 'ready' && f.inProgress} busy={f.busy} onCancel={() => void close()} onConfirm={() => void f.complete()} testId="gapp-team" />}>
       <div className="space-y-4" data-testid="gapp-team-dialog" data-step={step}>
         {step === 'connect' && <>
           <p className="text-sm text-muted">{t('gapps.team.intro')}</p>
           {!f.inProgress && <Button variant="primary" busy={f.busy} onClick={() => void f.start()} data-testid="gapp-team-google">{t('drive.openGoogle')}</Button>}
-          <SignInSteps d={f} testId="gapp-team" failed={t(signInFailedKey(f.reason))} />
+          <SignInSteps d={f} testId="gapp-team" failed={t(signInFailedKey(f.reason))} inDialog question={t('drive.confirmTeamAccount')} />
         </>}
         {step === 'people' && made && <>
           <p className="text-xs text-muted" data-testid="gapp-team-signed-in">{t('driveShare.account', { email: accountLine(made.account) })}</p>

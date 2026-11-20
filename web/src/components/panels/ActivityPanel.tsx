@@ -301,14 +301,17 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
   const unread = !item.readAt
   const kind = chipOf(item)
   const Icon = kind === 'trina' ? CalendarClock : kind === 'requests' ? Plug : Bell
-  const target = noticeTarget(item)
+  // a file shared with me that no longer opens (docs/decisions/20261120-file-share-gone-notice.md): muted, opens
+  // nothing; while unread a press only reads it (read, it drops out of the list on the next load)
+  const gone = item.code === 'file.shared' && !!item.fileShare?.gone
+  const target = gone ? null : noticeTarget(item)
   return (
     <ListRow
-      to={target.to}
-      state={target.state}
-      onClick={onOpen}
+      to={target?.to}
+      state={target?.state}
+      onClick={gone && !unread ? undefined : onOpen}
       selected={open}
-      unread={unread}
+      unread={unread && !gone}
       wrap
       icon={<Icon />}
       name={noticeText(item, t, locale)}
@@ -323,7 +326,7 @@ function NoticeRow({ item, open, onOpen }: { item: InboxNotification; open: bool
         )
       }
       testId="activity-panel-row"
-      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': kind ?? 'other' }}
+      link={{ 'data-unread': unread ? '' : undefined, 'data-chip': kind ?? 'other', ...(gone ? { 'data-gone': '' } : {}) }}
     />
   )
 }

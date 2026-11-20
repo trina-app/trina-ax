@@ -26,6 +26,7 @@ import type { DriveConnectionState } from '../settings/DriveConnection'
 import { LogoTile } from './ConnectorsView'
 import { AppConnectorCard, CardMenu } from './AppConnectorCard'
 import { connectionLogo } from './ConnectionRow'
+import { GoogleAccountBlock } from './GoogleAccount'
 import { BrowserWait } from './BrowserWait'
 import { googleLink } from './googleLink'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
@@ -102,10 +103,13 @@ export function useDriveParts(s: DriveConnectionState) {
           onRetry={s.start} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="drive-confirm-step">
-          <span role="status" className="min-w-0 flex-1">{t('drive.confirmAccount')} <span className="font-medium" data-testid="drive-account">{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
-          <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
+        <div className="space-y-2" data-testid="drive-confirm-step">
+          <p role="status" className="text-sm font-medium text-ink">{t('drive.confirmAccount')}</p>
+          <GoogleAccountBlock account={flow.account} testId="drive-account" />
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
+            <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid="drive-cancel">{t('common.cancel')}</Button>
+          </div>
         </div>
       )}
       {/* before Google opens: Google may call Trina's shared app unverified (QA TC-2957) */}

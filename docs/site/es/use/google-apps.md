@@ -32,7 +32,7 @@ y elija **Continue**. Un inicio de sesión con una casilla sin marcar se rechaza
 a conectar y deje todas las casillas marcadas."
 
 #### Confirme la cuenta
-De vuelta en Trina AX, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Confirmar esta cuenta**. La
+De vuelta en Trina AX, compruebe la cuenta que aparece ("¿Conectar esta cuenta?") y elija **Conectar esta cuenta**. La
 página indica **Conectado como** y su dirección.
 :::
 

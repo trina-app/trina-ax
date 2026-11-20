@@ -267,6 +267,11 @@ export const InboxNotification = z.object({
      * folder on the server is not the one shared: nobody opens it until the owner resumes it) or 'ended' (the owner's
      * move put it where nothing is shared). Older servers omit it */
     folder: z.enum(['shared', 'paused', 'ended']).optional(),
+    /** file.shared with `gone`: why it no longer opens, when the server recorded it (docs/decisions/20261120-file-share-gone-notice.md):
+     * 'stopped' (the reader was taken off the share), 'deleted' (the file is in the trash), 'moved' (a move put it where
+     * the reader cannot open it). `by` is then who shared it, while their account is there; never the file's name.
+     * Older servers omit it */
+    why: z.enum(['stopped', 'deleted', 'moved']).optional(),
   }).optional(),
   /** 'access.requested' and 'access.answered' (docs/decisions/20261116-chat-project-ask-access.md, access_request_notices).
    * access.requested (to whoever answers it): `by` asked to open the chat or project `name` (its title now), their

@@ -47,7 +47,7 @@ const KNOWN: Record<string, string> = {
   'components/integrations/DriveConnector.tsx': 'a .json key only (iOS: the Files browser at once)',
   'components/skills/BringSkillsSheet.tsx': "a folder picker (a computer's .claude folder)",
   'components/skills/ContributeSheet.tsx': "a folder picker (a computer's .claude folder)",
-  'pages/Files.tsx': "the computer's Upload and Upload folder (a phone: ⊕ and an empty folder's 올리기, the device rows)",
+  'pages/Files.tsx': "the computer's Upload (its menu: Upload files, Upload folder) (a phone: ⊕ and an empty folder's 올리기, the device rows)",
   'pages/Settings.tsx': "the computer's photo button (a phone: the device rows)",
   'pages/Welcome.tsx': "the computer's file link (a phone: the device rows)",
   'pages/admin/Plugins.tsx': 'a .trinaplugin only (iOS: the Files browser at once)',

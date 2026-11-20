@@ -1,6 +1,6 @@
 // Gmail, Google Calendar, Google Docs and Google Sheets for one person (docs/GOOGLE-APPS.md; the API is
 // shared/src/api/google-apps.ts): one Google sign-in per app, the same steps as Google Drive's (useSignInFlow): Connect
-// opens Google at once, back from it one line asks to confirm the account, then the app is connected. Its page
+// opens Google at once, back from it a question and the account (GoogleAccount.tsx) ask to confirm it, then the app is connected. Its page
 // (GoogleAppDetail, AppDetail.tsx) then shows Connected and ⋯ (Settings: ask before each change, or Always allow;
 // Reconnect; Disconnect). An app that cannot be connected says why in plain words, an admin gets the way to set it up,
 // and a member whose team has not set it up asks an admin to add it (AskAdmin.tsx). In the phone app nothing signs in to
@@ -25,6 +25,7 @@ import { googleLink } from './googleLink'
 import { AppDetail } from './AppDetail'
 import { AskAdminAction, type AskState } from './AskAdmin'
 import { GoogleUnverifiedNote } from './GoogleUnverifiedNote'
+import { GoogleAccountBlock } from './GoogleAccount'
 
 const opsFor = (app: GoogleAppId, current: () => Promise<GoogleAppView>): SignInOps<GoogleAppView> => ({
   authorize: () => api.call(API.authorizeGoogleApp, { params: { app }, body: {} }),
@@ -105,22 +106,29 @@ export function useGoogleApps() {
 }
 export type GoogleAppsState = ReturnType<typeof useGoogleApps>
 
-/** The steps of a sign-in under way, under the page's header: waiting for Google (with its link, and Cancel), then the
- * account to confirm. */
-export function SignInSteps({ d, testId, failed }: { d: GoogleAppFlowState; testId: string; failed: string }) {
+/** The steps of a sign-in under way, under the page's header: waiting for Google (with its link, Try again and Cancel),
+ * then the question and the account to confirm, with Connect this account and Cancel. `inDialog`: the steps of a dialog
+ * (GoogleAppTeam.tsx), whose footer holds Cancel and Connect this account (GoogleAccount.tsx DialogSignInActions); `question`: the line
+ * above the account there. */
+export function SignInSteps({ d, testId, failed, inDialog, question }: { d: GoogleAppFlowState; testId: string; failed: string; inDialog?: boolean; question?: string }) {
   const t = useT()
   const flow = d.inProgress ? d.flow : null
   return (
     <>
       {flow && flow.state !== 'ready' && (
         <BrowserWait google framed text={t('drive.waitingShort')} testId={`${testId}-waiting`} retryTestId={`${testId}-retry-wait`} cancelTestId={`${testId}-cancel`} busy={d.busy}
-          onRetry={() => void d.start()} onCancel={() => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
+          onRetry={() => void d.start()} onCancel={inDialog ? undefined : () => void d.cancel()} link={googleLink(d, t('drive.openGoogle'))} />
       )}
       {flow?.state === 'ready' && (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft/40 px-3 py-2 text-sm" data-testid={`${testId}-confirm-step`}>
-          <span role="status" className="min-w-0 flex-[1_1_14rem]">{t('drive.confirmAccount')} <span className="font-medium break-all" data-testid={`${testId}-account`}>{[flow.account?.name, flow.account?.email].filter(Boolean).join(' · ')}</span></span>
-          <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid={`${testId}-confirm`}>{t('drive.confirm')}</Button>
-          <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
+        <div className="space-y-2" data-testid={`${testId}-confirm-step`}>
+          <p role="status" className="text-sm font-medium text-ink">{question ?? t('drive.confirmAccount')}</p>
+          <GoogleAccountBlock account={flow.account} testId={`${testId}-account`} busy={d.busy} onOther={inDialog ? () => void d.start() : undefined} />
+          {!inDialog && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button size="sm" variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid={`${testId}-confirm`}>{t('drive.confirm')}</Button>
+              <Button size="sm" variant="ghost" disabled={d.busy} onClick={d.cancel} data-testid={`${testId}-cancel`}>{t('common.cancel')}</Button>
+            </div>
+          )}
         </div>
       )}
       {d.error && !flow && <p className="text-sm text-danger" role="alert" data-testid={`${testId}-error`}>{d.reason === 'timeout' ? t('connect.wait.timedOut') : failed}</p>}
