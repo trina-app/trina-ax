@@ -83,3 +83,29 @@ test('web push and the installed web app show the light tile', () => {
   expect(calls.length).toBeGreaterThan(0)
   for (const call of calls) expect(call).toContain("icon: '/icons/icon-192.png'")
 })
+
+// QA TC-5587: the iPhone icon has no alpha channel at all (iOS fills transparency with black), and the release script
+// refuses a build whose compiled icon lacks the opaque light tile in the dark or tinted appearance (1.0.8 had neither).
+test('the iPhone icon file has no alpha channel', () => {
+  const png = fs.readFileSync(path.join(root, 'editions/trina/branding/mobile/icon.png'))
+  // IHDR colour type at byte 25: 0 grey, 2 RGB (no alpha); 4 and 6 carry alpha, 3 may (tRNS)
+  expect([0, 2]).toContain(png[25])
+  expect(png.includes(Buffer.from('tRNS'))).toBe(false)
+})
+
+test('ios-release.sh checks the compiled icon: opaque light tile in light, dark and tinted', async () => {
+  const { iconProblems } = await import(path.join(root, 'mobile/scripts/check-ios-icon.mjs')) as { iconProblems: (i: unknown) => string[] }
+  const icon = (name: string, Appearance: string | undefined, SizeOnDisk = 19794, Opaque = true) =>
+    ({ Name: 'AppIcon', AssetType: 'Icon Image', RenditionName: name, Idiom: 'phone', Opaque, SizeOnDisk, ...(Appearance ? { Appearance } : {}) })
+  const stack = { Name: 'AppIcon', AssetType: 'MultiSized Image', SizeOnDisk: 236 }
+  // 1.0.9 build 14 (assetutil output, trimmed): right
+  const build14 = [icon('App-Icon-1024x1024@1x.png', undefined), icon('App-Icon-dark-1024x1024@1x.png', 'UIAppearanceDark'), icon('App-Icon-tinted-1024x1024@1x.png', 'ISAppearanceTintable'), stack]
+  expect(iconProblems(build14)).toEqual([])
+  // 1.0.8 build 13: only the light icon, the black tile in every dark-mode notification
+  expect(iconProblems([icon('App-Icon-1024x1024@1x.png', undefined), stack])).toEqual(['no dark AppIcon in Assets.car', 'no tinted AppIcon in Assets.car'])
+  // a dark icon that is another picture (a dark tile), or a tinted one with transparency
+  expect(iconProblems([build14[0], icon('d', 'UIAppearanceDark', 18000), build14[2]])).toEqual(['the dark AppIcon is not the light tile'])
+  expect(iconProblems([build14[0], build14[1], icon('t', 'ISAppearanceTintable', 19794, false)])).toEqual(['the tinted AppIcon has transparency (iOS fills it with black)'])
+  const script = fs.readFileSync(path.join(root, 'mobile/scripts/ios-release.sh'), 'utf8')
+  expect(script).toMatch(/xcrun assetutil --info "\$out\/Assets\.car" > "\$out\/assets\.json"\nnode scripts\/check-ios-icon\.mjs < "\$out\/assets\.json"/)
+})
