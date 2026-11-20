@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // ---------- status file (substrate.ts EnrollStatusFile) ----------
@@ -189,8 +190,21 @@ func toAny(s []string) []any {
 // ---------- /etc/default/mycel ----------
 
 // writeDefaults sets the keys mycel-enroll owns in /etc/default/mycel (the server unit's EnvironmentFile,
-// linux-runtime §3.2.3) and keeps every other line.
+// linux-runtime §3.2.3) and keeps every other line. It holds the lock mycel-ctl's writers take (mycel-ctl safeops.go
+// lockDefaults: an exclusive flock on .<name>.lock next to the file), so a safe-ops or error-reports-set change made
+// at the same time is not lost.
 func (e *Enroller) writeDefaults() error {
+	if err := os.MkdirAll(filepath.Dir(e.P.DefaultFile), 0o755); err != nil {
+		return fail("apply_failed", "%v", err)
+	}
+	lf, err := os.OpenFile(filepath.Join(filepath.Dir(e.P.DefaultFile), "."+filepath.Base(e.P.DefaultFile)+".lock"), os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return fail("apply_failed", "lock %s: %v", e.P.DefaultFile, err)
+	}
+	defer lf.Close()
+	if err := syscall.Flock(int(lf.Fd()), syscall.LOCK_EX); err != nil {
+		return fail("apply_failed", "lock %s: %v", e.P.DefaultFile, err)
+	}
 	c := e.cfg
 	set := map[string]string{
 		"MYCEL_TEAM_TZ":                      c.TimeZone,

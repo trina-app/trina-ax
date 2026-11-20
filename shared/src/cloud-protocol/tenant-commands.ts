@@ -146,8 +146,10 @@ export const SentryDsn = z.string().max(1000).regex(/^https:\/\/[A-Za-z0-9]{1,12
 export const ErrorReportsInput = z.strictObject({ url: SentryDsn.nullable() })
 export type ErrorReportsInput = z.infer<typeof ErrorReportsInput>
 /** error-reports-set's answer. changed: the environment file changed (false when it already held this value, or none
- * for null, so the same input may be sent again at any time). restarted: the server was restarted to read it, which
- * happens only on a change and once no answer has run for up to 60 s; false otherwise (it reads it at its next start). */
+ * for null, so the same input may be sent again at any time). restarted: the server was restarted to read it, once no
+ * answer has run for up to 60 s. That happens on a change, and also without one when the running server started before
+ * the file last changed (an earlier call found it busy), so a resend finishes what a busy call left; false otherwise
+ * (busy: it reads the value at its next start, or at the next resend). */
 export const ErrorReportsResult = z.object({ ok: z.literal(true), changed: z.boolean(), restarted: z.boolean() })
 export type ErrorReportsResult = z.infer<typeof ErrorReportsResult>
 

@@ -154,8 +154,17 @@ func setSafeOpsFlag(id string, on bool) error {
 // other line stays as it is (mycel-enroll's lines, the other flags, the administrator's own). The first NAME line is
 // replaced where it is and later ones go, so setting the value it already has changes nothing. changed: the file's
 // lines differ (only then is it written). A file left with no line is removed. The caller checks the value: it must
-// hold no newline, quote or backslash.
+// hold no newline, quote or backslash. The read, edit and write run under lockDefaults, so two writers of the file
+// (safe-ops, error-reports-set, mycel-enroll) cannot lose each other's lines.
 func setDefaultsLine(id, name string, value *string) (bool, error) {
+	if err := os.MkdirAll(defaultsDir, 0o755); err != nil {
+		return false, err
+	}
+	unlock, err := lockDefaults(filepath.Join(defaultsDir, id))
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	p := filepath.Join(defaultsDir, id)
 	old, err := readRootFile(p, 64<<10)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -188,10 +197,23 @@ func setDefaultsLine(id, name string, value *string) (bool, error) {
 		}
 		return true, nil
 	}
-	if err := os.MkdirAll(defaultsDir, 0o755); err != nil {
-		return false, err
-	}
 	return true, writeRootFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}
+
+// lockDefaults takes an exclusive flock on <dir>/.<name>.lock, the lock every writer of /etc/default/<id> takes
+// (mycel-enroll writeDefaults takes the same one). The lock file is root's, 0600, and stays; the lock ends when the
+// returned function closes it (or the process exits).
+func lockDefaults(p string) (func(), error) {
+	lp := filepath.Join(filepath.Dir(p), "."+filepath.Base(p)+".lock")
+	f, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { f.Close() }, nil
 }
 
 // ---------- the root copies ----------

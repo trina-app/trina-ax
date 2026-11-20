@@ -21,11 +21,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -55,12 +57,13 @@ type tenant struct {
 	in *Install
 	fs *flag.FlagSet
 	// hooks (tests): run admin.js, restart / signal the server, count running turns
-	admin      func(stdin []byte, timeout time.Duration, args ...string) ([]byte, error)
-	restart    func() (bool, error)
-	hup        func()
-	liveTurns  func() (int, error)
-	sleep      func(time.Duration)
-	asServerFn func(stdin []byte, args ...string) error
+	admin         func(stdin []byte, timeout time.Duration, args ...string) ([]byte, error)
+	restart       func() (bool, error)
+	serverStarted func() (time.Time, bool)
+	hup           func()
+	liveTurns     func() (int, error)
+	sleep         func(time.Duration)
+	asServerFn    func(stdin []byte, args ...string) error
 }
 
 // tenantTestHook lets tests replace the parts that need a real server, launcher or systemd.
@@ -95,6 +98,7 @@ func (t *tenant) open(args []string) (int, error) {
 	t.in = in
 	t.admin = t.runAdmin
 	t.restart = t.restartServer
+	t.serverStarted = t.serverStartedAtSystemd
 	t.hup = t.hupServer
 	t.liveTurns = func() (int, error) { return (&updater{e: t.e, in: t.in}).launcherLiveTurns() }
 	t.asServerFn = t.asServer
@@ -709,11 +713,80 @@ var sentryDsnRE = regexp.MustCompile(`^https://[A-Za-z0-9]{1,128}@[A-Za-z0-9-]{1
 // errorReportsIdleWait: how long error-reports-set waits for running answers before it restarts the server.
 var errorReportsIdleWait = 60 * time.Second
 
+// defaultsChangedAt: when /etc/default/<id> last changed: the file's mtime, or the folder's when the file is gone
+// (null removed its last line; the folder's mtime then is at least the removal).
+func defaultsChangedAt(id string) (time.Time, bool) {
+	if st, err := os.Stat(filepath.Join(defaultsDir, id)); err == nil {
+		return st.ModTime(), true
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, false
+	}
+	st, err := os.Stat(defaultsDir)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return st.ModTime(), true
+}
+
+// serverStartedAtSystemd: when the server unit's main process started (its MainPID's start in /proc/<pid>/stat plus
+// the boot time in /proc/stat); false without systemd, without a running server or when it cannot be read.
+func (t *tenant) serverStartedAtSystemd() (time.Time, bool) {
+	if !t.systemd() {
+		return time.Time{}, false
+	}
+	out, err := exec.Command(t.e.systemctl, "show", "-p", "MainPID", "--value", t.in.ID+"-server.service").Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || pid <= 0 {
+		return time.Time{}, false
+	}
+	return procStartTime("/proc", pid)
+}
+
+// procStartTime reads a process's start from <proc>/<pid>/stat (field 22, clock ticks after boot; USER_HZ is 100 on
+// Linux) and <proc>/stat (btime, the boot time in seconds).
+func procStartTime(proc string, pid int) (time.Time, bool) {
+	b, err := os.ReadFile(filepath.Join(proc, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	s := string(b)
+	i := strings.LastIndexByte(s, ')')
+	if i < 0 {
+		return time.Time{}, false
+	}
+	f := strings.Fields(s[i+1:])
+	if len(f) < 20 {
+		return time.Time{}, false
+	}
+	ticks, err := strconv.ParseInt(f[19], 10, 64)
+	if err != nil {
+		return time.Time{}, false
+	}
+	st, err := os.ReadFile(filepath.Join(proc, "stat"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	for _, l := range strings.Split(string(st), "\n") {
+		if v, ok := strings.CutPrefix(l, "btime "); ok {
+			bt, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if err != nil {
+				return time.Time{}, false
+			}
+			return time.Unix(bt, 0).Add(time.Duration(ticks) * 10 * time.Millisecond), true
+		}
+	}
+	return time.Time{}, false
+}
+
 // error-reports-set < { url: "<Sentry key>" | null }: the hosting service's error report key for this team server,
 // one MYCEL_ERROR_REPORT_URL line in /etc/default/<id> (the server unit's environment; every other line stays). null
 // takes the line away. The same value again changes nothing (changed false), so the hosting service may send it as
-// often as it likes, for example after a reimage wrote the file again. Only a change restarts the server, and only
-// once no answer has run for up to 60 s; otherwise restarted is false and the server reads it at its next start.
+// often as it likes, for example after a reimage wrote the file again. The server is restarted, once no answer has
+// run for up to 60 s, on a change or when it started before the file last changed (an earlier call found it busy);
+// otherwise restarted is false and the server reads it at its next start or the next resend.
 // The key is never in an argument, an error or the answer { ok, changed, restarted }.
 func cmdErrorReportsSet(e *env, args []string) (int, error) {
 	t := newTenant(e, "error-reports-set")
@@ -731,15 +804,25 @@ func cmdErrorReportsSet(e *env, args []string) (int, error) {
 	if json.Unmarshal(m["url"], &url) != nil {
 		return 1, fmt.Errorf("url: a string or null")
 	}
-	if url != nil && !sentryDsnRE.MatchString(*url) {
+	if url != nil && (len(*url) > 1000 || !sentryDsnRE.MatchString(*url)) {
 		return 1, fmt.Errorf("url: not a Sentry project key")
 	}
 	changed, err := setDefaultsLine(t.in.ID, errorReportName, url)
 	if err != nil {
 		return 1, fmt.Errorf("/etc/default/%s: %v", t.in.ID, err)
 	}
+	// unchanged, but the running server started before the file's last change (an earlier call found it busy, or
+	// another writer changed the file): it still runs with the old value, so it is restarted like a change
+	stale := false
+	if !changed {
+		if started, ok := t.serverStarted(); ok {
+			if at, ok := defaultsChangedAt(t.in.ID); ok && started.Before(at) {
+				stale = true
+			}
+		}
+	}
 	restarted := false
-	if changed {
+	if changed || stale {
 		if idle, running := t.waitIdle(errorReportsIdleWait); !idle {
 			fmt.Fprintf(t.e.stderr, "error-reports-set: %d answers still running, the server reads the change at its next start\n", running)
 		} else if restarted, err = t.restart(); err != nil {
