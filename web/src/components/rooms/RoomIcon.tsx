@@ -5,11 +5,11 @@
 // caller says the state in words after the name, PresenceText). A group chat has none, as in Slack. `faces`: in the
 // lists, where unnamed group chats sit among the direct messages (docs/decisions/20261116-sidebar-channels-dms.md), one
 // shows two of its people's faces in one picture's box (the shared FaceStack's `fit`) instead of the speech bubbles.
-import { Hash, Lock, MessagesSquare, Users } from 'lucide-react'
+import { Folder, Hash, Lock, MessagesSquare, Users } from 'lucide-react'
 import { Fragment, useCallback } from 'react'
 import type { Room } from '@mycel/shared/api'
 import { translate, useLocale, useT } from '../../i18n'
-import { isPrivateChannel, roomTitle, TITLE_NAMES } from '../../lib/rooms'
+import { isPrivateChannel, projectRoomOf, roomTitle, TITLE_NAMES } from '../../lib/rooms'
 import { useAvatarOf, useFaceOf, usePeople, usePeopleList } from '../../store/people'
 import { useMe } from '../../store/session'
 import { Avatar } from '../Avatar'
@@ -87,7 +87,8 @@ export function RoomIcon({ room, size, glyph, tile, presence, faces, selected, o
     return <FaceStack people={people} count={people.length} fit={size} on={on} hoverRing selected={selected} testId="room-group" />
   }
   if (room.kind === 'dm') return peer ? (presence ? <PresenceFace user={peer} size={size} /> : <Avatar user={peer} size={size} />) : <span aria-hidden className="shrink-0 rounded-full bg-hover" style={{ width: size, height: size }} />
-  const Icon = room.kind === 'all' ? Users : locked ? Lock : room.kind === 'group' ? MessagesSquare : Hash
+  // a project's chat room: the folder in place of the lock (docs/decisions/20261120-project-is-room.md D5)
+  const Icon = room.kind === 'all' ? Users : projectRoomOf(room) ? Folder : locked ? Lock : room.kind === 'group' ? MessagesSquare : Hash
   if (!tile)
     return (
       <span aria-hidden className="flex shrink-0 items-center justify-center text-muted" style={{ width: size, height: size }}>

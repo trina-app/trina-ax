@@ -447,12 +447,9 @@ interface RoomsState extends RoomsData {
   openDm: (userId: string) => Promise<Room>
   /** a new group chat of me and these people (docs/DECISIONS.md "그룹 대화와 방 이름") */
   createGroup: (userIds: string[], name: string | null) => Promise<Room>
-  /** a private channel for a project, linked to it (POST /api/projects/:id/channel) */
-  createProjectChannel: (projectId: string, userIds: string[], name: string) => Promise<Room>
-  /** link this private channel to a project (PUT /api/rooms/:id/project); the room as the server gives it back */
-  linkProject: (roomId: string, projectId: string, via?: 'project') => Promise<Room>
-  /** unlink it (DELETE /api/rooms/:id/project), then read the room again; `via` 'project': from the project page */
-  unlinkProject: (roomId: string, via?: 'project') => Promise<void>
+  /** a team project's own chat room (POST /api/projects/:id/room: made the first time; docs/decisions/
+   * 20261120-project-is-room.md), put in my list */
+  openProjectRoom: (projectId: string) => Promise<Room>
   /** the room's own name ('' or null: the server's name). On screen at once; a failure puts the old name back with a
    * toast (lib/optimistic.ts). Never rejects: false when it failed and nothing newer of it was made since (the field
    * can open again with the name typed) */
@@ -1323,21 +1320,10 @@ export const useRooms = create<RoomsState>((set, get) => {
       return room
     },
 
-    async createProjectChannel(projectId, userIds, name) {
-      const room = await api.call(API.createProjectChannel, { params: { id: projectId }, body: { name: name.trim(), userIds } })
-      set((s) => withRoom(s, room))
-      return room
-    },
-
-    async linkProject(roomId, projectId, via) {
-      const room = await api.call(API.linkRoomProject, { params: { id: roomId }, body: { projectId, ...(via ? { via } : {}) } })
+    async openProjectRoom(projectId) {
+      const room = await api.call(API.openProjectRoom, { params: { id: projectId } })
       set((s) => withRoom(s, keepPending(s, room)))
       return room
-    },
-
-    async unlinkProject(roomId, via) {
-      await api.call(API.unlinkRoomProject, { params: { id: roomId }, ...(via ? { query: { via } } : {}) })
-      await get().fetchRoom(roomId).catch(() => null)
     },
 
     async rename(roomId, name) {

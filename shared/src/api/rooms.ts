@@ -607,8 +607,6 @@ export const Room = z.object({
      * project's people, it is named after the project, and its people are managed on the project (no Add people,
      * Remove, Rename or Leave here). Absent: older servers. */
     room: z.literal(true).optional() }).optional(),
-  /** retired with the project link (docs/decisions/20261120-project-is-room.md): servers from 0.5.22 on never send it */
-  canLinkProject: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),

@@ -23,7 +23,7 @@
 // chats (group DMs: no name, named after their people), then projects; a row picks the place. Both kinds of group room
 // take a guest (server: rooms.kind 'group'), so the words say "private channel or group chat" where either can be meant.
 import { FolderKanban, Lock, MessagesSquare } from 'lucide-react'
-import { isPrivateChannel } from '../lib/rooms'
+import { isPrivateChannel, projectRoomOf } from '../lib/rooms'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useT } from '../i18n'
 import { ListRow } from './list/List'
@@ -137,7 +137,7 @@ export function GuestPlacePicker({ onPick }: { onPick: (place: InvitePlace) => v
     if (!st.loaded || st.failed) void st.loadRooms()
     readManagedList({ fresh: true }).catch(() => setProjectsFailed(true))
   }
-  const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group').map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount, locked: isPrivateChannel(r) })), [rooms, roomTitle])
+  const groupChats = useMemo(() => rooms.filter((r) => r.kind === 'group' && !projectRoomOf(r)).map((r) => ({ id: r.id, name: roomTitle(r), count: r.memberCount, locked: isPrivateChannel(r) })), [rooms, roomTitle])
   // no count for a project: who sees it (Project.audience) is not who is in it, as a group chat's count is
   const me = useMe()
   const projects = useMemo(() => (managed ?? []).filter((p) => !p.inTrash && (p.membersEditable || mayShareForGuest(p, me))).map((p) => ({ id: p.id, name: p.name, personal: mayShareForGuest(p, me) })), [managed, me])

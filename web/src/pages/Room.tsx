@@ -352,8 +352,8 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     }
   }, [covering, pair, threadId, sideOpen, closeThread, closeSide])
   usePeopleList()
-  // a private channel: its project link (Room.project) is read again when the window comes back, so a link made, gone,
-  // renamed or a folder lost elsewhere shows without a reload (D4 client refetch)
+  // a private channel: its project (Room.project) is read again when the window comes back, so a project renamed or
+  // one I can no longer open shows without a reload
   const channelHere = !!room && isPrivateChannel(room)
   useEffect(() => {
     if (!channelHere) return
@@ -589,14 +589,15 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               </Link>
             </Tooltip>
           )}
-          {/* a private channel linked to a project I can open: the project's folder, the same button in the same place
-              (Room.project; docs/decisions/20261119-channel-project-link.md). Its tap reads the room again too: a
-              link gone meanwhile hides the button */}
+          {/* a project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): the Files
+              button's place holds the project, its folder icon and name, which opens the project page (its folder,
+              Chat attachments included, and its AI chats); no Files button of its own: its files are the project's.
+              A phone: the folder icon alone, at the end of the line beside ✦ */}
           {room?.project && !room.groupFolder && (
-            <Tooltip label={t('rooms.projectFilesTip', { name: room.project.name })}>
-              <Link to={`/files?path=${encodeURIComponent(room.project.folderPath)}`} onClick={() => void useRooms.getState().fetchRoom(roomId).catch(() => {})} aria-label={t('rooms.projectFilesTip', { name: room.project.name })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project-files">
-                <Folder size={15} aria-hidden />
-                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
+            <Tooltip label={t('rooms.project.openTip', { name: room.project.name })}>
+              <Link to={`/projects/${room.project.id}`} aria-label={t('rooms.project.openTip', { name: room.project.name })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit max-w-[40%] shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project">
+                <Folder size={15} className="shrink-0" aria-hidden />
+                <span className="truncate max-md:hidden" data-testid="room-project-name">{room.project.name}</span>
               </Link>
             </Tooltip>
           )}

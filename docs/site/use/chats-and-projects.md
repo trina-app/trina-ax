@@ -296,23 +296,26 @@ Start a chat from the project's page, or move a chat in with **Move to project**
   people can open it, and a line under it says so. You need write access to the project folder (without it, **+**
   offers team files only); **✕** before sending moves the file to the trash.
 
-### A channel for a project
+### A project's chat room
 
-A team project can have one private channel, so its people talk and keep their files in one place: the project's folder.
+Every team project has its own chat room. The project's people are the room's people, and its files are the project's
+files, so there is one list of people and one place for files.
 
-- **Create a channel** in the **Channel** box on the project's page makes a private channel with the project's people
-  already ticked (you can untick anyone). **Link a channel** links one of your private channels instead. You can also
-  link from the channel: open its name at the top, then **Link to a project**.
-- In a linked channel, **Files** at the top opens the project's folder. A document or picture sent there gets **Save to
-  project**: one click puts a copy in the project's folder, and **Undo** in the message that follows takes it back. Other
-  kinds of files, and files that look personal, ask where to save them first.
-- Trina in the channel's side chat saves the new documents you ask for in the project's folder. When people outside
-  the channel can open that folder, it asks you first.
-- Only people who can open the project see its name, its **Files** button and **Save to project**. Everyone else in the
-  channel sees only that it was linked to a project. The project's members see the channel's name on the project page.
-- Who is in the channel and who is in the project stay separate: adding someone to one never adds them to the other.
-- **Unlink** is in the channel's info and on the project page. Files saved to the project stay there; files sent in the
-  channel stay in the channel.
+- **Chat room** on the project's page (on a phone, a row under the project's name) opens the room. The first time,
+  the room is made and named after the project. A small chat icon on the project's row in **Projects**, with a dot
+  while something is unread, and **Chat room** at the top of the project's AI chats open it too.
+- At the top of the room, the folder button with the project's name opens the project's page: its files and its AI
+  chats. The room appears under **Channels**, with a folder icon, once someone writes in it.
+- **Who is in it** follows the project. Adding someone to the project adds them to the room, and they see its whole
+  history; taking someone out of the project takes them out of the room. The members dialog says so before you add
+  anyone. To change who is in it, open the room's name at the top, then **Manage people** (for whoever may change the
+  project's people). **Mute** keeps the room quiet; **Leave project** leaves the project and its room.
+- **A file you send there goes into the project's Chat attachments folder**, where the project's people find it on the
+  Files page. People who can only view the project can write messages, but can't add files.
+- **Deleting a message deletes only the message.** Its file stays in the project's Chat attachments; delete it there in
+  Files if you want it gone.
+- Trina in the room's side chat saves new documents in the project's folder, and the project's AI chats can read the
+  room. Both see the same people, so nothing is asked about who can see it.
 
 ## Find anything
 
