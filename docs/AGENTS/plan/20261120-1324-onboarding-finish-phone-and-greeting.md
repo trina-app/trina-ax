@@ -46,6 +46,11 @@ Out: the server's settlePutOff rule (it keeps stopping the setup row's nag); a g
 
 - `web/src/lib/greetName.ts`: one helper for the member and owner Home card titles, the hi button, the owner's name on
   the no-AI row and Home's greeting. "QA Member" → "QA Member님" (ko), "QA" (en); Korean names stay whole.
-- End screen: `elsewhere` is any step this device does not offer; a phone's row for 팀 도구 is always neutral.
+- End screen: a step this device does not offer shows the neutral "컴퓨터에서 할 수 있어요" when it is not done, or when
+  it was put off while the setup was unfinished (read from the row before each save, so before the finishing save's
+  settle). A 도구 연결 really done on a computer before keeps its ✓ (review of #163). Its facts are not fetched then.
+- Names others read use the whole display name: the hi message in the everyone room, the owner on the no-AI row.
+- greetName skips a leading title or initial ("Dr.", "J.") and a bracketed tag ("(QA)"); a one-letter first word
+  gives the whole name ("A Park"); whole-name mode keeps punctuation ("QA · Member").
 - Tests: web/test/unit/member-welcome.test.tsx (the helper), web/test/unit/welcome.test.tsx (a phone's end screen
   with 도구 연결 settled done). Screenshots at 390 and 1440 in ko and en on the mock.

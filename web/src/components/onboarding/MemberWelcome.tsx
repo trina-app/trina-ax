@@ -134,7 +134,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
       </div>
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
         <ToolsRow done={!!welcome.steps.tools} />
-        {!owner && <HiRow welcome={welcome} name={name} />}
+        {!owner && <HiRow welcome={welcome} name={me.user.name.trim()} />}
         <PhotoRow done={welcome.steps.photo} />
         {!owner && <AskRow welcome={welcome} />}
         <FilesRow done={!!welcome.steps.files} />
@@ -181,7 +181,8 @@ function ToolsRow({ done }: { done: boolean }) {
   return <Row id="tools" done={done} title={t('memberWelcome.tools')} hint={t('memberWelcome.toolsHint', { ai: aiName(t) })} below={<MyToolsList onMine={mine} onCovered={covered} />} />
 }
 
-/** "👋 Hi, I'm {name}" in the everyone room, as the person (the room's own send; a second tap is the same message). */
+/** "👋 Hi, I'm {name}" in the everyone room, as the person (the room's own send; a second tap is the same message).
+ * `name`: the whole display name, as written: the team reads it, so never the greeting's short name ("Hi, I'm Dr."). */
 function HiRow({ welcome, name }: { welcome: Welcome; name: string }) {
   const t = useT()
   const locale = useLocale()
@@ -307,7 +308,8 @@ function AskRow({ welcome }: { welcome: Welcome }) {
   const noAi = ai.loaded && !ai.usable
   if (noAi && !welcome.steps.asked) {
     if (ai.action === 'ask_owner') {
-      const owner = welcome.owner ? greetName(welcome.owner.name, locale) : null
+      // a third person, named to the member: the whole display name, never the greeting's short name
+      const owner = welcome.owner ? welcome.owner.name.trim() || null : null
       return (
         <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member')}>
           {ai.requested ? (

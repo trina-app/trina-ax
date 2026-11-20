@@ -1524,6 +1524,23 @@ describe('the later steps and the end', () => {
     }
   })
 
+  test('a phone\'s end screen keeps the ✓ of 팀 도구 done on a computer before (the setup finished on the phone)', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null } })
+    withGroup()
+    const m = await app()
+    const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+    try {
+      await m.click(await m.until(() => m.find('invite-step-done'), 'the invite'))
+      await m.until(() => m.find('welcome-done-summary'), 'the end screen')
+      // nothing recorded for 도구 연결 on the phone: it was done already
+      expect(called('PATCH /api/onboarding/welcome').map((c) => c.body.step?.id).filter(Boolean)).toEqual(['invite'])
+      expect(row('tools').getAttribute('data-state')).toBe('done')
+      expect(row('tools').textContent).not.toContain('컴퓨터에서 할 수 있어요')
+    } finally { await m.unmount() }
+  })
+
   test('the end screen shows once: 내 스킬 finished later on a computer (after the phone\'s end) goes Home with "시작 설정을 마쳤어요"', async () => {
     signIn('owner')
     // a computer's browser (the folder window)

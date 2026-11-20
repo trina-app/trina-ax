@@ -125,7 +125,8 @@ describe('the card on Home', () => {
       expect(text(m, 'member-welcome-tools')).toContain('Connect your tools')
       expect(m.get('member-welcome-tools').getAttribute('data-optional')).toBeNull()
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
-      expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
+      // posted to the everyone room: the whole display name, not the greeting's first name
+      expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina Park")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')
       expect(text(m, 'member-welcome-ask')).toContain('Ask Trina what you can do here')
       // no second list of skills, no no-AI card
@@ -183,7 +184,7 @@ describe('the card on Home', () => {
       await m.until(() => m.find('member-welcome-hi-button'), 'the button')
       await m.click('member-welcome-hi-button')
       await m.until(() => m.find('member-welcome-hi-open'), 'done')
-      expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina"])
+      expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina Park"])
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
@@ -541,7 +542,9 @@ describe('no AI for the person', () => {
     try {
       await m.until(() => m.find('member-welcome-tell'), 'the row')
       expect(text(m, 'member-welcome-ask')).toContain("Trina isn't ready for you yet")
-      expect(text(m, 'member-welcome-tell')).toBe('Tell Olga')
+      // a third person: the owner's whole display name, on the button and in the hint
+      expect(text(m, 'member-welcome-tell')).toBe('Tell Olga Berg')
+      expect(text(m, 'member-welcome-ask')).toContain('You can start as soon as Olga Berg connects an AI for the team')
       expect(m.find('no-ai-card')).toBeNull()
       expect(m.find('member-welcome-ask-button')).toBeNull()
       await m.click('member-welcome-tell')
@@ -609,6 +612,18 @@ describe('the words', () => {
     expect(greetName('🦊', 'ko')).toBe('🦊')
     expect(greetName('🦊 🌸', 'en')).toBe('🦊 🌸')
     expect(greetName('', 'en')).toBe('')
+    // titles, initials, tags and one-letter words (the review of #163)
+    expect(greetName('Dr. Kim', 'en')).toBe('Kim')
+    expect(greetName('Dr. Kim', 'ko')).toBe('Dr. Kim')
+    expect(greetName('J. R. R. Tolkien', 'en')).toBe('Tolkien')
+    expect(greetName('A Park', 'en')).toBe('A Park')
+    expect(greetName('A', 'en')).toBe('A')
+    expect(greetName('(QA) Mina', 'en')).toBe('Mina')
+    expect(greetName('(QA) Mina', 'ko')).toBe('(QA) Mina')
+    // whole-name mode keeps the name as written, punctuation too; only emoji words go
+    expect(greetName('QA · Member', 'ko')).toBe('QA · Member')
+    expect(greetName('QA · Member 🌸', 'ko')).toBe('QA · Member')
+    expect(greetName('Kim Minsu', 'en')).toBe('Kim')
   })
 
   test('the rooms, the join page', () => {
