@@ -25,10 +25,11 @@
 // same way. Neither uses the AI.
 //
 // Allowed strings (--allow, any number): text that is public on purpose, such as the source-request address of the
-// AGPL offer (shared/src/source.ts SOURCE_CODE.requestEmail, on the About page of every server). Every place an allowed
-// string appears is blanked before the search, so a sealed string inside it (the same address, or its domain) is not
-// a hit there; the same sealed string anywhere else still is. An allowed string that is only part of a sealed one (its
-// domain, a name inside an address) is refused: it would blank that part everywhere and so hide every leak of it.
+// AGPL offer (shared/src/source.ts SOURCE_CODE.requestEmail, on the About page of every server). Sealed strings are
+// searched whole first; a place where one is found is no hit only when it lies wholly inside a place where an allowed
+// string appears (the same address, or its domain, inside the public address). So an allowed string may be part of a
+// sealed one (the public address, when a sealed string is that address plus more: QA TC-5605) and that sealed string
+// is still found wherever it appears whole; allowing a domain never hides an address at it.
 //
 // A hit fails the run (exit 1) and is reported by file (or prompt number) and by the string's number in the sealed
 // file, never by the string itself, so the report can be pasted anywhere.
@@ -52,8 +53,24 @@ export const LEAK_PROMPTS: readonly string[] = [
 
 export interface Hit { file: string; string: number }
 
-/** `text` with every place an allowed string appears blanked (case-insensitively), so a sealed string inside it is not
- * found there. */
+/** Where each needle appears in `hay` (start, end), already lower-cased. */
+function spans(hay: Buffer, needles: readonly Buffer[]): [number, number][] {
+  const out: [number, number][] = []
+  for (const n of needles) {
+    if (!n.length) continue
+    for (let i = hay.indexOf(n); i >= 0; i = hay.indexOf(n, i + 1)) out.push([i, i + n.length])
+  }
+  return out
+}
+/** Is a needle in `hay` somewhere that no allowed place holds wholly? Sealed strings are found whole first, then a place
+ * is excused only when it lies inside an allowed one (QA TC-5605). */
+function foundOutside(hay: Buffer, forms: readonly Buffer[], allowed: readonly [number, number][]): boolean {
+  return spans(hay, forms).some(([a, b]) => !allowed.some(([x, y]) => x <= a && b <= y))
+}
+const lowerForms = (s: string) => { const l = s.trim().toLowerCase(); return l ? [Buffer.from(l, 'utf8'), Buffer.from(l, 'utf16le')] : [] }
+
+/** `text` with every place an allowed string appears blanked (case-insensitively): what a report may show of it. The
+ * search itself never works on this (sealedIn finds sealed strings whole first). */
 export function maskAllowed(text: string, allow: readonly string[] = []): string {
   let low = text.toLowerCase()
   for (const a of allow) {
@@ -61,27 +78,6 @@ export function maskAllowed(text: string, allow: readonly string[] = []): string
     if (n) low = low.split(n).join(' '.repeat(n.length))
   }
   return low
-}
-
-/** Refuses (throws) an allowed string that is a strict part of a sealed one, case-insensitively: blanking it would cut
- * that sealed string wherever it appears, so a real leak of it would never be found (review finding 3 on #105). One
- * equal to a sealed string, or holding one, is fine (that text is public on purpose). The error names both by number
- * only, never by text, like the report. */
-export function checkAllow(allow: readonly string[], strings: readonly string[]): void {
-  for (const [i, a] of allow.entries()) {
-    const n = a.trim().toLowerCase()
-    if (!n) continue
-    const j = strings.findIndex((s) => { const t = s.toLowerCase(); return t !== n && t.includes(n) })
-    if (j >= 0) throw new Error(`--allow ${i + 1} is only part of sealed string ${j + 1}: it would hide every leak of that string. Allow the whole public text that holds it (e.g. the full address), not a part of a sealed string`)
-  }
-}
-
-/** the same for bytes (already lower-cased): every place a needle appears is zeroed */
-function maskBytes(low: Buffer, needles: readonly Buffer[]): void {
-  for (const n of needles) {
-    if (!n.length) continue
-    for (let i = low.indexOf(n); i >= 0; i = low.indexOf(n, i + n.length)) low.fill(0, i, i + n.length)
-  }
 }
 
 /** The sealed file's strings, in order (1-based numbers in the report). Refuses a file others can read. */
@@ -100,7 +96,7 @@ export function scan(dir: string, strings: readonly string[], allow: readonly st
     const lower = s.toLowerCase()
     return [Buffer.from(lower, 'utf8'), Buffer.from(lower, 'utf16le')]
   })
-  const allowed = allow.map((a) => a.trim().toLowerCase()).filter(Boolean).flatMap((a) => [Buffer.from(a, 'utf8'), Buffer.from(a, 'utf16le')])
+  const allowed = allow.flatMap(lowerForms)
   const hits: Hit[] = []
   const walk = (abs: string) => {
     let entries: fs.Dirent[]
@@ -114,8 +110,8 @@ export function scan(dir: string, strings: readonly string[], allow: readonly st
         // ASCII lower-case of the bytes: enough for addresses, ids and plan names
         const low = Buffer.from(data)
         for (let i = 0; i < low.length; i++) { const b = low[i]!; if (b >= 65 && b <= 90) low[i] = b + 32 }
-        maskBytes(low, allowed)
-        for (const [i, forms] of needles.entries()) if (forms.some((n) => low.includes(n))) hits.push({ file: path.relative(dir, p), string: i + 1 })
+        const ok = spans(low, allowed)
+        for (const [i, forms] of needles.entries()) if (foundOutside(low, forms, ok)) hits.push({ file: path.relative(dir, p), string: i + 1 })
       }
     }
   }
@@ -125,8 +121,9 @@ export function scan(dir: string, strings: readonly string[], allow: readonly st
 
 /** The numbers (1-based) of the sealed strings in `text`, case-insensitively, outside the `allow`ed strings. */
 export function sealedIn(text: string, strings: readonly string[], allow: readonly string[] = []): number[] {
-  const low = maskAllowed(text, allow)
-  return strings.flatMap((s, i) => (low.includes(s.toLowerCase()) ? [i + 1] : []))
+  const low = Buffer.from(text.toLowerCase(), 'utf8')
+  const ok = spans(low, allow.flatMap((a) => lowerForms(a).slice(0, 1)))
+  return strings.flatMap((s, i) => (foundOutside(low, lowerForms(s).slice(0, 1), ok) ? [i + 1] : []))
 }
 
 /** the public pages a visitor can open without the AI (QA TC-5576): the health answer (what Settings › About shows)
@@ -260,7 +257,6 @@ if (import.meta.main) {
   }
   try {
     const strings = readSealed(sealed)
-    checkAllow(allow, strings)
     if (allow.length) console.log(`[canary] ${allow.length} allowed string${allow.length === 1 ? '' : 's'} (public on purpose)`)
     let bad = 0
     for (const d of dirs) {

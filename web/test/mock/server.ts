@@ -374,6 +374,10 @@ export class MockServer {
   /** an invited person's welcome card on Home (server/src/onboarding/member-welcome.ts): none in these tests unless one
    * sets it (POST /__test/member-welcome {welcome}), as for the team's creator and people who joined before it existed */
   memberWelcome: MemberWelcome | null = null
+  /** the card hidden (Hide) while its days last: Settings › Profile can show it again (PATCH { show }) */
+  memberWelcomeHidden: MemberWelcome | null = null
+  /** an admin's "팀 파일 정리하기" on Admin › Home (POST /__test/member-welcome {organizeFiles}) until a plan is applied */
+  organizeFilesRow = false
   /** a saved welcome row: finished once 회사 소개 is answered (saved or put off) and 내 스킬, 팀 파일, 도구 연결 and the
    * invite are each done or put off, not while 내 스킬 waits for a computer (server/src/onboarding/welcome.ts
    * welcomeFinished, docs/DECISIONS.md "W6") */
@@ -697,6 +701,8 @@ export class MockServer {
     this.revokedTeamLinks.clear()
     this.welcome = null
     this.memberWelcome = null
+    this.memberWelcomeHidden = null
+    this.organizeFilesRow = false
     this.companyProfile = null
     this.packExamples = {}
     this.packsFail = false
@@ -1049,7 +1055,14 @@ export class MockServer {
     if (!w) return null
     const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
     const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
-    return { ...w, steps: { ...w.steps, files }, ...(w.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) }
+    // "all set" once the counted rows are done (the owner's card: tools only; a member's: tools, hi and asked)
+    const steps = { ...w.steps, files }
+    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !!steps.tools : !!steps.tools && steps.hi && steps.asked))
+    return { ...w, steps, allSet }
+  }
+  memberWelcomeAnswer(userId: string, role: string) {
+    const welcome = this.memberWelcomeFor(userId)
+    return { welcome, ...(!welcome && this.memberWelcomeHidden ? { hidden: true } : {}), ...(role === 'admin' && this.organizeFilesRow && !this.filesOrganized ? { organizeFiles: true } : {}) }
   }
   isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
   explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
@@ -4256,11 +4269,13 @@ export class MockServer {
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
     // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
     // the desktop app's optional files row: a file in the caller's My files › From this computer (looked at on every read)
-    getMemberWelcome: (c) => ({ welcome: this.memberWelcomeFor(c.user.id) }),
+    getMemberWelcome: (c) => this.memberWelcomeAnswer(c.user.id, c.user.role),
     updateMemberWelcome: (c) => {
-      if (c.body.hide) this.memberWelcome = null
-      else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
-      return { welcome: this.memberWelcomeFor(c.user.id) }
+      if (c.body.hide) { if (this.memberWelcome && !this.memberWelcome.allSet) this.memberWelcomeHidden = this.memberWelcome; this.memberWelcome = null }
+      else if (c.body.show && this.memberWelcomeHidden) { this.memberWelcome = this.memberWelcomeHidden; this.memberWelcomeHidden = null }
+      if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
+      if (c.body.tools && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, tools: true } }
+      return this.memberWelcomeAnswer(c.user.id, c.user.role)
     },
     updateWelcome: (c) => {
       const at = now()
@@ -6185,7 +6200,11 @@ export class MockServer {
     else if (p === '/__test/storage-notice') for (const u of this.users.filter((x) => (x.role === 'owner' || x.role === 'admin') && x.status === 'active')) this.note(u.id, { kind: 'storage_filling', percent: Number(body.percent), roomsBytes: body.roomsBytes == null ? null : Number(body.roomsBytes) })
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
-    else if (p === '/__test/member-welcome') this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
+    else if (p === '/__test/member-welcome') {
+      this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
+      this.memberWelcomeHidden = null
+      this.organizeFilesRow = body.organizeFiles === true
+    }
     else if (p === '/__test/drive-client') { this.driveClient = body.on === false ? 'none' : 'app'; this.settleServiceRequests() }
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }
@@ -6388,6 +6407,13 @@ export class MockServer {
       if ('guests' in body) this.guestCap = typeof body.guests === 'number' ? body.guests : null
       if ('seatsFull' in body) this.seatsFull = body.seatsFull === true
     }
+    else if (p === '/__test/room-category') {
+      // a team category as an admin made it (rooms/categories.ts), for a member's test
+      const x = { id: uuidv7(), name: String(body.name), position: this.roomCategories.length }
+      this.roomCategories.push(x)
+      this.publish({ type: 'roomCategories.changed', data: {} })
+      return Response.json(x)
+    }
     else if (p === '/__test/rooms') {
       // session markers (docs/DECISIONS.md): rooms as GET /api/rooms lists them (unread counts, "@", the AI waiting on
       // me); each one is sent like the server's room.updated
@@ -6489,6 +6515,11 @@ export class MockServer {
   /** `${userId}:${chat or room id}` → the folder it is in, for that person */
   navItems = new Map<string, string>()
   readonly navFoldersInstalled = this.installNavFolders()
+
+  // ---------------- conversation categories (server/src/rooms/categories.ts) ----------------
+  /** the team's categories: the same list for everyone; admins and the owner change them */
+  roomCategories: { id: string; name: string; position: number }[] = []
+  readonly roomCategoriesInstalled = this.installRoomCategories()
 
   // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
   // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
@@ -7642,6 +7673,72 @@ export class MockServer {
       const n = c.body.limit ?? 20
       return { total: all.length, totalCapped: false, items: all.slice(at, at + n), nextCursor: at + n < all.length ? String(at + n) : null }
     })
+  }
+
+  private installRoomCategories() {
+    const h = this.handlers
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.roomCategories = []
+      baseReset(o)
+    }
+    const admin = (c: Ctx) => { if (c.user.role !== 'admin' && c.user.role !== 'owner') fail('forbidden', 403) }
+    const list = () => [...this.roomCategories].sort((a, b) => a.position - b.position)
+    const one = (id: string) => this.roomCategories.find((x) => x.id === id) ?? fail('not_found', 404)
+    const changed = () => this.publish({ type: 'roomCategories.changed', data: {} })
+    const roomChanged = (r: Room) => this.publish({ type: 'room.updated', data: { roomId: r.id, change: 'updated', room: r } })
+    const nameKey = (s: string) => s.normalize('NFC').trim().toLowerCase()
+    const checkName = (name: string, except?: string) => {
+      const n = String(name ?? '').normalize('NFC').trim()
+      if (!n || [...n].length > 40) fail('validation', 400, undefined, { 'body.name': 'invalid' })
+      if (this.roomCategories.some((x) => x.id !== except && nameKey(x.name) === nameKey(n))) fail('conflict', 409, '같은 이름의 카테고리가 이미 있어요.', { 'body.name': 'room_category_name_taken' }, { reason: 'room_category_name_taken' })
+      return n
+    }
+    const without = (r: Room): Room => { const { categoryId: _, ...rest } = r; return rest as Room }
+    h.listRoomCategories = () => ({ items: list() })
+    h.createRoomCategory = (c) => {
+      admin(c)
+      const x = { id: uuidv7(), name: checkName(c.body.name), position: this.roomCategories.length }
+      this.roomCategories.push(x)
+      changed()
+      return { status: 201, body: x }
+    }
+    h.updateRoomCategory = (c) => {
+      admin(c)
+      const x = one(c.params.id!)
+      x.name = checkName(c.body.name, x.id)
+      changed()
+      return x
+    }
+    h.deleteRoomCategory = (c) => {
+      admin(c)
+      const x = one(c.params.id!)
+      this.roomCategories = this.roomCategories.filter((y) => y !== x)
+      list().forEach((y, i) => (y.position = i))
+      this.rooms = this.rooms.map((r) => (r.categoryId === x.id ? without(r) : r))
+      for (const r of this.rooms) roomChanged(r)
+      changed()
+      return { status: 204, body: null }
+    }
+    h.orderRoomCategories = (c) => {
+      admin(c)
+      const now = list()
+      const ids = (c.body.ids as string[]).filter((id) => now.some((x) => x.id === id))
+      ;[...ids.map((id) => now.find((x) => x.id === id)!), ...now.filter((x) => !ids.includes(x.id))].forEach((x, i) => (x.position = i))
+      changed()
+      return { items: list() }
+    }
+    h.setRoomCategory = (c) => {
+      admin(c)
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      if (room.kind === 'dm' || (room.kind === 'group' && !room.name)) fail('conflict', 409, undefined, undefined, { reason: 'room_category_personal' })
+      const to = c.body.categoryId as string | null
+      if (to) one(to)
+      const next = to ? { ...room, categoryId: to } : without(room)
+      this.rooms = this.rooms.map((r) => (r.id === room.id ? next : r))
+      roomChanged(next)
+      return next
+    }
   }
 
   private installNavFolders() {

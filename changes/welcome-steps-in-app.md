@@ -1,3 +1,0 @@
-- A new team's owner who continues in the Mac or Windows app now gets the same setup steps there (company profile, skills, team files, tools, invite), starting where they left off, with the company website from the sign-up link already filled in. Before, the app showed only Home.
-- The team goal card and **Ready in your team** on Home can be hidden with **Hide**, on every device at once. **Settings › Profile** shows them again.
-- While the company profile is being read there is nothing to press; after 90 seconds **Don't wait, go on** moves on and the reading carries on.

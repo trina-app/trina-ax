@@ -35,7 +35,7 @@ import { disablePlacelessGuests } from '../admin/guests'
 import { atLeast, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { tr } from '../chat/i18n'
-import { answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
+import { answersToSave, answerWords, cardAnswerOk, labelsHidden, openQuestion, openQuestionsOf, recordAnswer } from '../chat/open-questions'
 import { noLongerMember } from '../chat/project-joins'
 import { chatEnginesFor, checkChatEngineChange, newChatEngine, turnEngine, type TurnEngine } from '../admin/engine-choice'
 import { budgetBlock } from '../admin/budgets'
@@ -905,10 +905,11 @@ export const chatsRoutes: RouteModule = {
       const ready = r as Extract<typeof r, { state: 'ready' }>
       try {
         const { engine, model, substitutedFrom } = pickEngine(ctx, rt, auth, a.row, {}, locale)
+        const hidden = labelsHidden(ctx.db, a.shared, q.messageId)
         // a browser site's call runs again in the window whose browser it was for
         rt.createTurn({ chat: a.row, userId: auth.user.id, locale: rt.userLocale(auth.user.id), windowId: ready.window ?? windowOf(c), clientKind: auth.session.client, engine, model, substitutedFrom,
-          user: { parentId: q.messageId, content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), labelsHidden(ctx.db, a.shared, q.messageId)), attachments: [], clientMessageId: `answer-${requestId}` },
-          answered: ready.answers })
+          user: { parentId: q.messageId, content: answerWords(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden), attachments: [], clientMessageId: `answer-${requestId}` },
+          answered: answersToSave(ready.answers, ready.requests, rt.userLocale(auth.user.id), hidden) })
       } catch (e) { ready.undo(); throw e }
     }
 

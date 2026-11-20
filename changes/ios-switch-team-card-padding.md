@@ -1,1 +1,0 @@
-- Phone app: on the switch-team card, Cancel and Switch stay inside the card with its padding. Cancel went past the border on an iPhone.

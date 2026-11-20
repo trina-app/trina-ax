@@ -29,7 +29,7 @@ export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
 const EXCERPT_LIST = 120
 
-export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null }
+export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null; /** the team category (migration 429); absent from rows made in code or read with named columns */ category_id?: string | null }
 /** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code).
  * hidden_at: when I hid the room from my own lists (docs/DECISIONS.md "대화 숨기기"); null or absent: shown */
 /** visible_from_seq: the room's last seq when they joined (the floor of their read position); history_from_seq: where
@@ -598,6 +598,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const pinned = pinOf(db, room.id, viewer)
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
+  // the team-wide category it is in (rooms/categories.ts): the same for every member
+  const category = room.category_id !== undefined ? room.category_id : ((db.query('SELECT category_id FROM rooms WHERE id = ?').get(room.id) as { category_id: string | null } | null)?.category_id ?? null)
   const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
   // a private channel linked to a team project (rooms/project-link.ts): the project for a viewer who can open it, and
   // whether they may link one
@@ -613,6 +615,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
+    ...(category ? { categoryId: category } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
     ...(groupFolder ? { groupFolder } : {}),
     ...(project ? { project } : {}),

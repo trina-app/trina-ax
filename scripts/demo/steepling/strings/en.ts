@@ -113,7 +113,7 @@ export const en = {
       '',
       'Yuzu Ginger is $11.90 for 10 bags at the Steepling online shop and partner cafés, 20% off until December 6.',
       '',
-      '**About Steepling**: Steepling makes cold-brew tea bags. 12 people, selling online and to cafés and offices.',
+      '**About Steepling**: Steepling makes cold-brew tea bags. 10 people, selling online and to cafés and offices.',
       '',
       '**Contact**: [name, email]',
       '',
@@ -154,13 +154,14 @@ export const en = {
     'press-release': 'Press release draft',
     'competitor-roundup': 'Competitor roundup',
     handover: 'Handover helper',
+    'review-digest': 'Customer review summary',
   },
 
   /** the free-roam bar: what a tap asks */
   suggestions: [
-    { label: 'Make next week\'s social posts', prompt: 'Use our social posts skill to write next week\'s Instagram posts for Yuzu Ginger' },
-    { label: 'Check Chris\'s reply', prompt: 'Did Chris reply to my email? Check my Gmail' },
-    { label: 'What am I taking over?', prompt: 'Use the handover skill: what am I taking over from Leo?' },
+    { label: 'Draft next week\'s posts', prompt: 'Use our social posts skill to draft next week\'s posts for the empty slots in the social calendar' },
+    { label: 'Summarise customer reviews', prompt: 'Use the customer review summary skill on our reviews' },
+    { label: 'Did Chris reply?', prompt: 'Did Chris reply to my email? Check my Gmail' },
   ],
 }
 

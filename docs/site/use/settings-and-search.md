@@ -111,5 +111,14 @@ Press **⌘K** (Ctrl+K on Windows), or choose **Search** under **Ask Trina**.
 - **Files sent in conversations** are found by name on the All and Files tabs, after your team's files: the file, who sent it, where and when. Only files of messages you can see are found. Choose one to open the conversation at the message it was sent with.
 - **Every word counts**, in any order: "견적서 보내" finds "견적서를 보내드렸어요" in messages, chats and file names.
 - **Keys:** ↑ and ↓ move, Enter opens, ← and → change the tab, Esc closes.
+- **Chips** under the box narrow the messages and files found: **This conversation** (when you opened search in a conversation), **Sent by me** and **Mentions me**. Typing `from:me` or `mentions:me` does the same.
+
+| Keys | What they do |
+| --- | --- |
+| **⌘K** (Ctrl+K) | Open search, anywhere. |
+| **⌘F** (Ctrl+F) in a channel, direct message, group chat or thread | Open search with **This conversation** on. The conversation's **⋯** menu has **Search in this conversation** too. |
+| **⌘F** (Ctrl+F) in an AI chat, the file viewer, or with a file or artifact open beside the page | Find on the page, as before. |
+| **⌘F** (Ctrl+F) anywhere else | The same as ⌘K. |
+| **⌘F** again while search is open | Back to the search box, its text selected. To find on the page, use **Edit › Find…** in the desktop app. |
 
 ![Search finding a word in a message: who wrote it, in which conversation, and when](../images/search/messages.webp "Search finds messages too")

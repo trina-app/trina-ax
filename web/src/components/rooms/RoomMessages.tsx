@@ -35,27 +35,27 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Locale, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
-import { formatDateTime, formatSize, intlTag } from '../../lib/format'
+import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey, type MessageRun } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
 import { roomPreview, type PreviewFile } from '../../lib/sidePanel'
 import { roomFileOpens } from '../../lib/preview'
 import { useLocale, useT } from '../../i18n'
-import { useAvatarOf, useNameOf, usePeople } from '../../store/people'
+import { useNameOf, usePeople } from '../../store/people'
 import { useMe } from '../../store/session'
 import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
-import { Avatar } from '../Avatar'
 import { TokenTextarea } from '../TokenTextarea'
 import { Button, confirmDialog, useCopy, useMediaQuery } from '../ui'
 import { useAutoGrow } from '../../lib/autoGrow'
 import { failedEdits, focusRoomBox, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
-import { AiFace, AiFaceInline, AiMark } from './AiFace'
+import { AiFaceInline, AiMark } from './AiFace'
+import { DayLine, messageRowClass, RunFace, RunName, RunShell, sameTimeAsAbove, timeOf, WORDS } from './MessageRun'
 import { MenuButton, useLongPress, type MenuItem } from './MenuButton'
 import { MessageHoverBar } from './MessageHoverBar'
 import { reactable, ReactionChips, ReactionPanel, ReactionStrip } from './Reactions'
@@ -64,7 +64,6 @@ import { ThreadLine } from '../ThreadLine'
 import type { MessageMention } from '../../lib/messageMarkdown'
 import { MENTION_ALL_WORDS, pickedInMessage, useMentionMenu } from './useMentionMenu'
 import { Tooltip } from '../Tooltip'
-import { StatusEmoji } from '../StatusMessage'
 import { useViewerItem, useViewerMeta, ViewerMeta } from '../ImageViewer'
 import { roomFileItem, roomItem, type ViewerItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { itemImage, itemLink } from '../../lib/fileMenu'
@@ -77,8 +76,6 @@ import { AppTile } from './apps/AppParts'
 import { AppSender } from './apps/AppSender'
 import { appPlainText, serviceOf, unescapeAppBody } from '../../lib/roomApps'
 import { mayManageApps } from '../../store/roomApps'
-import { GuestTagFor } from '../GuestTag'
-import { PersonButton } from '../PersonCard'
 import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
@@ -88,12 +85,9 @@ import { useFolderWords } from '../../lib/folderLabels'
 import { saveToProject, useRoomSaves } from '../../store/roomSaves'
 import { capBlankLines } from '../../lib/blankLines'
 
-const timeOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
-const dayOf = (iso: string, locale: Locale) => new Intl.DateTimeFormat(intlTag(locale), { dateStyle: 'full' }).format(new Date(iso))
 export const messageDomId = (id: string) => `room-msg-${id}`
 /** A message's words: the one part of its row that can be selected (not on touch screens, where a long press opens its
  * menu), and what a copy of several messages takes from it (lib/messageCopy.ts) */
-const WORDS = 'select-text pointer-coarse:select-none'
 /** An answer's `>` quotes, as the AI chat shows them (Markdown.tsx CopyableQuote): without the quote marks the typography
  * adds to a quote's first and last paragraph. An answer that quotes a message puts its own marks around it, so a shared
  * answer in a thread read “"…"” (QA 2026-11-11). */
@@ -108,21 +102,7 @@ function copyMessages(e: ClipboardEvent<HTMLDivElement>) {
   e.preventDefault()
 }
 
-/** For each run: its time reads the same as the time shown above it on the same day (a date line starts a new day).
- * Phones show such a time once: the first run of that minute has it. An event line shows no time, so a run compares
- * with the nearest message run above it, never with an event line. */
-export function sameTimeAsAbove(runs: readonly MessageRun[], time: (iso: string) => string): boolean[] {
-  let shown: string | null = null
-  return runs.map((run) => {
-    if (run.newDay) shown = null
-    const first = run.messages[0]!
-    if (first.event) return false
-    const t = time(first.createdAt)
-    const same = shown === t
-    shown = t
-    return same
-  })
-}
+export { sameTimeAsAbove }
 
 /** the largest box a thumbnail takes, so the list does not jump while it loads */
 export function thumbBox(f: { width?: number | null; height?: number | null }): { width: number; height: number } | undefined {
@@ -165,7 +145,6 @@ export const HIGHLIGHT_MS = 2400
  * the middle and marked for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
 export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
-  const t = useT()
   // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
   // file too, in the same side chat (the room page's, or the image viewer's column: `onAskFile`)
   const askFile = useMemo(() => (onAskTrina ? (fileId: string, name: string) => void (onAskFile ? onAskFile(fileSeed(fileId, name)) : askTrinaInRoom(roomId, fileSeed(fileId, name))) : null), [onAskTrina, onAskFile, roomId])
@@ -197,7 +176,6 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
     for (const p of Object.values(byId)) map.set(p.id, p.name)
     return map
   }, [byId, members])
-  const nameOf = useNameOf()
   const jump = (id: string) => {
     document.getElementById(messageDomId(id))?.scrollIntoView({ block: 'center', behavior: 'smooth' })
     setFlash(id)
@@ -228,29 +206,15 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
         const first = run.messages[0]!
         return (
           <Fragment key={run.key}>
-            {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && (
-              <div role="separator" className="flex items-center gap-3 py-3 text-micro font-medium text-faint" data-testid="room-day">
-                <span className="h-px flex-1 bg-line" aria-hidden />
-                {dayOf(first.createdAt, locale)}
-                <span className="h-px flex-1 bg-line" aria-hidden />
-              </div>
-            )}
+            {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && <DayLine at={first.createdAt} />}
             {first.event ? <EventLine m={first} /> : (
-            <div className="flex gap-3 pt-2 max-md:pt-3" data-testid="room-run">
-              <RunAvatar m={first} />
-              <div className="min-w-0 flex-1">
-                {/* (a <div>: a person's name is a button with its card under it, components/PersonCard.tsx). A phone: the
-                    name takes taps from 44 px (index.css touch-hit-start, drawn over what follows), so the run's top gap
-                    is 12 px (it never reaches the message above) and the emoji and a quote's jump sit above it */}
-                <div className="flex items-baseline gap-2" data-testid="room-run-head">
-                  {/* an app's message: its name (who set it up, a tap away) and the "App" tag, never a person */}
-                  {first.app ? <AppSender roomId={roomId} app={first.app} /> : first.authorKind === 'ai' || !first.author ? <span className="truncate text-sm font-medium text-ink">{first.authorKind === 'ai' ? t('rooms.aiName') : t('rooms.goneUser')}</span> : <PersonButton user={first.author} look="name" className="text-sm font-medium text-ink" boxClassName="flex min-w-0" testId="room-run-name">{nameOf(first.author)}</PersonButton>}
-                  {first.authorKind !== 'ai' && first.author && <StatusEmoji userId={first.author.id} tap className="relative z-[2] -ml-1 self-center text-sm select-none" />}
-                  {!first.app && first.authorKind !== 'ai' && first.author && <GuestTagFor userId={first.author.id} />}
-                  <time dateTime={first.createdAt} title={formatDateTime(first.createdAt, locale)} className={clsx('shrink-0 text-xs text-faint', repeats[i] && 'max-md:hidden')} data-repeat={repeats[i] ? '' : undefined}>
-                    {timeOf(first.createdAt, locale)}
-                  </time>
-                </div>
+            <RunShell
+              face={first.app ? <AppTile service={serviceOf(first.app)} app={first.app} size="face" className="mt-0.5" /> : <RunFace user={first.author} ai={first.authorKind === 'ai'} />}
+              // an app's message: its name (who set it up, a tap away) and the "App" tag, never a person
+              name={first.app ? <AppSender roomId={roomId} app={first.app} /> : <RunName user={first.author} ai={first.authorKind === 'ai'} />}
+              at={first.createdAt}
+              repeat={repeats[i]}
+            >
                 {run.messages.map((m) => m.withheld ? (
                   <WithheldRow key={m.id} m={m} flash={flash === m.id || lit === m.id} onJump={m.replyTo && loaded.has(m.replyTo.id) ? () => jump(m.replyTo!.id) : undefined} />
                 ) : (
@@ -279,8 +243,7 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
                     />
                   </Fragment>
                 ))}
-              </div>
-            </div>
+            </RunShell>
             )}
           </Fragment>
         )
@@ -370,13 +333,6 @@ function EventLine({ m }: { m: RoomMessage }) {
   )
 }
 
-function RunAvatar({ m }: { m: RoomMessage }) {
-  const user = useAvatarOf(m.author)
-  if (m.app) return <AppTile service={serviceOf(m.app)} app={m.app} size="face" className="mt-0.5" />
-  if (m.authorKind === 'ai') return <AiFace size={32} className="mt-0.5" />
-  // a person's photo opens their card (components/PersonCard.tsx); someone with none: the photo as it was
-  return user ? <PersonButton user={user} look="face" boxClassName="mt-0.5 shrink-0 self-start select-none" testId="room-run-face"><Avatar user={user} size={32} /></PersonButton> : <span aria-hidden className="mt-0.5 size-8 shrink-0 rounded-full bg-hover" />
-}
 
 /** A root's thread under it: up to 3 faces, "답글 3개", the last reply's time; a dot when a thread I follow has replies I
  * have not read. One tap opens the thread. */
@@ -468,7 +424,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   return (
     <div
       id={messageDomId(m.id)}
-      className={clsx('group relative -mx-2 rounded-lg px-2 py-0.5 transition select-none pointer-coarse:[-webkit-touch-callout:none]', flash || inBox ? 'bg-accent-soft' : 'hover:bg-subtle has-[[role=menu]]:bg-subtle has-[[aria-expanded=true]]:bg-subtle has-[:focus-visible]:bg-subtle')}
+      className={messageRowClass(flash || inBox)}
       data-testid="room-message"
       data-highlight={highlighted ? '' : undefined}
       data-editing={inBox ? '' : undefined}
@@ -522,7 +478,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
           as a sheet, with six emoji and "More emoji" on top (its own button never shows) */}
       {menuOn && (
         <>
-          <MessageHoverBar roomId={roomId} m={m} below={barBelow} reactOn={reactOn} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
+          <MessageHoverBar react={reactOn ? { roomId, m } : null} below={barBelow} onThread={threadOn ? () => onThread!(m.id, true) : undefined} onAsk={askOn ? () => onAskTrina!(m) : undefined} more={moreItems} />
           <MenuButton
             label={t('rooms.messageMenu')}
             className="absolute top-0 right-0"

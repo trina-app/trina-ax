@@ -48,3 +48,28 @@ test('read and grep of a file list answer through the remote connector', async (
   const l = await call('glob', { pattern: '**/_FILES.md' })
   expect(l.content[0]!.text).toContain('shared/_FILES.md')
 })
+
+test('a connector write and upload_file are in the list within the debounce, as plain lines', async () => {
+  const h = await harness('file-list-connector-write'); live.push(h)
+  const owner = await withOwner(h)
+  fs.mkdirSync(path.join(h.ctx.files.fx.root, 'shared', 'in'), { recursive: true })
+  const fl = fileListOf(h.ctx)
+  ;(fl as unknown as { o: { debounceMs: number } }).o.debounceMs = 100
+  const oauth = new RemoteOAuth(h.ctx.db, { origin: 'https://team.example' }), tools = new RemoteTools(h.ctx, () => oauth)
+  const client = oauth.register({ redirect_uris: [redirect] })
+  const auth = (await h.auth.resolve(new Request('http://team.localhost', { headers: { cookie: owner.cookie! } }), { ip: '10.0.0.7', via: 'test' }))!
+  const id = new URL(oauth.authorize({ client_id: client.client_id, redirect_uri: redirect, resource: oauth.resource(), response_type: 'code', code_challenge_method: 'S256', code_challenge: challenge(verifier), scope: 'mcp:read mcp:write' })).searchParams.get('id')!
+  oauth.consent(id, auth)
+  const code = new URL(oauth.decide(id, auth, true, { write: true }).redirectUrl).searchParams.get('code')!
+  const token = oauth.token({ client_id: client.client_id, code, grant_type: 'authorization_code', code_verifier: verifier, redirect_uri: redirect, resource: oauth.resource() }).access_token
+  const call = (name: string, args: unknown) => tools.call(token, name, args) as Promise<Res>
+
+  expect((await call('write', { file_path: 'shared/in/from claude.md', content: '# note\n' })).isError).toBeFalsy()
+  const up = await call('upload_file', { path: 'shared/in/견적서 초안.pdf', content_base64: Buffer.from('%PDF-1.4\n').toString('base64') })
+  expect(up.isError).toBeFalsy()
+  for (let i = 0; i < 40 && fl.pendingPasses() > 0; i++) await new Promise((r) => setTimeout(r, 50))
+  const r = await call('read', { file_path: 'shared/_FILES.md' })
+  expect(r.isError).toBeFalsy()
+  expect(r.content[0]!.text).toContain('shared/in/from claude.md — md file; ')
+  expect(r.content[0]!.text).toContain('shared/in/견적서 초안.pdf — pdf file; ')
+})

@@ -35,7 +35,9 @@
 //     person can use now (tools/connection-urls.ts), learned links within the same budget, unless the AI had sent the
 //     address or a random-looking part of it to a tool of this chat before it came back (an echo: always a card, as
 //     for the learned links of ①);
-//   ③ also a card when the query string is longer than 200 characters, even for a URL from ①;
+//   ③ also a card when the query string is longer than 200 characters, even for a URL from ①; in a turn the person
+//     watches, a plain address (no random-looking part) with a long query still opens under ①b and ①d, never in a run
+//     nobody watches (docs/decisions/20261120-url-gate-camelcase-params.md);
 //   and a card for every URL while this server's own public exit address is unknown (tools/egress.ts), except a plain
 //     address under ①d (the person's own switch; the card offers it).
 // The caller looks nothing up in DNS before this says yes (tools/index.ts web_fetch, chat/tools.ts browser tools): a
@@ -57,7 +59,8 @@ import { SEE_SQL, seeArgs, type SeeMember } from '../rooms/store'
 import type { ResolveOptions } from './web-fetch'
 import { setWebAllowAll, teamAllowsWebAll, webAllowAll } from './web-allow-all'
 
-/** ③: a query string this long always needs a person, wherever the URL came from */
+/** ③: a query string this long needs a person, wherever the URL came from, unless the person's own site allowance or
+ * "Allow all websites" covers it in a turn they watch (a plain address only) */
 export const MAX_UNCONFIRMED_QUERY = 200
 /** links of one fetched page remembered for later turns of the chat */
 export const MAX_SEEN_PER_FETCH = 500
@@ -474,17 +477,34 @@ export function allowSite(db: Database, chatId: string, userId: string, site: st
 }
 
 /** Long random-looking parts of a text (base32 / hex / base64 of something): an address can carry data in them. 20+
- * characters without separators that mix letters and digits (or both cases) with high character entropy. Shown
- * highlighted on cards; a hint, not a rule. */
+ * characters without separators that mix letters and digits (or both cases) with high character entropy, except
+ * letters that read as camelCase words (camelWords: attributesToRetrieve, XMLHttpRequest). Shown highlighted on cards;
+ * a hint, not a rule. */
 export function opaqueParts(text: string, max = 50): string[] {
   const out = new Set<string>()
   for (const m of text.matchAll(/[A-Za-z0-9+%]{20,}/g)) {
     if (out.size >= max) break
     const s = m[0]
     const mixed = /\d/.test(s) ? /[A-Za-z]/.test(s) : /[a-z]/.test(s) && /[A-Z]/.test(s)
-    if (mixed && entropy(s) >= 3) out.add(s)
+    if (mixed && entropy(s) >= 3 && !camelWords(s)) out.add(s)
   }
   return [...out]
+}
+/** Letters only, in camelCase or PascalCase words (attributesToRetrieve, getElementById, XMLHttpRequest): every piece
+ * between case changes is a word ("To", "By", "Retrieve": 2 letters or more, a two-letter one with a vowel) or an
+ * acronym in capitals (1 to 5 letters, at most 2 of them: "XML", the "A" of "isAValue"), 3 letters or more a piece on
+ * average, and the words are at least 30% vowels (a e i o u y) as English words are. Random letters (base64 without
+ * digits: "xKqWzPbNvLmTrYcHdJsF") change case about every other letter, which leaves one-letter pieces, runs of
+ * capitals and few vowels: fewer than 1 in 100 random runs of 20 to 40 letters pass all of it. */
+function camelWords(s: string): boolean {
+  if (!/^[A-Za-z]+$/.test(s)) return false
+  const pieces = s.match(/[A-Z]+(?![a-z])|[A-Z]?[a-z]+/g) ?? []
+  const words = pieces.filter((p) => /[a-z]/.test(p))
+  const acronyms = pieces.length - words.length
+  if (acronyms > 2 || pieces.length * 3 > s.length) return false
+  if (!pieces.every((p) => /[a-z]/.test(p) ? p.length > 2 || (p.length === 2 && /[aeiouy]/i.test(p)) : p.length <= 5)) return false
+  const letters = words.join('')
+  return (letters.match(/[aeiouy]/gi)?.length ?? 0) >= letters.length * 0.3
 }
 function entropy(s: string): number {
   const n = new Map<string, number>()
@@ -680,21 +700,21 @@ export const TEXT = {
     zh: "网站名前面的部分很长（已高亮）。你的信息可能藏在其中，请检查。",
   },
   site: {
-    ko: "사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 물어봐요.",
-    en: "If you allow the site, other addresses on {site} open without asking, in this chat only. Addresses with long hard-to-read strings or a lot of text at the end still ask.",
-    id: "Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di obrolan ini. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan.",
-    ja: "サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認します。",
-    es: "Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en este chat. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando.",
-    zh: "如果允许此网站，{site} 上的其他地址会不经询问直接打开，仅限此对话。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问。",
+    ko: "사이트를 허용하면 이 대화에서는 {site}의 다른 주소도 묻지 않고 열어요. 알아보기 어려운 긴 글자가 있는 주소는 계속 물어봐요.",
+    en: "If you allow the site, other addresses on {site} open without asking, in this chat only. Addresses with long hard-to-read strings still ask.",
+    id: "Jika situs diizinkan, alamat lain di {site} dibuka tanpa bertanya, hanya di obrolan ini. Alamat dengan teks panjang yang sulit dibaca tetap ditanyakan.",
+    ja: "サイトを許可すると、この会話に限り{site}の他のアドレスも確認なしで開きます。読み取りにくい長い文字列があるアドレスは引き続き確認します。",
+    es: "Si permite el sitio, otras direcciones de {site} se abren sin preguntar, solo en este chat. Las direcciones con cadenas largas difíciles de leer siguen preguntando.",
+    zh: "如果允许此网站，{site} 上的其他地址会不经询问直接打开，仅限此对话。带有难以看懂的长字符串的地址仍会询问。",
   },
   /** the line of the fourth answer; the risk sentence (shared WEB_ALLOW_ALL_RISK) follows it */
   all: {
-    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations, until you turn it off in Settings. Addresses with long hard-to-read strings or a lot of text at the end still ask, but that only catches what is easy to spot.',
-    ko: '모든 사이트를 허용하면 설정에서 끌 때까지, 내가 물을 때는 내 채팅과 대화에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 글자나 긴 내용이 붙은 주소는 계속 묻지만, 눈에 띄는 것만 걸러요.',
-    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di percakapan, sampai Anda mematikannya di Pengaturan. Alamat dengan teks panjang yang sulit dibaca atau teks panjang di akhir tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
-    ja: 'すべてのサイトを許可すると、設定でオフにするまで、あなたが頼んだときはチャットでもトークでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列や末尾に長い内容が付いたアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
-    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y conversaciones, hasta que lo desactive en Configuración. Las direcciones con cadenas largas difíciles de leer o mucho texto al final siguen preguntando, pero eso solo detecta lo que salta a la vista.',
-    zh: '如果允许所有网站，你让 AI 打开公共网站时，它会不经询问直接打开，在你的对话和聊天中都是如此，直到你在设置中关闭。带有难以看懂的长字符串或末尾有很多文字的地址仍会询问，但这只能拦住容易发现的情况。',
+    en: 'If you allow all websites, the AI opens public websites without asking when you ask it, in your chats and conversations, until you turn it off in Settings. Addresses with long hard-to-read strings still ask, but that only catches what is easy to spot.',
+    ko: '모든 사이트를 허용하면 설정에서 끌 때까지, 내가 물을 때는 내 채팅과 대화에서 AI가 공개 웹사이트를 묻지 않고 열어요. 알아보기 어려운 긴 글자가 있는 주소는 계속 묻지만, 눈에 띄는 것만 걸러요.',
+    id: 'Jika semua situs web diizinkan, AI membuka situs web publik tanpa bertanya saat Anda memintanya, di chat Anda dan di percakapan, sampai Anda mematikannya di Pengaturan. Alamat dengan teks panjang yang sulit dibaca tetap ditanyakan, tetapi itu hanya menangkap yang mudah terlihat.',
+    ja: 'すべてのサイトを許可すると、設定でオフにするまで、あなたが頼んだときはチャットでもトークでもAIが公開Webサイトを確認なしで開きます。読み取りにくい長い文字列があるアドレスは引き続き確認しますが、見つけられるのは目立つものだけです。',
+    es: 'Si permite todos los sitios web, la IA abre sitios públicos sin preguntar cuando usted se lo pide, en sus chats y conversaciones, hasta que lo desactive en Configuración. Las direcciones con cadenas largas difíciles de leer siguen preguntando, pero eso solo detecta lo que salta a la vista.',
+    zh: '如果允许所有网站，你让 AI 打开公共网站时，它会不经询问直接打开，在你的对话和聊天中都是如此，直到你在设置中关闭。带有难以看懂的长字符串的地址仍会询问，但这只能拦住容易发现的情况。',
   },
   allowAll: {
     en: 'Allow all websites (turn off in Settings)', ko: '모든 사이트 허용 (설정에서 끌 수 있어요)', id: 'Izinkan semua situs web (matikan di Pengaturan)',
@@ -746,7 +766,17 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   let here: boolean | undefined
   const allSitesTurn = () => (here ??= allSitesChat(db, chatId, o.userId, person))
   let plain = false
-  if (!long && !noEgress) {
+  if (long && !noEgress && !unattended) {
+    // ③ in a turn the person watches: their site allowance (①b) and "Allow all websites" (①d) still cover a plain
+    // address with a long query (docs/decisions/20261120-url-gate-camelcase-params.md: "always allow" means done, and a
+    // plain address has no random-looking part, so the card would show only readable words). Nothing else opens it
+    // without the card: not a typed, allowed or learned address, never an echo
+    const from = originOf(db, chatId, url, person, o)
+    plain = plainAddress(site, marks, userinfo, from)
+    if (plain && allowedSites(db, chatId, o.userId).has(site!)) return 'site'
+    if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
+    else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
+  } else if (!long && !noEgress) {
     const from = originOf(db, chatId, url, person, o)
     if (from?.origin === 'typed' || from?.origin === 'allowed') return 'seen'
     plain = plainAddress(site, marks, userinfo, from)
@@ -761,7 +791,7 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
     if (from?.origin === 'echo') why = from.conn ? 'echo' : 'echoWeb'
     // ①d: the "Allow all websites" of the person whose turn it is (no budget: the owner's call, 2026-11-11)
     else if (plain && allSitesTurn() && webAllowAll(db, o.userId)) return 'all'
-  } else if (!long && noEgress) {
+  } else if (noEgress && (!long || !unattended)) {
     // the exit address not known yet (tools/egress.ts): only ①d, the person's own switch, opens a plain address without
     // the card (docs/decisions/20261116-always-allow-more-cards.md). A plain address has a site name, never a number
     // (siteOf), and private and local addresses stay refused on every hop after the lookup (web-fetch.ts); what it
@@ -794,12 +824,12 @@ export async function gateUrl(db: Database, chatId: string | null, rawUrl: strin
   const lines = [TEXT[why][L].replace('{turn}', String(LINK_BUDGET.turn)).replace('{chat}', String(LINK_BUDGET.chat)).replace('{url}', () => shown)]
   if (longName.length) lines.push(TEXT.longName[L])
   if (opaque.length) lines.push(TEXT.opaque[L])
-  // "allow this site in this conversation": only where an allowance could ever apply (not for a long query or while the
-  // exit address is unknown, never in a confidential chat or without a chat and person to keep it for), and never on
+  // "allow this site in this conversation": only where an allowance could ever apply (not while the exit address is
+  // unknown, never in a confidential chat or without a chat and person to keep it for), and never on
   // the card of an address that looks like it carries data (a marked part, a user name or password): that is the card
   // an AI's first try to send something out raises, and one click there would trust the whole site for the rest of the
   // chat. The next plain address of the site offers it.
-  const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !long && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
+  const offerSite = !!(site && person.choose && why !== 'echo' && why !== 'echoWeb' && !noEgress && !marks.length && !userinfo && siteScope(db, chatId, o.userId))
   if (offerSite) lines.push(TEXT.site[L].replace('{site}', () => siteLabel(site!)))
   // "Allow all websites (turn off in Settings)": on the first card already (the owner's call, 2026-11-11, as Claude's own
   // apps offer "always allow" at once), only where ①d could open this very address next time (a plain address, not an
