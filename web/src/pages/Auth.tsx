@@ -368,7 +368,8 @@ function FixedTeam({ name, lang }: { name: string; lang: Locale | null }) {
  * opens only Google sign-in. */
 function ForgotLine({ url }: { url?: string }) {
   const t = useT()
-  if (!url) return <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+  // https only (the API schema says so too): never a javascript: or plain-http href, whatever the answer held
+  if (!url || !url.startsWith('https://')) return <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
   return (
     <div className="text-center text-xs text-faint" data-testid="login-forgot-hosted">
       <p>{t('auth.forgotHosted')}</p>

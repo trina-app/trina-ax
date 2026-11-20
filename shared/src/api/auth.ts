@@ -207,7 +207,7 @@ export const SetupStatus = z.object({
   /** a hosted team only: the hosting console's fixed owner-recovery page (`<console origin>/recover`, the same for every
    * team: never this team's host, slug or id). The sign-in page links the owner there with `?team=<its own host>`.
    * null (or left out by an older server): no such page; the sign-in page keeps the plain "ask an admin" line. */
-  ownerRecoveryUrl: z.string().url().nullable().optional(),
+  ownerRecoveryUrl: z.string().url().refine((u) => u.startsWith('https://'), 'https only').nullable().optional(),
 })
 export const SetupBody = z.object({
   /** one-time token written by the installer / printed by the dev server; proves local access to the Mac */

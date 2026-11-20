@@ -96,6 +96,21 @@ test('self-installed (no URL): the old line and no link', async () => {
   } finally { await m.unmount() }
 })
 
+test('only https: a javascript: or http: value renders no link, only the old line', async () => {
+  for (const bad of ['javascript:alert(1)', 'http://account.example.app/recover', 'JAVASCRIPT:alert(1)', '//evil.example/recover']) {
+    const m = await loginWith({ kind: 'signed-out', ownerRecoveryUrl: bad })
+    try {
+      await m.until(() => m.find('login-username'), 'the sign-in form')
+      expect(m.find('login-owner-recovery')).toBeFalsy()
+      expect(m.container.textContent).toContain(translate('en', 'auth.forgot'))
+    } finally { await m.unmount() }
+  }
+  // the API schema refuses them too
+  const { SetupStatus } = await import('@mycel/shared/api')
+  for (const bad of ['javascript:alert(1)', 'http://account.example.app/recover']) expect(SetupStatus.safeParse({ needed: false, teamName: null, ownerRecoveryUrl: bad }).success).toBe(false)
+  expect(SetupStatus.safeParse({ needed: false, teamName: null, ownerRecoveryUrl: RECOVER }).success).toBe(true)
+})
+
 test('a removed guest: neither line nor the link, even on a hosted team', async () => {
   const m = await loginWith({ kind: 'signed-out', reason: 'removed', team: 'Acme', ownerRecoveryUrl: RECOVER })
   try {
