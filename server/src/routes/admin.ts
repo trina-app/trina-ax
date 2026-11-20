@@ -3,6 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
+import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import { linkPeopleIn } from '../files/shares'
 import { editableRow as editableRowOf, onlyGrants as onlyGrantsOf, saveFolderAccess } from '../admin/folder-save'
 import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
@@ -368,6 +369,12 @@ export const adminRoutes: RouteModule = {
       assertConcurrencyAllowed(body.concurrency, c.get('locale')) // plan (system/limits.ts)
       const cur = getTeamSettings(ctx.db)
       if (body.teamName !== undefined && body.teamName !== cur.teamName && auth.user.role !== 'owner') fail('forbidden', msg('ownerTeamName', c.get('locale')))
+      // a hosted team's new name must be one the hosting service takes (system/cloud-team-name.ts): an error now, not a
+      // name that never reaches the console and mails
+      if (body.teamName !== undefined && body.teamName !== cur.teamName) {
+        const n = hostedTeamName(ctx, body.teamName)
+        body.teamName = 'name' in n ? n.name : fail('validation', msg('teamNameInvalid', c.get('locale')), { fields: { 'body.teamName': n.problem } })
+      }
       // how long the audit log, file history and both trashes keep things, and the update channel, are the owner's: an
       // admin who shortens them could have the nightly sweep erase the audit trail and old file versions
       // (docs/DECISIONS.md "Retention and the update channel are owner-only"). Saving the same value again is fine.
@@ -395,6 +402,8 @@ export const adminRoutes: RouteModule = {
       for (const id of turnedOff) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
+      // a hosted team: the hosting service's console, billing pages and mails show the new name (system/cloud-team-name.ts)
+      if ('teamName' in changed) void reportTeamName(ctx, next.teamName)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
       if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
       // ...and everyone's quiet hours are read in it: the web app's sound takes the zone from the rooms list again

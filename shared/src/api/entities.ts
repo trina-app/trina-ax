@@ -941,6 +941,9 @@ export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
+  /** 1-100 characters on a self-installed server. A hosted server takes only a name the hosting service takes
+   * (cloud-protocol/team-name.ts teamNameProblem: 1-60 characters, no hidden characters), checked by the server when
+   * the name changes (system/cloud-team-name.ts hostedTeamName); a name kept from before stays readable here. */
   teamName: z.string().min(1).max(100),
   defaultLocale: Locale,
   defaultEngine: EngineId,
