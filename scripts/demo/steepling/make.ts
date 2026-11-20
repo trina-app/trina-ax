@@ -37,6 +37,21 @@ const T = {
 
 export interface Steepling { company: DemoContentCompany; files: Record<string, string | { asset: string }>; gmail: FakeGmail; drive: FakeDrive; avatars: Record<string, string>; pictures: Record<string, string> }
 
+/**
+ * A team skill's SKILL.md with its title (`metadata.title`, what the Skills page, the skill menu and the AI show) set to
+ * `title`, the language's own words (strings/<locale>.ts skillTitles; QA TC-5553: the ko team skill showed its folder
+ * name "social-posts"). The frontmatter's other lines stay; a file without `metadata:` gets one.
+ */
+export function skillWithTitle(md: string, title: string): string {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(md)
+  if (!m || !title.trim() || /[\r\n]/.test(title)) throw new Error(`skill title: no frontmatter, or a bad title (${JSON.stringify(title)})`)
+  const lines = m[1]!.split(/\r?\n/).filter((l) => !/^\s+title:/.test(l))
+  const at = lines.findIndex((l) => /^metadata:\s*$/.test(l))
+  if (at < 0) lines.push('metadata:', `  title: ${title}`)
+  else lines.splice(at + 1, 0, `  title: ${title}`)
+  return `---\n${lines.join('\n')}\n---${md.slice(m[0].length)}`
+}
+
 /** The content of one language (what writeSteepling puts on disk). */
 export function steepling(locale: SteeplingLocale): Steepling {
   const { story: s, more: x } = WORDS[locale]
@@ -61,7 +76,7 @@ export function steepling(locale: SteeplingLocale): Steepling {
     [story]: { asset: `campaign-story.${locale}.jpg` },
     [captions]: `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`,
     [photo]: { asset: 'higgsfield-photo.jpg' },
-    ...Object.fromEntries(STEEPLING_SKILLS.map((k) => [`skills/${k}/SKILL.md`, { asset: `skill-${k}.${locale}.md` }])),
+    ...Object.fromEntries(STEEPLING_SKILLS.map((k) => [`skills/${k}/SKILL.md`, skillWithTitle(fs.readFileSync(path.join(ASSETS, `skill-${k}.${locale}.md`), 'utf8'), x.skillTitles[k])])),
     ...Object.fromEntries(x.files.map((f) => [f.path, f.text])),
     ...Object.fromEntries(x.leadership.files.map((f) => [`${x.leadership.folder}/${f.name}`, f.text])),
   }

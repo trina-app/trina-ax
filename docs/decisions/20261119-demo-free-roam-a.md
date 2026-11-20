@@ -92,6 +92,8 @@
     - **background:** scheduled tasks (create, change, run now, review), web push and phone devices, connect-info (the
       server's addresses), the desktop app's computer report, the in-app browser and local apps;
     - **heavy:** the dev environment, voice (transcribe), the MP4 render of a promo video, plugins.
+    - **usage:** the person's own usage (`GET /api/me/usage`: engine, model, cost in US dollars) and the engine and
+      model list (`GET /api/engines`). They name the real AI account's engine, model and spending (QA TC-5578).
 
     The test lists each endpoint and checks the answer.
   - **Off-contract routes** answer 404 in freeRoam: every route but the web app's, its WebSocket and the app links

@@ -143,6 +143,17 @@ export const en = {
     { id: 'photo-ideas', name: 'Launch photo ideas', mimeType: 'application/vnd.google-apps.document', folder: '', minutesAgo: 4 * 1440, text: 'Launch photo ideas\n\n- Frosted window, morning light\n- The green pouch next to an iced glass\n- No text inside the photo\n' },
   ],
 
+  /** the team skills' titles (make.ts writes them into each SKILL.md's metadata), as the Skills page, the chat's skill
+   * menu and the AI name them: never the folder name (QA TC-5553: the ko team skill showed "social-posts"). The bar's
+   * suggestions below call the skills by these words */
+  skillTitles: {
+    'brand-guide': 'Brand guide',
+    'social-posts': 'Social posts',
+    'press-release': 'Press release draft',
+    'competitor-roundup': 'Competitor roundup',
+    handover: 'Handover helper',
+  },
+
   /** the free-roam bar: what a tap asks */
   suggestions: [
     { label: 'Make next week\'s social posts', prompt: 'Use our social posts skill to write next week\'s Instagram posts for Yuzu Ginger' },
