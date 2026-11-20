@@ -3,7 +3,7 @@
 // under, reading older pages to find it (lib/linkedAnswer.ts). A thread opened by a click in the room or the chat leaves
 // the middle as it was. A phone notification's path names the message as /m/<id> (no query): the same place as ?m=.
 import { describe, expect, test } from 'bun:test'
-import { pushedMessagePath, timelineTarget } from '../../src/lib/rooms'
+import { highlightNow, pushedMessagePath, timelineTarget } from '../../src/lib/rooms'
 import { LINKED_PAGES, linkedAnswer, linkedStep } from '../../src/lib/linkedAnswer'
 import { roomNoticeLink } from '../../src/components/settings/RoomNoticeRow'
 
@@ -62,5 +62,21 @@ describe("a chat's linked answer", () => {
     expect(linkedStep({ id: ROOT, ids: ['a', 'b'], hasOlder: true, tries: LINKED_PAGES })).toBe('none')
     // the start of the chat reached (or another version of it: the thread panel says which)
     expect(linkedStep({ id: ROOT, ids: ['a', 'b'], hasOlder: false, tries: 0 })).toBe('none')
+  })
+})
+
+describe('a linked message is picked out once for each place in the history', () => {
+  test('back at the place that pointed at it (a thread opened there by a click, then closed): the room stays put', () => {
+    const seen = new Set<string>()
+    expect(highlightNow(seen, REPLY, 'k1')).toBe(true)
+    // a thread opened by a click in the room: nothing to pick out
+    expect(highlightNow(seen, null, 'k2')).toBe(false)
+    // closed: one step back, to the same place (the same key), ?m= still in it
+    expect(highlightNow(seen, REPLY, 'k1')).toBe(false)
+  })
+  test('the same notice clicked again (a new place): picked out again', () => {
+    const seen = new Set<string>()
+    expect(highlightNow(seen, REPLY, 'k1')).toBe(true)
+    expect(highlightNow(seen, REPLY, 'k3')).toBe(true)
   })
 })

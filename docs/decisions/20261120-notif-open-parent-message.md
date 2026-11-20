@@ -14,8 +14,10 @@
   lights it (as before). With a thread open from a link, an Activity row or a push tap, the timeline goes to the
   thread's first message and lights it, and the thread lights `?m=` (the reply). A message that is not among the loaded
   ones is loaded around (`store/rooms.ts` loadAround, as for a search hit). A thread opened by a click in the room
-  (history state `here`) leaves the room where it was. `RoomMessages` lights a message again the next time a link points
-  at it.
+  (history state `here`) leaves the room where it was. `RoomMessages` lights a message once for each place in the
+  history that points at it (`lib/rooms.ts` highlightNow, the router's location key): a notice clicked again lights it
+  again, but closing a thread opened from a `?m=` room (one step back to that place) leaves the room where the reader
+  scrolled (review finding 1 on #155).
 - **Rule (chats, `pages/Chat.tsx`, `lib/linkedAnswer.ts`):** a thread at `/c/<chat>/t/<answer>` opened from outside the
   chat goes to that answer and lights it (`data-focused`, as `?answer=`), reading up to 10 older pages (500 messages)
   to find it. On another version of the chat the chat stays where it is (the thread panel says which version). This is
@@ -29,4 +31,9 @@
   newest replies, as before. A chat answer on another version is not switched to.
 - **Tests:** `web/test/unit/linked-answer.test.ts`, `web/test/unit/push-worker.test.ts`, `tests/unit/b-rooms.test.ts`,
   `tests/unit/b-rooms-threads.test.ts`, `web/test/e2e/inbox-rooms.spec.ts`, `web/test/e2e/chat-threads.spec.ts`.
-- **Version impact:** none (no API change; a phone app opens any id path in the page).
+- **Version impact:** none (no API change; a phone app opens any id path in the page). One short gap, accepted (review
+  finding 2 on #155): a phone app's page left open from before the server update still runs the old web app, which has
+  no `/m/` route, so the first room push tap after the update shows Not Found until the page reloads for the update
+  (`Layout.tsx`, within a minute, at the same address, which the new web app then opens at the message). A browser's
+  Web Push is not affected (its service worker builds the address from the notice's ids), nor a page opened after the
+  update. Splitting the routes and the push path over two releases was not worth the wait.

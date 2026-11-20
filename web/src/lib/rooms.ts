@@ -329,6 +329,17 @@ export function pushedMessagePath(roomId: string, rootId: string | null, message
   const room = `/rooms/${encodeURIComponent(roomId)}${rootId ? `/t/${encodeURIComponent(rootId)}` : ''}`
   return isUuid7(messageId) && messageId !== rootId ? `${room}?m=${encodeURIComponent(messageId)}` : room
 }
+/** Whether a list picks out (scrolls to and lights) `highlight` now: once for each place in the history that points at
+ * it (`navKey`: the router's location key), so coming back to that place (closing a thread opened from it, Back) leaves
+ * the reader where they scrolled, and a link or a notice clicked again (a new place) picks it out again. `seen` holds
+ * what was picked out already, for the life of the list. */
+export function highlightNow(seen: Set<string>, highlight: string | null, navKey: string | null): boolean {
+  if (!highlight) return false
+  const k = `${navKey ?? ''} ${highlight}`
+  if (seen.has(k)) return false
+  seen.add(k)
+  return true
+}
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })
 
