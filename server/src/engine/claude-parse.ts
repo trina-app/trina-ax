@@ -22,6 +22,9 @@ export function classifyError(msg: string): EngineErrorCode {
   // error that named a context ("execution context destroyed", a tool's "context" field) and ended the answer as full.
   // Before the limit check: a token count such as "214290 tokens" holds "429"
   if (contextFull(m)) return 'context'
+  // the account has no credit left (Claude Code's "Credit balance is too low", Anthropic's billing_error): a retry fails
+  // the same way until an admin adds credit or switches the account, so not "the answer stopped partway, try again"
+  if (/credit balance is too low|billing_error/.test(m)) return 'no_credit'
   // the provider itself is overloaded (Anthropic 529 overloaded_error, after Claude Code's own retries): busy, not a
   // usage limit ("The AI usage limit was reached for now" read as the team's limit; QA AP-071, as TC-4832 for the API
   // engine). Its code stays rate_limited, so the turn's limit fallback still applies
