@@ -803,7 +803,8 @@ export const SPECS: Record<string, Spec> = {
   startExport: { build: (c) => c.post('/api/admin/export', { what: ['memories'], password: '' }), scope: 'byLevel' },
   // Settings › Export (QA AP-038): every member exports only their own chats; the ZIP of a job only for its maker (a job
   // with no ZIP, or anyone else's: the same 404)
-  startMyExport: { build: (c) => c.post('/api/me/export'), scope: 'self' },
+  // (skipPositive: phase 2 runs it after deleteUser removed erin (other); the deny side is still judged)
+  startMyExport: { skipPositive: true, build: (c) => c.post('/api/me/export'), scope: 'self' },
   myExportDownload: { build: (c, w) => c.get(`/api/me/export/${w.ids.jobAlice}/download`), scope: 'own-alice', allowNotFound: true },
   connection: { build: (c) => c.get('/api/admin/connection'), scope: 'byLevel' },
   // connected folders (owner only; adding one asks for the password again)
