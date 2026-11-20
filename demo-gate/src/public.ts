@@ -106,6 +106,16 @@ export function secureCookie(c: string): string {
   return parts.join('; ')
 }
 
+/** Cache-Control with `no-transform` added (kept as it was when it is already there). demo.trina.app sits behind
+ * Cloudflare, which injects its Web Analytics beacon into HTML; the strict CSP blocks it and the console shows an
+ * error. Cloudflare leaves a response with no-transform as it is. */
+export function withNoTransform(v: string | string[] | undefined): string {
+  const parts = (Array.isArray(v) ? v.join(',') : v ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (!parts.some((s) => s.toLowerCase() === 'no-transform')) parts.push('no-transform')
+  return parts.join(', ')
+}
+const isHtml = (ct: string | string[] | undefined) => /^\s*text\/html\b/i.test(Array.isArray(ct) ? ct[0] ?? '' : ct ?? '')
+
 const HOP = new Set(['connection', 'keep-alive', 'proxy-connection', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host'])
 /** request headers that say who the visitor is to the tunnel, never to the instance */
 const EDGE = (k: string) => k.startsWith('cf-') || k.startsWith('x-forwarded-') || k === 'x-real-ip' || k === 'true-client-ip' || k === 'cdn-loop' || k === 'forwarded'
@@ -157,7 +167,7 @@ export function createPublic(d: PublicDeps) {
 
   const page = (res: http.ServerResponse, status: number, kind: PageKind, locale: Locale, extra: Record<string, string | string[]> = {}) => {
     res.writeHead(status, {
-      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': PAGE_CSP,
+      'content-type': 'text/html; charset=utf-8', 'cache-control': withNoTransform('no-store'), 'content-security-policy': PAGE_CSP,
       'x-content-type-options': 'nosniff',
       // same-origin, never no-referrer: with no-referrer browsers send `Origin: null` on the Start and Continue forms,
       // and start()/resume() refuse that (403). Other sites still get no referrer.
@@ -279,6 +289,7 @@ export function createPublic(d: PublicDeps) {
         headers[k] = k === 'set-cookie' ? (v as string[]).map(secureCookie) : v
       }
       headers['x-robots-tag'] = 'noindex'
+      if (isHtml(headers['content-type'])) headers['cache-control'] = withNoTransform(headers['cache-control'])
       res.writeHead(r.statusCode ?? 502, headers)
       r.pipe(res)
     })

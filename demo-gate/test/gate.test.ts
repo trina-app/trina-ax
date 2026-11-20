@@ -181,6 +181,28 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect((await wsEcho(port, '/ws/events', '', payload)).head).toStartWith('HTTP/1.1 401')
   })
 
+  test('HTML carries Cache-Control no-transform (Cloudflare injects no beacon): gate pages and proxied instance pages', async () => {
+    // the gate's own page: no-store kept, no-transform added
+    const landing = await get(g, visitor(), '/')
+    expect(landing.headers.get('cache-control')).toBe('no-store, no-transform')
+    const v = visitor()
+    await warm(g)
+    expect((await startVisit(g, v)).status).toBe(303)
+    // the instance's HTML without a Cache-Control of its own
+    const plain = await get(g, v, '/chats/1')
+    expect(plain.status).toBe(200)
+    expect(plain.headers.get('content-type')).toStartWith('text/html')
+    expect(plain.headers.get('cache-control')).toBe('no-transform')
+    // the instance's own Cache-Control is merged, not replaced
+    const cached = await get(g, v, '/cached')
+    expect(await cached.text()).toBe('<p>cached</p>')
+    expect(cached.headers.get('cache-control')).toBe('private, max-age=60, no-transform')
+    // not HTML: left as the instance sent it
+    const api = await get(g, v, '/api/chats')
+    expect(api.headers.get('content-type')).toStartWith('application/json')
+    expect(api.headers.get('cache-control')).toBeNull()
+  })
+
   test('without a session: other paths go to the landing page, the API says unauthorized', async () => {
     const v = visitor()
     const r = await get(g, v, '/chats/1')
