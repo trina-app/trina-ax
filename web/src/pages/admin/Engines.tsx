@@ -24,6 +24,7 @@ import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
 import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { API_PRESETS, apiSaveKey, ownerOnlyAddress } from './apiEngineRules'
+export { API_PRESETS }
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
 import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
