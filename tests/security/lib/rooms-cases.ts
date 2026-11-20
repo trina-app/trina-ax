@@ -2,6 +2,8 @@ import { CSRF_HEADER } from '@mycel/shared/api'
 import type { Spec } from './cases'
 import { leaks } from './matrix'
 import { C, PNG, type World } from './world'
+import { atLeast } from '../../../server/src/policy/access'
+import { findRoomFile, readRoom } from '../../../server/src/rooms/reader'
 
 // Team chat rooms (docs/DECISIONS.md "대화방 v1"). The world has a DM of alice (memberIn) and erin (other) with a
 // message and an image only they may see (C.dmMsg, C.dmFileName): every room route aimed at it is 'room-dm', so the
@@ -14,6 +16,45 @@ const goneCheck = (r: { status: number; text: string; json: any }, w: World, who
   if (who === 'anon' || who === 'pwchange') return
   if (r.status !== 410 || r.json?.error?.code !== 'gone') throw new Error(`${who}: a retired endpoint answered ${r.status} ${r.text.slice(0, 200)}`)
   for (const x of ['Team plan', C.groupName, w.ids.projTeam, w.ids.groupRoom, w.ids.dmRoom]) if (x && r.text.includes(x)) throw new Error(`${who}: a retired endpoint names something: ${r.text.slice(0, 200)}`)
+}
+/**
+ * Once, with the project room alice opened (docs/decisions/20261120-project-is-room.md D3, D4):
+ *   - the project's shared AI chat's room tools are scoped to its room: alice's DM with erin, by id, is a room that is
+ *     not there for them (rooms/reader.ts `only`), its message and file never given;
+ *   - a file alice sent there lands in the project folder; after she deletes the message, the room file endpoint answers
+ *     404 for that file to everyone, and the team file is governed by its folder rules only (each caller's read access
+ *     on its path decides whether they can open it in Files).
+ */
+let projectRoomChecked = false
+async function projectRoomCases(w: World, roomId: string) {
+  if (projectRoomChecked) return
+  projectRoomChecked = true
+  const db = w.inst.ctx.db
+  const read = readRoom(db, 'alice', 'UTC', { room: w.ids.dmRoom, only: roomId })
+  if (!read.text.includes('No room matching') || read.text.includes(C.dmMsg)) throw new Error(`the project room's read reached another room: ${read.text.slice(0, 200)}`)
+  const file = findRoomFile(db, 'alice', w.ids.dmRoom, w.ids.dmFile, 'UTC', { only: roomId })
+  if (!('text' in file) || file.text.includes(C.dmFileName)) throw new Error('the project room\'s file read reached another room')
+  const f = new FormData()
+  f.set('file', new File([new TextEncoder().encode('project room security file')], 'sec-plan.txt', { type: 'text/plain' }))
+  const up = await w.as.memberIn.ok('POST', `/api/rooms/${roomId}/files`, undefined, { form: f })
+  const teamPath = up?.teamPath as string | undefined
+  if (!up?.teamFile || !teamPath) throw new Error(`a project room upload is not a project file: ${JSON.stringify(up).slice(0, 200)}`)
+  const m = await w.as.memberIn.ok('POST', `/api/rooms/${roomId}/messages`, { body: 'with a file', clientMessageId: cm(), fileIds: [up.id] })
+  await w.as.memberIn.ok('DELETE', `/api/rooms/${roomId}/messages/${m.id}`)
+  const rules = w.inst.ctx.files.rules()
+  for (const who of ['memberIn', 'other', 'owner', 'admin', 'memberOut'] as const) {
+    const c = w.as[who]
+    const rf = await c.get(`/api/rooms/${roomId}/files/${up.id}?download=1`)
+    if (rf.status !== 404 || rf.text.includes('project room security file')) throw new Error(`${who}: a deleted message's room file answered ${rf.status}`)
+    const me = await c.get('/api/me')
+    const id = me.json?.user?.id as string | undefined
+    if (!id) continue
+    const p = w.inst.ctx.files.principal(id)
+    const may = atLeast(rules.access(p, teamPath.split('/')), 'read')
+    const tf = await c.get(`/api/files/content?path=${encodeURIComponent(teamPath)}`)
+    if (may !== (tf.status === 200)) throw new Error(`${who}: the team file after the message delete answered ${tf.status}, folder rules say ${may ? 'read' : 'none'}`)
+    if (!may && tf.text.includes('project room security file')) throw new Error(`${who}: the team file leaked`)
+  }
 }
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
@@ -275,9 +316,10 @@ export const ROOM_SPECS: Record<string, Spec> = {
   // missing project's 404, which never names it
   openProjectRoom: {
     build: (c, w) => c.post(`/api/projects/${w.ids.projTeam}/room`), scope: 'team-chat',
-    check: (r, _w, who) => {
+    check: async (r, w, who) => {
       if (r.status === 200) {
         if (r.json?.project?.room !== true || r.json?.project?.id === undefined) throw new Error(`${who}: not the project's room: ${r.text.slice(0, 200)}`)
+        if (who === 'memberIn') return projectRoomCases(w, r.json.id)
         return
       }
       if (who === 'memberIn' || who === 'other') throw new Error(`${who}: openProjectRoom answered ${r.status} ${r.text.slice(0, 200)}`)

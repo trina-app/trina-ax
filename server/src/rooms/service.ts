@@ -52,6 +52,7 @@ import {
   type EventData, type MemberRow, type MessageRow, type RoomRow,
 } from './store'
 import { roomFilesOf } from './files'
+import { roomFileRefsOf } from './file-refs'
 import { historyRoom, openHistories } from './history'
 import { countedUnreadIn } from './inbox'
 import { searchRoomFiles, searchRoomMessages, type SearchInput, listMyRoomFiles } from './search'
@@ -1423,6 +1424,8 @@ export function roomsOf(ctx: AppContext): Rooms {
     services.set(ctx, s)
     // an AI answer's file links: shown as links only to people who may open the file now (store.ts openableFor)
     setRoomPathCheck(ctx.db, (userId) => fileOpener(ctx, userId))
+    // a project room's files kept in the team folder, as each viewer may see them now (rooms/file-refs.ts)
+    roomFileRefsOf(ctx)
   }
   return s
 }

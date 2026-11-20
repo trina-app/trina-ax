@@ -10,10 +10,10 @@
 //     access taken away, a server folder, someone else's users/<id>/, an odd path — looks the same: "unavailable",
 //     with the name, path and size blanked, and the create endpoint answers the same 404 as for a missing file.
 // Reads (message history, realtime copies) keep what they learn about a reference's place in memory only; the
-// database row is moved forward by sends and turns (POST paths) and when a content hash is computed.
+// database row is moved forward by sends and turns (POST paths) and when a content hash is computed. The following
+// itself is uploads/ref-follow.ts, which a project room's files use too (rooms/file-refs.ts).
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import path from 'node:path'
 import type { Attachment } from '@mycel/shared/api'
 import { audit } from '../admin/audit'
 import type { AppContext } from '../context'
@@ -27,6 +27,7 @@ import { openChecked } from '../team-files/place'
 import { mimeOf, type TeamFiles } from '../team-files/service'
 import { attachmentKind } from './attachments'
 import { visibleSharedChat } from '../chat/shared'
+import { otherRefTo, RefFollower } from './ref-follow'
 
 interface RefRow {
   id: string; user_id: string; chat_id: string; path: string; path_at_attach: string; name: string; size: number; mime: string
@@ -36,13 +37,6 @@ interface RefRow {
 }
 const COLS = 'id, user_id, chat_id, path, path_at_attach, name, size, mime, kind, sha256, mtime_ms, ino, dev, event_id, trash_id, trash_suffix, lost, cur_sha256, cur_size, cur_mtime_ms, cur_ino'
 
-/** How far a reference was followed: its place after file event `eventId`. */
-interface Follow { path: string; eventId: number; trash: { id: string; suffix: string } | null; lost: boolean }
-
-/** file_events read per query while following a reference (all of them are read, batch after batch) */
-const EVENT_BATCH = 2000
-/** follow states kept in memory (reads); the oldest are dropped first */
-const CACHE_MAX = 20_000
 /** new references one person may make in RATE_WINDOW_MS (attaching re-reads and hashes the file) */
 export const ATTACH_RATE_MAX = 120
 const RATE_WINDOW_MS = 10 * 60_000
@@ -81,11 +75,13 @@ export async function hashChecked(abs: string, expect: fs.Stats): Promise<string
 }
 
 export class TeamFileRefs {
-  private cache = new Map<string, Follow>()
-  constructor(private ctx: AppContext, private files: TeamFiles) {}
+  private follower: RefFollower
+  constructor(private ctx: AppContext, private files: TeamFiles) {
+    this.follower = new RefFollower(ctx.db, () => files.root, 'team_file_refs', 'id')
+  }
 
   private row(id: string): RefRow | null { return this.ctx.db.query(`SELECT ${COLS} FROM team_file_refs WHERE id = ?`).get(id) as RefRow | null }
-  private lastEvent(): number { return (this.ctx.db.query('SELECT COALESCE(MAX(id), 0) AS n FROM file_events').get() as { n: number }).n }
+  private lastEvent(): number { return this.follower.lastEvent() }
   isRef(id: string): boolean { return !!this.ctx.db.query('SELECT 1 FROM team_file_refs WHERE id = ?').get(id) }
 
   /** The limits on new references (attaching re-reads and hashes the file, so a script must not be able to make the
@@ -185,78 +181,7 @@ export class TeamFileRefs {
   }
 
   /** The current path of the referenced file, or null when it is gone (trashed, deleted, moved without a trace). */
-  private follow(row: RefRow, persist: boolean): string | null {
-    const saved: Follow = { path: row.path, eventId: row.event_id, trash: row.trash_id ? { id: row.trash_id, suffix: row.trash_suffix ?? '' } : null, lost: row.lost === 1 }
-    const mem = this.cache.get(row.id)
-    const start = mem && mem.eventId >= saved.eventId ? mem : saved
-    let p = start.path
-    let trash = start.trash
-    let last = start.eventId
-    const q = this.ctx.db.query("SELECT id, path, action, detail FROM file_events WHERE id > ? AND action IN ('delete', 'restore') ORDER BY id LIMIT ?")
-    for (;;) {
-      const evs = q.all(last, EVENT_BATCH) as { id: number; path: string; action: string; detail: string | null }[]
-      for (const e of evs) {
-        last = e.id
-        if (e.action === 'delete' && !trash) {
-          const suffix = p === e.path ? '' : p.startsWith(e.path + '/') ? p.slice(e.path.length) : null
-          if (suffix === null) continue
-          const d = parse(e.detail)
-          if (typeof d.movedTo === 'string') p = d.movedTo + suffix
-          else if (typeof d.trashId === 'string') trash = { id: d.trashId, suffix }
-        } else if (e.action === 'restore' && trash) {
-          const d = parse(e.detail)
-          if (d.trashId !== trash.id) continue
-          p = e.path + trash.suffix
-          trash = null
-        }
-      }
-      if (evs.length < EVENT_BATCH) break
-    }
-    // a file that is gone is looked for again only at its place (an inode search of the folder ran once already)
-    let lost = false
-    let found: string | null = null
-    if (!trash) {
-      if (this.sameFile(p)) found = p
-      else if (start.lost && start.path === p) lost = true
-      else {
-        found = this.byInode(p, row)
-        if (found === null) lost = true
-        else p = found
-      }
-    }
-    const next: Follow = { path: p, eventId: last, trash, lost }
-    if (next.path !== start.path || next.eventId !== start.eventId || next.lost !== start.lost || next.trash?.id !== start.trash?.id) {
-      this.cache.delete(row.id)
-      this.cache.set(row.id, next)
-      if (this.cache.size > CACHE_MAX) this.cache.delete(this.cache.keys().next().value!)
-    }
-    if (persist && (next.path !== saved.path || next.eventId !== saved.eventId || next.lost !== saved.lost || next.trash?.id !== saved.trash?.id)) {
-      this.ctx.db.query('UPDATE team_file_refs SET path = ?, event_id = ?, trash_id = ?, trash_suffix = ?, lost = ? WHERE id = ?')
-        .run(next.path, next.eventId, next.trash?.id ?? null, next.trash?.suffix ?? null, next.lost ? 1 : 0, row.id)
-      Object.assign(row, { path: next.path, event_id: next.eventId, trash_id: next.trash?.id ?? null, trash_suffix: next.trash?.suffix ?? null, lost: next.lost ? 1 : 0 })
-    }
-    return found
-  }
-
-  /** a regular file at p (a file saved in place keeps its path even when the save made a new inode) */
-  private sameFile(p: string): boolean {
-    try { return fs.lstatSync(path.join(this.files.root, ...p.split('/'))).isFile() } catch { return false }
-  }
-
-  /** a rename without an event (Finder): the same inode in the same folder */
-  private byInode(p: string, row: RefRow): string | null {
-    if (row.ino === null) return null
-    const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
-    const abs = path.join(this.files.root, ...(dir ? dir.split('/') : []))
-    try {
-      for (const n of fs.readdirSync(abs)) {
-        let st: fs.Stats
-        try { st = fs.lstatSync(path.join(abs, n)) } catch { continue }
-        if (st.isFile() && st.ino === row.ino && st.dev === row.dev) return dir ? `${dir}/${n}` : n
-      }
-    } catch {}
-    return null
-  }
+  private follow(row: RefRow, persist: boolean): string | null { return this.follower.follow(row.id, row, persist).found }
 
   private toAttachment(row: RefRow, rel: string, st: fs.Stats, moved: boolean, changed: boolean): Attachment {
     const name = rel.slice(rel.lastIndexOf('/') + 1)
@@ -342,10 +267,9 @@ export class TeamFileRefs {
     if (this.ctx.db.query('SELECT 1 FROM messages WHERE chat_id = ? AND instr(attachments, ?) > 0 LIMIT 1').get(row.chat_id, id)) return { trashed: false }
     const uploaded = this.ctx.db.query("SELECT 1 FROM file_events WHERE path = ? AND user_id = ? AND action = 'upload' AND json_extract(detail, '$.attachment') = ? AND json_extract(detail, '$.chatId') = ? LIMIT 1")
       .get(row.path_at_attach, userId, id, row.chat_id)
-    // another reference to the very file (someone attached it from the folder meanwhile, or this person in another chat)
-    // keeps it where it is
-    const shared = this.ctx.db.query('SELECT 1 FROM team_file_refs WHERE id <> ? AND ino = ? AND dev = ? AND (path = ? OR path_at_attach = ?) LIMIT 1')
-      .get(id, row.ino, row.dev, row.path, row.path_at_attach)
+    // another reference to the very file (someone attached it from the folder meanwhile, this person in another chat,
+    // or a project room shows it: room_file_refs) keeps it where it is
+    const shared = otherRefTo(this.ctx.db, { table: 'team_file_refs', id }, row)
     let trashed = false
     if (uploaded && !shared) {
       const s = this.locateSync(userId, id, true)
@@ -354,7 +278,7 @@ export class TeamFileRefs {
       }
     }
     this.ctx.db.query('DELETE FROM team_file_refs WHERE id = ?').run(id)
-    this.cache.delete(id)
+    this.follower.forget(id)
     return { trashed }
   }
 
@@ -364,11 +288,7 @@ export class TeamFileRefs {
     const gone = this.ctx.db.query(`SELECT r.id FROM team_file_refs r WHERE r.created_at < ?
       AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.chat_id = r.chat_id AND instr(m.attachments, r.id) > 0)`).all(before) as { id: string }[]
     const del = this.ctx.db.query('DELETE FROM team_file_refs WHERE id = ?')
-    for (const g of gone) { del.run(g.id); this.cache.delete(g.id) }
+    for (const g of gone) { del.run(g.id); this.follower.forget(g.id) }
     return gone.length
   }
-}
-
-function parse(s: string | null): Record<string, unknown> {
-  try { const v = s ? JSON.parse(s) : {}; return v && typeof v === 'object' ? v : {} } catch { return {} }
 }

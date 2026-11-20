@@ -82,6 +82,7 @@ import type { ChatRuntime } from './runtime'
 import { blankTeamAttachment, stopReasonOf, type MessageRow } from './store'
 import { BROWSER_TOOL_NAMES } from '../realtime/browser-tools'
 import { buildToolSet, widenOf, type ChatToolSet } from './tools'
+import { projectRoomOfChat } from './room-tools'
 import { noSearchPath, PROJECT_SEARCH_NOTE, SKIP_OWN, wholeTeamPath } from './search-path'
 import type { SharedConnections, ToolCard } from '../services'
 import { ConnectOutcome, type ConnectCard } from './connect-service'
@@ -963,6 +964,8 @@ export class TurnExec {
     const sharedProject = this.shared?.kind === 'project' ? this.shared.project : null
     const shared = this.shared ? {
       project: sharedProject ? sharedProject.name : null, audience: this.sharedAudience().length, asker: this.principal.name,
+      // the project's own chat room, which this chat reads (chat/room-tools.ts projectRoomTools)
+      projectRoom: sharedProject && !this.templateScope ? projectRoomOfChat(this) : null,
       members: sharedProject ? projectMembersBy(rt.db, sharedProject, membersView(rt.ctx, sharedProject, this.principal, mayManageProject(rt.files, this.principal, sharedProject))) : null,
     } : null
     // a chat opened from a room's side panel (✦ Trina): the room, while the person is still in it and it is not archived
@@ -3437,7 +3440,8 @@ export class TurnExec {
   // ---------------- shared project chats (chat/shared.ts) ----------------
   /** The people who see this shared chat now: its project's audience (who can read the project folder), or for a chat
    * shared with people and groups its creator and the active people in it (chat/chat-audience.ts). */
-  private sharedAudience(): string[] {
+  /** Who sees this shared chat now (its project's audience, or the people it is shared with); [] for a chat of one person */
+  sharedAudience(): string[] {
     if (!this.shared) return []
     if (this.shared.kind === 'people') return peopleAudience(this.rt.db, this.shared.chat)
     const p = this.rt.store.projectRow(this.shared.project.id)

@@ -212,6 +212,25 @@ export const fileOut = (f: FileRow): RoomFile => ({
   ...(f.width ? { width: f.width } : {}), ...(f.height ? { height: f.height } : {}), thumb: !!f.thumb,
 })
 
+/** How a room file kept in the team folder (room_file_refs: a project room's file) is shown to one viewer (rooms/
+ * file-refs.ts RoomFileRefs.view: checked now, as a member who reads its path; rooms/service.ts sets it for the server's
+ * database). Without one, such a file is "unavailable" to everyone (fails closed). */
+const refViews = new WeakMap<Database, (viewerId: string) => (f: FileRow) => RoomFile>()
+export function setRoomRefView(db: Database, view: (viewerId: string) => (f: FileRow) => RoomFile) { refViews.set(db, view) }
+/** The room files as `viewerId` sees them, in order: a room-stored file as it was sent (fileOut), one kept in the team
+ * folder as it is now for them (a member of its room the caller checked). */
+export function filesOutFor(db: Database, rows: readonly FileRow[], viewerId: string): RoomFile[] {
+  if (!rows.length) return []
+  const refs = new Set<string>()
+  for (let i = 0; i < rows.length; i += 500) {
+    const part = rows.slice(i, i + 500)
+    for (const r of db.query(`SELECT room_file_id FROM room_file_refs WHERE room_file_id IN (${part.map(() => '?').join(',')})`).all(...part.map((f) => f.id)) as { room_file_id: string }[]) refs.add(r.room_file_id)
+  }
+  if (!refs.size) return rows.map(fileOut)
+  const view = refViews.get(db)?.(viewerId)
+  return rows.map((f) => (!refs.has(f.id) ? fileOut(f) : view ? view(f) : { id: f.id, name: '', size: 0, mime: 'application/octet-stream', kind: 'other', thumb: false, teamFile: true, state: 'unavailable' }))
+}
+
 /** The rows of a list that are hidden from `viewer` (one of their hidden old answers, or in its thread). */
 export function hiddenAmong(db: Database, rows: readonly MessageRow[], viewer: Pick<MemberRow, 'user_id'>): Set<string> {
   const keys = [...new Set(rows.flatMap((r) => (r.thread_root_id ? [r.id, r.thread_root_id] : [r.id])))]
@@ -261,11 +280,14 @@ function withheldOut(db: Database, r: MessageRow, viewer: MemberRow, people: Map
 function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, links: LinkPrep | null): RoomMessage[] {
   const ids = rows.map((r) => r.id)
   const files = new Map<string, RoomFile[]>()
-  for (const f of db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]) {
+  const fileRows = db.query(`SELECT * FROM room_files WHERE message_id IN (${ids.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...ids) as FileRow[]
+  // a project room's file (kept in the team folder) as this viewer may see it now
+  const shown = filesOutFor(db, fileRows, viewer.user_id)
+  fileRows.forEach((f, i) => {
     const l = files.get(f.message_id!) ?? []
-    l.push(fileOut(f))
+    l.push(shown[i]!)
     files.set(f.message_id!, l)
-  }
+  })
   const replyIds = [...new Set(rows.map((r) => r.reply_to_id).filter((x): x is string => !!x))]
   const quotes = new Map<string, MessageRow>()
   if (replyIds.length) for (const q of db.query(`SELECT ${MSG_COLS} FROM room_messages WHERE room_id = ? AND id IN (${replyIds.map(() => '?').join(',')})`).all(rows[0]!.room_id, ...replyIds) as MessageRow[]) quotes.set(q.id, q)
