@@ -1,0 +1,2 @@
+- **Hosted team name.** The team name box in **Admin › Team settings** now stops at 60 characters on a hosted server, so you do not find the limit only after Save. The error also says what is refused: a space at the start or end, and invisible or control characters.
+- **Google Drive sign-in link.** An expired or already used sign-in link now says so in plain words, and tells you to start the Drive connection again from the app. A connection you cancelled says "cancelled" instead of "expired".
