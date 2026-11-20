@@ -264,6 +264,21 @@ describe('where the steps go', () => {
     expect(prevStep('ai')).toBeNull()
   })
 
+  test('QA TC-202: 팀원 초대 is its own last step on the bar (n/n), never an extra screen after it; with or without the AI step, on a computer or a phone', () => {
+    const p = { ...fresh(), steps: { ...fresh().steps, profile: 'done', skills: 'done', files: 'done', tools: 'done' } } as WelcomeProgress
+    for (const [prog, ai, computer] of [[p, true, true], [{ ...p, steps: { ...p.steps, ai: 'done' } }, true, true], [p, true, false], [fresh(), false, true]] as const) {
+      const list = countedSteps(prog as WelcomeProgress, ai, computer)
+      expect(list.at(-1)).toBe('invite')
+      expect(stepPosition(prog as WelcomeProgress, 'invite', ai, computer)).toEqual({ n: list.length, total: list.length })
+      // the steps before it keep their own places, all under the same total
+      expect(list.map((s) => stepPosition(prog as WelcomeProgress, s, ai, computer)!.total)).toEqual(list.map(() => list.length))
+    }
+    expect(stepPosition(p, 'invite')).toEqual({ n: 5, total: 5 })
+    expect(stepPosition({ ...p, steps: { ...p.steps, ai: 'done' } }, 'invite')).toEqual({ n: 6, total: 6 })
+    expect(stepPosition(p, 'invite', true, false)).toEqual({ n: 4, total: 4 })
+    expect(nextStep(p, 'tools')).toBe('invite')
+  })
+
   test('a phone walks past 도구 연결 (docs/DECISIONS.md "W6"): never opened there, ← 이전 skips it, the walk records it as put off; a phone counts only its own steps (QA TC-271)', () => {
     const p = { ...fresh(), steps: { ...fresh().steps, profile: 'done', skills: 'done', files: 'done' } } as WelcomeProgress
     expect(openHere(p, 'tools', false)).toBe(false)
@@ -1784,13 +1799,47 @@ describe('the company profile step without AI (stream D, also in Admin › Team 
     try {
       await m.until(() => m.find('profile-step-no-ai'), 'the no-AI note')
       expect(m.get('ai-access-button').getAttribute('data-action')).toBe('connect_team')
-      expect(m.get('profile-step-no-ai').textContent).toContain(translate('ko', 'onboarding.profile.noAi'))
+      // QA TC-200: the no-AI notice is the one line with its button, no second note; the quiet choice beside the
+      // disabled Read is "Answer three questions" in place of "We have no website"
+      expect(m.get('profile-step-no-ai').textContent).toContain(translate('ko', 'aiAccess.banner.connectTeam'))
+      expect(m.get('profile-step-no-ai').textContent).not.toContain(translate('ko', 'onboarding.profile.noAi'))
+      expect(m.html()).not.toContain(`>${translate('ko', 'onboarding.profile.noSite')}<`)
       const read = (globalThis.document as any).body.querySelector('button[type="submit"]')
       expect(read.hasAttribute('disabled')).toBe(true)
+      expect(m.get('profile-step-no-ai-questions').textContent).toBe(translate('ko', 'onboarding.profile.answer'))
       await m.click('profile-step-no-ai-questions')
       await m.until(() => m.find('profile-step-questions'), 'the questions')
       expect(called('POST /api/onboarding/profile/draft')).toEqual([])
     } finally { await m.unmount() }
+  })
+
+  test('QA TC-201: "AI 연결하기" in the no-AI line opens the dialog on top of the step; the address and the typed website stay', async () => {
+    signIn('owner')
+    ai = { usable: false, action: 'connect_team', requested: false }
+    let at = ''
+    const Where = () => { at = useLocation().pathname; return null }
+    const m = await mount(<MemoryRouter initialEntries={['/welcome']}><Where /><ProfileStep onDone={() => {}} onSkip={() => {}} /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('profile-step-no-ai'), 'the no-AI line')
+      const site = (globalThis.document as any).body.querySelector('input[inputmode="url"]')
+      await m.type(site, 'acme.example')
+      await m.click('ai-access-button')
+      await m.until(() => (globalThis.document as any).body.querySelector('[data-testid="claude-login-how"]'), 'the Claude dialog')
+      expect(at).toBe('/welcome')
+      expect(m.html()).not.toContain('/admin/providers')
+      // closed: still the same step, with what was typed
+      await m.click((globalThis.document as any).body.querySelectorAll('button').find((b: any) => b.textContent === translate('ko', 'common.cancel')))
+      await m.until(() => !(globalThis.document as any).body.querySelector('[data-testid="claude-login-how"]'), 'the dialog closed')
+      expect(at).toBe('/welcome')
+      expect(m.find('profile-step-site')).not.toBeNull()
+      expect((globalThis.document as any).body.querySelector('input[inputmode="url"]').value).toBe('acme.example')
+      // connected (in that dialog or anywhere): the line goes, Read works with the same website
+      ai = { usable: true, action: 'connect_team', requested: false }
+      await act(async () => { await useAiAccess.getState().load(true) })
+      await m.until(() => !m.find('profile-step-no-ai'), 'the no-AI line gone')
+      expect((globalThis.document as any).body.querySelector('button[type="submit"]').hasAttribute('disabled')).toBe(false)
+      expect((globalThis.document as any).body.querySelector('input[inputmode="url"]').value).toBe('acme.example')
+    } finally { await m.unmount(); ai = { usable: true, action: 'connect_team', requested: false }; useAiAccess.getState().reset() }
   })
 
   test('AI gone by the time the person presses Read (a connection removed): no draft, the button instead', async () => {
