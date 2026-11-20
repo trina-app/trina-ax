@@ -196,7 +196,7 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     describe: (a) => `edit_pdf ${a.file_path} (${a.operations.map((o) => Object.keys(o)[0]).join(', ')})${a.replace ? ' replace' : a.output ? ` -> ${a.output}` : ''}`,
     async run(a, t) {
       const r = await editPdfFile(ctx, c.files, t, a)
-      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o || 'replace_text' in o)
+      const drew = a.operations.some((o) => 'stamp_image' in o || 'add_text' in o || 'watermark' in o || 'page_numbers' in o || 'replace_text' in o || 'fill_form' in o)
       return { text: pdfResultText('edit_pdf', r, pdfLink, drew), summary: pdfSummary('edit_pdf', r), structured: pdfStructured(r) }
     },
   })
