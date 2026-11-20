@@ -181,6 +181,7 @@ export const FEATURES: Feature[] = [
   { id: 'system.connection', name: 'Team address and office network', area: 'System', endpoints: ['connection', 'updateConnection', 'connectInfo', 'lanFailure'], screens: ['/admin/system/connection'] },
   { id: 'system.backups', name: 'Backups and restore', area: 'System', endpoints: ['listBackups', 'startBackup', 'startRestore'], screens: ['/admin/system/backups'] },
   { id: 'system.export', name: 'Export the team data', area: 'System', endpoints: ['startExport'], screens: ['/admin/system/export'] },
+  { id: 'settings.export', name: 'Export my own chats', area: 'Settings', endpoints: ['startMyExport', 'myExportDownload'], screens: ['/settings/export'] },
 
   // ---------------- Apps & hosting (no endpoint or screen of their own: QA rows only) ----------------
   { id: 'app.desktop-mac', name: 'Mac desktop app (window, menu bar, sign-in)', area: 'Apps & hosting', manual: true },

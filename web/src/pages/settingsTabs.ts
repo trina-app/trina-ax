@@ -1,6 +1,6 @@
 // The sections of the personal Settings dialog (components/settings/SettingsDialog.tsx, pages/Settings.tsx), in named
 // groups the dialog's list shows: Account (you and this device: profile, security, the in-app browser, your own usage,
-// what the AI remembers about you, what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
+// what the AI remembers about you, a ZIP of your own chats (export), what you allowed it in advance (트리나에게 허용한 것: room folders for new files,
 // components/settings/AiAllowances.tsx); the whole team's usage is Admin › Usage) · Connections (Connectors: the AI
 // using other services with your accounts, pages/Connectors.tsx, for everyone, its pages under it at
 // /settings/connectors/<id>; AI providers: your own AI accounts, while the team lets members add their own or one is still
@@ -13,7 +13,7 @@
 // /settings/providers), SettingsDialog.tsx and App.tsx. "Dev
 // environment sites" (the sites the person allowed for her own dev-environment commands, and her Full internet switch)
 // is there while the dev environment on srt is on for her.
-import { Bell, Bot, Brain, Cable, Download, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
+import { Bell, Bot, Brain, Cable, Download, FileArchive, Gauge, Globe, Info, KeyRound, Laptop, Network, ShieldCheck, User } from 'lucide-react'
 import { PRODUCT_NAMED_AFTER_AI } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 import { FREE_ROAM_HIDDEN_SETTINGS } from '../lib/freeRoam'
@@ -38,6 +38,8 @@ const TABS: SettingsTab[] = [
   { id: 'browser', label: 'settings.browser', find: 'settings.find.browser', icon: Globe, group: 'account' },
   { id: 'usage', label: 'settings.usage', find: 'settings.find.usage', icon: Gauge, group: 'account' },
   { id: 'memory', label: 'settings.memory', find: 'settings.find.memory', icon: Brain, group: 'account' },
+  // a ZIP of the person's own AI chats (components/settings/MyExport.tsx; QA AP-038)
+  { id: 'export', label: 'settings.export', find: 'settings.find.export', icon: FileArchive, group: 'account' },
   // named after the AI where the product is (트리나에게 허용한 것), else "AI에게 허용한 것"
   { id: 'allowances', label: PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi', find: 'settings.find.allowances', icon: ShieldCheck, group: 'account' },
   // the person's own connections (Google Drive, Gmail, Slack, MCP services): everyone's, with its pages under it
@@ -60,9 +62,9 @@ export function settingsTabs(withBrowser: boolean, withCredentials = false, with
 
 /** A guest's Settings (lib/guests.ts): only their own account, AI sign-in and the app. What the team shares with its
  * members (connected apps, AI apps, the AI's allowances, the browser, the dev environment) and the AI's memory are not
- * theirs: the server refuses those to a guest (server/src/auth/guest-endpoints.ts has no memories). With their AI off
+ * theirs: the server refuses those to a guest (server/src/auth/guest-endpoints.ts has no memories and no own export). With their AI off
  * (`guestAiOff`) also the AI's usage and AI accounts: nothing to see or sign in to (their own sign-in keeps AI accounts). */
-const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory'])
+const GUEST_HIDDEN = new Set(['browser', 'allowances', 'connectors', 'ai-apps', 'dev-env-sites', 'memory', 'export'])
 const GUEST_AI_OFF_HIDDEN = new Set(['usage', 'providers'])
 
 /** Is there a Browser section: inside a desktop app that offers its site setting (the only client whose AI has the

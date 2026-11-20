@@ -36,8 +36,8 @@ export interface ExportRequest {
   sharedWithheld?: (chatId: string) => ReadonlySet<string>
 }
 
-interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null; shared_at?: string | null }
-interface MsgRow { id: string; parent_id: string | null; role: 'user' | 'assistant'; content: string; created_at: string; status: string; engine: string | null; model: string | null }
+export interface ChatRow { id: string; title: string; created_at: string; updated_at: string; engine: string; active_leaf_id: string | null; shared_at?: string | null }
+export interface MsgRow { id: string; parent_id: string | null; role: 'user' | 'assistant'; content: string; created_at: string; status: string; engine: string | null; model: string | null; attachments?: string }
 
 const enc = (s: string) => Buffer.from(s, 'utf8')
 
@@ -98,6 +98,32 @@ export async function exportExcludes(teamRoot: string, ownerId: string): Promise
   return out
 }
 
+/** What decides which chats of a person an export holds (the owner's export here, and every member's own export,
+ * system/my-export.ts): one rule for both. */
+export type OwnChatsRequest = Pick<ExportRequest, 'ownerId' | 'hide' | 'sharedVisible' | 'sharedWithheld'>
+
+/**
+ * The person's own chats, one at a time (a long history is never all in memory): only chats they made
+ * (`chats.user_id`), not deleted, a shared project chat only while they still see its project. Never a chat of
+ * somebody else, also not one shared with them. The title comes with stored secrets hidden (QA SEC-16); `msgs` is the
+ * visible path of the chat; `withheld` says which answers are hidden from the person (one line each, no content).
+ */
+export function* ownChats(db: Database, req: OwnChatsRequest): Generator<{ chat: ChatRow; msgs: MsgRow[]; withheld: (id: string) => boolean }> {
+  const chats = (db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id, shared_at FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at, id').all(req.ownerId) as ChatRow[])
+    .filter((c) => !c.shared_at || !!req.sharedVisible?.(c.id))
+  const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model, attachments FROM messages WHERE chat_id = ?')
+  const others = db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1")
+  const hide = req.hide ?? ((t: string) => t)
+  for (const raw of chats) {
+    const chat = { ...raw, title: hide(raw.title) }
+    // a shared chat, or one others wrote in before it stopped being shared (chat/shared.ts severalAuthors): the
+    // answers hidden from the person are one line (without the check, every answer is)
+    const hidden = chat.shared_at || others.get(chat.id, req.ownerId) ? req.sharedWithheld?.(chat.id) ?? null : undefined
+    const withheld = hidden === undefined ? () => false : (id: string) => !hidden || hidden.has(id)
+    yield { chat, msgs: chatPath(q.all(chat.id) as MsgRow[], chat.active_leaf_id), withheld }
+  }
+}
+
 export async function runExport(db: Database, teamRoot: string, req: ExportRequest, progress: (f: number | null, msg: string) => void = () => {}): Promise<{ path: string; size: number }> {
   if (!UserId.safeParse(req.ownerId).success) throw new Error('bad owner id')
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')
@@ -115,23 +141,13 @@ export async function runExport(db: Database, teamRoot: string, req: ExportReque
     yield { name: root, type: 'dir' }
     if (req.what.includes('chats')) {
       progress(0.05, 'chats')
-      const chats = (db.query('SELECT id, title, created_at, updated_at, engine, active_leaf_id, shared_at FROM chats WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at').all(req.ownerId) as ChatRow[])
-        .filter((c) => !c.shared_at || !!req.sharedVisible?.(c.id))
       yield { name: `${root}/chats`, type: 'dir' }
-      const q = db.query('SELECT id, parent_id, role, content, created_at, status, engine, model FROM messages WHERE chat_id = ?')
-      const others = db.query("SELECT 1 FROM messages WHERE chat_id = ? AND role = 'user' AND author_id IS NOT NULL AND author_id <> ? LIMIT 1")
       const used = new Set<string>()
-      const hide = req.hide ?? ((t: string) => t)
-      for (const raw of chats) {
-        const c = { ...raw, title: hide(raw.title) }
+      for (const { chat: c, msgs, withheld } of ownChats(db, req)) {
         let base = `${c.created_at.slice(0, 10)} ${slug(c.title)}`
         if (used.has(base)) base += ` ${c.id.slice(-6)}`
         used.add(base)
-        // a shared chat, or one others wrote in before it stopped being shared (chat/shared.ts severalAuthors): the
-        // answers hidden from the person are one line (without the check, every answer is)
-        const hidden = c.shared_at || others.get(c.id, req.ownerId) ? req.sharedWithheld?.(c.id) ?? null : undefined
-        const withheld = hidden === undefined ? () => false : (id: string) => !hidden || hidden.has(id)
-        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, chatPath(q.all(c.id) as MsgRow[], c.active_leaf_id), req.locale, withheld)) }
+        yield { name: `${root}/chats/${base}.md`, type: 'file', data: enc(chatMarkdown(c, msgs, req.locale, withheld)) }
       }
     }
     if (req.what.includes('memories')) {
