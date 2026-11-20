@@ -43,10 +43,11 @@ test('the badge counts only what wants that person: a DM for its other member, a
   // a plain message in a team room at its default (mentions only) makes the row bold but wants nobody
   await send(mia.client, team.id, 'hello team')
   expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 1, 0])
-  // an @mention wants the one named; the same room again counts once (rooms, not messages)
+  // an @mention wants the one named; the room then counts its row's number: every unread message once one mentions
+  // him (docs/decisions/20261120-push-every-message.md: messages, not rooms)
   await send(mia.client, team.id, '@otto', { mentions: [otto.id] })
   await send(mia.client, team.id, '@otto again', { mentions: [otto.id] })
-  expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 1, 1])
+  expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 1, 3])
   // read: gone from the count
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
   expect(badge(nora.id)).toBe(0)
@@ -62,12 +63,13 @@ test('a conversation set to "Mentions only" adds nothing for plain messages, and
   const group = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Daily Checkins' })
   await nora.client.call('PATCH', `/api/rooms/${group.id}`, { notifyLevel: 'mentions' })
   for (const body of ['one', 'two', 'three']) await send(mia.client, group.id, body)
-  // otto keeps the default (all messages): it counts for him; for nora the row is only bold
-  expect([badge(nora.id), badge(otto.id)]).toEqual([0, 1])
+  // otto keeps the default (all messages): its 3 messages count for him; for nora the row is only bold
+  expect([badge(nora.id), badge(otto.id)]).toEqual([0, 3])
   const listed = ((await nora.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.id === group.id)
   expect(listed).toMatchObject({ unreadCount: 3, mentioned: false, notify: { level: 'mentions' } })
   await send(mia.client, group.id, '@nora', { mentions: [nora.id] })
-  expect(badge(nora.id)).toBe(1)
+  // a mention: the row's number, all 4 unread
+  expect(badge(nora.id)).toBe(4)
 })
 
 test('a reply in a thread I follow adds nothing to the number; one that mentions me counts (QA TC-5363)', async () => {

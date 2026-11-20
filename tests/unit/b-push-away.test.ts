@@ -152,10 +152,10 @@ test('a cancelled phone push does not silence the rest of the unread run: the ne
   await p!.tick()
   expect(sent).toHaveLength(1)
   expect((h.ctx.db.query('SELECT COUNT(*) n FROM room_notices WHERE user_id = ? AND room_id = ?').get(nora.id, dm.id) as { n: number }).n).toBe(2)
-  // a notice whose push went holds the run back as before: a third message adds none
+  // every message is a push of its own (docs/decisions/20261120-push-every-message.md): a third one goes too
   await send(mia.client, dm.id, 'third')
   await p!.tick()
-  expect(sent).toHaveLength(1)
+  expect(sent).toHaveLength(2)
 })
 
 test('at Trina: Web Push still goes, a retry still goes, the owner\'s locked password check still goes', async () => {

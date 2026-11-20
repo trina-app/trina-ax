@@ -122,9 +122,10 @@ test('one row per place: a thread\'s mention and replies, a timeline\'s mentions
   await reply(otto.client, team.id, root.id, '@NORA 이거 봐 주세요', { mentions: [nora.id] })
   const r3 = await reply(pia.client, team.id, root.id, '세 번째 답글\n자세히')
   const t1 = await send(mia.client, team.id, '@NORA 하나', { mentions: [nora.id] })
-  // the run of mentions in the timeline: the second is held back by the first (one notice), still counted
+  // every message a notice of its own (docs/decisions/20261120-push-every-message.md); the Inbox makes one row of a
+  // place's unread notices
   const t2 = await send(otto.client, team.id, '@NORA 둘', { mentions: [nora.id] })
-  expect(notices().map((x) => x.event_type).sort()).toEqual(['room.dm', 'room.mention', 'room.mention'])
+  expect(notices().map((x) => x.event_type).sort()).toEqual(['room.dm', 'room.dm', 'room.mention', 'room.mention', 'room.mention'])
   const list = rows()
   expect(list).toHaveLength(2)
   expect(list[0]!.room!.thread).toBeUndefined()
@@ -137,7 +138,7 @@ test('one row per place: a thread\'s mention and replies, a timeline\'s mentions
   expect(n.list(nora.id, { limit: 1, cursor: first.nextCursor! }).items.map((x) => x.id)).toEqual([list[1]!.id])
   // reading the thread's row reads both its notices, at one time: one read row, as it was
   n.read(nora.id, list[1]!.id)
-  expect(notices().filter((x) => !x.read_at).map((x) => x.event_type)).toEqual(['room.mention'])
+  expect(notices().filter((x) => !x.read_at).map((x) => x.event_type)).toEqual(['room.mention', 'room.mention'])
   const read = rows().find((x) => x.room?.thread === root.id)!
   expect(read).toMatchObject({ readAt: expect.any(String), room: { count: 3, people: 3, message: r1.id } })
   expect(rows().filter((x) => x.room?.thread === root.id)).toHaveLength(1)
@@ -162,7 +163,7 @@ test('a run split by quiet hours is one row; reading it reads both notices', asy
   await nora.client.call('PATCH', '/api/notification-preferences', { quietHours: { on: false, start: '22:00', end: '08:00', weekends: false } })
   await reply(mia.client, team.id, root.id, '아침에')
   const latest = await reply(mia.client, team.id, root.id, '아침에 또')
-  expect((h.ctx.db.query('SELECT quiet FROM room_notices WHERE user_id = ? AND read_at IS NULL ORDER BY created_at, id').all(nora.id) as { quiet: number }[]).map((r) => r.quiet)).toEqual([1, 0])
+  expect((h.ctx.db.query('SELECT quiet FROM room_notices WHERE user_id = ? AND read_at IS NULL ORDER BY created_at, id').all(nora.id) as { quiet: number }[]).map((r) => r.quiet)).toEqual([1, 0, 0])
   const list = rows()
   expect(list).toHaveLength(1)
   expect(list[0]!.room).toMatchObject({ message: night.id, count: 3, preview: '아침에 또', at: latest.createdAt })
@@ -230,8 +231,8 @@ test('a member who joined a team room after a thread\'s root sees it, so a menti
   roomsOf(h.ctx).notify(h.ctx.db.query('SELECT * FROM room_messages WHERE id = ?').get(aiId) as any)
   const row = rows(mia.id).find((x) => x.room?.thread === root.id)!
   expect(row.room).toMatchObject({ ai: true, fromId: null, from: null, preview: '요약: 세 가지', people: 3, count: 3 })
-  // the notice a push opened was the run's first reply's
-  expect(n.get(mia.id, row.id).room!.label).toMatch(/^NORA · #design › (스레드|Thread)$/)
+  // the row's id is its newest notice, the AI answer's own: a push of it names the AI
+  expect(n.get(mia.id, row.id).room!.label).toMatch(/^(트리나|Trina) · #design › (스레드|Thread)$/)
   // otto asked it: the answer is not news to him
   expect(rows(otto.id).some((x) => x.room?.thread === root.id && !x.readAt)).toBe(false)
 })
@@ -266,7 +267,8 @@ test('review fixes: a read that stops inside a run keeps it unread; the count is
   expect(rows()[0]).toMatchObject({ readAt: null, room: { count: 1, message: m3.id, preview: '@NORA three' } })
   await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: m3.seq })
   expect(n.list(nora.id, {}).unreadCount).toBe(0)
-  expect(rows()[0]).toMatchObject({ readAt: expect.any(String), room: { count: 2, message: m1.id } })
+  // each mention is a notice of its own, read at its own time: two read rows, the newest first
+  expect(rows().map((x) => [x.readAt !== null, x.room?.message, x.room?.count])).toEqual([[true, m3.id, 1], [true, m1.id, 1]])
   // hiding the room and showing it again: the Inbox's count is told to read again each time
   await send(mia.client, team.id, '@NORA again', { mentions: [nora.id] })
   const before = changed(nora.id)

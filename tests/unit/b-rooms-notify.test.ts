@@ -292,9 +292,9 @@ test('quiet hours: notices are kept but marked quiet, never pushed; the team\'s 
     now = Date.now() + 40
     await p.tick(); await p.tick()
     expect(web).toEqual([{ notificationId: expect.any(String), subscriptionId: expect.any(String), code: 'room.dm' }])
-    // and a run that is not quiet holds back the next notice as before
+    // and a message out of quiet hours is a notice (and a push) of its own, as every message
     await send(mia.client, dm.id, 'morning again')
-    expect(notices(dm.id)).toEqual(['room.dm (quiet)', 'room.dm'])
+    expect(notices(dm.id)).toEqual(['room.dm (quiet)', 'room.dm', 'room.dm'])
     await readAll(dm.id)
     // quiet hours that do not hold this moment, and weekends left off: pushed
     updateTeamSettings(h.ctx.db, { timeZone: 'Asia/Seoul' })

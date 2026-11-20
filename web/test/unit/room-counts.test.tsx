@@ -106,7 +106,8 @@ describe('every surface that sums', () => {
     const a = attentionCount([], [quietChannel(), muted()])
     expect(a).toMatchObject({ n: 0, unread: true })
     expect(iconBadge(a)).toBe('dot')
-    expect(attentionCount([], [quietChannel({ mentioned: true }), dmAll()]).n).toBe(2)
+    // each room by its row's number: the mentioned channel's 3 and the DM's 2
+    expect(attentionCount([], [quietChannel({ mentioned: true }), dmAll()]).n).toBe(5)
   })
 })
 

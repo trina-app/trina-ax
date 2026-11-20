@@ -247,9 +247,9 @@ test('session markers: each room.message says the notice its recipient got, as t
   // a DM message: nora gets room.dm, mia (its author) nothing
   const m1 = await send(mia.client, dm.id, 'hello')
   expect(marks(m1.id)).toEqual({ [mia.id]: null, [nora.id]: 'room.dm' })
-  // a second one while the first is unread: no new notice (one per unread run, like the push), so no mark
+  // a second one while the first is unread: a notice of its own too (every message rings: docs/decisions/20261120-push-every-message.md)
   const m2 = await send(mia.client, dm.id, 'are you there')
-  expect(marks(m2.id)[nora.id]).toBeNull()
+  expect(marks(m2.id)[nora.id]).toBe('room.dm')
   // read: the next one is a notice again
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
   const m3 = await send(mia.client, dm.id, 'ping')
@@ -315,19 +315,23 @@ test('notices: a DM or an @mention, one unread notice of each per room (pushed; 
     const rows = h.ctx.db.query('SELECT id FROM room_notices WHERE user_id = ? AND suppressed = 0 ORDER BY created_at DESC, id DESC').all(uid) as { id: string }[]
     const items = rows.map((r) => n.get(uid, r.id))
     const listed = n.list(uid, {})
-    expect(listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id).sort()).toEqual(items.filter((x) => x.code === 'room.mention').map((x) => x.id).sort())
-    expect(listed.unreadCount).toBe(items.filter((x) => x.readAt === null && x.code === 'room.mention').length)
+    // one Inbox row per place: a room's unread mentions (a notice each) are one row, its id the newest notice's
+    const rowIds = listed.items.filter((x) => x.code === 'room.dm' || x.code === 'room.mention').map((x) => x.id)
+    const mentionIds = items.filter((x) => x.code === 'room.mention').map((x) => x.id)
+    expect(rowIds.every((id) => mentionIds.includes(id))).toBe(true)
+    expect(listed.unreadCount).toBe(new Set(items.filter((x) => x.readAt === null && x.code === 'room.mention').map((x) => x.room?.id)).size)
     return { items, unreadCount: items.filter((x) => x.readAt === null).length }
   }
   const dm = await mia.client.call('POST', '/api/rooms', { kind: 'dm', userId: nora.id })
   await send(mia.client, dm.id, 'TOP SECRET ONE')
   await send(mia.client, dm.id, 'TOP SECRET TWO')
-  // the message preview on (the default): the notice a push opens has the first line ("알림 미리보기")
-  expect(notices(nora.id).items[0]!.room?.preview).toBe('TOP SECRET ONE')
+  // a notice per message (newest first); the message preview on (the default): the notice a push opens has its own
+  // message's first line ("알림 미리보기")
+  expect(notices(nora.id).items.map((x) => x.room?.preview)).toEqual(['TOP SECRET TWO', 'TOP SECRET ONE'])
   // off: no text
   savePreferences(h.ctx.db, nora.id, { messagePreview: false })
   let inbox = notices(nora.id)
-  expect(inbox.items).toHaveLength(1)
+  expect(inbox.items).toHaveLength(2)
   expect(inbox.items[0]).toMatchObject({ code: 'room.dm', link: 'room', room: { id: dm.id, from: 'MIA' }, chatId: null })
   expect(JSON.stringify(inbox)).not.toContain('TOP SECRET')
   expect(notices(mia.id).items).toHaveLength(0)
@@ -335,14 +339,14 @@ test('notices: a DM or an @mention, one unread notice of each per room (pushed; 
   const last = (await nora.client.call('GET', `/api/rooms/${dm.id}`)).lastSeq
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: last })
   expect(notices(nora.id).unreadCount).toBe(0)
-  // a team room message notifies only those mentioned, and mentions too come once per unread run
+  // a team room message notifies only those mentioned, each mention a notice of its own
   const team = await teamRoom(mia.client)
   await send(mia.client, team.id, 'for everyone')
   expect(notices(nora.id).unreadCount).toBe(0)
   await send(mia.client, team.id, '@NORA look', { mentions: [nora.id] })
   await send(mia.client, team.id, '@NORA and this', { mentions: [nora.id] })
   inbox = notices(nora.id)
-  expect(inbox.unreadCount).toBe(1)
+  expect(inbox.unreadCount).toBe(2)
   expect(inbox.items[0]).toMatchObject({ code: 'room.mention', room: { id: team.id } })
   await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
   expect(notices(nora.id).unreadCount).toBe(0)
