@@ -370,12 +370,12 @@ function ForgotLine({ url }: { url?: string }) {
   const t = useT()
   if (!url) return <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
   return (
-    <p className="text-center text-xs text-faint" data-testid="login-forgot-hosted">
-      {t('auth.forgotHosted')}{' '}
-      <a href={`${url}?team=${encodeURIComponent(location.host)}`} target="_blank" rel="noopener noreferrer" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="login-owner-recovery">
+    <div className="text-center text-xs text-faint" data-testid="login-forgot-hosted">
+      <p>{t('auth.forgotHosted')}</p>
+      <a href={`${url}?team=${encodeURIComponent(location.host)}`} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="login-owner-recovery">
         {t('auth.ownerRecovery')}
       </a>
-    </p>
+    </div>
   )
 }
 
