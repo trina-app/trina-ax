@@ -390,9 +390,10 @@ interface RoomsState extends RoomsData {
    * (components/rooms/RoomComposer.tsx takes it) */
   returned: Record<string, PendingSend>
   /** what the room page shows on its right besides a thread (which is in the address): 'trina', its Trina side chat
-   * (components/rooms/SideChatPanel.tsx); none: nothing, or the thread. Gone when the page leaves the room. */
-  side: Record<string, 'trina'>
-  setSide: (roomId: string, side: 'trina' | null) => void
+   * (components/rooms/SideChatPanel.tsx), or 'files', the room's Files list (components/rooms/RoomFilesPanel.tsx), in
+   * the same place: one at a time; none: nothing, or the thread. Gone when the page leaves the room. */
+  side: Record<string, RoomSide>
+  setSide: (roomId: string, side: RoomSide | null) => void
   loadRooms: () => Promise<void>
   /** null: not one of my rooms (gone from the list) */
   fetchRoom: (id: string) => Promise<Room | null>
@@ -479,6 +480,8 @@ interface RoomsState extends RoomsData {
   reset: () => void
 }
 
+/** what shows on a room page's right besides a thread: my Trina side chat or the room's Files list */
+export type RoomSide = 'trina' | 'files'
 /** The side chat of a room opened or closed, kept for this tab (lib/sideChatOpenKeep.ts); nothing when signed out. */
 function keepSide(roomId: string, open: boolean) {
   const st = useSession.getState().status
@@ -888,8 +891,9 @@ export const useRooms = create<RoomsState>((set, get) => {
 
     setSide(roomId, side) {
       set((s) => (side ? (s.side[roomId] === side ? {} : { side: { ...s.side, [roomId]: side } }) : { side: omit(s.side, roomId) }))
-      // kept for this tab, so a reload opens it again (lib/sideChatOpenKeep.ts, QA TC-4963)
-      keepSide(roomId, !!side)
+      // the side chat kept for this tab, so a reload opens it again (lib/sideChatOpenKeep.ts, QA TC-4963); the Files list
+      // is never opened again by a reload
+      keepSide(roomId, side === 'trina')
     },
 
     open(roomId) {

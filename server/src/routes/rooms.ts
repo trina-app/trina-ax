@@ -58,6 +58,10 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.searchRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.searchFiles(auth.user.id, query) })
     // "Files you sent": my own, largest first (docs/decisions/20261116-room-files-cleanup.md)
     kit.handle(API.listMyRoomFiles, ({ c, auth, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listMyFiles(auth.user.id, query) })
+    // ⌘K before anything is typed: the newest files of my rooms (rooms/search.ts recentRoomFiles), the same checks
+    kit.handle(API.recentRoomFiles, ({ c, auth }) => { c.header('Cache-Control', 'no-store'); return rooms.recentFiles(auth.user.id) })
+    // a room's Files list (rooms/search.ts listRoomFiles): not for a project's chat room (404; its files are the project's)
+    kit.handle(API.listRoomFiles, ({ c, auth, params, query }) => { c.header('Cache-Control', 'no-store'); return rooms.listFiles(auth.user.id, params.id, query) })
     // the screen's language for a refusal ("@트리나" asks nothing: docs/DECISIONS.md "Room @트리나 code removed")
     kit.handle(API.sendRoomMessage, ({ c, auth, params, body }) => rooms.send(auth.user.id, params.id, body, { locale: c.get('locale'), ...(body.showMessages?.length ? { showMessages: body.showMessages } : {}) }))
     // message links (docs/DECISIONS.md "Message links and their previews", rooms/link-previews.ts): the composer's

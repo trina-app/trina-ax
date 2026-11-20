@@ -3089,6 +3089,25 @@ export class MockServer {
       const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
       return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms, nextCursor: null }
     },
+    // like server/src/rooms/search.ts listRoomFiles: one room's files, newest first, in pages of `limit` (the cursor is
+    // the next one's place); a project's chat room has none (404)
+    listRoomFiles: (c) => {
+      const room = this.rooms.find((r) => r.id === c.params.id) ?? fail('not_found', 404)
+      if (this.projectOfRoom(room.id)) fail('not_found', 404)
+      const all = (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files.filter((f) => !f.state).map((file) => ({ m, file })))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt) || b.m.seq - a.m.seq)
+      const at = Number(c.query.cursor ?? 0) || 0
+      const limit = Number(c.query.limit ?? 20)
+      const page = all.slice(at, at + limit)
+      return { items: page.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), nextCursor: at + limit < all.length ? String(at + limit) : null }
+    },
+    // like server/src/rooms/search.ts recentRoomFiles: the newest five of all my rooms
+    recentRoomFiles: (c) => {
+      const items = this.rooms.filter((room) => this.projectRoomFor(room, c.user)).flatMap((room) => (this.roomMessages.get(room.id) ?? []).filter((m) => !m.deletedAt && !m.event && m.visibility === 'room').flatMap((m) => m.files.filter((f) => !f.state).map((file) => ({ m, room, file }))))
+        .sort((a, b) => b.m.createdAt.localeCompare(a.m.createdAt) || b.m.seq - a.m.seq).slice(0, 5)
+      const rooms = [...new Set(items.map((x) => x.room))].map((r) => ({ id: r.id, kind: r.kind, name: r.name, peers: r.peers, memberCount: r.memberCount }))
+      return { items: items.map(({ m, file }) => ({ file, messageId: m.id, roomId: m.roomId, threadRootId: m.threadRootId ?? null, author: m.authorKind === 'ai' ? null : m.author, createdAt: m.createdAt })), rooms }
+    },
     // like server/src/auth/accounts.ts createGuestInvite (short): a member of the group chat (the rooms of POST /__test/rooms
     // are the caller's), or a project's creator, the owner or an admin; team AI only from the owner or an admin; the cap
     createGuestInvite: (c) => {
@@ -6600,6 +6619,8 @@ export class MockServer {
       return { ...out, items: out.items.map((p) => { const id = this.projectRooms.get(p.id); return id && p.member !== false && !p.inTrash ? { ...p, room: { id, unread: 0 } } : p }) }
     })
     const sentFiles = new Map<string, RoomFile>()
+    // a plain room's file's bytes (kept with the room: GET /api/rooms/:id/files/:fileId reads them)
+    const sentBytes = new Map<string, { data: Uint8Array; mime: string }>()
     // a file sent in a project room: into the project's Chat attachments folder (a read-only person: 403)
     h.uploadRoomFile = async (c) => {
       const r = roomOf(c)
@@ -6620,6 +6641,7 @@ export class MockServer {
       const mime = c.file!.type || mimeOf(name) || 'application/octet-stream'
       const file: RoomFile = { id, name, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
       sentFiles.set(id, file)
+      if (!p) sentBytes.set(id, { data, mime })
       return { status: 201, body: file }
     }
     h.sendRoomMessage = (c) => {
@@ -6646,6 +6668,8 @@ export class MockServer {
       return { status: 204, body: null }
     }
     h.roomFile = (c) => {
+      const kept = sentBytes.get(c.params.fileId)
+      if (kept) return new Response(kept.data as unknown as BodyInit, { headers: { 'content-type': kept.mime } })
       const path = this.projectRoomFiles.get(c.params.fileId)
       const n = path ? this.files.get(path) : undefined
       if (!n || n.type !== 'file') fail('not_found', 404)
