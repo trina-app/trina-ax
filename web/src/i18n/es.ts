@@ -6893,7 +6893,6 @@ export const es: Record<MessageKey, string> = {
   "chat.thread.notShared": "Este chat ya no se comparte, así que no admite respuestas nuevas.",
   "chat.thread.full": "Este hilo está lleno. Continúe en el chat.",
   "chat.thread.peopleOnly": "Solo las personas de este chat ven las respuestas. {name} las lee solo cuando alguien de aquí le pregunta a {name} por ellas.",
-  "chat.thread.answerAt": "Respuesta de {name} · {time}",
   "chat.thread.showMore": "Ver más",
   "chat.thread.showLess": "Ver menos",
   "chat.thread.deleteTitle": "¿Eliminar esta respuesta?",

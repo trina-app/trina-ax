@@ -6939,7 +6939,6 @@ export const en: Record<MessageKey, string> = {
   "chat.thread.notShared": "This chat isn't shared anymore, so no new replies.",
   "chat.thread.full": "This thread is full. Continue in the chat.",
   "chat.thread.peopleOnly": "Only people in this chat see replies. {name} reads them only when someone here asks {name} about them.",
-  "chat.thread.answerAt": "{name}'s answer · {time}",
   "chat.thread.showMore": "Show more",
   "chat.thread.showLess": "Show less",
   "chat.thread.deleteTitle": "Delete this reply?",

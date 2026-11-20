@@ -6937,7 +6937,6 @@ export const id: Record<MessageKey, string> = {
   "chat.thread.notShared": "Obrolan ini tidak dibagikan lagi, jadi tidak bisa dibalas.",
   "chat.thread.full": "Utas ini sudah penuh. Lanjutkan di obrolan.",
   "chat.thread.peopleOnly": "Hanya orang di obrolan ini yang melihat balasan. {name} membacanya hanya saat seseorang di sini bertanya kepada {name} tentang balasan itu.",
-  "chat.thread.answerAt": "Jawaban {name} · {time}",
   "chat.thread.showMore": "Tampilkan lebih banyak",
   "chat.thread.showLess": "Tampilkan lebih sedikit",
   "chat.thread.deleteTitle": "Hapus balasan ini?",

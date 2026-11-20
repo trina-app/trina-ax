@@ -6937,7 +6937,6 @@ export const ko = {
   "chat.thread.notShared": "이 채팅은 이제 공유되지 않아서 답글을 달 수 없어요.",
   "chat.thread.full": "이 스레드는 답글이 가득 찼어요. 채팅에서 이어가 주세요.",
   "chat.thread.peopleOnly": "이 채팅을 보는 사람만 답글을 봐요. 누군가 {name}에게 물어볼 때만 {name}가 읽어요.",
-  "chat.thread.answerAt": "{name}의 답 · {time}",
   "chat.thread.showMore": "더 보기",
   "chat.thread.showLess": "접기",
   "chat.thread.deleteTitle": "이 답글을 삭제할까요?",
