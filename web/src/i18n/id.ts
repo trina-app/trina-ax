@@ -1281,6 +1281,7 @@ export const id: Record<MessageKey, string> = {
   'files.drop.cannot': 'Tidak bisa dipindahkan ke sini',
   'files.drop.cannotUpload': 'Tidak bisa diunggah ke sini',
   'files.uploadFolder': 'Unggah folder',
+  'files.uploadFiles': 'Unggah file',
   'files.folderUpload.label': 'Unggahan folder',
   'files.folderUpload.files': '{done} dari {total} file',
   'files.folderUpload.bytes': '{done} dari {total}',

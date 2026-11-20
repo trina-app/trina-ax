@@ -1256,6 +1256,7 @@ export const zh: Record<MessageKey, string> = {
   "files.drop.cannot": "无法移到这里",
   "files.drop.cannotUpload": "无法上传到这里",
   "files.uploadFolder": "上传文件夹",
+  "files.uploadFiles": "上传文件",
   "files.folderUpload.label": "文件夹上传",
   "files.folderUpload.files": "{done}/{total, plural, one {#个文件} other {#个文件}}",
   "files.folderUpload.bytes": "{done}/{total}",
