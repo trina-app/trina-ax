@@ -86,6 +86,10 @@ export function buildVectors() {
         // the hosting service's speech key, and taking it away
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789' } },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: null } },
+        // the hosting service's error report key (fake keys), with a port and a path prefix, and taking it away
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1' } },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@o0.ingest.example.invalid:8443/prefix/42' } },
+        { command: 'error-reports-set', args: {}, stdin: { url: null } },
       ],
       refused: [
         { command: 'sh', args: {}, stdin: null, why: 'not a command' },
@@ -102,6 +106,16 @@ export function buildVectors() {
         { command: 'set-server-config', args: {}, stdin: { publicOrigins: ['http://evil.example'] }, why: 'http to another machine' },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-short' }, why: 'not an OpenRouter key' },
         { command: 'hosted-speech-key-set', args: {}, stdin: { key: 'sk-or-test-vector-not-a-key-0123456789', extra: 1 }, why: 'unknown stdin field' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\nNODE_OPTIONS=--require=/tmp/x.js' }, why: 'a newline adds a variable' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"' }, why: 'a quote' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\\' }, why: 'a backslash' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'http://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1' }, why: 'not https' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://errors.example.invalid/1' }, why: 'no public key' },
+        { command: 'error-reports-set', args: {}, stdin: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/abc' }, why: 'no numeric project id' },
+        { command: 'error-reports-set', args: {}, stdin: { url: '' }, why: 'empty: null takes it away' },
+        { command: 'error-reports-set', args: {}, stdin: { url: null, extra: 1 }, why: 'unknown stdin field' },
+        { command: 'error-reports-set', args: {}, stdin: {}, why: 'url is required' },
+        { command: 'error-reports-set', args: { url: 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1' }, stdin: null, why: 'the key goes on stdin only' },
       ],
     },
     enroll: {

@@ -349,6 +349,27 @@
     "stdin": {
      "key": null
     }
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"
+    }
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@o0.ingest.example.invalid:8443/prefix/42"
+    }
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": null
+    }
    }
   ],
   "refused": [
@@ -577,6 +598,85 @@
      "extra": 1
     },
     "why": "unknown stdin field"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\nNODE_OPTIONS=--require=/tmp/x.js"
+    },
+    "why": "a newline adds a variable"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\""
+    },
+    "why": "a quote"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1\\"
+    },
+    "why": "a backslash"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "http://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"
+    },
+    "why": "not https"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://errors.example.invalid/1"
+    },
+    "why": "no public key"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/abc"
+    },
+    "why": "no numeric project id"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": ""
+    },
+    "why": "empty: null takes it away"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {
+     "url": null,
+     "extra": 1
+    },
+    "why": "unknown stdin field"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {},
+    "stdin": {},
+    "why": "url is required"
+   },
+   {
+    "command": "error-reports-set",
+    "args": {
+     "url": "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"
+    },
+    "stdin": null,
+    "why": "the key goes on stdin only"
    }
   ]
  },
