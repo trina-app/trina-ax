@@ -100,6 +100,7 @@ https://github.com/user-attachments/assets/a918709d-019d-4743-8e31-f05dd1b4e2ca
 
 ## はじめる
 
+- **ブラウザで試す：** インストール不要、架空のチームで試せます。AI はオフです。[デモを開く](https://ax.trina.app/demo/ja/)
 - **Trina ホスティング：** サーバーの運用は要りません。14日間の無料トライアルのあと、月額プランになります。[プラン](https://ax.trina.app/pricing)
 - **アプリ：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)、またはどのブラウザーからでも。
 - **セルフホスト：** 自社の Linux サーバー、Docker、オフィスの Mac で。無料です。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [オフィス Mac](docs/OFFICE.en.md) · [AI エージェントでインストール](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)

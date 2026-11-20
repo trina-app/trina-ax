@@ -100,6 +100,7 @@ Una persona lo configura en el servidor del equipo. La IA de todos lo tiene desd
 
 ## Cómo empezar
 
+- **Pruébalo en el navegador:** sin instalar nada, con un equipo ficticio y la IA desactivada. [Abrir la demo](https://ax.trina.app/demo/es/)
 - **Hosting de Trina:** sin servidor que gestionar. Prueba gratis de 14 días y luego un plan mensual. [Planes](https://ax.trina.app/pricing)
 - **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download), o cualquier navegador.
 - **Autoalojamiento:** en tu propio servidor Linux, con Docker o en un Mac de la oficina. Gratis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac de oficina](docs/OFFICE.en.md) · [Instalar con tu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
