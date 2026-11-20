@@ -195,14 +195,57 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     if (rooms.length < mine.length) throw new Error(`${hire.username} is in ${rooms.length} rooms, the content says ${mine.length}`)
     for (const room of rooms) if (room.unreadCount > 0) throw new Error(`room ${room.name ?? room.kind} has ${room.unreadCount} unread messages`)
     checked.push(`${rooms.length} rooms, all read`)
-    const chats = (await api.call(API.listChats, { query: { limit: 200 } })).items.map((x) => x.title)
-    for (const x of c.chats.filter((y) => y.username.toLowerCase() === hire.username.toLowerCase())) if (!chats.includes(x.title)) throw new Error(`no chat "${x.title}"`)
+    const listed = (await api.call(API.listChats, { query: { limit: 200 } })).items
+    const chats = listed.map((x) => x.title)
+    const own = c.chats.filter((y) => y.username.toLowerCase() === hire.username.toLowerCase())
+    // every seeded chat the new hire sees, by its id: its messages are read below
+    const seen: { title: string; id: string; turns: number }[] = []
+    for (const x of own) {
+      const found = listed.find((y) => y.title === x.title)
+      if (!found) throw new Error(`no chat "${x.title}"`)
+      seen.push({ title: x.title, id: found.id, turns: x.turns.length })
+    }
     const shared = c.chats.filter((y) => y.project && !y.private && y.username.toLowerCase() !== hire.username.toLowerCase())
     for (const p of (await api.call(API.listProjects)).items) {
-      const inP = (await api.call(API.listChats, { query: { limit: 200, projectId: p.id } })).items.map((x) => x.title)
-      for (const x of shared.filter((y) => y.project === p.name)) if (!inP.includes(x.title)) throw new Error(`no shared chat "${x.title}" in ${p.name}`)
+      const inP = (await api.call(API.listChats, { query: { limit: 200, projectId: p.id } })).items
+      for (const x of shared.filter((y) => y.project === p.name)) {
+        const found = inP.find((y) => y.title === x.title)
+        if (!found) throw new Error(`no shared chat "${x.title}" in ${p.name}`)
+        seen.push({ title: x.title, id: found.id, turns: x.turns.length })
+      }
     }
     checked.push(`${chats.length} chats, ${shared.length} shared project chats of others`)
+    // each one reads as its asks and answers (a chat with no shown branch reads as empty: chats.active_leaf_id)
+    for (const x of seen) {
+      const items = (await api.call(API.listMessages, { params: { id: x.id }, query: { limit: 200 } })).items
+      const want = x.turns * 2
+      if (items.length !== want || items.at(-1)?.role !== 'assistant') throw new Error(`chat "${x.title}" shows ${items.length} messages to ${hire.username}, not ${want}`)
+      if (items.some((m) => m.withheld)) throw new Error(`chat "${x.title}" keeps an answer from ${hire.username}`)
+    }
+    checked.push(`${seen.length} seeded chats show all their messages`)
+    // the rest of the story the free-roam audit found missing (QA TC-5614, TC-5618, TC-5619, TC-5620)
+    const accounts = [c.owner, ...c.people]
+    const hireAccount = accounts.find((a) => a.username.toLowerCase() === hire.username.toLowerCase())
+    if (hireAccount?.email && me.user.email !== hireAccount.email) throw new Error(`${hire.username}'s e-mail is ${me.user.email}, not ${hireAccount.email}`)
+    const people = (await api.call(API.listPeople)).people
+    for (const a of accounts.filter((x) => x.title)) {
+      if (!people.some((x) => x.name === a.name && x.title === a.title)) throw new Error(`${a.username} has no title "${a.title}"`)
+    }
+    checked.push(`job titles and ${hire.username}'s e-mail`)
+    const projectList = (await api.call(API.listProjects)).items
+    for (const p of c.projects.filter((x) => x.channel)) {
+      const room = c.rooms.find((r) => r.slug === p.channel)
+      const got = projectList.find((x) => x.name === p.name)?.channel?.name
+      if (got !== room?.name) throw new Error(`project ${p.name}'s channel is ${got ?? 'none'}, not ${room?.name}`)
+    }
+    const threaded = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(`@${hireAccount?.name ?? hire.username}`)))
+    if (threaded.length) {
+      const notices = (await api.call(API.listNotifications, { query: { limit: 30, only: 'notices' } })).items
+      if (!notices.some((n) => n.code === 'chat.thread_reply')) throw new Error(`${hire.username} has no thread notice in Activity`)
+    }
+    const recent = (await api.call(API.recentFiles, { query: { limit: 50 } })).items.map((f) => f.path)
+    for (const top of c.recentHidden ?? []) if (recent.some((f) => f === top || f.startsWith(`${top}/`))) throw new Error(`Files › Recent shows ${top}`)
+    checked.push('the project\'s channel, the thread notice, Files › Recent')
     // the builder is gone
     const b = await fetch(`${inst.url}/api/demo/builder/welcome`, { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: inst.url, [CSRF_HEADER]: '1' }, body: '{}' })
     if (b.status !== 404 && b.status !== 403) throw new Error(`the builder's route answered ${b.status} in the snapshot`)

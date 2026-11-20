@@ -2,7 +2,7 @@
 // docs/decisions/20261119-demo-free-roam-a.md). One visitor's own server behind demo-gate, signed in as the demo's one
 // person, with the real AI until the demo limit. These are the plain rules the screens share; nothing here talks to the
 // server (store/demo.ts reads GET /api/demo, components/demo/FreeRoam.tsx draws it).
-import { DEMO_BUSY_REASON, DEMO_LIMIT_REASON, DEMO_REST_REASON, type ApiErrorBody, type DemoInfo, type Me } from '@mycel/shared/api'
+import { DEMO_BUSY_REASON, DEMO_LIMIT_REASON, DEMO_REST_REASON, type ApiErrorBody, type DemoInfo, type Locale, type Me } from '@mycel/shared/api'
 import type { MessageKey } from '../i18n'
 
 /**
@@ -21,6 +21,10 @@ export function mayBeDemoServer(me: Me | null | undefined): boolean {
 }
 
 export const isFreeRoam = (info: DemoInfo | null | undefined): info is DemoInfo & { kind: 'freeRoam' } => info?.kind === 'freeRoam'
+
+/** The languages a free-roam demo has (its sign-in page offers only these, QA TC-5621): the ones the demo company is
+ * written in, scripts/demo/steepling/make.ts STEEPLING_LOCALES (demo-gate keeps one snapshot per language). */
+export const FREE_ROAM_LOCALES: readonly Locale[] = ['en', 'ko']
 
 /** the meter starts to speak at this share of the demo limit */
 export const METER_FROM = 0.8

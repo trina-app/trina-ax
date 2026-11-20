@@ -211,7 +211,9 @@ function HomePage() {
             )}
             {/* a phone under the welcome card while it says hello ("Welcome to {team}"): the greeting only for screen
                 readers, so the card and the box fit. "You're all set" greets nobody, so the greeting stays then */}
-            {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
+            {/* a free-roam demo: the bar at the top already says who the visitor is (FreeRoam.tsx), so Home greets them
+                as Home does; the persona's intro as the heading read as a second, odd intro (QA TC-5622) */}
+            {demo && !projectId && demo.info.kind !== 'freeRoam' ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
             {noAiLine}
           </div>

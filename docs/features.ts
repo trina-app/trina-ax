@@ -148,7 +148,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
   { id: 'onboarding.member-welcome', name: 'Welcome card for an invited member', area: 'Onboarding', endpoints: ['getMemberWelcome', 'updateMemberWelcome'] },
   { id: 'onboarding.handover', name: 'Handover to a team lead', area: 'Onboarding', endpoints: ['handoverState', 'endPendingConnections', 'dismissLeadCard'] },
-  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns'] },
+  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns', 'demoBuilderThreadTimes', 'demoBuilderFileTimes'] },
 
   // ---------------- Home ----------------
   { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },
