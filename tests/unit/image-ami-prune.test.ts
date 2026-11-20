@@ -47,7 +47,9 @@ describe('ami-prune-select', () => {
     expect(reasons(base(INCIDENT, { keepReleases: 3 }), 'ami-0516')).toContain('younger than 14 days')
     // old enough and outside the newest 5 releases: removed
     expect(a['ami-0510']).toBe('remove')
-    expect(a['ami-0513']).toBe('remove')
+    expect(a['ami-0512']).toBe('remove')
+    // the newest release already past the 14-day floor stays
+    expect(a['ami-0513']).toBe('keep')
     expect(a['ami-0515']).toBe('keep')
   })
 
@@ -104,6 +106,15 @@ describe('ami-prune-select', () => {
     expect(action(base([...INCIDENT, ...odd]))).toMatchObject({ 'ami-0c01': 'keep', 'ami-0c02': 'keep', 'ami-0c03': 'keep' })
   })
 
+  test('the newest release past the age floor stays: 7 releases in 10 days + one 20 days old', () => {
+    const imgs = [img('ami-0600', '0.6.0-d13-20261031', 20), img('ami-0599', '0.5.99-d13-20261025', 26),
+      ...[1, 2, 3, 4, 5, 6, 7].map((n) => img(`ami-061${n}`, `0.6.${n}-d13-202611${10 + n}`, 10 - n))]
+    const p = base(imgs)
+    expect(action(p)['ami-0600']).toBe('keep')
+    expect(reasons(p, 'ami-0600')).toBe('release 0.6.0 is the newest one older than 14 days')
+    expect(action(p)['ami-0599']).toBe('remove')
+  })
+
   test('remove lists only well-formed root snapshot ids', () => {
     const p = base([{ ...img('ami-0a1d', '0.1.0-d13-20250101', 90), snaps: ['snap-0aa', null, 'bogus'] }, img('ami-0b2e', '0.2.0-d13-20250101', 90)], { keepReleases: 1 })
     expect(selectPrune(p).find((d) => d.id === 'ami-0a1d')).toMatchObject({ action: 'remove', snapshots: ['snap-0aa'] })
@@ -150,7 +161,7 @@ describe('ami-prune.sh', () => {
   // the script compares with the wall clock: the same ages, moved to now
   const live = INCIDENT.map((i) => ({ ...i, created: new Date(Date.parse(i.created!) + Date.now() - NOW.getTime()).toISOString() }))
 
-  test('the 11-20 case: 0.5.16 stays, only images older than 14 days and outside the newest 5 releases go', () => {
+  test('the 11-20 case: 0.5.16 stays, only images older than 14 days, outside the newest 5 releases and behind the newest one past the floor go', () => {
     const run = stage('incident', live)
     const r = run(['--keep', '5', '--min-age-days', '14', '--protect-template', '0.5.21-d13-20261120'])
     expect(r.code, r.err).toBe(0)
@@ -158,7 +169,7 @@ describe('ami-prune.sh', () => {
     expect(r.out).toMatch(/keep ami-0521 \(0\.5\.21-d13-20261120\): just published; release 0\.5\.21 is one of the newest 5/)
     expect(r.out).toContain('remove ami-0510 (0.5.10-d13-20261101) and its snapshot(s) snap-0510')
     const dereg = r.calls.split('\n').filter((l) => l.includes('deregister-image')).map((l) => l.split(' ').at(-1)).sort()
-    expect(dereg).toEqual(['ami-0510', 'ami-0511', 'ami-0512', 'ami-0513'])
+    expect(dereg).toEqual(['ami-0510', 'ami-0511', 'ami-0512'])
     expect(r.calls).toContain('delete-snapshot --snapshot-id snap-0510')
   })
 
@@ -185,6 +196,7 @@ describe('ami-prune.sh', () => {
       const r = run([], { FAIL_AT: op })
       expect(r.code, r.err).toBe(0)
       expect(r.out).toContain('nothing removed in ap-northeast-2')
+      expect(run([], { FAIL_AT: op, GITHUB_ACTIONS: 'true' }).out).toMatch(/^::warning title=ami-prune::ap-northeast-2: .*nothing removed in ap-northeast-2$/m)
       expect(r.calls).not.toMatch(/deregister-image|delete-snapshot/)
     })
   }
