@@ -71,7 +71,7 @@ const from = {
 type From = (typeof from)[keyof typeof from]
 
 /** a turn whose cards are answered "Allow once" (the shared chat's card to the asker) until it ends */
-async function ask(f: From, chatId: string, content: string) {
+async function ask(f: From, chatId: string, content: string, pick: RegExp = /once/i) {
   const started = await h.api(f.user, { window: f.window, client: f.client }).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
   const answered = new Set<string>()
   const cards: { question: string }[] = []
@@ -82,7 +82,7 @@ async function ask(f: From, chatId: string, content: string) {
       if (d.turnId !== started.turnId || answered.has(d.request.requestId)) continue
       answered.add(d.request.requestId)
       cards.push(d.request)
-      const once = d.request.options.find((o) => /once/i.test(o.label)) ?? d.request.options[0]!
+      const once = d.request.options.find((o) => pick.test(o.label) || pick.test(o.value)) ?? d.request.options[0]!
       void h.api(f.user).call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: d.request.requestId, answer: once.value } }).catch(() => {})
     }
   }, 20)
@@ -153,6 +153,14 @@ describe("an app on alice's computer in each kind of chat", () => {
     const chat = await projectChat()
     await aliceGetsIt(chat, true)
     await bobNever(chat)
+  })
+
+  test('a shared chat, Cancel on her card: nothing reaches her desktop app for that turn', async () => {
+    const chat = await sharedWithBob()
+    const r = await ask(from.desk, chat, fake({ tool: TOOL, args: { text: 'no' }, sayResult: true }), /cancel/i)
+    expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
+    expect(r.content).not.toContain('echo: no')
+    expect(callsOf(r.started.turnId)).toEqual([])
   })
 
   test('from the web in a shared chat: not offered, and the AI is told the one known reason with no guessing', async () => {

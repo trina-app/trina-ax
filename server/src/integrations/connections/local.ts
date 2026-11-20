@@ -67,9 +67,9 @@ const desktop = `the ${PRODUCT.displayName} desktop app`
 const AWAY: Record<LocalAway, string> = {
   web: `this message was sent from the web page, not from ${desktop}`,
   mobile: `this message was sent from the phone app, not from ${desktop}`,
-  window: `this message was sent from ${desktop}, but that window was not connected to the team server when it was needed (sending the message again from that window usually works)`,
+  window: `this message was sent from ${desktop}, but that window was not connected to the team server when it was needed`,
   schedule: 'this is a scheduled run, and an app on the computer never runs in one',
-  no_local_apps: `${desktop} that sent this message has no team open or cannot run apps on the computer`,
+  no_local_apps: 'the window that sent this message answered that it cannot run apps on the computer now (it has no team open, or it is not the desktop app)',
   other: `this message was not sent from ${desktop}`,
 }
 const SAY_ONLY = `Tell them exactly that in one or two plain sentences, and that it works when they send the message from ${desktop} on that computer. Do not guess at other causes (another computer, the app's version or where it was installed).`
