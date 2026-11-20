@@ -20,7 +20,7 @@
 // server whose demo file says `builder: true`.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
-import { API, ApiClient, ApiError, type Room } from '../../../shared/src/api'
+import { API, ApiClient, ApiError, COMPANY_PROFILE_PATH, type Room } from '../../../shared/src/api'
 import type { Fakes } from './fakes'
 import { DEMO_PASSWORD } from '../seed'
 import type { ContentCompany, DemoContent } from './content'
@@ -390,7 +390,8 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
     // 4b. the files' times in the story, and the seed's own changes out of Files › Recent (the free-roam audit, QA TC-5618)
     const memoryTimes = c.memories.filter((m) => m.minutesAgo !== undefined).map((m) => ({ userId: idOf(m.username), text: m.text, at: atOf(m.minutesAgo!) }))
     if (c.fileTimes?.length || c.recentHidden?.length || memoryTimes.length) {
-      const files = o.content.files
+      // the company profile the seed saved is dated with the team skills' folder too (QA TC-5935)
+      const files = [...o.content.files, ...(c.profile ? [COMPANY_PROFILE_PATH] : [])]
       const times: { path: string; at: string }[] = []
       for (const f of files) {
         const hit = (c.fileTimes ?? []).find((t) => nfc(f) === nfc(t.path) || nfc(f).startsWith(nfc(t.path) + '/'))

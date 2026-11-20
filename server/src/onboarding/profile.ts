@@ -5,7 +5,7 @@
 // files, so this file can never become a rule or a skill whatever it holds. The AI gets the facts as their own
 // <company_profile> block (chat/prompt.ts companyProfileBlock), never as instructions.
 import type { CompanyProfile, CompanyProfileInput, Locale, ProfileField } from '@mycel/shared/api'
-import { normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS, profileName } from '@mycel/shared/api'
+import { COMPANY_PROFILE_PATH, normalizeWebsite, PROFILE_BLOCK_MAX, PROFILE_FIELDS, PROFILE_LIMITS, profileName } from '@mycel/shared/api'
 import type { FileService } from '../files/service'
 import { readRegular, sha256 } from '../files/store'
 import type { Principal } from '../policy/access'
@@ -13,7 +13,7 @@ import { authorize } from '../policy/authorize'
 import { HttpError } from '../http/errors'
 import { normUrl } from '../tools/url-gate'
 
-export const PROFILE_PATH = 'skills/company-profile.json'
+export const PROFILE_PATH = COMPANY_PROFILE_PATH
 /** a hand-edited file larger than this is not read */
 const PROFILE_FILE_MAX_BYTES = 64 * 1024
 

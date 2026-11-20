@@ -93,6 +93,13 @@ describe('the snapshot of Steepling (en)', () => {
       // the folders with nothing dated in them are not later than the story either: people's own, the team skills', the
       // team folder (QA TC-5743)
       for (const d of ['.', 'users', `users/${minaId}`, 'users/sara', 'skills']) expect(fs.statSync(path.join(L.team, d)).mtimeMs, d).toBeLessThan(hourBefore)
+      // Team skills › company-profile.json: the story's time (the skills', 30 days back), on disk and in its updatedAt,
+      // never the build's (QA TC-5935)
+      const profileAt = fs.statSync(path.join(L.team, 'skills', 'company-profile.json')).mtimeMs
+      expect(profileAt).toBeLessThan(hourBefore)
+      expect(Math.abs(profileAt - (Date.parse(manifest.createdAt) - 30 * 1440 * 60_000))).toBeLessThan(10 * 60_000)
+      const profileJson = JSON.parse(fs.readFileSync(path.join(L.team, 'skills', 'company-profile.json'), 'utf8')) as { updatedAt?: string }
+      expect(Math.abs(Date.parse(profileJson.updatedAt ?? '') - profileAt)).toBeLessThan(1000)
       // a file in a room message is an attachment or a named link, never a bare download address (QA TC-5884)
       const bare = db.query("SELECT body FROM room_messages WHERE body LIKE '%/api/files/download%'").all() as { body: string }[]
       expect(bare.filter((m) => /(^|[^(])\/api\/files\/download/.test(m.body))).toEqual([])
