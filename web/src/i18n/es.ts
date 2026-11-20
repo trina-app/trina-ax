@@ -948,6 +948,7 @@ export const es: Record<MessageKey, string> = {
   'preview.externalImages': "{n, plural, one {# imagen de la web está bloqueada en la vista previa: pida a la IA que la guarde como archivo} other {# imágenes de la web están bloqueadas en la vista previa: pida a la IA que las guarde como archivos}}",
   'preview.webScripts': "{n, plural, one {# script de la web no se ejecuta en la vista previa: pida a la IA que guarde la biblioteca como archivo del equipo junto a la página} other {# scripts de la web no se ejecutan en la vista previa: pida a la IA que guarde las bibliotecas como archivos del equipo junto a la página}}",
   'preview.missingScripts': "{n, plural, one {# script del equipo no se pudo poner en la página} other {# scripts del equipo no se pudieron poner en la página}} (no existe, no está permitido, no es un archivo .js o supera 5 MB): {list}",
+  'preview.sharedChatScripts': "{n, plural, one {# script del equipo no se ejecuta en un artefacto de un chat compartido: guarde la página en la carpeta del equipo y ábrala allí} other {# scripts del equipo no se ejecutan en un artefacto de un chat compartido: guarde la página en la carpeta del equipo y ábrala allí}}",
   'preview.photoBusy': "Se están generando muchas vistas previas de fotos. Vuelva a intentarlo en un momento.",
   'preview.photoUnavailable': "No se puede mostrar una vista previa de esta foto aquí. Descárguela para abrirla.",
   'preview.unsupportedShort': "Sin vista previa para este formato",

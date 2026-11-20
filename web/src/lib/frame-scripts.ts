@@ -26,6 +26,12 @@
 //   note; a classic one becomes a script that throws an error which names it, a module import of it stays unresolved
 //   (the browser's error names the key).
 //
+// - `withhold` (an artifact of a shared chat: other people open it, and its page may have come from someone else's turn,
+//   while the files are fetched with the viewer's permissions and an artifact has no page file for the embedIn check):
+//   no team script is fetched; each is counted as withheld for the note.
+// - `/vendor/…` and this server's own `<origin>/vendor/…` stay as written: the frame's CSP allows this server's vendor
+//   libraries, as before.
+//
 // Not covered: scripts that a running page makes itself (document.createElement('script')), import map scopes and
 // integrity, and import map keys that are not bare names.
 import { parse as lexModule } from 'es-module-lexer/minimal/js'
@@ -109,6 +115,10 @@ export function rewriteImports(source: string, swap: (spec: string) => string | 
 
 export interface FrameScriptsOptions {
   folder: string | null
+  /** fetch no team script (an artifact of a shared chat): each is counted in `withheld` */
+  withhold?: boolean
+  /** this server's address (its /vendor/ libraries stay as written); default location.origin */
+  origin?: string
   signal?: AbortSignal
   fetchFile: (path: string, max: number, signal?: AbortSignal) => Promise<Blob>
 }
@@ -120,6 +130,8 @@ export interface FrameScripts {
   external: number
   /** team script files that could not be put in, by path or as written (for the note) */
   missing: string[]
+  /** team script files left out because of `withhold` */
+  withheld: number
 }
 
 type ScriptEl = Element & { textContent: string | null }
@@ -127,8 +139,12 @@ type ScriptEl = Element & { textContent: string | null }
 /** Put the team scripts of a parsed page into it, in place (see the header). */
 export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions): Promise<FrameScripts> {
   const scripts = (Array.from(doc.querySelectorAll('script')) as ScriptEl[]).filter((el) => el.namespaceURI !== 'http://www.w3.org/2000/svg')
-  if (!scripts.length) return { changed: false, external: 0, missing: [] }
+  if (!scripts.length) return { changed: false, external: 0, missing: [], withheld: 0 }
   const pageFolder = o.folder
+  const origin = o.origin ?? (typeof location === 'undefined' ? '' : location.origin)
+  /** this server's vendor libraries (allowed by the frame's CSP): kept as written */
+  const vendor = (raw: string) => { const v = raw.trim(); return v.startsWith('/vendor/') || (!!origin && v.startsWith(`${origin}/vendor/`)) }
+  const withheld = new Set<string>()
   const external = new Set<string>()
   const missing = new Set<string>()
   let changed = false
@@ -158,7 +174,8 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
     if (module) isModule.add(path)
     if (texts.has(path)) return
     texts.set(path, null)
-    if (!SCRIPT_FILE.test(path) || texts.size > FRAME_SCRIPTS_MAX || pageFolder === null) missing.add(path)
+    if (o.withhold) withheld.add(path)
+    else if (!SCRIPT_FILE.test(path) || texts.size > FRAME_SCRIPTS_MAX || pageFolder === null) missing.add(path)
     else queue.push(path)
   }
   const note = (raw: string, r: Ref) => {
@@ -168,7 +185,7 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
   const srcOf = (el: ScriptEl) => Array.from(el.attributes).find((a) => a.name.toLowerCase() === 'src')
   for (const el of [...classic, ...modules]) {
     const a = srcOf(el)
-    if (!a) continue
+    if (!a || vendor(a.value)) continue
     const r = classifyRef(a.value, pageFolder)
     note(a.value, r)
     if (r.kind === 'team') want(r.path, modules.includes(el))
@@ -182,6 +199,7 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
   const decoder = new TextDecoder()
   const follow = (source: string, from: string) => {
     for (const { spec, r } of specRefs(source, from)) {
+      if (vendor(spec)) continue
       note(spec, r)
       if (r.kind === 'team') want(r.path, true)
     }
@@ -213,6 +231,7 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
   // a module's text with its team imports as keys (a web or unknown import stays as written: CSP or the browser
   // refuses it and the page reports it; a web one named through the import map becomes that address)
   const rewrite = (source: string, from: string) => rewriteImports(source, (spec) => {
+    if (vendor(spec)) return null
     const r = classifySpecifier(spec, from, pageFolder ?? '', imports)
     if (r.kind === 'team') return moduleKey(r.path)
     if (r.kind === 'external' && !/^https?:|^\/\//i.test(spec)) return mapBare(spec, imports)
@@ -226,7 +245,7 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
 
   for (const el of classic) {
     const a = srcOf(el)
-    if (!a) continue
+    if (!a || vendor(a.value)) continue
     const r = classifyRef(a.value, pageFolder)
     if (r.kind === 'external') { a.value = webScript(a.value.trim()); changed = true; continue }
     if (r.kind !== 'team' && r.kind !== 'blocked') continue
@@ -243,6 +262,7 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
       if (after !== before) { el.textContent = after; changed = true }
       continue
     }
+    if (vendor(a.value)) continue
     const r = classifyRef(a.value, pageFolder)
     if (r.kind !== 'team' && r.kind !== 'blocked') continue
     // an inline module that imports the key (a <script src> takes no import map key, and a data: URL of its own
@@ -262,5 +282,5 @@ export async function resolveFrameScripts(doc: Document, o: FrameScriptsOptions)
     head.prepend(el)
     changed = true
   }
-  return { changed, external: external.size, missing: [...missing] }
+  return { changed, external: external.size, missing: [...missing], withheld: withheld.size }
 }

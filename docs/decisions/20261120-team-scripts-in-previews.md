@@ -23,6 +23,12 @@
   module as a `data:` URL. The page's own import map is removed. A module `src` becomes an inline module that imports
   its key, so a module is one copy however many import it; cycles work. A spike and the e2e test run this in the real
   receiver frame in Chromium and WebKit.
+- **Shared chats:** an artifact of a shared chat gets no team scripts (a note says so: save the page to the team
+  folder and open it there). Other people open those artifacts, a page may come from another person's turn, and an
+  artifact has no page file for the `embedIn` check, so the viewer's own private scripts could end up in a page that
+  someone else wrote. A team HTML file is not affected: `embedIn` covers it. Images keep their rule.
+- **Vendor libraries:** `/vendor/…` and this server's own `<origin>/vendor/…` stay as written (the CSP allowed them
+  before).
 - **Caps:** only `.js`, `.mjs`, `.cjs` files; at most 5 MB of script files per page and 100 files, separate from the
   image caps.
 - **Notes:** above the frame, web scripts that do not run and team scripts that could not be put in (missing, not
@@ -35,10 +41,13 @@
 - **save_url:** it also takes JavaScript files: the Content-Type (`text/javascript`, `application/javascript`, …) or a
   `.js` / `.mjs` / `.cjs` name says so, and the bytes are text (no NUL, not a page, not a `#!` program). The AI is
   told (artifact tool, save_url description, the system prompt line on previews) to save a library next to the page
-  and reference it by a relative path, never a CDN.
+  and reference it by a relative path, never a CDN. Three.js ships modules only (`three.module.js` imports
+  `./three.core.js`, addons import `three`), so the words name both files and the import map. Each CDN address the AI
+  did not see in the chat asks the person on a card, as for any save_url.
 - **Why no new leak:** a page's inline code could do everything an inlined library does; the library's bytes pass
   the same check as an image (everyone who can read the page can read the file), so a script never sees a file that a
-  reader of the page could not open. The remaining channel (a host name a script makes the browser connect to) is the
+  reader of the page could not open. An artifact gets team scripts only in a chat of one person, where the page and
+  the viewer's permissions are that person's own. The remaining channel (a host name a script makes the browser connect to) is the
   same as for any scripted page and stays closed by the confidential-chat rule.
 - **Left out:** scripts that a running page adds itself (`document.createElement('script')`), import map `scopes`
   and `integrity`, import map keys that are not bare names.

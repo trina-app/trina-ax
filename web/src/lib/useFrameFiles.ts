@@ -5,27 +5,28 @@
 import { useEffect, useState } from 'react'
 import { resolveFrameFiles, type FrameFiles } from './frame-files'
 
-type For = { html: string; folder: string | null; embedIn?: string; scripts: boolean }
+type For = { html: string; folder: string | null; embedIn?: string; scripts: boolean; withhold: boolean }
 
-export function useFrameFiles(html: string | null, o: { folder: string | null; embedIn?: string; scripts?: boolean }): FrameFiles | null {
+export function useFrameFiles(html: string | null, o: { folder: string | null; embedIn?: string; scripts?: boolean; withholdScripts?: boolean }): FrameFiles | null {
   const [state, setState] = useState<{ for: For; out: FrameFiles } | null>(null)
   const { folder, embedIn } = o
   const scripts = !!o.scripts
+  const withhold = !!o.withholdScripts
   useEffect(() => {
     if (html === null) return
     const ctrl = new AbortController()
     let live = true
-    const key: For = { html, folder, embedIn, scripts }
-    resolveFrameFiles(html, { folder, embedIn, scripts, signal: ctrl.signal }).then(
+    const key: For = { html, folder, embedIn, scripts, withhold }
+    resolveFrameFiles(html, { folder, embedIn, scripts, withholdScripts: withhold, signal: ctrl.signal }).then(
       (out) => { if (live) setState({ for: key, out }) },
-      () => { if (live && !ctrl.signal.aborted) setState({ for: key, out: { html, external: 0, missing: 0, externalScripts: 0, missingScripts: [] } }) },
+      () => { if (live && !ctrl.signal.aborted) setState({ for: key, out: { html, external: 0, missing: 0, externalScripts: 0, missingScripts: [], withheldScripts: 0 } }) },
     )
     return () => {
       live = false
       ctrl.abort()
     }
-  }, [html, folder, embedIn, scripts])
+  }, [html, folder, embedIn, scripts, withhold])
   const f = state?.for
-  if (html === null || !f || f.html !== html || f.folder !== folder || f.embedIn !== embedIn || f.scripts !== scripts) return null
+  if (html === null || !f || f.html !== html || f.folder !== folder || f.embedIn !== embedIn || f.scripts !== scripts || f.withhold !== withhold) return null
   return state!.out
 }

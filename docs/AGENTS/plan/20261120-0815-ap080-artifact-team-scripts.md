@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 08:15
 - Branch: `ap080-artifact-team-scripts`
-- Status: in progress
+- Status: done
 - Where: web (lib/frame-files.ts, a new lib/frame-scripts.ts, the panels), server (save_url file kinds, AI tool words).
   Why: the artifact panel runs only inline code, so a page that needs a library (Three.js) does not run (AI parity QA
   AP-080).
@@ -70,4 +70,12 @@ Out:
 
 ## Result
 
-(at the end)
+Built as planned, with these changes found on the way:
+- Modules were needed, not optional: Three.js (0.186) ships no classic build; `three.module.js` imports
+  `./three.core.js` and addons import the bare name `three`. The AI words name both files and the import map.
+- save_url refused JavaScript, so the AI could not save a library: it now takes .js / .mjs / .cjs text files.
+- A classic web `<script src>` becomes a script that throws its address, so the frame never asks for it.
+- An artifact of a shared chat gets no team scripts (other people open it; an artifact has no page file for
+  `embedIn`); a note says so. `/vendor/` scripts stay as written.
+- Manual check: a Three.js r186 warehouse page from the team folder renders in the file preview and the artifact
+  panel (screenshots in the PR).

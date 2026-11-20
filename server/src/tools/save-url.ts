@@ -334,7 +334,7 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')
     const rel = made.path
     const pageHint = k.name === 'js'
-      ? ` To run it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: <script src="${rel.split('/').slice(-2).join('/')}">, or import it from a <script type="module">); previews put team script files into the page, never web addresses.`
+      ? ` To use it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: <script src="${rel.split('/').slice(-2).join('/')}"> for a classic script, or import "./${rel.split('/').slice(-2).join('/')}" in a <script type="module">). An ES module needs every file it imports saved next to it, with the same relative paths. Previews put team script files into the page, never web addresses.`
       : k.image || k.media === 'video' || k.media === 'audio'
       ? ` To show it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: "${rel.split('/').slice(-2).join('/')}"); previews show only team files.`
       : k.media === 'archive' ? ' It was saved as it is (not unzipped); unzip_file opens it when the user wants the files inside.'

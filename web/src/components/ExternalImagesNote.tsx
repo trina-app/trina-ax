@@ -23,7 +23,7 @@ export default function ExternalImagesNote({ count }: { count: number }) {
 
 /** Whether FrameNotes shows anything for these files. */
 export function hasFrameNotes(f: FrameFiles | null): boolean {
-  return !!f && (f.external > 0 || f.externalScripts > 0 || f.missingScripts.length > 0)
+  return !!f && (f.external > 0 || f.externalScripts > 0 || f.missingScripts.length > 0 || f.withheldScripts > 0)
 }
 
 /** The notes above a frame that runs scripts: web images, web scripts, team scripts not put in. */
@@ -38,6 +38,12 @@ export function FrameNotes({ files }: { files: FrameFiles }) {
         <p role="status" className={NOTE} data-testid="web-scripts-note">
           <FileWarning size={14} className="mt-px shrink-0" aria-hidden />
           {t('preview.webScripts', { n: files.externalScripts })}
+        </p>
+      )}
+      {files.withheldScripts > 0 && (
+        <p role="status" className={NOTE} data-testid="shared-scripts-note">
+          <FileWarning size={14} className="mt-px shrink-0" aria-hidden />
+          {t('preview.sharedChatScripts', { n: files.withheldScripts })}
         </p>
       )}
       {files.missingScripts.length > 0 && (

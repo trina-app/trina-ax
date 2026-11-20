@@ -299,8 +299,10 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
       '"create" or "rewrite" with full `content`; "update" with `edits` [{ old, new }] (each `old` must appear exactly once in the latest version). ' +
       '`key` names the artifact within this chat; every change is a new version. ' +
       'The preview shows only team files, never web addresses: save an image into the team folder first (save_url) and reference it by its team path (<img src="landing/images/hero.png">). ' +
-      'The same for a JavaScript library (Three.js, Chart.js, D3): never a CDN address, which does not run here; save the library file with save_url next to the page and reference it by its team path ' +
-      '(<script src="warehouse/lib/three.min.js">, or <script type="module"> with import ... from "./warehouse/lib/three.module.js" and relative imports between the files). Paths in an artifact start at the team root; in an HTML file they are relative to its folder.',
+      'The same for JavaScript libraries (Three.js, Chart.js, D3): a CDN address does not run here. Save each file the page loads with save_url into one team folder, with the same relative layout as the package, ' +
+      'and every file a module imports (Three.js: build/three.module.js and build/three.core.js, which it imports; an addon such as examples/jsm/controls/OrbitControls.js into addons/controls/). ' +
+      'Load a classic file with <script src="<team path>">; load modules from a <script type="module"> with an import map, e.g. {"imports":{"three":"<folder>/three.module.js","three/addons/":"<folder>/addons/"}}. ' +
+      'Paths in an artifact start at the team root; in an HTML file they are relative to its folder. Do not fall back to "open the file elsewhere".',
     input: ArtifactInput,
     describe: (a) => `artifact ${a.action} ${a.key}`,
     run(a, t) {

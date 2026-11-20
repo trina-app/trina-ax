@@ -12,7 +12,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, type ArtifactType, type IntroDeckInfo, type PromoVideoInfo } from '@mycel/shared/api'
 import { api, API, errorText, saveBlob, startDownload } from '../lib/api'
 import { artifactFailure, artifactFileName, buildArtifactDocument, fixPromptError, fixPromptWords, FRAME_TYPES, staticSource, sucraseCompile, type CompileFn, type FrameDoc } from '../lib/artifacts'
-import { useFrameScripts } from '../lib/confidential'
+import { useFrameScripts, useSharedChat } from '../lib/confidential'
 import { joinPath } from '../lib/paths'
 import { useArtifactContent, useChatArtifacts } from '../lib/useArtifacts'
 import { useLocale, useT } from '../i18n'
@@ -52,6 +52,8 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const [pickFolder, setPickFolder] = useState(false)
   // a confidential chat outside the desktop app: shown without scripts (lib/artifacts.ts frameRunsScripts)
   const scripts = useFrameScripts(chatId)
+  // a shared chat: other people open its artifacts, so they get no team scripts (lib/frame-scripts.ts withhold)
+  const sharedChat = useSharedChat(chatId)
 
   useEffect(() => {
     setPicked(versionId ?? null)
@@ -77,7 +79,7 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked). In a
   // frame that runs scripts, its team script files too (lib/frame-scripts.ts).
   const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
-  const files = useFrameFiles(inlines ? artifact!.content : null, { folder: '', scripts: scripts === true })
+  const files = useFrameFiles(inlines && sharedChat !== null ? artifact!.content : null, { folder: '', scripts: scripts === true, withholdScripts: sharedChat !== false })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true

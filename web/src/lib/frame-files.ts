@@ -170,6 +170,10 @@ export interface FrameFilesOptions {
   embedIn?: string
   /** the frame runs scripts: also put in the page's team script files (lib/frame-scripts.ts); a static view does not */
   scripts?: boolean
+  /** with `scripts`: fetch no team script, count them (an artifact of a shared chat: lib/frame-scripts.ts) */
+  withholdScripts?: boolean
+  /** tests: this server's address (default location.origin) */
+  origin?: string
   signal?: AbortSignal
   /** tests: how a file is fetched (default fetchFileBlob with the person's session) */
   fetchFile?: (path: string, max: number, signal?: AbortSignal) => Promise<Blob>
@@ -189,6 +193,8 @@ export interface FrameFiles {
   externalScripts: number
   /** team script files that could not be put in, by path (only with `scripts`) */
   missingScripts: string[]
+  /** team script files left out on purpose (withholdScripts) */
+  withheldScripts: number
 }
 
 /** The page with its team images and clips inlined (see the header). */
@@ -215,8 +221,8 @@ export async function resolveFrameFiles(html: string, o: FrameFilesOptions): Pro
     }
   }
   const fetchFile = o.fetchFile ?? ((p: string, max: number, signal?: AbortSignal) => fetchFileBlob(p, max, signal, { embedIn: o.embedIn }))
-  const js = o.scripts ? await resolveFrameScripts(doc, { folder: o.folder, signal: o.signal, fetchFile }) : { changed: false, external: 0, missing: [] }
-  const counts = { externalScripts: js.external, missingScripts: js.missing }
+  const js = o.scripts ? await resolveFrameScripts(doc, { folder: o.folder, withhold: o.withholdScripts, origin: o.origin, signal: o.signal, fetchFile }) : { changed: false, external: 0, missing: [], withheld: 0 }
+  const counts = { externalScripts: js.external, missingScripts: js.missing, withheldScripts: js.withheld }
   if (!refs.size && !js.changed) return { html, external: 0, missing: 0, ...counts }
   let total = 0
   let next = 0

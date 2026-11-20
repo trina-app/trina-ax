@@ -194,6 +194,21 @@ describe('helpers', () => {
 })
 
 describe('when nothing is fetched', () => {
+  test('an artifact of a shared chat (withholdScripts): no team script is fetched; each is counted for the note', async () => {
+    const r = await run('<script src="lib/a.js"></script><script type="module">import "./lib/b.js"</script>', '', { 'lib/a.js': 'x', 'lib/b.js': 'y' }, { withholdScripts: true })
+    expect(r.asked).toEqual([])
+    expect(r.withheldScripts).toBe(2)
+    expect(r.missingScripts).toEqual([])
+    expect(scriptsOf(r.html)[0]!.getAttribute('src')).toBe(missingScript('lib/a.js'))
+    expect(importMap(r.html)).toBeNull()
+  })
+  test('this server\'s /vendor/ libraries stay as written (the frame\'s CSP allows them, as before)', async () => {
+    const page = '<script src="/vendor/tailwind.js"></script><script src="https://team.test/vendor/mermaid.js"></script><script type="module">import m from "/vendor/mermaid.js"</script>'
+    const r = await run(page, 'wh', {}, { origin: 'https://team.test' })
+    expect(r.asked).toEqual([])
+    expect(r.html).toBe(page)
+    expect(r.externalScripts + r.missingScripts.length).toBe(0)
+  })
   test('a static view (no `scripts`): scripts are not fetched or changed', async () => {
     const r = await run('<script src="a.js"></script>', '', { 'a.js': 'x' }, { scripts: false })
     expect(r.asked).toEqual([])
