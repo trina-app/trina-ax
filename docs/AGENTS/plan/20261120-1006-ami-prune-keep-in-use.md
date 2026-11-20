@@ -50,7 +50,7 @@ none (tightens the existing prune rule of RELEASE-CI §10; no new design choice 
 
 ## Risks
 
-More AMIs kept: each is a ~20 GiB snapshot per region, a few dollars a month. Nothing is deleted that was kept before.
+More AMIs kept: one 4–6 GB snapshot per region each, about $1–2 a month more in all. Nothing is deleted that was kept before.
 
 ## Tests
 
