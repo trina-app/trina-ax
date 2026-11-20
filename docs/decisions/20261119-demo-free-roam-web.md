@@ -37,7 +37,10 @@
     - any request is refused with 403 and `params.reason: demo_limit` (lib/api.ts onDemoLimit);
     - an answer ends with that reason.
   - The dialog ("You've used this demo's AI" / "Everything you made stays here to look around." / Start free / Look
-    around) opens once per tab (sessionStorage). Then every AI message box does not send and shows one calm line with
+    around) opens once when the limit is reached on the open page (an answer that ends at or over it, a refusal at
+    it), whatever the tab showed before (QA TC-5575: an earlier instance on the same address kept the tab's flag, and
+    only the line showed). A page loaded at the limit opens it only if this tab has not shown it (sessionStorage).
+    Then every AI message box does not send and shows one calm line with
     Start free: the chat's, Home's, and ✦ in a room. The room's own box is untouched.
   - Start free opens the demo file's `signupUrl` in a new tab. Without one, there is no button.
 

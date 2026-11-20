@@ -564,7 +564,8 @@ export function environmentSection(kind: RunKind = 'selfhost', subagent = false)
   // a hosted team's server is not "in the office" (it said so to every hosted team; chat/situation.ts serverWhere)
   // no "server" anywhere the AI might repeat it: "I'd do more on the team's server" reached a member (AI scenario
   // ADM-07.member, 2026-11-17; plainWordsRule keeps it out of answers)
-  `You run in the team's ${PRODUCT.displayName} (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  // "the team's <app>" read as the team's name: "Your team is <app>'s Marketing group" (QA TC-5577)
+  `You run inside ${PRODUCT.displayName}, the app the team works in (${serverWhere(kind)}), NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them; they can also attach files from the team drive.',
   // a sub-agent reports to the assistant, which needs the team paths (subagentPromptSections); the person reads names
   subagent
@@ -582,9 +583,9 @@ export const ENVIRONMENT = environmentSection()
 /** Where the engine runs, for a guest (guestSection): no "team drive" and no Files screen, which a guest does not have. */
 export const GUEST_ENVIRONMENT = [
   '## Where you run',
-  `You run in the team's ${PRODUCT.displayName}, NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
+  `You run inside ${PRODUCT.displayName}, the app the team works in, NOT on the user's computer. The user talks to you from their own device (web browser, desktop app or phone) and may be anywhere.`,
   '- You cannot see or open anything on the user\'s device: no local files, Desktop, Downloads, apps, clipboard or screen. Files from their device reach you only when they attach them.',
-  `- Everything you save stays in the team's ${PRODUCT.displayName}, in the folders listed above. Say where by the file and folder names, not the path; the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.`,
+  `- Everything you save stays in the team's files in ${PRODUCT.displayName}, in the folders listed above. Say where by the file and folder names, not the path; the user opens or downloads it from the file card under your answer. Never say you saved or opened something on their computer.`,
   '- You work only through the tools offered here: nothing else on that computer (its other folders or settings) is open to you.',
   '- If your environment says the sandbox is read-only or that approvals are off, that is about that computer\'s own disk only. Saving files with the write and edit tools is allowed: the app checks each call and answers if access is denied.',
 ].join('\n')
@@ -1052,10 +1053,26 @@ export const TITLE_RULE = 'The set_title tool is offered only at the start of a 
  * how to use it; this says what is different here (S2: the number at once, so the model does not tell a person to set
  * an environment variable when the fifth is refused).
  */
+/**
+ * The team's own name, and that the product's name is the app's (QA TC-5577: with only "the team's <app>" in the
+ * instructions, the AI said "Your team is <app>'s Marketing group" / "팀 이름은 <app>" on a team called Steepling).
+ * The name is Admin › Team settings' (teamName), on one line; none (or the default, the product's name): only what the
+ * product's name is.
+ */
+export function teamNameLine(teamName: string | null | undefined): string {
+  const app = `${PRODUCT.displayName} is the name of the app the team works in, never the name of the team or its company`
+  // the setting's default is the product's name (admin/settings.ts): a team that never named itself has no name here
+  const name = neutralizeTags(oneLine(teamName ?? '')).trim().slice(0, 100)
+  return name && name !== PRODUCT.displayName ? `The team is called "${name.replace(/"/g, "'")}". ${app}: when asked what the team or the company is called, say "${name.replace(/"/g, "'")}".` : `${app}.`
+}
+
 /** A free-roam demo instance (docs/decisions/20261119-demo-free-roam-a.md): what it leaves out, said once and plainly (the demo file's company, e.g. Steepling). The
  * server refuses those tools and endpoints whatever the AI says (demo/guard.ts); this keeps the answer honest. */
 export function demoRule(company: string): string {
-  return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can.`
+  // QA TC-5572: asked how to delete the account or see usage, the AI pointed to "Profile › Delete account" and
+  // "Settings › Usage", pages this demo does not have
+  return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can. ` +
+    'Changing or deleting the account, changing the email address or password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).'
 }
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try
@@ -1284,7 +1301,8 @@ export function turnPromptSections(files: FileService, i: PromptInput): Section[
   // the same section for every engine and the sub-agents (move_skill's own description says how to move one)
   const skills = i.guest ? '' : skillsSection(files, i.user, i.skillList, i.roomReadable, { project: chatProjectOf(i), scripts: tools.has('box_shell') })
   const base = [
-    i.guest ? `You are the team assistant of ${PRODUCT.displayName}, here helping a guest of the team (see "Guest" below).` : `You are the team assistant of ${PRODUCT.displayName}, working in the team's shared drive.`,
+    i.guest ? `You are the team assistant of this team in ${PRODUCT.displayName} (the app), here helping a guest of the team (see "Guest" below).` : `You are the team assistant of this team in ${PRODUCT.displayName} (the app), working in the team's shared drive.`,
+    teamNameLine(getTeamSettings(files.db).teamName),
     `Team files are available ONLY through the ${TEAM_TOOL_PREFIX}* tools (list, glob, grep, read, write, edit). Paths are relative to the team root, e.g. "${i.guest ? `users/${i.user.id}/notes.md` : 'shared/notes.md'}".`,
     `You have no other file access. If a tool refuses (for example "read-only: you cannot change …"), tell the user plainly; do not try to work around it. A tool answer "Access denied: not found or no access: '…'" is the same for a file that does not exist and one this person cannot open, on purpose: say you could not find it in the files they can open, and do not say or guess that it exists or that permission is the reason. Next step: ${i.guest ? 'if it should be there, check the name and folder with the user; if it still is not found, the person who invited them can check whether they should have access' : notFoundNext()}.`,
     // QA TC-326: the answer says so, so the person knows the document tried

@@ -110,7 +110,8 @@ export class Client {
     for (const sc of res.headers.getSetCookie()) {
       const [pair] = sc.split(';')
       const [k, v] = pair!.split('=')
-      if (k === '__Host-sid' || k === 'mycel-dev-sid') this.cookie = v ? `${k}=${v}` : null
+      // 'sid': a free-roam demo's own name on plain http (auth/service.ts FREE_ROAM_SESSION_COOKIE)
+      if (k === '__Host-sid' || k === 'mycel-dev-sid' || k === 'sid') this.cookie = v ? `${k}=${v}` : null
     }
     this.lastHeaders = res.headers
     return res

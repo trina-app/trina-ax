@@ -20,6 +20,7 @@ import { APP_NAMES, APP_SLUGS, placeholderUrl } from '../integrations/google-app
 import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { DRIVE_SCOPE } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { higgsfieldSavedTools } from '../demo/fakes/higgsfield'
 import { demoOf } from './demo'
 
 /** the made-up secrets start with this, so a scan of a snapshot can tell them from a real one */
@@ -101,13 +102,15 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
       return { id }
     }
     // higgsfield: the team's, for everyone (the story's banner was shot with it). No secret at all (auth none): the
-    // demo's fake answers its address (server/src/demo/fakes/higgsfield.ts), and there is no sign-in to make up
+    // demo's fake answers its address (server/src/demo/fakes/higgsfield.ts), and there is no sign-in to make up. Its
+    // saved tools are the fake's list, as a check of the connection would have saved them: a connection's turn tools
+    // come from that list, and with '[]' the AI had no image tool (QA TC-5559)
     const id = newId()
     db.transaction(() => {
       db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
         write_policy, status, last_error, tools_json, tools_updated_at, last_used_at, version, created_at, updated_at)
-        VALUES (?, 'team', NULL, ?, 'mcp', 'Higgsfield', 'higgsfield', ?, 'none', NULL, NULL, 1, ?, NULL, 'allow', 'connected', NULL, '[]', NULL, NULL, 1, ?, ?)`)
-        .run(id, auth.user.id, HIGGSFIELD_URL, account, now, now)
+        VALUES (?, 'team', NULL, ?, 'mcp', 'Higgsfield', 'higgsfield', ?, 'none', NULL, NULL, 1, ?, NULL, 'allow', 'connected', NULL, ?, ?, NULL, 1, ?, ?)`)
+        .run(id, auth.user.id, HIGGSFIELD_URL, account, JSON.stringify(higgsfieldSavedTools()), now, now, now)
       setAccess(db, id, { everyone: true, groups: [], users: [] })
     })()
     integrationsOf(ctx).forget(id)

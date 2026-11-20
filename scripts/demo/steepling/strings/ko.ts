@@ -131,6 +131,14 @@ export const ko: FreeRoamStrings = {
     { id: 'photo-ideas', name: '런칭 사진 아이디어', mimeType: 'application/vnd.google-apps.document', folder: '', minutesAgo: 4 * 1440, text: '런칭 사진 아이디어\n\n- 성에 낀 창가, 아침 햇살\n- 아이스 잔 옆에 초록 파우치\n- 사진 안에는 글자 넣지 않기\n' },
   ],
 
+  skillTitles: {
+    'brand-guide': '브랜드 가이드',
+    'social-posts': 'SNS 글 쓰기',
+    'press-release': '보도자료 초안',
+    'competitor-roundup': '경쟁사 요약',
+    handover: '인수인계 도우미',
+  },
+
   suggestions: [
     { label: '다음 주 SNS 글 만들기', prompt: 'SNS 글 스킬로 다음 주 유자 진저 인스타 글 써 줘' },
     { label: '크리스 답장 확인하기', prompt: '크리스님이 내 메일에 답장했어? Gmail 확인해 줘' },

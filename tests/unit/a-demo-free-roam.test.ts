@@ -7,7 +7,8 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { API, DEMO_LIMIT_DEFAULT, type DemoFile, type Endpoint } from '../../shared/src/api'
+import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoFile, type Endpoint } from '../../shared/src/api'
+import { cookieFor, FREE_ROAM_SESSION_COOKIE } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
 import { demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/budgets'
@@ -18,6 +19,7 @@ import { setSetting } from '../../server/src/admin/settings'
 import { DEMO_AI_LABEL, demoRestError, freeRoamDenyRead, freeRoamTurnError, startFreeRoam } from '../../server/src/demo/free-roam'
 import { DEMO_GATE_DIR, demoDenyReadDirs, sandboxProfile, setDemoDenyRead } from '../../server/src/tools/isolate'
 import { FREE_ROAM_REFUSED_TOOLS, freeRoamFenceOf } from '../../server/src/demo/guard'
+import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { issueProxyToken, startModelProxy, type ProxyTurnEvent } from '../../server/src/proxy/model-proxy'
 import { CLAUDE_TOKEN_RE, verifySecret } from '../../server/src/credentials/validate'
 import { markInvalid, markNeedsReconnect, markNoCredit } from '../../server/src/credentials/store'
@@ -119,6 +121,22 @@ describe('a free-roam demo server', () => {
     // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
     expect(info.builder).toBeUndefined()
     expect(JSON.stringify(info)).not.toContain(PW)
+    // QA TC-5578: the session cookie has the free-roam name, never the plain-http "mycel-dev-sid"
+    expect(mina.cookie).toMatch(/^sid=[A-Za-z0-9_-]{20,}$/)
+    // every other server keeps its names: the plain-http one and __Host-sid on https (free roam too)
+    expect(cookieFor('http://127.0.0.1:4000/api/auth/login')).toEqual({ name: DEV_SESSION_COOKIE, secure: false })
+    expect(cookieFor('http://127.0.0.1:4000/api/auth/login', true)).toEqual({ name: FREE_ROAM_SESSION_COOKIE, secure: false })
+    expect(cookieFor('https://team.example/api/auth/login', true)).toEqual({ name: SESSION_COOKIE, secure: true })
+  })
+
+  test('usage, cost, engine and model reads are refused in the visitor\'s words (QA TC-5578)', async () => {
+    for (const p of [`${API.myUsage.path}?period=month`, API.chatEngines.path]) {
+      const r = await mina.try('GET', p)
+      expect(r.status).toBe(403)
+      expect(r.body.error.params).toEqual({ reason: 'demo_fenced', area: 'usage' })
+      expect(['데모에서는 사용량과 AI 엔진·모델을 볼 수 없어요.', "Not in the demo: usage and the AI's engine and model aren't shown."]).toContain(r.body.error.message)
+      expect(JSON.stringify(r.body)).not.toMatch(/costUsd|claude-code|sonnet|opus/i)
+    }
   })
 
   test('the team\'s AI is one "Demo AI" stand-in connection; every other one is off, members\' own are off', async () => {
@@ -145,7 +163,9 @@ describe('a free-roam demo server', () => {
       'createCredential', 'createMyCredential', 'startMyCredentialLogin', 'authorizeDrive', 'authorizeGoogleApp', 'createIntegration',
       'connectIntegrationTemplate', 'startSlackSignIn', 'decideRemoteConnectorConsent', 'createRoomApp',
       'createScheduleFromTemplate', 'runScheduleNow', 'registerPushDevice', 'subscribePush', 'connectInfo', 'installPlugin',
-      'devEnv', 'myDevEnvRuns', 'transcribe', 'renderPromoVideo', 'pollLocalCalls', 'diagnostics', 'startUpdate']) {
+      'devEnv', 'myDevEnvRuns', 'transcribe', 'renderPromoVideo', 'pollLocalCalls', 'diagnostics', 'startUpdate',
+      // QA TC-5578: the real AI account's engine, model and cost
+      'myUsage', 'chatEngines']) {
       expect(names.has(n)).toBe(true)
     }
     // what a visitor uses stays
@@ -288,6 +308,22 @@ describe('a free-roam turn: its tools, no web search or sub-agents, the demo lin
     for (const t of ['read', 'write', 'make_file', 'remember', 'ask_user', 'post_to_room', 'share_file', 'artifact', 'intro_deck', 'skill', 'rooms', 'save_connector_file']) expect(offered).toContain(t)
   })
 
+  test('the snapshot builder\'s Higgsfield keeps the fake\'s tools, and the free-roam turn offers them (QA TC-5559)', async () => {
+    const free = h.ctx.config.demo
+    // the builder runs on the scripted demo the snapshot starts as (its routes are the owner's, fenced in free roam)
+    ;(h.ctx.config as { demo?: DemoFile }).demo = { ...SCRIPTED, builder: true, personas: [{ key: 'newHire', username: 'alice', intro: 'x', questions: [] }] }
+    try {
+      const r = await h.api('dana').call(API.demoBuilderConnection, { body: { service: 'higgsfield', account: { name: 'Steepling', email: 'team@steepling.example' } } })
+      const row = h.ctx.db.query('SELECT tools_json FROM integrations WHERE id = ?').get(r.id) as { tools_json: string }
+      const saved = JSON.parse(row.tools_json) as { name: string }[]
+      expect(saved.length).toBeGreaterThan(0)
+      expect(saved.map((t) => t.name)).toEqual(HIGGSFIELD_TOOLS.map((t) => t.name))
+    } finally { (h.ctx.config as { demo?: DemoFile | null }).demo = free }
+    const offered = (await ask(h, alice, 'alice', await chat(), fake({ echo: 'tools' }))).done.content.split(',')
+    expect(offered).toContain('team_higgsfield__generate_image')
+    expect(offered.filter((n) => n.startsWith('team_higgsfield__')).sort()).toEqual(HIGGSFIELD_TOOLS.map((t) => `team_higgsfield__${t.name}`).sort())
+  })
+
   test('a refused tool called anyway is unknown; intro_deck\'s site reader is refused, nothing fetched', async () => {
     const wf = (await ask(h, alice, 'alice', await chat(), fake({ tool: 'web_fetch', args: { url: 'https://example.com' }, sayResult: true }))).done.content
     expect(wf).toMatch(/unknown tool|not (offered|available)|Error/i)
@@ -305,6 +341,9 @@ describe('a free-roam turn: its tools, no web search or sub-agents, the demo lin
     expect(denied.split(',')).toContain('Agent')
     const system = (await ask(h, alice, 'alice', await chat(), fake({ echo: 'system' }))).done.content
     expect(system).toContain("This is a public demo of a fictional company (Steepling). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can.")
+    // QA TC-5572: account, email, usage and billing, AI providers: not in the demo, and no page named for them
+    expect(system).toContain('Changing or deleting the account, changing the email address or password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either')
+    expect(system).toContain('never point to a page or setting for it')
   })
 })
 
