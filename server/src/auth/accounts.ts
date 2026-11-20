@@ -1,5 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
-import { reportTeamName } from '../system/cloud-team-name'
+import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
@@ -141,6 +141,9 @@ export interface OwnerInput { username: string; name: string; password: string; 
  * concurrent setups cannot both win). Used by POST /api/setup and the server CLI.
  */
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
+  // a hosted team's name must be one the hosting service takes (system/cloud-team-name.ts)
+  const named = hostedTeamName(ctx, o.teamName)
+  o = { ...o, teamName: 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', o.locale), { fields: { 'body.teamName': named.problem } }) }
   const passwordHash = await hashPassword(o.password)
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {

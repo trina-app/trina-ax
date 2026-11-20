@@ -12,7 +12,7 @@ import { TAILNET_RELOAD_MS, tailnetListener } from './http/tailnet-listener'
 import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
 import { getTeamSettings, syncFollowingLocales } from './admin/settings'
-import { reportTeamName } from './system/cloud-team-name'
+import { reportTeamNameAtStart } from './system/cloud-team-name'
 import { createLogger, type Logger } from './log'
 import { ERROR_REPORT_ENV, errorReportsFrom, reportLogLine, reportServerCrashes, setErrorReports } from './system/error-reports'
 import { applyPendingRestore, recordRestore } from './system/backup'
@@ -297,8 +297,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   try { retireLegacyDefaultSkills(ctx.db) } catch (e) { log.warn('the old default skills not recorded as retired', { err: e }) }
   // old open invite links that lead to the intro deck: pointed once at the landing skill (docs/DECISIONS.md "W5")
   try { const n = repointDeckLinks(ctx); if (n) log.info('invite links pointed at the landing skill', { n }) } catch (e) { log.warn('invite links to the intro deck not repointed', { err: e }) }
-  // a hosted team's name on the hosting service: a rename it missed (unreachable, or before this release) reaches it now
-  if (cfg.mode === 'prod' && isHosted(cfg) && userCount(db) > 0) void reportTeamName(ctx, getTeamSettings(db).teamName)
+  // a hosted team's name on the hosting service: a rename it missed (unreachable, or before this release) reaches it
+  // now, after a random 0-60 s
+  if (cfg.mode === 'prod' && isHosted(cfg) && userCount(db) > 0) reportTeamNameAtStart(ctx, () => getTeamSettings(db).teamName)
   if (cfg.setupToken) {
     // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
     if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)

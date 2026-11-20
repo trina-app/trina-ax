@@ -21,23 +21,36 @@
 // Body:   { v: 1, displayName }   (strict: unknown keys are refused)
 // Answer: { ok: true, changed }   changed = the control plane's name was different and is now this one
 //
-// The name: what the team server shows, without surrounding white space, 1-TEAM_NAME_MAX characters (code points),
-// Unicode NFC, no control characters, no line or paragraph separators, no bidirectional overrides or isolates, no
-// zero-width space or byte order mark (they would let a name look like another in a mail or the console).
-// teamNameProblem() is the one rule: the team server checks a name with it before it sends, the control plane again.
+// The name: what the team server shows, without surrounding white space, 1-TEAM_NAME_MAX characters (code points; the
+// same 60 the hosting service's console allows when a team is made), Unicode NFC, and none of the characters that let a
+// name look like another in a mail or the console: controls, format and private-use characters, line or paragraph
+// separators, every default-ignorable code point (zero-width characters, bidirectional marks, overrides and isolates,
+// the Arabic letter mark, word joiner, soft hyphen, variation selectors, tags, ...), the Hangul fillers and the Braille
+// blank (they show as a space), and more than five combining marks on one letter. A zero-width joiner and variation
+// selector 16 are fine only inside an emoji (👨‍👩‍👧, ❤️). teamNameProblem() is the one rule: the team server checks a
+// name with it when an owner saves it and before it sends, the control plane again.
 import { DRIVE_BROKER_MAX_BODY_BYTES, driveBrokerSigningString } from './drive-broker.ts'
 
 export const TEAM_NAME_PATH = '/api/hosted-team/v1/name'
-/** the team server's own limit for the team name (Admin › Team settings) */
-export const TEAM_NAME_MAX = 100
+/** the longest team name, in code points: the hosting service's console allows 60 when a team is made */
+export const TEAM_NAME_MAX = 60
 export const TEAM_NAME_MAX_BODY_BYTES = DRIVE_BROKER_MAX_BODY_BYTES
 
 export interface TeamNameReport { v: 1; displayName: string }
 export interface TeamNameAnswer { ok: true; changed: boolean }
 
-/** characters a team name may not hold: controls (C0, DEL, C1), unpaired surrogates, line and paragraph separators,
- * bidirectional marks, embeddings, overrides and isolates, zero-width space, byte order mark */
-const BAD = /[\p{Cc}\p{Cs}\p{Zl}\p{Zp}​‎‏‪-‮⁦-⁩﻿]/u
+/** characters a team name may not hold: controls (C0, DEL, C1), format characters (interlinear annotation, ...),
+ * private-use characters, unpaired surrogates, line and paragraph separators,
+ * default-ignorable code points (zero-width space, non-joiner and joiner, bidirectional marks, embeddings, overrides and
+ * isolates, word joiner, soft hyphen, variation selectors, tags, byte order mark, ...), the Arabic letter mark, the
+ * Hangul fillers and the Braille blank (they look like a space). The explicit ones are listed although the property
+ * holds most of them, so a reader sees them. */
+const BAD = /[\p{Cc}\p{Cf}\p{Co}\p{Cs}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}\u061C\u115F\u1160\u3164\uFFA0\u2800\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/u
+/** an emoji with its zero-width joiners, variation selector 16 and skin tones (👨‍👩‍👧, ❤️, 👍🏽): the only place a
+ * joiner or a variation selector may be */
+const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\p{Emoji_Modifier})?)*/gu
+/** more than five combining marks in a row: text stacked over the lines around it */
+const STACKED = /\p{M}{6,}/u
 
 /** null when `name` may be a team name as it is, else a short reason (a code, never the name) */
 export function teamNameProblem(name: unknown): 'not_text' | 'empty' | 'too_long' | 'spaces' | 'not_nfc' | 'bad_character' | null {
@@ -45,7 +58,7 @@ export function teamNameProblem(name: unknown): 'not_text' | 'empty' | 'too_long
   if (name.trim() === '') return 'empty'
   if ([...name].length > TEAM_NAME_MAX) return 'too_long'
   if (name !== name.trim()) return 'spaces'
-  if (BAD.test(name)) return 'bad_character'
+  if (BAD.test(name.replace(EMOJI, 'e')) || STACKED.test(name)) return 'bad_character'
   if (name !== name.normalize('NFC')) return 'not_nfc'
   return null
 }
