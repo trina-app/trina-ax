@@ -3403,6 +3403,7 @@ export const ko = {
   'connectors.github.reposLine': "GitHub에서 이 앱에 고른 저장소만 AI가 볼 수 있어요.",
   'connectors.github.choose': "GitHub에서 고르기",
   'connectors.github.notSetUpAdmin': "이 서버에는 아직 GitHub가 설정되지 않았어요. 서버 운영자가 GitHub 앱을 넣거나, 관리자 › 연결한 서비스에서 우리 회사 GitHub 앱으로 GitHub를 추가할 수 있어요.",
+  'connectors.github.viaTemplate': "팀에서 GitHub를 설정했어요. 내 커넥터에서 연결하세요.",
   'integrations.catalog.gitlab': '프로젝트, 이슈, 머지 리퀘스트를 다뤄요',
   'integrations.catalog.indeed': '채용 공고와 회사 정보를 찾아봐요',
   'integrations.catalog.mermaid': '다이어그램을 만들고 고쳐요',

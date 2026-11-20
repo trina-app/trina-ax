@@ -3360,6 +3360,7 @@ export const ja: Record<MessageKey, string> = {
   'connectors.github.reposLine': "AI が見られるのは、GitHub でこのアプリに選んだリポジトリだけです。",
   'connectors.github.choose': "GitHub で選ぶ",
   'connectors.github.notSetUpAdmin': "このサーバーではまだ GitHub が設定されていません。サーバーの運用者が GitHub App を入れるか、管理 › 連携サービスで自社の GitHub App を使って GitHub を追加できます。",
+  'connectors.github.viaTemplate': "チームで GitHub が設定されました。「自分のコネクター」から接続してください。",
   'integrations.catalog.gitlab': "プロジェクト、イシュー、マージリクエストを扱います",
   'integrations.catalog.indeed': "求人と企業情報を検索します",
   'integrations.catalog.mermaid': "図を作成、編集します",

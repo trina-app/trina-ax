@@ -3360,6 +3360,7 @@ export const es: Record<MessageKey, string> = {
   'connectors.github.reposLine': "La IA solo ve los repositorios que elija para esta app en GitHub.",
   'connectors.github.choose': "Elegir en GitHub",
   'connectors.github.notSetUpAdmin': "GitHub aún no está configurado en este servidor. Quien opera el servidor añade la GitHub App, o puede añadir GitHub en Administración › Apps conectadas con su propia GitHub App.",
+  'connectors.github.viaTemplate': "Su equipo configuró GitHub. Conéctelo en Sus conectores.",
   'integrations.catalog.gitlab': "Trabajar con proyectos, incidencias y merge requests",
   'integrations.catalog.indeed': "Buscar ofertas de empleo e información de empresas",
   'integrations.catalog.mermaid': "Crear y editar diagramas",

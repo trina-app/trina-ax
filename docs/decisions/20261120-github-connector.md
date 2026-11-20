@@ -40,8 +40,10 @@
     a refresh; the wildcard callback takes `<team>.trina.app` and refuses other hosts and paths.
   - Without the app file the card says "Not set up yet" (a member can ask an admin; an admin reads where it is set
     up), and a sign-in fails as for any service that registers no apps.
-- **Not now (MVP first):** revoking the grant at GitHub on Disconnect (GitHub's `DELETE /applications/{client_id}/grant`
-  needs its own call; the person can revoke in GitHub › Settings › Applications), an admin page to upload the app
+- **Disconnect ends the token at GitHub** (`DELETE /applications/{client_id}/token`), not the whole grant
+  (`…/grant` would also end the same GitHub account's other connections here); the authorization stays listed in
+  GitHub › Settings › Applications, where the person can revoke it.
+- **Not now (MVP first):** an admin page to upload the app
   file (operators and the hosting service write it), moving the client secret behind the control plane like the Drive
   broker (every hosted server holds the app's secret; the token is useless without the person's sign-in, and the
   secret can be rotated on GitHub without anyone signing in again).

@@ -674,7 +674,10 @@ or paste ([decision](decisions/20261120-github-connector.md)).
   them to (GitHub's own request flow). No picker of our own.
 - **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
   operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
-  sign-in fails with "registers no apps" as before.
+  sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
+  for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
+  GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it
+  under Your connectors." instead of the ask, and members who asked are told it is ready (QA TC-5656, TC-5661).
 
 Registering the app (once, by an owner of the GitHub organization; GitHub › Settings › Developer settings › GitHub
 Apps › New):
@@ -697,8 +700,13 @@ the write card, made "via Trina AX" as the signed-in person); a project chat sho
 kept the new tokens and the next call worked. GitHub's wildcard callback took `qa.trina.app` and `potenlab.trina.app`
 and refused other hosts and other paths.
 
-Not yet: revoking the grant at GitHub on Disconnect (the person can in GitHub › Settings › Applications), an admin
-page for the file, keeping the secret behind the hosting service like the Drive broker.
+- **Disconnect** (and signing in again, and a team connection's sign-out at 팀장 넘기기) ends the connection's token at
+  GitHub: `DELETE https://api.github.com/applications/<client ID>/token` with the app's ID and current secret as basic
+  auth (`github/app.ts revokeGitHubToken`, best effort, 204). The person's authorization of the app itself stays on
+  GitHub (GitHub › Settings › Applications › Authorized GitHub Apps lists Trina AX until they revoke it there), so a
+  second connection of the same GitHub account here (a personal one and a team one) keeps working.
+
+Not yet: an admin page for the file, keeping the secret behind the hosting service like the Drive broker.
 Code: `server/src/integrations/github/app.ts`, `connections/service.ts` (`serverApp`, `currentClient`), `oauth.ts`
 (`GITHUB_GRANT_ERRORS`), `shared/src/service-catalog.ts` (`serverAppAt`), `web/src/pages/Connectors.tsx`,
 `web/src/components/integrations/ConnectionPage.tsx`. Tests: `tests/unit/c-integrations-github.test.ts`.

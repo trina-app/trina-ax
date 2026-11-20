@@ -24,10 +24,15 @@ import path from 'node:path'
 import { z } from 'zod'
 import type { AppContext } from '../../context'
 import { resolveLayout } from '../../system/layout'
+import { serviceRequest, type NetOptions } from '../connections/net'
 
 export const GITHUB_AUTHORIZE_URL = 'https://github.com/login/oauth/authorize'
 export const GITHUB_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 export const GITHUB_APP_ENV = 'MYCEL_GITHUB_APP_FILE'
+/** GitHub's call that ends one user token of an app (docs.github.com REST "Delete an app token"): the app's ID and
+ * secret as basic auth, the token in the body; 204 when it ended. The person's authorization of the app stays (GitHub ›
+ * Settings › Applications lists it until they revoke it there); only this token stops working. */
+export const githubRevokeUrl = (clientId: string) => `https://api.github.com/applications/${encodeURIComponent(clientId)}/token`
 
 const Schema = z.object({
   clientId: z.string().regex(/^[A-Za-z0-9._-]{1,128}$/),
@@ -58,6 +63,23 @@ export function readGitHubApp(file: string, teamRoot: string): GitHubApp | null 
 export function githubAppOf(ctx: AppContext, env: Record<string, string | undefined> = process.env): GitHubApp | null {
   const named = env[GITHUB_APP_ENV]?.trim()
   return readGitHubApp(named || githubAppFile(ctx), ctx.config.teamRoot)
+}
+
+/** Disconnect: end the connection's token at GitHub, best effort (true: GitHub said 204). The secret goes only to
+ * api.github.com, never anywhere a service named. */
+export async function revokeGitHubToken(app: GitHubApp, accessToken: string, net: NetOptions): Promise<boolean> {
+  try {
+    const r = await serviceRequest(githubRevokeUrl(app.clientId), {
+      method: 'DELETE',
+      headers: [
+        ['Authorization', 'Basic ' + Buffer.from(`${app.clientId}:${app.clientSecret}`).toString('base64')],
+        ['Accept', 'application/vnd.github+json'], ['Content-Type', 'application/json'], ['X-GitHub-Api-Version', '2022-11-28'],
+      ],
+      body: Buffer.from(JSON.stringify({ access_token: accessToken })),
+      maxBytes: 64 * 1024,
+    }, net)
+    return r.status === 204
+  } catch { return false }
 }
 
 /** What the Connectors page may know of it: whether people can connect GitHub here, and where they choose the

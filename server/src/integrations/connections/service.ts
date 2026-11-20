@@ -27,7 +27,7 @@ import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { serverAppAt } from '@mycel/shared'
-import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView } from '../github/app'
+import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { demoFakesOf } from '../../demo/fakes'
@@ -920,6 +920,11 @@ export class Integrations {
 
   private async revokeTokens(s: Secret) {
     if (s.type !== 'oauth') return false
+    // GitHub has no RFC 7009 address: its own call ends the token (github/app.ts revokeGitHubToken), with the app as it is now
+    if (s.serverApp === 'github') {
+      const gh = githubAppOf(this.ctx)
+      return !!gh && gh.clientId === s.client.clientId && await revokeGitHubToken(gh, s.tokens.accessToken, this.net)
+    }
     const t = s.tokens.refreshToken ?? s.tokens.accessToken
     return revoke(s, t, s.tokens.refreshToken ? 'refresh_token' : 'access_token', this.net)
   }

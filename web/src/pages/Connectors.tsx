@@ -30,7 +30,7 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRequestableService, type Integration, type IntegrationList, type MyIntegrationTemplate } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
@@ -55,7 +55,7 @@ import { ConnectionPage, ListedServicePage } from '../components/integrations/Co
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
-import { useFromTeam } from '../components/integrations/TemplatesView'
+import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
 import { setupReturnState, setupReturnStep } from '../lib/welcome'
 
@@ -476,11 +476,15 @@ function ListedPage({ c }: { c: Connector }) {
   // connected yet does not end it: QA final)
   const teamWorks = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url) && i.status === 'connected')
   const asked = isRequestableService(c.id) && asks.stateOf(c.id) !== 'none'
-  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) ? c.id : null
   // GitHub without the server's GitHub App: no Connect (it would fail at sign-in); a member asks an admin, an owner or
-  // admin reads where it is set up (docs/INTEGRATIONS.md "GitHub")
-  const notSetUp = c.id === 'github' && list.data?.github?.ready === false
-  const own = !!list.data?.personalAllowed && !notSetUp
+  // admin reads where it is set up (docs/INTEGRATIONS.md "GitHub"). A team template with the company's own GitHub App
+  // is the team's setup: the page sends the person to it (its row under Your connectors connects it)
+  const noServerApp = c.id === 'github' && list.data?.github?.ready === false
+  const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
+  const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
+  const notSetUp = noServerApp && !viaTemplate
+  const own = !!list.data?.personalAllowed && !noServerApp
+  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) && !viaTemplate ? c.id : null
   // connected: the connection's page (with two connections to it, the first; the other is its own row in the list)
   if (have.length) return <McpShell><MinePage i={have[0]} about={t('connectors.mcp.about', { name: c.name })} /></McpShell>
   return (
@@ -489,6 +493,7 @@ function ListedPage({ c }: { c: Connector }) {
         actions={own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
         status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
+          : viaTemplate ? <Note testId="connector-github-template">{t('connectors.github.viaTemplate')}</Note>
           : notSetUp && admin ? <Note testId="connector-github-not-set-up">{t('connectors.github.notSetUpAdmin')}</Note> : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>

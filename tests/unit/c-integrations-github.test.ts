@@ -36,6 +36,7 @@ class FakeGitHub {
   seen: { url: string; method: string; body: string; auth: string | null }[] = []
   codes = new Map<string, { verifier: string; redirect: string }>()
   access = '' ; refresh = ''; n = 0
+  revoked: { auth: string | null; token: string }[] = []
   /** the client secrets GitHub accepts now */
   secrets = new Set([SECRET])
   /** answer the next token request with this GitHub error (HTTP 200) */
@@ -55,6 +56,10 @@ class FakeGitHub {
         this.seen.push({ url, method: r.method, body, auth })
         const json = (status: number, j: unknown, headers: Record<string, string> = {}) => ({ status, headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(j) })
         if (url === TOKEN && r.method === 'POST') return json(200, this.token(new URLSearchParams(body)))
+        if (url === `https://api.github.com/applications/${CLIENT_ID}/token` && r.method === 'DELETE') {
+          this.revoked.push({ auth, token: JSON.parse(body).access_token })
+          return { status: 204, body: '' }
+        }
         if (url === 'https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/') return json(200, { resource: MCP, authorization_servers: ['https://github.com/login/oauth'], scopes_supported: ['repo', 'read:org'] })
         if (url === 'https://github.com/.well-known/oauth-authorization-server/login/oauth') {
           return json(200, { issuer: 'https://github.com/login/oauth', authorization_endpoint: AUTHORIZE, token_endpoint: TOKEN, response_types_supported: ['code'], code_challenge_methods_supported: ['S256'] })
@@ -243,4 +248,25 @@ test('a team connection (an admin signs in) and a template\'s members (each thei
   await signIn(bob, mine.id)
   expect(getRow(h.ctx.db, mine.id)).toMatchObject({ status: 'connected' })
   expect(everything()).not.toContain(SECRET)
+})
+
+test('Disconnect ends the token at GitHub with the app as it is now (the person\'s authorization of the app stays on GitHub)', async () => {
+  putApp()
+  const c = await bob.call('POST', '/api/integrations', github())
+  await signIn(bob, c.id)
+  const token = gh.access
+  // the secret was rotated since the sign-in: the revocation uses the current one
+  gh.secrets.add(SECRET2)
+  putApp({ clientId: CLIENT_ID, clientSecret: SECRET2, slug: 'trina-test' })
+  expect((await bob.raw('DELETE', `/api/integrations/${c.id}`)).status).toBe(204)
+  expect(getRow(h.ctx.db, c.id)).toBeNull()
+  expect(gh.revoked).toEqual([{ auth: 'Basic ' + Buffer.from(`${CLIENT_ID}:${SECRET2}`).toString('base64'), token }])
+  // signing in again ends the earlier token too
+  const c2 = await bob.call('POST', '/api/integrations', github())
+  await signIn(bob, c2.id)
+  const first = gh.access
+  await signIn(bob, c2.id)
+  for (let i = 0; i < 100 && gh.revoked.at(-1)!.token !== first; i++) await Bun.sleep(20)
+  expect(gh.revoked.at(-1)!.token).toBe(first)
+  expect(everything()).not.toContain(SECRET2)
 })

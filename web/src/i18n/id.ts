@@ -3404,6 +3404,7 @@ export const id: Record<MessageKey, string> = {
   'connectors.github.reposLine': "AI hanya melihat repositori yang Anda pilih untuk aplikasi ini di GitHub.",
   'connectors.github.choose': "Pilih di GitHub",
   'connectors.github.notSetUpAdmin': "GitHub belum disiapkan di server ini. Pengelola server menambahkan GitHub App, atau Anda bisa menambahkan GitHub di Admin › Aplikasi terhubung dengan GitHub App milik Anda sendiri.",
+  'connectors.github.viaTemplate': "Tim Anda sudah menyiapkan GitHub. Hubungkan di Konektor Anda.",
   'integrations.catalog.gitlab': 'Kelola proyek, isu, dan merge request',
   'integrations.catalog.indeed': 'Cari lowongan dan informasi perusahaan',
   'integrations.catalog.mermaid': 'Buat dan edit diagram',

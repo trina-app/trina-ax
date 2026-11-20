@@ -3405,6 +3405,7 @@ export const en: Record<MessageKey, string> = {
   'connectors.github.reposLine': "The AI sees only the repositories you choose for this app on GitHub.",
   'connectors.github.choose': "Choose on GitHub",
   'connectors.github.notSetUpAdmin': "GitHub isn't set up on this server yet. Your server's operator adds the GitHub App, or you can add GitHub in Admin › Connected apps with your own GitHub App.",
+  'connectors.github.viaTemplate': "Your team set up GitHub. Connect it under Your connectors.",
   'integrations.catalog.gitlab': 'Work with projects, issues and merge requests',
   'integrations.catalog.indeed': 'Search job posts and company information',
   'integrations.catalog.mermaid': 'Create and edit diagrams',

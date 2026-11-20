@@ -3355,6 +3355,7 @@ export const zh: Record<MessageKey, string> = {
   'connectors.github.reposLine': "AI 只能看到你在 GitHub 上为此应用选择的仓库。",
   'connectors.github.choose': "在 GitHub 上选择",
   'connectors.github.notSetUpAdmin': "此服务器尚未设置 GitHub。由服务器运维人员添加 GitHub App，或在 管理 › 已连接的应用 中使用你们自己的 GitHub App 添加 GitHub。",
+  'connectors.github.viaTemplate': "你的团队已设置 GitHub。请在“你的连接器”中连接。",
   "integrations.catalog.gitlab": "处理项目、问题和合并请求",
   "integrations.catalog.indeed": "搜索招聘信息和公司信息",
   "integrations.catalog.mermaid": "创建和编辑图表",
