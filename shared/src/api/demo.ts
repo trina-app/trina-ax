@@ -162,6 +162,16 @@ export const DemoContentRoomMessage = z.object({
   /** this message is the last answer of that seeded chat (`chats[].slug`), sent with "Send to room" by its person;
    * `text` is the note before it */
   shareChat: ContentSlug.optional(),
+  /** the new hire (the demo person) has not read it when the visitor arrives: only at the end of a room's timeline */
+  unread: z.literal(true).optional(),
+  /** replies in its thread, oldest first, each after it; `unread` as above, only at the end of the thread */
+  thread: z.array(z.object({
+    from: Username,
+    text: z.string().min(1).max(4000),
+    minutesAgo: MinutesAgo,
+    reactions: z.array(z.object({ from: Username, emoji: z.string().min(1).max(16) }).strict()).max(20).default([]),
+    unread: z.literal(true).optional(),
+  }).strict()).max(30).optional(),
 }).strict()
 export type DemoContentRoomMessage = z.infer<typeof DemoContentRoomMessage>
 export const DemoContentRoom = z.object({
@@ -245,7 +255,9 @@ export const DemoContentCompany = z.object({
   /** team settings the owner sets; recordings need aiSubagents false (a run with a sub-agent is not recorded) */
   settings: TeamSettings.pick({ aiSubagents: true, timeZone: true }).partial().strict().optional(),
   /** what a person's AI remembers about them, saved as that person */
-  memories: z.array(z.object({ username: Username, text: z.string().min(1).max(2000) }).strict()).max(20).default([]),
+  memories: z.array(z.object({ username: Username, text: z.string().min(1).max(2000),
+    /** when it was saved in the story (default: when the seed ran) */
+    minutesAgo: MinutesAgo.optional() }).strict()).max(20).default([]),
   /** the company profile (회사 소개), saved by the owner */
   profile: CompanyProfileInput.optional(),
   /** demo mode: the people a viewer can be and the question to ask as each */
@@ -372,12 +384,14 @@ export const DemoBuilderThreadTimesBody = z.object({
 export const DemoBuilderFileTimesBody = z.object({
   times: z.array(z.object({ path: z.string().min(1).max(512), at: BuilderAt }).strict()).max(500),
   hideFromRecent: z.array(z.string().min(1).max(512)).max(50).default([]),
+  /** a person's saved memories (Settings › Memory): when each was saved; `text` picks one, none: all of theirs */
+  memories: z.array(z.object({ userId: UserId, text: z.string().min(1).max(2000).optional(), at: BuilderAt }).strict()).max(60).default([]),
 }).strict()
 
 const DEMO_BUILDER = {
   demoBuilderRoomTimes: endpoint({
     method: 'POST', path: '/api/demo/builder/room-times', auth: 'owner', owner: 'A', body: DemoBuilderRoomTimesBody, response: z.object({ updated: z.number().int(), dropped: z.number().int() }),
-    summary: 'Demo snapshot builder only (a demo file with builder: true; 404 otherwise): when messages of a room were sent (its activity follows the latest one), and drop its "joined the team" lines.',
+    summary: 'Demo snapshot builder only (a demo file with builder: true; 404 otherwise): when messages of a room were sent (its activity, the notices they made and its threads\' follows follow them), and drop its "joined the team" lines.',
   }),
   demoBuilderWelcome: endpoint({
     method: 'POST', path: '/api/demo/builder/welcome', auth: 'owner', owner: 'A', body: DemoBuilderWelcomeBody, response: z.object({ ok: z.literal(true) }),
@@ -397,7 +411,7 @@ const DEMO_BUILDER = {
   }),
   demoBuilderFileTimes: endpoint({
     method: 'POST', path: '/api/demo/builder/file-times', auth: 'owner', owner: 'A', body: DemoBuilderFileTimesBody, response: z.object({ updated: z.number().int(), hidden: z.number().int() }),
-    summary: 'Demo snapshot builder only: when team files were last changed (on disk and in Files › Recent, oldest first), and which seeded changes stay out of Recent.',
+    summary: 'Demo snapshot builder only: when team files were last changed (on disk and in Files › Recent, oldest first; their folders follow the newest inside), which seeded changes stay out of Recent, and when people\'s memories were saved.',
   }),
 } as const
 

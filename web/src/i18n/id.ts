@@ -731,6 +731,7 @@ export const id: Record<MessageKey, string> = {
   'files.downloadOnly': 'Khusus unduhan',
   'picker.downloadOnly': 'AI tidak dapat membaca berkas khusus unduhan, jadi berkas ini tidak dapat dilampirkan.',
   'files.addToChatNamed': 'Tambahkan ke “{title}”',
+  'files.addToCurrentChat': 'Tambahkan ke chat ini',
   'files.addedSome': '{n} ditambahkan; {failed} tidak bisa ditambahkan.',
 
   'voice.start': 'Input suara',

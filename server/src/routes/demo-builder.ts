@@ -52,6 +52,14 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
       }
       const set = db.query('UPDATE room_messages SET created_at = ? WHERE id = ? AND room_id = ?')
       for (const t of body.times) updated += set.run(new Date(t.at).toISOString(), t.messageId, body.roomId).changes
+      // the notices those messages made are as old as them (Activity sorts and keeps them by these times: a notice
+      // left at the build's time sits on top, one older than 30 days drops out): a notice its message's time, the run it
+      // held back (last_seq) that message's time; a thread's follow the time of its first reply (else of its root)
+      db.query(`UPDATE room_notices SET created_at = m.created_at FROM room_messages m WHERE m.id = room_notices.source_id AND room_notices.room_id = ?`).run(body.roomId)
+      db.query(`UPDATE room_notices SET last_at = m.created_at FROM room_messages m WHERE m.room_id = room_notices.room_id AND m.seq = room_notices.last_seq
+        AND room_notices.room_id = ? AND room_notices.last_seq IS NOT NULL`).run(body.roomId)
+      db.query(`UPDATE room_thread_follows SET created_at = COALESCE((SELECT MIN(r.created_at) FROM room_messages r WHERE r.thread_root_id = room_thread_follows.root_id),
+        (SELECT m.created_at FROM room_messages m WHERE m.id = room_thread_follows.root_id), created_at) WHERE room_id = ?`).run(body.roomId)
       // the room's place in the lists follows its latest message
       const last = db.query('SELECT MAX(created_at) at FROM room_messages WHERE room_id = ?').get(body.roomId) as { at: string | null }
       if (last.at) db.query('UPDATE rooms SET activity_at = ? WHERE id = ?').run(last.at, body.roomId)
@@ -202,6 +210,20 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
         db.query("INSERT INTO file_events (user_id, path, action, size, sha256, detail, at) VALUES (?, ?, 'upload', ?, ?, ?, ?)").run(last.user_id, t.path, last.size, last.sha256, last.detail, at.toISOString())
         updated++
       })()
+    }
+    // a folder shows when something in it last changed (the list's time): each folder above a dated file takes the newest
+    // time of what is directly in it, deepest first, so a folder never says the build's time when its files are older
+    const dirs = new Set<string>()
+    for (const t of times) for (let d = path.dirname(inside(t.path)); d.startsWith(root + path.sep); d = path.dirname(d)) dirs.add(d)
+    for (const d of [...dirs].sort((a, b) => b.split(path.sep).length - a.split(path.sep).length)) {
+      try {
+        const newest = Math.max(...fs.readdirSync(d).map((n) => { try { return fs.statSync(path.join(d, n)).mtimeMs } catch { return 0 } }))
+        if (newest > 0) fs.utimesSync(d, new Date(newest), new Date(newest))
+      } catch { /* a folder that went away */ }
+    }
+    // a person's memories, at the story's time
+    for (const m of body.memories) {
+      db.query(`UPDATE memories SET created_at = ? WHERE user_id = ?${m.text ? ' AND text = ?' : ''}`).run(...[new Date(m.at).toISOString(), m.userId, ...(m.text ? [m.text] : [])])
     }
     // the seed's own changes of these (the team skills, the company profile): not something a person did lately
     for (const top of body.hideFromRecent) {

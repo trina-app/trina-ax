@@ -563,12 +563,12 @@ The API serves the Trina AX apps. It is not yet a stable public API for other pr
 |---|---|---|---|
 | `GET` | `/api/demo` | Anyone | Demo mode only (MYCEL_DEMO on a development server; 404 otherwise): the fictional company, its demo people and which one the caller is; in a free-roam demo also the weighted tokens used, the demo limit and the sign-up address. |
 | `POST` | `/api/demo/persona` | Anyone | Demo mode only: sign in as one of the demo people (the seeded account's password check, session and audit row of a sign-in, with the public demo password; never the owner); the previous session ends. A free-roam demo has one person, the only one this signs in. |
-| `POST` | `/api/demo/builder/room-times` | Owner | Demo snapshot builder only (a demo file with builder: true; 404 otherwise): when messages of a room were sent (its activity follows the latest one), and drop its "joined the team" lines. |
+| `POST` | `/api/demo/builder/room-times` | Owner | Demo snapshot builder only (a demo file with builder: true; 404 otherwise): when messages of a room were sent (its activity, the notices they made and its threads' follows follow them), and drop its "joined the team" lines. |
 | `POST` | `/api/demo/builder/welcome` | Owner | Demo snapshot builder only: who invited a person, as their welcome card on Home says it. |
 | `POST` | `/api/demo/builder/connections` | Owner | Demo snapshot builder only: a person's connected Gmail or Google Drive, or the team's Higgsfield, with a made-up secret (the demo's fakes answer it; no sign-in, nothing goes anywhere). |
 | `POST` | `/api/demo/builder/chat-turns` | Owner | Demo snapshot builder only: past questions and finished answers of a chat, as plain messages at the times given (no AI runs). |
 | `POST` | `/api/demo/builder/thread-times` | Owner | Demo snapshot builder only: when the replies in a seeded chat's thread were sent; the thread notices they made carry the latest time. |
-| `POST` | `/api/demo/builder/file-times` | Owner | Demo snapshot builder only: when team files were last changed (on disk and in Files › Recent, oldest first), and which seeded changes stay out of Recent. |
+| `POST` | `/api/demo/builder/file-times` | Owner | Demo snapshot builder only: when team files were last changed (on disk and in Files › Recent, oldest first; their folders follow the newest inside), which seeded changes stay out of Recent, and when people's memories were saved. |
 
 ## People directory and profiles
 
