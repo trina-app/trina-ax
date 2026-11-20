@@ -15,6 +15,8 @@ const ADMIN_FIX: Partial<Record<ChatErrorReason, Where>> = {
   auth: 'providers',
   no_credential: 'providers',
   credential_unusable: 'providers',
+  // out of credit: add credit with the provider, or switch to another account there
+  no_credit: 'providers',
   model_not_found: 'providers',
   endpoint_unreachable: 'providers',
   // the AI accounts page shows an engine version whose lockdown test failed (server/src/admin/engines.ts)

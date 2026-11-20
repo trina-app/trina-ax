@@ -324,6 +324,46 @@ describe("each turn is its sender's", () => {
     await putWaiting('alice', chat.id, 0)
   })
 
+  test('a guest of the project is not counted in a member\'s chat (they cannot open it), but in their own (QA AP-056)', async () => {
+    const chat = await newShared()
+    await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))
+    const count = async () => (await h.api('alice').call(API.getChat, { params: { id: chat.id } })).shared!.audience
+    const before = await count()
+    // bob a guest invited into the project (guests join no groups: a person rule on its folder)
+    db().query('UPDATE users SET guest = 1 WHERE id = ?').run('bob')
+    db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, '2026-11-19T00:00:00Z')").run(projectId, projectId)
+    try {
+      await asMember('bob', 'write', async () => {
+        expect((await errOf(h.api('bob').call(API.getChat, { params: { id: chat.id } }))).status).toBe(404)
+        // "N people can see this chat" / "Link copied · N people can open it": the guest is not one of them
+        expect(await count()).toBe(before - 1)
+        // a guest's own chat there stays visible to the members (owner decision 2026-11-14) and counts the guest
+        db().query('UPDATE chats SET user_id = ? WHERE id = ?').run('bob', chat.id)
+        try { expect(await count()).toBe(before) } finally { db().query('UPDATE chats SET user_id = ? WHERE id = ?').run('alice', chat.id) }
+      })
+    } finally { db().query('UPDATE users SET guest = 0 WHERE id = ?').run('bob'); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
+    expect(await count()).toBe(before)
+  })
+
+  test('Project.chatAudience leaves the project\'s guests out (the new-chat box\'s "N people" chip); audience still counts them (who reads its files)', async () => {
+    const project = async (who: 'alice' | 'bob') => await h.api(who).call(API.getProject, { params: { id: projectId } })
+    const before = await project('alice')
+    expect(before.chatAudience).toBe(before.audience)
+    db().query('UPDATE users SET guest = 1 WHERE id = ?').run('bob')
+    db().query("INSERT INTO guests (user_id, place_kind, place_id, project_id, created_at) VALUES ('bob', 'project', ?, ?, '2026-11-19T00:00:00Z')").run(projectId, projectId)
+    try {
+      await asMember('bob', 'write', async () => {
+        const p = await project('alice')
+        // the guest reads the project's files: the file-access count keeps them
+        expect(p.audience).toBe(before.audience!)
+        // but cannot open alice's new chat there
+        expect(p.chatAudience).toBe(before.audience! - 1)
+        // the guest's own new chat is seen by the members and by them: they count themselves
+        expect((await project('bob')).chatAudience).toBe(before.audience!)
+      })
+    } finally { db().query('UPDATE users SET guest = 0 WHERE id = ?').run('bob'); db().query("DELETE FROM guests WHERE user_id = 'bob'").run() }
+  })
+
   test('the waiting route: a guest, someone outside the project and someone taken out get the 404; a removed member\'s place goes; a burst is limited', async () => {
     const chat = await newShared()
     await ask('alice', chat.id, 'q\n' + fake({ say: 'a' }))

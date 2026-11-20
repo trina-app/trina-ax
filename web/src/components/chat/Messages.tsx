@@ -18,6 +18,7 @@
 import clsx from 'clsx'
 import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { limitResetText, limitUsedUpText } from '@mycel/shared'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
 import { chatFileUrl, fileUrl, startDownload, thumbnailUrl } from '../../lib/api'
@@ -715,15 +716,20 @@ export function AssistantMessage({
   // the AI usage ran out until a known time (params.until, server/src/chat/turn.ts limitError): the words say when
   const usageUntil = reason === 'usage_used_up' && typeof m.error?.params?.until === 'string' && Number.isFinite(Date.parse(m.error.params.until)) ? m.error.params.until : null
   const said = guestKey ? { key: guestKey, where: null } : reason ? chatErrorText(reason, role, noAi, !!usageUntil) : null
+  // a member's used-up limit, said again in the language the app shows now (the stored words are in the language of
+  // when it stopped: QA AP-077); one stored before the server sent its period keeps its words
+  const period = m.error?.params?.period
+  const limitWords = !guest && resetsAt && (period === 'day' || period === 'month')
+    ? limitUsedUpText({ locale, period, at: limitResetText(new Date(resetsAt), locale, meNow?.server.timeZone), who: 'member' }) : null
   // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
   const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
-    ? demoKey ? t(demoKey) : guestKey === 'guest.aiLimitUntil' ? (guestTokens
+    ? demoKey ? t(demoKey) : limitWords ?? (guestKey === 'guest.aiLimitUntil' ? (guestTokens
       // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
       ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
       : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
       : said ? t(said.key, said.where || usageUntil ? { ...(said.where ? { path: adminPath(t, said.where) } : {}), ...(usageUntil ? { date: formatResetTime(usageUntil, locale) } : {}) } : undefined)
-      : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message
+      : m.error.params?.reason === undefined && known && isDefaultErrorMessage(m.error.code, m.error.message) ? known[locale] : m.error.message)
     : null
   const [suggesting, setSuggesting] = useState(false)
   const [sharing, setSharing] = useState(false)
@@ -834,8 +840,9 @@ export function AssistantMessage({
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
-                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one) */}
-                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && (
+                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one);
+                    out of credit: the same account fails the same way until an admin adds credit (its words say so) */}
+                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && reason !== 'no_credit' && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                     <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                   </Button>

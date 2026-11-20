@@ -378,10 +378,13 @@ export function startLive() {
   try { startSessionMarkers() } catch { /* no markers' extras in this window */ }
   try { startRoomSound() } catch { /* no sound in this window */ }
   window.addEventListener('online', nudge)
+  window.addEventListener('offline', linkLost)
   document.addEventListener('visibilitychange', onVisible)
 }
 
 const nudge = () => client?.nudge()
+/** the network went away: say so at once instead of after the ping times out (lib/realtime.ts linkLost) */
+const linkLost = () => client?.linkLost()
 const onVisible = () => document.visibilityState === 'visible' && client?.nudge()
 
 export function stopLive() {
@@ -398,5 +401,6 @@ export function stopLive() {
   setTypingOut(() => {})
   setLookingOut(null)
   window.removeEventListener('online', nudge)
+  window.removeEventListener('offline', linkLost)
   document.removeEventListener('visibilitychange', onVisible)
 }

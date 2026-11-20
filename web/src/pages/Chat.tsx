@@ -23,7 +23,7 @@
 // dialog's list, a bar "‹ Back to sharing" leads back to it (store/wideningDraft.ts).
 import clsx from 'clsx'
 import { composerInset } from '../components/chat/composerBox'
-import { GuestNoAi, useGuestNoAi } from '../components/GuestView'
+import { GuestNoAi, useGuestNoAi, useGuestPlacePath } from '../components/GuestView'
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
@@ -32,7 +32,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
+import { chatOpeners, isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -144,6 +144,8 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const composer = useRef<ComposerHandle>(null)
   const guestNoAi = useGuestNoAi()
   const guestHere = isGuestMe(me)
+  // a guest's own place (their project or group chat): where the not-found page sends them
+  const guestHome = useGuestPlacePath()
   const [olderBusy, setOlderBusy] = useState(false)
   // the reader scrolled up far from the newest message: a round button above the box takes them back (QA AP-043)
   const [away, setAway] = useState(false)
@@ -212,7 +214,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // who sees it, beside Share (a computer; a phone's line under the box says it): a shared project chat by its project's
   // faces (they open the members, read only for whoever cannot change them), else in words
   const projectPeople = useProjectPeople(projectChat && project ? project : null)
-  const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
+  // only who can open this chat: a guest of the project sees no one's chat there but their own (Audiences.ofChat), so
+  // their face shows only on a chat they started
+  const openers = projectChat && projectPeople ? chatOpeners(projectPeople.people, shared!.by.id) : null
+  const faces = openers && openers.length > 1 ? openers : null
   const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
   const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
     : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && rights.creator && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null
@@ -574,7 +579,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               I am not in): the server answers each with the same 404, so the page tells nothing about this one; the
               likely case, a teammate's link to a chat still private to them, says what to ask for (QA TC-919, TC-948;
               docs/DECISIONS.md "Team project chats shared by default") */}
-          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t('chat.notFoundWhy')}</p>
+          {/* a guest: nobody can share a member's chat with them, so "ask the person who sent the link to share it" and
+              "Ask Trina" led nowhere; they open only their own chats and the place they were invited to (QA AP-056,
+              docs/DECISIONS.md "Guests: only what they were invited to") */}
+          <p className="mb-1 break-keep" data-testid="chat-not-found-why">{t(guestHere ? 'chat.notFoundGuest' : 'chat.notFoundWhy')}</p>
           {/* the owner and admins: a chat of a project they are not in is "not found" too (its contents are its members',
               docs/DECISIONS.md "Project contents only for members"); the same line for every missing chat, so it tells
               nothing about this one */}
@@ -593,9 +601,15 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
               ))}
             </p>
           )}
-          <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
-            {t('sidebar.askAi', { name: aiName(t) })}
-          </Link>
+          {guestHere ? (
+            <Link to={guestHome ?? '/'} className="mt-1 inline-block font-medium text-accent-text underline" data-testid="chat-not-found-home">
+              {t('notFound.home')}
+            </Link>
+          ) : (
+            <Link to="/" className="mt-1 inline-block font-medium text-accent-text underline">
+              {t('sidebar.askAi', { name: aiName(t) })}
+            </Link>
+          )}
         </EmptyState>
       </div>
     } />

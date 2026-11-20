@@ -233,8 +233,8 @@ export class EngineReader implements Reader {
       if (limited) throw new ReaderLimit(`the AI reported a limit (${limited})`)
       if (refused) throw new ReaderUnavailable(`the AI connection was refused (${refused})`)
       const e = errors[0]
-      if (e?.code === 'rate_limit') throw new ReaderLimit(e.message.slice(0, 200))
-      if (e?.code === 'auth') throw new ReaderUnavailable(e.message.slice(0, 200))
+      if (e?.code === 'rate_limit' || e?.code === 'provider_busy') throw new ReaderLimit(e.message.slice(0, 200))
+      if (e?.code === 'auth' || e?.code === 'no_credit') throw new ReaderUnavailable(e.message.slice(0, 200))
       const text = parser.text
       if (e || !text) {
         this.ctx.log.warn(o ? `${o.chat}: reader call failed` : 'file list: reader call failed', { engine: this.engine, exit, code: e?.code ?? 'no_answer', ...(o?.quiet ? {} : { stderr: err.text.slice(-500) }) })

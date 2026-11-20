@@ -1,0 +1,2 @@
+- A "Remembered: …" step in a chat now has **Forget**, which takes that memory back at once. Before, the opened step showed an internal id and the memory could only be removed in Settings › Memory.
+- A preference you asked the AI to remember about its answers (for example "short answers") now shapes the answers in your next chats.

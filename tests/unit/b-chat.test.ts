@@ -341,6 +341,16 @@ describe('engine trouble', () => {
     expect(r.done.error?.message).toContain('limit') // alice reads English
     expect(r.done.content).toBe('partial')
   })
+  test('Claude Code\'s "Credit balance is too low": its own reason and words saying who fixes it, not "try again"', async () => {
+    const chat = await newChat()
+    const r = await ask(h, alice, 'alice', chat.id, fake({ fail: 'Credit balance is too low' }))
+    expect(r.done.status).toBe('error')
+    expect(r.done.error?.code).toBe('engine_unavailable')
+    expect(r.done.error?.params).toEqual({ reason: 'no_credit' })
+    expect(r.done.error?.message).toBe(CHAT_ERROR_MESSAGES.no_credit.en)
+    expect(r.done.error?.message).toContain('add credit')
+    expect(r.done.error?.message).not.toContain('stopped partway')
+  })
   test('a Korean auth error keeps its distinct reason in the stream, database and reloaded chat', async () => {
     const bob = await h.ws('bob', { windowId: 'win-bob-i18n' })
     await bob.next('hello')
