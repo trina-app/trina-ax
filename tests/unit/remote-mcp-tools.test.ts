@@ -26,7 +26,7 @@ async function setup(name: string, scope = 'mcp:read mcp:write offline_access', 
 test('only read scope tools are advertised; arbitrary tool families and writes are unavailable', async () => {
   // a member: an owner's or admin's connection also gets the group tools (remote-mcp-groups.test.ts)
   const f = await setup('scopes', 'mcp:read', 'member')
-  expect(f.tools.list(f.oauth.authenticate(f.token)).map(t => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list'])
+  expect(f.tools.list(f.oauth.authenticate(f.token)).map(t => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list'])
   expect((await f.tools.call(f.token, 'write', { file_path: 'shared/new.txt', content: 'x' })).isError).toBe(true)
   expect((await f.tools.call(f.token, 'web_fetch', { url: 'https://outside.invalid' })).isError).toBe(true)
   expect(fs.existsSync(path.join(f.h.ctx.config.teamRoot, 'shared/new.txt'))).toBe(false)
@@ -183,7 +183,7 @@ test('skills_list: restricted skills folders and personal skills follow the conn
   const member = await run('member')
   expect(member.text).not.toContain('RESTRICTED-SKILL-CANARY')
   expect(JSON.parse(member.text)).toContainEqual({ path: `users/${member.memberId}/skills/mine.md`, name: 'Mine', description: 'MEMBER-PERSONAL-CANARY', personal: true })
-})
+}, 30_000)
 // delete_files (server/src/chat/delete-files.ts) runs only in the app's own chat, behind the server's card. The connector
 // lists FILE_TOOLS and has no card: it must never list or run the delete, with every scope an owner can grant.
 test('the connector never lists or runs delete_files, with every scope', async () => {

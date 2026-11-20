@@ -97,7 +97,7 @@ test('delete asks first and removes the reply; another window of the chat sees r
   await panel.getByTestId('chat-thread-send').click()
   await expect(bobAnswer.getByTestId('chat-thread-line')).toBeVisible()
   await panel.getByTestId('chat-thread-reply').hover()
-  await panel.getByTestId('chat-thread-reply-menu').click()
+  await panel.getByTestId('message-more').click()
   await page.getByTestId('chat-thread-delete').click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByTestId('dialog-confirm').click()

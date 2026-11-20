@@ -108,7 +108,7 @@ describe('deny list', () => {
     '/api/admin/credentials', '/api/admin', '/api/setup', '/api/credentials/sealing-key', '/api/me/credentials/1', '/api/me/credential-logins',
     '/api/invites/abc/accept', '/api/guest-invites', '/api/team-link/join', '/api/password-resets/tok', '/api/auth/password',
     '/api/demo/persona', '/api/integrations/oauth/callback', '/api/integrations/google-drive/callback', '/api/integrations/slack/oauth/callback',
-    '/oauth/authorize', '/mcp', '/connector-uploads/x', '/invite/abc', '/join', '/reset-password/x', '/setup',
+    '/oauth/authorize', '/mcp', '/connector-uploads/x', '/connector-downloads/x', '/invite/abc', '/join', '/reset-password/x', '/setup',
     '/API/Admin/x', '/api%2Fadmin', '//api/admin', '/api//admin/x', '/mcp?x=1',
   ])('%s is refused', (p) => expect(pathVerdict(p)).toBe('deny'))
   test.each(['/api/../api/admin', '/a/./b', '/x\\y', '/%2e%2e/api/admin', '/x%00'])('%s is a bad path', (p) => expect(pathVerdict(p)).toBe('bad'))
