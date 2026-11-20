@@ -13,6 +13,7 @@ import { act } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { ANSWER_NOTE_MAX, ROOM_MESSAGE_MAX, uuidv7, type Me, type RoomMessage } from '@mycel/shared/api'
+import { labeledPath } from '@mycel/shared'
 import { AssistantMessage } from '../../src/components/chat/Messages'
 import ShareToRoom from '../../src/components/chat/ShareToRoom'
 import { RoomMessages } from '../../src/components/rooms/RoomMessages'
@@ -252,9 +253,16 @@ test('the provenance line alone: 보내기 is the focused default; places named,
   const places = [{ kind: 'folder', path: 'finance' }, { kind: 'folder', path: '' }, { kind: 'mine' }, { kind: 'service', name: 'Google Drive' }, { kind: 'room', name: 'Sales' }, { kind: 'room', name: '' }, { kind: 'conversation' }]
   expect(await line({ people: 3, places, otherPlaces: true })).toBe(en('shareRoom.provenance', {
     n: 3,
-    places: ['finance/', en('rooms.aiRootFolder'), en('shareRoom.placeMineFiles'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
+    places: ['finance', en('rooms.aiRootFolder'), en('shareRoom.placeMineFiles'), 'Google Drive', en('shareRoom.placeRoom', { name: 'Sales' }), en('shareRoom.placeRoom', { name: en('rooms.all') }), en('shareRoom.placeConversation')].join(', '),
   }))
   expect(await line({ people: 2, places: [], otherPlaces: true })).toBe(en('shareRoom.provenanceNoPlace', { n: 2 }))
+  // in plain words with how many files read there count (the owner's case, 2026-11-20): "2 of my files", a department
+  // folder by the Files screen's words, never a disk path
+  expect(await line({ people: 2, places: [{ kind: 'mine', files: 2 }, { kind: 'folder', path: 'groups/leads', files: 3 }], otherPlaces: false })).toBe(en('shareRoom.provenance', {
+    n: 2,
+    places: [en('shareRoom.placeMineCount', { n: 2 }), en('shareRoom.placeFiles', { place: labeledPath('groups/leads', 'en', null, ' › '), n: 3 })].join(', '),
+  }))
+  expect(labeledPath('groups/leads', 'en', null, ' › ')).not.toContain('groups')
   expect(await line({ people: 5, places: [], otherPlaces: true, unknown: true })).toBe(en('shareRoom.unknown'))
 })
 

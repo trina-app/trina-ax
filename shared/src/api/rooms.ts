@@ -874,9 +874,9 @@ export const ANSWER_SHARE_FILES_MAX = 100
 /** Where something the answer used came from that some member cannot open (never who cannot). */
 export const AnswerSharePlace = z.discriminatedUnion('kind', [
   /** a team folder ('' = the top of the team folder) */
-  z.object({ kind: z.literal('folder'), path: z.string() }),
+  z.object({ kind: z.literal('folder'), path: z.string(), /** how many files the answer read there that count, when all are known */ files: z.number().int().positive().optional() }),
   /** my own folder, or what only I saw (the in-app browser, a personal connection) */
-  z.object({ kind: z.literal('mine') }),
+  z.object({ kind: z.literal('mine'), files: z.number().int().positive().optional() }),
   /** a team connection (a connected service) or a shared Google Drive, by its name */
   z.object({ kind: z.literal('service'), name: z.string() }),
   /** a team room by its group's name, or the everyone room (name '') */
