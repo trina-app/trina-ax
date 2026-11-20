@@ -624,6 +624,11 @@ export const id: Record<MessageKey, string> = {
   'chat.branchConfirmBody': 'File di folder tim yang sudah diubah AI tidak akan kembali. Anda bisa memulihkannya dari riwayat versi di layar File.',
   'chat.engineSwitched': "Beralih ke {engine}. AI ini melanjutkan dari percakapan sejauh ini.",
   "chat.answeredBy": "Dijawab oleh {ai}",
+  // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
+  "chat.cardAnswer": "Memilih {choices}",
+  "chat.cardSkipped": "Dilewati",
+  "chat.cardAnswerAll": "Memilih {choice} untuk semua {count}",
+  "chat.cardAnswered": "Dijawab",
   'chat.inTrash': 'Chat ini sudah dihapus dan akan hilang permanen pada {date}. Pulihkan dulu untuk melanjutkan.',
   "chat.footer": "AI bisa salah. Cek lagi informasi penting. Hanya Anda yang dapat melihat obrolan baru.",
   "chat.toBottom": "Ke pesan terbaru",

@@ -45,7 +45,7 @@ import { Audiences, chatView, chatWriters, isSharedRow, labelledTranscript, peop
 import { publishDoneToOthers } from './live-answer'
 import { newAnswerRecord } from './shared-answers'
 import { SharedWaiting } from './shared-waiting'
-import { answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
+import { answersToSave, answerWords, closeChatQuestions, labelsHidden, hasOpenQuestion, readyAnswers, reopenAnswers, saveAnswered, type AnsweredQuestion } from './open-questions'
 
 export const DEFAULT_CONCURRENCY = 3
 export const DEFAULT_ASK_USER_TIMEOUT_MS = 10 * 60_000
@@ -855,10 +855,11 @@ export class ChatRuntime {
       try {
         if (!chat || chat.deleted_at || !t) throw new Error('the chat is gone')
         const locale = this.userLocale(q.user_id)
+        const hidden = labelsHidden(this.db, isSharedRow(chat), q.message_id)
         // a browser site's call runs again in the window whose browser it was for
         this.createTurn({ chat, userId: q.user_id, locale, windowId: ready.window ?? t.window_id, clientKind: t.client_kind, engine: t.engine, model: t.model,
-          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, labelsHidden(this.db, isSharedRow(chat), q.message_id)), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
-          answered: ready.answers })
+          user: { parentId: q.message_id, content: answerWords(ready.answers, ready.requests, locale, hidden), attachments: [], clientMessageId: `answer-${ready.requests.at(-1)!.requestId}` },
+          answered: answersToSave(ready.answers, ready.requests, locale, hidden) })
       } catch (e) {
         this.log.warn('the answer to the AI\'s question could not start the next turn', { err: e, turn: q.turn_id })
         for (const r of reopenAnswers(this.db, q.message_id, q.user_id)) this.hub.publish(q.user_id, { type: 'turn.request', data: r })

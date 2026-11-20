@@ -609,6 +609,11 @@ export const ja: Record<MessageKey, string> = {
   'chat.branchConfirmBody': "AIがすでに変更したチームフォルダーのファイルは元に戻りません。「ファイル」画面のバージョン履歴から復元できます。",
   'chat.engineSwitched': "{engine}に切り替えました。これまでの会話を引き継いで答えます。",
   "chat.answeredBy": "回答したAI: {ai}",
+  // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
+  "chat.cardAnswer": "{choices}を選択",
+  "chat.cardSkipped": "スキップ",
+  "chat.cardAnswerAll": "{count}件すべて{choice}を選択",
+  "chat.cardAnswered": "回答済み",
   'chat.inTrash': "このチャットは削除されており、{date}に完全に削除されます。続けるには復元してください。",
   "chat.footer": "AIは誤ることがあります。重要な情報は確認してください。新しいチャットは自分だけが見られます。",
   "chat.toBottom": "最新のメッセージへ移動",
