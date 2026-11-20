@@ -268,7 +268,11 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
       olderRead.current.clear()
       bump()
     }
-    const offs = [chatChanged.on((d) => { if (d.chat?.projectId === p.id || listed.current.has(d.chatId)) bump() }), reloadAsked.on(fresh), accessChanged.on(fresh)]
+    const offs = [chatChanged.on((d) => {
+      // a cached older chat that changed (renamed, moved, deleted) is read again, not taken from the cache
+      olderRead.current.delete(d.chatId)
+      if (d.chat?.projectId === p.id || listed.current.has(d.chatId)) bump()
+    }), reloadAsked.on(fresh), accessChanged.on(fresh)]
     return () => {
       if (timer) clearTimeout(timer)
       offs.forEach((off) => off())
