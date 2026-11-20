@@ -9,6 +9,8 @@
 // 404 otherwise, like routes that are not there. The snapshot's own demo file never says `builder`, so no visitor's
 // instance has them. Nothing here opens a socket: the secrets are made up and the demo's fakes answer them.
 import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import { API, type DemoBuilderChatTurns } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { newId } from '../db'
@@ -17,9 +19,11 @@ import type { RouteKit } from '../http/route'
 import { integrationsOf } from '../integrations/connections/service'
 import { connectionAad, setAccess } from '../integrations/connections/store'
 import { APP_NAMES, APP_SLUGS, placeholderUrl } from '../integrations/google-apps/catalog'
+import { DEMO_GOOGLE_KEY } from '../integrations/google-apps/service'
 import { GOOGLE_AUTH, GOOGLE_TOKEN } from '../integrations/google-drive/client'
 import { DRIVE_SCOPE } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
+import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../chat/shared-answers'
 import { higgsfieldSavedTools } from '../demo/fakes/higgsfield'
 import { demoOf } from './demo'
 
@@ -78,7 +82,7 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
         server: { issuer: null, authorizationEndpoint: GOOGLE_AUTH, tokenEndpoint: GOOGLE_TOKEN, registrationEndpoint: null, revocationEndpoint: null },
         client: { clientId: 'demo-fake-client', clientSecret: null, authMethod: 'none', redirectUri: '' },
         tokens: { accessToken: fakeSecret(), refreshToken: fakeSecret(), expiresAt: NEVER },
-        google: { app: 'gmail', key: 'demo', mode: 'direct' },
+        google: { app: 'gmail', key: DEMO_GOOGLE_KEY, mode: 'direct' },
       }
       const sealed = integrationsOf(ctx).box.seal(connectionAad({ id, scope: 'personal', owner_user_id: user }), secret)
       db.query(`INSERT INTO integrations (id, scope, owner_user_id, created_by, kind, name, slug, url, auth, auth_header, secret_enc, key_version, account, notes,
@@ -143,9 +147,68 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
         last = answeredAt
         out.push({ askId, answerId })
       }
-      // the chat was made then and answered then; its person has seen the answers
-      db.query('UPDATE chats SET created_at = MIN(created_at, ?), updated_at = ?, seen_at = ? WHERE id = ?').run(first, last, last, chat.id)
+      // the chat was made then and answered then; its person has seen the answers. Its shown branch ends at the last
+      // answer (chats.active_leaf_id): without it the chat reads as empty and a follow-up starts with no parent
+      db.query('UPDATE chats SET created_at = MIN(created_at, ?), updated_at = ?, seen_at = ?, active_leaf_id = COALESCE(?, active_leaf_id) WHERE id = ?')
+        .run(first, last, last, out.at(-1)?.answerId ?? null, chat.id)
+      // the story's answers are seen like answers of today: shared before them and from the hidden-answers cutover on
+      // (chat/shared-answers.ts afterCutover), so a project's members see them and may reply in their threads
+      if (first) {
+        db.query('UPDATE chats SET shared_at = MIN(shared_at, ?) WHERE id = ? AND shared_at IS NOT NULL').run(first, chat.id)
+        const cutover = hiddenAnswersCutover(db)
+        if (!cutover || first < cutover) setHiddenAnswersCutover(db, first)
+      }
     })()
     return { turns: out }
+  })
+
+  kit.handle(API.demoBuilderThreadTimes, ({ body }) => {
+    if (!builderOn(ctx)) return fail('not_found')
+    const db = ctx.db
+    let updated = 0
+    db.transaction(() => {
+      const set = db.query('UPDATE chat_thread_replies SET created_at = ? WHERE id = ? AND chat_id = ?')
+      for (const t of body.times) updated += set.run(new Date(t.at).toISOString(), t.replyId, body.chatId).changes
+      // a notice (one per person and thread, chat/threads.ts) is as old as the reply it names; read or not, it stays so
+      db.query(`UPDATE chat_thread_notices SET created_at = r.created_at, push_at = r.created_at
+        FROM chat_thread_replies r WHERE r.id = chat_thread_notices.reply_id AND chat_thread_notices.chat_id = ?`).run(body.chatId)
+      db.query(`UPDATE chat_thread_follows SET created_at = COALESCE((SELECT MIN(created_at) FROM chat_thread_replies r WHERE r.root_id = chat_thread_follows.root_id), created_at)
+        WHERE chat_id = ?`).run(body.chatId)
+    })()
+    return { updated }
+  })
+
+  kit.handle(API.demoBuilderFileTimes, ({ body }) => {
+    if (!builderOn(ctx)) return fail('not_found')
+    const db = ctx.db
+    const root = path.resolve(ctx.config.teamRoot)
+    const inside = (p: string) => {
+      const abs = path.resolve(root, p)
+      return abs.startsWith(root + path.sep) ? abs : fail('validation', undefined, { fields: { path: 'outside the team folder' } })
+    }
+    const under = (p: string, top: string) => p === top || p.startsWith(top.replace(/\/+$/, '') + '/')
+    let updated = 0, hidden = 0
+    // oldest first: Files › Recent lists by the newest change (file_events id), so the changes are written again in the
+    // story's order, each at its time; the file on disk gets the same time (the list shows it)
+    const times = [...body.times].sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
+    for (const t of times) {
+      const abs = inside(t.path)
+      const at = new Date(t.at)
+      try { fs.utimesSync(abs, at, at) } catch { continue }
+      db.transaction(() => {
+        const last = db.query("SELECT user_id, size, sha256, detail FROM file_events WHERE path = ? AND action IN ('create', 'update', 'upload', 'restore') ORDER BY id DESC LIMIT 1").get(t.path) as { user_id: string; size: number | null; sha256: string | null; detail: string | null } | null
+        if (!last) return
+        db.query("DELETE FROM file_events WHERE path = ? AND action IN ('create', 'update', 'upload', 'restore')").run(t.path)
+        db.query("INSERT INTO file_events (user_id, path, action, size, sha256, detail, at) VALUES (?, ?, 'upload', ?, ?, ?, ?)").run(last.user_id, t.path, last.size, last.sha256, last.detail, at.toISOString())
+        updated++
+      })()
+    }
+    // the seed's own changes of these (the team skills, the company profile): not something a person did lately
+    for (const top of body.hideFromRecent) {
+      inside(top)
+      const rows = db.query("SELECT id, path FROM file_events WHERE action IN ('create', 'update', 'upload', 'restore')").all() as { id: number; path: string }[]
+      for (const r of rows) if (under(r.path, top)) hidden += db.query('DELETE FROM file_events WHERE id = ?').run(r.id).changes
+    }
+    return { updated, hidden }
   })
 }

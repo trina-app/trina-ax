@@ -287,6 +287,7 @@ export const zh: Record<MessageKey, string> = {
   "auth.signIn": "登录",
   "auth.logout": "退出登录",
   "settings.logoutConfirm": "退出登录？",
+  "settings.logoutBody": "你可以随时重新登录。",
   "auth.username": "用户名",
   'auth.usernameHint': "用于登录：至少 2 个英文字母或数字，不能有空格。也可以使用 . _ - @",
   "auth.password": "密码",

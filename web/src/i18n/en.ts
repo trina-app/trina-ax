@@ -291,6 +291,7 @@ export const en: Record<MessageKey, string> = {
   'auth.signIn': 'Sign in',
   'auth.logout': 'Sign out',
   "settings.logoutConfirm": "Sign out?",
+  "settings.logoutBody": "You can sign back in at any time.",
   'auth.username': 'Username',
   'auth.usernameHint': "You'll use it to sign in: at least 2 English letters or numbers, no spaces. You can also use . _ - @",
   'auth.password': 'Password',

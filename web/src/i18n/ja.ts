@@ -287,6 +287,7 @@ export const ja: Record<MessageKey, string> = {
   'auth.signIn': "ログイン",
   'auth.logout': "ログアウト",
   "settings.logoutConfirm": "ログアウトしますか？",
+  "settings.logoutBody": "いつでももう一度ログインできます。",
   'auth.username': "ユーザー名",
   'auth.usernameHint': "サインインに使います。半角英数字2文字以上で、スペースは使えません。. _ - @ も使えます。",
   'auth.password': "パスワード",

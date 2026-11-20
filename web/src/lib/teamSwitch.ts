@@ -13,6 +13,7 @@ import { t, type MessageKey } from '../i18n'
 import { promptDialog } from '../components/ui'
 import { desktop } from './desktop'
 import { appChangesTeam, changeTeamInApp, mobileApp } from './mobile'
+import { useFreeRoam } from '../store/demo'
 
 export type TeamSwitchWay = 'desktop' | 'app' | 'browser'
 
@@ -28,9 +29,12 @@ export function teamSwitchWay(): TeamSwitchWay | null {
   return 'browser'
 }
 
-/** teamSwitchWay, again when the phone app's bridge arrives (it is set after the page loads: 나 may be the first screen) */
+/** teamSwitchWay, again when the phone app's bridge arrives (it is set after the page loads: 나 may be the first screen).
+ * A free-roam demo: none (QA TC-5612). The visitor has no other team, and leaving the demo's address for another one
+ * ends their visit. */
 export function useTeamSwitchWay(): TeamSwitchWay | null {
-  return useSyncExternalStore(
+  const freeRoam = useFreeRoam()
+  const way = useSyncExternalStore(
     (on) => {
       window.addEventListener('mycel:mobile-ready', on)
       return () => window.removeEventListener('mycel:mobile-ready', on)
@@ -38,6 +42,7 @@ export function useTeamSwitchWay(): TeamSwitchWay | null {
     teamSwitchWay,
     () => null,
   )
+  return freeRoam ? null : way
 }
 
 const PROBLEM: Record<TeamInputError, MessageKey | null> = {

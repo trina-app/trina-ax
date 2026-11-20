@@ -48,7 +48,8 @@ export function PhoneTopBar() {
   const tab = tabOf(path)
   const up = parentOf(`${path}${search}`) ?? TAB_ROOT[tab ?? START_TAB]
   const back = useGoBack(up)
-  const backLabel = useBackLabel(up, () => null)
+  // /settings is the 나 tab on a phone: a page under it (Activity) goes back to "‹ Me", not "‹ Settings" (QA TC-5614)
+  const backLabel = useBackLabel(up, (p) => (p === '/settings' ? t('tabs.me') : null))
   // a page's own name for the bar (one project's page: phone/PhoneBarAction.tsx PhoneBarTitle)
   const pageTitle = usePhoneBarTitle()
   // a tap on that name (a project's page: rename it, for whoever may)
