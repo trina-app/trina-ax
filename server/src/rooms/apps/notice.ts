@@ -1,5 +1,6 @@
 // The "paused" notice of an app in a room (notifications 'room_app.paused', table room_app_notices, migration 299): what
 // it says is read when the notice is read. The room is named and linked only while the person is still in it.
+import { NOT_HELD_SQL } from '../project-room'
 import { plainLabel, ROOM_APP_DAILY_CAP, ROOM_APP_TEAM_DAILY_CAP, type InboxNotification } from '@mycel/shared/api'
 import { teamTimeZone } from '../../admin/settings'
 import type { AppContext } from '../../context'
@@ -52,7 +53,7 @@ function noticeApp(ctx: AppContext, notificationId: string): { room_id: string; 
   const n = ctx.db.query('SELECT user_id, source_id FROM room_app_notices WHERE id = ?').get(notificationId) as { user_id: string; source_id: string } | null
   const appId = n && /^(.+)\.\d{4}-\d{2}-\d{2}$/.exec(n.source_id)?.[1]
   if (!n || !appId) return null
-  const a = ctx.db.query(`SELECT a.room_id, a.paused_until, r.kind FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL
+  const a = ctx.db.query(`SELECT a.room_id, a.paused_until, r.kind FROM room_apps a JOIN rooms r ON r.id = a.room_id AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}
     JOIN room_members m ON m.room_id = a.room_id AND m.user_id = ? WHERE a.id = ?`).get(n.user_id, appId) as { room_id: string; paused_until: string | null; kind: RoomRow['kind'] } | null
   // only while they may still manage the room's apps: an admin made a member (still in the room) gets no push
   return a && mayManageApps(ctx.db, { kind: a.kind }, n.user_id) ? { room_id: a.room_id, paused_until: a.paused_until } : null

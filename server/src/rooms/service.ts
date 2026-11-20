@@ -491,6 +491,8 @@ export class Rooms {
   /** Put people into a group chat inside the caller's write (no events): their member rows and the "added" line by
    * `actorId`. The caller sends announceAdded after the commit. */
   addInTx(roomId: string, actorId: string, ids: readonly string[]): string {
+    // a project's room: its people are put in by the sync alone (rooms/project-room.ts), never by an invite or a guest link
+    refuseInProjectRoom(this.db, { id: roomId, kind: 'group' }, DEFAULT_LOCALE)
     const now = nowIso()
     const add = this.db.query('INSERT INTO room_members (room_id, user_id, joined_at, last_read_seq, visible_from_seq) SELECT id, ?, ?, last_seq, last_seq FROM rooms WHERE id = ?')
     for (const u of ids) add.run(u, now, roomId)

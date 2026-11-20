@@ -17,8 +17,8 @@ afterEach(async () => { await h?.close() })
 const user = (id: string) => ({ subjectType: 'user', subjectId: id })
 const cm = () => 'cm-' + crypto.randomUUID()
 
-async function setup(name: string) {
-  h = await harness(name)
+async function setup(name: string, over: Record<string, unknown> = {}) {
+  h = await harness(name, over)
   const owner = await withOwner(h)
   const ada = await addMember(h, owner, { username: 'ada', role: 'admin' })
   const mia = await addMember(h, owner, { username: 'mia' })
@@ -45,9 +45,9 @@ function setRule(projectId: string, subject: { type: 'user' | 'group' | 'everyon
 const missingId = () => crypto.randomUUID().replace(/^(.{14})./, '$17')
 const bare = (b: any) => ({ ...b, error: { ...b.error, requestId: undefined } })
 
-test('open: made once with the project\'s readers, named after it; again (also at once) the same room; who may open it', async () => {
+test('open: made once with the project\'s readers, named after it; again (two calls in one process) the same room; who may open it', async () => {
   const { owner, ada, mia, nora, otto, launch } = await setup('b-project-room-open')
-  // two at once: one room
+  // two calls together (one process: the immediate write runs them one after the other): one room
   const [a, b] = await Promise.all([open(mia.client, launch.id), open(nora.client, launch.id)])
   expect([a.status, b.status]).toEqual([200, 200])
   expect(a.body.id).toBe(b.body.id)
@@ -269,4 +269,81 @@ test('a read-only member cannot attach a file from the computer (403 shared_uplo
   expect(s.status).toBe(403)
   expect(s.body.error?.params?.reason).toBe('shared_upload_read_only')
   expect((await up(mia.client)).status).toBe(201)
+})
+
+test('the unique index answers a race from another process: the write rolls back and the room made there is returned', async () => {
+  const { mia, nora, launch } = await setup('b-project-room-race')
+  const db = h.ctx.db
+  // the other process's room, committed between our check and our write: simulated by a trigger that refuses our link
+  // row as the unique index would, and the other room committed right after our write rolled back
+  db.query("CREATE TEMP TRIGGER race BEFORE INSERT ON room_project_links WHEN NEW.mode = 'room' BEGIN SELECT RAISE(ABORT, 'UNIQUE constraint failed: room_project_links.project_id'); END").run()
+  const theirs = crypto.randomUUID().replace(/^(.{14})./, '$17')
+  const real = db.transaction.bind(db)
+  ;(db as any).transaction = (fn: any) => {
+    const t = real(fn)
+    return Object.assign((...a: any[]) => t(...a), { immediate: (...a: any[]) => {
+      try { return t.immediate(...a) } catch (e) {
+        ;(db as any).transaction = real
+        db.query('DROP TRIGGER race').run()
+        const now = new Date().toISOString()
+        db.query("INSERT INTO rooms (id, kind, created_at, activity_at, name) VALUES (?, 'group', ?, ?, 'Launch site')").run(theirs, now, now)
+        db.query("INSERT INTO room_project_links (room_id, project_id, linked_by, linked_at, mode) VALUES (?, ?, ?, ?, 'room')").run(theirs, launch.id, nora.id, now)
+        throw e
+      }
+    } })
+  }
+  try {
+    const r = await open(mia.client, launch.id)
+    expect(r.status).toBe(200)
+    expect(r.body.id).toBe(theirs)
+  } finally { (db as any).transaction = real }
+  // our half-made room rolled back: the only project room is theirs, and the sync put mia in it
+  expect((db.query("SELECT COUNT(*) n FROM rooms WHERE kind = 'group' AND name = 'Launch site'").get() as { n: number }).n).toBe(1)
+  expect(membersOf(theirs)).toContain(mia.id)
+})
+
+test('a guest link never names a project room: create refused, an old link of a converted channel refused at accept, the guest reads nothing', async () => {
+  const { mia, nora, launch } = await setup('b-project-room-guest-link')
+  const roomId = (await open(mia.client, launch.id)).body.id as string
+  await mia.client.call('POST', `/api/rooms/${roomId}/messages`, { body: 'secret plan before the guest', clientMessageId: cm() })
+  // create: refused for a member (also read-only) and the creator
+  setRule(launch.id, { type: 'user', id: nora.id }, 'read')
+  for (const c of [nora.client, mia.client]) expect((await c.try('POST', '/api/guest-invites', { place: { kind: 'room', id: roomId } })).status).toBeGreaterThanOrEqual(400)
+  // an invite made for a channel before it became the project's room (0.5.21): its accept is refused
+  const ch = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id], name: 'Launch talk' })
+  const inv = await mia.client.call('POST', '/api/guest-invites', { place: { kind: 'room', id: ch.id } })
+  // (the project's own room set aside, so the channel's 0.5.21 link is the one the start pass settles)
+  h.ctx.db.query('DELETE FROM room_project_links WHERE room_id = ?').run(roomId)
+  h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), roomId)
+  h.ctx.db.query('INSERT INTO room_project_links (room_id, project_id, linked_by, linked_at) VALUES (?, ?, ?, ?)').run(ch.id, launch.id, mia.id, new Date().toISOString())
+  setRule(launch.id, { type: 'user', id: nora.id }, 'write')
+  roomsOf(h.ctx).sync({ projects: 'all' })
+  expect((h.ctx.db.query('SELECT mode FROM room_project_links WHERE room_id = ?').get(ch.id) as { mode: string }).mode).toBe('room')
+  const token = String(inv.url).split('/invite/')[1]!
+  const c = h.client({ ip: '10.0.0.9' })
+  const acc = await c.try('POST', `/api/invites/${token}/accept`, { username: 'gus', name: 'GUS', password: 'guest river lamp 77' })
+  expect(acc.status).toBeGreaterThanOrEqual(400)
+  expect(membersOf(ch.id)).toEqual(sorted(mia.id, nora.id))
+  // and nothing adds anyone to a project room but the sync (the guest link's own step refuses it)
+  expect(() => roomsOf(h.ctx).addInTx(ch.id, mia.id, ['x'])).toThrow()
+})
+
+test('a held room (project in the trash): an app post is refused and no notice is pushed', async () => {
+  const { mia, nora, launch } = await setup('b-project-room-held-apps', { publicOrigins: ['https://team.acme-corp.com'] })
+  const roomId = (await open(mia.client, launch.id)).body.id as string
+  const app = await mia.client.call('POST', `/api/rooms/${roomId}/apps`, { kind: 'other', name: 'Hook' })
+  const token = (app.address as string).split('/in/')[1]!
+  await mia.client.call('POST', `/api/rooms/${roomId}/messages`, { body: `@${'NORA'} hi`, clientMessageId: cm(), mentions: [nora.id] })
+  const notice = h.ctx.db.query('SELECT id FROM room_notices WHERE room_id = ? AND user_id = ?').get(roomId, nora.id) as { id: string }
+  const { noticeWanted } = await import('../../server/src/rooms/alerts')
+  expect(noticeWanted(h.ctx.db, notice.id)).toBe(true)
+  // while the project is there an app's post lands
+  const ok = await h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'before' }) })
+  expect(ok.status).toBeLessThan(300)
+  expect((await mia.client.try('DELETE', `/api/projects/${launch.id}`)).status).toBe(204)
+  expect(noticeWanted(h.ctx.db, notice.id)).toBe(false)
+  const before = (h.ctx.db.query('SELECT last_seq FROM rooms WHERE id = ?').get(roomId) as { last_seq: number }).last_seq
+  const res = await h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'deploy done' }) })
+  expect(res.status).toBe(404)
+  expect((h.ctx.db.query('SELECT last_seq FROM rooms WHERE id = ?').get(roomId) as { last_seq: number }).last_seq).toBe(before)
 })
