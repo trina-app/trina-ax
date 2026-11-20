@@ -2,8 +2,8 @@
 
 - Date (UTC): 2026-11-20 11:36
 - Branch: `plan/project-is-room` (build branches: `feat/project-room-server`, `feat/project-room-web`,
-  `feat/project-room-migrate`, `feat/room-files-list`)
-- Status: draft, revision 2 after an independent review (the owner set the direction on 2026-11-20)
+  `feat/room-files-list`)
+- Status: draft, revision 3 (an independent review, then the owner's answers of 2026-11-20)
 - Where: Team AX core (`server/src/rooms/`, `server/src/chat/`, `server/src/uploads/`, `shared/src/api/`,
   `web/src/pages/Room.tsx`, `web/src/pages/Projects.tsx`, `web/src/components/rooms/*`, the six `web/src/i18n/*.ts`,
   `docs/site`). Why: rooms, projects, files and permissions are core.
@@ -71,9 +71,8 @@ Migration **428** (B; 427 is the highest B on dev, and 600/701/702 belong to oth
 
 ```sql
 -- min_compatible_reader: 1
-ALTER TABLE room_project_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'pending' CHECK (mode IN ('pending', 'room'));
--- 'room': members follow the project; 'pending': a channel linked in 0.5.21 whose people differ (D7)
-ALTER TABLE room_project_links ADD COLUMN pending_since TEXT;   -- D7: a pending link is kept separate after 14 days
+ALTER TABLE room_project_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'linked' CHECK (mode IN ('linked', 'room'));
+-- 'room': a project room, members follow the project; 'linked': a row from 0.5.21 or an older build, settled at start (D7)
 -- a room file stored in the team folder (D3): where it is and how to follow it, like a chat's team reference
 CREATE TABLE room_file_refs (
   room_file_id TEXT PRIMARY KEY REFERENCES room_files(id) ON DELETE CASCADE,
@@ -143,9 +142,9 @@ file's viewer check is "a member of the room now **and** reads the path now".
   - `history.ts:78` and `:181` (the walk, and when a read room counts as "another room");
   - `post-to-room.ts:471` (the "people who join later see it" wording);
   - `answer-share.ts:370` (opens history before deciding a share).
-- **Only for people added after the room became a project room.** A converted 0.5.21 channel (D7) keeps each current
-  member's start: at conversion `history_from_seq` is set to their `visible_from_seq`, so nobody suddenly sees messages
-  from before they joined (review finding 4).
+- **Only for people added after the room became a project room.** A linked row converted at start (D7) keeps each
+  current member's start: at conversion `history_from_seq` is set to their `visible_from_seq`, so nobody suddenly sees
+  messages from before they joined (review finding 4).
   - Why: the project's people already read every file the room talks about. A new teammate needs the background.
   - The add itself says so: the members dialog's preview line reads "They'll see the project's files and its chat
     room's history".
@@ -169,11 +168,35 @@ file's viewer check is "a member of the room now **and** reads the path now".
 - **Who may open it.** Being a room member and the file's folder rules. Both are checked; they normally agree. A
   `Chat attachments` subfolder that someone narrowed shows the file as "unavailable" to the people it excludes, as a
   team reference does today.
-- **Deleting a message keeps the file in the project.** The confirm says: "The file stays in this project's Chat
-  attachments." Deleting the file (in Files, or with the file's own menu in the room) moves it to the team trash. The
-  message then shows "File deleted", and restoring it from the trash brings the chip back (team-refs follow the trash
-  id). Why one rule: the file is a project file the moment it is sent. Others or the AI may already use it, it is
-  restorable, and a message delete that silently removes a shared file surprises people more than a file that stays.
+- **Deleting a message moves its file to the trash** (the owner, 2026-11-20: "as in Slack"). The confirm adds one line:
+  "Its file goes to the trash too. You can restore it from there." The file goes through the normal team trash
+  (`TeamFiles.remove`, `moveIntoTrash`), so it is restored in the usual way. The message stays deleted after a restore:
+  a deleted message is final (`deleted_at`), and the restored file is an ordinary project file in Chat attachments.
+  Bringing the chip back into a deleted message is not simple, so it is not done.
+  - **Slack, checked on 2026-11-20.** The help pages do not say that deleting a message deletes its file.
+    [Edit or delete messages](https://slack.com/help/articles/202395258-Edit-or-delete-messages) says only that
+    deleting is permanent, and that *unsending* returns "the content, including files" to the input.
+    [Add files to Slack](https://slack.com/help/articles/201330736-Add-files-to-Slack) says "Files must be deleted
+    individually" and who may delete a file. The developer page
+    [Working with files](https://docs.slack.dev/messaging/working-with-files) shows a tombstone, "This file was
+    deleted", where a removed file was shown. So Slack's pages describe file deletion as its own step. The rule here is
+    the owner's choice, not a copy of a documented Slack rule, and the decision file says so.
+  - **When the file is only detached, not trashed** (the message goes; the file stays where it is; the confirm's line
+    reads "Its file stays in the project, because it is used elsewhere or was changed"). Any of these is enough:
+    - **Changed or moved:** its content hash is not the one sent, or it was renamed, or it was moved out of the project's
+      Chat attachments (`room_file_refs` path and sha256 against now). Someone edited or filed it, so it is their work now.
+    - **Not a room upload:** a team file attached from Files ("Add from team files", a phone's team pick) is never
+      trashed by a message delete. Only a file this room's upload created is.
+    - **Attached to another message:** another live message in any room has a `room_file_refs` row to the same file
+      (a forward, a quote with files, a second attach).
+    - **Referenced elsewhere:** an AI chat's team reference (`team_file_refs`), a share link (`file_shares`), or a
+      scheduled task's input names it.
+    - **The person deleting cannot write there:** they lost write, or an admin or manager deleting someone's message
+      lacks it in this project.
+  - **A file trashed in Files** shows "File deleted" in its message, and restoring it brings the chip back, because the
+    message is still there and `room_file_refs` follows the trash id.
+  - **Before sending:** the ✕ on an unsent chip trashes the uploader's unchanged file, as in the shared chat today
+    (`uploads/team-refs.ts:339-353`).
 - **Quota.** It counts under "Team files", not under the rooms line (`system/storage.ts:353-364`). Old room-stored
   files stay on the rooms line.
 - **Team export ZIP** (`system/team-export-zip.ts`). The files are already in `files/projects/...` (`:150`). The room's
@@ -222,7 +245,7 @@ file's viewer check is "a member of the room now **and** reads the path now".
 - **Read-only members:** the attach button is disabled with "You can't add files to this project" (or "…to its Chat
   attachments folder" when only that folder is narrowed).
 - **Where the room is listed.** In Channels, with a folder icon in place of the lock, after its first message. Until
-  then it is reached from the project. (Open question 1.)
+  then it is reached from the project. (The owner, 2026-11-20: as recommended.)
 - Words (en is the source, then the other five): Chat room, Open chat room, Manage people, Leave project, "The project's
   people are this room's members." ko 채팅방, 채팅방 열기, 사람 관리, 프로젝트 나가기.
 
@@ -233,54 +256,29 @@ file's viewer check is "a member of the room now **and** reads the path now".
   as today. Push goes through the same `roomNotice` and `room_push_deliveries`.
 - **Unread** is the room's `unreadCount` (`store.ts:482`), also shown on the project row and the Chat room button.
 - **Phone and desktop** wrap the web app (`mobile/README.md`, `desktop/README.md`), so nothing native changes. The phone
-  at 390: the header shows a folder icon and a files icon; the project page's Chat room is a full-width row.
+  at 390: a project room's header shows one folder icon (a plain room's a files icon); the project page's Chat room is
+  a full-width row.
 - **Search.** Room message search is unchanged (`rooms/search.ts`). Project-room files are team files, so file search
   and ⌘K find them as team files. `searchRoomFiles` (`:286`) also returns them through `room_file_refs`, readable rows only.
 - **⌘K before typing** (`web/src/components/SearchDialog.tsx`) shows up to 5 recent room files from the person's
   rooms (D8), with the same per-row checks as the search.
 
-### D7. Migration of the channels linked in 0.5.21
+### D7. Linked rows from 0.5.21: settled at start, no card
 
-Every existing link row starts as `mode='pending'`. Rooms do not change by themselves, because either direction
-discloses something:
+The owner (2026-11-20): no team has a linked channel in practice. There is no decision card, pending state or
+deadline. One safe pass runs at start in `Rooms.sync()` for every `mode='linked'` row (from 0.5.21, or made by an older
+build after a rollback):
 
-- adding project readers to the channel shows them its private history;
-- removing channel-only people takes their room away.
-
-1. **Same people: converted automatically.** On start (a one-time pass in `Rooms.sync()`), a pending link whose room
-   members are exactly the project's readers becomes `mode='room'`, with one event line: "This channel is now the
-   project's chat room".
-2. **Different people: frozen as a linked private channel**, with no member sync, until someone who may edit the
-   project's people decides. They see one card, at the top of the channel if they are in it, and on the project page
-   otherwise:
-
-   > "This channel and the project {name} have different people."
-   > **Make it the project's room** · **Keep separate** · *Who changes?*
-
-   *Who changes?* opens the details:
-   - "2 people here aren't in the project: they leave the room unless you add them to the project" (**Add them to the
-     project** opens the members dialog with them filled in and the usual preview);
-   - "3 project people aren't here: they join and see this channel's messages";
-   - guests are listed on their own line with the result for each. A guest whose one place is this channel and who is
-     not in the project would be switched off (`runAccessHooks`, `admin/folders.ts:576`). A guest who already has
-     another project cannot be added (409 `guest_one_place`). The card says so, and **Make it the project's room** is
-     refused until each such guest is added or removed by hand (review finding 7).
-
-   The actions:
-   - **Make it the project's room:** becomes `mode='room'`, and the sync runs. Current members keep their start (D2).
-     The project people who join see the history; the details said so.
-   - **Keep separate:** the link is deleted and the channel becomes a plain private channel. The project gets a fresh
-     room the first time someone opens Chat room.
-   - **Nobody decides within 14 days** (`pending_since`): the link is kept separate by itself, with one event line. This
-     is the choice that discloses nothing and takes nothing away (review finding 6).
-
-   While a link is pending, **Chat room** on the project page opens the channel for its members. Project people outside
-   it see "This project's chat room is being set up. Ask {an editor's name} to finish it." The plain answer is not a
-   409 from the unique index.
+1. **The room's members are exactly the project's readers:** it becomes `mode='room'`, the project's room. Each current
+   member keeps their start (D2), and one event line is written: "This channel is now the project's chat room".
+2. **Anything else** (the people differ, the room is not an active private channel, or the project is not active in
+   the zone): **the link row is deleted**. The channel becomes an ordinary private channel with the same people and
+   history, and the project gets its own room the first time someone opens Chat room. This is the choice that
+   discloses nothing and takes nothing away.
 3. **Old room files** stay in `.system/rooms`, readable as today and still counted on the rooms line. Their menu keeps
    **Save to team folder…**. There is no bulk copy.
-4. Audit: `project.room` with `{ via: 'auto' | 'decided' | 'kept_separate' }`, naming the room by its kind only, as
-   #69's audit rows do.
+4. Audit: `project.room` with `{ via: 'converted' | 'unlinked' }`, naming the room by its kind only, as #69's audit
+   rows do.
 
 ### D8. In-room Files list (every room)
 
@@ -293,33 +291,35 @@ The header's **Files** opens a side panel with name, sender, date and size, and 
 
 ## Steps (PRs, in order; each batched with the day's reviewed PRs per the batch rule)
 
-1. **Server: project room** (~900 lines + tests). Migration 428; `rooms/project-room.ts` (get-or-create, the derived
+1. **Server: project room** (~1,000 lines + tests). Migration 428; the start pass for linked rows (D7); `rooms/project-room.ts` (get-or-create, the derived
    members step in `sync()`, `historyRoom`, name follows rename); `POST /api/projects/:id/room`; `Room.project.room`,
    `Project.room`; lifecycle (trash: members kept, room refused; restore; delete for good: archived before the cascade); the guest checks leave project rooms out; the three #69
    endpoints answer 410; read-only can't attach; guest membership.
 2. **Server: files and AI** (~600 lines + tests). Project-room uploads into Chat attachments (one request and session),
-   `room_file_refs` and the shared reference helper, "Files you sent" without them, message delete keeps the file, "File deleted" state, export ZIP naming, the scoped room tools (only what every audience member sees) in the
+   `room_file_refs` and the shared reference helper, "Files you sent" without them, message delete trashes or detaches
+   the file (D3, every case), "File deleted" state, export ZIP naming, the scoped room tools (only what every audience member sees) in the
    project's shared chat, the prompt line.
-3. **Server + web: migration of linked channels** (~400 lines). The auto pass, the pending card and its two actions,
-   audit.
-4. **Web: the project room** (~800 lines). Buttons both ways, room info, Manage people and Leave project, the composer
+3. **Web: the project room** (~800 lines). Buttons both ways, room info, Manage people and Leave project, the composer
    note, the removals in the table above, Channels listing with the folder icon, 390 and dark, six languages.
-5. **Web + server: Files list and ⌘K recent** (~500 lines). `GET /api/rooms/:id/files`, `?recent=1`, panel and ⌘K
+4. **Web + server: Files list and ⌘K recent** (~500 lines). `GET /api/rooms/:id/files`, `GET /api/room-files/recent`, panel and ⌘K
    section.
-6. **Docs.** The decision `docs/decisions/<date>-project-is-room.md` (supersedes 20261119-channel-project-link, and keeps
+5. **Docs.** The decision `docs/decisions/<date>-project-is-room.md` (supersedes 20261119-channel-project-link, and keeps
    its `linkedProjectPlain` rule), `changes/project-is-room.md`, `docs/site/use/chats-and-projects.md` "A channel for a
-   project" rewritten as "A project's chat room" in six languages, the generated API page (`docs:api`). Written with PR 4.
+   project" rewritten as "A project's chat room" in six languages, the generated API page (`docs:api`). Written with PR 3.
 
-Size: about 3,600 lines with tests (PR 2 grows by the shared reference helper), 5 PRs plus docs, about 4 builder days.
+Size: about 3,300 lines with tests (PR 2 grows by the shared reference helper and the delete cases), 4 PRs plus docs,
+about 3.5 builder days.
 
-**PRs 1 to 4 go to dev in one batch, one queue run.** Every dev merge installs on qa.trina.app, and a release can be cut
+**PRs 1 to 3 go to dev in one batch, one queue run.** Every dev merge installs on qa.trina.app, and a release can be cut
 from dev in between. PR 1 alone would answer 410 to the 0.5.21 link UI and make rooms that UI cannot explain (review
-finding 11). PR 5 can go separately.
+finding 11). PR 4 can go separately.
 
 ## Risks
 
 - **Disclosure through history** (D2, D7): a person added to a project now sees the room's past. This is said in the
-  members preview. Pending channels never open history without a person's decision.
+  members preview. A linked row converts only when the people are already the same, and keeps each member's start.
+- **Message delete trashes a file** (D3): only a room-made, unchanged, unreferenced file, by someone who may write
+  there, and it can be restored. Every other case only detaches.
 - **Permissions drift between room and folder:** both checks run on every file read (D3). The sync runs on the same
   hooks as the folder-button live pass (`groupFoldersChanged`), so a removed person loses the room in the same request.
 - **Large projects:** a project shared with "everyone" makes a big room. The fanout is like the everyone room's. The
@@ -344,14 +344,18 @@ finding 11). PR 5 can go separately.
     project in, guest of a group chat not; admin outside not; no 100 cap; name follows rename; history open for a later
     member; removal drops notices and replay.
   - `b-project-room-files.test.ts`: upload lands in Chat attachments with "(2)" names; read-only 403; guest 100 MB;
-    session upload over 50 MB; message delete keeps the file; trash shows deleted and restore brings it back; a narrowed
+    session upload over 50 MB; message delete trashes an unchanged room-made file, which can be restored while the
+    message stays deleted; it only detaches when the file was edited, renamed, moved out of Chat attachments, attached
+    from Files, attached to a second message, held by an AI chat reference or share link, or the deleter cannot write;
+    a file trashed in Files shows deleted and restore brings the chip back; a narrowed
     subfolder shows unavailable; quota line; export names the team path.
   - `b-project-room-ai.test.ts`: the shared chat reads only its own room; no `rooms` tool; another room id refused as
     missing; only messages every audience member sees (a member with a later start, an old hidden answer); no card after
     reading; `post_to_room` still asks; a chat of another project gets nothing.
-  - `b-project-room-migrate.test.ts`: equal people → auto, and each member keeps their start (no older messages
-    appear); different people → pending and frozen (no sync); each action and who may take it (also from the project
-    page); guest lines and the refusal; 14 days → kept separate; audit shape with no room id.
+  - `b-project-room-migrate.test.ts`: equal people → converted, and each member keeps their start (no older messages
+    appear); different people, an archived room or a trashed project → link deleted, channel unchanged; a row made
+    after a rollback is settled on the next start; a `mode='room'` row is never touched by this pass; audit shape with
+    no room id.
   - `b-project-room.test.ts` also covers: a trashed project keeps members, mutes and read positions and is refused while
     trashed; delete for good archives the room before the cascade; a guest with a group chat and this project keeps
     both; a hand-added member is put back; only changed projects are recomputed.
@@ -362,14 +366,15 @@ finding 11). PR 5 can go separately.
   - `POST /api/projects/:id/room` for a guest of another place, a non-member, an admin outside and a reader;
   - `GET /api/rooms/:id/files` and `?recent=1` for a former member, a member when the folder is narrowed, and a guest;
   - the shared chat's room tool for another room;
-  - the pending card's actions for a channel member who is not in the project, and for an admin outside;
+  - deleting another person's message with a file, as a manager without write: detached, not trashed;
   - the retired endpoints answer 410 without naming anything.
-- **Web unit:** the header buttons, room info and the pending card; the old event lines still render.
+- **Web unit:** the header buttons, room info and the delete confirm's line (trash and stays); the old event lines
+  still render.
 - **Web e2e** `web/test/e2e/project-room.spec.ts`:
   - open Chat room from the project, post a file, see it in Files and back;
   - add a person on the project, who sees the room and its history live; remove them, and the room goes;
   - read-only cannot attach;
-  - the pending card in both actions;
+  - delete a message with a file, find it in the trash, restore it;
   - 1440 and 390, light and dark.
 - **AI scenario** `ROOM-PRJ-01`: in the project's AI chat, "what did we decide in the chat room yesterday?" reads only that
   room, with no card.
@@ -388,25 +393,25 @@ finding 11). PR 5 can go separately.
 | Project shared with a whole group, then a member joins the group | They are in the room |
 | Guest invited to the project | In the room; cannot open other rooms |
 | Admin outside the project | Not in the room; can still manage people |
-| Delete a message with a file | Message gone; file stays in Chat attachments |
+| Delete a message with a file | Confirm says the file goes to the trash; message gone; file in the trash; restore puts it back in Chat attachments, message stays deleted |
+| Delete a message whose file someone edited or moved out of Chat attachments | Confirm says the file stays; only the message goes |
+| Delete one of two messages that carry the same file | File stays; the other message still shows it |
+| Delete a message whose file was attached from Files | File stays |
 | Trash the file in Files | The room shows "File deleted"; restore brings it back |
 | Project AI chat: "summarise the chat room" | Reads only this room, no card |
 | Rename the project | Room name follows |
 | Trash, then restore the project | The room hides, then comes back |
-| Linked channel from 0.5.21 with the same people | Became the project room with one line |
-| Linked channel with different people | Card for a project editor; both actions work; others see nothing |
+| Linked channel (test data) with the same people, after the upgrade | Became the project room with one line |
+| Linked channel (test data) with different people, after the upgrade | Plain private channel, same people; the project's Chat room makes a new room |
 | Files list in a plain channel and a DM | Lists the room's files; preview opens |
 | ⌘K before typing | Recent room files listed |
 | Project room at 390, light and dark | Header icons fit; Chat room row; nothing cut off |
 
-## Open questions for the owner
+## Owner's answers (2026-11-20)
 
-1. **Where is a project room listed?** Recommended: in Channels with a folder icon, after its first message (one place to
-   see unread). The other choice is only under the project in the sidebar.
-2. **Message delete vs file.** Recommended: deleting the message keeps the file in the project; delete the file in
-   Files. The other choice: deleting your own message also trashes the file you sent, if nobody changed it.
-3. **Linked channels with different people** (D7). Recommended: a one-time card for a project editor in that channel.
-   The other choice is to unlink them all, so they become plain channels and each project starts a new room.
+1. Listing: Channels with a folder icon, after the first message (D5).
+2. Message delete: as in Slack, the file goes to the trash with the message, with the cases that only detach (D3).
+3. Linked channels: none in practice. No card; the start pass converts the same-people case and unlinks the rest (D7).
 
 ## Review (2026-11-20, an independent reviewer, fresh context)
 
@@ -417,16 +422,15 @@ There were 14 findings and all of them changed the plan:
 3. Trash keeps members, and delete-for-good archives first (D1).
 4. A converted channel keeps each member's start (D2).
 5. The shared chat reads only what every audience member sees (D4).
-6. Pending links can be resolved from the project page and are kept separate after 14 days (D7).
-7. Guests on the pending card (D7).
+6. Pending links could get stuck (D7). Moot after the owner's answer: there is no pending state.
+7. Guests on the pending card (D7). Moot: a link whose people differ is removed without touching anyone.
 8. The sync cost is bounded to changed projects (D1).
 9. "Files you sent" leaves project files out (D3).
 10. Every `historyKinds` caller is listed (D2).
 11. PRs 1 to 4 go in one batch (Steps).
 12. Rollback limits go in the admin notes (Risks).
 13. A separate `recent` endpoint, and guest endpoints (D8).
-14. Leaner UI: one header button in a project room, a one-line pending card, Mute beside Leave project, exact attach
-    wording (D5, D7).
+14. Leaner UI: one header button in a project room, Mute beside Leave project, exact attach wording (D5).
 
 ## Result
 
