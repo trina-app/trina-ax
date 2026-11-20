@@ -221,6 +221,22 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
         if (newest > 0) fs.utimesSync(d, new Date(newest), new Date(newest))
       } catch { /* a folder that went away */ }
     }
+    // a folder with nothing dated in it (people's own folders, the team skills', the team folder itself) still says the
+    // build's time, later than the story: every folder takes the newest time inside it, never past the story's newest
+    // dated change (QA TC-5743). Hidden folders (.system, attachments) are left as they are.
+    const story = times.length ? Date.parse(times.at(-1)!.at) : NaN
+    const settle = (d: string): number => {
+      let newest = 0
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        if (e.name.startsWith('.')) continue
+        const p = path.join(d, e.name)
+        try { newest = Math.max(newest, e.isDirectory() ? settle(p) : Math.min(fs.statSync(p).mtimeMs, story)) } catch { /* gone */ }
+      }
+      const at = new Date(Math.min(newest || story, story))
+      fs.utimesSync(d, at, at)
+      return at.getTime()
+    }
+    if (Number.isFinite(story)) { try { settle(root) } catch { /* the team folder is read on the next build */ } }
     // a person's memories, at the story's time
     for (const m of body.memories) {
       db.query(`UPDATE memories SET created_at = ? WHERE user_id = ?${m.text ? ' AND text = ?' : ''}`).run(...[new Date(m.at).toISOString(), m.userId, ...(m.text ? [m.text] : [])])

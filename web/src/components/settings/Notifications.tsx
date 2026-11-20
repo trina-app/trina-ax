@@ -215,7 +215,8 @@ export function fileShareText(item: InboxNotification, t: T): string {
   if (code === 'file.access_answered') return t('notifications.event.file.access_answered')
   // several files in one press (docs/decisions/20261116-file-share-everyone.md): "Mina shared 5 files with you"
   if (code === 'file.shared' && f && !f.gone && f.count && f.batchId) return f.by ? t('notifications.event.file.sharedMany', { by: f.by, n: f.count }) : t('notifications.event.file.sharedManyNoName', { n: f.count })
-  if (!f || f.gone || !f.name) return code === 'file.shared' ? t('notifications.event.file.gone') : t(`notifications.event.${code}`)
+  if (code === 'file.shared' && (!f || f.gone || !f.name)) return fileGoneText(f, t)
+  if (!f || f.gone || !f.name) return t(`notifications.event.${code}`)
   // a folder (folder sharing): shared with me; to its owner, paused (the folder on the server is not the one shared) or
   // ended (their move put it where nothing is shared)
   if (f.folder === 'paused') return t('notifications.event.file.folderPaused', { name: f.name })
@@ -227,6 +228,16 @@ export function fileShareText(item: InboxNotification, t: T): string {
   if (code === 'file.access_requested' && f.for) return t('notifications.event.file.access_requestedFor', { by: f.by, name: f.name, for: f.for })
   if (code === 'file.access_requested') return t('notifications.event.file.access_requestedNamed', { by: f.by, name: f.name })
   return t('notifications.event.file.unshared_by_moveNamed', { by: f.by, name: f.name })
+}
+
+/** A file (or folder) shared with me that no longer opens (docs/decisions/20261120-file-share-gone-notice.md): who shared
+ * it while their account is there, and why when the server knows; never its name. */
+function fileGoneText(f: InboxNotification['fileShare'], t: T): string {
+  const folder = f?.folder === 'shared'
+  const line = f?.by
+    ? t(folder ? 'notifications.event.file.goneFolderBy' : 'notifications.event.file.goneBy', { by: f.by })
+    : t(folder ? 'notifications.event.file.goneFolder' : 'notifications.event.file.gone')
+  return f?.why ? `${line} ${t(`notifications.event.file.goneWhy.${f.why}`)}` : line
 }
 
 /** A request to open my chat or project, and the answer to mine (docs/decisions/20261116-chat-project-ask-access.md):

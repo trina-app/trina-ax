@@ -952,7 +952,10 @@ export class Notifications {
     // Not a room I muted: the 대화 tab does not count it (lib/rooms.ts totalUnread), so its row counts on 나 instead
     const counted = rooms.filter((r) => r.counted)
     const roomUnreadCount = counted.filter((r) => !r.muted).length
-    return { items: selected.map(r => this.out(r)), nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + counted.length, roomUnreadCount, noticeUnreadCount: n }
+    // a "shared with you" notice whose file no longer opens drops out once it is read (docs/decisions/20261120-file-share-gone-notice.md):
+    // an unread one stays to say so once; the cursor is the rows', so the next page starts after it either way
+    const items = selected.map(r => this.out(r)).filter((x) => !(x.eventType === 'file.shared' && x.fileShare?.gone && x.readAt))
+    return { items, nextCursor: merged.length > limit && last ? encodeCursor({ t: last.sort_at, id: last.id }) : null, unreadCount: n + counted.length, roomUnreadCount, noticeUnreadCount: n }
   }
   get(userId: string, id: string): InboxNotification {
     if (!this.active(userId)) throw new HttpError('not_found')

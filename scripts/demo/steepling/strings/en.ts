@@ -159,8 +159,8 @@ export const en = {
 
   /** the free-roam bar: what a tap asks */
   suggestions: [
-    { label: 'Draft next week\'s posts', prompt: 'Use our social posts skill to draft next week\'s posts for the empty slots in the social calendar' },
-    { label: 'Summarise customer reviews', prompt: 'Use the customer review summary skill on our reviews' },
+    { label: 'Draft next week\'s posts', prompt: 'Use our social posts skill to draft the two empty slots in Next week.md (Social calendar project)' },
+    { label: 'Summarise customer reviews', prompt: 'Use the customer review summary skill on Reviews Oct–Nov.csv (Customer voice project)' },
     { label: 'Did Chris reply?', prompt: 'Did Chris reply to my email? Check my Gmail' },
   ],
 }

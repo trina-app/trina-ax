@@ -43,7 +43,7 @@ What stays on your computer:
 ## Start
 
 1. Open **Files › My files** in the desktop app, in a window wide enough for the computer layout.
-2. Click **Find work files** in the toolbar, beside Upload folder and Upload.
+2. Click **Find work files** in the toolbar, beside Upload.
 
 ![My files with the Find work files button in the toolbar](../images/find-work-files/my-files-line.webp "The line on My files")
 
@@ -166,15 +166,15 @@ could see none of the three folders, it says so instead of a list.
 
 - **Choose it yourself** opens the Mac's folder window at that folder. Picking it there lets the app look through it.
 - Or give Full Disk Access (above) and look again.
-- Or add the files yourself: **Files › Upload folder**, then pick the folder.
+- Or add the files yourself: **Files › Upload › Upload folder**, then pick the folder.
 
 macOS does not ask again after **Don't Allow**, and an app you answered that way may not be listed in **Privacy &
 Security › Files & Folders**, so turning it on there is not always possible.
 
 ## Where it is not
 
-- **In a browser or on a phone.** There is no way for a web page to look through your folders. Use **Upload folder**
+- **In a browser or on a phone.** There is no way for a web page to look through your folders. Use **Upload › Upload folder**
   on the Files page.
 - **The Mac App Store version.** macOS lets apps from the App Store read only the folders you pick, so that version
-  keeps **Upload folder** on the Files page.
+  keeps **Upload › Upload folder** on the Files page.
 - **Guests** don't have it, and neither does the Linux app.

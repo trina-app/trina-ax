@@ -1,5 +1,5 @@
 // The line a connect flow shows while it waits for a sign-in in a browser window (Google, a service's sign-in page,
-// Add to Slack, Sign in with Slack): what it waits for, and always Try again and Cancel (QA TC-1417: the window was
+// Add to Slack, Sign in with Slack): what it waits for, and always Try again and Cancel (in a dialog, the dialog's own Cancel) (QA TC-1417: the window was
 // closed before it finished and the page kept waiting with no way out). Try again starts the sign-in over (a new
 // window; the server replaces the old flow), Cancel leaves it. A wait that lasts too long ends by itself
 // (lib/signInWait.ts), and the line says so under a spinner (QA TC-2132: no sign it was working, no idea how long).
@@ -13,7 +13,8 @@ import { Button, WaitLine } from '../ui'
 export function BrowserWait({ text, onRetry, onCancel, busy, link, testId, retryTestId, cancelTestId, framed, className, google }: {
   text: string
   onRetry: () => void
-  onCancel: () => void
+  /** left out in a dialog, whose own Cancel is the way out (one Cancel on screen) */
+  onCancel?: () => void
   busy?: boolean
   link?: { href: string; label: string; onClick?: (e: MouseEvent<HTMLAnchorElement>) => void } | null
   testId?: string
@@ -36,7 +37,7 @@ export function BrowserWait({ text, onRetry, onCancel, busy, link, testId, retry
       )}
       <span className="ml-auto flex shrink-0 items-center gap-1">
         <Button size="sm" variant="secondary" className="max-md:h-11" disabled={busy} onClick={onRetry} data-testid={retryTestId ?? (testId ? `${testId}-retry` : undefined)}>{t('common.retry')}</Button>
-        <Button size="sm" variant="ghost" className="max-md:h-11" disabled={busy} onClick={onCancel} data-testid={cancelTestId ?? (testId ? `${testId}-cancel` : undefined)}>{t('common.cancel')}</Button>
+        {onCancel && <Button size="sm" variant="ghost" className="max-md:h-11" disabled={busy} onClick={onCancel} data-testid={cancelTestId ?? (testId ? `${testId}-cancel` : undefined)}>{t('common.cancel')}</Button>}
       </span>
     </div>
   )

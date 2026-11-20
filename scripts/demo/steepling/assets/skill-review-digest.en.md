@@ -7,10 +7,9 @@ metadata:
 
 # Customer review summary
 
-## Sources
-- `projects/Customer voice/Reviews Oct–Nov.csv`: one row per review (month, flavour, stars, theme, what they said,
-  first name, Quote OK). Count with the data tool; never guess a number.
-- `projects/Customer voice/October review summary.md` for what was already fixed.
+## Source
+- Only `projects/Customer voice/Reviews Oct–Nov.csv`: one row per review (month, flavour, stars, theme, what they
+  said, first name, Quote OK). It is small: read it once and count from it. Open no other file.
 
 ## How
 1. One line: how many reviews, the average stars, the favourite flavour (for the months asked, else all of them).
@@ -19,6 +18,6 @@ metadata:
 4. **Next steps**: three, one line each, with who could own it (Customer care, Operations, Marketing, the shop).
 
 ## Rules
-- Counts and averages from the file only.
+- Counts and averages from the file only, never guessed: the theme counts add up to the total.
 - Never quote someone whose Quote OK is "no".
 - Answer in the chat. Save only when asked.

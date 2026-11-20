@@ -8,17 +8,20 @@ metadata:
 # Social posts
 
 ## Sources
-- Follow the voice in the **Brand guide** team skill.
-- For a campaign, take the message and the offer from its brief in `groups/Marketing/`.
-- For "next week's posts": the empty slots in `projects/Social calendar/Content calendar.csv`, the tags and rules in
-  `projects/Social calendar/Hashtags and rules.md`, and what did well in `projects/Social calendar/Past posts.csv`.
-- Customer quotes: only rows with "Quote OK" yes in `projects/Customer voice/Reviews Oct–Nov.csv`, first names only.
+- For "next week's posts": read only `projects/Social calendar/Next week.md`. It has the empty slots, the offer, the
+  tags and rules, what did well and the quotes we may use. Open no other file or skill for it.
+- For another post: the message and the offer from its brief in `groups/Marketing/`, the tags in
+  `projects/Social calendar/Hashtags and rules.md`, quotes only from rows with "Quote OK" yes in
+  `projects/Customer voice/Reviews Oct–Nov.csv` (first names only).
+
+## Voice (from the Brand guide)
+- Calm and warm, plain and friendly, like a good cup of tea. Numbers only when a source gives them.
 
 ## How
 1. One block per empty slot (day and type), or one block for a single post.
-2. Each: three options, **A calm**, **B playful**, **C offer-first**: a first line that stops the scroll, 2–3 lines of
-   body, the tags the rules file asks for.
-3. Use discounts and dates exactly as the brief says.
+2. Each: three options, **A calm**, **B playful**, **C offer-first**: a first line that stops the scroll, 1–2 lines of
+   body, the tags.
+3. Use discounts and dates exactly as the sources say.
 4. End with one line per slot: the option you'd pick and the picture to use.
 
 ## Rules

@@ -394,7 +394,9 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       const times: { path: string; at: string }[] = []
       for (const f of files) {
         const hit = (c.fileTimes ?? []).find((t) => nfc(f) === nfc(t.path) || nfc(f).startsWith(nfc(t.path) + '/'))
-        if (hit) times.push({ path: f, at: atOf(hit.minutesAgo) })
+        // a person's own file is at users/<their id>/ on the server (seed.ts)
+        const own = /^users\/([^/]+)\//.exec(f)?.[1]
+        if (hit) times.push({ path: own ? `users/${idOf(own)}${f.slice(`users/${own}`.length)}` : f, at: atOf(hit.minutesAgo) })
       }
       const r = await owner.call(API.demoBuilderFileTimes, { body: { times, hideFromRecent: c.recentHidden ?? [], memories: memoryTimes } })
       log(`files: ${r.updated} dated, ${r.hidden} seed changes out of Recent`)

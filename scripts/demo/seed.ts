@@ -269,12 +269,22 @@ export async function seedDemo(o: SeedOptions): Promise<SeedResult> {
     ...(o.filesDir ? [] : co.extraFiles ?? []),
   ]
   for (const { rel, source } of files) {
-    const folder = path.posix.dirname(rel)
+    let folder = path.posix.dirname(rel)
     const name = path.posix.basename(rel)
     let by = co.uploaderOf(rel)
+    // users/<username>/…: that person's own files (Files › Personal), in users/<their id>/, uploaded only by them
+    const own = /^users\/([^/]+)\//.exec(rel)?.[1]
+    if (own) {
+      const id = users.get(own)?.id
+      if (!id || !tokens.has(own)) { log(`skipped ${rel}: ${own} cannot sign in`); continue }
+      by = own
+      folder = `users/${id}${folder.slice(`users/${own}`.length)}`
+    }
     if (!tokens.has(by)) by = first.username
     const client = as(tokens.get(by)!)
-    await mkdirs(owner, folder)
+    // the personal folder is there with the account; only the folders inside it are made, by its person
+    if (own) await mkdirs(client, folder, 2)
+    else await mkdirs(owner, folder)
     const data = fs.readFileSync(source)
     try {
       await client.call(API.upload, { body: { fields: { folder, name, onExists: 'fail' }, file: new Blob([data]), filename: name } })
@@ -330,9 +340,9 @@ function listFileEntries(dir: string): { rel: string; abs: string }[] {
 }
 
 /** Create every missing folder of `folder` (the upload endpoint needs an existing target folder). */
-async function mkdirs(client: ApiClient, folder: string) {
+async function mkdirs(client: ApiClient, folder: string, from = 0) {
   const parts = folder.split('/')
-  for (let i = 1; i <= parts.length; i++) {
+  for (let i = from + 1; i <= parts.length; i++) {
     const p = parts.slice(0, i).join('/')
     try { await client.call(API.mkdir, { body: { path: p } }) } catch (e) { if (!conflict(e)) throw e }
   }

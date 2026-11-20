@@ -39,7 +39,8 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   "added"): #Everyone, #Marketing, Launch day, Customer voice, Café partners, Social calendar, Tea break, DMs with Sara,
   Leo, Daniel and Omar, and the handover group DM (Sara, Leo, Mina). About 140 messages, 10 threads, 24 replies.
 - **Unread for Mina** when the visitor arrives: Sara's reply under her banner answer, Nadia's @Mina in Customer voice,
-  Sara's reply in the Social calendar thread (the three in Activity), and Omar's DM. Everything else is read.
+  Sara's reply in the Social calendar thread, and Omar's DM: Activity 1 (Sara's reply) + Chats › Mentions & threads 2
+  (Nadia's mention, the Social calendar reply) + Omar's DM (QA TC-5700). Everything else is read.
 - **Chats** (plain finished messages, no AI): Mina's "What does our company do?", "Who's who this week?", her banner
   chat and her ✦ side chat in #Marketing; Leo's and Sara's in the launch project; one in each new project.
 - **Connections**: Mina's Gmail and Google Drive, the team's Higgsfield (auth none). Mina's welcome card says Sara

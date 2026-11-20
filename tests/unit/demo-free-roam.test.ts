@@ -86,6 +86,18 @@ describe('the snapshot of Steepling (en)', () => {
       for (const m of db.query("SELECT m.created_at FROM memories m JOIN users u ON u.id = m.user_id WHERE u.username = 'mina'").all() as { created_at: string }[]) expect(Date.parse(m.created_at)).toBeLessThan(hourBefore)
       // Company-wide › Templates holds the three templates (QA TC-5746)
       expect(fs.readdirSync(path.join(L.team, 'shared', 'Templates')).filter((n) => n.endsWith('.md')).length).toBe(3)
+      // Files › Personal › My files holds Mina's own two notes, uploaded by her (QA TC-5886)
+      const minaId = (db.query("SELECT id FROM users WHERE lower(username) = 'mina'").get() as { id: string }).id
+      expect(fs.readdirSync(path.join(L.team, 'users', minaId)).filter((n) => !n.startsWith('.')).sort()).toEqual(['My first week notes.md', 'Setup checklist.md'])
+      expect(events.filter((e) => e.path.startsWith(`users/${minaId}/`)).length).toBe(2)
+      // the folders with nothing dated in them are not later than the story either: people's own, the team skills', the
+      // team folder (QA TC-5743)
+      for (const d of ['.', 'users', `users/${minaId}`, 'users/sara', 'skills']) expect(fs.statSync(path.join(L.team, d)).mtimeMs, d).toBeLessThan(hourBefore)
+      // a file in a room message is an attachment or a named link, never a bare download address (QA TC-5884)
+      const bare = db.query("SELECT body FROM room_messages WHERE body LIKE '%/api/files/download%'").all() as { body: string }[]
+      expect(bare.filter((m) => /(^|[^(])\/api\/files\/download/.test(m.body))).toEqual([])
+      const october = db.query("SELECT f.name FROM room_messages m JOIN room_files f ON f.message_id = m.id WHERE m.body LIKE 'October summary is in the project%'").all() as { name: string }[]
+      expect(october.map((f) => f.name)).toEqual(['October review summary.md'])
     } finally { db.close() }
     expect(JSON.parse(fs.readFileSync(L.demo, 'utf8')).builder).toBeUndefined()
     const gmail = JSON.parse(fs.readFileSync(path.join(L.fakes, 'gmail.json'), 'utf8'))

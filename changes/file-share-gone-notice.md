@@ -1,0 +1,1 @@
+- In **Activity**, a file shared with you that you can no longer open now says who shared it and, when known, why: sharing was stopped, the file was deleted, or it was moved. It never shows the file's name, and the row opens nothing. Once you have read it, it leaves the list.
