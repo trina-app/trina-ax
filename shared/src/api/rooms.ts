@@ -606,7 +606,18 @@ export const Room = z.object({
     /** this room is the project's own chat room (docs/decisions/20261120-project-is-room.md): its members are the
      * project's people, it is named after the project, and its people are managed on the project (no Add people,
      * Remove, Rename or Leave here). Absent: older servers. */
-    room: z.literal(true).optional() }).optional(),
+    room: z.literal(true).optional(),
+    /** a project's chat room: may I send files from the computer there (they go into the project's Chat attachments
+     * folder, so write there is needed, guests included): 'ok'; 'read_only' I may only read the project; 'folder' only its
+     * Chat attachments folder is closed to me. Absent: older servers (canSave decides). */
+    attach: z.enum(['ok', 'read_only', 'folder']).optional(),
+    /** a project's chat room: may I leave the project ('yes'), or am I its last person ('last': add someone first);
+     * absent: older servers, or not a project one leaves */
+    leave: z.enum(['yes', 'last']).optional() }).optional(),
+  /** this is a team project's own chat room (docs/decisions/20261120-project-is-room.md), told to every member whether
+   * or not they can open the project now (Room.project needs that): its people are the project's, so no Add people,
+   * Remove, Rename, Leave or guest invites here. Absent: any other room, older servers. */
+  projectRoom: z.literal(true).optional(),
   memberCount: z.number().int().nonnegative(),
   /** up to 4 other members, for the avatars; a DM: the other person */
   peers: z.array(UserRef),
@@ -880,9 +891,7 @@ export const RoomSavePlan = z.object({
   folder: SaveFolder.optional(),
 })
 export type RoomSavePlan = z.infer<typeof RoomSavePlan>
-/** `oneClick`: Save to project in a linked channel, without the sheet: every file must be a document or media kind by its
- * name (shared/src/files/plain-kinds.ts), else 409 needs_sheet and nothing is saved */
-export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath, oneClick: z.literal(true).optional() }).strict()
+export const RoomSaveBody = z.object({ fileIds: z.array(Uuid7).min(1).max(ROOM_SAVE_FILES_MAX), folder: RelPath }).strict()
 /** Undo of a Save to project: the token its save gave for a copy it made (RoomSaveResult.saved[].undo) */
 export const RoomSaveUndoBody = z.object({ token: z.string().min(16).max(128) }).strict()
 export const RoomSaveUndoResult = z.object({ removed: z.literal(true) })

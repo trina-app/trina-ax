@@ -10,6 +10,7 @@
 // roomAuditRef: a group room by its kind).
 import type { Database } from 'bun:sqlite'
 import type { Room } from '@mycel/shared/api'
+import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { atLeast, inProjectZone, loadPrincipal, RuleSet, type Principal } from '../policy/access'
 import { audit } from '../admin/audit'
 import { roomAuditRef, type RoomRow } from './store'
@@ -60,14 +61,26 @@ function sight(rules: RuleSet, who: Principal, folder: string): { opens: boolean
 
 /** Room.project for one viewer (store.ts roomOut): the project of an active project room when they can open it now. `rules`: the
  * caller's set when it judges many rooms at once (rulesOnce). */
-export function projectForViewer(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'name' | 'archived_at'>, userId: string, rules?: () => RuleSet): Room['project'] | undefined {
+export function projectForViewer(db: Database, room: Pick<RoomRow, 'id' | 'kind' | 'name' | 'archived_at'>, userId: string, rules?: () => RuleSet, memberCount?: number): Room['project'] | undefined {
   if (!isPrivateChannelRow(room)) return undefined
   const p = activeProjectOf(db, room.id)
   if (!p) return undefined
   const who = loadPrincipal(db, userId)
   if (!who) return undefined
-  const s = sight(rules ? rules() : RuleSet.load(db), who, p.folder_path)
-  return s.opens ? { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true } : undefined
+  const set = rules ? rules() : RuleSet.load(db)
+  const s = sight(set, who, p.folder_path)
+  if (!s.opens) return undefined
+  // its members are the project's people (the sync keeps them so): the last one cannot leave (chat/project-leave.ts)
+  const n = memberCount ?? (db.query('SELECT COUNT(*) n FROM room_members WHERE room_id = ?').get(room.id) as { n: number }).n
+  return { id: p.id, name: p.name, folderPath: p.folder_path, canSave: s.writes, room: true, attach: attachFor(set, who, p.folder_path), leave: n > 1 ? 'yes' : 'last' }
+}
+
+/** Room.project.attach: write on the project folder and on its Chat attachments folder by any language's name (the
+ * upload reuses the one there: uploads/shared-chat.ts sharedUploadPlace, which checks again), guests included. */
+function attachFor(rules: RuleSet, who: Principal, folder: string): 'ok' | 'read_only' | 'folder' {
+  const segs = folder.split('/')
+  if (!atLeast(rules.access(who, segs), 'write')) return 'read_only'
+  return Object.values(CHAT_FILES_FOLDER).every((name) => atLeast(rules.access(who, [...segs, name]), 'write')) ? 'ok' : 'folder'
 }
 
 /** The project's name as an event line shows it to one viewer: only when they can open it now. One RuleSet for a page. */

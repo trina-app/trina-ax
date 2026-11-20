@@ -28,7 +28,7 @@ import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
 import { useFreeRoam } from '../../store/demo'
 import { useRoomTitle } from './RoomIcon'
-import { isPrivateChannel, projectRoomOf } from '../../lib/rooms'
+import { isPrivateChannel, isProjectRoom } from '../../lib/rooms'
 
 /** `new`: New message (no name: one person opens the DM, two or more the group DM of those people, made or reopened);
  * `channel`: Create a channel (a name is required: a private channel); `invite`: add people to a room
@@ -100,7 +100,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   // a free-roam demo: no guest invites (server/src/demo/guard.ts refuses them)
   const freeRoam = useFreeRoam()
-  const mayInviteGuest = !freeRoam && !!room && room.kind === 'group' && !projectRoomOf(room) && !isGuestMe(me)
+  const mayInviteGuest = !freeRoam && !!room && room.kind === 'group' && !isProjectRoom(room) && !isGuestMe(me)
   // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
   const mayInviteGuestAnywhere = !freeRoam && !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()

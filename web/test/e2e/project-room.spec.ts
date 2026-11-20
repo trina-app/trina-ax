@@ -6,8 +6,9 @@
 //   the room's info says whose room it is, with Manage people (the project's members dialog);
 // - a read-only person of the project: the clip is off with why, and a text message still goes;
 // - the project's AI chat has Chat room in its header.
-// What needs the real server (people added or removed on the project come and go live, "File deleted" and restore from
-// the trash) is in tests/unit/b-project-room*.test.ts and the browser walk.
+// - a file trashed in Files shows "File deleted" in its message, and a restore brings the chip back.
+// What needs the real server (people added or removed on the project come and go live) is in
+// tests/unit/b-project-room*.test.ts and the browser walk.
 // SHOT_DIR: where the screenshots go (none without it).
 import path from 'node:path'
 import AxeBuilder from '@axe-core/playwright'
@@ -73,7 +74,7 @@ for (const vp of VIEWPORTS) {
       const roomUrl = page.url()
       // the header: the project's folder (its name on a computer), no Files button
       await expect(page.getByTestId('room-project')).toBeVisible()
-      if (!vp.phone) await expect(page.getByTestId('room-project-name')).toHaveText(NAME)
+      if (!vp.phone) await expect(page.getByTestId('room-project-label')).toHaveText(t['rooms.project.open'])
       await expect(page.getByTestId('room-group-files')).toHaveCount(0)
       // a room nobody wrote in yet is reached from the project, not listed
       const listed = async () => {
@@ -106,6 +107,19 @@ for (const vp of VIEWPORTS) {
       await expect.poll(async () => !!(await listed())?.lastMessage).toBe(true)
       await shot(page, 'room-message')
       if (!vp.phone) {
+        await expect(msg.getByTestId('room-file')).toHaveAttribute('data-file-name', 'brief.pdf')
+        // it is in the team folder already: its place there, no Save to team folder
+        await expect(msg.getByTestId('room-file-in-team')).toBeVisible()
+        await expect(msg.getByTestId('room-file-save')).toHaveCount(0)
+        // trashed in Files: the message shows "File deleted"; restored: the chip is back
+        const at = `projects/${NAME}/Chat attachments/brief.pdf`
+        expect((await page.request.delete(`/api/files?path=${encodeURIComponent(at)}`, { headers: H })).ok()).toBeTruthy()
+        await page.reload()
+        await expect(msg.getByTestId('room-file-gone')).toHaveText(t['rooms.file.deleted'])
+        await shot(page, 'file-deleted')
+        const trash = ((await (await page.request.get('/api/files/trash')).json()) as { items: { id: string; originalPath: string }[] }).items.find((x) => x.originalPath === at)!
+        expect((await page.request.post(`/api/files/trash/${trash.id}/restore`, { headers: H })).ok()).toBeTruthy()
+        await page.reload()
         await expect(msg.getByTestId('room-file')).toHaveAttribute('data-file-name', 'brief.pdf')
         // on the Files page, in the project's Chat attachments
         await page.goto(`/files?path=${encodeURIComponent(`projects/${NAME}/Chat attachments`)}`)

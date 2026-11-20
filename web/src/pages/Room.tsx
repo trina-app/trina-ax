@@ -598,7 +598,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               20261120-project-is-room.md D8), for a channel, a 1:1 and a group chat (a project's chat room has the
               project's button in this place instead). A team room of a group with a folder I can open has that folder's
               link at the top of the list (Room.groupFolder). A phone: the icon alone, at the end of the line beside ✦ */}
-          {room && !room.project && (
+          {room && !room.project?.room && (
             <Tooltip label={t('rooms.files.open')}>
               <button type="button" onClick={toggleFiles} aria-pressed={filesOpen} aria-label={t('rooms.files.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: clsx('touch-hit shrink-0 max-md:ml-auto max-md:px-0', filesOpen && 'bg-hover') })} data-testid="room-files-button">
                 <Files size={15} aria-hidden />
@@ -606,15 +606,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
               </button>
             </Tooltip>
           )}
-          {/* a project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): the Files
-              button's place holds the project, its folder icon and name, which opens the project page (its folder,
-              Chat attachments included, and its AI chats); no Files button of its own: its files are the project's.
-              A phone: the folder icon alone, at the end of the line beside ✦ */}
-          {room?.project && (
+          {/* a project's own chat room (Room.project.room; docs/decisions/20261120-project-is-room.md D5): in the Files
+              button's place, Open project (its folder icon and the words; the project's name in the tooltip: the room's
+              name above is the project's already), which opens the project page (its folder, Chat attachments included,
+              and its AI chats); no Files button of its own: its files are the project's. A phone: the folder icon alone,
+              at the end of the line beside ✦ */}
+          {room?.project?.room && !room.groupFolder && (
             <Tooltip label={t('rooms.project.openTip', { name: room.project.name })}>
-              <Link to={`/projects/${room.project.id}`} aria-label={t('rooms.project.openTip', { name: room.project.name })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit max-w-[40%] shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project">
+              <Link to={`/projects/${room.project.id}`} aria-label={t('rooms.project.open')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project">
                 <Folder size={15} className="shrink-0" aria-hidden />
-                <span className="truncate max-md:hidden" data-testid="room-project-name">{room.project.name}</span>
+                <span className="max-md:hidden" data-testid="room-project-label">{t('rooms.project.open')}</span>
               </Link>
             </Tooltip>
           )}
