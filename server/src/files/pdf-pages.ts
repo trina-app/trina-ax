@@ -12,6 +12,7 @@ import { decodePDFRawStream, degrees, PDFArray, PDFDict, PDFDocument, PDFFlateSt
 import { ToolError } from '../policy/errors'
 import { decodeHwpxRequest, encodeHwpxRequest } from './hwpx-check'
 import { dropUnreached, replaceOnPage, winAnsiCan, wordsElsewhere, writeStandardWidths, type FallbackFont, type FontStyle, type ReplaceOutcome } from './pdf-text'
+import { fieldBoxesOnPage, fillForm, formReport, type FormReport } from './pdf-form'
 import { imageKind, imageSize, mmToPt, ptToMm, shownRect, STAMP_DEFAULT_MARGIN_MM, STAMP_DEFAULT_WIDTH_MM, STAMP_IMAGE_SIDE_MAX, type StampPosition } from './pdf-stamp'
 
 export const PDF_PAGES_MODE = 'pdf-pages'
@@ -42,6 +43,8 @@ export type PageOp =
   | { watermark: { text: string; pages?: string; color?: TextColor; opacity?: number } }
   | { page_numbers: { format?: string; pages?: string; position?: TextPosition; start?: number; size_pt?: number } }
   | { replace_text: { find: string; replace: string; pages?: string; match_case?: boolean } }
+  /** the PDF's form fields by name (files/pdf-form.ts); flatten draws them into the pages */
+  | { fill_form: { fields: Record<string, string | boolean>; flatten?: boolean } }
 
 /** The request: which job, the names of the parts (for messages), and the parts' lengths; the body is the parts. */
 export type PagesJob =
@@ -50,8 +53,10 @@ export type PagesJob =
   | { kind: 'split'; parts: string[] }
   /** only the page count (split_pdf's `every`) */
   | { kind: 'count' }
+  /** the page count and the form fields (a read of a PDF, files/service.ts) */
+  | { kind: 'fields' }
 export interface PagesRequest { job: PagesJob; names: string[]; lengths: number[] }
-export interface PagesReport { files: { pages: number; length: number }[]; notes: string[]; signed: boolean }
+export interface PagesReport { files: { pages: number; length: number }[]; notes: string[]; signed: boolean; form?: FormReport }
 
 // ---------------------------------------------------------------- page ranges
 
@@ -511,7 +516,9 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   const name = (i: number) => req.names[i] ?? 'the PDF'
   const notes: string[] = []
   const save = async (d: PDFDocument) => {
-    const b = await d.save()
+    // the form fields' appearances are written by fill_form with the right font; pdf-lib's own pass at save would
+    // write Helvetica ones, which cannot hold letters that are not Latin
+    const b = await d.save({ updateFieldAppearances: false })
     // read back: the result must open again with the same pages
     try { if ((await PDFDocument.load(b, { updateMetadata: false })).getPageCount() !== d.getPageCount()) throw new Error('pages') } catch {
       throw new ToolError('the changed PDF did not read back as expected; nothing was saved')
@@ -549,11 +556,12 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
   // a signature in any of the PDFs used (an inserted one too) no longer holds
   const signed = parts.some((b) => has(b, '/ByteRange'))
 
-  if (job.kind === 'count') {
+  if (job.kind === 'count' || job.kind === 'fields') {
     // the count in the report, and a one-page PDF as the file (the answer always carries one)
     const one = await PDFDocument.create()
     one.addPage([10, 10])
     const report: PagesReport = { files: [{ pages: doc.getPageCount(), length: 0 }], notes, signed }
+    if (job.kind === 'fields') report.form = formReport(doc)
     const b = await one.save()
     report.files[0]!.length = b.length
     return encodeHwpxRequest(JSON.stringify(report), b)
@@ -685,6 +693,9 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
           const tw = f.widthOfTextAtSize(text, size)
           const { u, v } = textAt(position, w, h, tw, size, pn ? 10 : 15)
           if (u < -0.5 || u + tw > w + 0.5 || v - size * 0.75 < -0.5 || v > h + 0.5) throw new ToolError(`the text would not fit on page ${p} there (the page is ${Math.round(ptToMm(w))} x ${Math.round(ptToMm(h))} mm); give a smaller size_pt or another position`)
+          // a form field there is drawn on top of the page and hides the text, and the field stays empty (TC-5513)
+          const under = fieldBoxesOnPage(doc, p - 1).find((b) => u < b.u + b.w - 0.5 && u + tw > b.u + 0.5 && v - size * 0.75 < b.v + b.h - 0.5 && v + size * 0.25 > b.v + 0.5)
+          if (under) throw new ToolError(`the text would sit under the form field "${under.name}" on page ${p}, which is drawn on top of the page and hides it. Fill the form's fields with fill_form (read the PDF to see their names), or place the text outside the fields`)
           wrapOnce(doc, page)
           const at = toUser(box, r, u, v)
           page.drawText(text, { x: at.x, y: at.y, size, font: f, color: rgb(cr, cg, cb), rotate: degrees(r), ...(t?.opacity !== undefined ? { opacity: t.opacity } : {}) })
@@ -726,6 +737,13 @@ export async function pdfPagesRequest(input: Uint8Array): Promise<Uint8Array> {
         }
         if (!outcome.replaced) throw new ToolError(notFound(rt.find, pages, outcome))
         notes.push(replacedNote(step, rt.find, changed, outcome, wordsElsewhere(doc, rt.find, rt.match_case ?? true, pages.map((x) => x - 1))))
+      } else if ('fill_form' in op) {
+        const ff = op.fill_form
+        if (job.ops.some((o) => 'remove_pages' in o || 'keep_pages' in o || 'reorder_pages' in o || ('insert_pdf' in o)) && !ff.flatten) throw new ToolError('a form keeps its fields only when no pages are removed, kept, reordered or inserted in the same call; fill it in its own edit_pdf call, or give flatten: true')
+        const r = await fillForm(doc, ff.fields, ff.flatten === true, fontFor, (page) => wrapOnce(doc, page))
+        const list = (xs: string[]) => xs.slice(0, 60).map((x) => JSON.stringify(x)).join(', ') + (xs.length > 60 ? ` … and ${xs.length - 60} more` : '')
+        notes.push(`${step} (fill_form): set the form field${r.set.length === 1 ? '' : 's'} ${r.set.length ? list(r.set) : '(none)'}${r.flattened ? '; the form was then flattened: the values are now part of the pages and can no longer be changed in a PDF reader' : '; the values are in the form fields themselves, so they show in every PDF viewer and can still be changed there'}.` +
+          (r.empty.length ? ` Still empty: ${list(r.empty)}.` : '') + (r.xfa ? ' The PDF also held an Adobe XFA form, which was removed so that viewers show these fields.' : ''))
       } else throw new ToolError('an unknown operation')
     } catch (e) {
       if (e instanceof ToolError) throw new ToolError(`${step}: ${e.message.replace(/; nothing was saved$|\. Nothing was saved$/, '')}; nothing was saved`, e.code)
