@@ -1170,8 +1170,9 @@ export class Rooms {
    * docs/DECISIONS.md "대화방 알림 설정"). By default a DM or group chat message notifies the others (code room.dm: a
    * message for me), an @mention each person mentioned (room.mention), a reply in a thread its followers (room.dm too:
    * the push is the same generic line); a room at 모든 메시지 notifies every message of its timeline, one at 끄기 (or a
-   * default of 받지 않음) nothing. Only people who see it. One unread notice of each kind per room (and thread) and person
-   * (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
+   * default of 받지 않음) nothing. Only people who see it. Each such message is a notice (and a push) of its own; an app's
+   * message, and one inside a person's quiet hours, only while nothing of that kind is unread in the room (and thread)
+   * for the person (Notifications.roomNotice). Inside a person's quiet hours the notice is kept but marked quiet: never pushed.
    * Private messages (the AI's previews) and event lines notify nobody; an AI answer not the person who asked. The
    * notice is the message id only. Returns who got a notice that may ring, and which (Notifications.roomNotice): the
    * room.message to each of them says so (docs/DECISIONS.md "Session markers"). Never throws: it runs before the
@@ -1231,7 +1232,7 @@ export class Rooms {
       })
       if (!alert) continue
       const event: RoomNoticeEvent = alert === 'mention' ? 'room.mention' : 'room.dm'
-      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq)) out.set(m.user_id, event) }
+      try { if (n.roomNotice(m.user_id, event, row.id, row.room_id, row.created_at, row.thread_root_id, inQuietHours(p.quietHours, tz, at), row.seq, !!row.app_id)) out.set(m.user_id, event) }
       catch (e) { this.ctx.log.warn('room notice not recorded', { err: e }) }
     }
     return out

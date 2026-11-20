@@ -106,3 +106,28 @@ test('quiet notices stay one per unread run', async () => {
   expect(n.roomNotice(nora.id, 'room.dm', c.id, dm.id, new Date().toISOString(), null, false, c.seq)).toBe(true)
   expect(notices()).toBe(2)
 })
+
+test("an app's burst stays one notice per unread run (review of #108, finding 2); a person's message after it still rings", async () => {
+  h = await harness('push-every-message-app', { publicOrigins: ['https://team.acme-corp.com'] })
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const all = ((await owner.call('GET', '/api/rooms')).items as any[]).find((r) => r.kind === 'all')!.id as string
+  // mia hears every message of the everyone room: without the run rule an app's 30-message burst would be 30 pushes
+  await mia.client.call('PATCH', `/api/rooms/${all}`, { notifyLevel: 'all' })
+  const r = await owner.call('POST', `/api/rooms/${all}/apps`, { kind: 'other', name: 'Backups' })
+  const token = (r.address as string).split('/in/')[1]!
+  const appPost = (text: string) => h.fetch(`/in/${token}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) })
+  for (let i = 1; i <= 5; i++) expect((await appPost(`backup ${i} finished`)).status).toBe(200)
+  await new Promise((r) => setTimeout(r, 5))
+  const unread = () => (h.ctx.db.query('SELECT COUNT(*) n FROM room_notices WHERE user_id = ? AND room_id = ? AND read_at IS NULL').get(mia.id, all) as { n: number }).n
+  expect(unread()).toBe(1)
+  // a person's message is a notice of its own, unread app notice or not
+  await owner.call('POST', `/api/rooms/${all}/messages`, { body: 'all done', clientMessageId: cm() })
+  expect(unread()).toBe(2)
+  // read: the next app message makes a notice again
+  await mia.client.call('POST', `/api/rooms/${all}/read`, { seq: 999 })
+  expect(unread()).toBe(0)
+  await appPost('backup 6 finished')
+  await new Promise((r) => setTimeout(r, 5))
+  expect(unread()).toBe(1)
+})

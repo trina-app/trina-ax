@@ -28,6 +28,12 @@
   (`roomCounts(..).number`), at least 1 (a mention only inside a thread). AI chats still count once each. n is the tab
   title, the Mac Dock, an installed web app's icon and the phone app's icon (the server's push badge), so all of them
   now go up with each message, and the icon still never shows a number with nothing marked in the list.
+- **Review (two limits on the rules above):** (1) a room at 멘션만 (a team room or the everyone room by default) adds
+  1 to n, not its row's number: that row shows every unread message once one mentions me, so one "@전체" in a busy
+  everyone room would have put hundreds on every member's icon after a single push; Slack counts a channel's mention,
+  not its plain messages. A room at 모든 메시지 (DMs, group chats) counts its messages. (2) An app's message in a room
+  (rooms/apps: a burst of 30, then one a second) stays one notice per unread run, as a quiet one does: a person's
+  message always makes its own. Otherwise an app's burst rang a phone 30 times and ran into the gateway's 20 a minute.
 - **Left as is:** the gateway's per-device limits (20 a minute, 200 a day): a very busy person can now reach them; a
   push over the limit is answered 429 and retried by the server. Raising them is a gateway deploy.
 - **Tests:** tests/unit/b-push-every-message.test.ts (five DMs, five notices and five pushes with their own ids, the

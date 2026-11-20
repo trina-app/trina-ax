@@ -43,11 +43,12 @@ test('the badge counts only what wants that person: a DM for its other member, a
   // a plain message in a team room at its default (mentions only) makes the row bold but wants nobody
   await send(mia.client, team.id, 'hello team')
   expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 1, 0])
-  // an @mention wants the one named; the room then counts its row's number: every unread message once one mentions
-  // him (docs/decisions/20261120-push-every-message.md: messages, not rooms)
+  // an @mention wants the one named; a room at 멘션만 counts once, not its row's number (every unread message once one
+  // mentions him: review of #108, finding 1), while a DM counts its messages (docs/decisions/20261120-push-every-message.md)
   await send(mia.client, team.id, '@otto', { mentions: [otto.id] })
   await send(mia.client, team.id, '@otto again', { mentions: [otto.id] })
-  expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 1, 3])
+  await send(mia.client, dm.id, 'and one more')
+  expect([badge(mia.id), badge(nora.id), badge(otto.id)]).toEqual([0, 2, 1])
   // read: gone from the count
   await nora.client.call('POST', `/api/rooms/${dm.id}/read`, { seq: 999 })
   expect(badge(nora.id)).toBe(0)
@@ -68,8 +69,8 @@ test('a conversation set to "Mentions only" adds nothing for plain messages, and
   const listed = ((await nora.client.call('GET', '/api/rooms')).items as any[]).find((r) => r.id === group.id)
   expect(listed).toMatchObject({ unreadCount: 3, mentioned: false, notify: { level: 'mentions' } })
   await send(mia.client, group.id, '@nora', { mentions: [nora.id] })
-  // a mention: the row's number, all 4 unread
-  expect(badge(nora.id)).toBe(4)
+  // a mention: 1 (at 멘션만 the room counts once, not the row's 4: review of #108, finding 1)
+  expect(badge(nora.id)).toBe(1)
 })
 
 test('a reply in a thread I follow adds nothing to the number; one that mentions me counts (QA TC-5363)', async () => {

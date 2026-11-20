@@ -186,11 +186,14 @@ export class Notifications {
    * recorded as the newest of its run: `seq`; last_seq / last_at, so the Inbox's row sits where the run ends); it never
    * holds back a notice made once the quiet hours are over (that one pushes). True when a notice that may ring was
    * recorded now (not a quiet one): the room.message to the person says so, and the desktop app tells the same ones
-   * (docs/DECISIONS.md "Session markers"). */
-  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number): boolean {
+   * (docs/DECISIONS.md "Session markers"). `run`: an app's message (rooms/apps; an app may post a burst of 30, then one a
+   * second) stays one per unread run as before, as a quiet one does, so an app cannot ring a phone 30 times in a row or
+   * run into the gateway's 20 a minute per device (review of #108, finding 2); only an unread notice that may ring holds
+   * it back. */
+  roomNotice(userId: string, event: RoomNoticeEvent, messageId: string, roomId: string, at = new Date().toISOString(), threadRootId: string | null = null, quiet = false, seq?: number, run = false): boolean {
     if (!this.active(userId) || at < this.cutoff()) return false
-    const open = quiet ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
-      AND m.thread_root_id IS ? AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId) as { id: string } | null : null
+    const open = quiet || run ? this.ctx.db.query(`SELECT n.id FROM room_notices n JOIN room_messages m ON m.id=n.source_id WHERE n.user_id=? AND n.room_id=? AND n.event_type=? AND n.read_at IS NULL AND n.suppressed=0 AND n.created_at>=?
+      AND m.thread_root_id IS ? AND (n.quiet=0 OR ?=1) AND ${NOT_SKIPPED('room_push_deliveries')} ORDER BY n.created_at DESC, n.id DESC LIMIT 1`).get(userId, roomId, event, this.cutoff(), threadRootId, quiet ? 1 : 0) as { id: string } | null : null
     if (open) {
       // only for the kinds the Inbox lists (a mention, a reply: rooms/inbox.ts; a DM's message is no row). No signal: the
       // Inbox's count is the same, and an open Inbox reads its rows again as the rooms change

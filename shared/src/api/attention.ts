@@ -69,7 +69,7 @@ export function roomCounts(r: CountedRoomFields): RoomCounts {
  * timeline in a room at 모든 메시지 (by default: DMs and group chats). Nothing from a room at 끄기 or one I hid; plain
  * unread messages in a room at 멘션만 only make the row bold, and a followed thread's reply without a mention adds to no
  * number (it is in 멘션·스레드 and under its root), as in Slack. Only such a room adds to the one count n (the tab title,
- * the Dock, the phone icon; by its row's number), so the icon never shows a number with nothing marked in the list. */
+ * the Dock, the phone icon; how much: attentionCount), so the icon never shows a number with nothing marked in the list. */
 export function roomWantsMe(r: CountedRoomFields & Pick<Room, 'mentioned'> & Partial<Pick<Room, 'hidden'>>): boolean {
   // a room I hid wants nothing of me: whatever is for me brings it back first (the server decides it)
   return !r.hidden && roomCounts(r).counts
@@ -92,9 +92,12 @@ type CountedChat = MarkedChat & Pick<Chat, 'id'>
 type CountedRoom = Parameters<typeof roomWantsMe>[0]
 /** The one count n: the AI chats showing "?" or a dot (each once: a chat that ended twice counts once), and the unread
  * messages of the rooms that want me (roomWantsMe: by my level for the room, by default a DM or group chat message, an
- * @mention, in a thread too), each room by its row's number (roomCounts `number`; at least 1 for a mention in a thread
- * only), as Slack's and KakaoTalk's app icons count messages (docs/decisions/20261120-push-every-message.md: before,
- * five DMs from one person showed 1). `ask`: any of
+ * @mention, in a thread too): a room at 모든 메시지 (a DM or group chat by default) by its row's number (roomCounts
+ * `number`; at least 1 for a mention in a thread only), as Slack's and KakaoTalk's app icons count messages
+ * (docs/decisions/20261120-push-every-message.md: before, five DMs from one person showed 1); a room at 멘션만 (a team
+ * room or the everyone room by default) only 1, as Slack counts a channel's mention and not its plain messages: its row
+ * shows every unread message once one mentions me, so one "@전체" in a busy everyone room would put hundreds on every
+ * member's icon after one push (review of #108, finding 1). `ask`: any of
  * the chats is a "?"; `chats` and `chatAsk`: the AI chats' part of it (the mark on 트리나 in the rail and the phone tabs).
  * `unread`: some other room has unread messages n does not count, in a room I did not turn off or hide (roomLightsDot:
  * a plain message in a team room at its default), the app icon's dot while n is 0 (iconBadge). `here`: the chat on
@@ -109,7 +112,7 @@ export function attentionCount(chats: readonly CountedChat[], rooms: readonly Co
   }
   let n = chatsN, unread = false
   for (const r of rooms) {
-    if (roomWantsMe(r)) n += Math.max(1, roomCounts(r).number)
+    if (roomWantsMe(r)) n += levelOf(r) === 'all' ? Math.max(1, roomCounts(r).number) : 1
     else if (roomLightsDot(r)) unread = true
   }
   return { n, ask: chatAsk, chats: chatsN, chatAsk, unread }

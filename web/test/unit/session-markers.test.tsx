@@ -94,11 +94,12 @@ describe('the one count n', () => {
     const shown = chat({ unseen: true })
     const chats = [ask(), chat({ unseen: true }), chat({ runState: 'running' }), chat(), shown, chat({ unseen: true, lastOutcome: 'error' })]
     const rooms = [room({ kind: 'dm', unreadCount: 4 }), room({ kind: 'team', unreadCount: 12 }), room({ kind: 'all', unreadCount: 2, mentioned: true }), room({ kind: 'group', unreadCount: 3, muted: true })]
-    // 4 chats + the DM's 4 messages + the everyone room's 2 (a mention there: all of them, as its row shows); the team
-    // room's 12 plain messages are not in n: they are the other unread rooms (the icon's dot at 0)
-    expect(attentionCount(chats, rooms)).toEqual({ n: 10, ask: true, chats: 4, chatAsk: true, unread: true })
+    // 4 chats + the DM's 4 messages + 1 for the everyone room (at 멘션만 a mention counts the room once, not the 2 its
+    // row shows: review of #108, finding 1); the team room's 12 plain messages are not in n: they are the other unread
+    // rooms (the icon's dot at 0)
+    expect(attentionCount(chats, rooms)).toEqual({ n: 9, ask: true, chats: 4, chatAsk: true, unread: true })
     // the chat on screen here is seen
-    expect(attentionCount(chats, rooms, { here: shown.id })).toMatchObject({ n: 9, chats: 3 })
+    expect(attentionCount(chats, rooms, { here: shown.id })).toMatchObject({ n: 8, chats: 3 })
     expect(attentionCount([chat({ unseen: true })], [])).toEqual({ n: 1, ask: false, chats: 1, chatAsk: false, unread: false })
     // a room counts its unread messages, as its row's number (docs/decisions/20261120-push-every-message.md); never a
     // "?", not the AI chats' part
@@ -120,10 +121,13 @@ describe('the one count n', () => {
     expect(attentionCount([], [room({ kind: 'dm', unreadCount: 2, notify: { own: null, byDefault: 'off', level: 'off' } })])).toMatchObject({ n: 0, unread: false })
     expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, hidden: true })])).toMatchObject({ n: 0, unread: false })
     expect(iconBadge(attentionCount([], [room({ kind: 'team', unreadCount: 2, muted: true })]))).toBe(0)
-    // a mention: n is the row's number (all its unread messages once one mentions me), never the dot
+    // a mention in a room at 멘션만: n 1, not the row's number (all its unread messages once one mentions me: review of
+    // #108, finding 1), never the dot; the same room at 모든 메시지 counts its messages
     const mention = room({ kind: 'team', unreadCount: 2, mentioned: true })
-    expect(attentionCount([], [mention])).toMatchObject({ n: 2, unread: false })
-    expect(iconBadge(attentionCount([], [mention, plain]))).toBe(2)
+    expect(attentionCount([], [mention])).toMatchObject({ n: 1, unread: false })
+    expect(iconBadge(attentionCount([], [mention, plain]))).toBe(1)
+    expect(attentionCount([], [room({ kind: 'all', unreadCount: 300, mentioned: true })])).toMatchObject({ n: 1 })
+    expect(attentionCount([], [room({ kind: 'team', unreadCount: 2, notify: { own: 'all', byDefault: 'mentions', level: 'all' } })])).toMatchObject({ n: 2 })
     // a mention only inside a followed thread (no number on the row): 1
     expect(attentionCount([], [room({ kind: 'team', threadsUnread: 1, mentioned: true })])).toMatchObject({ n: 1 })
     // the room read: nothing
