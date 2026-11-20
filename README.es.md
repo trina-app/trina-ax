@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>La IA que todo tu equipo comparte.</b><br>
-Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí,<br>y cada archivo que abre se comprueba con los permisos de quien preguntó.
+Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un solo servidor. La IA de cada persona empieza desde ahí.<br>Retoma la sesión de IA de un compañero donde la dejó. Cada archivo que abre la IA se comprueba con los permisos de quien preguntó.
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-es.png" height="40" alt="Descargar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-es.png" height="40" alt="Descargar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Descargar en el App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponible en Google Play"></a><br>
 <sub>Linux: .deb y AppImage (x64, arm64) en la <a href="https://ax.trina.app/download">página de descargas</a></sub>
 
 [Sitio web](https://ax.trina.app) · [Documentación](docs/README.md) · [Precios](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
@@ -58,6 +58,10 @@ Una persona lo configura todo en el servidor del equipo. La IA de todos lo tiene
 
 ## Lo que hace cada uno con Trina
 
+**Retoma el trabajo de un compañero donde lo dejó.** Abre la sesión de IA de un compañero en un proyecto del equipo y continúa. Ahí está toda la conversación, con todas las respuestas hasta ahora. La IA responde a cada pregunta nueva con los permisos de quien la hace. Comparte cualquier otra sesión con personas o grupos, como un archivo de Google Drive.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
+
 **Pregunta junto a cualquier conversación y envía con un clic.** Un chat lateral que solo ves tú. Con un clic, la respuesta de Trina llega a la conversación.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="En la conversación Expo booth crew, Mina le pide a Trina en un chat lateral que solo ve ella una lista con las normas para expositores y la envía a la conversación.">
@@ -65,10 +69,6 @@ Una persona lo configura todo en el servidor del equipo. La IA de todos lo tiene
 **La IA de cada persona ve solo lo que esa persona puede abrir.** Si Mina no puede abrir Finance, su IA tampoco. [Cómo funcionan los permisos](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Un admin cambia quién puede abrir la carpeta Sales y luego mira qué puede abrir Mina: Finance no está en su lista.">
-
-**Retoma la sesión de trabajo de un compañero en un proyecto del equipo.** Las sesiones de un proyecto del equipo se comparten con sus miembros: abre la de un compañero y sigue, con tus propios permisos. Cualquier otra sesión la puedes compartir con personas o grupos, como un archivo de Google Drive.
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre la sesión de proyecto de Sam y sigue editando las tarjetas; lo que ella pide se hace con sus permisos.">
 
 **Encuentra archivos por lo que son.** Cada noche, la IA del equipo lee los archivos nuevos y modificados de las carpetas compartidas, de grupo y de proyecto. De cada uno guarda una línea que dice qué es. Así, un escaneo llamado `temp.pdf` o una foto llamada `IMG_2031.jpg` se encuentran por su contenido. Usa la cuenta de IA del equipo y nunca lee las carpetas personales. En una prueba con 2.238 archivos ficticios, Claude Code encontró el archivo correcto en 181 de 184 preguntas con estas líneas, y en 172 sin ellas.
 
