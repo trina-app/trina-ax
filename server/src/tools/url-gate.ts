@@ -502,7 +502,7 @@ function camelWords(s: string): boolean {
   const words = pieces.filter((p) => /[a-z]/.test(p))
   const acronyms = pieces.length - words.length
   if (acronyms > 2 || pieces.length * 3 > s.length) return false
-  if (!pieces.every((p) => /^[A-Z]{1,5}$/.test(p) || p.length > 2 || p.length === 2 && /[aeiouy]/i.test(p))) return false
+  if (!pieces.every((p) => /[a-z]/.test(p) ? p.length > 2 || (p.length === 2 && /[aeiouy]/i.test(p)) : p.length <= 5)) return false
   const letters = words.join('')
   return (letters.match(/[aeiouy]/gi)?.length ?? 0) >= letters.length * 0.3
 }

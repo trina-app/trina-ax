@@ -13,7 +13,8 @@ import { API } from '@mycel/shared/api'
 import { ALL_SITES_ANSWER, uuidv7 } from '@mycel/shared'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { noteEgressIp } from '../../server/src/tools/egress'
-import { gateUrl, MAX_UNCONFIRMED_QUERY, opaqueParts, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
+import { gateUrl, MAX_UNCONFIRMED_QUERY, opaqueParts, rememberUrls, type ConfirmExtra, type TurnPerson } from '../../server/src/tools/url-gate'
+import { recordSent, webEcho } from '../../server/src/tools/connection-urls'
 import { updateTeamSettings } from '../../server/src/admin/settings'
 import { setWebAllowAll } from '../../server/src/tools/web-allow-all'
 
@@ -39,7 +40,7 @@ const TOKENS = [
   'QWxhZGRpbjpvcGVuIHNlc2FtZQ', 'TWFuIGlzIGRpc3Rpbmd1aXNoZWQ', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
   'JBSWY3DPEHPK3PXPJBSWY3DP', 'c2fsyxj5ltk4nzy1ndmy', '5f2b8e9a1c3d4e6f7a8b9c0d', 'AKIAIOSFODNN7EXAMPLE',
   'wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY', 'aZ3kQ9xY7mN2pL5wR8tV', 'xKqWzPbNvLmTrYcHdJsF', 'abcDEFghiJKLmnoPQRst',
-  'aB3dE5fG7hJ9kL1mN3pQ5rT',
+  'aB3dE5fG7hJ9kL1mN3pQ5rT', 'QZXKWPRTMBVNHJGFDSLCHello', 'helloQZXKWPRTMBVNHJGFDSLCWorld',
 ]
 
 describe('opaqueParts: camelCase words are not random-looking', () => {
@@ -180,5 +181,31 @@ describe('the gate with the owner\'s two addresses', () => {
     expect(t).toHaveLength(1)
     expect(t[0]!.question).toContain('긴 내용이 붙어 있어요')
     expect(lookups).toEqual([])
+  })
+
+  test('Allow all websites on: an echoed long plain query still asks, without the site or Allow-all answers', async () => {
+    expect(setWebAllowAll(db(), 'alice', true, { via: 'settings' })).toBe(true)
+    const chat = await chatOf()
+    // the AI sent this address to a tool, then a search result repeated it: an echo, however plain it reads
+    recordSent(db(), chat, { url: HN_LONGER })
+    rememberUrls(db(), chat, [HN_LONGER], 'search', webEcho(db(), chat))
+    const asked: Asked[] = []
+    await expect(gate(chat, HN_LONGER, person('site', asked))).rejects.toThrow(/did not allow/)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.question).toContain('앞서 보낸 내용')
+    expect(values(asked[0]) ?? []).not.toContain('site')
+    expect(values(asked[0]) ?? []).not.toContain(ALL_SITES_ANSWER)
+  })
+
+  test('Allow all websites on: a long name before the site with a long plain query still asks, without those answers', async () => {
+    expect(setWebAllowAll(db(), 'alice', true, { via: 'settings' })).toBe(true)
+    const chat = await chatOf()
+    const url = `https://abcdefghijklmnopqrstu.x.example/?q=${'a'.repeat(201)}`
+    const asked: Asked[] = []
+    await expect(gate(chat, url, person('site', asked))).rejects.toThrow(/did not allow/)
+    expect(asked).toHaveLength(1)
+    expect(asked[0]!.extra!.details![0]!.marks).toContain('abcdefghijklmnopqrstu')
+    expect(values(asked[0]) ?? []).not.toContain('site')
+    expect(values(asked[0]) ?? []).not.toContain(ALL_SITES_ANSWER)
   })
 })

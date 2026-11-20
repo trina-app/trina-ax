@@ -13,18 +13,19 @@
 - **Rule 1 (opaqueParts, server/src/tools/url-gate.ts):** a run of letters only (no digits, `+` or `%`) is not a
   random-looking part when it reads as camelCase or PascalCase words (`camelWords`): split at case changes, every piece
   is a word (2 letters or more; a two-letter one has a vowel: To, By, Id) or a capital acronym (1 to 5 letters, at most
-  2 of them: XML, the A of isAValue), the pieces are 3 letters or more on average, and the word letters are at least
+  2 of them: XML, the A of isAValue; a longer run of capitals is not an acronym), the pieces are 3 letters or more on average, and the word letters are at least
   30% vowels (a e i o u y). Runs with digits keep the old rule (base64, base32, hex, JWT, keys). On 20,000 random
   mixed-case letter runs of 20-40 letters, fewer than 1 in 100 pass (the test pins it). The same function serves every
   caller (connection-urls echo windows, schedules, post-to-room, share-words, connection cards), so camelCase names
   are no longer highlighted anywhere.
-- **Rule 2 (③):** in a turn the person watches, a plain address (a site, no random-looking part, no long name before the
+- **Rule 2 (③):** in a turn with a person to ask (not `unattended`), a plain address (a site, no random-looking part, no long name before the
   site, no user name or password, not an echo) whose query is over 200 characters opens under the person's site
   allowance for the conversation (①b) or their "Allow all websites" (①d), also while the exit address is unknown (①d
   only, as before for short queries). Its card now offers "allow this site" and "Allow all websites". A long query
   still asks when it was typed, allowed on a card or learned from a page (none of those open it without the card, as
-  before), and is never opened in a run nobody watches (scheduled tasks, drafts, Slack questions); schedules.ts and
-  onboarding/draft.ts keep their own long-query rules. A long query is still not remembered as an allowed address.
+  before), and is never opened in a run nobody can answer (`person.unattended`: scheduled tasks and restricted runs). "Allow all websites" never reaches a
+  Slack question (as for a short query); a site allowance (①b) does, the same as for a short query, so a long plain
+  query on an allowed site opens there too. schedules.ts and onboarding/draft.ts keep their own long-query rules. A long query is still not remembered as an allowed address.
 - **Why:** the owner's rules "always allow means done" and "no stricter than the tool". The 200-character limit was a
   hint for data carried in readable words; "Allow all websites" already accepts any number of plain addresses (its risk
   sentence says readable words can carry anything out), so one long plain address adds no new channel. Random-looking
