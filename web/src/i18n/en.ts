@@ -1284,6 +1284,7 @@ export const en: Record<MessageKey, string> = {
   'files.drop.cannot': 'Can’t move here',
   'files.drop.cannotUpload': 'Can’t upload here',
   'files.uploadFolder': 'Upload folder',
+  'files.uploadFiles': 'Upload files',
   'files.folderUpload.label': 'Folder uploads',
   'files.folderUpload.files': '{done} of {total, plural, one {# file} other {# files}}',
   'files.folderUpload.bytes': '{done} of {total}',

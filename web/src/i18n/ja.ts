@@ -1260,6 +1260,7 @@ export const ja: Record<MessageKey, string> = {
   'files.drop.cannot': "ここには移動できません",
   'files.drop.cannotUpload': "ここにはアップロードできません",
   "files.uploadFolder": "フォルダをアップロード",
+  "files.uploadFiles": "ファイルをアップロード",
   "files.folderUpload.label": "フォルダのアップロード",
   "files.folderUpload.files": "{done}/{total, plural, one {#個のファイル} other {#個のファイル}}",
   "files.folderUpload.bytes": "{done} / {total}",

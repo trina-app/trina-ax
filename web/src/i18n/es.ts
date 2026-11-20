@@ -1260,6 +1260,7 @@ export const es: Record<MessageKey, string> = {
   'files.drop.cannot': "No se puede mover aquí",
   'files.drop.cannotUpload': "No se puede subir aquí",
   "files.uploadFolder": "Subir carpeta",
+  "files.uploadFiles": "Subir archivos",
   "files.folderUpload.label": "Cargas de carpetas",
   "files.folderUpload.files": "{done} de {total, plural, one {# archivo} other {# archivos}}",
   "files.folderUpload.bytes": "{done} de {total}",

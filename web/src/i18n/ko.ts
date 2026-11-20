@@ -1283,6 +1283,7 @@ export const ko = {
   'files.drop.cannot': '여기에는 옮길 수 없어요',
   'files.drop.cannotUpload': '여기에는 올릴 수 없어요',
   'files.uploadFolder': '폴더 올리기',
+  'files.uploadFiles': '파일 올리기',
   'files.folderUpload.label': '폴더 올리기 목록',
   'files.folderUpload.files': '{total}개 중 {done}개',
   'files.folderUpload.bytes': '{total} 중 {done}',
