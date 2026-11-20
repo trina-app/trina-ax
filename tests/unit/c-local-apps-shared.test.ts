@@ -1,0 +1,168 @@
+// An app on the person's computer (docs/decisions/20261118-local-app-connectors.md, rule 3) in chats more than one
+// person sees (owner 2026-11-20: after alice shared a chat, her own Aside stopped working for her from her desktop app;
+// the turn's "desktop" flag was the in-app browser's, which is off in every shared chat). Each person's turn uses that
+// person's own connections: alice's turn from her connected desktop window gets her Aside in a private chat, a chat
+// shared with bob and a team project chat (where the shared chat's card asks her first); bob's turn, even from his own
+// desktop window, never gets it and nothing reaches any desktop app; alice from the web is told the one known reason,
+// never a guess.
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { API, type ServerFrame } from '@mycel/shared/api'
+import { startHarness, type Harness, type TestSocket } from '../lib/b-harness'
+import { oldProject } from '../lib/legacy-project'
+import { waitFor } from '../lib/wait'
+
+setDefaultTimeout(90_000)
+const fake = (...ds: unknown[]) => ds.map((d) => '@fake ' + JSON.stringify(d)).join('\n')
+const cm = () => 'cm-' + crypto.randomUUID()
+const DESK = 'win-lshared-desk1'
+const WEB = 'win-lshared-web01'
+const BOB_DESK = 'win-lshared-bobd1'
+const SPEC = { adapter: 'mcp' as const, command: 'aside', args: ['mcp'], env: [] }
+const TOOL = 'my_aside__echo'
+
+let h: Harness
+const sock: Record<string, TestSocket> = {}
+const stops: (() => void)[] = []
+/** what each fake desktop app was sent: its window, the method and the turn */
+const seen: { window: string; method: string; turnId: string | null }[] = []
+let projectId: string
+
+/** a fake desktop app: answers local.call as an MCP server (initialize, tools/list, tools/call echo) */
+function serveLocal(s: TestSocket, window: string) {
+  const done = new Set<string>()
+  const timer = setInterval(() => {
+    for (const f of s.frames as ServerFrame[]) {
+      if (f.type !== 'local.call' || done.has(f.data.call.callId)) continue
+      const call = f.data.call
+      done.add(call.callId)
+      s.send({ type: 'local.ack', callId: call.callId })
+      const m = call.message as { id?: string; method: string; params?: { arguments?: { text?: string } } }
+      seen.push({ window, method: m.method, turnId: call.turnId })
+      const result = m.method === 'initialize' ? { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } }
+        : m.method === 'tools/list' ? { tools: [{ name: 'echo', description: 'Say it back', inputSchema: { type: 'object', properties: { text: { type: 'string' } } }, annotations: { readOnlyHint: true } }] }
+        : m.method === 'tools/call' ? { content: [{ type: 'text', text: `echo: ${m.params?.arguments?.text ?? ''}` }] }
+        : null
+      s.send({ type: 'local.result', result: { callId: call.callId, ok: true, message: m.id === undefined ? null : { jsonrpc: '2.0', id: m.id, result } } })
+    }
+  }, 20)
+  stops.push(() => clearInterval(timer))
+}
+
+beforeAll(async () => {
+  h = await startHarness({ name: 'c-local-apps-shared', askUserTimeoutMs: 5000, stallTimeoutMs: 60_000 })
+  sock.desk = await h.ws('alice', { windowId: DESK, client: 'desktop' }); await sock.desk.next('hello')
+  sock.web = await h.ws('alice', { windowId: WEB }); await sock.web.next('hello')
+  sock.bob = await h.ws('bob', { windowId: BOB_DESK, client: 'desktop' }); await sock.bob.next('hello')
+  serveLocal(sock.desk, DESK)
+  serveLocal(sock.bob, BOB_DESK)
+  const made = await h.api('alice', { window: DESK, client: 'desktop' }).call(API.createLocalIntegration, { body: { name: 'Aside', spec: SPEC } })
+  expect(made).toMatchObject({ kind: 'local', status: 'connected' })
+  // a team project alice writes and bob (finance) reads; its chats are shared with everyone who sees the project
+  projectId = (await oldProject(h, 'alice', { name: 'Falcon', folderPath: 'projects/falcon', instructions: '' })).id
+  await h.api('alice').call(API.updateProject, { params: { id: projectId }, body: { shareChats: true } })
+})
+afterAll(async () => { for (const s of stops) s(); for (const s of Object.values(sock)) s.close(); await h?.close() })
+
+const from = {
+  desk: { user: 'alice', window: DESK, client: 'desktop' as const, sock: () => sock.desk! },
+  web: { user: 'alice', window: WEB, client: 'web' as const, sock: () => sock.web! },
+  bob: { user: 'bob', window: BOB_DESK, client: 'desktop' as const, sock: () => sock.bob! },
+}
+type From = (typeof from)[keyof typeof from]
+
+/** a turn whose cards are answered "Allow once" (the shared chat's card to the asker) until it ends */
+async function ask(f: From, chatId: string, content: string) {
+  const started = await h.api(f.user, { window: f.window, client: f.client }).call(API.sendMessage, { params: { id: chatId }, body: { content, clientMessageId: cm(), attachmentIds: [] } })
+  const answered = new Set<string>()
+  const cards: { question: string }[] = []
+  const timer = setInterval(() => {
+    for (const fr of f.sock().frames) {
+      if (fr.type !== 'turn.request') continue
+      const d = (fr as { data: { turnId: string; request: { requestId: string; question: string; options: { label: string; value: string }[] } } }).data
+      if (d.turnId !== started.turnId || answered.has(d.request.requestId)) continue
+      answered.add(d.request.requestId)
+      cards.push(d.request)
+      const once = d.request.options.find((o) => /once/i.test(o.label)) ?? d.request.options[0]!
+      void h.api(f.user).call(API.answerTurn, { params: { id: started.turnId }, body: { kind: 'ask_user', requestId: d.request.requestId, answer: once.value } }).catch(() => {})
+    }
+  }, 20)
+  try {
+    const done = await f.sock().next('message.done', (fr) => fr.data.messageId === started.assistantMessage.id, 40_000)
+    await waitFor(() => !h.rt().activeTurn(chatId), { timeoutMs: 15_000 })
+    return { started, cards, content: done.data.message.content as string }
+  } finally { clearInterval(timer) }
+}
+const PROBE = fake({ echo: 'tools' }, { say: ' | ' }, { tool: TOOL, args: { text: 'hi' }, sayResult: true }, { say: ' | ' }, { echo: 'system' })
+const parts = (s: string) => { const [tools, result, ...system] = s.split(' | '); return { tools: tools!.split(','), result: result ?? '', system: system.join(' | ') } }
+const callsOf = (turnId: string) => seen.filter((s) => s.turnId === turnId)
+
+async function sharedWithBob() {
+  const c = await h.api('alice').call(API.createChat, { body: {} })
+  const put = (confirmKey?: string) => h.api('alice').call(API.putChatAudience, { params: { id: c.id }, body: { subjects: [{ subjectType: 'user', subjectId: 'bob' }], ...(confirmKey ? { confirmKey } : {}) } })
+  let r = await put()
+  if (r.status === 'confirm') r = await put(r.confirmKey)
+  expect(r.status).toBe('saved')
+  return c.id
+}
+const projectChat = async () => (await h.api('alice').call(API.createChat, { body: { projectId } })).id
+const privateChat = async () => (await h.api('alice').call(API.createChat, { body: {} })).id
+
+/** alice from her desktop gets her Aside; the call goes to her desktop window only, for that turn */
+async function aliceGetsIt(chatId: string, shared: boolean) {
+  const r = await ask(from.desk, chatId, PROBE)
+  const p = parts(r.content)
+  expect(p.tools).toContain(TOOL)
+  expect(p.result).toContain('echo: hi')
+  const mine = callsOf(r.started.turnId)
+  expect(mine.some((s) => s.method === 'tools/call')).toBe(true)
+  expect(mine.every((s) => s.window === DESK)).toBe(true)
+  // a shared chat: the asker is asked first, as for any personal connection there; a private chat asks nothing
+  if (shared) expect(r.cards.some((c) => c.question.includes('Aside'))).toBe(true)
+  else expect(r.cards).toEqual([])
+}
+/** bob's turn in the same chat, from his own connected desktop window: alice's Aside is never his */
+async function bobNever(chatId: string) {
+  const r = await ask(from.bob, chatId, PROBE)
+  const p = parts(r.content)
+  expect(p.tools).not.toContain(TOOL)
+  expect(p.result).not.toContain('echo: hi')
+  // his own connections section (the chat's history after it holds alice's earlier answers, which name Aside)
+  const own = p.system.slice(p.system.indexOf('## Connected services'))
+  const section = own.slice(0, own.indexOf('\n## ', 5) > 0 ? own.indexOf('\n## ', 5) : undefined)
+  expect(section).toContain('this user has no app connection')
+  expect(section).not.toContain('Aside')
+  expect(callsOf(r.started.turnId)).toEqual([])
+  expect(seen.some((s) => s.window === BOB_DESK)).toBe(false)
+  expect(r.cards).toEqual([])
+}
+
+describe("an app on alice's computer in each kind of chat", () => {
+  test('a private chat (unchanged): from her desktop it runs with no card', async () => {
+    await aliceGetsIt(await privateChat(), false)
+  })
+
+  test('a chat shared with bob: her turn from her desktop gets it (her card first); bob\'s turn never does', async () => {
+    const chat = await sharedWithBob()
+    await aliceGetsIt(chat, true)
+    await bobNever(chat)
+    // and alice again after bob's turn: still hers
+    await aliceGetsIt(chat, true)
+  })
+
+  test('a team project chat (shared by default): the same both ways', async () => {
+    const chat = await projectChat()
+    await aliceGetsIt(chat, true)
+    await bobNever(chat)
+  })
+
+  test('from the web in a shared chat: not offered, and the AI is told the one known reason with no guessing', async () => {
+    const chat = await sharedWithBob()
+    const r = await ask(from.web, chat, PROBE)
+    const p = parts(r.content)
+    expect(p.tools).not.toContain(TOOL)
+    expect(callsOf(r.started.turnId)).toEqual([])
+    expect(p.system).toContain('Aside (an app on the user\'s own computer, personal connection): not usable in this answer')
+    expect(p.system).toContain('this message was sent from the web page')
+    expect(p.system).toContain('Do not guess at other causes')
+  })
+})

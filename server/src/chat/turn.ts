@@ -356,6 +356,8 @@ export class TurnExec {
   /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
   engineRunning: EngineId | null = null
   browser = false
+  /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this and not shared) */
+  desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
@@ -824,8 +826,12 @@ export class TurnExec {
       }
     }
 
-    // never in a shared chat: the in-app browser shows the person's signed-in pages
-    this.browser = !this.restricted && !this.shared && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    // the asker's own desktop window is connected: their apps on the computer (integrations/connections/local.ts) work
+    // in any chat they write in, a shared or project chat too (each person's turn uses their own connections; another
+    // member's turn never has this window). The in-app browser stays out of shared chats: it shows the person's
+    // signed-in pages
+    this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    this.browser = this.desktop && !this.shared
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in

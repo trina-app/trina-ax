@@ -60,8 +60,10 @@
   2. **No shell.** The desktop app starts the program from an argument list, never through a shell. The AI's values
      stay separate arguments or stdin.
   3. **Personal only.** Refused for team connections, templates, requests and the skills share. `store.ts mayUse` lets
-     only its owner use it, in that owner's own turn; a shared chat, a room, a scheduled run or a sub-agent never gets
-     it.
+     only its owner use it, in that owner's own turn, sent from their own connected desktop window. In a shared or
+     project chat that holds too (owner 2026-11-20): the owner's turn from their desktop gets it, behind the shared
+     chat's card to the asker before its answer is shown to the others; another member's turn never does. A
+     scheduled run or a sub-agent never gets it.
   4. **A one-time confirm on the computer,** in the desktop app's own window, never on the team page: "Connect this
      program? `<command>`". It asks again only when the command itself changes.
   5. **Setting values stay on the computer,** sealed with Electron's safeStorage. The desktop app hides them in results

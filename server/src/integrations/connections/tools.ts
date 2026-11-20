@@ -49,7 +49,7 @@ import { ATTACHMENT_NAME_ARG, ATTACHMENT_SIZE_ARG, ATTACHMENT_TOOL, SENDING_TOOL
 import { addressedAttachments, ATTACHMENT_MAX_BYTES, readAttachment, tooLargeMessage } from '../google-apps/attachments'
 import { ATTACH_HOW, attachedLines, attachedSummary, readTeamFiles, recheckTeamFiles, teamFileHandles, TEAM_FILE_PREFIX, withTeamFiles, type AttachedFile } from './team-attach'
 import { missingReaders, sourceOf, type ReadSource } from '../../chat/read-scope'
-import { localSpecOf, offlineWords, turnWindow, type LocalVia } from './local'
+import { awayWords, localSpecOf, offlineWords, turnAway, turnWindow, type LocalVia } from './local'
 import { PRODUCT } from '@mycel/shared'
 
 export const MAX_RESULT_CHARS = 40_000
@@ -930,7 +930,7 @@ const stepOf = (row: Row, tool: Pick<RemoteTool, 'name' | 'title'>) => `${row.na
 function localVia(ctx: AppContext, tc: TurnToolContext, row: Row): LocalVia {
   if (tc.files.files.agentView) throw new CallError(`${row.name} runs on the user's computer and only the main AI uses it, not a sub-agent: do this step yourself.`, 'refused (sub-agent)')
   const windowId = turnWindow(ctx.db, tc.turnId)
-  if (!windowId) throw new CallError(offlineWords(row.name), 'not from the desktop app')
+  if (!windowId) throw new CallError(offlineWords(row.name, turnAway(ctx.db, tc.turnId)), 'not from the desktop app')
   return { windowId, turnId: tc.turnId }
 }
 
@@ -1534,11 +1534,12 @@ export function integrationToolProvider(ctx: AppContext): TurnToolProvider {
           else lines.push(`- ${row.name} (${who} connection${sharedAccount(row)}): not usable now, it needs ${row.auth === 'oauth' ? 'a new sign-in' : 'its key'} (${row.google_app && row.scope === 'personal' ? `the user can fix it in Settings › Connectors › ${row.name}, Reconnect` : 'an admin fixes it in Admin › Connected apps; tell the user to ask an admin'})`)
           continue
         }
-        // an app on the person's computer (local.ts): only in a turn sent from the desktop app (b.browser: a desktop
-        // window that is connected, never a shared chat, a scheduled run or a restricted one); elsewhere the AI is told
-        // in plain words why not
-        if (row.local_app && !b.browser) {
-          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): not usable in this answer, because it works only when the user writes from the ${PRODUCT.displayName} desktop app on that computer${b.scheduled ? ' (never in a scheduled run)' : ''}. When they ask for it, say so in one or two plain sentences; do not try another way`)
+        // an app on the person's computer (local.ts): only in a turn sent from the person's own desktop window, connected
+        // now (b.desktop; a shared or project chat too: this is the asker's own connection, usable() never lists another
+        // member's, and the shared card asks the asker before its answer is shown to the others). Never a scheduled run or
+        // a restricted one; elsewhere the AI is told the one known reason in plain words
+        if (row.local_app && !b.desktop) {
+          lines.push(`- ${row.name} (an app on the user's own computer, personal connection): not usable in this answer, because ${awayWords(b.scheduled ? 'schedule' : turnAway(ctx.db, b.turnId))} Do not try another way`)
           continue
         }
         if (row.local_app && !savedTools(ctx.db, row).length) {
