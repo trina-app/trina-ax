@@ -263,7 +263,11 @@ async function complete(conf: ApiEngineConf, messages: ChatMessage[], tools: unk
       method: 'POST', signal: AbortSignal.any([signal, hdr.signal]),
       headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) },
       body,
-    })
+      // Bun's fetch gives up on its own after 300 s without a byte (an idle socket): that cut the 10-minute wait above
+      // at 5 minutes, and a local model's unlimited one too. Off here: headersTimeoutMs, Stop and the turn's stall
+      // guard (chat/turn.ts STALL_TIMEOUT_MS) are the limits (review finding 1 on #181)
+      timeout: false,
+    } as RequestInit)
   } finally { if (timer) clearTimeout(timer) }
   if (!res.ok || !res.body) {
     const text = await res.text().catch(() => '')

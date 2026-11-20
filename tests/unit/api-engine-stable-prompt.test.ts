@@ -145,6 +145,20 @@ describe('cache marks and the history', () => {
   })
 })
 
+// review finding 1 on #181 (QA TC-6103): Bun's fetch ends a request on its own after 300 s with no byte ("The operation
+// timed out"), measured with Bun 1.3.12 against a server that answers after 330 s; with timeout: false it waited. So the
+// request turns Bun's own limit off, for a public address (10 minutes, HEADERS_TIMEOUT_MS) and a local one (no limit).
+test("the provider request turns off Bun's own 300 s fetch timeout", async () => {
+  const inits: any[] = []
+  const f = (async (_u: string, init: any) => { inits.push(init); return new Response(sse({ text: ['ok'] })) }) as unknown as typeof fetch
+  const rpc = async (m: any) => (m.method === 'tools/list' ? { result: { tools: [tool('read')] } } : { result: { content: [] } })
+  for (const baseUrl of ['https://api.example/v1', 'http://127.0.0.1:11434/v1']) {
+    await runApiAgent({ conf: { ...conf, baseUrl }, systemPrompt: 'sys', message: 'hi', rpc, emit: () => {}, signal: new AbortController().signal, fetchFn: f })
+  }
+  expect(inits.length).toBe(2)
+  for (const i of inits) expect(i.timeout).toBe(false)
+})
+
 test('a public address waits 10 minutes for the first answer, as Claude Code does; a local one has no limit', () => {
   expect(HEADERS_TIMEOUT_MS).toBe(600_000)
   expect(isPatientApiAddress('https://openrouter.ai/api/v1')).toBe(false)
