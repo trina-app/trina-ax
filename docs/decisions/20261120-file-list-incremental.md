@@ -17,3 +17,7 @@
   (visiblePath, the list's own path readable), so it says no more than the folder listing. The night describes it.
 - `FILE_LIST_RULE` and the list header say so. Tests: `tests/unit/c-file-list.test.ts` ("between runs"),
   `c-file-list-format.test.ts`, `c-file-list-connector.test.ts`.
+- **A restart drops the checks still waiting** (they are timers in memory); the night pass's scan picks those files up.
+- **The night hashes rows added between nights** (they have no hash yet) when they are small enough to read, so identical
+  files are still read once. A folder that can never be listed (users/ while personal folders are not read, skills/) is
+  not walked, and a name that can never be listed costs no stat.

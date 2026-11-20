@@ -109,6 +109,8 @@ export class FileList implements VirtualFiles {
   private dirty = new Map<string, { paths: Set<string>; first: number; timer: ReturnType<typeof setTimeout> }>()
   /** passes that added rows since start (tests: a bulk upload is one) */
   passes = 0
+  /** files the passes stat'ed (tests: a folder that can never be listed is not walked) */
+  passStats = 0
 
   constructor(private ctx: AppContext, private o: FileListOptions = {}) {
     const dir = path.join(ctx.engineConfig.dataDir, 'file-list')
@@ -321,8 +323,9 @@ export class FileList implements VirtualFiles {
       let budget = LIST_PASS_MAX
       for (const rel of d.paths) {
         const segs = segsOf(rel)
-        if (!segs.length || segs.some((s) => s.startsWith('.') || badSegment(s) !== null) || NOT_LISTED_TOP.has(segs[0]!)) continue
+        if (!segs.length || segs.some((s) => s.startsWith('.') || badSegment(s) !== null) || !mayHoldListed(segs)) continue
         let st: fs.Stats
+        this.passStats++
         try { st = fs.lstatSync(path.join(root, ...segs)) } catch { continue }
         if (st.isFile() && st.nlink === 1) { take(segs, st); continue }
         if (!st.isDirectory()) continue
@@ -334,7 +337,9 @@ export class FileList implements VirtualFiles {
             if (ent.name.startsWith('.') || badSegment(ent.name) || ent.isSymbolicLink()) continue
             const s2 = [...dir, ent.name]
             if (ent.isDirectory()) { stack.push(s2); continue }
-            if (!ent.isFile() || --budget < 0) continue
+            // a name that can never be listed costs no stat
+            if (!ent.isFile() || !units.listable(s2) || --budget < 0) continue
+            this.passStats++
             const fst = lstatFile(path.join(root, ...s2))
             if (fst) take(s2, fst)
           }
@@ -520,6 +525,11 @@ export class FileList implements VirtualFiles {
       if (e && e.size === f.size && e.mtimeMs === f.mtimeMs) {
         // its unit changed (a rule added or taken away above it): read again in the unit it is in now
         if (e.fields && e.chain !== chainOf(rel)) { this.store.put({ ...e, fields: null, via: null, chain: null }); pending++ } else kept++
+        // a row added between nights has no hash yet (pass()): hashed now, so identical files are still read once
+        if (!e.sha && !e.fields && f.size <= READ_MAX) {
+          const sha = await hashFile(path.join(root, ...segsOf(rel)))
+          if (sha) this.store.put({ ...e, sha })
+        }
         continue
       }
       // a file too big to read is not hashed either: its line comes from its metadata (prepare.ts)
@@ -725,6 +735,14 @@ export class FileList implements VirtualFiles {
 
 interface Prepared { item: Item; entry: Entry; copies: Entry[]; /** the access unit's rule chain of this call */ chain: string }
 interface Ctl { signal: AbortSignal; runId: number; why: () => FileListStop | null; failures: number }
+
+/** A path under which a file can be listed at all (pass(): the rest is never stat'ed or walked): not a personal folder
+ * while those are not read, not skills/ or the server's own folder. */
+function mayHoldListed(segs: readonly string[]): boolean {
+  const top = segs[0]!
+  if (top === 'users') return READ_PERSONAL
+  return !NOT_LISTED_TOP.has(top) && top !== PRODUCT.systemDir
+}
 
 function safeReaddir(dir: string): fs.Dirent[] { try { return fs.readdirSync(dir, { withFileTypes: true }) } catch { return [] } }
 

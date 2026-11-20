@@ -355,6 +355,29 @@ describe('between runs: new, renamed, moved and deleted files show within the de
     expect((await call('alice', 'grep', { pattern: 'secret plan', path: '', output_mode: 'content' })).text).not.toContain('secret plan')
   })
 
+  test('identical files added between nights get their hash at the night and are read once', async () => {
+    for (const n of ['twin a.md', 'twin b.md']) expect((await upload('alice', 'shared/incr', n, '# the same twin text\n')).status).toBe(201)
+    await settle()
+    expect(fl.store.get('shared/incr/twin a.md')?.sha ?? null).toBeNull()
+    await run()
+    expect(reader.paths().filter((p) => p.startsWith('shared/incr/twin ')).length).toBe(1)
+    expect(fl.store.get('shared/incr/twin a.md')?.sha).toBe(fl.store.get('shared/incr/twin b.md')?.sha)
+    const list = described(await readList('alice', 'shared/_FILES.md'))
+    expect(list).toEqual(expect.arrayContaining(['shared/incr/twin a.md', 'shared/incr/twin b.md']))
+  })
+
+  test('a big folder moved into a personal folder is not walked (personal folders are not listed)', async () => {
+    for (let i = 0; i < 40; i++) write(`shared/big/f${i}.md`, `# ${i}\n`)
+    fl.flushPasses()
+    const before = fl.passStats
+    const r = await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/big', to: 'users/alice/big', confirm: true }) })
+    expect({ status: r.status, body: r.body }).toMatchObject({ status: 200 })
+    await settle()
+    // the gone source path is looked at once; the personal folder not at all
+    expect(fl.passStats - before).toBeLessThanOrEqual(1)
+    expect(fl.store.under('users/alice/big')).toEqual([])
+  })
+
   test('with the list turned off on the server, a change writes nothing to the sidecar', async () => {
     await settle()
     A.ctx.config.fileList = { enabled: false }
