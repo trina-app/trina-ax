@@ -305,6 +305,9 @@ test('junk token requests naming a known app do not stop that app\'s live refres
   expect(f.oauth.liveCredential({ client_id: other.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false)
   expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(true)
   expect((await token('192.0.2.12', refresh)).status).toBe(200)
+  // spent: still live for the rate limits inside the retry window (a genuine retry is not slowed), then not
+  expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(true)
+  f.oauth.now = () => minute + 1000 + 5 * 60_000 + 1
   expect(f.oauth.liveCredential({ client_id: f.client.client_id, grant_type: 'refresh_token', refresh_token: refresh })).toBe(false) // used
 })
 

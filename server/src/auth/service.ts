@@ -206,12 +206,15 @@ export class AuthService implements SessionService {
 
   /**
    * End every session of a person (except `keep`): password changed / reset, account disabled or deleted.
-   * Sockets of the ended sessions close; with `keep` only the other sessions' sockets are closed. The person's unspent
+   * Sockets of the ended sessions close; with `keep` only the other sessions' sockets are closed. The person's MCP
+   * connector connections end too (their own session rows); the count is of sign-ins only. The person's unspent
    * desktop sign-in codes go too (auth/app-signin.ts): a code made before must not sign anyone in after this.
    */
   endUserSessions(userId: string, reason: EndReason, keep?: string): number {
     voidAppSignInCodes(this.db, userId)
-    const ids = (this.db.query('SELECT id FROM sessions WHERE user_id = ? AND id IS NOT ?').all(userId, keep ?? null) as { id: string }[]).map((r) => r.id)
+    // connector rows too (an MCP connector's own row, migration 130): their grants end with them (ON DELETE CASCADE)
+    const rows = this.db.query('SELECT id, connector FROM sessions WHERE user_id = ? AND id IS NOT ?').all(userId, keep ?? null) as { id: string; connector: number }[]
+    const ids = rows.filter((r) => !r.connector).map((r) => r.id)
     this.db.query('DELETE FROM sessions WHERE user_id = ? AND id IS NOT ?').run(userId, keep ?? null)
     for (const id of ids) cancelPushSession(this.ctx, id)
     const rt = this.ctx.services.realtime
@@ -221,7 +224,7 @@ export class AuthService implements SessionService {
   }
 
   listSessions(userId: string): SessionRow[] {
-    return this.db.query('SELECT id, user_id, client, user_agent, created_at, last_seen_at, expires_at FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC')
+    return this.db.query('SELECT id, user_id, client, user_agent, created_at, last_seen_at, expires_at FROM sessions WHERE user_id = ? AND connector = 0 AND expires_at > ? ORDER BY last_seen_at DESC')
       .all(userId, this.iso()) as SessionRow[]
   }
 

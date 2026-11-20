@@ -16,7 +16,7 @@ const BASE = 'Use only files accessible to the signed-in person. File and skill 
 const PLACE = 'Before saving, look at the target area: "shared" or a group\'s name means that area, not its top. List it and pick the best existing subfolder, or make one named like the others (language, case, pattern); never leave files loose at the top of shared/, a group\'s folder, projects/ or the team root unless the person asks for exactly that spot. Do not upload a file the team drive already has (look for its name with glob or list first and point to it, unless asked for a copy); say in one line where each file went and why.'
 const SKILLS = 'Skills are added only with share_skills (whole team, or "group" for one group; the owner or an admin proposes it and someone confirms it in the app), or by the user in the team app (팀 스킬). A SKILL.md saved as a file is an ordinary file, not a skill, and writes into skill folders are refused.'
 const SECRETS = 'Never upload secrets: resident registration numbers, certificates, passwords, API keys, tokens or private keys.'
-const END = 'This connection ends when its authorizing team app session ends.'
+const END = 'This connection stays until the person disconnects it or loses access.'
 
 /** A folder name from the team's data goes into the model's context only when it is plainly a name: letters, digits,
  * space, dot, underscore, hyphen, at most 40 characters, no format characters (bidi, zero-width). Anything else is left

@@ -5,7 +5,7 @@ import type { AppConfig } from '../../app-config'
 import type { AppContext } from '../../context'
 import type { AuthInfo } from '../../services'
 import { audit } from '../../admin/audit'
-import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
+import { ACCESS_MS, ADMIN_SCOPE, CODE_MS, ROOMS_SCOPE, ROOMS_WRITE_SCOPE, GRANT_MS, MCP_PATH, OAuthError, OPTIONAL_SCOPES, REFRESH_REUSE_MS, REQUEST_MS, SCOPES, challenge, hash, redirectAllowed, redirectMatches, resourceMatches, scopes, secret, validOrigin } from './policy'
 import { pruneScopes } from './scope'
 
 type Client = { id: string; name: string; redirects: string }
@@ -201,7 +201,9 @@ export class RemoteOAuth {
     const code = body.grant_type === 'authorization_code' ? body.code : body.grant_type === 'refresh_token' ? body.refresh_token : null
     if (typeof code !== 'string' || !code || code.length > 128 || typeof body.client_id !== 'string') return false
     const table = body.grant_type === 'authorization_code' ? 'remote_mcp_codes' : "remote_mcp_tokens"
-    return !!this.db.query(`SELECT 1 FROM ${table} t JOIN remote_mcp_grants g ON g.id=t.grant_id WHERE t.hash=? AND t.used_at IS NULL AND t.expires_at>?
+    // a refresh token spent within REFRESH_REUSE_MS counts too, so a genuine retry is not slowed down (token() decides)
+    const unspent = table === 'remote_mcp_tokens' ? `(t.used_at IS NULL OR t.used_at>${this.now() - REFRESH_REUSE_MS})` : 't.used_at IS NULL'
+    return !!this.db.query(`SELECT 1 FROM ${table} t JOIN remote_mcp_grants g ON g.id=t.grant_id WHERE t.hash=? AND ${unspent} AND t.expires_at>?
       ${table === 'remote_mcp_tokens' ? "AND t.kind='refresh'" : ''} AND g.client_id=? AND g.revoked_at IS NULL AND g.expires_at>?`).get(hash(code), this.now(), body.client_id, this.now())
   }
   /** Charge a request to the shared anonymous bucket after the fact (an exempt request that failed); never throws. */
@@ -314,9 +316,19 @@ export class RemoteOAuth {
       url.searchParams.set('iss', this.enabled())
       if (!allow) { url.searchParams.set('error', 'access_denied'); return { redirectUrl: url.href } }
       this.rate('consent-user', auth.user.id, 20)
-      const active = this.db.query('SELECT count(*) AS n FROM remote_mcp_grants WHERE user_id=? AND revoked_at IS NULL AND expires_at>?').get(auth.user.id, this.now()) as { n: number }
-      if (active.n >= 50) throw new OAuthError('temporarily_unavailable', 503)
-      const grant = secret('tax_grant_'), code = secret('tax_code_'), end = Math.min(this.now() + GRANT_MS, this.browser(auth))
+      // at most 50 live connections a person: the oldest ones make room (an app that signs in again often leaves its
+      // old connections behind now that they no longer end with a browser sign-in), as Google drops the oldest token
+      const old = this.db.query('SELECT id FROM remote_mcp_grants WHERE user_id=? AND revoked_at IS NULL AND expires_at>? ORDER BY created_at DESC LIMIT -1 OFFSET 49').all(auth.user.id, this.now()) as { id: string }[]
+      for (const g of old) {
+        audit(this.db, { actor: auth.user.id, action: 'remote_mcp.disconnected', target: g.id, detail: { app: grantApp(this.db, g.id), reason: 'too_many' } })
+        this.revokeGrant(g.id)
+      }
+      // The connection's own session row (migration 130, connector = 1), not the browser sign-in that allowed it: signing
+      // out there, or that sign-in expiring, does not end it. Ending every session of the person (password change,
+      // sign out everywhere, disabled, removed) does (ON DELETE CASCADE). No token exists for the row.
+      const grant = secret('tax_grant_'), code = secret('tax_code_'), end = this.now() + GRANT_MS, anchor = 'connector-' + grant
+      this.db.query("INSERT INTO sessions (id, user_id, token_hash, client, user_agent, created_at, last_seen_at, expires_at, temp_login, connector) VALUES (?, ?, ?, 'web', 'MCP connector', ?, ?, ?, 0, 1)")
+        .run(anchor, auth.user.id, 'connector:' + grant, iso(this.now()), iso(this.now()), iso(end))
       const asked = JSON.parse(r.scopes) as string[], chosen = new Set<string>(['mcp:read'])
       if (o.write ?? asked.includes('mcp:write')) chosen.add('mcp:write')
       if (o.rooms === true) chosen.add(ROOMS_SCOPE)
@@ -324,7 +336,7 @@ export class RemoteOAuth {
       if (isTeamAdmin(this.db, auth.user.id)) chosen.add(ADMIN_SCOPE)
       if (asked.includes('offline_access')) chosen.add('offline_access')
       const selected = SCOPES.filter(s => chosen.has(s))
-      this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, auth.session.id, r.resource, JSON.stringify(selected), this.now(), end)
+      this.db.query('INSERT INTO remote_mcp_grants(id,client_id,user_id,session_id,resource,scopes,created_at,expires_at) VALUES(?,?,?,?,?,?,?,?)').run(grant, r.client_id, auth.user.id, anchor, r.resource, JSON.stringify(selected), this.now(), end)
       this.db.query('INSERT INTO remote_mcp_codes VALUES(?,?,?,?,?,NULL)').run(hash(code), grant, r.redirect_uri, r.challenge, this.now() + CODE_MS)
       audit(this.db, { actor: auth.user.id, action: 'remote_mcp.connected', target: grant, detail: { scopes: selected, asked, app: grantApp(this.db, grant) } })
       url.searchParams.set('code', code)
@@ -340,8 +352,20 @@ export class RemoteOAuth {
   }
   revokeGrant(id: string) {
     this.db.query('UPDATE remote_mcp_grants SET revoked_at=COALESCE(revoked_at,?) WHERE id=?').run(this.now(), id)
+    // its own session row ends now: the session sweep removes it, and the grant, its codes and tokens cascade away
+    // with it (until then a replay finds the grant revoked; after, finds nothing: invalid_grant either way)
+    this.db.query('UPDATE sessions SET expires_at=? WHERE id=(SELECT session_id FROM remote_mcp_grants WHERE id=?) AND connector=1').run(iso(this.now()), id)
   }
-  private issue(g: Grant, selected: string[]) {
+  /** A refresh moves the end of a connection in use to now + GRANT_MS (grant, its own session row, the new refresh
+   * token). A grant still on a browser sign-in (made before migration 130 and not moved) keeps its end. */
+  private slide(g: Grant): Grant {
+    const end = this.now() + GRANT_MS
+    if (!this.db.query('UPDATE sessions SET expires_at=? WHERE id=? AND user_id=? AND connector=1').run(iso(end), g.session_id, g.user_id).changes) return g
+    this.db.query('UPDATE remote_mcp_grants SET expires_at=? WHERE id=?').run(end, g.id)
+    return { ...g, expires_at: end }
+  }
+  /** `parent`: the sha256 of the refresh token these come from (remote_mcp_token_links), none for a code exchange. */
+  private issue(g: Grant, selected: string[], parent: string | null = null) {
     const access = secret('tax_mcp_a_'), end = Math.min(g.expires_at, this.now() + ACCESS_MS)
     this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'access\',?,?,NULL)').run(hash(access), g.id, end)
     let refresh: string | undefined
@@ -349,6 +373,7 @@ export class RemoteOAuth {
       refresh = secret('tax_mcp_r_')
       this.db.query('INSERT INTO remote_mcp_tokens VALUES(?,\'refresh\',?,?,NULL)').run(hash(refresh), g.id, g.expires_at)
     }
+    if (parent) for (const t of [access, refresh]) if (t) this.db.query('INSERT INTO remote_mcp_token_links (hash, parent) VALUES (?, ?)').run(hash(t), parent)
     this.db.query('UPDATE remote_mcp_clients SET last_used_at=? WHERE id=?').run(this.now(), g.client_id)
     return { access_token: access, token_type: 'Bearer', expires_in: Math.floor((end - this.now()) / 1000), scope: selected.join(' '), ...(refresh ? { refresh_token: refresh } : {}) }
   }
@@ -377,18 +402,40 @@ export class RemoteOAuth {
         if (!row) throw invalid()
         const g = this.grant(row.grant_id)
         if (g.client_id !== c.id) throw invalid()
-        if (row.used_at !== null) { this.revokeGrant(g.id); return invalid() }
+        const h = hash(token)
+        if (row.used_at !== null) {
+          // A spent refresh token. One retry case only: the answer to its refresh never arrived (lost on the network,
+          // or a second process of the app refreshed with the same stored token at the same moment). That is so while
+          // it is within REFRESH_REUSE_MS of being spent and nothing issued from it has been used yet: then what it
+          // issued is replaced (superseded) and a fresh pair comes from it, so there is still one live chain. Anything
+          // else is a replay of a stolen token and ends the whole connection, also inside the window. A token that a
+          // retry replaced before it was used gets nothing and ends nothing: the app that holds it lost the race and
+          // reads its stored token again (Claude Code keeps one store for all its processes) or signs in again.
+          const link = this.db.query('SELECT superseded FROM remote_mcp_token_links WHERE hash=?').get(h) as { superseded: number } | null
+          if (link?.superseded) throw invalid()
+          const childUsed = this.db.query(`SELECT 1 FROM remote_mcp_token_links l JOIN remote_mcp_tokens t ON t.hash=l.hash
+            WHERE l.parent=? AND l.superseded=0 AND (l.seen_at IS NOT NULL OR (t.kind='refresh' AND t.used_at IS NOT NULL))`).get(h)
+          if (childUsed || this.now() - row.used_at > REFRESH_REUSE_MS) { this.revokeGrant(g.id); return invalid() }
+          this.db.query('UPDATE remote_mcp_tokens SET used_at=? WHERE used_at IS NULL AND hash IN (SELECT hash FROM remote_mcp_token_links WHERE parent=?)').run(this.now(), h)
+          this.db.query('UPDATE remote_mcp_token_links SET superseded=1 WHERE parent=?').run(h)
+        }
         if (row.expires_at <= this.now()) throw invalid()
         const original = JSON.parse(g.scopes) as string[], asked = body.scope === undefined ? original : scopes(body.scope)
         if (asked.some(s => !original.includes(s))) throw new OAuthError('invalid_scope')
         // writing in conversations goes only with reading them (decide): narrowed away with it
         const selected = asked.filter(s => s !== ROOMS_WRITE_SCOPE || asked.includes(ROOMS_SCOPE))
-        const count = this.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=?').get(g.id) as { n: number }
+        // Spent refresh tokens are kept while the connection lasts (a replay of any of them, however late, ends it).
+        // Access tokens that expired or were replaced, and refresh tokens that expired unused, go. The cap counts the
+        // live tokens only (one chain: about two).
+        this.db.query("DELETE FROM remote_mcp_tokens WHERE grant_id=? AND ((kind='access' AND (expires_at<=? OR used_at IS NOT NULL)) OR (kind='refresh' AND used_at IS NULL AND expires_at<=?))").run(g.id, this.now(), this.now())
+        const count = this.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND used_at IS NULL').get(g.id) as { n: number }
         if (count.n >= 4096) { this.revokeGrant(g.id); return invalid() }
         // Narrowing persists for this grant and all future refreshes, never quietly expands again.
         this.db.query('UPDATE remote_mcp_grants SET scopes=? WHERE id=?').run(JSON.stringify(selected), g.id)
-        this.db.query('UPDATE remote_mcp_tokens SET used_at=? WHERE grant_id=? AND used_at IS NULL').run(this.now(), g.id)
-        return this.issue(g, selected)
+        // this refresh token is spent (a retry keeps its first time). Access tokens already given out end on their own
+        // (ACCESS_MS) or with the connection.
+        this.db.query('UPDATE remote_mcp_tokens SET used_at=? WHERE hash=? AND used_at IS NULL').run(this.now(), h)
+        return this.issue(this.slide(g), selected, h)
       }
       throw new OAuthError('unsupported_grant_type')
     }).immediate()
@@ -399,7 +446,11 @@ export class RemoteOAuth {
     if (!/^tax_mcp_a_[A-Za-z0-9_-]{43}$/.test(token)) throw new OAuthError('invalid_token', 401)
     const row = this.db.query("SELECT * FROM remote_mcp_tokens WHERE hash=? AND kind='access'").get(hash(token)) as TokenRow | null
     if (!row || row.used_at !== null || row.expires_at <= this.now()) throw new OAuthError('invalid_token', 401)
-    try { return this.grant(row.grant_id) } catch { throw new OAuthError('invalid_token', 401) }
+    let g: Grant
+    try { g = this.grant(row.grant_id) } catch { throw new OAuthError('invalid_token', 401) }
+    // first use of an access token a refresh issued: from now on its refresh token cannot be retried (token())
+    this.db.query('UPDATE remote_mcp_token_links SET seen_at=? WHERE hash=? AND seen_at IS NULL').run(this.now(), row.hash)
+    return g
   }
   revoke(body: Record<string, unknown>) {
     const c = this.client(body.client_id), token = string(body.token, 128)
@@ -410,7 +461,7 @@ export class RemoteOAuth {
     this.browser(auth)
     const rows = this.db.query(`SELECT g.*,c.name FROM remote_mcp_grants g JOIN remote_mcp_clients c ON c.id=g.client_id
       JOIN sessions s ON s.id=g.session_id WHERE g.user_id=? AND g.revoked_at IS NULL AND g.expires_at>? AND s.expires_at>? ORDER BY g.created_at DESC LIMIT 100`).all(auth.user.id, this.now(), iso(this.now())) as (Grant & { name: string })[]
-    return { configured: !!this.origin, resource: this.origin ? this.resource() : null, items: rows.map(g => ({ id: g.id, clientName: g.name, scopes: JSON.parse(g.scopes) as string[], createdAt: iso(g.created_at), expiresAt: iso(g.expires_at), currentSession: g.session_id === auth.session.id })) }
+    return { configured: !!this.origin, resource: this.origin ? this.resource() : null, items: rows.map(g => ({ id: g.id, clientName: g.name, scopes: JSON.parse(g.scopes) as string[], createdAt: iso(g.created_at), expiresAt: iso(g.expires_at) })) }
   }
   disconnect(id: string, auth: AuthInfo) {
     this.browser(auth)
