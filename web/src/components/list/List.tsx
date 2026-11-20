@@ -18,9 +18,9 @@ import { useFolds } from '../panels/folds'
 import { MenuButton, useRowMenu, type MenuItem } from '../rooms/MenuButton'
 
 /** A row's name: unread or selected semibold in ink; otherwise the read look (a panel on a computer: muted 400; a phone
- * and a page's main list, `page`: ink 400) */
-export const rowName = ({ unread = false, selected = false, page = false }: { unread?: boolean; selected?: boolean; page?: boolean } = {}) =>
-  clsx('text-row', unread || selected ? 'font-semibold text-ink' : page ? 'font-normal text-ink' : 'font-row-read text-row-read')
+ * and a page's main list, `page`: ink 400). `history`: the Trina history's 14px on a computer (historyRowBox) */
+export const rowName = ({ unread = false, selected = false, page = false, history = false }: { unread?: boolean; selected?: boolean; page?: boolean; history?: boolean } = {}) =>
+  clsx(history ? 'text-row-history' : 'text-row', unread || selected ? 'font-semibold text-ink' : page ? 'font-normal text-ink' : 'font-row-read text-row-read')
 
 /** A row's icon: a bare icon on a computer, a round tile on a phone (index.css --spacing-list-icon, --color-list-icon-bg).
  * `face`: a list of people (the member picker): a box a picture reads in, 28px on a computer (--spacing-list-face) */
@@ -54,6 +54,12 @@ export interface RowMenu {
 /** A row's height (index.css --spacing-row-min): 30px on a computer, 48px on a phone, never under 44px on a touch
  * screen. Every list row's box takes it (ListRow; a panel's fixed rows, PanelFrame panelRowBox; a room's row) */
 export const rowBox = 'min-h-row-min pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-min))]'
+/** A Trina history row's height (ListRow `scale="history"`; index.css --spacing-row-history): 36px on a computer, the
+ * phone lists' 48px on a phone, never under 44px on a touch screen. Only the history's rows (a chat, a task's folded
+ * runs, a group's "N more"): the other lists keep rowBox. docs/decisions/20261120-sidebar-history-row-spacing.md */
+export const historyRowBox = 'min-h-row-history pointer-coarse:min-h-[max(2.75rem,var(--spacing-row-history))]'
+/** The gap between the Trina history's rows: 2px, so each row's hover fill stands apart */
+export const historyRowsGap = 'space-y-0.5'
 /** A section header's row (ListSection; a group of the filtered history, history/HistoryGroups.tsx): the rows' 30px on
  * a computer, 44px to tap on a phone and a touch screen */
 export const headBox = 'flex h-row items-center gap-1 pointer-coarse:min-h-11 max-md:min-h-11'
@@ -122,7 +128,8 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   /** the whole row's tooltip (a skill's description) */
   rowTitle?: string
   strong?: boolean
-  scale?: 'panel' | 'page'
+  /** `history`: the Trina history's rows (historyRowBox, 14px names on a computer) */
+  scale?: 'panel' | 'page' | 'history'
   unread?: boolean
   selected?: boolean
   wrap?: boolean
@@ -142,11 +149,12 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
   expanded?: boolean
 }) {
   const page = scale === 'page'
+  const history = scale === 'history'
   const cls = clsx(
     // a touch screen: at least 44px to tap, or the list's own least height where that is more (a phone: 48px)
     'flex gap-2.5 rounded-lg px-3 text-left focus-visible:-outline-offset-2',
     // a page's list: the row's inset outside the column (with `actions`, only on the left: they take the right's)
-    page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [rowBox, 'w-full'],
+    page ? [pageRowBox, actions ? '-ml-3' : pageBleed] : [history ? historyRowBox : rowBox, 'w-full'],
     (to || onClick || choice) && !disabled && rowOpenHover,
     choice && 'cursor-pointer has-[:disabled]:opacity-60',
     meta || metaKeep ? 'items-start py-1.5 max-md:items-center max-md:py-2' : face ? 'items-center py-1' : 'items-center',
@@ -161,7 +169,7 @@ export function ListRow({ expanded, to, state, onClick, icon, lead, faces, name,
       {icon && <ListIcon face={face} className={meta || metaKeep ? (face ? 'self-center' : 'mt-0.5 max-md:mt-0') : undefined}>{icon}</ListIcon>}
       {lead && <span className="-mr-1 flex shrink-0 items-center gap-1 self-center">{lead}</span>}
       <span className="min-w-0 flex-1">
-        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? 'text-row font-medium text-ink' : rowName({ unread, selected, page }))} title={nameTitle} data-testid={nameTestId}>
+        <span className={clsx(wrap ? 'line-clamp-2 break-words' : 'block truncate', strong ? clsx(history ? 'text-row-history' : 'text-row', 'font-medium text-ink') : rowName({ unread, selected, page, history }))} title={nameTitle} data-testid={nameTestId}>
           {name}
         </span>
         {metaKeep ? (
