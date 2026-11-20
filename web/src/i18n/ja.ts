@@ -4426,6 +4426,7 @@ export const ja: Record<MessageKey, string> = {
   "rooms.closeThread": "スレッドを閉じる",
   "sideChat.open": "{name}に質問",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "自分だけ",
   "sideChat.close": "閉じる",
   "sideChat.new": "新しいチャット",
   "sideChat.openFull": "全画面のチャットで開く",

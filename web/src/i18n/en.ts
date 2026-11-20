@@ -4471,6 +4471,7 @@ export const en: Record<MessageKey, string> = {
   "rooms.closeThread": "Close thread",
   "sideChat.open": "Ask {name}",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "Only you",
   "sideChat.close": "Close",
   "sideChat.new": "New chat",
   "sideChat.openFull": "Open as a full chat",

@@ -4426,6 +4426,7 @@ export const es: Record<MessageKey, string> = {
   "rooms.closeThread": "Cerrar el hilo",
   "sideChat.open": "Preguntar a {name}",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "Solo usted",
   "sideChat.close": "Cerrar",
   "sideChat.new": "Nuevo chat",
   "sideChat.openFull": "Abrir como chat completo",

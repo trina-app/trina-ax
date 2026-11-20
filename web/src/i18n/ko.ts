@@ -4469,6 +4469,7 @@ export const ko = {
   "rooms.closeThread": "스레드 닫기",
   "sideChat.open": "{name}에게 묻기",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "나만 봐요",
   "sideChat.close": "닫기",
   "sideChat.new": "새로 묻기",
   "sideChat.openFull": "전체 화면으로 열기",

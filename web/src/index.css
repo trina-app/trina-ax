@@ -38,6 +38,11 @@
   --c-code-bg: #1e1d1b;
   --c-code-ink: #ece9e3;
   --c-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px -6px rgb(0 0 0 / 0.08);
+  /* the ✦ Trina side panel's fill (components/rooms/SideChatPanel.tsx): a light wash of the brand's soft accent over the
+     surface, so the private side chat reads as its own surface beside the room and its thread. Mixed from the edition's
+     own tokens, so it follows the light and dark looks (computed on :root, where .dark sits); c-faint on it stays
+     >= 5:1 in both. */
+  --c-aside: color-mix(in srgb, var(--c-accent-soft) 60%, var(--c-surface));
 }
 
 .dark {
@@ -168,6 +173,7 @@
   --color-accent-ink: var(--c-accent-ink);
   --color-accent-soft: var(--c-accent-soft);
   --color-accent-text: var(--c-accent-text);
+  --color-aside: var(--c-aside);
   --color-danger: var(--c-danger);
   --color-danger-soft: var(--c-danger-soft);
   --color-warn: var(--c-warn);

@@ -4412,6 +4412,7 @@ export const zh: Record<MessageKey, string> = {
   "rooms.closeThread": "关闭话题",
   "sideChat.open": "问{name}",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "仅自己可见",
   "sideChat.close": "关闭",
   "sideChat.new": "新对话",
   "sideChat.openFull": "以完整对话打开",

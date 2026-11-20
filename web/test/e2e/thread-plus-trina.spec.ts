@@ -74,6 +74,12 @@ test('1440: ✦ on a thread keeps the thread: three columns, the list folds; the
   await expect(side).toBeVisible()
   await expect(thread).toBeVisible()
   await expect(pageEl).toHaveAttribute('data-columns', 'three')
+  // the side chat, not the thread, is marked as mine: ✦, "나만 봐요" and its own tint (QA TC-5675)
+  await expect(side.getByTestId('side-chat-mark').locator('svg')).toBeVisible()
+  await expect(side.getByTestId('side-chat-only-you')).toHaveText('·나만 봐요')
+  await expect(thread.getByTestId('side-chat-only-you')).toHaveCount(0)
+  const fill = (l: Locator) => l.evaluate((e) => getComputedStyle(e).backgroundColor)
+  expect(await fill(side.getByTestId('side-chat-panel'))).not.toBe(await fill(thread))
   // the list folded away for the three columns; the rail stays
   await expect(page.getByTestId('chats-panel')).toHaveCount(0)
   await expect(page.getByTestId('rail')).toBeVisible()
