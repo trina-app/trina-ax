@@ -698,6 +698,58 @@ func cmdHostedSpeechKeySet(e *env, args []string) (int, error) {
 	return t.out(map[string]any{"ok": true, "set": *r.Set})
 }
 
+// errorReportName is the server's error report switch (server/src/system/error-reports.ts): a Sentry project key.
+const errorReportName = "MYCEL_ERROR_REPORT_URL"
+
+// sentryDsnRE: a Sentry project key, https://<public key>@<host>[:port][/<prefix>...]/<project id> (shared/src/cloud-
+// protocol SentryDsn, the shape shared/src/sentry-report.ts parseDsn reads). The whole value must match: it goes on
+// a line of the server's environment file, so a newline, quote, backslash, space or "=" could add other variables.
+var sentryDsnRE = regexp.MustCompile(`^https://[A-Za-z0-9]{1,128}@[A-Za-z0-9-]{1,63}(\.[A-Za-z0-9-]{1,63}){0,9}(:[0-9]{1,5})?(/[A-Za-z0-9_-]{1,64}){0,4}/[0-9]{1,20}$`)
+
+// errorReportsIdleWait: how long error-reports-set waits for running answers before it restarts the server.
+var errorReportsIdleWait = 60 * time.Second
+
+// error-reports-set < { url: "<Sentry key>" | null }: the hosting service's error report key for this team server,
+// one MYCEL_ERROR_REPORT_URL line in /etc/default/<id> (the server unit's environment; every other line stays). null
+// takes the line away. The same value again changes nothing (changed false), so the hosting service may send it as
+// often as it likes, for example after a reimage wrote the file again. Only a change restarts the server, and only
+// once no answer has run for up to 60 s; otherwise restarted is false and the server reads it at its next start.
+// The key is never in an argument, an error or the answer { ok, changed, restarted }.
+func cmdErrorReportsSet(e *env, args []string) (int, error) {
+	t := newTenant(e, "error-reports-set")
+	if c, err := t.open(args); err != nil {
+		return c, err
+	}
+	_, m, err := t.stdinJSON(4 << 10)
+	if err != nil {
+		return 1, err
+	}
+	if len(m) != 1 || m["url"] == nil {
+		return 1, fmt.Errorf("stdin must be { url }")
+	}
+	var url *string
+	if json.Unmarshal(m["url"], &url) != nil {
+		return 1, fmt.Errorf("url: a string or null")
+	}
+	if url != nil && !sentryDsnRE.MatchString(*url) {
+		return 1, fmt.Errorf("url: not a Sentry project key")
+	}
+	changed, err := setDefaultsLine(t.in.ID, errorReportName, url)
+	if err != nil {
+		return 1, fmt.Errorf("/etc/default/%s: %v", t.in.ID, err)
+	}
+	restarted := false
+	if changed {
+		if idle, running := t.waitIdle(errorReportsIdleWait); !idle {
+			fmt.Fprintf(t.e.stderr, "error-reports-set: %d answers still running, the server reads the change at its next start\n", running)
+		} else if restarted, err = t.restart(); err != nil {
+			fmt.Fprintf(t.e.stderr, "error-reports-set: %v; the server reads the change at its next start\n", err)
+			restarted = false
+		}
+	}
+	return t.out(map[string]any{"ok": true, "changed": changed, "restarted": restarted})
+}
+
 // ---------------------------------------------------------------- as the server account
 
 // serverWriteTargets: the only files server-write may replace (relative to the base).

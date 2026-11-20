@@ -56,8 +56,17 @@ are generic and must be readable by anyone; the hosting service's address, key a
 - **Admin › System › Server health** shows one line while it is on: "Error reports are sent to <host> to keep this
   server running." (the receiver's host name only, from `GET /api/admin/diagnostics` `errorReports.host`; the owner,
   who is the one who sees Server health). No line when it is off. No new box, button or page.
-- **Where the hosting service's config lives:** only in its private setup. Its address and key, the project and turning it on for the servers it runs are set there (the team server's environment file,
-  `/etc/default/mycel`, written when a server is created), never in this repository.
+- **Where the hosting service's config lives:** only in its private setup. Its address and key, the project and
+  turning it on for the servers it runs are set there, never in this repository. The hosting service sets the key on
+  each server it runs through the tenant command `error-reports-set` (2026-11-20; `shared/src/cloud-protocol/
+  tenant-commands.ts`, `native/cmd/mycel-ctl/tenant.go`), with stdin `{ url: <Sentry key> | null }`. mycel-ctl writes
+  one `MYCEL_ERROR_REPORT_URL` line in the server's environment file `/etc/default/<id>` and keeps every other line;
+  `null` takes the line away. The value must match the Sentry key shape exactly (no newline, quote, backslash or
+  space can add another variable). The same value again changes nothing (`changed: false`), so the hosting service
+  can send it again after a reimage or restore wrote the file anew. Only a change restarts the server, and only once
+  no answer has run for up to 60 seconds; otherwise `restarted` is false and the server reads it at its next start.
+  The key is never printed. The AI and the file converters cannot read `/etc/default/<id>` (their sandboxes show only
+  a fixed list of `/etc` files), so it needs no file of its own.
 - **Retention: 90 days** (owner, 2026-11-19). The hosting service keeps reports in its Sentry project on the plan it
   already has, which keeps error events 90 days and cannot shorten that; no deletion job and no plan change.
 - **Privacy policy:** the hosting service's privacy policy needs one sentence saying hosted servers send error reports

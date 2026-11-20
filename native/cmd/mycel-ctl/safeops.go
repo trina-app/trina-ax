@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -140,33 +141,57 @@ func safeOpsFlag(id string) bool {
 // setSafeOpsFlag rewrites /etc/default/<id>: every line of ours goes, the others stay (mycel-enroll's backup window,
 // MYCEL_REMOTE_MCP_ORIGIN, the administrator's own), and with on one MYCEL_SAFE_OPS_1A=1 is added.
 func setSafeOpsFlag(id string, on bool) error {
+	var v *string
+	if on {
+		one := "1"
+		v = &one
+	}
+	_, err := setDefaultsLine(id, safeOpsFlagName, v)
+	return err
+}
+
+// setDefaultsLine sets NAME in /etc/default/<id> to one NAME=value line, or with nil takes every NAME line out; every
+// other line stays as it is (mycel-enroll's lines, the other flags, the administrator's own). The first NAME line is
+// replaced where it is and later ones go, so setting the value it already has changes nothing. changed: the file's
+// lines differ (only then is it written). A file left with no line is removed. The caller checks the value: it must
+// hold no newline, quote or backslash.
+func setDefaultsLine(id, name string, value *string) (bool, error) {
 	p := filepath.Join(defaultsDir, id)
 	old, err := readRootFile(p, 64<<10)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return false, err
 	}
-	var lines []string
+	var before, lines []string
+	put := false
 	sc := bufio.NewScanner(bytes.NewReader(old))
 	for sc.Scan() {
 		l := sc.Text()
-		if k, _, ok := strings.Cut(strings.TrimSpace(l), "="); ok && strings.TrimSpace(k) == safeOpsFlagName {
+		before = append(before, l)
+		if k, _, ok := strings.Cut(strings.TrimSpace(l), "="); ok && strings.TrimSpace(k) == name {
+			if value != nil && !put {
+				lines = append(lines, name+"="+*value)
+				put = true
+			}
 			continue
 		}
 		lines = append(lines, l)
 	}
-	if on {
-		lines = append(lines, safeOpsFlagName+"=1")
+	if value != nil && !put {
+		lines = append(lines, name+"="+*value)
 	}
-	if !on && len(lines) == 0 {
+	if slices.Equal(before, lines) {
+		return false, nil
+	}
+	if len(lines) == 0 {
 		if err := os.Remove(p); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return false, err
 		}
-		return nil
+		return true, nil
 	}
 	if err := os.MkdirAll(defaultsDir, 0o755); err != nil {
-		return err
+		return false, err
 	}
-	return writeRootFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	return true, writeRootFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 // ---------- the root copies ----------
