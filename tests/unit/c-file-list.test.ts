@@ -13,6 +13,7 @@ import { FakeReader } from '../lib/file-list-fake'
 import { addCred, testCredCtx } from '../lib/credentials'
 import { fileListOf, type FileList } from '../../server/src/file-list/service'
 import { HEADER } from '../../server/src/file-list/view'
+import { PLAIN_WHAT } from '../../server/src/file-list/format'
 import { ReaderLimit, ReaderUnavailable } from '../../server/src/file-list/reader'
 import { EngineReader } from '../../server/src/file-list/engine-reader'
 import { Units } from '../../server/src/file-list/units'
@@ -36,6 +37,8 @@ const readList = async (who: string, rel: string): Promise<string | null> => {
   if (r.isError || !r.text.includes(HEADER.slice(0, 30))) return null
   return r.text.split('\n').map((l) => l.replace(/^\s*\d+\t/, '')).join('\n')
 }
+/** the files of a list that have the AI's description (not a plain line) */
+const described = (text: string | null) => (text ?? '').split('\n').filter((l) => !l.startsWith('#') && l.includes(' — ') && !l.endsWith(PLAIN_WHAT)).map((l) => l.slice(0, l.indexOf(' — ')))
 const named = (text: string | null) => (text ?? '').split('\n').filter((l) => !l.startsWith('#') && l.includes(' — ')).map((l) => l.slice(0, l.indexOf(' — ')))
 const run = async () => { reader.calls = []; const done = fl.start('now'); expect(done).not.toBeNull(); return done! }
 /** every _FILES.md on disk (the feature writes none) */
@@ -145,13 +148,14 @@ describe('only what changed is read; a line shows only for the file as it was re
     for (const p of [...added, ...changed]) expect(all).toContain(p)
   })
 
-  test('a file changed after it was read drops out of every list until it is read again', async () => {
-    expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/new-a.md')
+  test('a file changed after it was read keeps only a plain line until it is read again', async () => {
+    expect(described(await readList('alice', 'shared/_FILES.md'))).toContain('shared/new-a.md')
     fs.appendFileSync(path.join(A.team, 'shared', 'new-a.md'), 'more\n')
-    expect(named(await readList('alice', 'shared/_FILES.md'))).not.toContain('shared/new-a.md')
+    expect(described(await readList('alice', 'shared/_FILES.md'))).not.toContain('shared/new-a.md')
+    expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/new-a.md')
     await run()
     expect(reader.paths()).toEqual(['shared/new-a.md'])
-    expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/new-a.md')
+    expect(described(await readList('alice', 'shared/_FILES.md'))).toContain('shared/new-a.md')
   })
 
   test('identical files of one unit are read once', async () => {
@@ -169,11 +173,12 @@ describe('access and moves, at once and without reading', () => {
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(true)
     const r = await A.json('/api/admin/folders', { as: 'dana', ...jsonBody({ path: 'shared/policies', limited: true, rules: [{ subjectType: 'user', subjectId: 'alice', access: 'read' }] }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 201 })
-    // at once, without reading: gone from the wide list for everyone, and not yet shown in the narrow one (their fields
-    // came from a call that held the wide unit's files)
+    // at once, without reading: gone from the wide list for everyone, and only plain lines in the narrow one (their
+    // fields came from a call that held the wide unit's files)
     expect(named(await readList('bob', 'shared/_FILES.md')).some((p) => p.startsWith('shared/policies/'))).toBe(false)
     expect(await readList('bob', 'shared/policies/_FILES.md')).toBeNull()
-    expect(await readList('alice', 'shared/policies/_FILES.md')).toBeNull()
+    expect(named(await readList('alice', 'shared/policies/_FILES.md')).length).toBeGreaterThan(0)
+    expect(described(await readList('alice', 'shared/policies/_FILES.md'))).toEqual([])
     expect((await call('bob', 'grep', { pattern: 'policies', path: '', output_mode: 'content' })).text).not.toContain('shared/policies/')
     expect(reader.calls.length).toBe(0)
     // the next run reads them again, in calls of their own unit (their old batch-mates in shared/ are read again too,
@@ -182,7 +187,7 @@ describe('access and moves, at once and without reading', () => {
     const inPolicies = (f: { path: string }) => f.path.startsWith('shared/policies/')
     expect(reader.calls.some((c) => c.files.some(inPolicies))).toBe(true)
     expect(reader.calls.every((c) => c.files.every(inPolicies) || !c.files.some(inPolicies))).toBe(true)
-    expect(named(await readList('alice', 'shared/policies/_FILES.md')).length).toBeGreaterThan(0)
+    expect(described(await readList('alice', 'shared/policies/_FILES.md')).length).toBeGreaterThan(0)
     expect(await readList('bob', 'shared/policies/_FILES.md')).toBeNull()
   })
 
@@ -196,19 +201,20 @@ describe('access and moves, at once and without reading', () => {
     expect(reader.calls.length).toBe(0)
   })
 
-  test('a move into another unit: gone from the old list at once, read again in the new unit at the next run', async () => {
+  test('a move into another unit: gone from the old list at once, a plain line in the new one until the next run reads it', async () => {
     reader.calls = []
     const r = await A.json('/api/files/move', { as: 'carol', ...jsonBody({ from: 'shared/copy-1.md', to: 'groups/finance/copy-1.md', confirm: true }) })
     expect({ status: r.status, body: r.body }).toMatchObject({ status: 200 })
     expect(named(await readList('alice', 'shared/_FILES.md'))).not.toContain('shared/copy-1.md')
-    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).not.toContain('groups/finance/copy-1.md')
+    expect(described(await readList('bob', 'groups/finance/_FILES.md'))).not.toContain('groups/finance/copy-1.md')
+    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).toContain('groups/finance/copy-1.md')
     expect(reader.calls.length).toBe(0)
     await run()
     // the moved file, and the batch-mates it was read with (here its copy), each in a call of its own unit
     expect(reader.paths()).toContain('groups/finance/copy-1.md')
     expect(reader.paths().filter((p) => p !== 'groups/finance/copy-1.md').every((p) => p.startsWith('shared/'))).toBe(true)
     expect(reader.calls.every((c) => c.files.every((f) => f.path.startsWith('groups/finance/')) || c.files.every((f) => f.path.startsWith('shared/')))).toBe(true)
-    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).toContain('groups/finance/copy-1.md')
+    expect(described(await readList('bob', 'groups/finance/_FILES.md'))).toContain('groups/finance/copy-1.md')
     expect(await readList('alice', 'groups/finance/_FILES.md')).toBeNull()
   })
 
@@ -265,6 +271,102 @@ describe('a planted instruction in a file', () => {
     expect(line).not.toMatch(/Evil Corp|evil\.example|groups\/finance|@/)
     expect(mkt.split('\n').filter((l) => l.startsWith('groups/finance/'))).toEqual([])
     expect(mkt).not.toMatch(/^## groups\/finance\//m)
+  })
+})
+
+describe('between runs: new, renamed, moved and deleted files show within the debounce, without the AI', () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const DEBOUNCE = 150
+  const settle = async () => { for (let i = 0; i < 50 && fl.pendingPasses() > 0; i++) await wait(DEBOUNCE / 2) }
+  const upload = (who: string, folder: string, name: string, text = `# ${name}\n`) => {
+    const fd = new FormData()
+    fd.set('folder', folder); fd.set('name', name); fd.set('onExists', 'rename')
+    fd.set('file', new File([text], name))
+    return A.json('/api/files/upload', { method: 'POST', body: fd, as: who as 'alice' })
+  }
+  beforeAll(async () => {
+    for (const d of ['shared/incr', 'shared/bulk']) fs.mkdirSync(path.join(A.team, ...d.split('/')), { recursive: true })
+    // passes earlier tests' changes left waiting (at the default 30 s) run now
+    fl.flushPasses()
+    await run(); (fl as unknown as { o: { debounceMs: number } }).o.debounceMs = DEBOUNCE
+  })
+  afterAll(() => { (fl as unknown as { o: { debounceMs?: number } }).o.debounceMs = undefined })
+
+  test('a web upload (a Korean name with spaces) is listed after the debounce as a plain line; the next run describes it', async () => {
+    reader.calls = []
+    const name = '회의 자료 최종 v2.md'
+    const r = await upload('alice', 'shared/incr', name)
+    expect(r.status).toBe(201)
+    const rel = `shared/incr/${name}`
+    // not before the debounce: one pass for the folder, a moment later
+    expect(fl.pendingPasses()).toBeGreaterThan(0)
+    expect(named(await readList('alice', 'shared/_FILES.md'))).not.toContain(rel)
+    await settle()
+    const list = (await readList('alice', 'shared/_FILES.md'))!
+    const line = list.split('\n').find((l) => l.startsWith(rel + ' — '))!
+    expect(line).toMatch(new RegExp(`^${rel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} — md file; -; -; \\d+ B, changed \\d{4}-\\d{2}-\\d{2}, `))
+    expect(line.endsWith(PLAIN_WHAT)).toBe(true)
+    // no model call for it; a member who cannot open shared/… sees nothing new, nobody outside the unit gets it
+    expect(reader.calls.length).toBe(0)
+    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).not.toContain(rel)
+    await run()
+    expect(reader.paths()).toEqual([rel])
+    expect(described(await readList('alice', 'shared/_FILES.md'))).toContain(rel)
+  })
+
+  test('an AI write is listed too', async () => {
+    const w = await call('alice', 'write', { file_path: 'shared/incr/ai-note.md', content: '# from the AI\n' })
+    expect(w.isError).toBeFalsy()
+    await settle()
+    expect(named(await readList('alice', 'shared/_FILES.md'))).toContain('shared/incr/ai-note.md')
+  })
+
+  test('a bulk upload into one folder is one pass, and every file is listed', async () => {
+    const before = fl.passes
+    const names = Array.from({ length: 12 }, (_, i) => `bulk ${i + 1}.txt`)
+    for (const n of names) expect((await upload('alice', 'shared/bulk', n)).status).toBe(201)
+    await settle()
+    expect(fl.passes - before).toBe(1)
+    const list = named(await readList('alice', 'shared/_FILES.md'))
+    for (const n of names) expect(list).toContain(`shared/bulk/${n}`)
+  })
+
+  test('rename, move and delete: the list follows, including a file moved before its pass', async () => {
+    // a fresh upload moved before its folder's pass: listed at its new path only
+    expect((await upload('alice', 'shared/incr', 'quick.md')).status).toBe(201)
+    expect((await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/incr/quick.md', to: 'shared/incr/quick-renamed.md' }) })).status).toBe(200)
+    expect((await A.json('/api/files/move', { as: 'alice', ...jsonBody({ from: 'shared/bulk/bulk 1.txt', to: 'shared/incr/bulk 1 moved.txt' }) })).status).toBe(200)
+    expect((await A.json(`/api/files?path=${encodeURIComponent('shared/bulk/bulk 2.txt')}`, { as: 'alice', method: 'DELETE' })).status).toBe(200)
+    await settle()
+    const list = named(await readList('alice', 'shared/_FILES.md'))
+    expect(list).toContain('shared/incr/quick-renamed.md')
+    expect(list).not.toContain('shared/incr/quick.md')
+    expect(list).toContain('shared/incr/bulk 1 moved.txt')
+    expect(list).not.toContain('shared/bulk/bulk 1.txt')
+    expect(list).not.toContain('shared/bulk/bulk 2.txt')
+    expect(fl.store.get('shared/bulk/bulk 2.txt')).toBeNull()
+  })
+
+  test('a file moved into a folder a person cannot open is not in their lists', async () => {
+    expect((await upload('carol', 'groups/finance', 'secret plan.md')).status).toBe(201)
+    await settle()
+    expect(named(await readList('bob', 'groups/finance/_FILES.md'))).toContain('groups/finance/secret plan.md')
+    expect(await readList('alice', 'groups/finance/_FILES.md')).toBeNull()
+    expect((await call('alice', 'grep', { pattern: 'secret plan', path: '', output_mode: 'content' })).text).not.toContain('secret plan')
+  })
+
+  test('with the list turned off on the server, a change writes nothing to the sidecar', async () => {
+    await settle()
+    A.ctx.config.fileList = { enabled: false }
+    try {
+      const before = fl.passes, version = fl.store.version
+      expect((await upload('alice', 'shared/incr', 'while-off.md')).status).toBe(201)
+      expect(fl.pendingPasses()).toBe(0)
+      await wait(DEBOUNCE * 3)
+      expect(fl.passes).toBe(before)
+      expect(fl.store.get('shared/incr/while-off.md')).toBeNull()
+      expect(fl.store.version).toBe(version)
+    } finally { A.ctx.config.fileList = undefined }
   })
 })
 

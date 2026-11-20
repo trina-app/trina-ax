@@ -12,6 +12,13 @@
 // on the AI's usage or rate limit or the team's block budget, or when the server stops; the rest
 // waits for the next run. A lease row keeps it to one run at a time, across restarts and processes.
 //
+// Between runs (no model): a file that is added, renamed, moved or comes back from the trash is in its folder's list
+// within about a minute, as a plain line (view.ts: name, type from the extension, size, day). Every team-folder change
+// goes through publishChanges (team-files/changes.ts: the Files screen, uploads, the AI's and the connector's writes,
+// moves, deletes), whose 'tree-changed' event names the paths; they are collected per folder for LIST_DEBOUNCE_MS
+// (at most LIST_MAX_WAIT_MS after the first), then only those paths are looked at (a stat each; a folder is walked)
+// and the new files get a row without fields. A bulk upload into a folder is one pass. The night reads them as usual.
+//
 // When: every night between 02:00 and 05:00 in the team's time zone, at least every 30 hours (the knowledge graph's
 // nightlyDue, 5191d9e9); a new server waits for its first night. An admin can start a run now (capped the same way).
 import crypto from 'node:crypto'
@@ -57,6 +64,12 @@ export const CATCH_UP_MS = 3 * 3600_000
 export const LEASE_STALE_MS = 15 * 60_000
 /** a run stops after this many model calls in a row gave no usable answer (a broken engine) */
 export const MAX_FAILED_CALLS = 5
+/** a changed folder's new files get their rows this long after its last change, at most LIST_MAX_WAIT_MS after its
+ * first one (a bulk upload is one pass) */
+export const LIST_DEBOUNCE_MS = 30_000
+export const LIST_MAX_WAIT_MS = 60_000
+/** files one such pass stats under a folder that was added or moved (the rest waits for the nightly scan) */
+export const LIST_PASS_MAX = 20_000
 /** while a run writes, the per-person view regroups the sidecar at most this often */
 const REGROUP_MS = 5000
 
@@ -73,6 +86,8 @@ export interface FileListOptions {
   loops?: boolean
   /** a person's chat turn waits or runs (default: the turns table, the reader's own turns left out) */
   peopleWaiting?: () => boolean
+  /** the wait after a change before its folder's new files get rows (ms; default LIST_DEBOUNCE_MS, max wait twice it) */
+  debounceMs?: number
   /** how often a waiting run looks again (ms) */
   pollMs?: number
   /** the pause before a failed call is tried again (ms) */
@@ -90,6 +105,10 @@ export class FileList implements VirtualFiles {
   /** the sidecar's lines by list folder, for the store version and the rules they were grouped with */
   private grouped: { version: number; rules: string; units: Units; byFolder: Map<string, Entry[]>; byBatch: Map<string, string[]>; at: number } | null = null
   private hourFmt: { tz: string; f: Intl.DateTimeFormat } | null = null
+  /** changed paths waiting for their pass, by parent folder */
+  private dirty = new Map<string, { paths: Set<string>; first: number; timer: ReturnType<typeof setTimeout> }>()
+  /** passes that added rows since start (tests: a bulk upload is one) */
+  passes = 0
 
   constructor(private ctx: AppContext, private o: FileListOptions = {}) {
     const dir = path.join(ctx.engineConfig.dataDir, 'file-list')
@@ -101,6 +120,7 @@ export class FileList implements VirtualFiles {
     // a new server waits for its first night: the 30-hour rule counts from the first start
     if (!this.store.meta('firstSeenAt')) this.store.setMeta('firstSeenAt', this.now().toISOString())
     ctx.files.events.on('tree-changed', this.onTreeChanged)
+    ctx.files.events.on('conflict', this.onConflict)
     ctx.files.virtual = this
     this.sweepSearchCopies()
     if (this.o.loops ?? process.env.NODE_ENV !== 'test') {
@@ -216,12 +236,8 @@ export class FileList implements VirtualFiles {
     const g = this.groups(rules)
     for (const [folder, entries] of g.byFolder) {
       if (!seen.canRead(Units.listPath(folder))) continue
-      const chain = this.chainOfFolder(g.units, folder)
-      for (const e of entries) {
-        if (e.chain !== chain || (e.batch && !seen.batchOk(e.batch))) continue
-        const st = seen.visible(e.path)
-        if (st && st.size === e.size && st.mtimeMs === e.mtimeMs && (!e.ino || e.ino === `${st.dev}:${st.ino}`)) return true
-      }
+      // a plain line counts too (view.ts): the list shows when one file of it shows
+      for (const e of entries) if (seen.visible(e.path)) return true
     }
     return false
   }
@@ -231,6 +247,7 @@ export class FileList implements VirtualFiles {
    * there (its fields came from a call holding the old unit's files). A deleted one goes from the sidecar at once. */
   private onTreeChanged = (e: { paths?: string[]; moves?: { from: string; to: string }[] } | undefined) => {
     if (!e) return
+    if (this.on()) for (const p of [...(e.paths ?? []), ...(e.moves ?? []).map((m) => m.to)]) this.schedule(p)
     try {
       const root = this.ctx.files.fx.root
       const units = new Units(this.rules().boundaryFolders())
@@ -253,6 +270,85 @@ export class FileList implements VirtualFiles {
       }
       for (const p of e.paths ?? []) for (const ent of this.store.under(p)) if (!lstatFile(path.join(root, ...segsOf(ent.path)))) this.store.delete(ent.path)
     } catch (err) { this.ctx.log.error('file list: following a move failed', { err }) }
+  }
+
+  /** A conflict copy (files/store.ts) is a new file too. */
+  private onConflict = (e: { copy?: string } | undefined) => { if (e?.copy && this.on()) this.schedule(e.copy) }
+
+  /** Collect a changed path for its folder's pass (debounced per folder). */
+  private schedule(rel: string) {
+    if (!rel || this.closed) return
+    const folder = rel.slice(0, Math.max(0, rel.lastIndexOf('/')))
+    const wait = this.o.debounceMs ?? LIST_DEBOUNCE_MS
+    const max = this.o.debounceMs != null ? this.o.debounceMs * 2 : LIST_MAX_WAIT_MS
+    const now = Date.now()
+    const cur = this.dirty.get(folder)
+    if (cur) clearTimeout(cur.timer)
+    const d = cur ?? { paths: new Set<string>(), first: now, timer: null as unknown as ReturnType<typeof setTimeout> }
+    d.paths.add(rel)
+    d.timer = setTimeout(() => this.pass(folder), Math.max(0, Math.min(wait, d.first + max - now)))
+    d.timer.unref?.()
+    this.dirty.set(folder, d)
+  }
+
+  /** Tests: run every waiting pass now. */
+  flushPasses() { for (const f of [...this.dirty.keys()]) this.pass(f) }
+  /** Tests: folders with a pass waiting. */
+  pendingPasses(): number { return this.dirty.size }
+
+  /**
+   * One folder's pass: each changed path is looked at (a file: one stat; a folder: walked, at most LIST_PASS_MAX
+   * files), and a listable file the sidecar does not know gets a row without fields, which the lists show as a plain
+   * line at once and the next run reads. Rows that are there stay: a changed file shows a plain line by itself (its
+   * size or mtime differs), and a gone one left at its delete or move. No hashing, no model.
+   */
+  private pass(folder: string) {
+    const d = this.dirty.get(folder)
+    if (!d) return
+    clearTimeout(d.timer)
+    this.dirty.delete(folder)
+    if (!this.on()) return
+    try {
+      const root = this.ctx.files.fx.root
+      const q = this.ctx.files.fx.quarantine
+      const units = new Units(this.rules().boundaryFolders())
+      const found: { rel: string; st: fs.Stats }[] = []
+      const take = (segs: string[], st: fs.Stats) => {
+        const rel = segs.join('/')
+        if (!units.listable(segs) || q?.hasFile(path.join(root, ...segs)) || this.store.get(rel)) return
+        found.push({ rel, st })
+      }
+      let budget = LIST_PASS_MAX
+      for (const rel of d.paths) {
+        const segs = segsOf(rel)
+        if (!segs.length || segs.some((s) => s.startsWith('.') || badSegment(s) !== null) || NOT_LISTED_TOP.has(segs[0]!)) continue
+        let st: fs.Stats
+        try { st = fs.lstatSync(path.join(root, ...segs)) } catch { continue }
+        if (st.isFile() && st.nlink === 1) { take(segs, st); continue }
+        if (!st.isDirectory()) continue
+        // a folder that arrived (uploaded, moved, back from the trash): its files, stat only
+        const stack = [segs]
+        while (stack.length && budget > 0) {
+          const dir = stack.pop()!
+          for (const ent of safeReaddir(path.join(root, ...dir))) {
+            if (ent.name.startsWith('.') || badSegment(ent.name) || ent.isSymbolicLink()) continue
+            const s2 = [...dir, ent.name]
+            if (ent.isDirectory()) { stack.push(s2); continue }
+            if (!ent.isFile() || --budget < 0) continue
+            const fst = lstatFile(path.join(root, ...s2))
+            if (fst) take(s2, fst)
+          }
+        }
+      }
+      if (!found.length) return
+      this.store.tx(() => {
+        for (const { rel, st } of found) {
+          if (this.store.get(rel)) continue
+          this.store.put({ path: rel, size: st.size, mtimeMs: st.mtimeMs, sha: null, kind: null, real: null, fields: null, via: null, readAt: null, tries: 0, chain: null, ino: null })
+        }
+      })
+      this.passes++
+    } catch (err) { this.ctx.log.error('file list: adding new files failed', { err }) }
   }
 
   // ---------------------------------------------------------------- status
@@ -616,7 +712,10 @@ export class FileList implements VirtualFiles {
     if (this.closed) return
     this.closed = true
     for (const t of this.timers) clearInterval(t)
+    for (const d of this.dirty.values()) clearTimeout(d.timer)
+    this.dirty.clear()
     this.ctx.files.events.off('tree-changed', this.onTreeChanged)
+    this.ctx.files.events.off('conflict', this.onConflict)
     if (this.ctx.files.virtual === this) this.ctx.files.virtual = null
     this.run?.abort.abort()
     await Promise.race([this.whenIdle(), sleep(5000)])
