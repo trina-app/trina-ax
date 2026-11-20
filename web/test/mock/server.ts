@@ -6693,12 +6693,13 @@ export class MockServer {
       if (!n || n.type !== 'file') fail('not_found', 404)
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream' } })
     }
-    // the four above answer project rooms only: any other room falls through to what was there (none: not implemented,
-    // the specs answer them through page.route)
+    // the four above answer project rooms; any other room falls through to what was there, and where there was nothing
+    // they answer it too (a plain room's file is kept with the room: the room Files list spec sends and opens them;
+    // most specs answer rooms through page.route, which never reaches here)
     for (const name of ['uploadRoomFile', 'sendRoomMessage', 'deleteRoomMessage', 'roomFile'] as const) {
       const mine = h[name]!
       const before = previous[name]
-      h[name] = (c) => (this.projectOfRoom(c.params.id) ? mine(c) : before ? before(c) : fail('not_found', 404, `mock: ${name} not implemented`))
+      h[name] = (c) => (this.projectOfRoom(c.params.id) ? mine(c) : before ? before(c) : mine(c))
     }
     for (const name of ['inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] as const) {
       const base = h[name]
