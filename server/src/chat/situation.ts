@@ -12,7 +12,7 @@
 import type { Database } from 'bun:sqlite'
 import { PRODUCT } from '@mycel/shared'
 import { ACCOUNT_DELETION_GRACE_DAYS, type Locale } from '@mycel/shared/api'
-import { allowedCredentialKinds, isManaged, type AppConfig } from '../app-config'
+import { allowedCredentialKinds, isFreeRoam, isManaged, type AppConfig } from '../app-config'
 import { getTeamSettings } from '../admin/settings'
 import { personalConnectionsAllowed } from '../credentials/policy'
 import { resolveCredential, type CredEngine } from '../credentials/resolve'
@@ -45,6 +45,9 @@ export interface Situation {
   /** this install can mirror a folder of its computer into the team folder (system/deployment.ts connectedFolders:
    * not on a hosted team or a demo); absent: not said */
   connectedFolders?: boolean
+  /** a free-roam demo instance (app-config.ts isFreeRoam; docs/decisions/20261119-demo-free-roam-a.md): the block names
+   * no page the demo fences or hides (demo/guard.ts, web lib/freeRoam.ts FREE_ROAM_HIDDEN_SETTINGS); absent: not one */
+  freeRoam?: boolean
 }
 
 /** The app from the session's client kind and whether this answer has the desktop browser. */
@@ -77,6 +80,7 @@ export function situationOf(ctx: { db: Database; config: AppConfig }, p: { userI
     plan: plan ? { name: plan.display?.name?.[p.locale] ?? plan.display?.name?.en ?? null, people: plan.maxActiveMembers ?? null, guests: safe(() => guestLimit(), null) } : null,
     web: p.webSearch ?? true,
     connectedFolders: safe(() => featuresOf(ctx.config).connectedFolders, false),
+    ...(safe(() => isFreeRoam(ctx.config), false) ? { freeRoam: true } : {}),
   }
 }
 
@@ -86,7 +90,7 @@ function safe<T>(f: () => T, fallback: T): T { try { return f() } catch { return
 function appLine(s: Situation, L: Locale): string {
   switch (s.app) {
     // the phone's Me tab is Settings: its list holds the same pages (SettingsDialog.tsx PhoneSettingsList), Admin too
-    case 'mobile': return `- App: the ${PRODUCT.displayName} phone app.${s.guest ? '' : ` There ${SCREEN.settings(L)} is ${SCREEN.meTab(L)} at the bottom: its list has the same pages${s.role === 'owner' || s.role === 'admin' ? ', and Admin is in that list too' : ''}.`}`
+    case 'mobile': return `- App: the ${PRODUCT.displayName} phone app.${s.guest ? '' : ` There ${SCREEN.settings(L)} is ${SCREEN.meTab(L)} at the bottom: its list has the same pages${(s.role === 'owner' || s.role === 'admin') && !s.freeRoam ? ', and Admin is in that list too' : ''}.`}`
     case 'web': return `- App: ${PRODUCT.displayName} in a web browser.`
     // a guest has no browser (chat/guest-tools.ts) and the Guest section says what they cannot do: the app's name only
     case 'desktop': if (s.guest) return `- App: the ${PRODUCT.displayName} desktop app.`
@@ -105,6 +109,16 @@ export function situationSection(s: Situation, L: Locale): string {
   const app = appLine(s, L)
   if (s.guest) return app ? plainNames(['## About this person and place', app].join('\n')) : ''
   const staff = s.role === 'owner' || s.role === 'admin'
+  // a free-roam demo (QA TC-5570): these lines sent visitors to Settings › Usage and Settings › Profile › Delete account,
+  // pages the demo hides, over the demo's own rule (prompt.ts demoRule). Here the block names no page the demo fences or
+  // hides: Admin (every admin endpoint), AI providers and Usage, connecting services, deleting the account, the plan
+  // (Admin › System). What is not in the demo is demoRule's to say.
+  if (s.freeRoam) {
+    lines.push(`- Role: ${s.role === 'owner' ? 'the team\'s owner' : s.role === 'admin' ? 'an admin' : 'a member'} in this demo. Admin and its pages are not in the demo: never send them to an Admin page. Their own things are in ${SCREEN.settings(L)}.`)
+    if (app) lines.push(app)
+    if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}; you can show who saved each version and what changed (read with versions); bringing one back is the person's ${SCREEN.restoreButton(L)} there (the current one is kept as a version too).`)
+    return plainNames(['## About this person and place', ...lines].join('\n'))
+  }
   // role, and what that role may open
   if (staff) lines.push(`- Role: ${s.role === 'owner' ? 'the team\'s owner' : 'an admin'}. They can open ${SCREEN.adminSettings(L)} for team-wide changes, and ${SCREEN.settings(L)} for their own.`)
   else lines.push(`- Role: a member. They cannot open Admin: for a team-wide change (who sees which folder, groups, the team's connected apps, plugins, the team's AI accounts, team settings) say the team's owner or an admin does it; never send them to an Admin page. Their own things are in ${SCREEN.settings(L)}.`)

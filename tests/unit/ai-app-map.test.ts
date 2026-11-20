@@ -114,6 +114,46 @@ describe('who gets which map', () => {
     // what is everyone's is in both
     for (const s of [staff, member]) for (const k of ['roomApps.menuAdd', 'notifications.quiet', 'settings.apps', 'skills.catalog.bring', 'files.findWork.entryButton'] as const) expect(s).toContain(DICTS.ko[k])
   })
+  // QA TC-5570: a free-roam demo visitor was sent to pages the demo fences (demo/guard.ts) or hides (web lib/freeRoam.ts
+  // FREE_ROAM_HIDDEN_SETTINGS / FREE_ROAM_HIDDEN_PAGES)
+  test('a free-roam demo: no fenced or hidden page, in every form and language; a normal install unchanged', () => {
+    const LOCALES = ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const named = (t: string, label: string) => new RegExp(`(^|[\\s›,(:])${esc(label)}($|[\\s(.,;:])`, 'm').test(t)
+    const gone = ['settings.security', 'settings.devices', 'auth.changePassword', 'settings.apps', 'aiApps.title', 'integrations.title',
+      'roomApps.menuAdd', 'roomApps.address', 'openApp.lineLink', 'files.findWork.entryButton', 'handover.menu', 'members.inviteToTeam', 'teamLink.title',
+      'admin.members', 'admin.groups', 'admin.integrations', 'admin.usage', 'admin.audit', 'admin.settings', 'admin.plugins', 'admin.providers', 'admin.system',
+      'guest.admin.title', 'devEnv.title', 'system.backups'] as const
+    for (const L of LOCALES) {
+      for (const view of ['staff', 'member', 'shared'] as const) {
+        for (const pickModel of [true, false, undefined]) {
+          const o: AppMapInput = { ...base, view, freeRoam: true, ...(pickModel === undefined ? {} : { pickModel }) }
+          const t = appMapSection(o, L)
+          // a label as a place (not inside a longer label: ja "このアプリについて" holds "アプリ")
+          for (const k of gone) expect(named(t, appLabel(k, L))).toBe(false)
+          for (const no of ['own AI and model', 'Pages of ', "Also the owner's or an admin's", 'Guest AI']) expect(t).not.toContain(no)
+          expect(t).toContain(`${appLabel('admin.title', L)} and every page in it are not in the demo: never send anyone there, whatever they ask about.`)
+          // what the demo has stays
+          for (const k of ['settings.profile', 'settings.about', 'chat.pin', 'notifications.quiet', 'filesPanel.shared', 'projects.share'] as const) expect(t).toContain(appLabel(k, L))
+        }
+      }
+    }
+    // a normal install: the same map as before, every place named
+    for (const view of ['staff', 'member', 'shared'] as const) {
+      const normal = appMapSection({ ...base, view }, 'en')
+      expect(appMapSection({ ...base, view, freeRoam: false }, 'en')).toBe(normal)
+      for (const k of ['settings.security', 'settings.apps', 'aiApps.title', 'integrations.title', 'roomApps.menuAdd', 'openApp.lineLink'] as const) expect(normal).toContain(appLabel(k, 'en'))
+      expect(normal).not.toContain('not in the demo')
+      // the place check finds them on a normal install, in every language
+      for (const L of LOCALES) for (const k of ['settings.security', 'settings.apps', 'aiApps.title', 'roomApps.menuAdd', 'openApp.lineLink'] as const) expect(named(appMapSection({ ...base, view }, L), appLabel(k, L))).toBe(true)
+      if (view !== 'member') for (const k of ['admin.usage', 'admin.providers', 'admin.system', 'handover.menu'] as const) expect(normal).toContain(appLabel(k, 'en'))
+    }
+  })
+  test('the turn gives the map freeRoam only on a free-roam demo (chat/turn.ts)', () => {
+    const turn = read('server/src/chat/turn.ts')
+    expect(turn).toContain('const freeRoam = isFreeRoam(rt.ctx.config)')
+    expect(turn).toContain('...(freeRoam ? { freeRoam: true } : {}) }')
+  })
   test('the form by role: owner and admin the full one, member the short one, any shared chat the neutral one', () => {
     expect([appMapView('owner', false), appMapView('admin', false), appMapView('member', false)]).toEqual(['staff', 'staff', 'member'])
     expect([appMapView('owner', true), appMapView('member', true)]).toEqual(['shared', 'shared'])
