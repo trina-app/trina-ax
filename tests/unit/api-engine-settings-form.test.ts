@@ -2,7 +2,7 @@
 // owner's to set (QA TC-4825), and switching to Ollama from a provider with a key drops the old key in the same save
 // (QA TC-4826; the server never sends a stored key to a new address).
 import { expect, test } from 'bun:test'
-import { API_PRESETS, apiSaveKey, ownerOnlyAddress } from '../../web/src/pages/admin/Engines'
+import { API_PRESETS, apiSaveKey, ownerOnlyAddress } from '../../web/src/pages/admin/apiEngineRules'
 
 const ollama = API_PRESETS.find((p) => p.id === 'ollama')!.baseUrl
 
