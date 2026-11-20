@@ -16,7 +16,7 @@ English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](
 
 </div>
 
-https://github.com/user-attachments/assets/a918709d-019d-4743-8e31-f05dd1b4e2ca
+https://github.com/user-attachments/assets/b3f06113-6c8e-42c3-829c-9edad8c91993
 
 <p align="center"><sub>What a new hire's AI can do on day one. The 80-second story.</sub><br>Open source (AGPL-3.0) · Self-host free, no seat limit<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-en.png" height="44" alt="Star Trina AX on GitHub"></a><br><sub>Then press ☆ Star at the top of the page. A star helps more teams find Trina AX.</sub></p>
 
