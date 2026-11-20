@@ -20,6 +20,7 @@ import { codexCatalogFor, CODEX_COMPATIBLE_VERSIONS } from '../engine/codex'
 import { codexLoginState, type CodexLoginState } from '../native'
 import { CODEX_PROD_BETA } from '../chat/engines'
 import { readApiEngine, redact } from '../engine/api-agent'
+import { isLocalApiAddress } from '../engine/api-context'
 import { apiEngineFetch } from '../system/egress'
 import { hostKind, type HostKind } from '../system/deployment'
 import { engineStatusMessages } from '../system/messages-linux'
@@ -69,6 +70,8 @@ export const T: Record<string, Record<Locale, string>> = {
   apiModelUnchecked: { ko: '주소와 키는 맞아요. 제공자가 모델 목록을 주지 않아서 모델 이름은 확인하지 못했어요.', en: 'The address and key work. The provider gives no model list, so the model name was not checked.', id: 'Alamat dan kunci berfungsi. Penyedia tidak memberi daftar model, jadi nama model belum diperiksa.', ja: "アドレスとキーは有効です。プロバイダーがモデル一覧を提供していないため、モデル名は確認していません。", es: "La dirección y la clave funcionan. El proveedor no ofrece una lista de modelos, por lo que no se comprobó el nombre del modelo.", zh: "地址和密钥可以用。服务商不提供模型列表，所以没有检查模型名称。" },
   apiKeyUnchecked: { ko: '주소와 모델은 맞아요. 제공자가 키 확인 주소를 주지 않아서 키는 확인하지 못했어요.', en: 'The address and model work. The provider has no key check address, so the key was not checked.', id: 'Alamat dan model berfungsi. Penyedia tidak punya alamat pemeriksaan kunci, jadi kunci belum diperiksa.', ja: "アドレスとモデルは有効です。プロバイダーにキー確認用アドレスがないため、キーは確認していません。", es: "La dirección y el modelo funcionan. El proveedor no ofrece una dirección para verificar la clave, por lo que no se comprobó.", zh: "地址和模型可以用。服务商没有检查密钥的地址，所以没有检查密钥。" },
   apiUnreachable: { ko: 'API 주소에 연결하지 못했어요. 주소를 확인한 뒤 다시 확인을 눌러 주세요.', en: 'The API address could not be reached. Check the address, then try Check again.', id: 'Alamat API tidak bisa dihubungi. Periksa alamatnya, lalu klik Cek lagi.', ja: "APIアドレスに接続できませんでした。アドレスを確認してから「再確認」を押してください。", es: "No se pudo conectar con la dirección de la API. Revise la dirección y pulse «Volver a comprobar».", zh: "无法连接API地址。请检查地址，然后点“重新检查”。" },
+  apiOllamaNotRunning: { ko: "Ollama가 켜져 있지 않아요. 서버 컴퓨터에서 Ollama 앱을 연 뒤 다시 확인을 눌러 주세요.", en: "Ollama isn't running on the server's computer. Open the Ollama app there, then try Check again.", id: "Ollama tidak berjalan di komputer server. Buka aplikasi Ollama di sana, lalu klik Cek lagi.", ja: "サーバーのコンピューターで Ollama が動いていません。そこで Ollama アプリを開いてから「再確認」を押してください。", es: "Ollama no se está ejecutando en el ordenador del servidor. Abra allí la aplicación Ollama y pulse «Volver a comprobar».", zh: "服务器电脑上的 Ollama 没有运行。请在那台电脑上打开 Ollama 应用，然后点“重新检查”。" },
+  apiLocalNotRunning: { ko: "이 주소에서 응답하는 프로그램이 없어요. 서버 컴퓨터에서 모델 프로그램(예: LM Studio)을 켠 뒤 다시 확인을 눌러 주세요.", en: "Nothing answers at this address on the server's computer or network. Start the model program there (for example LM Studio), then try Check again.", id: "Tidak ada yang menjawab di alamat ini pada komputer atau jaringan server. Jalankan program modelnya di sana (misalnya LM Studio), lalu klik Cek lagi.", ja: "サーバーのコンピューターやネットワークのこのアドレスで応答するものがありません。そこでモデルのプログラム（例：LM Studio）を起動してから「再確認」を押してください。", es: "Nada responde en esta dirección del ordenador o la red del servidor. Inicie allí el programa del modelo (por ejemplo LM Studio) y pulse «Volver a comprobar».", zh: "服务器电脑或网络上的这个地址没有任何程序响应。请在那里启动模型程序（例如 LM Studio），然后点“重新检查”。" },
   apiHttp: { ko: 'API 주소가 오류를 보냈어요(HTTP {status}). 주소를 확인해 주세요.', en: 'The API address sent back an error (HTTP {status}). Check the address.', id: 'Alamat API mengirim galat (HTTP {status}). Periksa alamatnya.', ja: "APIアドレスからエラーが返されました（HTTP {status}）。アドレスを確認してください。", es: "La dirección de la API devolvió un error (HTTP {status}). Revise la dirección.", zh: "API地址返回了错误（HTTP {status}）。请检查地址。" },
   claudeLogin: { ko: '서버 맥에서 팀장이 `claude`를 실행해 로그인해야 해요.', en: 'The owner must sign in by running `claude` on the server Mac.', id: 'Owner harus masuk dengan menjalankan `claude` di Mac server.', ja: "オーナーがサーバーのMacで`claude`を実行してログインする必要があります。", es: "El propietario debe iniciar sesión ejecutando `claude` en el Mac del servidor.", zh: "所有者需要在服务器Mac上运行`claude`来登录。" },
   codexLogin: { ko: '서버 맥에서 팀장이 `codex login`으로 로그인해야 해요.', en: 'The owner must sign in with `codex login` on the server Mac.', id: 'Owner harus masuk dengan `codex login` di Mac server.', ja: "オーナーがサーバーのMacで`codex login`を実行してログインする必要があります。", es: "El propietario debe iniciar sesión con `codex login` en el Mac del servidor.", zh: "所有者需要在服务器Mac上用`codex login`登录。" },
@@ -392,7 +395,10 @@ async function checkApiEngine(env: EngineEnv, enabled: boolean, locale: Locale):
     const why = err?.cause instanceof Error ? `${err.message}: ${err.cause.message}` : String(err?.message ?? e)
     // the provider's own words go behind "Show details" (cleaned of the key); the card says what to do
     const slow = err?.name === 'TimeoutError' || /timed? ?out/i.test(why)
-    return out('error', slow ? t('checkTimeout', locale, { name: conf.label || ENGINE_LABELS.api }) : t('apiUnreachable', locale), supportDetail(why, conf.key))
+    // nothing listens at an address on this computer or the local network (Ollama or LM Studio not started): say so,
+    // and what to start (QA TC-4827: the card said only "could not be reached")
+    const notRunning = !slow && /ECONNREFUSED|unable to connect|connection refused/i.test(why) && isLocalApiAddress(conf.baseUrl)
+    return out('error', slow ? t('checkTimeout', locale, { name: conf.label || ENGINE_LABELS.api }) : notRunning ? t(/:11434(\/|$)/.test(conf.baseUrl) ? 'apiOllamaNotRunning' : 'apiLocalNotRunning', locale) : t('apiUnreachable', locale), supportDetail(why, conf.key))
   }
 }
 

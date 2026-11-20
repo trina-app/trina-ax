@@ -45,7 +45,7 @@ import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { apiTimeContext, buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
@@ -106,10 +106,11 @@ import { budgetBlock } from '../admin/budgets'
 import { ENGINE_LABELS } from '../admin/engines'
 import { canChooseEngine, limitFallbackOn } from '../admin/engine-choice'
 import { API_GROUNDING_RULES, apiToolsOf, runApiAgent } from '../engine/api-agent'
+import { apiOfferedTools, deferredOf, moreToolsNote } from '../engine/api-tools-defer'
 import { foldCardDetails } from './card-fold'
 import { apiSeesImages } from '../engine/api-vision'
 import { apiContextSize, blindGuess, noteContextRefusal } from '../engine/api-context'
-import { fitApiTools, toolsLeftOutNote } from '../engine/api-tools-fit'
+import { fitApiTools, toolsLeftOutNote, toolTokens } from '../engine/api-tools-fit'
 import { historyFit, toolBudgetFor } from './history-fit'
 import { HISTORY_MAX_TOKENS } from './prompt'
 import { listedTools } from '../mcp/protocol'
@@ -1074,8 +1075,9 @@ export class TurnExec {
     // claudeAttempt: the prompt is for a Claude attempt (the Agent rule when it has sub-agents); the Codex fallback gets none
     // fresh instructions that start a Claude session (`sessionId`) list the skills as they are now: what a later resumed
     // turn of that session is compared with (skill-list.ts). Codex and the API engine start fresh every turn.
-    const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null) => {
-      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt }
+    // `api`: the API engine's instructions, without the time line (it goes with the message: apiTimeContext)
+    const prompt = (fresh: boolean, claudeAttempt = true, sessionId: string | null = null, api = false) => {
+      const input = { ...promptInput(fresh), subagents: subagents && claudeAttempt, ...(api ? { timeInMessage: true } : {}) }
       this.historyTrimmed = fresh ? historyTrimmed(input.history, input.historySummary, historyBudget) : before?.role === 'assistant' && before.history_trimmed === 1
       // cut only because the model's context is small: the default window would have held it (the chat says so)
       this.historySmallModel = fresh ? this.historyTrimmed && historyBudget !== undefined && !historyTrimmed(input.history, input.historySummary) : before?.role === 'assistant' && before.history_small_model === 1
@@ -1180,11 +1182,18 @@ export class TurnExec {
     // instructions alone overflow ends the turn with a plain error, when its size is known for sure (a guess or a
     // refusal's number only shrinks the window); Ollama would cut the start of the prompt without a word
     let apiToolBudget: number | undefined
+    // the API engine's time, to the minute, with the message instead of in the instructions (chat/prompt.ts apiTimeContext)
+    const apiTime = apiTimeContext(new Date(), rt.timeZone, spec.timeZone)
     /** the instructions without the history, the tool list and the message, fitted to a model of `contextTokens` */
-    const apiFit = (contextTokens: number, toolBudget: number | undefined) => {
-      const tools = fitApiTools(apiToolsOf(listedTools(rt.files, toolSet)), toolBudget)
-      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left)].filter(Boolean).join('\n\n')
-      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message }) }
+    // `whole`: every tool sent, as before tools on demand (the blind-guess check below keeps its old meaning)
+    const apiFit = (contextTokens: number, toolBudget: number | undefined, whole = false) => {
+      // as runApiAgent sends them: on a model with room, the tools on demand listed and not sent
+      // (engine/api-tools-defer.ts); a small model's list is fitted as before (engine/api-tools-fit.ts)
+      const all = apiToolsOf(listedTools(rt.files, toolSet))
+      const onDemand = !whole && (toolBudget === undefined || toolTokens(all) <= toolBudget)
+      const tools = fitApiTools(onDemand ? apiOfferedTools(all).tools : all, toolBudget)
+      const instructions = [buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true }), API_GROUNDING_RULES, toolsLeftOutNote(tools.left), onDemand ? moreToolsNote(deferredOf(all)) : ''].filter(Boolean).join('\n\n')
+      return { tools, fit: historyFit({ contextTokens, instructions, tools: JSON.stringify(tools.tools), message: `${apiTime}\n\n${message}` }) }
     }
     this.apiFixedLeavesNoRoom = (contextTokens) => apiFit(contextTokens, apiToolBudget).fit.budget === 0
     if (api && !replay && !this.restricted) {
@@ -1196,7 +1205,7 @@ export class TurnExec {
         // Ollama's or LM Studio's own guess (a model not loaded yet) cuts it, or Ollama cuts the prompt (QA TC-5087). A wrong refusal number is forgotten with the next
         // answer that used more tokens (engine/api-context.ts)
         const guess = blindGuess(size, api.baseUrl)
-        if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false })}\n\n${API_GROUNDING_RULES}`, message })
+        if (!guess) apiToolBudget = toolBudgetFor({ contextTokens: size.tokens, instructions: `${buildTurnPrompt(rt.files, { ...promptInput(false), subagents: false, timeInMessage: true })}\n\n${API_GROUNDING_RULES}`, message })
         const { tools, fit } = apiFit(size.tokens, apiToolBudget)
         if (fit.overflows && size.exact) {
           rt.log.warn('API model context too small for the instructions', { turn: this.id, contextTokens: size.tokens, source: size.source })
@@ -1205,7 +1214,7 @@ export class TurnExec {
         }
         // a blind guess that the instructions and the whole tool list alone overflow tells nothing (a proxy in front
         // of a large model): the default window, as for an unknown model
-        if (guess && fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
+        if (guess && apiFit(size.tokens, apiToolBudget, true).fit.overflows) rt.log.info('API model context: guessed size ignored', { turn: this.id, contextTokens: size.tokens, source: size.source })
         else if (fit.limited) {
           historyBudget = fit.budget
           rt.log.info('API model context: history fitted', { turn: this.id, contextTokens: size.tokens, exact: size.exact, source: size.source, historyTokens: fit.budget, toolsLeftOut: tools.left.length })
@@ -1510,7 +1519,7 @@ export class TurnExec {
       try {
         // the answer's tool rounds, capped as Claude Code's --max-turns is (guests, unattended runs; limits audit 1 #31:
         // it was a fixed 30)
-        await runApiAgent({ conf: api, systemPrompt: prompt(true), message, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
+        await runApiAgent({ conf: api, systemPrompt: prompt(true, true, null, true), message: `${apiTime}\n\n${message}`, rpc: handler, emit: (e) => this.onEvent(e, errors), signal: this.abort.signal, publicOrigins: rt.ctx.config.publicOrigins, locale: spec.locale,
           maxSteps: answerStepCap(rt.maxEngineTurns, { guest: isGuestUser(rt.db, spec.userId), unattended: spec.clientKind === 'schedule' || this.slackChat }),
           beforeRound: () => this.checkBudget(), toolsChanged: () => this.toolsChanged(), activity: () => this.sign(), toolBudget: apiToolBudget,
           images, onImagesRefused: () => setApiVisionTurn(spec.turnId, false) })

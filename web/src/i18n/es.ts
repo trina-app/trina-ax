@@ -2024,6 +2024,8 @@ export const es: Record<MessageKey, string> = {
   'engines.api.keyKeep': "Se conserva la clave guardada (escriba para reemplazarla)",
   "engines.api.getKeyAt": "Crear una clave en {site}",
   "engines.api.noKeyLocal": "Ollama se ejecuta en el propio ordenador del servidor y no necesita clave.",
+  "engines.api.ownerOnlyOption": "{name} (solo el propietario)",
+  "engines.api.ownerOnlyHint": "Solo el propietario puede fijar una dirección http (en este ordenador o en la red local). Pídaselo al propietario o use una dirección https.",
   'engines.api.keyRemove': "Eliminar clave",
   'engines.api.vision': "Lee imágenes",
   'engines.api.visionUnknown': "No se sabe: solo texto",
