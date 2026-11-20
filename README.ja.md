@@ -12,11 +12,11 @@ Trina AX は、チームのファイル、スキル、ツールを1台のサー�
 
 [Web サイト](https://ax.trina.app) · [ドキュメント](docs/README.md) · [プラン](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md)
+[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
-https://github.com/user-attachments/assets/f4e1849d-a758-4239-af37-5078f845c443
+https://github.com/user-attachments/assets/222af595-c35d-4047-a228-7d2aa9bc67c6
 
 <p align="center"><sub>新入社員のAIが初日にできること。80秒のストーリー。</sub><br>オープンソース（AGPL-3.0）・セルフホストは無料、人数制限なし<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-ja.png" height="44" alt="GitHub で Trina AX にスター"></a><br><sub>そのあと、ページ上部の ☆ Star を押してください。スターがあると、より多くのチームが Trina AX を見つけやすくなります。</sub></p>
 
