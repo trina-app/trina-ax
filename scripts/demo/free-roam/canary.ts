@@ -27,7 +27,8 @@
 // Allowed strings (--allow, any number): text that is public on purpose, such as the source-request address of the
 // AGPL offer (shared/src/source.ts SOURCE_CODE.requestEmail, on the About page of every server). Every place an allowed
 // string appears is blanked before the search, so a sealed string inside it (the same address, or its domain) is not
-// a hit there; the same sealed string anywhere else still is.
+// a hit there; the same sealed string anywhere else still is. An allowed string that is only part of a sealed one (its
+// domain, a name inside an address) is refused: it would blank that part everywhere and so hide every leak of it.
 //
 // A hit fails the run (exit 1) and is reported by file (or prompt number) and by the string's number in the sealed
 // file, never by the string itself, so the report can be pasted anywhere.
@@ -60,6 +61,19 @@ export function maskAllowed(text: string, allow: readonly string[] = []): string
     if (n) low = low.split(n).join(' '.repeat(n.length))
   }
   return low
+}
+
+/** Refuses (throws) an allowed string that is a strict part of a sealed one, case-insensitively: blanking it would cut
+ * that sealed string wherever it appears, so a real leak of it would never be found (review finding 3 on #105). One
+ * equal to a sealed string, or holding one, is fine (that text is public on purpose). The error names both by number
+ * only, never by text, like the report. */
+export function checkAllow(allow: readonly string[], strings: readonly string[]): void {
+  for (const [i, a] of allow.entries()) {
+    const n = a.trim().toLowerCase()
+    if (!n) continue
+    const j = strings.findIndex((s) => { const t = s.toLowerCase(); return t !== n && t.includes(n) })
+    if (j >= 0) throw new Error(`--allow ${i + 1} is only part of sealed string ${j + 1}: it would hide every leak of that string. Allow the whole public text that holds it (e.g. the full address), not a part of a sealed string`)
+  }
 }
 
 /** the same for bytes (already lower-cased): every place a needle appears is zeroed */
@@ -246,6 +260,7 @@ if (import.meta.main) {
   }
   try {
     const strings = readSealed(sealed)
+    checkAllow(allow, strings)
     if (allow.length) console.log(`[canary] ${allow.length} allowed string${allow.length === 1 ? '' : 's'} (public on purpose)`)
     let bad = 0
     for (const d of dirs) {

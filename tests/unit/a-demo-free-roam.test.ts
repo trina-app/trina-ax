@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoFile, type Endpoint } from '../../shared/src/api'
-import { cookieFor, FREE_ROAM_SESSION_COOKIE } from '../../server/src/auth/service'
+import { cookieFor, FREE_ROAM_SESSION_COOKIE, readToken, sessionCookie } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
 import { demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/budgets'
@@ -121,12 +121,29 @@ describe('a free-roam demo server', () => {
     // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
     expect(info.builder).toBeUndefined()
     expect(JSON.stringify(info)).not.toContain(PW)
-    // QA TC-5578: the session cookie has the free-roam name, never the plain-http "mycel-dev-sid"
-    expect(mina.cookie).toMatch(/^sid=[A-Za-z0-9_-]{20,}$/)
+    // QA TC-5578 / review finding 2 on #105: the session cookie is __Host-sid on the instance's plain http too, never
+    // the plain-http "mycel-dev-sid" nor a bare "sid"; it was read back (me above) over that http
+    expect(FREE_ROAM_SESSION_COOKIE).toBe(SESSION_COOKIE)
+    expect(mina.cookie).toMatch(/^__Host-sid=[A-Za-z0-9_-]{20,}$/)
+    // what the browser needs for a __Host- cookie: Secure, Path=/ and no Domain (the gate keeps all three)
+    const set = sessionCookie('http://127.0.0.1:4000/api/demo/persona', 'x'.repeat(32), 60, true)
+    expect(set).toBe(`__Host-sid=${'x'.repeat(32)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure`)
+    expect(set).not.toMatch(/domain=/i)
     // every other server keeps its names: the plain-http one and __Host-sid on https (free roam too)
     expect(cookieFor('http://127.0.0.1:4000/api/auth/login')).toEqual({ name: DEV_SESSION_COOKIE, secure: false })
-    expect(cookieFor('http://127.0.0.1:4000/api/auth/login', true)).toEqual({ name: FREE_ROAM_SESSION_COOKIE, secure: false })
+    expect(cookieFor('https://team.example/api/auth/login')).toEqual({ name: SESSION_COOKIE, secure: true })
+    expect(cookieFor('http://127.0.0.1:4000/api/auth/login', true)).toEqual({ name: SESSION_COOKIE, secure: true })
     expect(cookieFor('https://team.example/api/auth/login', true)).toEqual({ name: SESSION_COOKIE, secure: true })
+    expect(sessionCookie('http://127.0.0.1:4000/api/auth/login', 'x'.repeat(32), 60)).toBe(`mycel-dev-sid=${'x'.repeat(32)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=60`)
+    // on that plain http the instance reads only its own name: the dev name or a bare "sid" is no session there
+    const req = (cookie: string) => new Request('http://127.0.0.1:4000/api/me', { headers: { cookie } })
+    const tok = 'y'.repeat(32)
+    expect(readToken(req(`__Host-sid=${tok}`), true)).toEqual({ token: tok, via: 'cookie' })
+    expect(readToken(req(`mycel-dev-sid=${tok}`), true)).toBeNull()
+    expect(readToken(req(`sid=${tok}`), true)).toBeNull()
+    // a normal plain-http server: the dev name only, as before
+    expect(readToken(req(`mycel-dev-sid=${tok}`))).toEqual({ token: tok, via: 'cookie' })
+    expect(readToken(req(`__Host-sid=${tok}`))).toBeNull()
   })
 
   test('usage, cost, engine and model reads are refused in the visitor\'s words (QA TC-5578)', async () => {

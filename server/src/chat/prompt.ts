@@ -1085,7 +1085,10 @@ export function teamNameLine(teamName: string | null | undefined): string {
   const app = `${PRODUCT.displayName} is the name of the app the team works in, never the name of the team or its company`
   // the setting's default is the product's name (admin/settings.ts): a team that never named itself has no name here
   const name = neutralizeTags(oneLine(teamName ?? '')).trim().slice(0, 100)
-  return name && name !== PRODUCT.displayName ? `The team is called "${name.replace(/"/g, "'")}". ${app}: when asked what the team or the company is called, say "${name.replace(/"/g, "'")}".` : `${app}.`
+  // the team only: the company's name, when the team has a company profile, is that block's (review finding 1 on #105:
+  // a team "Acme Marketing" of the company "Acme Corp" got two answers for the company's name)
+  const q = name.replace(/"/g, "'")
+  return name && name !== PRODUCT.displayName ? `The team is called "${q}". ${app}: when asked what the team is called, say "${q}".` : `${app}.`
 }
 
 /** A free-roam demo instance (docs/decisions/20261119-demo-free-roam-a.md): what it leaves out, said once and plainly (the demo file's company, e.g. Steepling). The
