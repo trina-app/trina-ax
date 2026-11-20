@@ -687,6 +687,11 @@ export function onDeviceChange(key: string | null, value: string | null) {
 const asked = new Map<string, number>()
 /** rooms I am leaving from this window: their "removed" event is no news here */
 const leaving = new Set<string>()
+/** I am leaving this room another way (a project's chat room: leaving its project): its "removed" is no news here */
+export function markLeaving(roomId: string) {
+  leaving.add(roomId)
+  setTimeout(() => leaving.delete(roomId), 10_000)
+}
 /** The member list read last per room: an answer to an older read, or to one from before the list was dropped (a members
  * change, a resync), does not put an old list back. */
 const memberReads = new Map<string, number>()

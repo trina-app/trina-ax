@@ -35,8 +35,7 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
-import { CHAT_FILES_FOLDER } from '@mycel/shared'
+import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
@@ -305,23 +304,30 @@ function useViewerWhere(roomId: string): string | null {
   return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
 }
 
-/** The delete confirm's words in a project's chat room for a message with files: the message goes for everyone, and
- * "The file stays in <project> › Chat attachments.", that place a link (it closes the confirm and opens the folder). */
-export function FileStaysLines({ project, n }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'>; n: number }) {
+/** A message's files that stay when it is deleted: kept in the team folder where I can open them (RoomFile.teamPath).
+ * None for room-stored files (an ordinary room, a converted channel's older files): they go with the message. */
+export const keptFiles = (m: Pick<RoomMessage, 'files'>): RoomFile[] => m.files.filter((f) => f.teamFile && f.teamPath)
+
+/** The delete confirm's words for a message whose files are kept in the team folder (RoomFile.teamPath): the message
+ * goes for everyone, and "The file stays in <project> › Chat attachments.", that place a link to the folder the file is
+ * in now (it closes the confirm and opens it). `others`: the message also has files kept in the room, which go with it. */
+export function FileStaysLines({ project, at, n, others = false }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'> | null; at: string; n: number; others?: boolean }) {
   const t = useT()
-  const team = useMe()?.team?.defaultLocale
-  const folder = CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE]
-  const href = `/files?path=${encodeURIComponent(`${project.folderPath}/${folder}`)}`
+  const folder = at.slice(0, Math.max(0, at.lastIndexOf('/')))
+  // the place as people read it: the project's name for its folder, then the folders under it
+  const under = project && folder.startsWith(project.folderPath + '/') ? folder.slice(project.folderPath.length + 1) : null
+  const label = (under !== null ? [project!.name, ...under.split('/')] : folder.split('/')).join(' › ')
+  const href = `/files?path=${encodeURIComponent(folder)}`
   const parts = t('rooms.deleteFileStays', { n, place: '\u0000' }).split('\u0000')
   const place = (
     <a href={href} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); cancelDialog(); navigateTo(href) }} className="font-medium text-ink underline underline-offset-2" data-testid="room-delete-file-place">
-      {project.name} › {folder}
+      {label}
     </a>
   )
   return (
     <span className="block space-y-2" data-testid="room-delete-file-stays">
-      <span className="block">{t('rooms.deleteBodyKeepsFiles')}</span>
-      <span className="block">{parts.length === 2 ? <>{parts[0]}{place}{parts[1]}</> : t('rooms.deleteFileStays', { n, place: `${project.name} › ${folder}` })}</span>
+      <span className="block">{t(others ? 'rooms.deleteBody' : 'rooms.deleteBodyKeepsFiles')}</span>
+      <span className="block">{parts.length === 2 ? <>{parts[0]}{place}{parts[1]}</> : t('rooms.deleteFileStays', { n, place: label })}</span>
     </span>
   )
 }
@@ -420,9 +426,10 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const del = async () => {
     // a project's chat room: the message goes, its files stay in the project's Chat attachments folder (docs/decisions/
     // 20261120-project-is-room.md D3), one line says where, a link to it
-    const kept = m.files.filter((f) => f.teamFile && f.state !== 'deleted').length
-    const keeps = roomProject && kept > 0 ? roomProject : null
-    const body = keeps ? <FileStaysLines project={keeps} n={kept} /> : t('rooms.deleteBody')
+    // per file (RoomFile.teamPath: a file kept in the team folder that I can open there): those stay, and the line links
+    // to where they are; a room-stored file (a converted channel's older files) goes with the message as before
+    const kept = keptFiles(m)
+    const body = kept.length ? <FileStaysLines project={roomProject} at={kept[0]!.teamPath!} n={kept.length} others={kept.length < m.files.length} /> : t('rooms.deleteBody')
     const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body, confirm: t('common.delete'), danger: true })
     if (!ok) return
     await useRooms

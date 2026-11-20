@@ -629,7 +629,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // a project's own chat room (rooms/project-room.ts): the project for a viewer who can open it; its name, people and
   // alert default follow the project
   const projectRoom = room.kind === 'group' && isProjectRoom(db, room.id)
-  const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules) : undefined
+  const project = projectRoom ? projectForViewer(db, room, viewer.user_id, rules, memberCount) : undefined
   return {
     id: room.id, kind: room.kind, name, canRename: !projectRoom && mayRename(db, room, viewer.user_id), managerId: projectRoom ? null : managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -644,6 +644,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
     ...(groupFolder ? { groupFolder } : {}),
     ...(project ? { project } : {}),
+    ...(projectRoom ? { projectRoom: true as const } : {}),
   }
 }
 

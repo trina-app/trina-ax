@@ -74,7 +74,7 @@ for (const vp of VIEWPORTS) {
       const roomUrl = page.url()
       // the header: the project's folder (its name on a computer), no Files button
       await expect(page.getByTestId('room-project')).toBeVisible()
-      if (!vp.phone) await expect(page.getByTestId('room-project-name')).toHaveText(NAME)
+      if (!vp.phone) await expect(page.getByTestId('room-project-label')).toHaveText(t['rooms.project.open'])
       await expect(page.getByTestId('room-group-files')).toHaveCount(0)
       // a room nobody wrote in yet is reached from the project, not listed
       const listed = async () => {

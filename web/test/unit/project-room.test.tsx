@@ -17,7 +17,7 @@ import { ProjectHome } from '../../src/pages/Projects'
 import RoomPage from '../../src/pages/Room'
 import { MembersDialog } from '../../src/components/rooms/MembersDialog'
 import { roomMenuActions } from '../../src/components/rooms/RoomMenu'
-import { FileStaysLines, RoomMessages } from '../../src/components/rooms/RoomMessages'
+import { FileStaysLines, keptFiles, RoomMessages } from '../../src/components/rooms/RoomMessages'
 import { RoomIcon } from '../../src/components/rooms/RoomIcon'
 import { listedRoom, projectRoomOf, shownInLists } from '../../src/lib/rooms'
 import { useRooms } from '../../src/store/rooms'
@@ -32,8 +32,8 @@ const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string |
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
 const PID = '01900000-0000-7000-8000-0000000004a1'
 const RID = '01900000-0000-7000-8000-0000000004b1'
-const projectRoom = (o: Partial<Room> = {}, canSave = true): Room =>
-  room({ id: RID, kind: 'group', name: 'Launch site', canRename: false, managerId: null, groupId: null, memberCount: 3, project: { id: PID, name: 'Launch site', folderPath: 'projects/Launch site', canSave, room: true }, ...o })
+const projectRoom = (o: Partial<Room> = {}, canSave = true, leave: 'yes' | 'last' = 'yes'): Room =>
+  room({ id: RID, kind: 'group', name: 'Launch site', canRename: false, managerId: null, groupId: null, memberCount: 3, projectRoom: true, project: { id: PID, name: 'Launch site', folderPath: 'projects/Launch site', canSave, room: true, attach: canSave ? 'ok' : 'read_only', leave }, ...o })
 const project = (o: Partial<Project> = {}): Project =>
   ({ id: PID, name: 'Launch site', folderPath: 'projects/Launch site', instructions: 'x', createdBy: { id: ME.id, name: ME.name }, createdAt: at(-90), canEdit: true, canManage: true, audience: 3, ...o })
 const meAs = (role: 'member' | 'admin' | 'guest' = 'member') => ({
@@ -177,7 +177,8 @@ describe('Room → project', () => {
     const m = await roomPage()
     try {
       await m.until(() => m.find('room-project'), 'the project button', 3000)
-      expect(m.get('room-project-name').textContent).toBe('Launch site')
+      expect(m.get('room-project-label').textContent).toBe(en('rooms.project.open'))
+      expect(m.get('room-project').getAttribute('aria-label')).toBe(en('rooms.project.open'))
       expect(m.get('room-project').getAttribute('href')).toBe(`/projects/${PID}`)
       expect(m.find('room-group-files')).toBeNull()
       expect(m.find('room-project-files')).toBeNull()
@@ -236,10 +237,11 @@ describe('the room\'s info and menu', () => {
 
   test('someone who may not change the people: no Manage people; the last one in it cannot leave, and is told why', async () => {
     signIn()
-    routes = { [`GET /api/projects/${PID}`]: () => json(project({ membersEditable: false, leave: 'last' })) }
-    const m = await info(projectRoom({ notify: { own: 'off', byDefault: 'mentions', level: 'off' } }))
+    routes = { [`GET /api/projects/${PID}`]: () => json(project({ membersEditable: false })) }
+    const m = await info(projectRoom({ notify: { own: 'off', byDefault: 'mentions', level: 'off' } }, true, 'last'))
     try {
       await m.until(() => m.find('room-info-leave'), 'the leave row', 3000)
+      await m.until(() => asked.includes(`GET /api/projects/${PID}`), 'the project read')
       expect(m.find('room-info-manage')).toBeNull()
       expect(m.get('room-info-leave').textContent).toContain(en('projects.leaveLast'))
       // muted: the row turns it back on
@@ -247,8 +249,24 @@ describe('the room\'s info and menu', () => {
     } finally { await m.unmount() }
   })
 
-  test('the "⋯": Leave project in place of Leave, and no invite', () => {
+  test('a member who cannot open the project now: the line without its name, Mute, no Manage people, no Leave, no invite', async () => {
+    signIn()
+    const r = projectRoom({ project: undefined })
+    const m = await info(r)
+    try {
+      expect(m.get('room-info-project-line').textContent).toBe(en('rooms.project.infoUnnamed'))
+      expect(m.find('room-info-mute')).not.toBeNull()
+      expect(m.find('room-info-leave')).toBeNull()
+      expect(m.find('room-invite')).toBeNull()
+      expect(m.find('room-name')).toBeNull()
+    } finally { await m.unmount() }
+    // and its icon is the folder, not a private channel's lock
+    expect(renderToStaticMarkup(<RoomIcon room={r} size={24} />)).toContain('lucide-folder')
+  })
+
+  test('the "⋯": Leave project in place of Leave (only when the server says I may), and no invite', () => {
     expect(roomMenuActions(projectRoom())).toEqual(['pin', 'notify', 'copyLink', 'leaveProject'])
+    expect(roomMenuActions(projectRoom({ project: undefined }))).toEqual(['pin', 'notify', 'copyLink'])
     expect(roomMenuActions(room({ kind: 'group', name: 'Plan' }))).toEqual(['pin', 'notify', 'copyLink', 'leave'])
   })
 })
@@ -256,13 +274,33 @@ describe('the room\'s info and menu', () => {
 describe('the delete confirm and the lists', () => {
   test('a message with files: the file stays in the project\'s Chat attachments, a link to it', () => {
     signIn()
-    const html = renderToStaticMarkup(<FileStaysLines project={{ name: 'Launch site', folderPath: 'projects/Launch site' }} n={1} />)
+    const html = renderToStaticMarkup(<FileStaysLines project={{ name: 'Launch site', folderPath: 'projects/Launch site' }} at="projects/Launch site/Chat attachments/brief.pdf" n={1} />)
     expect(html).toContain(en('rooms.deleteBodyKeepsFiles').replace(/'/g, '&#x27;'))
     expect(html).toContain('The file stays in ')
     expect(html).toContain('Launch site › Chat attachments')
     expect(html).toContain(`href="/files?path=${encodeURIComponent('projects/Launch site/Chat attachments')}"`)
-    const two = renderToStaticMarkup(<FileStaysLines project={{ name: 'Launch site', folderPath: 'projects/Launch site' }} n={2} />)
+    const two = renderToStaticMarkup(<FileStaysLines project={{ name: 'Launch site', folderPath: 'projects/Launch site' }} at="projects/Launch site/채팅 첨부/a.pdf" n={2} others />)
     expect(two).toContain('The files stay in ')
+    // the folder it is really in (the upload reuses one under another language's name), and the plain words for the
+    // room's own files that go with it
+    expect(two).toContain('Launch site › 채팅 첨부')
+    expect(two).toContain(en('rooms.deleteBody').replace(/'/g, '&#x27;'))
+  })
+
+  test('the delete confirm keeps its plain words for room-stored files (an ordinary room, a converted channel\'s older files)', () => {
+    const r = room({ kind: 'group', name: 'Plan' })
+    const plain = { id: uuidv7(), name: 'a.pdf', size: 1, mime: 'application/pdf', kind: 'pdf' as const, thumb: false }
+    expect(keptFiles({ files: [plain] })).toEqual([])
+    expect(keptFiles({ files: [{ ...plain, teamFile: true, state: 'unavailable' }] })).toEqual([])
+    const team = { ...plain, id: uuidv7(), teamFile: true as const, teamPath: 'projects/Launch site/Chat attachments/a.pdf' }
+    expect(keptFiles({ files: [plain, team] }).map((f) => f.id)).toEqual([team.id])
+    expect(r.projectRoom).toBeUndefined()
+  })
+
+  test('the lists leave out a project room nobody wrote in, also for a member who cannot open the project', () => {
+    const bare = projectRoom({ id: uuidv7(), project: undefined })
+    expect(listedRoom(bare)).toBe(false)
+    expect(shownInLists([bare])).toEqual([])
   })
 
   test('a project room is listed once it has a message, or while it is open; a folder in place of the lock', () => {

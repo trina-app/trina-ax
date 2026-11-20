@@ -6544,7 +6544,10 @@ export class MockServer {
     const people = this.sharedAudience(p)
     if (!people.some((x) => x.id === u.id)) return null
     return Room.parse({ ...base, name: p.name, canRename: false, managerId: null, memberCount: people.length, peers: people.filter((x) => x.id !== u.id).slice(0, 4).map((x) => ({ id: x.id, name: x.name })),
-      project: { id: p.id, name: p.name, folderPath: p.folderPath, canSave: u.role !== 'guest' && this.access(p.folderPath, u) === 'write', room: true } })
+      projectRoom: true,
+      project: { id: p.id, name: p.name, folderPath: p.folderPath, canSave: u.role !== 'guest' && this.access(p.folderPath, u) === 'write', room: true,
+        attach: this.access(p.folderPath, u) !== 'write' ? 'read_only' : this.access(`${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`, u) === 'write' ? 'ok' : 'folder',
+        leave: people.length > 1 ? 'yes' : 'last' } })
   }
   private installProjectRooms() {
     const h = this.handlers
@@ -6563,6 +6566,8 @@ export class MockServer {
       const mine = r && this.projectRoomFor(r, c.user)
       return mine ?? fail('not_found', 404)
     }
+    // what these four were before this layer
+    const previous = { uploadRoomFile: h.uploadRoomFile, sendRoomMessage: h.sendRoomMessage, deleteRoomMessage: h.deleteRoomMessage, roomFile: h.roomFile }
     const inProjectRoom = (c: Ctx) => { if (this.projectOfRoom(c.params.id)) fail('forbidden', 403, undefined, undefined, { reason: 'project_room' }) }
     h.openProjectRoom = (c) => {
       const p = this.projects.find((x) => x.id === c.params.id && !x.inTrash)
@@ -6663,6 +6668,13 @@ export class MockServer {
       const n = path ? this.files.get(path) : undefined
       if (!n || n.type !== 'file') fail('not_found', 404)
       return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream' } })
+    }
+    // the four above answer project rooms only: any other room falls through to what was there (none: not implemented,
+    // the specs answer them through page.route)
+    for (const name of ['uploadRoomFile', 'sendRoomMessage', 'deleteRoomMessage', 'roomFile'] as const) {
+      const mine = h[name]!
+      const before = previous[name]
+      h[name] = (c) => (this.projectOfRoom(c.params.id) ? mine(c) : before ? before(c) : fail('not_found', 404, `mock: ${name} not implemented`))
     }
     for (const name of ['inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] as const) {
       const base = h[name]

@@ -21,14 +21,14 @@
 // and has no 초대하기: its people are the project's (the room's info has Manage people).
 import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
-import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
-import { api, API, errorText, isApiError } from '../../lib/api'
+import { ROOM_NAME_MAX, type Project, type Room } from '@mycel/shared/api'
+import { errorText } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
-import { useRooms } from '../../store/rooms'
+import { markLeaving, useRooms } from '../../store/rooms'
 import { mayManageApps, useRoomApps } from '../../store/roomApps'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
-import { isPrivateChannel, projectRoomOf } from '../../lib/rooms'
+import { isPrivateChannel, isProjectRoom, projectRoomOf } from '../../lib/rooms'
 import { useLeaveProject } from '../LeaveProject'
 import { navigateTo } from '../../lib/nav'
 import { platform } from '../../lib/pwa'
@@ -44,11 +44,13 @@ import { useCategoryRowItems } from '../nav/RoomCategories'
 export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'copyLink' | 'leave' | 'leaveProject' | 'hide' | 'show'
 /** `apps`: I manage the room's apps ("Add an app" / "Apps posting here", docs/DECISIONS.md "Apps posting in rooms"): in
  * a team room or the everyone room its owners and admins, in a 1:1 or a group chat its members (store/roomApps.ts) */
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt' | 'project'>>, apps = false): RoomMenuAction[] {
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt' | 'project' | 'projectRoom'>>, apps = false): RoomMenuAction[] {
   const hidden = room.kind !== 'group' && !!room.hidden
-  const last: RoomMenuAction = projectRoomOf(room) ? 'leaveProject' : room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide'
+  // a project's chat room: Leave project when the server says I may (Room.project.leave; the last person sees it off),
+  // else nothing (a member who cannot open the project now)
+  const last: RoomMenuAction[] = isProjectRoom(room) ? (room.project?.leave ? ['leaveProject'] : []) : [room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide']
   const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
-  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), 'copyLink', last]
+  return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), 'copyLink', ...last]
 }
 
 /** The address of a room as people in it open it (the app's own route; anyone else gets "not found"). */
@@ -93,20 +95,14 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       : { title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
-  // a project's chat room: leaving it is leaving the project (its confirm, components/LeaveProject.tsx); someone who sees
-  // the project through a group or the whole team cannot leave it, and is told to mute the room instead
+  // a project's chat room: leaving it is leaving the project (its confirm, components/LeaveProject.tsx); the room's own
+  // "removed" that follows is no news here (markLeaving)
   const leaveProject = useLeaveProject()
   const project = projectRoomOf(room)
   const leaveTheProject = async () => {
-    if (!project) return
-    let p
-    try {
-      p = await api.call(API.getProject, { params: { id: project.id } })
-    } catch (e) {
-      return isApiError(e, 'not_found') ? toast({ level: 'info', text: t('projects.missing') }) : fail(e)
-    }
-    if (p.leave !== 'yes') return toast({ level: 'info', text: t(p.leave === 'last' ? 'projects.leaveLast' : 'rooms.project.cantLeave') })
-    if (await leaveProject(p)) navigateTo('/rooms', { replace: true })
+    if (!project || project.leave !== 'yes') return
+    markLeaving(room.id)
+    if (await leaveProject({ id: project.id, name: project.name } as Project)) navigateTo('/rooms', { replace: true })
   }
   const fallbackOf = useNameFallback()
   const rename = async (typed?: string): Promise<void> => {
@@ -146,13 +142,13 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
-      case 'leaveProject': return { label: t('projects.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project' }
+      case 'leaveProject': return { label: t('projects.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project', ...(project?.leave === 'last' ? { disabled: true, hint: t('projects.leaveLast') } : {}) }
       case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }
       case 'show': return { label: t('rooms.menu.show'), icon: <Eye size={14} aria-hidden />, onSelect: show, testId: 'room-menu-show' }
     }
   })
   // 초대하기 after the pin (or first), for a group chat or a DM, never for a guest
-  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !project && !room.gone && !isGuestMe(me)) {
+  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !isProjectRoom(room) && !room.gone && !isGuestMe(me)) {
     const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
     items.splice(at, 0, { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
   }
