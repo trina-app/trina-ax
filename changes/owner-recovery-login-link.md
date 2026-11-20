@@ -1,0 +1,1 @@
+- On a hosted team, the sign-in page now tells the team owner they can reset a forgotten password themselves, with a link to their account.
