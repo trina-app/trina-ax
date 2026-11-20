@@ -448,9 +448,9 @@ export class AppWindow {
    */
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
+    const p = readDesktopLink(raw)
     // the team on screen, its start: only the window comes forward (main.ts onLink), the page stays as it is
     if (this.app && this.mode !== 'offline' && isShownTeamStart(raw, this.team?.origin)) return
-    const p = readDesktopLink(raw)
     if (p?.ok) {
       this.linkGate.put(p)
       this.linkError = null
