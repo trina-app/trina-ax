@@ -263,5 +263,10 @@
   "file": "files/share-fixes.ts",
   "sql": "SELECT id FROM users WHERE status = 'active' AND deleted_at IS NULL AND guest = 0 AND role IN ('owner','admin') AND id <> ? ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, name, id LIMIT ?",
   "reason": "the team owner and admins an \"Ask an admin\" next step writes to (owner first); guest = 0 and the owner/admin filter exclude guests (stored as role 'member')"
+ },
+ {
+  "file": "system/team-export-zip.ts",
+  "sql": "SELECT id, username, name, email, CASE WHEN role = 'owner' THEN 'owner' WHEN role = 'admin' THEN 'admin' ELSE 'member' END AS role, status, deleted_at FROM users ORDER BY created_at, id",
+  "reason": "only for a database from before guests (no users.guest column): no guest can exist there, so role is the whole truth; with the column the export reads the guest-aware CASE"
  }
 ]

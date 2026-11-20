@@ -9,7 +9,8 @@
 //   so to the AI).
 // When the site can't be read (or there is none): paste a text (the same draft, from the text; the one primary) or
 // answer three questions (무엇을 파나요 / 누구에게 / 어떤 말투로), which go straight to the same review. While it reads,
-// the step offers nothing but "later" (docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself,
+// the step offers nothing at first, and after READING_EXIT_MS one quiet "Don't wait, go on" (owner 2026-11-20; before,
+// "later" from the start, docs/DECISIONS.md "W2"): a reading that fails opens that fallback by itself,
 // naming what could not be read (the website or the pasted text) with "다시 시도", which reads the same input again.
 // `autoSave` (the welcome steps): a website reading whose draft has a one-line intro is saved as it came, with the
 // same body as the review's save, and the step is done; the welcome page then shows one line of it with "고치기", which
@@ -71,7 +72,7 @@ type Phase =
   | { kind: 'site' }
   /** `typed`: the three answers this text draft was made from (they stay as typed; the AI adds the name and the
    * one-line intro) */
-  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string; input: DraftInput; typed?: Typed }
+  | { kind: 'reading'; chatId: string; source: 'website' | 'text'; site: string | null; website: string; input: DraftInput; typed?: Typed; at?: number }
   /** `failed`: a reading that did not give a draft (what it read, the answer's error); null: chosen ("홈페이지가 없어요",
    * 뒤로) or no AI */
   | { kind: 'fallback'; failed: { input: DraftInput; error: string | null } | null }
@@ -87,6 +88,9 @@ type Typed = Pick<CompanyProfileInput, 'products' | 'audience' | 'tone'>
 export const lineFrom = profileLineFrom
 /** The three answers' draft waits at most this long for the AI's intro: then the review, with the products' first line. */
 export const TYPED_WAIT_MS = 20_000
+/** A reading still under way after this long (its start, kept across a reload): the one quiet way on ("Don't wait, go
+ * on") shows. Before it, nothing but the reading (owner 2026-11-20: no "Do this later" while the AI works). */
+export const READING_EXIT_MS = 90_000
 
 /** What a reload brings back (`keep`): the reading under way or the review with its draft, in this tab only. */
 interface Kept { phase: Extract<Phase, { kind: 'reading' | 'review' }>; draft: CompanyProfileInput }
@@ -205,7 +209,7 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
       const r = await api.call(API.startProfileDraft, { body })
       if (r.website) setDraft((d) => ({ ...d, website: r.website }))
       setActivity({ steps: [], writing: false, assets: null })
-      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website, input: body, ...(typed ? { typed } : {}) })
+      setPhase({ kind: 'reading', chatId: r.chatId, source: 'website' in body ? 'website' : 'text', site: r.site, website: r.website, input: body, ...(typed ? { typed } : {}), at: Date.now() })
     } catch (e) {
       if (typed) typedReview(typed)
       else setError(errorText(e, locale, t('error.network')))
@@ -288,6 +292,18 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
     const wait = phase.typed ? setTimeout(() => { if (!stopped) { stopped = true; typedReview(phase.typed!) } }, TYPED_WAIT_MS) : undefined
     return () => { stopped = true; clearTimeout(timer); clearTimeout(wait); off() }
   }, [phase])
+
+  // a reading past READING_EXIT_MS: the quiet way on shows (a kept reading from before this field counts from now)
+  const [late, setLate] = useState(false)
+  const readingAt = phase.kind === 'reading' ? phase.at ?? null : null
+  useEffect(() => {
+    setLate(false)
+    if (phase.kind !== 'reading') return
+    const left = (readingAt ?? Date.now()) + READING_EXIT_MS - Date.now()
+    if (left <= 0) { setLate(true); return }
+    const t = setTimeout(() => setLate(true), left)
+    return () => clearTimeout(t)
+  }, [phase.kind, readingAt])
 
   const readSite = () => {
     const w = normalizeWebsite(site)
@@ -408,9 +424,19 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
             {t('onboarding.profile.skipToReview')}
           </Button>
         )}
-        {/* only "나중에 하기" while it reads (docs/DECISIONS.md "W2"): the chat and the written path are not offered here;
-            a reading that fails opens the fallback (paste a text, three questions) by itself */}
-        {skip && <div className="flex justify-end">{skip}</div>}
+        {/* nothing to press while it reads (owner 2026-11-20: no "나중에 하기" while the AI works); past READING_EXIT_MS one
+            quiet way on. The reading goes on on the server: the kept reading (`keep`) saves its draft when the step opens
+            again in this window. A reading that fails opens the fallback (paste a text, three questions, later) by itself */}
+        {/* Admin › Team settings keeps its 취소 throughout: a cancel there loses nothing */}
+        {skip && !autoSave && <div className="flex justify-end">{skip}</div>}
+        {onSkip && autoSave && late && (
+          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1" data-testid="profile-step-reading-exit">
+            <p className="min-w-0 flex-[1_1_14rem] text-xs text-faint">{t('onboarding.profile.skipWaitingHint')}</p>
+            <Button variant="ghost" className="max-sm:w-full" onClick={onSkip} data-testid="profile-step-skip-waiting">
+              {t('onboarding.profile.skipWaiting')}
+            </Button>
+          </div>
+        )}
       </div>
     )
 

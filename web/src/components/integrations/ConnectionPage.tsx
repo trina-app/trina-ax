@@ -23,6 +23,7 @@ import { CardMenu, type CardMenuItem } from './AppConnectorCard'
 import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
 import { LocalAppDetails, LocalAppWhere, localAppsBridge } from './LocalApp'
+import { localAppLogo, localAppOf } from '../../lib/localApps'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -192,6 +193,8 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   const elsewhereOnly = awayFromComputer(i) && !localAppsBridge()
   const lastUsed = i.lastUsedAt ? formatDateTime(i.lastUsedAt, locale) : t('integrations.neverUsed')
   const name = c?.name ?? i.name
+  // Aside or ego lite (lib/localApps.ts): its own logo and line, like a listed service
+  const app = localAppOf(i)
   const { links, help } = docsRows(t, name, c)
   // before its tools are known (not signed in, not answering), it may change things: the line says it asks first
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
@@ -218,8 +221,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   return (
     <>
       <AppDetail embedded inSettings={place.inSettings} list={place.list} testId="connector-detail" state={flow ? `flow-${flow.state}` : i.status}
-        logo={c ? connectorLogo(c) : '/favicon.svg'} name={i.name}
-        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : i.kind === 'local' ? t('localApps.title') : hostOf(i.url)}
+        logo={c ? connectorLogo(c) : app ? localAppLogo(app) : '/favicon.svg'} name={i.name}
+        byLine={c ? t('connectors.byLine', { name: c.name, line: t(`integrations.catalog.${c.id}`) }) : app ? t('connectors.byLine', { name: app.name, line: t(app.line) })
+          : i.kind === 'local' ? t('localApps.title') : hostOf(i.url)}
         actions={(status || items.length > 0) && (
           <>
             {status}

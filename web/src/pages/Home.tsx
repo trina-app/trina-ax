@@ -8,8 +8,8 @@
 // "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
 // time"); on a computer the list panel's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
 // docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
-// AI answers the person (GET /api/me/ai-access), everyone gets ONE card instead (components/onboarding/ConnectAi.tsx NoAiCard: the owner connects, anyone else hears that the owner
-// does), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
+// AI answers the person (GET /api/me/ai-access), everyone gets ONE quiet line under the greeting instead
+// (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447: the owner connects, anyone else asks), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
 // demo:company`) a demo person sees only their one line and their questions (components/demo/Demo.tsx).
 // Phones (below 768px): Home is the 트리나 tab, where the app opens, laid out like an AI app (QA TC-253, TC-391): the
@@ -176,12 +176,17 @@ function HomePage() {
         focusKey={location.key}
         card
         aiLine={!noAi}
+        // typed anyway without AI: nothing is sent, and a line under the box says why (the text stays)
+        blocked={noAi ? t(ai.action === 'connect_team' ? 'home.noAi.typed' : 'home.noAi.typedMember') : undefined}
         waitsFor={preset?.waits ? { text: preset.text, hint: preset.waits } : undefined}
       />
     </div>
   )
   // the one thing at the top (the lead link's card, the welcome card, the no-AI card, else the setup row or the goal)
-  const oneThing = leadCard ? leadCard : welcomeCard ? welcomeCard : noAi ? welcomeKnown && <NoAiCard /> : top
+  const oneThing = leadCard ? leadCard : welcomeCard ? welcomeCard : noAi ? null : top
+  // no AI (and no lead or welcome card, which hold their own way out): one quiet line under the greeting, right over
+  // the box (QA TC-5447), not a card on top of the page
+  const noAiLine = noAi && !leadCard && !welcomeCard && welcomeKnown && <NoAiCard />
   return (
     <div className="flex h-full flex-col overflow-y-auto" data-testid="home-scroll">
       <div className="flex flex-1 flex-col items-center justify-center px-4 py-10 max-md:justify-start max-md:pt-4 max-md:pb-0">
@@ -208,10 +213,12 @@ function HomePage() {
                 readers, so the card and the box fit. "You're all set" greets nobody, so the greeting stays then */}
             {demo && !projectId ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
+            {noAiLine}
           </div>
           {!phone && dock}
           <div className="md:contents" data-testid="home-tail">
-            {demo && !projectId && <DemoQuestions info={demo.info} persona={demo.persona} />}
+            {/* a free-roam demo's suggestions are in its bar at the top (components/demo/FreeRoam.tsx), not here too */}
+            {demo && !projectId && demo.info.kind !== 'freeRoam' && <DemoQuestions info={demo.info} persona={demo.persona} />}
             {/* "팀에 준비된 것" (W6.3), once the chats are known (the files row and the ready question are for no chats);
                 read-only under a member's no-AI card */}
             {(suggest || (noAi && !admin && !projectId)) && chatsLoaded && welcomeKnown && !welcomeCard && preparedHere && <TeamPrepared key={`prepared-${me.user.id}`} firstTime={firstTime} chats={chats.length} readOnly={noAi} onCompose={choose} onShown={setPrepared} />}

@@ -32,7 +32,7 @@ import { ROOM_FILE_MAX } from '@mycel/shared/api'
 import type { McpContent } from '../turns'
 import type { TurnFiles } from '../files/service'
 import { ext, extractText, looksScanned } from '../files/extract'
-import { appendText, isVisionImage, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock } from '../files/vision'
+import { appendText, isVisionImage, pageList, pagesToRead, pdfLayer, PDF_PAGES_PER_READ, PDF_PAGES_WITHOUT_RANGE, textTokens, visionBlock, WHOLE_PDF_RULE } from '../files/vision'
 import { mediaKind } from '@mycel/shared'
 import { copyRegular, readRegular } from '../files/store'
 import { assertStorageRoomForAI } from '../system/storage'
@@ -387,7 +387,7 @@ async function roomPdf(r: RoomFileReader, file: FileRow, bytes: Buffer, a: RoomF
     if (e instanceof ToolError) return { ...text(`${head}\n${e.message}`, true), summary: `room_file -> refused: ${e.code}` }
     throw e
   }
-  if (!pages) return { ...text(`${head}\nThis PDF has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or its text with offset.`, true), summary: 'room_file -> refused: pages_required' }
+  if (!pages) return { ...text(`${head}\nThis PDF has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call). ${WHOLE_PDF_RULE} To look up one passage only, read its text with offset.`, true), summary: 'room_file -> refused: pages_required' }
   const open = `${head}\n<room_file name="${name}" pages="${pageList(pages)}">`
   // what follows the pages (</room_file> and the notes) is counted with the head, as the engine counts the whole result
   const shown = await files.pdfPagesForModel(tctx, { label: name, bytes, layers }, pages, { asImages: a.as_images, reserve: textTokens(open) + 100, fileText: neutralizeTags })

@@ -20,6 +20,7 @@ import { PrefRow, PrefSection } from './PrefRows'
 import { RoomNotifySettings } from './RoomNotifySettings'
 import { PhoneGatewayRow } from './PhoneGatewayRow'
 import { isAdmin, useMe } from '../../store/session'
+import { useFreeRoam } from '../../store/demo'
 import { roomNoticeLink } from './RoomNoticeRow'
 import { handoverNoticeNode } from '../handover/HandoverNotice'
 import { isolate } from '../handover/isolate'
@@ -299,6 +300,9 @@ export function Notifications() {
   const t = useT(), locale = useLocale()
   const sound = useRoomSoundOn()
   const admin = isAdmin(useMe())
+  // a free-roam demo (store/demo.ts): no phone notifications and no push to this device (server/src/demo/guard.ts
+  // refuses web push and phone devices); the inbox and the rooms' and work's choices stay
+  const freeRoam = useFreeRoam()
   // a phone counts each unread thing once across its tabs: the 나 tab's count, without the conversation rows that 대화
   // counts (store/inbox.ts); a computer, the whole Inbox
   const phone = useMediaQuery('(max-width: 767.98px)')
@@ -380,7 +384,7 @@ export function Notifications() {
     {/* "Phone notifications" (docs/DECISIONS.md "Phone notifications when I'm away"): the person's own choice, for every
         device; a server from before it leaves it out (no row). Owners and admins also choose where the whole team's
         phone notifications go (docs/DECISIONS.md "Owners and admins choose where phone notifications go") */}
-    {(preferences?.phoneWhen || admin) && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
+    {(preferences?.phoneWhen || admin) && !freeRoam && <PrefSection title={t('notifications.section.phone')} testId="notifications-phone">
       {preferences?.phoneWhen && <PrefRow id="np-phone-away" title={t('notifications.phoneAway')} desc={t('notifications.phoneAwayDesc')}
         control={<Switch id="np-phone-away" external describedBy="np-phone-away-desc" checked={preferences.phoneWhen === 'away'} onChange={v => void update({ phoneWhen: v ? 'away' : 'always' })} label={t('notifications.phoneAway')} testId="notification-phone-away" />} />}
       {admin && <PhoneGatewayRow />}
@@ -390,7 +394,8 @@ export function Notifications() {
     <PrefSection title={t('notifications.section.device')} testId="notifications-device">
       <PrefRow id="np-sound" title={t('notifications.sound')} desc={t('notifications.soundDesc')}
         control={<Switch id="np-sound" external describedBy="np-sound-desc" checked={sound} onChange={changeRoomSound} label={t('notifications.sound')} testId="notification-sound" />} />
-      {isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
+      {/* a free-roam demo: no push to this device (server/src/demo/guard.ts refuses web push and phone devices) */}
+      {freeRoam ? null : isDesktop() ? <DesktopNotifications /> : <PushNotifications />}
     </PrefSection>
   </section>
 }

@@ -14,7 +14,7 @@ import { settingsNotKeptKey as notKeptKey } from '../../web/src/lib/desktop'
 
 const ROOT = path.join(import.meta.dir, '..', '..')
 type Linux = { target: { target: string; arch: string[] }[]; category: string; executableName: string; syncDesktopName: boolean; artifactName: string; icon: string; synopsis: string; maintainer: string }
-const cfg = builderConfig as unknown as { linux: Linux; extraMetadata: Record<string, string>; protocols: { schemes: string[] }[]; deb?: unknown; appImage?: { executableArgs?: string[] }; directories: { buildResources: string } }
+const cfg = builderConfig as unknown as { linux: Linux; extraMetadata: Record<string, string>; protocols: { schemes: string[] }[]; deb?: { packageName?: string; fpm?: string[] }; appImage?: { executableArgs?: string[] }; toolsets?: { appimage?: string }; directories: { buildResources: string } }
 
 describe('Linux packages: electron-builder settings', () => {
   test('a .deb and an AppImage, each for x64 and arm64', () => {
@@ -38,13 +38,29 @@ describe('Linux packages: electron-builder settings', () => {
   test('file names start with the product, the menu category and the icon', () => {
     expect(cfg.linux.artifactName).toBe(`${PRODUCT.artifactBase}-\${version}-linux-\${arch}.\${ext}`)
     expect(cfg.linux.category).toBe('Office')
-    expect(fs.existsSync(path.join(ROOT, 'desktop', cfg.linux.icon))).toBe(true)
+    // a folder of sized PNGs (16…512): GNOME's hicolor lookup stops at 512, a lone 1024 px picture showed a gear (QA TC-5353)
+    const icons = path.join(ROOT, 'desktop', cfg.linux.icon)
+    expect(fs.statSync(icons).isDirectory()).toBe(true)
+    for (const n of [16, 32, 48, 128, 256, 512]) expect(fs.existsSync(path.join(icons, `${n}x${n}.png`))).toBe(true)
     expect(cfg.linux.synopsis).toBeTruthy()
     expect(cfg.linux.maintainer).toMatch(/<[^@>\s]+@[^>\s]+>$/)
   })
 
-  test('the .deb: only its package name is set, so the default dependencies and the AppArmor profile stay', () => {
-    expect(cfg.deb).toEqual({ packageName: LINUX_EXECUTABLE })
+  test('the .deb: its package name and the scalable icon, so the default dependencies and the AppArmor profile stay', () => {
+    expect(Object.keys(cfg.deb ?? {}).sort()).toEqual(['fpm', 'packageName'])
+    expect(cfg.deb?.packageName).toBe(LINUX_EXECUTABLE)
+    // fpm's `<source>=<destination>`: the desktop icon's SVG as the hicolor scalable icon the menu entry's Icon= names
+    expect(cfg.deb?.fpm).toHaveLength(1)
+    const [src, dest] = cfg.deb!.fpm![0]!.split('=')
+    expect(dest).toBe(`/usr/share/icons/hicolor/scalable/apps/${LINUX_EXECUTABLE}.svg`)
+    expect(path.isAbsolute(src!)).toBe(true)
+    expect(fs.readFileSync(src!, 'utf8')).toContain('<svg')
+  })
+
+  test("the AppImages use AppImage's static runtime: the legacy arm64 one needed the unversioned libz.so (QA TC-5356)", () => {
+    // 1.0.3: electron-builder-binaries appimage@1.0.3 (type2 runtime 20251108, checksum-pinned in app-builder-lib);
+    // CI reads both runtimes with readelf and starts each in a stock Fedora (scripts/ci/appimage-runtime-check.sh)
+    expect(cfg.toolsets?.appimage).toBe('1.0.3')
   })
 })
 
@@ -111,6 +127,12 @@ describe('Linux: what a program started from the app gets', () => {
     expect(dirs.some((d) => d.startsWith(appDir))).toBe(false)
     expect(defaultSearchPath({ PATH: '/usr/bin' }, '/Users/u', 'darwin')).not.toContain('/snap/bin')
     expect(defaultSearchPath({ PATH: 'C:\\bin' }, 'C:\\Users\\u', 'win32')).not.toContain('/snap/bin')
+  })
+  test("Homebrew's /opt/homebrew/bin only on the Mac, never added on Linux", () => {
+    expect(defaultSearchPath({ PATH: '/usr/bin' }, '/home/u', 'linux')).not.toContain('/opt/homebrew/bin')
+    expect(defaultSearchPath({ PATH: '/usr/bin' }, '/Users/u', 'darwin')).toContain('/opt/homebrew/bin')
+    // one the person put on their own PATH stays (a Linuxbrew there is theirs)
+    expect(defaultSearchPath({ PATH: '/opt/homebrew/bin:/usr/bin' }, '/home/u', 'linux')).toContain('/opt/homebrew/bin')
   })
 })
 

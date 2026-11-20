@@ -152,11 +152,11 @@ jobs:
           mkdir -p notes
           ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
           if [ "$(jq -r .object.type <<<"$ref")" = tag ]; then
-            gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")" --jq .message > notes/notes.md
+            gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")" --jq .message > notes/tag-message.md
           else
-            : > notes/notes.md
+            : > notes/tag-message.md
           fi
-          bun scripts/release/release-ci.ts rollout notes/notes.md "$INPUT_ROLLOUT" | tee -a "$GITHUB_OUTPUT"
+          bun scripts/release/release-ci.ts rollout notes/tag-message.md "$INPUT_ROLLOUT" --notes-out notes/notes.md | tee -a "$GITHUB_OUTPUT"
           wc -c notes/notes.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

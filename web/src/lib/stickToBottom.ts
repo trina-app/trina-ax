@@ -94,6 +94,13 @@ export function onListScroll(el: Box, st: ListState, canStick: () => boolean = (
 
 /** The list's own jump to its bottom, remembered as its last position (followsAfterScroll compares the next scroll event
  * with it). */
+/** Farther than this from the end, the AI chat shows its jump-to-bottom button (QA AP-043, like claude.ai's). */
+export const JUMP_BUTTON_PX = 300
+/** Is the reader far enough up for the jump-to-bottom button? */
+export function farFromBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight' | 'clientHeight'>): boolean {
+  return el.scrollHeight - el.scrollTop - el.clientHeight > JUMP_BUTTON_PX
+}
+
 export function jumpToBottom(el: Pick<HTMLElement, 'scrollTop' | 'scrollHeight'>, lastTop: { current: number }) {
   el.scrollTop = el.scrollHeight
   lastTop.current = el.scrollTop
@@ -248,6 +255,13 @@ export function useStickToBottom(canStick?: () => boolean) {
     },
     /** holdPlace's `reanchor`: the browser's anchoring as the list's following state says now */
     reanchor,
+    /** to the bottom now, and follow from there (the jump-to-bottom button) */
+    toBottom() {
+      const el = scroller.current
+      stick.current = true
+      if (el) jumpToBottom(el, lastTop)
+      anchor()
+    },
     /** to the bottom while following (after new messages) */
     follow() {
       const el = scroller.current

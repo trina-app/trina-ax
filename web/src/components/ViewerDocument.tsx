@@ -7,6 +7,8 @@
 // narrows under 896 px; never on a phone), a sheet keeps its tabs; the keys ↑ ↓ PageUp PageDown Space scroll it (it is in
 // the Tab order, named by the file); the wheel over the dark sides scrolls it too. A link in it that opens the side
 // panel (a team file named in a Markdown file) closes the viewer, which would cover the panel.
+// A video, a sound or a picture has no reading column: it is centred on the viewer's own dark stage (FileBody
+// MediaView / StagePicture; QA TC-5367).
 // A file with no preview here (no viewer for its kind, a Hangul file while the HWP preview is off, past the preview
 // limit) is its card at once, with nothing read: its type, name, size, why, and the download. So is a download-only
 // file (the inline read answers 503 quarantined) and one the read could not find, once read. A file whose message was
@@ -137,6 +139,9 @@ function DocumentBody({ item, file: given, railFits, onSwipe, onMissing, onHeld 
   // download-only (the safety check holds it), a format the server could not convert, or the read failed: the card with
   // the read's own words (a file not found has nothing to download), in the same scroll box, so the focus stays
   const card = renderer === 'card' || renderer === 'error'
+  // a video, a sound or a picture: on the viewer's own dark stage, as wide as it, never on the reading column's paper
+  // (QA TC-5367: a video was a black box at the top of a white column, between grey and black bands)
+  const media = renderer === 'media' || renderer === 'picture'
 
   // the side panel's shape: a surface, and in it the scroll box FileBody fills (a sheet keeps its tabs in view). A PDF's
   // thumbnails go on its left, with a space as wide on its right, so the column stays centred where it was; where the
@@ -144,13 +149,13 @@ function DocumentBody({ item, file: given, railFits, onSwipe, onMissing, onHeld 
   return (
     <div className="flex h-full w-full justify-center">
       <div ref={setRail} className="peer h-full shrink-0 empty:hidden" data-testid="file-viewer-rail" />
-      <div className={card ? 'h-full w-full' : 'h-full max-w-[960px] min-w-0 basis-[960px] bg-surface text-ink'}>
+      <div className={card || media ? 'h-full w-full min-w-0' : 'h-full max-w-[960px] min-w-0 basis-[960px] bg-surface text-ink'}>
         <div
           ref={setBox}
           tabIndex={0}
           role="region"
           aria-label={item.name}
-          className={card ? 'h-full overflow-auto outline-none' : 'h-full overflow-auto bg-subtle/50 outline-none select-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset'}
+          className={card ? 'h-full overflow-auto outline-none' : media ? 'h-full overflow-auto outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset' : 'h-full overflow-auto bg-subtle/50 outline-none select-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset'}
           onClickCapture={onClickCapture}
           {...swipe}
           data-testid="file-viewer-body"
@@ -159,7 +164,7 @@ function DocumentBody({ item, file: given, railFits, onSwipe, onMissing, onHeld 
           {card ? (
             <FileCard item={item} note={loaded.error?.text ?? t('preview.unsupported')} download={missing ? undefined : item.download} />
           ) : (
-            <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} thumbnails={railFits ? rail : null} />
+            <FileBody file={file} loaded={loaded} width={width} download={item.download ?? stay} onRetry={() => setRev((v) => v + 1)} openPicture={stay} thumbnails={railFits ? rail : null} stage />
           )}
         </div>
       </div>

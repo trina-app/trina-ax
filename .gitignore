@@ -21,3 +21,6 @@ AuthKey_*.p8
 docs/features.generated.json
 .claude/projects/
 dist-demo*/
+
+# Bun's stray build artefacts (once an 87 MB one was committed)
+*.bun-build

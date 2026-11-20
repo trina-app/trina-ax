@@ -25,10 +25,11 @@ type Place = { path: string; why: 'suggested' | 'recent' | 'picked'; outside: nu
 export function SaveToTeamSheet() {
   const sheet = useRoomSaves((s) => s.sheet)
   if (!sheet) return null
-  return <Sheet key={sheet.key} roomId={sheet.roomId} fileIds={sheet.fileIds} />
+  return <Sheet key={sheet.key} roomId={sheet.roomId} fileIds={sheet.fileIds} folder={sheet.folder} />
 }
 
-function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
+/** `folder`: picked already (Save to project of files that need the sheet: a linked channel's project folder) */
+function Sheet({ roomId, fileIds, folder }: { roomId: string; fileIds: string[]; folder?: string }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -44,11 +45,11 @@ function Sheet({ roomId, fileIds }: { roomId: string; fileIds: string[] }) {
   useEffect(() => {
     let live = true
     setError(null)
-    api.call(API.roomSavePlan, { params: { id: roomId }, body: { fileIds } }).then(
+    api.call(API.roomSavePlan, { params: { id: roomId }, body: { fileIds, ...(folder ? { folder } : {}) } }).then(
       (p) => {
         if (!live) return
         setPlan(p)
-        setPlace(startFolder(p))
+        setPlace(p.folder ? { path: p.folder.path, why: 'picked', outside: p.folder.outside } : startFolder(p))
         setTicked(startTicks(p))
       },
       (e) => live && setError(errorText(e, locale, t('error.network'))),

@@ -36,7 +36,10 @@ test('on the web: works only from the desktop app on that computer; what runs; n
     expect(m.get('local-app-command').textContent).toContain('aside mcp')
     expect(m.find('connector-address')).toBeNull()
     expect(m.find('local-app-stop')).toBeNull()
-    expect(m.html()).toContain(translate('en', 'localApps.title'))
+    // Aside is a listed app: its own logo and line, not the generic ones
+    expect(m.html()).toContain('/icons/connectors/aside.png')
+    expect(m.html()).toContain(translate('en', 'localApps.aside.line'))
+    expect(m.html()).not.toContain(translate('en', 'localApps.title'))
   } finally { await m.unmount() }
 })
 
@@ -130,4 +133,13 @@ test('settings lines: NAME=value only', () => {
   expect(settingLines('A_KEY=x=1\n\n  B=  ')).toEqual({ A_KEY: 'x=1', B: '' })
   expect(settingLines('not a line')).toBeNull()
   expect(settingLines('1A=x')).toBeNull()
+})
+
+test('a program the person typed (not Aside or ego lite) keeps the generic line', async () => {
+  const other: Integration = { ...aside, name: 'Playwright', local: { adapter: 'mcp', command: 'npx', args: ['@playwright/mcp@latest'], env: [] } }
+  const m = await mount(<Page i={other} />)
+  try {
+    expect(m.html()).toContain(translate('en', 'localApps.title'))
+    expect(m.html()).not.toContain('/icons/connectors/aside.png')
+  } finally { await m.unmount() }
 })

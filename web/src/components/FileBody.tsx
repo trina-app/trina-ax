@@ -214,9 +214,12 @@ export interface FileBodyProps {
   /** where a PDF's page thumbnails go, beside the body's scroll box (the room file viewer, on computers); none in the
    * side panel (viewers/PdfView) */
   thumbnails?: HTMLElement | null
+  /** drawn on the room file viewer's dark stage (ViewerDocument): a picture is centred both ways and as large as fits,
+   * as a video and a sound are everywhere (MediaView) */
+  stage?: boolean
 }
 
-export default function FileBody({ file, loaded, width, download, onRetry, openPicture, thumbnails }: FileBodyProps) {
+export default function FileBody({ file, loaded, width, download, onRetry, openPicture, thumbnails, stage }: FileBodyProps) {
   const t = useT()
   const { kind, blob, stream, error, downloadOnly } = loaded
   const renderer = bodyRenderer(loaded)
@@ -254,14 +257,14 @@ export default function FileBody({ file, loaded, width, download, onRetry, openP
     )
   return (
     <Suspense fallback={<PreviewLoading label={t('common.loading')} />}>
-      <Viewer renderer={renderer} kind={kind} source={source} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} openPicture={openPicture} thumbnails={thumbnails} />
+      <Viewer renderer={renderer} kind={kind} source={source} width={width} name={file.name} at={file.source === 'team' ? file.at : undefined} path={file.source === 'team' ? file.path : null} download={download} file={file} openPicture={openPicture} thumbnails={thumbnails} stage={stage} />
     </Suspense>
   )
 }
 
 /** `at`: the place to open the file at (an answer's source, a link): a PDF page, a slide, a sheet and its range. Word
  * and Hangul previews have no such place and open at the top. */
-function Viewer({ renderer, kind, source, width, name, at, path, download, file, openPicture, thumbnails }: { renderer: ViewerRenderer; kind: PreviewKind; source: Blob | string; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void; file: PreviewFile; openPicture?: () => void; thumbnails?: HTMLElement | null }) {
+function Viewer({ renderer, kind, source, width, name, at, path, download, file, openPicture, thumbnails, stage }: { renderer: ViewerRenderer; kind: PreviewKind; source: Blob | string; width: number; name: string; at?: SourceLoc; path: string | null; download: () => void; file: PreviewFile; openPicture?: () => void; thumbnails?: HTMLElement | null; stage?: boolean }) {
   // (an address only for a PDF or a player: useFileBlob `stream`)
   if (renderer === 'pdf')
     // `download`: a PDF that pdf.js cannot read shows a Download button in place of the pages
@@ -278,7 +281,7 @@ function Viewer({ renderer, kind, source, width, name, at, path, download, file,
     case 'sheet':
       return <SheetView blob={blob} startSheet={at?.kind === 'sheet' ? at.sheet : undefined} range={at?.kind === 'sheet' ? at.range : undefined} />
     case 'picture':
-      return <PanelPicture blob={blob} file={file} download={download} openPicture={openPicture} />
+      return stage ? <StagePicture blob={blob} name={file.name} /> : <PanelPicture blob={blob} file={file} download={download} openPicture={openPicture} />
     default:
       return <TextKinds kind={kind} blob={blob} name={name} path={path} />
   }
@@ -305,6 +308,18 @@ function PanelPicture({ blob, file, download, openPicture }: { blob: Blob; file:
   )
 }
 
+/** The picture on the room file viewer's dark stage (a picture sent as a file the viewer cannot draw on its own picture
+ * stage, such as a HEIC photo the server converts): centred both ways, as large as fits up to its own size. */
+function StagePicture({ blob, name }: { blob: Blob; name: string }) {
+  const url = useMemo(() => URL.createObjectURL(blob), [blob])
+  useEffect(() => () => URL.revokeObjectURL(url), [url])
+  return (
+    <div className="flex h-full w-full items-center justify-center bg-[#0d0d0c] p-4 sm:p-6" data-testid="media-stage" data-kind="image">
+      <img src={url} alt={name} className="max-h-full max-w-full object-contain" data-testid="file-panel-image" />
+    </div>
+  )
+}
+
 /** What the body says in place of a file it does not show, and Download (`testId`, its button `${testId}-download`). */
 function DownloadNotice({ text, download, testId, children }: { text: string; download: () => void; testId: string; children?: ReactNode }) {
   const t = useT()
@@ -320,26 +335,48 @@ function DownloadNotice({ text, download, testId, children }: { text: string; do
 }
 
 /** A player, from the file's address (it asks for the parts it plays: no size limit) or a local file's bytes. One it
- * cannot play (a format this browser has no decoder for, the address refused) shows the notice and Download. */
+ * cannot play (a format this browser has no decoder for, the address refused) shows the notice and Download.
+ * Both sit on a dark stage that fills the body, as in Slack, Google Drive or Quick Look (QA TC-5367): never on the
+ * paper a document is drawn on. A video is centred both ways and as large as fits, keeping its shape: its width is the
+ * smaller of the stage's and the stage's height times its shape (container units of the stage's inner box), so the
+ * player's own controls stay on the picture; a sound's player is centred, as wide as a readable bar. */
 function MediaView({ kind, source, name, download }: { kind: 'audio' | 'video'; source: Blob | string; name: string; download: () => void }) {
   const t = useT()
   const url = useMemo(() => (typeof source === 'string' ? source : URL.createObjectURL(source)), [source])
   useEffect(() => (typeof source === 'string' ? undefined : () => URL.revokeObjectURL(url)), [url])
   const [failed, setFailed] = useState(false)
-  useEffect(() => setFailed(false), [url])
+  // the video's width / height, once its first data says it
+  const [shape, setShape] = useState<number | null>(null)
+  useEffect(() => {
+    setFailed(false)
+    setShape(null)
+  }, [url])
   if (failed)
     return (
       <DownloadNotice text={t('preview.cantPlay')} download={download} testId="preview-cant-play" />
     )
-  if (kind === 'audio')
-    return (
-      <div className="p-6">
-        <audio controls src={url} onError={() => setFailed(true)} className="w-full" aria-label={name} data-testid="preview-audio" />
-      </div>
-    )
   return (
-    <div className="p-4">
-      <video controls src={url} onError={() => setFailed(true)} className="max-h-[80vh] w-full rounded" aria-label={name} data-testid="preview-video" />
+    <div className="flex h-full min-h-48 w-full bg-[#0d0d0c] p-4 [color-scheme:dark] sm:p-6" data-testid="media-stage" data-kind={kind}>
+      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center [container-type:size]">
+        {kind === 'audio' ? (
+          <audio controls src={url} onError={() => setFailed(true)} className="w-full max-w-xl" aria-label={name} data-testid="preview-audio" />
+        ) : (
+          <video
+            controls
+            playsInline
+            src={url}
+            onError={() => setFailed(true)}
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget
+              if (v.videoWidth > 0 && v.videoHeight > 0) setShape(v.videoWidth / v.videoHeight)
+            }}
+            className="block max-h-full max-w-full rounded-sm bg-black object-contain"
+            style={shape ? { width: `min(100cqw, ${shape} * 100cqh)`, aspectRatio: String(shape) } : undefined}
+            aria-label={name}
+            data-testid="preview-video"
+          />
+        )}
+      </div>
     </div>
   )
 }

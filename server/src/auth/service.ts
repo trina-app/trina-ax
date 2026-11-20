@@ -3,6 +3,7 @@
 // and scripts use `Authorization: Bearer`, mobile WebSocket shells the `mycel.bearer.<token>` subprotocol.
 // This file implements SessionService for the whole app (installed by routes/auth.ts init()).
 import type { Context } from 'hono'
+import { isFreeRoam } from '../app-config'
 import {
   DEV_SESSION_COOKIE, SESSION_COOKIE, WS_BEARER_PREFIX,
   type ClientKind, type LoginResponse, type Me,
@@ -298,7 +299,8 @@ export class AuthService implements SessionService {
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
-      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
+      // ...nor a free-roam demo's visitor (docs/decisions/20261119-demo-free-roam-a.md)
+      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office && !isFreeRoam(this.ctx.config),
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),

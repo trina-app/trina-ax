@@ -4,7 +4,7 @@
 // proxy prices API-key requests from credentials/prices.ts). Budget notices: admin/budget-watch.ts.
 import type { Database } from 'bun:sqlite'
 import type { z } from 'zod'
-import type { Budget, BudgetBody, Locale, UsageQuery, UsageResponse } from '@mycel/shared/api'
+import { DEMO_LIMIT_REASON, type Budget, type BudgetBody, type Locale, type UsageQuery, type UsageResponse } from '@mycel/shared/api'
 import { ANSWER_AVERAGE_DAYS, DEFAULT_TOKENS_PER_ANSWER, LIMIT_PERIOD_WORDS, MIN_ANSWERS_FOR_AVERAGE, limitResetText, limitUsedUpText } from '@mycel/shared'
 import { newId } from '../db'
 import { fail } from '../http/errors'
@@ -127,11 +127,53 @@ export function periodEnd(period: Budget['period'], now: Date, tz: string): Date
   return zonedToUtc(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate(), 0, 0, tz)
 }
 
+/** What a refused send carries (HttpError params): a budget's reset time (and `own` for the person's own), or a
+ * free-roam demo's limit (reason DEMO_LIMIT_REASON, with the weighted tokens used and the limit) */
+export type BudgetBlockParams = { resetsAt: string; period: Budget['period']; own?: true } | { reason: typeof DEMO_LIMIT_REASON; used: number; cap: number }
+
+// ---------------- the free-roam demo's limit (docs/decisions/20261119-demo-free-roam-a.md) ----------------
+// One visitor's instance (demo/free-roam.ts) has one limit for everything the AI does there: the weighted tokens of every
+// answer the model proxy counted (credentials/broker.ts record weighs a cache read DEMO_CACHE_READ_WEIGHT), for every
+// person, with no period: the instance lives a day at most. It is a block, checked where every block budget is
+// (budgetBlock: the send, the scheduled run, the proxy's overBudget), so a running answer ends through the budget path.
+const demoLimits = new WeakMap<Database, number>()
+/** freeRoam start (demo/free-roam.ts): the demo limit of this database's server; null takes it away (tests) */
+export function setDemoLimit(db: Database, cap: number | null): void {
+  if (cap === null) demoLimits.delete(db)
+  else demoLimits.set(db, cap)
+}
+/** weighted tokens the model proxy counted on this instance (only usage_source 'proxy': a snapshot has none) */
+export function demoUsed(db: Database): number {
+  const r = db.query("SELECT COALESCE(SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)), 0) AS n FROM turns WHERE usage_source = 'proxy'").get() as { n: number }
+  return Math.max(0, r.n)
+}
+/** the free-roam demo's limit and use, or null on any other server */
+export function demoLimitState(db: Database): { used: number; cap: number } | null {
+  const cap = demoLimits.get(db)
+  return cap === undefined ? null : { used: demoUsed(db), cap }
+}
+const DEMO_LIMIT_TEXT: Record<Locale, string> = {
+  ko: '이 데모의 AI를 다 썼어요. 무료로 시작하면 우리 팀에서 계속 쓸 수 있어요.',
+  en: "You've used this demo's AI. Start free to keep going with your own team.",
+  id: 'AI demo ini sudah habis Anda pakai. Mulai gratis untuk lanjut dengan tim Anda sendiri.',
+  ja: 'このデモのAIを使い切りました。無料で始めると、ご自分のチームで続けられます。',
+  es: 'Ha usado la IA de esta demostración. Empiece gratis para seguir con su propio equipo.',
+  zh: '你已用完此演示的AI。免费开始，即可在自己的团队中继续使用。',
+}
+function demoLimitBlock(db: Database, locale: Locale): { budget: Budget; message: string; resetsAt: null; params: BudgetBlockParams } | null {
+  const s = demoLimitState(db)
+  if (!s || s.used < s.cap) return null
+  const budget: Budget = { id: 'demo', subjectType: 'team', subjectId: null, period: 'month', limitUsd: 0, limitTokens: s.cap, action: 'block', usedUsd: 0, usedTokens: s.used }
+  return { budget, message: DEMO_LIMIT_TEXT[locale] ?? DEMO_LIMIT_TEXT.en, resetsAt: null, params: { reason: DEMO_LIMIT_REASON, used: s.used, cap: s.cap } }
+}
+
 /**
  * A used-up "block" budget that applies to this person, as an error to answer the send with (tab 5 "사용 한도 도달":
  * the person's own limit is checked before sending, not by queueing). null when they may start a turn.
  */
-export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string; params: { resetsAt: string; period: Budget['period']; own?: true } } | null {
+export function budgetBlock(db: Database, userId: string, locale: Locale, now = new Date()): { budget: Budget; message: string; resetsAt: string | null; params: BudgetBlockParams } | null {
+  const demo = demoLimitBlock(db, locale)
+  if (demo) return demo
   const hit = checkBudgets(db, userId, now).find((b) => b.exceeded && b.budget.action === 'block')
   if (!hit) return null
   const tz = teamTimeZone(db)

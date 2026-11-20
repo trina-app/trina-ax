@@ -90,6 +90,10 @@ git push origin v0.3.0-beta.1
 2의 job은 동시에 돈다(build-office만 build-mac-whisper 뒤). publish는 시험과 리눅스 빌드가 통과해야 시작한다(사무실·윈도우 빌드가 실패하면 6장 "Desktop builds missing").
 
 - **맥 데스크톱 앱(dmg)은 0.5.6부터 서명·공증되어 들어간다.** build-mac-app이 실패해도 사무실 피드는 `mac` 없이 나가고, "Re-run failed jobs"가 통과하면 같은 버전의 목록에 맥 앱이 더해진다. Mac App Store판은 따로다(`editions/trina/mac-app-store`).
+- **dev에서 T1이 빨개지면 이슈가 열린다.** 리눅스 job(T1·L19·T2)은 dev에 push할 때만 돌아서(PR·머지 큐에는 없음) 빨간 채로 아무도 모르고 릴리스를 막은 적이 있다(2026-11-18/19, 약 4시간, 0.5.17). `t1-alert.yml`이 CI가 끝난 뒤(`workflow_run`, dev push만) 그 실행의 T1 job 두 개(amd64·arm64)를 API로 읽어, 하나라도 실패하면 `T1 attack suite red on dev` 이슈 하나를 열거나(이미 열려 있으면 댓글), 커밋·실패한 FAIL 줄·실행 링크를 적고 자기 job도 빨갛게 만든다. 뒤의 dev push에서 T1이 둘 다 통과하면 그 이슈를 스스로 닫는다. 기본 토큰만 쓴다(`issues: write`, 로그를 읽는 `actions: read`, 이 워크플로에만). 취소된 실행(더 새 push)과 T1이 끝까지 돌지 않은 실행은 건너뛴다.
+  - **`ci.yml`에 넣지 않는다.** release.yml·msstore.yml이 `ci.yml`을 `contents: read`로만 부르고, 불린 워크플로는 부른 쪽보다 많은 권한을 받을 수 없다. 0.5.19 릴리스가 ci.yml 안의 `t1-alert` job(`issues: write`) 때문에 `startup_failure`로 시작조차 못 했다. `ci.yml`은 `contents: read`만 쓴다. `tests/unit/workflow-permissions.test.ts`가 `uses: ./.github/workflows/…`로 불리는 모든 워크플로의 job 권한이 부른 job의 권한 안에 드는지 본다.
+  - **`workflow_run`은 기본 브랜치(main)에 있는 파일로 돈다.** 그래서 `t1-alert.yml`을 바꾸면 다음 릴리스로 main에 들어가야 효과가 있다(그 전까지 dev의 T1 알림은 main에 있는 판으로 돈다; main에 아직 없으면 알림이 없다). `branches: [dev]`는 CI 실행의 브랜치로 거르고, 여기서 `github.ref`는 늘 main이라 dev인지 판단에 쓰지 않는다. job은 `github.event.workflow_run`의 `event == push`·`head_branch == dev`·같은 레포인지를 본다(포크의 dev 브랜치 PR, 머지 큐 `gh-readonly-queue/dev/…`는 제외).
+  Why: T1 is not in the merge queue or PRs, so a red T1 on dev is invisible until a release; the issue (opened/commented on red, closed on the next green dev push) is the alarm. It is a separate `workflow_run` workflow because a job asking for `issues: write` inside the reusable ci.yml made the `contents: read` release call fail at start-up (v0.5.19, run 44517924801). It uses no secret; the Discord webhook of `ci-notify.yml` is main-only and optional.
 - 시험·빌드·배포는 모두 태그가 가리키는 같은 커밋으로 한다. publish와 github-release는 시작할 때 태그가 아직 그 커밋인지 다시 보고, 태그가 옮겨졌으면 멈춘다.
 
 ### 업데이트 주소의 파일
@@ -546,7 +550,7 @@ certificate does not skip it; an EV certificate would not either, and Artifact S
 
 Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리눅스만 돌므로, 데스크톱 앱이 바뀔 수 있는 PR
 (`desktop/**`, `shared/**`, `editions/trina/branding/**`, `scripts/release-notices.ts`, `scripts/ci/dmg-check.ts`,
-`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
+`scripts/ci/windows-install-check.ps1`, `scripts/ci/linux-install-check.sh`, `scripts/ci/appimage-runtime-check.sh`, offline·hwp spec이 쓰는 `web/test/mock/**`·`web/test/e2e/offline-server.ts`, `package.json`, `bun.lock`, 이 워크플로)에만 아래 여섯 job이 돈다. 비밀값은 쓰지 않는다
 (서명 없음). 필수 검사가 아니다: 필수 검사는 ci.yml의 것 그대로다. 빨간 데스크톱 job은 병합 전에 읽는다.
 결정: `docs/decisions/20261116-desktop-checks.md`.
 
@@ -555,8 +559,8 @@ Desktop checks on pull requests: `.github/workflows/desktop.yml`. ci.yml은 리�
 | Desktop e2e (macOS) | macos-15-intel (레포 변수 `DESKTOP_MAC_RUNNER`로 바꾼다) | `desktop/e2e/ci.config.ts`: 데스크톱 Playwright 전부(desktop.spec, work-files, work-files-wide, work-consent, folder-window …). 만든 홈·데이터 폴더만 쓴다. 가짜 팀 이름(`acme.localhost` …)을 `/etc/hosts`에 넣고 web 빌드와 rhwp를 준비한다. 전체 25분 한도, 재시도 1번 | `desktop-e2e-mac` (`desktop/e2e/.work/`: html 리포트, fixture 로그) |
 | Mac dmg | e2e와 같은 러너 | 서명 없는 universal `dist:mac` → `scripts/ci/dmg-check.ts` | 늘 `desktop-dmg` (dmg, 3일) |
 | Windows installer | windows-2025 | 서명 없는 NSIS 둘(`<version>-ci.1`, `-ci.2`) → `scripts/ci/windows-install-check.ps1` | 늘 `desktop-windows-install-logs` |
-| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb는 `desktop-linux-arm64-deb` |
-| Linux package (arm64: install and start) | ubuntu-24.04-arm | 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
+| Linux packages (install, update over, uninstall) | ubuntu-24.04 | 서명 없는 빌드 둘: `-ci.2`는 `dist:linux` 그대로(.deb·AppImage, x64·arm64), `-ci.1`은 x64 .deb → `scripts/ci/appimage-runtime-check.sh`: 두 AppImage 런타임에 버전 없는 라이브러리(`libz.so` 같은 것) 없음(`readelf -d`), x86_64는 Fedora 42 컨테이너에서 `--appimage-version` → `scripts/ci/linux-install-check.sh full`: 설치(파일, 메뉴 항목, `trina-ax://` 형식, `Icon=` 이름의 256·512 px PNG와 scalable SVG, 올라간 AppArmor 프로필) → xvfb에서 시작, 첫 창, 샌드박스(`--no-sandbox` 없음, 렌더러가 제 user namespace), 링크 처리기 → 덮어 설치(버전, 처리기, 데이터 폴더) → 제거(파일·메뉴·프로필·처리기 없음, 데이터는 남음) → AppImage는 `.deb` 안내 창을 띄우고 끝나야 한다 | 늘 `desktop-linux-install-logs`; arm64 .deb와 AppImage는 `desktop-linux-arm64-deb` |
+| Linux package (arm64: install and start) | ubuntu-24.04-arm | arm64 AppImage 런타임 검사(Fedora 42 컨테이너에서 `--appimage-version`), 위 job의 arm64 .deb를 설치, xvfb에서 시작(첫 창, 샌드박스), 제거. 빌드는 하지 않는다 | 늘 `desktop-linux-arm64-logs` |
 | Desktop e2e (Linux, subset) | ubuntu-24.04 | `desktop/e2e/linux.config.ts`: smoke, desktop, quit, settings, language, offline, update, local-apps. 맥 e2e처럼 가짜 팀 이름, web 빌드, rhwp. xvfb + `dbus-run-session` + 비밀번호를 준 `gnome-keyring-daemon --unlock`(빈 비밀번호면 login 모음이 생기지 않는다; local-apps.spec이 설정을 봉인한다), `XDG_CURRENT_DESKTOP=GNOME`. node_modules의 Electron에는 AppArmor 프로필이 없어 이 run만 `kernel.apparmor_restrict_unprivileged_userns=0`, `--no-sandbox`는 쓰지 않는다. dev push에도 돈다 | `desktop-e2e-linux` |
 
 - **맥 job은 Intel 맥(macos-15-intel)에서 돈다.** 2026-11-16 08:30 UTC 뒤로 arm64 `macos-15` job은 러너를 하나도 받지 못하고

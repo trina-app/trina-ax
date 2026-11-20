@@ -15,7 +15,7 @@ import { GUEST_ENDPOINTS } from '../auth/guest-endpoints'
 import { removedSignIn } from '../auth/account-removal'
 import type { AuthInfo } from '../services'
 import type { AppContext } from '../context'
-import { demoGuard } from '../demo/guard'
+import { demoGuard, freeRoamBody, freeRoamFence, freeRoamRawFenced } from '../demo/guard'
 import { spoolMultipart, type SpooledFile } from './multipart'
 import { endConnectionAfter } from './tunnel'
 
@@ -107,6 +107,8 @@ export class RouteKit {
       // a sign-in that ended because its account was removed says so, to that sign-in's holder only (TC-1974)
       // a guest's also says whether they left or were taken out, with the team's name (guest walkthrough S5/S6)
       if (!auth && ep.auth !== 'public') { const why = removedSignIn(this.ctx, c.req.raw); if (why) fail('unauthorized', undefined, { params: { reason: 'account_removed', ...(why.guest ? { guest: why.guest, ...(why.team ? { team: why.team } : {}) } : {}) } }) }
+      // a free-roam demo (demo/guard.ts): what it fences is refused whoever asks, before the body is read
+      if (this.ctx.config.demo) freeRoamFence(this.ctx, ep, { locale: c.get('locale'), contentLength: c.req.header('content-length') ?? null })
       enforceAuth(ep, auth)
 
       const params = c.req.param() as ParamsOf<E>
@@ -152,7 +154,10 @@ export class RouteKit {
       }
 
       // demo mode (MYCEL_DEMO): no owner password re-checks, the demo people's accounts stay as seeded
-      if (this.ctx.config.demo) demoGuard(this.ctx, ep, { params: params as Record<string, string>, body, auth, locale: c.get('locale') })
+      if (this.ctx.config.demo) {
+        demoGuard(this.ctx, ep, { params: params as Record<string, string>, body, auth, locale: c.get('locale') })
+        freeRoamBody(this.ctx, ep, { body, locale: c.get('locale') })
+      }
 
       if (ep.auth === 'owner-reauth' || ep.auth === 'admin-reauth') {
         const pw = (body as { password?: unknown } | undefined)?.password
@@ -190,6 +195,11 @@ export class RouteKit {
   /** Off-contract routes (WebSocket upgrade, static files). Recorded so the coverage test knows about them. */
   raw(method: string, path: string, ...handlers: Parameters<Hono<AppEnv>['on']> extends [any, any, ...infer H] ? H : never): void {
     this.ctx.implemented.set(`${method} ${path}`, this.module)
+    // a free-roam demo answers none of them but the web app's, its WebSocket and the app links (demo/guard.ts)
+    if (freeRoamRawFenced(this.ctx, this.module)) {
+      ;(this.app.on as (m: string, p: string, ...h: unknown[]) => void)(method, path, () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain; charset=utf-8' } }))
+      return
+    }
     ;(this.app.on as (m: string, p: string, ...h: unknown[]) => void)(method, path, ...handlers)
   }
 }

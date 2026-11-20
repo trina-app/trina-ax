@@ -444,6 +444,94 @@ body.hostbar {
   }
 }
 
+/* ---------------- find bar (Cmd/Ctrl+F) over the page it searches ---------------- */
+/* Its own small transparent view (main/find-bar.ts): the card leaves room around it for its shadow. */
+html:has(> body.findbar),
+body.findbar {
+  background: transparent;
+  overflow: hidden;
+}
+.findbar #root {
+  padding: 6px 6px 10px;
+}
+.find-card {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 4px 0 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgb(20 17 15 / 0.12), 0 1px 3px rgb(20 17 15 / 0.08);
+}
+@media (prefers-color-scheme: dark) {
+  .find-card {
+    box-shadow: 0 4px 16px rgb(0 0 0 / 0.45), 0 1px 3px rgb(0 0 0 / 0.35);
+  }
+}
+.find-card:focus-within {
+  border-color: var(--field-border);
+}
+.find-field {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  font-size: 14px;
+}
+.find-field::placeholder {
+  color: var(--faint);
+}
+.find-count {
+  flex: none;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.find-count[data-kind='none'] {
+  color: var(--danger);
+}
+.find-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line);
+}
+.find-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+.find-btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.find-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.find-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ---------------- browser pane toolbar ---------------- */
 /* The view reaches var(--grab) px over the team page's right edge: transparent there (the team page shows through), the
    edge handle's strip. #main is the pane itself: the toolbar, and under it the theme's own surface where the page goes

@@ -42,13 +42,13 @@
 // sheet; the big name for screen readers only); its
 // files line is one row that opens the project's files on a screen of the 프로젝트 tab (ProjectFiles below,
 // /projects/:id/files, with no folder path line), so Back returns to the project.
-import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Import, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, X } from 'lucide-react'
+import { ArchiveRestore, ChevronLeft, ChevronRight, FileText, FolderKanban, Folder, FolderOpen, Hash, Import, Lock, Pencil, Pin, Plus, ScrollText, Trash2, UserPlus, X } from 'lucide-react'
 import { foldRuns, runsUnread, TaskRunsIcon, TaskRunsMark, taskRunsAttrs, taskRunsPath, type Run } from '../components/nav/TaskRunsRow'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { scheduleName } from '../lib/scheduleText'
 import { useSessionMarkers } from '../store/sessionMarkers'
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import type { Chat, FileEntry, Project, ProjectParticipant, ProjectPeople as ProjectPeopleList, TreeResponse } from '@mycel/shared/api'
+import { ROOM_GROUP_MAX, type Chat, type FileEntry, type Project, type ProjectParticipant, type ProjectPeople as ProjectPeopleList, type TreeResponse } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
 import { formatRelative } from '../lib/format'
 import { RAIL_STATE_KEY } from '../lib/rail'
@@ -78,6 +78,10 @@ import { whoSeesProject } from '../components/projectWho'
 import { useChatMenuItems } from '../components/chat/chatMenuItems'
 import { MoveToProjectDialog } from '../components/chat/ChatProject'
 import { MenuButton } from '../components/rooms/MenuButton'
+import { LinkChannelDialog } from '../components/rooms/ProjectLink'
+import { useRooms } from '../store/rooms'
+import { onWindowFocus } from '../lib/attention'
+import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { ProjectForm } from '../components/ProjectForm'
 import { NewProjectDialog } from '../components/NewProjectDialog'
 import { onlyMine } from '../components/panels/ProjectsPanel'
@@ -94,7 +98,7 @@ import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
 import { ShareCopyLink, useCopyProjectLink } from '../components/ShareCopyLink'
 import { ProjectTrashNote } from '../components/ProjectTrashNote'
 import { leaveItems, useLeaveProject } from '../components/LeaveProject'
-import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, confirmDialog, pageColumn, useMediaQuery } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Modal, PageHeader, Skeleton, StickyHeader, TextAction, confirmDialog, pageColumn, useMediaQuery } from '../components/ui'
 import { PhoneBarAction, PhoneBarTitle } from '../components/phone/PhoneBarAction'
 import { Tooltip } from '../components/Tooltip'
 import { FileDropZone } from '../components/FileDropZone'
@@ -553,6 +557,27 @@ function ProjectPage() {
       useProjects.getState().put(fresh)
     }, () => {})
   }), [projectId])
+  // the project read again: after its channel changed here, and when the window comes back (a channel renamed, someone
+  // left it, a link made elsewhere: Project.channel follows without a socket event of its own)
+  const refreshProject = () => {
+    const id = projectId
+    if (!id) return
+    const from = projectEdits.current
+    api.call(API.getProject, { params: { id }, query: { manage: '1' } }).then((x) => {
+      if (projectEdits.current !== from || shownP.current?.id !== id) return
+      const fresh = keepPendingProject(x, shownP.current)
+      setP(fresh)
+      useProjects.getState().put(fresh)
+    }, () => {})
+  }
+  const refreshRef = useRef(refreshProject)
+  refreshRef.current = refreshProject
+  useEffect(() => {
+    const again = () => { if (document.visibilityState !== 'hidden') refreshRef.current() }
+    window.addEventListener('focus', again)
+    const off = onWindowFocus(again)
+    return () => { window.removeEventListener('focus', again); off() }
+  }, [projectId])
   /** the chats' changes made since a read started (a row's rename, an event): made again on its answer, numbered */
   const chatEdits = useRef<{ n: number; f: (cur: Chat[]) => Chat[] }[]>([])
   const chatEditCount = useRef(0)
@@ -1077,6 +1102,11 @@ function ProjectPage() {
                     )}
                   </DisclosureRow>
                 )}
+                {/* the project's channel (docs/decisions/20261119-channel-project-link.md S3): only what the server gives
+                    (Project.channel, canLinkChannel): never a personal, older or trashed project, never a guest outside it */}
+                {!outside && !p.inTrash && p.member !== false && (p.channel || p.canLinkChannel) && (
+                  <ProjectChannelBox project={p} people={people || null} onChanged={() => refreshProject()} />
+                )}
               </div>
               {/* no folder path line: people read 파일 (its 열기 opens the folder) and 멤버, not paths */}
             </aside>
@@ -1116,6 +1146,75 @@ function ProjectPage() {
       {importing && <ImportChatsDialog project={p} onClose={() => setImporting(false)} onMoved={(c) => { useChats.getState().upsertChat(c); changeChats((cur) => (!cur.some((x) => x.id === c.id) ? [c, ...cur].sort(chatOrder) : cur)) }} />}
       {moving && <MoveToProjectDialog chat={moving} onClose={() => setMoving(null)} onMoved={(c) => { useChats.getState().upsertChat(c); chatHere(c) }} />}
       {sharing && <ShareProjectDialog project={p} chats={chats?.length ?? 0} onClose={() => setSharing(false)} onShared={(r) => { changeP(r); useProjects.getState().put(r); toast({ level: 'success', text: t('projects.sharedNow', { name: r.name }), ms: 10_000, action: { label: t('rooms.menu.copyLink'), run: () => void copyProjectLink(r) } }) }} />}
+    </div>
+  )
+}
+
+/** The project's channel (S3): none yet, for who may link one, a box with Create a channel (the main path) and "or link
+ * a channel"; linked, one line with its name and count, Open when I am in it (⋯ › Unlink when I may), else "Ask someone
+ * in the channel to add you" (no Join button). */
+function ProjectChannelBox({ project: p, people, onChanged }: { project: Project; people: ProjectPeopleList | null; onChanged: () => void }) {
+  const t = useT()
+  const locale = useLocale()
+  const meId = useMe()?.user.id
+  const [linking, setLinking] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const ch = p.channel
+  const unlink = async () => {
+    if (!ch) return
+    const ok = await confirmDialog({ title: t('projects.channel.unlinkTitle', { channel: ch.name }), body: t('rooms.info.projectUnlinkBody'), confirm: t('projects.channel.unlink'), danger: true })
+    if (!ok) return
+    try {
+      await useRooms.getState().unlinkProject(ch.roomId, 'project')
+      toast({ level: 'success', text: t('rooms.info.projectUnlinkedToast', { name: p.name }) })
+      onChanged()
+    } catch (e) { toast({ level: 'error', text: errorText(e, locale, t('error.network')) }) }
+  }
+  // the project's people, ticked (individuals; a guest is never ticked); past what a channel holds nobody is
+  const others = (people?.people ?? []).filter((x) => x.id !== meId)
+  const preselect = others.length > ROOM_GROUP_MAX - 1 ? [] : others.filter((x) => !x.guest).map((x) => x.id)
+  const dialogs = (
+    <>
+      {linking && <LinkChannelDialog project={p} onClose={() => setLinking(false)} onCreate={() => setCreating(true)} onLinked={onChanged} />}
+      <PeoplePicker open={creating} onClose={() => setCreating(false)} mode={{ kind: 'channel', project: { id: p.id, name: p.name, preselect, people: others.length } }} />
+    </>
+  )
+  if (!ch)
+    return (
+      <EmptySideBox testId="project-channel" icon={<Hash size={16} />} label={t('projects.channel.title')} line={t('projects.channel.empty')} lineTestId="project-channel-empty">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Button size="sm" onClick={() => setCreating(true)} data-testid="project-channel-create">
+            <Plus size={14} aria-hidden /> {t('projects.channel.create')}
+          </Button>
+          <TextAction onClick={() => setLinking(true)} data-testid="project-channel-link">{t('projects.channel.orLink')}</TextAction>
+        </div>
+        {dialogs}
+      </EmptySideBox>
+    )
+  return (
+    <div data-testid="project-channel">
+      <DisclosureRow
+        icon={<Hash size={16} />}
+        label={t('projects.channel.title')}
+        action={
+          <span className="flex items-center gap-1">
+            {ch.inIt && <Link to={`/rooms/${ch.roomId}`} className="rounded-md px-1.5 py-1 text-muted hover:bg-hover hover:text-ink" data-testid="project-channel-open">{t('projects.open')}</Link>}
+            {ch.canUnlink && (
+              <MenuButton label={t('projects.channel.menu')} testId="project-channel-menu" items={[{ label: t('projects.channel.unlink'), danger: true, onSelect: () => void unlink(), testId: 'project-channel-unlink' }]} />
+            )}
+          </span>
+        }
+        // one line at any width (390 included): the channel's name gives way first
+        detail={
+          <span className="flex min-w-0 items-center gap-1.5" data-testid="project-channel-name">
+            <Lock size={13} className="shrink-0 text-faint" aria-hidden />
+            <span className="min-w-0 truncate text-ink" title={ch.name}>{ch.name}</span>
+            <span className="shrink-0 text-xs text-faint">· {ch.memberCount}</span>
+            <span className="sr-only">{t('rooms.members', { n: ch.memberCount })}</span>
+          </span>
+        }
+      />
+      {!ch.inIt && <p className="-mt-2 pb-3 pl-[26px] text-xs text-muted" data-testid="project-channel-ask">{t('projects.channel.askToJoin')}</p>}
     </div>
   )
 }

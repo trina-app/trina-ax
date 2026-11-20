@@ -28,6 +28,7 @@ import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLef
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
+import { demoFakesOf } from '../../demo/fakes'
 import { workspaceLibraryOf } from '../google-apps/library'
 import { getChatRuntime } from '../../chat/runtime'
 import { isGuestUser } from '../../credentials/guest-ai'
@@ -205,7 +206,9 @@ export class Integrations {
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'connections'))
-    this.net = { ...deps.net, blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
+    // a demo server with fakes: Higgsfield is answered in this process, anything else is refused (server/src/demo/fakes/)
+    const fakes = demoFakesOf(ctx)
+    this.net = { ...deps.net, ...(fakes ? { answer: fakes.net } : {}), blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
   }
   private get db() { return this.ctx.db }
 
@@ -1060,7 +1063,7 @@ export class Integrations {
     } catch (e) {
       // a Google app's answer too large (a big Gmail attachment) says nothing about the connection; an app on the
       // computer reached from elsewhere, or not let run there, neither
-      const notHere = e instanceof LocalError && (e.failure === 'offline' || e.failure === 'not_desktop' || e.failure === 'declined' || e.failure === 'too_old')
+      const notHere = e instanceof LocalError && (e.failure === 'offline' || e.failure === 'not_desktop' || e.failure === 'declined' || e.failure === 'unconfirmed' || e.failure === 'too_old')
       if (!signal?.aborted && !notHere && !(row.google_app && e instanceof NetError && e.reason === 'too_large')) this.noteFailure(row, e)
       // stopped here (Stop, the turn's end): not the service's timeout
       if (signal?.aborted && !(e instanceof CallError)) throw new CallError(`the call to ${row.name} was stopped because the answer was stopped`, 'stopped')

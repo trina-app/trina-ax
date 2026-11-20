@@ -579,7 +579,7 @@ const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connec
 function recordedNet(r: Recorded, server: { registration?: string; authorization?: string }): NetOptions {
   const reply = (a: Answer) => ({ status: a.status, headers: a.headers ?? {}, body: a.json !== undefined ? JSON.stringify(a.json) : a.body ?? '' })
   return {
-    answerForTests: async (url: string, req: NetRequest) => {
+    answer: async (url: string, req: NetRequest) => {
       if (req.method === 'POST' && server.registration && url === server.registration) return r.register ? reply(r.register) : { status: 404 }
       if (req.method === 'GET' && server.authorization && url.startsWith(server.authorization + '?')) {
         if (new URL(url).searchParams.get('client_id') === DOC) return { status: 200, body: '<html>Sign in</html>' }

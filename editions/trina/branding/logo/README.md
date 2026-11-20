@@ -20,7 +20,7 @@ SemiBold (650) at the website nav's size and spacing, so no font is needed.
 
 Every file, and the app icon pictures of the apps, are written by `make.py` (see its header for the command):
 `web/public/favicon.svg`, `desktop/scripts/trina-icon.svg` → `desktop/build-resources/icon.png` (the `.icns` for the DMG
-and the Mac App Store and the Windows `.ico`), `../mobile/` (iOS icon, Android adaptive icon and its background,
+and the Mac App Store and the Windows `.ico`) and `desktop/build-resources/linux-icons/` (16…512 px, the Linux app), `../mobile/` (iOS icon, Android adaptive icon and its background,
 launch screen in light and dark) and the Microsoft Store tiles. The web app's PNG icons and `favicon.ico` follow with
 `bun web/scripts/make-icons.ts`.
 

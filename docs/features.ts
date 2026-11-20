@@ -103,6 +103,7 @@ export const FEATURES: Feature[] = [
   { id: 'rooms.members', name: 'Room members: invite, remove, leave, rename', area: 'Rooms', endpoints: ['updateRoom', 'listRoomMembers', 'inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] },
   { id: 'rooms.hide-pin', name: 'Hide and pin conversations', area: 'Rooms', endpoints: ['setRoomHidden', 'pinRoom', 'unpinRoom'] },
   { id: 'rooms.files', name: 'Files in a room', area: 'Rooms', endpoints: ['uploadRoomFile', 'attachRoomTeamFile', 'roomFile', 'roomFileHwpPreview', 'roomSavedFiles', 'roomSavePlan', 'saveRoomFilesToTeam'] },
+  { id: 'rooms.project-link', name: 'A private channel linked to a team project (Files button, Save to project, Create a channel)', area: 'Rooms', endpoints: ['linkRoomProject', 'unlinkRoomProject', 'createProjectChannel', 'undoRoomSave'] },
   { id: 'rooms.search', name: 'Search messages and files of rooms', area: 'Rooms', endpoints: ['searchRoomMessages', 'searchRoomFiles'] },
   { id: 'rooms.sent-files', name: 'Files you sent: my own files in rooms, largest first, delete', area: 'Rooms', endpoints: ['listMyRoomFiles'], screens: ['/sent-files'] },
   { id: 'rooms.activity', name: 'Activity: mentions and thread replies', area: 'Rooms', screens: ['/activity', '/activity/:noticeId'] },
@@ -147,7 +148,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
   { id: 'onboarding.member-welcome', name: 'Welcome card for an invited member', area: 'Onboarding', endpoints: ['getMemberWelcome', 'updateMemberWelcome'] },
   { id: 'onboarding.handover', name: 'Handover to a team lead', area: 'Onboarding', endpoints: ['handoverState', 'endPendingConnections', 'dismissLeadCard'] },
-  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch'] },
+  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns'] },
 
   // ---------------- Home ----------------
   { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },

@@ -26,7 +26,7 @@ import Composer, { type EngineChoice } from './Composer'
 import { WhoSeesLine, whoSeesText } from './WhoSees'
 import { Tooltip } from '../Tooltip'
 
-export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, startPrivate = false, resetKey = 0, autoFocus, focusKey, placeholder, onSent, skill, aiLine = true, waitsFor, card }: {
+export function NewChatComposer({ projectId, folderId = null, project, onMembers, initialText, startPrivate = false, resetKey = 0, autoFocus, focusKey, placeholder, onSent, skill, aiLine = true, waitsFor, blocked, card }: {
   projectId: string | null
   /** one of my chat folders the new chat goes in (a folder's +; docs/DECISIONS.md "List folders on
    * screen"): filed once it is made, before it opens */
@@ -53,6 +53,8 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
   aiLine?: boolean
   /** `initialText` needs the person's own text after it: not sent alone, this line under the box (Composer `waitsFor`) */
   waitsFor?: { text: string; hint: string }
+  /** nothing can answer yet: the text stays unsent, with this line under the box once typed (Composer `blocked`) */
+  blocked?: string
   /** phones: the box as one card, its tools in a row inside it (Home, QA TC-391; Composer `card`) */
   card?: boolean
 }) {
@@ -173,6 +175,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       hold={projectId && !known ? t('common.loading') : undefined}
       projectId={projectId}
       waitsFor={waitsFor}
+      blocked={blocked}
       card={card}
       tools={team ? (
         <ChatVisibilityChip

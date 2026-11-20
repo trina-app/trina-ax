@@ -14,6 +14,7 @@
 // of offering Mac and Windows files. Profile on a phone (QA TC-382): the photo centred, a tap on it changes it (the same
 // choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
 // list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
+import { HomeCardsShowAgain } from '../components/onboarding/CardHide'
 import clsx from 'clsx'
 import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
@@ -31,6 +32,7 @@ import { browser, canInstallIn, installGuideShown, isStandalone, platform } from
 import { LOCALES, useLocale, useT } from '../i18n'
 import { memoryChanged } from '../store/live'
 import { canChooseEngine, useMeStrict, useSession } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { isGuestMe, meGuest } from '../lib/guests'
 import { peekCached, rememberCached } from '../store/listCache'
 import { useEngines } from '../store/engines'
@@ -161,7 +163,10 @@ function Profile() {
   // that cannot be read leaves the plain link to the page
   const deletion = useMyDeletionRequest()
   const setDeletion = deletion.setValue
-  useEffect(() => { api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion])
+  // a free-roam demo (store/demo.ts): the name, title and email are the demo person's and stay as they are, and the
+  // demo's account is never deleted (server/src/demo/guard.ts refuses all three); the photo, language and theme change
+  const freeRoam = useFreeRoam()
+  useEffect(() => { if (!freeRoam) api.call(API.myDeletionRequest).then(setDeletion, () => {}) }, [setDeletion, freeRoam])
   const deletionRow = deletionRowText(t, deletion.value, locale)
   // Everything here is saved with the one Save button (the other tabs' settings save at once): it shows once something
   // changed
@@ -221,15 +226,15 @@ function Profile() {
               />
               {/* the hints under the group: the email's and who sees what */}
               <PhoneSection className="mb-0">
-                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{t('settings.emailHint')} {visible}</span>} testId="profile-fields">
+                <PhoneListGroup footer={<span id={`${ids}-email-hint`}>{freeRoam ? t('demo.free.profileFixed') : t('settings.emailHint')} {visible}</span>} testId="profile-fields">
                   <PhoneField label={t('auth.name')} id={`${ids}-name`}>
-                    <input id={`${ids}-name`} className={phoneFieldCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" />
+                    <input id={`${ids}-name`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} value={name} readOnly={freeRoam} onChange={(e) => setName(e.target.value)} maxLength={100} autoComplete="name" data-testid="profile-name" />
                   </PhoneField>
                   <PhoneField label={t('profile.title')} id={`${ids}-title`}>
-                    <input id={`${ids}-title`} className={phoneFieldCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+                    <input id={`${ids}-title`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} value={title} readOnly={freeRoam} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={freeRoam ? undefined : t('profile.titleHint')} data-testid="profile-title" />
                   </PhoneField>
                   <PhoneField label={t('settings.email')} id={`${ids}-email`}>
-                    <input id={`${ids}-email`} className={phoneFieldCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} autoComplete="email" />
+                    <input id={`${ids}-email`} className={clsx(phoneFieldCls, freeRoam && 'text-muted')} type="email" value={email} readOnly={freeRoam} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} autoComplete="email" data-testid="profile-email" />
                   </PhoneField>
                 </PhoneListGroup>
               </PhoneSection>
@@ -256,13 +261,13 @@ function Profile() {
             </div>
           </Row>
           <Row label={t('auth.name')} htmlFor={`${ids}-name`} framed>
-            <input id={`${ids}-name`} className={inputCls} value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+            <input id={`${ids}-name`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} value={name} readOnly={freeRoam} onChange={(e) => setName(e.target.value)} maxLength={100} data-testid="profile-name" />
           </Row>
           <Row label={t('profile.title')} htmlFor={`${ids}-title`} framed>
-            <input id={`${ids}-title`} className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={t('profile.titleHint')} />
+            <input id={`${ids}-title`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} value={title} readOnly={freeRoam} onChange={(e) => setTitle(e.target.value)} maxLength={PROFILE_TITLE_MAX} placeholder={freeRoam ? undefined : t('profile.titleHint')} data-testid="profile-title" />
           </Row>
-          <Row label={t('settings.email')} hint={t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
-            <input id={`${ids}-email`} className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} />
+          <Row label={t('settings.email')} hint={freeRoam ? t('demo.free.profileFixed') : t('settings.emailHint')} htmlFor={`${ids}-email`} hintId={`${ids}-email-hint`} framed>
+            <input id={`${ids}-email`} className={clsx(inputCls, freeRoam && 'bg-subtle text-muted')} type="email" value={email} readOnly={freeRoam} onChange={(e) => setEmail(e.target.value)} aria-describedby={`${ids}-email-hint`} data-testid="profile-email" />
           </Row>
           <p className="pt-3 text-xs text-muted" data-testid="profile-visible">{visible}</p>
           </>
@@ -315,7 +320,7 @@ function Profile() {
           </Row>
           {/* a person deletes their own account, 7 days after asking (App Store review 5.1.1(v)); a phone has it as the
               page's last row */}
-          {!phone && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
+          {!phone && !freeRoam && <Row label={t('accountDeletion.row')} hint={deletionRow.hint}>
             {deletionRow.keep ? (
               <Button type="button" size="sm" busy={deletion.busy} onClick={() => void deletion.keep()} data-testid="account-deletion-keep">
                 {t('accountDeletion.cancel')}
@@ -329,6 +334,8 @@ function Profile() {
         </div>
         )}
       </Section>
+      {/* a Home card the person hid (the team goal, "Ready in your team"): one quiet row each that brings it back */}
+      <HomeCardsShowAgain cards={['goalCard', 'preparedCard']} testId="profile-home-cards" className="mb-8 max-md:mb-12" />
       {phone ? (
         // a phone: one row "Language   한국어 ›" whose sheet holds the languages (owner 2026-11-16: no list of every language
         // on the page), as the AI row below and Team settings' default language
@@ -365,7 +372,7 @@ function Profile() {
       </Section>
       )}
       <TextSizeSetting />
-      {phone && (
+      {phone && !freeRoam && (
         <PhoneSection className="-mt-6">
           <PhoneListGroup title={t('accountDeletion.row')} footer={deletionRow.hint}>
             {deletionRow.keep
@@ -1004,7 +1011,7 @@ function Apps() {
   const kind = clientKind()
   // the device: the phone app and the desktop app say which they are; a browser, its user agent
   const os = desktop()?.platform
-  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : 'other') : platform()
+  const here = kind === 'mobile' ? mobileApp()?.platform ?? platform() : os ? (os === 'darwin' ? 'mac' : os === 'win32' ? 'windows' : os === 'linux' ? 'linux' : 'other') : platform()
   const client: AppClient = { kind, here, store }
   // a phone (the phone app, or a browser on an iPhone or Android phone; not a narrow window on a computer): the Mac and
   // Windows apps are for a computer, so the way to send the Apps page there, not their files and not the owner's hint

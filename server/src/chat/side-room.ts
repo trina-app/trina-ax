@@ -6,6 +6,7 @@ import type { FileService } from '../files/service'
 import { atLeast, isStaff, loadPrincipal, type Principal } from '../policy/access'
 import { getTeamSettings } from '../admin/settings'
 import { groupName } from '../rooms/store'
+import { activeProjectOf } from '../rooms/project-link'
 import type { SideRoomPrompt } from './prompt'
 
 /** The room this chat was opened from, while its person is still in that room and the room is not archived; else null.
@@ -16,12 +17,12 @@ export function sideRoomOf(db: Database, chatId: string, userId: string, files?:
     JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = c.user_id WHERE c.id = ? AND c.user_id = ?`).get(chatId, userId) as (SideRoomPrompt & { group_id: string | null }) | null
   if (!r) return null
   const save = files ? savePlaceFor(db, files, r, userId) : undefined
-  return { id: r.id, kind: r.kind, name: r.kind === 'dm' ? null : r.name || groupName(db, r), ...(save ? { saveIn: save.path } : {}), ...(save?.shareWith?.length ? { shareWith: save.shareWith } : {}) }
+  return { id: r.id, kind: r.kind, name: r.kind === 'dm' ? null : r.name || groupName(db, r), ...(save ? { saveIn: save.path } : {}), ...(save?.shareWith?.length ? { shareWith: save.shareWith } : {}), ...(save?.project ? { project: { name: save.project, folderPath: save.path } } : {}) }
 }
 
 /** Where room content is saved, and (a group chat that only the company-wide folder holds) the room's other people to
  * share the saved file with, by name (savePlaceFor). */
-export interface SavePlace { path: string; shareWith?: string[] }
+export interface SavePlace { path: string; shareWith?: string[]; /** the place is the channel's linked project's folder: its name (rooms/project-link.ts) */ project?: string }
 
 /** The place alone (savePlaceFor's path). */
 export function saveInFor(db: Database, files: FileService, r: { id: string; kind: SideRoomPrompt['kind']; group_id: string | null }, userId: string): string {
@@ -44,6 +45,18 @@ export function saveInFor(db: Database, files: FileService, r: { id: string; kin
  */
 export function savePlaceFor(db: Database, files: FileService, r: { id: string; kind: SideRoomPrompt['kind']; group_id: string | null }, userId: string): SavePlace {
   const own = { path: `users/${userId}` }
+  // a guest asking: their own folder, first, whatever the room (docs/decisions/20261119-channel-project-link.md D7)
+  const asker = loadPrincipal(db, userId)
+  if (!asker || files.rules().isGuest(asker)) return own
+  // a private channel linked to a team project (rooms/project-link.ts): the project's folder, when the asker can open and
+  // write it (the link active, judged now); else the order below
+  if (r.kind === 'group') {
+    const p = activeProjectOf(db, r.id)
+    if (p) {
+      const rules = files.rules(), segs = p.folder_path.split('/')
+      if (rules.canList(asker, segs) && atLeast(rules.access(asker, segs), 'write')) return { path: p.folder_path, project: p.name }
+    }
+  }
   if (r.kind === 'team' && r.group_id) {
     const f = db.query('SELECT f.path FROM groups g JOIN folders f ON f.id = g.folder_id WHERE g.id = ?').get(r.group_id) as { path: string } | null
     if (f?.path) return { path: f.path }

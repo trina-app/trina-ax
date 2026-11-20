@@ -21,6 +21,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { shareReaders } from './share-readers'
 import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { detectCaseInsensitive } from '../policy/resolve'
 import { ext, extractText, isOffice, utf16Kind, utf16Text } from './extract'
 import { globFiles, grepFiles, OfficeCache } from './search'
@@ -44,7 +45,7 @@ import { confidentialTurn, relockWorkedChats } from '../safe-ops/confidential'
 import { safeText, toolErrorText } from '../safe-ops/strings'
 import { which } from '../config'
 import { appendText, imageTokens, isScannedPage, isVisionImage, layerText, modelImage, pageList, pagesToRead, pdfLayer, pdfPageImage, pdfPagePng, PDF_PAGES_PER_READ,
-  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, VISION_SESSION_SHRINK_SHARE, VISION_TURN_FULL_NEW, turnImageCaps, visionBlock,
+  PDF_PAGES_WITHOUT_RANGE, PDF_TEXT_MAX, READ_OUTPUT_TOKENS, WHOLE_PDF_RULE, textTokens, b64Len, smallForModel, VISION_INPUT_MAX, VISION_SESSION_SHRINK_SHARE, VISION_TURN_FULL_NEW, turnImageCaps, visionBlock,
   visionTools, type VisionBlock, type VisionTools } from './vision'
 import { visionText } from './vision-text'
 import { normalizeForModel } from './vision'
@@ -183,6 +184,20 @@ export const readThisAnswer = (files: TurnFiles, rel: string): string | undefine
 
 /** how long a tool call waits for the engine's stream to say which agent made it (it normally comes first, ms ahead) */
 export const CALL_OWNER_WAIT_MS = 3000
+
+
+/** room kept in a PDF read's result for the notes after the pages (what was not shown, scanned pages) */
+const PDF_NOTES_TOKENS = 600
+/** the start of `s` that fits `tokens` (vision.ts textTokens), cut at a line end when one is near */
+function withinTokens(s: string, tokens: number): string {
+  let t = 0, i = 0
+  for (; i < s.length; i++) {
+    t += s.charCodeAt(i) > 0x7f ? 1 : 0.25
+    if (t > tokens) break
+  }
+  const nl = s.lastIndexOf('\n', i)
+  return s.slice(0, nl > i * 0.8 ? nl : i)
+}
 
 export class TurnFiles {
   /** Set only by TurnRegistry.bind after the trusted launcher starts the engine. */
@@ -540,7 +555,7 @@ export class FileService {
     let shownFiles = 0
     const ents = fs.readdirSync(r.abs, { withFileTypes: true }).sort((x, y) => x.name.localeCompare(y.name))
     for (const e of ents) {
-      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
       const c = [...r.segs, e.name]
       // a sub-folder shows its name only (who else may list it decides who may see that, read-scope.ts {type:'name'})
       if (e.isDirectory()) { if (rules.canList(ctx.user, c)) { lines.push(e.name + '/'); ctx.files.listedNames.add(c.join('/')) } }
@@ -926,7 +941,7 @@ export class FileService {
     const layers = await pdfLayer(src.bytes, tools, ctx.signal)
     const n = layers.length
     const pages = pagesToRead(a.pages, n)
-    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call), or lines of its text layer with offset/limit (the lines grep reports).`, 'pages_required')
+    if (!pages) throw new ToolError(`'${src.rel}' has ${n} pages: read it in parts with pages (for example pages: "1-${PDF_PAGES_WITHOUT_RANGE}"; at most ${PDF_PAGES_PER_READ} pages per call). ${WHOLE_PDF_RULE} To look up one passage only, read the lines of its text layer that grep reports with offset/limit.`, 'pages_required')
 
     const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
     for (const t of notes) appendText(content, t)
@@ -985,16 +1000,28 @@ export class FileService {
     let images = 0
     const blocked: number[] = []
     const later: number[] = []
+    // the pages whose text would take the result past the tool output limit (QA AP-004: 18 dense Korean pages are
+    // about 34,000 tokens, and Claude Code cut the result without a word): they wait for another call, from the
+    // first one that does not fit on (a first page alone too long is cut to fit)
+    const textLater: number[] = []
+    let shownText = 0
     let noPixels = false
     for (const p of pages) {
       ctx.signal?.throwIfAborted()
+      if (textLater.length) { textLater.push(p); continue }
       const layer = layers[p - 1] ?? ''
       const scanned = isScannedPage(layer)
       if (!scanned) {
         const room = PDF_TEXT_MAX - chars
-        const body = layer.replace(/\s+$/, '')
-        text(`--- Page ${p} ---\n${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? own(body.slice(0, room)) + '\n… (page text cut; read fewer pages)' : own(body)}`)
+        const head = `--- Page ${p} ---\n`
+        let body = layer.replace(/\s+$/, '')
+        const tokenRoom = READ_OUTPUT_TOKENS - PDF_NOTES_TOKENS - tokens - textTokens(head)
+        if (textTokens(body) > tokenRoom && shownText) { textLater.push(p); continue }
+        let cut = false
+        if (textTokens(body) > tokenRoom) { body = withinTokens(body, Math.max(0, tokenRoom)); cut = true }
+        text(`${head}${room <= 0 ? '(text not shown: this read already holds the most text; read fewer pages)' : body.length > room ? own(body.slice(0, room)) + '\n… (page text cut; read fewer pages)' : own(body) + (cut ? `\n… (page text cut: the page alone passes the tool output limit; read the rest of its text with offset/limit)` : '')}`)
         chars += Math.min(body.length, Math.max(0, room))
+        shownText++
       }
       if (!scanned && !o.asImages) continue
       const head = scanned ? `--- Page ${p} (no text layer: shown as an image) ---` : `--- Page ${p} as an image ---`
@@ -1037,6 +1064,7 @@ export class FileService {
       images++
     }
     const notes: string[] = []
+    if (textLater.length) notes.push(`Not shown in this read: page${textLater.length === 1 ? '' : 's'} ${pageList(textLater)} (with ${textLater.length === 1 ? 'it' : 'them'} the result would pass the tool output limit). Read ${textLater.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(textLater).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}. ${WHOLE_PDF_RULE}`)
     if (later.length) notes.push(`Not shown in this read: the image${later.length === 1 ? '' : 's'} of page${later.length === 1 ? '' : 's'} ${pageList(later)} (with them the result would pass the tool output limit). Read ${later.length === 1 ? 'it' : 'them'} in another call: pages: "${pageList(later).replace(/ /g, '')}"${o.asImages ? ', as_images: true' : ''}.`)
     if (blocked.length) notes.push(`${visionText(this.db, ctx.user.id, 'scanned', { pages: pageList(blocked) })} ${why(block!)}`)
     else if (noPixels) notes.push(why(block!))

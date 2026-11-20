@@ -27,7 +27,7 @@ import { GuestNoAi, useGuestNoAi, useGuestPlacePath } from '../components/GuestV
 import AiAccessBanner from '../components/chat/AiAccessBanner'
 import { isNoAiReason } from '../lib/aiAccess'
 import { ResultSuggestion } from '../components/onboarding/ResultSuggestion'
-import { ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
+import { ArrowDown, ChevronLeft, Globe, Loader2, RotateCcw, Trash2 } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
@@ -42,7 +42,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
-import { CHAT_ROW, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
+import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
 import { chatEnd, chatPlace, keepChatPlace, showThrough, useChats } from '../store/chats'
@@ -147,6 +147,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // a guest's own place (their project or group chat): where the not-found page sends them
   const guestHome = useGuestPlacePath()
   const [olderBusy, setOlderBusy] = useState(false)
+  // the reader scrolled up far from the newest message: a round button above the box takes them back (QA AP-043)
+  const [away, setAway] = useState(false)
+  useEffect(() => { setAway(false) }, [chatId])
   const models = useEngines((s) => s.models)
   const engines = useEngines((s) => s.engines)
   const loadEngines = useEngines((s) => s.load)
@@ -354,6 +357,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
     const el = scroller.current
     if (!el) return
     list.onScroll()
+    setAway(farFromBottom(el))
     if (el.scrollTop < 200 && thread.nextCursor && !olderBusy) {
       setOlderBusy(true)
       // the message in sight stays where it is (lib/stickToBottom.ts holdPlace)
@@ -659,6 +663,7 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
         {isDesktop() && <BrowserToggle />}
         {chat && phone && <HeaderShare icon onShare={onShare} testId="chat-share" />}
       </div>
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="messages">
         <div ref={content} className="mx-auto max-w-[780px] space-y-6 px-4 py-8 max-md:py-4">
           {olderBusy && <Loader2 size={16} className="mx-auto animate-spin text-faint" aria-label={t('common.loading')} />}
@@ -688,6 +693,12 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           </BoxAnswers.Provider>
           {!chat?.deletedAt && <QueuedMessages chatId={chatId} onFocusComposer={() => composer.current?.focus()} shared={shared && !readOnly ? { audience: shared.audience, kind: shared.kind, othersWaiting: shared.waiting ?? 0 } : undefined} />}
         </div>
+      </div>
+      {away && (
+        <IconButton label={t('chat.toBottom')} onClick={() => { list.toBottom(); setAway(false) }} className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-line bg-surface shadow-md" data-testid="chat-to-bottom">
+          <ArrowDown size={16} aria-hidden />
+        </IconButton>
+      )}
       </div>
       <div className={clsx('mx-auto w-full max-w-[780px] pb-[var(--box-bottom)]', composerInset)} data-bottom-bar>
         {chat?.deletedAt ? (

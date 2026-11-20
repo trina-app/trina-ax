@@ -8,6 +8,7 @@ import { PRODUCT } from '@mycel/shared'
 import { ToolError } from '../../policy/errors'
 import { decode, pinnedRequest, resolveTarget, type ResolveOptions } from '../../tools/web-fetch'
 import type { Reason } from './text'
+import { demoOffline } from '../../demo/fakes/offline'
 
 export const TIMEOUT_MS = 30_000
 export const MAX_BODY = 1024 * 1024
@@ -23,10 +24,15 @@ export interface NetOptions extends Pick<ResolveOptions, 'lookup' | 'testAllow' 
   /** tests: mcp.ts MCP_CALL_IDLE_MS and MCP_CALL_TIMEOUT_MS */
   callIdleMs?: number
   callTimeoutMs?: number
-  /** offline tests only (IntegrationDeps, never HTTP or model input): recorded answers instead of the network (the
-   * services' metadata as probed, oauth.ts). It answers after the scheme check and before the name lookup and the
-   * address rules, which it skips: the recorded hosts are real ones a test must not look up */
-  answerForTests?: (url: string, r: NetRequest) => Promise<{ status: number; headers?: Record<string, string>; body?: string }>
+  /**
+   * A stand-in for the network, set only by this server's own code, never from HTTP, a file or model input: a demo
+   * server's fakes (server/src/demo/fakes/, set by connections/service.ts) and offline tests (IntegrationDeps, recorded
+   * answers such as the services' metadata as probed, oauth.ts). It is asked after the scheme check and before the name
+   * lookup and the address rules, which an answer skips (the hosts it stands for are real ones that must not be looked
+   * up). null: it does not answer that address, and the request goes on as usual (refused on a demo server with fakes,
+   * demo/fakes/offline.ts).
+   */
+  answer?: (url: string, r: NetRequest) => Promise<{ status: number; headers?: Record<string, string>; body?: string | Buffer } | null>
 }
 
 export class NetError extends Error {
@@ -64,10 +70,14 @@ export async function serviceRequest(url: string, r: NetRequest, o: NetOptions =
   let u: URL
   try { u = new URL(url) } catch { throw new NetError('unreachable') }
   if (u.protocol !== 'https:' || u.username || u.password) throw new NetError('unreachable')
-  if (o.answerForTests) {
-    const a = await o.answerForTests(u.href, r)
-    return { status: a.status, headers: a.headers ?? {}, body: Buffer.from(a.body ?? ''), truncated: false }
+  const a = o.answer ? await o.answer(u.href, r) : null
+  if (a) {
+    const body = Buffer.isBuffer(a.body) ? a.body : Buffer.from(a.body ?? '')
+    const max = r.maxBytes ?? MAX_BODY
+    return { status: a.status, headers: a.headers ?? {}, body: body.length > max ? body.subarray(0, max) : body, truncated: body.length > max }
   }
+  // a demo server with fakes: what no fake answers is refused here, before the name lookup (demo/fakes/offline.ts)
+  if (demoOffline()) throw new NetError('unreachable')
   const short = Date.now() + (o.timeoutMs ?? TIMEOUT_MS)
   const max = r.maxBytes ?? MAX_BODY
   const long = r.long

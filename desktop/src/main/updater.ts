@@ -274,7 +274,7 @@ export class DesktopUpdater {
     return false
   }
 
-  /** "이 업데이트는 확인할 수 없어서 설치하지 않았어요" (once per version) */
+  /** "이 업데이트는 안전 확인을 통과하지 못해서 설치하지 않았어요" (once per version) */
   private async notifyRefused(version: string) {
     if (this.noticed.has(version)) return
     this.noticed.add(version)

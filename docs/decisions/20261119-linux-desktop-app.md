@@ -36,8 +36,7 @@
   - It installs an AppArmor profile, so Chromium's sandbox may use user namespaces on Ubuntu 24.04. The after-install
     script loads `/etc/apparmor.d/<executable>`, and after-remove unloads it. Set-uid `chrome-sandbox` is used only
     where user namespaces are missing altogether.
-- **The AppImage is for other distributions, not Ubuntu 24.04.** It has two problems there:
-  - **FUSE 2:** it needs FUSE 2 (`libfuse2t64`), which a fresh Ubuntu 24.04 does not have.
+- **The AppImage is for other distributions, not Ubuntu 24.04.** It has a problem there:
   - **No sandbox:** it cannot ship an AppArmor profile. Its AppRun probes `unshare -Ur true`, and when user namespaces
     are blocked it adds `--no-sandbox` by itself.
 
@@ -46,8 +45,16 @@
   system, install the .deb" and links to the download page. Fedora and Arch allow user namespaces, so the AppImage runs
   sandboxed there.
 
-  electron-builder's static AppImage runtime (`toolsets.appimage`, still beta) drops the FUSE 2 need. We revisit it
-  once it is stable; it is not part of this plan.
+  **The runtime (changed after 0.5.18, QA TC-5356):** 0.5.18 used electron-builder's default legacy AppImage
+  toolset (appimage-12.0.1). Its arm64 runtime is linked against the unversioned `libz.so`, which only zlib's -devel
+  package installs, so the arm64 AppImage stopped on a stock Fedora with "error while loading shared libraries:
+  libz.so" (the x64 runtime names `libz.so.1` and was fine). It also needed FUSE 2 (`libfuse.so.2` and `fusermount`),
+  which a fresh Ubuntu 24.04 and Fedora do not have. Since then `toolsets: { appimage: '1.0.3' }` builds both
+  AppImages with AppImage's static type2 runtime (release 20251108, checksum-pinned by electron-builder): it names no
+  shared library and has libfuse 3 built in, so it needs only a `fusermount3` or `fusermount` program, which GNOME and
+  KDE desktops already have. The squashfs inside is zstd instead of gzip; AppRun and the update files are the same. CI
+  checks both runtimes with `readelf -d` and starts each in a stock Fedora container
+  (`scripts/ci/appimage-runtime-check.sh`).
 - **arm64** is built on the x64 runner. electron-builder builds for the other processor, and the app has no native
   modules on Linux: the only one, `meeting-audio`, is Mac only. The arm64 .deb is then checked on a real arm64 runner
   (see CI). The owner asked for arm64, so it stays in v1.
@@ -152,7 +159,7 @@ This is the path Windows and the Mac use. It needs no new feed, no new key and n
 
 Linux joins "Mac dmg" and "Windows installer":
 
-- **Paths:** the same filter as today, plus `scripts/ci/linux-install-check.sh`.
+- **Paths:** the same filter as today, plus `scripts/ci/linux-install-check.sh` and `scripts/ci/appimage-runtime-check.sh`.
 - **Advisory, not required:** like the existing desktop jobs, these are not required checks and not in the merge
   queue. They are read before a pull request is enqueued (`docs/decisions/20261116-desktop-checks.md`).
 - **Cost:** hosted Linux runners are free for this public repository.
@@ -161,7 +168,7 @@ Linux joins "Mac dmg" and "Windows installer":
 | Job | Runner | What it does | Time |
 |---|---|---|---|
 | **Linux packages (install, update over, uninstall)** | ubuntu-24.04 | Builds and runs the install, update-over and uninstall check below | ~15 min |
-| **Linux package (arm64: install and start)** | ubuntu-24.04-arm | Installs the arm64 .deb from the job above, starts it under xvfb, waits for the first window, then removes it. It builds nothing, so it stays short and runs on every desktop pull request | ~5 min |
+| **Linux package (arm64: install and start)** | ubuntu-24.04-arm | Starts the arm64 AppImage's runtime in a stock Fedora container (`appimage-runtime-check.sh`), installs the arm64 .deb from the job above, starts it under xvfb, waits for the first window, then removes it. It builds nothing, so it stays short and runs on every desktop pull request | ~5 min |
 | **Desktop e2e (Linux, subset)** | ubuntu-24.04 | A chosen set of the existing desktop specs under xvfb (details below) | ~10 min |
 
 **Linux packages job.** It builds two unsigned versions of this commit, `<v>-ci.1` and `<v>-ci.2`, the way the
@@ -169,8 +176,8 @@ Windows job does. For the .deb, a `-` in the version becomes `~` (`0.5.17~ci.2`)
 that form. Each build has an x64 .deb and AppImage; ci.2 also has the arm64 .deb for the next job.
 `linux-install-check.sh` then:
 
-1. **Installs ci.1** with `apt-get install ./…deb`. It checks the files, the menu entry and the loaded AppArmor
-   profile.
+1. **Installs ci.1** with `apt-get install ./…deb`. It checks the files, the menu entry, the icon its `Icon=` names
+   (256 and 512 px PNGs of that size and the scalable SVG under hicolor; QA TC-5353) and the loaded AppArmor profile.
 2. **Starts it:** under `xvfb-run`, with a throwaway `MYCEL_DESKTOP_USER_DATA`. It waits up to 60 s for the first
    window (`xdotool search --sync --name`). It checks that the app runs sandboxed, with no `--no-sandbox` in its
    command line. Then it checks that `xdg-mime query default x-scheme-handler/trina-ax` names `trina-ax.desktop`
@@ -179,8 +186,13 @@ that form. Each build has an x64 .deb and AppImage; ci.2 also has the arm64 .deb
    there, then starts the app again.
 4. **Removes the package:** checks that the files, the menu entry, the profile and the handler are gone and that the
    data folder stays.
-5. **Starts the ci.2 AppImage** with `libfuse2t64` installed. On this stock Ubuntu image the AppImage's AppRun adds
-   `--no-sandbox`, so the check expects the app's ".deb" dialog and a quit, not a window.
+5. **Starts the ci.2 AppImage** with `fuse3` installed (its static runtime needs only `fusermount3`). On this stock
+   Ubuntu image the AppImage's AppRun adds `--no-sandbox`, so the check expects the app's ".deb" dialog and a quit, not
+   a window.
+
+Before that, `appimage-runtime-check.sh` reads both AppImages' runtimes with `readelf -d` and fails on any
+unversioned library (QA TC-5356: `libz.so`), then starts the x86_64 one with `--appimage-version` in a stock Fedora 42
+container; the arm64 job does the same for the arm64 one.
 
 The update-over uses two builds of the same commit, like the Windows job. The AppImage's self-update (download, check,
 replace on quit) is covered by unit tests of the updater configuration and `verifyInstaller`, as Windows' update is,
@@ -201,7 +213,9 @@ and by QA rows. A live update test in CI would need a signed fake feed, so it is
 - **`electron-builder.config.ts`:** a `linux` section with:
   - targets `deb` and `AppImage`, `category: Office`;
   - `executableName`, `artifactName`, `syncDesktopName`, `synopsis` and `maintainer`;
-  - the icon from `build-resources/icon.png`.
+  - the icon from `build-resources/linux-icons/` (16…512 px; QA TC-5353: a lone 1024 px `build-resources/icon.png`
+    was past GNOME's hicolor lookup, which stops at 512, so the grid and dock showed a generic gear), and the scalable
+    SVG through `deb.fpm`.
 
   It also gets `desktopName` in `extraMetadata`. There is no `deb` section: the defaults are right.
 - **Links (`trina-ax://`):** `main.ts` already handles Linux. A link starts a second instance, whose argument goes to

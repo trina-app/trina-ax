@@ -39,14 +39,17 @@ import { parseInput, walk } from '../policy/resolve'
 import { nameFromUrl } from '../tools/save-url'
 import { instructionLike, patternName, teamSegs, type RenameAt } from '../tools/rename-pattern'
 import { badSegment, hiddenEntry } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { mayReplace, TurnFiles } from '../files/service'
 import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
+import { activeProjectOf } from '../rooms/project-link'
+import { isProjectPlainName } from '@mycel/shared'
 import { saveAudienceNote } from './save-audience'
 import { quotesAppOnBranch, readRooms, ROOM_NAMES_ONLY, withoutQuoteLines } from './read-rooms'
 import { formatsSafely } from './share-words'
@@ -117,7 +120,8 @@ import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
-import { isManaged } from '../app-config'
+import { isFreeRoam, isManaged } from '../app-config'
+import { demoRestError, freeRoamTurnError } from '../demo/free-roam'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -928,8 +932,10 @@ export class TurnExec {
     // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
     const guestTurn = isGuestUser(rt.db, spec.userId)
     const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
-    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
-    const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
+    // a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): no web search and no sub-agents either
+    const freeRoam = isFreeRoam(rt.ctx.config)
+    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn && !freeRoam
+    const subagents = !!claude && !guestTurn && !freeRoam && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -1038,6 +1044,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -1109,6 +1116,10 @@ export class TurnExec {
     // (not an answer hidden from this person: they never saw it, chat/shared-answers.ts)
     const cutOff = before?.role === 'assistant' && !this.sharedWithheld.has(before.id) ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
+    // the previous answer was stopped (or failed) mid-answer: the engine was killed before it saved that text in its
+    // session, so a resumed session is told what the person saw (QA AP-030). A fresh session has it in its history.
+    const unfinished = before?.role === 'assistant' && (before.status === 'stopped' || before.status === 'error') && before.content.trim() && !this.sharedWithheld.has(before.id)
+      ? `${stoppedAnswerBlock(before.content, before.status)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
     const hints = !invoked && !this.restricted && !guestTurn && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
@@ -1144,10 +1155,11 @@ export class TurnExec {
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
-      if (!resumed || this.restricted) return message
+      if (!resumed) return message
+      if (this.restricted) return unfinished + message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${unfinished}${message}`
     }
     // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
     // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
@@ -1577,7 +1589,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId) && !isFreeRoam(rt.ctx.config)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -1713,6 +1725,7 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
+    else if (ev.type === 'budget' && ev.demoRest) this.proxyError = demoRestError(L)
     else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: b.params } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
@@ -2792,7 +2805,7 @@ export class TurnExec {
       let ents: fs.Dirent[]
       try { ents = fs.readdirSync(d.abs, { withFileTypes: true }) } catch { continue }
       for (const e of ents) {
-        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+        if (hiddenEntry(e.name, d.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(d.abs, e.name))) continue
         const segs = [...d.segs, e.name], rel = [...d.rel, e.name]
         if (e.isDirectory() ? !rules.canList(me, segs) : !atLeast(rules.access(me, segs), 'read')) continue
         out.push(rel.join('/'))
@@ -2920,6 +2933,22 @@ export class TurnExec {
     // file the same people could read anyway; an existing file, a skill or instruction file still asks
     // (not kept for the turn: the same call once the file exists asks)
     if (!need && !o.noCover && this.askedToSave() && this.newPlainFile(tool, input, o.widen)) return null
+    // a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md D7, the coordinator's
+    // narrow rule): in that channel's own side chat, a NEW document or media file in the linked project's folder that the
+    // person's own message asked to save needs no room card. The wider-audience card is kept: when people outside the
+    // channel can open the place, that card asks (with its counts); its yes is this call's
+    if (!o.noCover && this.askedToSave() && this.linkedProjectPlain(tool, input, o.widen)) {
+      if (need) {
+        // the room's card too (room: true, the #678 combined-card rule): "Always allow" for saving wider alone never
+        // skips it, so other people's channel words never reach people outside the channel with no card at all
+        const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)?.id ?? ''
+        const why = !sameRoomOnly(this, side) ? tr(seenWhy(this, 'roomsSeenWhy'), L) : ''
+        const no = await this.askWidening(need, { details: widenDetails, extra: instruction, ...(why ? { why } : {}), room: true })
+        if (no) return refuse(no.end, { also: `The same card also asked because more people can see '${need.segs.join('/')}' (${need.viewers}) than can see what this chat read; do not save it anywhere else that more people can see`, names: [need.segs.join('/')] })
+        this.roomAllowed.add(key)
+      }
+      return null
+    }
     // the person's "Always allow" for changes after a room read (chat/always-allow.ts; the owner, 2026-11-13): no room
     // card; a save where more people can see still has its own card (with its own "Always allow")
     const roomAlways = alwaysHere(this.alwaysPlace(), 'room_change')
@@ -3105,6 +3134,47 @@ export class TurnExec {
     if (!m || m.auto_sent) return false
     const said = withoutQuoteLines(m.content ?? '')
     return SAVE_ASK.test(said) && !SAVE_NOT.test(said)
+  }
+
+  /**
+   * The linked project's rule (docs/decisions/20261119-channel-project-link.md D7): this turn is the side chat of a
+   * private channel with an active link to a team project the person can open and write (judged now), and the call
+   * makes a NEW file whose name is a document or media kind (shared/src/files/plain-kinds.ts) inside that project's
+   * folder, as the file layer resolves it for the person: no hidden segment, skill, instruction file or managed folder, not
+   * a path an AI turn put in the trash, and a target folder whose readers are no wider than the project folder's own (a
+   * subfolder with an extra share or rule asks). Never a confidential chat, a scheduled run, safe operations, save_url, an
+   * edit, a move or a copy (writeTargetOf's tools only, or a save_room_file / save_chat_file target). The caller checked
+   * the person's own message asked to save. Fails closed.
+   */
+  private linkedProjectPlain(tool: string, input: unknown, widen?: WidenOf): boolean {
+    try {
+      if (!widen || this.spec.clientKind === 'schedule' || safeOpsEnabled() || confidentialChat(this.rt.db, this.spec.chatId)) return false
+      const side = sideRoomOf(this.rt.db, this.spec.chatId, this.spec.userId)
+      if (!side || side.kind !== 'group') return false
+      const p = activeProjectOf(this.rt.db, side.id)
+      if (!p) return false
+      const t = WIDEN_TARGET_TOOLS.has(tool) ? (widen.target ? { path: widen.target, mayBeNew: true } : null) : writeTargetOf(tool, input, (src) => this.sourceRel(src))
+      if (!t?.mayBeNew) return false
+      const fx = this.rt.files.fx, rules = this.rt.files.rules(), me = this.livePrincipal()
+      const project = p.folder_path.split('/')
+      if (!rules.canList(me, project) || !atLeast(rules.access(me, project), 'write')) return false
+      const r = authorize(fx, rules, me, t.path, 'write', { createDirs: true })
+      if (r.exists || componentC(this.rt.ctx).files.aiTrashed(r.rel)) return false
+      const segs = r.segs, folder = segs.slice(0, -1)
+      const fold = (x: string) => { const n = x.normalize('NFC'); return fx.caseInsensitive ? n.toLowerCase() : n }
+      if (folder.length < project.length || project.some((x, i) => fold(x) !== fold(folder[i]!))) return false
+      if (segs.some((x) => x.startsWith('.')) || inSkills(r.rel) || instructionLike(r.rel)) return false
+      if (fx.managed?.managerOf(segs) || fx.managed?.managerOf(folder)) return false
+      if (!isProjectPlainName(segs.at(-1)!)) return false
+      // another project's folder inside this one: never (one project per folder; a nested one would be its own)
+      if (this.rt.db.query('SELECT folder_path AS f FROM projects WHERE id <> ?').all(p.id).some((x) => { const f = fold((x as { f: string }).f); const k = fold(r.rel); return k === f || k.startsWith(f + '/') })) return false
+      // the target folder's readers no wider than the project folder's own (the same reader as widening())
+      if (folder.length > project.length) {
+        const base = new Set(readersOf(this.rt.db, rules, project))
+        if (readersOf(this.rt.db, rules, folder).some((id) => !base.has(id))) return false
+      }
+      return true
+    } catch { return false }
   }
 
   /** A write of a file that is not there yet (no skill, instruction file, hidden name or project folder): what an
@@ -3586,7 +3656,7 @@ export class TurnExec {
           if (!r.exists || !r.st?.isDirectory()) { note(start); return done() }
           let n = 0, files = false
           for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
-            if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+            if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
             const segs = [...r.segs, e.name]
             if (++n > 2000) {
               // too many to look at one by one: the folder's readers, and each folder with its own rules in it by name
@@ -4954,6 +5024,8 @@ export class TurnExec {
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
+    // a free-roam demo: one neutral line for every failure, nothing about the AI account (demo/free-roam.ts)
+    if (this.error && isFreeRoam(this.rt.ctx.config)) this.error = freeRoamTurnError(this.error, this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null

@@ -1,0 +1,1 @@
+- Demo tooling: the free-roam demo's Steepling content (en, ko) at the end of the scripted "Mina's first day" story, a snapshot builder (`scripts/demo/free-roam/build-snapshot.ts`) and a canary. A demo content folder may now hold projects, rooms with past messages, past chats, connections, the welcome inviter and the free-roam bar's suggestions. No change for a normal server.

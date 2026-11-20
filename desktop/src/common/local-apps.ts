@@ -20,8 +20,9 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
+import { LOCAL_APP_PRESETS, localCommandKey, localCommandLines, type LocalAppSpec, type LocalCall, type LocalCliTool, type LocalFailure, type LocalResult } from '@mycel/shared/api'
 import { insideAppDir, withoutAppImage } from './linux'
+import { t, DEFAULT_UI_LOCALE, type UiKey, type UiLocale } from './i18n'
 
 /** the most one answer may be, in bytes: it goes back as one WebSocket frame, and the server's frames end at 16 MB
  * (Bun's maxPayloadLength); a larger one would close the window's socket and leave the call waiting */
@@ -36,6 +37,96 @@ const KILL_AFTER_MS = 2000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
 const HIDE_MIN = 4
 export const HIDDEN_VALUE = '[hidden]'
+
+/** Aside picks one of its accounts when `aside mcp` starts and keeps it until it is started again. When no open Aside
+ * Browser profile uses that account, browser_profiles lists none and its tools answer "none of its profiles use account
+ * u1 … rerun with --account u2" (seen 2026-11-19). For the listed Aside connector (isListedAside) this manager then
+ * starts Aside again with an account that has profiles and tries the call once more (the person types nothing; the
+ * program and the command they confirmed stay the same). When no account has any, the AI gets these words to pass on. */
+export const ASIDE_SIGNED_OUT = 'Aside Browser isn\'t signed in, so Aside cannot reach any browser profile. Tell the person exactly this, in their language and nothing more technical: "Aside Browser isn\'t signed in. Open Aside and sign in, then ask again."'
+
+/** Words for the AI to pass on when a listed app is not open (ego lite, Aside): the sentence for the person in the
+ * app's language, and that it is to be said in theirs, nothing more technical. */
+export const notOpenWords = (sentence: string) => `Nothing ran: the app is not reachable on the person's computer. Tell the person exactly this, in their language and nothing more technical: "${sentence}"`
+
+/** How long the listed ego lite gets to come up after this app opened it, before its call is tried once more. */
+export const EGO_START_WAIT_MS = 15_000
+/** after its process is there, how long its browser service gets to start before the call is tried again */
+const EGO_SETTLE_MS = 2000
+/** ego lite's app on the Mac (its Info.plist CFBundleIdentifier) and its process name */
+export const EGO_BUNDLE_ID = 'com.citrolabs.ego.lite'
+const EGO_PROCESS = 'ego lite'
+/** ego-browser's own words when it cannot reach the app (ego-browser 0.6.3, exit 5). It starts the app itself through
+ * LaunchServices when no ego lite is found ("Failed to start ego lite" when that fails, "cannot find the app" when it is
+ * not installed), and says "Failed to connect to ego_cli bootstrap" when an ego lite it found or started did not take
+ * the call (seen from the packaged desktop app on 2026-11-20, at once, with its "agent sandbox" note). */
+const EGO_DOWN = /Failed to connect to ego_cli bootstrap|Failed to start ego lite/i
+const EGO_MISSING = /Failed to start ego lite: cannot find the app/i
+
+/** The listed ego lite connector's command exactly (LOCAL_APP_PRESETS 'ego-lite'): never a command the person typed. */
+export function isListedEgo(spec: LocalAppSpec): boolean {
+  const preset = LOCAL_APP_PRESETS.find((p) => p.id === 'ego-lite')?.spec
+  return !!preset && localCommandKey(spec) === localCommandKey(preset)
+}
+
+/** What a failed ego-browser run says of the app: not installed, not reachable, or nothing of the kind (null). */
+export function egoDown(run: Pick<CliRun, 'stdout' | 'stderr' | 'code'>): 'missing' | 'down' | null {
+  if (run.code === 0) return null
+  const text = `${run.stdout}\n${run.stderr}`
+  return EGO_MISSING.test(text) ? 'missing' : EGO_DOWN.test(text) ? 'down' : null
+}
+
+/** Aside's own words when its app is not running and it could not start it (Aside CLI: ASIDE_NOT_RUNNING_HINT, and
+ * "Start Aside Browser to use the local host."). Aside starts the app itself otherwise, so only the words are given. */
+const ASIDE_DOWN = /Aside isn't running on this machine|Start Aside Browser to use the local host/i
+export const asideNotRunning = (answer: Record<string, unknown>) => answerTexts(answer).some((x) => ASIDE_DOWN.test(x))
+
+/** The listed Aside connector's command exactly (`aside mcp`, LOCAL_APP_PRESETS): never a command the person typed. */
+export function isListedAside(spec: LocalAppSpec): boolean {
+  const preset = LOCAL_APP_PRESETS.find((p) => p.id === 'aside')?.spec
+  return !!preset && localCommandKey(spec) === localCommandKey(preset)
+}
+
+/** The words of an MCP answer: its text parts and its error message. */
+function answerTexts(answer: Record<string, unknown>): string[] {
+  const result = answer.result as { content?: { type?: string; text?: unknown }[] } | undefined
+  const error = answer.error as { message?: unknown } | undefined
+  return [...(Array.isArray(result?.content) ? result.content.map((c) => (typeof c?.text === 'string' ? c.text : '')) : []), typeof error?.message === 'string' ? error.message : '']
+}
+
+/** An Aside tools/call answer that says its account has no browser profile: browser_profiles with an empty list, or
+ * Aside's own "none of its profiles use account …" error. */
+export function asideAccountMismatch(tool: unknown, answer: Record<string, unknown>): boolean {
+  const texts = answerTexts(answer)
+  if (texts.some((x) => /none of its profiles use account/i.test(x))) return true
+  if (tool !== 'browser_profiles') return false
+  return texts.some((x) => { try { const v = JSON.parse(x) as { profiles?: unknown }; return Array.isArray(v.profiles) && v.profiles.length === 0 } catch { return false } })
+}
+
+/** The account Aside's own message says to use ("rerun with --account u2"), else null. */
+export function asideSuggestedAccount(answer: Record<string, unknown>): string | null {
+  for (const x of answerTexts(answer)) { const m = /--account\s+(u\d+)\b/i.exec(x); if (m) return m[1]!.toLowerCase() }
+  return null
+}
+
+/** The accounts `aside account list --json` shows with browser profiles, signed-in ones first ("u2"), without `not`. */
+export function asideAccountsWithProfiles(json: string, not: string | null = null): string[] {
+  try {
+    const v = JSON.parse(json) as { accounts?: { id?: unknown; hasSession?: unknown; profileBindings?: unknown[] }[] }
+    const list = (Array.isArray(v.accounts) ? v.accounts : []).filter((a) => typeof a.id === 'number' && Array.isArray(a.profileBindings) && a.profileBindings.length > 0)
+    return list.sort((a, b) => Number(b.hasSession === true) - Number(a.hasSession === true)).map((a) => `u${a.id as number}`).filter((u) => u !== not)
+  } catch { return [] }
+}
+
+/** The answer with `note` (ASIDE_SIGNED_OUT by default) added as one more text part (a JSON-RPC error gets the words
+ * in its message). */
+export function withAsideSignedOut(answer: Record<string, unknown>, note = ASIDE_SIGNED_OUT): Record<string, unknown> {
+  const result = answer.result as { content?: unknown[] } | undefined
+  if (result && Array.isArray(result.content)) return { ...answer, result: { ...result, content: [...result.content, { type: 'text', text: note }] } }
+  const error = answer.error as { message?: unknown } | undefined
+  if (error && typeof error === 'object') return { ...answer, error: { ...error, message: `${typeof error.message === 'string' ? error.message : ''}\n\n${note}`.trim() } }
+  return answer
+}
 
 export interface LocalAppsDeps {
   /** The app's own window: "Connect this program?" with the exact command. true only on the person's yes there. */
@@ -53,16 +144,31 @@ export interface LocalAppsDeps {
   searchPath?: () => string[]
   /** a program started or stopped (Settings shows "Running") */
   onChange?: (team: string, id: string, running: boolean) => void
+  /** the person pressed Connect after the call that asked had stopped waiting (the page checks the connection again) */
+  onConfirmed?: (team: string, id: string) => void
+  /** the language of the words for the person (the app's: main/local-apps.ts) */
+  locale?: () => UiLocale
+  /** tests: whether the person's own copy of an app runs now (default: pgrep on the Mac, by process name and user) */
+  appRunning?: (processName: string) => Promise<boolean>
+  /** tests: open a known app by its bundle id, in the background (default: `open -g -b` on the Mac, never a shell).
+   * false: it is not installed. Never called on other systems. */
+  openApp?: (bundleId: string, args: string[]) => Promise<boolean>
+  sleep?: (ms: number) => Promise<void>
+  /** tests: the system (default process.platform) */
+  platform?: string
   now?: () => number
 }
+
+/** A call's confirm stops waiting this long before the call's deadline, so the server hears why (unconfirmed). */
+export const CONFIRM_EARLY_MS = 2000
 
 export const commandHash = (spec: LocalAppSpec) => crypto.createHash('sha256').update(localCommandKey(spec)).digest('hex')
 
 /** where a program named without a path is looked for: PATH, then the places tools install themselves to (an app
  * started from the Dock gets a short PATH on macOS) */
 export function defaultSearchPath(env: NodeJS.ProcessEnv = process.env, home = os.homedir(), platform: string = process.platform): string[] {
-  // Linux also: Ubuntu's snap programs
-  const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
+  // Homebrew's own folder only on the Mac (Apple silicon); Linux also: Ubuntu's snap programs
+  const extra = platform === 'win32' ? [] : [path.join(home, '.local', 'bin'), ...(platform === 'darwin' ? ['/opt/homebrew/bin'] : []), '/usr/local/bin', '/usr/bin', '/bin', ...(platform === 'linux' ? ['/snap/bin'] : [])]
   // never the AppImage's own mount (Linux): its programs are the app's, not the person's
   return [...new Set([...(env.PATH ?? '').split(path.delimiter).filter(Boolean), ...extra])].filter((d) => !insideAppDir(d, env.APPDIR))
 }
@@ -191,6 +297,11 @@ interface Running {
   stderr: string
   exited: boolean
   onExit: Set<(why: string) => void>
+  /** the listed Aside started with `--account` this account (isListedAside) */
+  account?: string
+  /** start the program again before the next request (Aside had no signed-in account with a profile: once the person
+   * signs in, a fresh `aside mcp` picks it) */
+  restartNext?: boolean
 }
 
 const rpcError = (id: unknown, code: number, message: string) => ({ jsonrpc: '2.0', id, error: { code, message } })
@@ -199,13 +310,15 @@ type Answer = { message: Record<string, unknown> | null } | { failure: LocalFail
 
 export class LocalApps {
   private running = new Map<string, Running>()
-  private asking = new Map<string, Promise<boolean>>()
+  private asking = new Map<string, { p: Promise<boolean>; late: boolean }>()
   /** a Cancel in a turn: the same command is not asked again in a turn (a check from Settings asks again) */
   private declined = new Set<string>()
   private calls = new Map<string, AbortController>()
   /** a connection's last initialize params: a program started again (Stop, new settings) under a client that already
    * initialized it is initialized with them before that client's next request */
   private initParams = new Map<string, unknown>()
+  /** the account the listed Aside runs with, per connection, once one with profiles was found (ASIDE_SIGNED_OUT) */
+  private asideAccount = new Map<string, string>()
   private spawn: typeof nodeSpawn
   constructor(private d: LocalAppsDeps) { this.spawn = d.spawn ?? nodeSpawn }
 
@@ -223,7 +336,8 @@ export class LocalApps {
       const ck = this.k(team, call.connectionId)
       if (this.d.confirmed(team, call.connectionId) !== key) {
         if (call.turnId && this.declined.has(`${ck}\u0000${key}`)) return fail('declined', 'Cancel was chosen on this computer')
-        const yes = await this.ask(team, call, key)
+        const yes = await this.askUntil(team, call, key)
+        if (yes === 'late') return fail('unconfirmed', 'the person has not pressed Connect on this computer yet; the window that asks is still open')
         if (!yes) { this.declined.add(`${ck}\u0000${key}`); return fail('declined', 'Cancel was chosen on this computer') }
         this.declined.delete(`${ck}\u0000${key}`)
       }
@@ -246,20 +360,32 @@ export class LocalApps {
     try { return hideValues(text, Object.values(this.d.settings(team, id))) } catch { return text }
   }
 
-  /** One confirm at a time per connection (a turn's calls wait for the same answer). */
-  private ask(team: string, call: LocalCall, key: string): Promise<boolean> {
+  /** One confirm at a time per connection (a turn's calls wait for the same answer). The window stays open after the
+   * call that asked stopped waiting (its deadline, less CONFIRM_EARLY_MS: 'late'); a Connect pressed then is kept and
+   * told (onConfirmed), so the page checks again by itself. */
+  private askUntil(team: string, call: LocalCall, key: string): Promise<boolean | 'late'> {
     const k = `${this.k(team, call.connectionId)}\u0000${key}`
-    let p = this.asking.get(k)
-    if (!p) {
+    let entry = this.asking.get(k)
+    if (!entry) {
       const dirs = (this.d.searchPath ?? defaultSearchPath)()
       const program = resolveProgram(call.spec.command, dirs) ?? call.spec.command
-      p = this.d.confirm({ team, name: call.name, lines: localCommandLines(call.spec), program }).then((yes) => {
-        if (yes) this.d.setConfirmed(team, call.connectionId, key)
+      const e: { p: Promise<boolean>; late: boolean } = { p: Promise.resolve(false), late: false }
+      e.p = this.d.confirm({ team, name: call.name, lines: localCommandLines(call.spec), program }).then((yes) => {
+        if (yes) {
+          this.d.setConfirmed(team, call.connectionId, key)
+          if (e.late) this.d.onConfirmed?.(team, call.connectionId)
+        }
         return yes
       }, () => false).finally(() => this.asking.delete(k))
-      this.asking.set(k, p)
+      this.asking.set(k, e)
+      entry = e
     }
-    return p
+    const e = entry
+    const wait = Math.max(0, call.deadline - CONFIRM_EARLY_MS - (this.d.now ?? Date.now)())
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { e.late = true; resolve('late') }, wait)
+      e.p.then((yes) => { clearTimeout(timer); resolve(yes) })
+    })
   }
 
   // ---------------- adapter 'mcp': an MCP server over stdio ----------------
@@ -272,11 +398,13 @@ export class LocalApps {
     const dirs = (this.d.searchPath ?? defaultSearchPath)()
     const program = resolveProgram(spec.command, dirs)
     if (!program) return { failure: 'start_failed', error: `${spec.command} was not found on this computer` }
+    // the listed Aside with the account found to have profiles: the same program and command, one account chosen
+    const account = isListedAside(spec) ? this.asideAccount.get(ck) : undefined
     let child: ChildProcessWithoutNullStreams
     try {
-      child = this.spawn(program, spec.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
+      child = this.spawn(program, account ? [...spec.args, '--account', account] : spec.args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), detached: process.platform !== 'win32', windowsHide: true }) as ChildProcessWithoutNullStreams
     } catch (e) { return { failure: 'start_failed', error: e instanceof Error ? e.message : String(e) } }
-    const r: Running = { key, child, waiting: new Map(), init: null, initializing: null, initialized: false, stderr: '', exited: false, onExit: new Set() }
+    const r: Running = { key, child, waiting: new Map(), init: null, initializing: null, initialized: false, stderr: '', exited: false, onExit: new Set(), account }
     this.running.set(ck, r)
     let buf = ''
     child.stdout.setEncoding('utf8')
@@ -297,7 +425,8 @@ export class LocalApps {
       r.exited = true
       if (this.running.get(ck) === r) this.running.delete(ck)
       for (const f of r.onExit) f(why)
-      this.d.onChange?.(team, call.connectionId, false)
+      // started again meanwhile (restartNext): it still runs
+      if (!this.running.has(ck)) this.d.onChange?.(team, call.connectionId, false)
     }
     child.on('error', (e) => gone(e.message))
     child.on('exit', (code, signal) => gone(`the program stopped (${signal ?? `exit ${code}`})${r.stderr.trim() ? `: ${r.stderr.trim().split('\n').slice(-3).join(' ')}` : ''}`))
@@ -338,14 +467,17 @@ export class LocalApps {
     })
   }
 
-  private async passMcp(team: string, call: LocalCall, key: string, signal: AbortSignal): Promise<Answer> {
+  private async passMcp(team: string, call: LocalCall, key: string, signal: AbortSignal, retried = false): Promise<Answer> {
     const m = call.message
+    const ck = this.k(team, call.connectionId)
+    // Aside had no signed-in account with a profile last time: a fresh process, so an account signed in since is used
+    const stale = this.running.get(ck)
+    if (stale?.restartNext && !stale.exited) { this.running.delete(ck); this.asideAccount.delete(ck); this.kill(stale) }
     const started = this.start(team, call, key)
     if ('failure' in started) return started
     const r = started
     const method = typeof m.method === 'string' ? m.method : ''
     const isRequest = m.id !== undefined && m.id !== null
-    const ck = this.k(team, call.connectionId)
     // one initialize per process: a later client gets the first answer under its own id
     const init = async (params: unknown): Promise<Answer | null> => {
       if (r.init) return null
@@ -375,7 +507,48 @@ export class LocalApps {
       if (failed) return failed
     }
     if (!r.initialized) { r.initialized = true; this.write(r, { jsonrpc: '2.0', method: 'notifications/initialized' }) }
-    return this.request(r, m, call.deadline, signal)
+    const answer = await this.request(r, m, call.deadline, signal)
+    if (method === 'tools/call' && isListedAside(call.spec) && 'message' in answer && answer.message && asideAccountMismatch((m.params as { name?: unknown } | undefined)?.name, answer.message)) {
+      // Aside's account has no open profile: start it again with one that has (its own message names one, else its
+      // account list) and try once more; with none, say it plainly and start fresh next time
+      const next = retried ? null : asideSuggestedAccount(answer.message) ?? (await this.asideAccounts(team, call, r.account ?? null))[0] ?? null
+      if (next && next !== r.account) {
+        this.asideAccount.set(ck, next)
+        this.running.delete(ck)
+        this.kill(r)
+        return this.passMcp(team, call, key, signal, true)
+      }
+      r.restartNext = true
+      return { message: withAsideSignedOut(answer.message) }
+    }
+    // Aside's app is not running and Aside could not start it: its words, plainly for the person
+    if (method === 'tools/call' && isListedAside(call.spec) && 'message' in answer && answer.message && asideNotRunning(answer.message)) {
+      return { message: withAsideSignedOut(answer.message, notOpenWords(this.say('localApp.asideNotOpen'))) }
+    }
+    return answer
+  }
+
+  /** The listed Aside's accounts with browser profiles (`aside account list --json`, the same program, no shell). */
+  private asideAccounts(team: string, call: LocalCall, not: string | null): Promise<string[]> {
+    const dirs = (this.d.searchPath ?? defaultSearchPath)()
+    const program = resolveProgram(call.spec.command, dirs)
+    if (!program) return Promise.resolve([])
+    return new Promise((resolve) => {
+      let out = '', done = false
+      const finish = () => { if (done) return; done = true; clearTimeout(timer); resolve(asideAccountsWithProfiles(out, not)) }
+      let child: ChildProcessWithoutNullStreams
+      try {
+        child = this.spawn(program, ['account', 'list', '--json'], { shell: false, stdio: ['pipe', 'pipe', 'pipe'], env: envFor(this.d.settings(team, call.connectionId), dirs), cwd: os.homedir(), windowsHide: true }) as ChildProcessWithoutNullStreams
+      } catch { resolve([]); return }
+      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} finish() }, 10_000)
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', (c: string) => { if (out.length < 1024 * 1024) out += c })
+      child.stderr.on('data', () => {})
+      child.on('error', finish)
+      child.on('exit', finish)
+      child.stdin.on('error', () => {})
+      child.stdin.end()
+    })
   }
 
   // ---------------- adapter 'cli': declared tools, this manager is the MCP server ----------------
@@ -395,12 +568,70 @@ export class LocalApps {
         if (!tool) return { message: rpcError(id, -32602, `no tool named ${String(p.name).slice(0, 100)}`) }
         let argv: { args: string[]; stdin: string | null }
         try { argv = cliArgv(tool, p.arguments) } catch (e) { return ok({ content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }], isError: true }) }
-        const run = await this.runCli(team, call, spec, argv, signal)
+        let run = await this.runCli(team, call, spec, argv, signal)
         if ('failure' in run) return run
+        // the listed ego lite whose app is not open: opened here once, then the call once more (nothing ran the first
+        // time: ego-browser stops before the script); still not, plain words for the person
+        let down: 'missing' | 'down' | 'no_answer' | null = isListedEgo(spec) ? egoDown(run) : null
+        if (down === 'down' && !signal.aborted) {
+          const up = await this.bringUpEgo(signal)
+          if (up === 'missing') down = 'missing'
+          else if (up === 'up') {
+            run = await this.runCli(team, call, spec, argv, signal)
+            if ('failure' in run) return run
+            const again = egoDown(run)
+            down = again === 'down' ? 'no_answer' : again
+          }
+        }
+        if (down) {
+          const words = this.say(down === 'missing' ? 'localApp.egoNotInstalled' : down === 'no_answer' ? 'localApp.egoNoAnswer' : 'localApp.egoNotOpen')
+          return ok({ content: [{ type: 'text', text: cliOutputText(run) }, { type: 'text', text: notOpenWords(words) }], isError: true })
+        }
         return ok({ content: [{ type: 'text', text: cliOutputText(run) }], isError: run.code !== 0 })
       }
       default: return { message: rpcError(id, -32601, 'not offered') }
     }
+  }
+
+  private say(key: UiKey) { return t(this.d.locale?.() ?? DEFAULT_UI_LOCALE, key) }
+
+  /** The person's ego lite, up: opened in the background when it is not running (never a shell; its windows are not
+   * touched when it runs), then waited for (EGO_START_WAIT_MS at most). 'up': try the call again; 'not_open': it did
+   * not come up, or this system has no way here; 'missing': not installed. */
+  private async bringUpEgo(signal: AbortSignal): Promise<'up' | 'not_open' | 'missing'> {
+    if ((this.d.platform ?? process.platform) !== 'darwin') return 'not_open'
+    const running = this.d.appRunning ?? ((name: string) => this.exitsZero('/usr/bin/pgrep', ['-x', '-U', String(process.getuid?.() ?? ''), name]))
+    const open = this.d.openApp ?? ((id: string, args: string[]) => this.exitsZero('/usr/bin/open', ['-g', '-b', id, ...(args.length ? ['--args', ...args] : [])]))
+    const sleep = this.d.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)))
+    const now = this.d.now ?? Date.now
+    if (!(await running(EGO_PROCESS))) {
+      // what ego-browser itself passes when it starts the app (seen on its running process)
+      if (!(await open(EGO_BUNDLE_ID, ['--startup-ego-browser-service']))) return 'missing'
+      const until = now() + EGO_START_WAIT_MS
+      while (!(await running(EGO_PROCESS))) {
+        if (signal.aborted || now() >= until) return 'not_open'
+        await sleep(500)
+      }
+    }
+    await sleep(EGO_SETTLE_MS)
+    return signal.aborted ? 'not_open' : 'up'
+  }
+
+  /** A system program with a fixed argument list (no shell), and whether it ended with 0 (10 s at most). */
+  private exitsZero(program: string, args: string[]): Promise<boolean> {
+    return new Promise((resolve) => {
+      let child: ChildProcessWithoutNullStreams
+      try { child = this.spawn(program, args, { shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }) as ChildProcessWithoutNullStreams } catch { resolve(false); return }
+      let done = false
+      const finish = (v: boolean) => { if (done) return; done = true; clearTimeout(timer); resolve(v) }
+      const timer = setTimeout(() => { try { child.kill('SIGKILL') } catch {} finish(false) }, 10_000)
+      child.stdout.on('data', () => {})
+      child.stderr.on('data', () => {})
+      child.on('error', () => finish(false))
+      child.on('exit', (code) => finish(code === 0))
+      child.stdin.on('error', () => {})
+      child.stdin.end()
+    })
   }
 
   private runCli(team: string, call: LocalCall, spec: Extract<LocalAppSpec, { adapter: 'cli' }>, argv: { args: string[]; stdin: string | null }, signal: AbortSignal): Promise<CliRun | { failure: LocalFailure; error: string }> {

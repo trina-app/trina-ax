@@ -90,6 +90,43 @@
    commands and the tests are macOS first). Linux: [20261119-linux-desktop-app.md](20261119-linux-desktop-app.md)
    ("Apps on your computer": the AppImage's environment left out, `/snap/bin`, the keyring check).
 
+## Aside and ego lite as their own connectors (2026-11-19)
+
+- **The owner:** "이정도면 그냥 어사이드 에고 라이트를 슬랙처럼 공식 커넥터로 만들자 아이콘 넣고", then "컴퓨터 앱 연결은 커스텀 커넥터로
+  넣으면 될듯". So Settings › Connectors › Discover has an **Aside** card and an **ego lite** card (their logos, one line, an
+  install hint; `web/src/lib/localApps.ts`), and the generic "An app on your computer" card is gone. Their + (or Connect on
+  their page) adds the preset command at once; the desktop app's one-time confirm follows as before. On the web or the
+  phone the card says "Works in the desktop app" in grey.
+- **Any other program** is a choice in **Add custom connector**: "Where does it run? On the internet / On this computer".
+  A member, who adds no server by its address, gets the button in the desktop app with only "On this computer".
+- **Aside's account (the owner hit it on 2026-11-19).** `aside mcp` picks one of Aside's accounts when it starts. When no
+  open Aside Browser profile uses it, `browser_profiles` lists none and its tools say "none of its profiles use account
+  u1 … rerun with --account u2". For the listed Aside command only (exactly `aside mcp`, never a typed command), the
+  desktop app then starts the same program again with `--account <uN>` (from Aside's message, else the first account with
+  profiles in `aside account list --json`, signed-in first) and runs the call once more. The program and the confirmed
+  command do not change, so nothing is asked again. With no such account the AI tells the person: "Aside Browser isn't
+  signed in. Open Aside and sign in, then ask again." No terminal steps (the owner: "이게 뭔데?").
+- The rules above stay: the person adds it, the one-time confirm, personal only, no shell.
+
+## When the app is closed, or the confirm waits (2026-11-20)
+
+- **ego lite closed.** `ego-browser` starts ego lite itself through LaunchServices when it finds none (its binary has
+  "Failed to start ego lite" and `--startup-ego-browser-service`, the flag the running app carries), but from the
+  packaged 0.5.20 it stopped at once with exit 5, "Failed to connect to ego_cli bootstrap" and an "agent sandbox" note.
+  For the listed ego lite only (never a typed command), the desktop app then opens it once in the background (`open -g
+  -b com.citrolabs.ego.lite --args --startup-ego-browser-service`, no shell; never when it already runs, so nobody's
+  windows are touched), waits up to 15 s, and runs the call once more (nothing ran the first time). Otherwise the AI gets
+  plain words for the person: "ego lite isn't open. Open ego lite, then ask again.", "ego lite isn't installed on this
+  computer. Install it from lite.ego.app, then ask again." or "ego lite is open but isn't answering. Quit ego lite, open
+  it again, then ask again." (the app's language). Windows: the words only.
+- **Aside closed.** Aside starts its own app; when it cannot ("Aside isn't running on this machine"), the AI gets "Aside
+  isn't open. Open Aside, then ask again."
+- **The confirm left open.** A check from Settings waits 90 s. If "Connect this program?" is still open then, the desktop
+  app answers `unconfirmed` just before the deadline and the connector says "Waiting for you to confirm in the desktop
+  app. Press Connect there." (not "The service didn't answer in time"). The window stays open; a Connect pressed later is
+  kept and the page checks the connector again by itself (`DesktopBridge.localApps.onConfirmed`). A turn's first call
+  waits up to 5 minutes for the confirm (was 3).
+
 ## Open questions
 
 - **Keeping the known tools list up to date.** Who checks a tool's command shape, and how a new version reaches desktop

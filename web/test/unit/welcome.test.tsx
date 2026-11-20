@@ -539,7 +539,11 @@ describe('/welcome', () => {
       // the join page's show switch
       expect(m.get('setup-section-team').querySelector('legend')!.textContent).toBe('팀')
       expect(m.get('setup-section-owner').querySelector('legend')!.textContent).toBe('내 계정 · 팀장')
-      expect(m.get('setup-section-team').querySelector('[data-testid="setup-team"]')).not.toBeNull()
+      // the hosted link named the team (team=Acme): shown as set, not a field to type again (owner 2026-11-20); the link
+      // carries no language, so the team language is still picked here
+      expect(m.get('setup-section-team').querySelector('[data-testid="setup-team"]')).toBeNull()
+      expect(m.get('setup-team-name').textContent).toBe('Acme')
+      expect(m.get('setup-section-team').querySelector('[data-testid="setup-locale"]')).not.toBeNull()
       expect(m.get('setup-section-owner').textContent).toContain('내 이름')
       expect(doc.body.querySelectorAll('input[autocomplete="new-password"]')).toHaveLength(1)
       expect(m.html()).not.toContain('비밀번호 확인')
@@ -547,13 +551,13 @@ describe('/welcome', () => {
       await m.click('setup-password-show')
       expect(m.get('setup-password').getAttribute('type')).toBe('text')
       expect(m.get('setup-password-show').getAttribute('aria-pressed')).toBe('true')
-      await m.type('setup-team', 'Acme')
       await m.type('setup-name', '올가')
       await m.type('setup-username', 'olga')
       await m.type('setup-password', 'a long password 1')
       await m.click('setup-submit')
       await m.until(() => at(m) === '/welcome', 'the welcome steps')
       expect(called('POST /api/setup')).toHaveLength(1)
+      expect(called('POST /api/setup')[0]!.body.teamName).toBe('Acme')
       expect(called('POST /api/setup')[0]!.body.owner).toEqual({ username: 'olga', name: '올가', password: 'a long password 1' })
       expect(setupSite()).toBe('https://acme.example/')
     } finally {

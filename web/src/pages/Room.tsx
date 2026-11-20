@@ -36,7 +36,7 @@ import { Link, useLocation, useNavigate, useNavigationType, useParams, type Navi
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
+import { isPrivateChannel, readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
 import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
@@ -351,6 +351,16 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     }
   }, [covering, pair, threadId, sideOpen, closeThread, closeSide])
   usePeopleList()
+  // a private channel: its project link (Room.project) is read again when the window comes back, so a link made, gone,
+  // renamed or a folder lost elsewhere shows without a reload (D4 client refetch)
+  const channelHere = !!room && isPrivateChannel(room)
+  useEffect(() => {
+    if (!channelHere) return
+    const again = () => { if (document.visibilityState !== 'hidden') void useRooms.getState().fetchRoom(roomId).catch(() => {}) }
+    window.addEventListener('focus', again)
+    const offWindow = onWindowFocus(again)
+    return () => { window.removeEventListener('focus', again); offWindow() }
+  }, [channelHere, roomId])
   // opened while I hid it (a link, a notice, the full list): it is in my lists again. Only as it opens, and only when
   // that was a choice (openedByChoice): hiding it from here leaves the room in place of this entry (store/rooms.ts
   // setHidden), another device hiding it while it is on screen keeps it hidden, and Back or a reload does not bring it
@@ -573,6 +583,17 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {room?.groupFolder && (
             <Tooltip label={t('rooms.groupFilesTip', { name: room.groupFolder.split('/').pop() ?? room.groupFolder })}>
               <Link to={`/files?path=${encodeURIComponent(room.groupFolder)}`} aria-label={t('rooms.groupFiles')} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-group-files">
+                <Folder size={15} aria-hidden />
+                <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
+              </Link>
+            </Tooltip>
+          )}
+          {/* a private channel linked to a project I can open: the project's folder, the same button in the same place
+              (Room.project; docs/decisions/20261119-channel-project-link.md). Its tap reads the room again too: a
+              link gone meanwhile hides the button */}
+          {room?.project && !room.groupFolder && (
+            <Tooltip label={t('rooms.projectFilesTip', { name: room.project.name })}>
+              <Link to={`/files?path=${encodeURIComponent(room.project.folderPath)}`} onClick={() => void useRooms.getState().fetchRoom(roomId).catch(() => {})} aria-label={t('rooms.projectFilesTip', { name: room.project.name })} className={buttonClass({ variant: 'ghost', size: 'sm', className: 'touch-hit shrink-0 max-md:ml-auto max-md:px-0' })} data-testid="room-project-files">
                 <Folder size={15} aria-hidden />
                 <span className="max-md:hidden">{t('rooms.groupFiles')}</span>
               </Link>

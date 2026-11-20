@@ -103,8 +103,12 @@ export function useRecorder() {
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
   const ctx = useRef<AudioContext | null>(null)
   const resolveStop = useRef<((f: File | null) => void) | null>(null)
+  /** ends startOutside's silence check */
+  const stopOutside = useRef<(() => void) | null>(null)
 
   const cleanup = () => {
+    stopOutside.current?.()
+    stopOutside.current = null
     cancelAnimationFrame(raf.current)
     if (timer.current) clearInterval(timer.current)
     stream.current?.getTracks().forEach((t) => t.stop())
@@ -199,6 +203,43 @@ export function useRecorder() {
     return { live: !!live }
   }
 
+  /** A recording whose microphone another part holds (the phone app's own speech recognizer, lib/phoneDictation.ts):
+   * no sound here, the time and the wave as always; `level` takes the input level (0 to 1) as it comes. stop() hands
+   * over no file. */
+  const startOutside = (): { level: (lv: number) => void } => {
+    rec.current = null
+    const t0 = Date.now()
+    let heard = false
+    let said = false
+    let alive = true
+    const silentCheck = setInterval(() => {
+      if (!alive || heard || said) return
+      if (nothingHeard({ heard, running: true, elapsedMs: Date.now() - t0 })) {
+        said = true
+        setSilent(true)
+      }
+    }, 250)
+    setSeconds(0)
+    timer.current = setInterval(() => setSeconds(Math.floor((Date.now() - t0) / 1000)), 250)
+    // cleanup() clears the timer; the silence check goes with it
+    stopOutside.current = () => {
+      alive = false
+      clearInterval(silentCheck)
+    }
+    setState('recording')
+    return {
+      level: (lv) => {
+        if (!alive) return
+        const v = Math.min(1, Math.max(0, lv))
+        setLevel(v)
+        if (!heard && v > HEARD_LEVEL) {
+          heard = true
+          if (said) setSilent(false)
+        }
+      },
+    }
+  }
+
   /** the whole recording as one file (MediaRecorder): stop() hands it over */
   const startFile = (s: MediaStream) => {
     const mime = pickMime()
@@ -242,5 +283,5 @@ export function useRecorder() {
     setState('idle')
   }
 
-  return { state, seconds, level, silent, start, stop, cancel }
+  return { state, seconds, level, silent, start, startOutside, stop, cancel }
 }

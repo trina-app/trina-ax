@@ -22,6 +22,7 @@ import { roomNotifyOut } from './alerts'
 import { parseStored, unescapeMarkdown } from './apps/card'
 import { iconsOf } from './apps/icon'
 import { linkPreviewsFor, prepareLinkPreviews, type LinkPrep } from './link-previews'
+import { eventProjectsFor, mayLinkProject, projectForViewer } from './project-link'
 import { answerFilePaths, RoomEventLine, ROOM_QUOTE_EXCERPT_MAX, ROOM_REACTION_NAMES, type Room, type RoomFile, type RoomKind, type RoomLastMessage, type RoomMember, type RoomMessage, type RoomQuote, type RoomReaction, type RoomThreadSummary, type UserRef, RoomAppKind, RoomAppPreset, type RoomAppRef } from '@mycel/shared/api'
 
 export const MAX_UNREAD = 999
@@ -66,6 +67,10 @@ export type EventData =
   | { type: 'left' }
   | { type: 'removed'; userId: string }
   | { type: 'joined' }
+  /** a private channel linked to a team project, or unlinked (rooms/project-link.ts): the project by id, its name read
+   * per viewer when shown (only to someone who can open it) */
+  | { type: 'project_linked'; projectId: string }
+  | { type: 'project_unlinked'; projectId: string }
 export interface FileRow { id: string; room_id: string; user_id: string | null; message_id: string | null; name: string; size: number; mime: string; kind: RoomFile['kind']; width: number | null; height: number | null; sha256: string; thumb: number; created_at: string; team_path?: string | null; team_stamp?: string | null }
 
 export const MSG_COLS = 'id, room_id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, reply_to_id, mentions, client_id, created_at, edited_at, deleted_at, event, thread_root_id, thread_root_seq, also_in_room, mentions_all, answer_at, answer_cut, app_id, app_card, app_quiet, link_previews'
@@ -178,13 +183,15 @@ export function parseEvent(s: string | null): EventData | null {
       case 'left': return { type: 'left' }
       case 'joined': return { type: 'joined' }
       case 'removed': return typeof v.userId === 'string' ? { type: 'removed', userId: v.userId } : null
+      case 'project_linked': case 'project_unlinked': return typeof v.projectId === 'string' ? { type: v.type, projectId: v.projectId } : null
     }
   } catch { /* not an event this build reads */ }
   return null
 }
 const eventUserIds = (e: EventData | null): string[] => (!e ? [] : e.type === 'created' || e.type === 'added' ? e.userIds : e.type === 'removed' ? [e.userId] : [])
-/** The event line as the app gets it: the people by name as they are now (an account that is gone is left out). */
-function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
+/** The event line as the app gets it: the people by name as they are now (an account that is gone is left out); a
+ * project by name only when this viewer can open it now (`projects`, rooms/project-link.ts eventProjectsFor). */
+function eventOut(e: EventData, people: Map<string, UserRef>, projects: Map<string, { id: string; name: string }> = new Map()): RoomEventLine {
   const refs = (ids: string[]) => ids.map((id) => people.get(id)).filter((x): x is UserRef => !!x)
   switch (e.type) {
     case 'created': return { type: 'created', users: refs(e.userIds) }
@@ -193,6 +200,7 @@ function eventOut(e: EventData, people: Map<string, UserRef>): RoomEventLine {
     case 'left': return { type: 'left' }
     case 'joined': return { type: 'joined' }
     case 'removed': return { type: 'removed', user: people.get(e.userId) ?? null }
+    case 'project_linked': case 'project_unlinked': return { type: e.type, project: projects.get(e.projectId) ?? null }
   }
 }
 
@@ -269,6 +277,9 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
   const replyRoots = [...new Set(rows.map((r) => r.thread_root_id).filter((x): x is string => !!x))]
   const followed = new Set(replyRoots.length ? (db.query(`SELECT root_id FROM room_thread_follows WHERE user_id = ? AND root_id IN (${replyRoots.map(() => '?').join(',')})`).all(viewer.user_id, ...replyRoots) as { root_id: string }[]).map((r) => r.root_id) : [])
   const people = refsOf(db, [...rows.flatMap((r) => [r.author_id, r.asked_by]), ...[...quotes.values()].map((q) => q.author_id), ...[...events.values()].flatMap(eventUserIds)])
+  // the projects the page's link lines name, for this viewer (only those they can open now)
+  const linkIds = [...events.values()].flatMap((e) => (e.type === 'project_linked' || e.type === 'project_unlinked' ? [e.projectId] : []))
+  const projects = linkIds.length ? eventProjectsFor(db, linkIds, viewer.user_id) : undefined
   // answers people sent from their own AI chat with files attached: which of the answer's links each copy stands for
   const attached = attachedLinksOn(db, rows.filter((r) => sharedAnswerOf(r) && files.has(r.id)), files)
   // the room AI's earlier answers (author_kind 'ai'), and answers people sent from their own AI chat (sharedAnswerOf):
@@ -287,7 +298,7 @@ function shownOut(db: Database, rows: readonly MessageRow[], viewer: MemberRow, 
       return {
         id: r.id, roomId: r.room_id, seq: r.seq, authorKind: 'user', author: ev && r.author_id ? people.get(r.author_id) ?? null : null, askedBy: null,
         visibility: 'room', body: '', replyTo: null, mentions: [], files: [], createdAt: r.created_at, editedAt: null, deletedAt: null,
-        event: ev ? eventOut(ev, people) : { type: 'unknown' },
+        event: ev ? eventOut(ev, people, projects) : { type: 'unknown' },
       }
     }
     let replyTo: RoomQuote | null = null
@@ -588,6 +599,10 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
   const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
+  // a private channel linked to a team project (rooms/project-link.ts): the project for a viewer who can open it, and
+  // whether they may link one
+  const project = room.kind === 'group' ? projectForViewer(db, room, viewer.user_id, rules) : undefined
+  const canLinkProject = room.kind === 'group' && !project && mayLinkProject(db, room, viewer.user_id, rules)
   return {
     id: room.id, kind: room.kind, name, canRename: mayRename(db, room, viewer.user_id), managerId: managerOf(db, room), canManageApps: mayManageApps(db, room, viewer.user_id), groupId: room.kind === 'team' ? room.group_id : null, memberCount,
     peers,
@@ -600,6 +615,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(folder ? { folderId: folder } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
     ...(groupFolder ? { groupFolder } : {}),
+    ...(project ? { project } : {}),
+    ...(canLinkProject ? { canLinkProject: true as const } : {}),
   }
 }
 

@@ -251,6 +251,7 @@ function serveUi(req: Request): Response {
 const fromShell = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.shell.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromChrome = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.chrome.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromHostbar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.hostbar.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
+const fromFindBar = (e: IpcMainEvent | IpcMainInvokeEvent) => Boolean(win && e.sender === win.findBar.view.webContents && e.senderFrame && isOwnUiUrl(e.senderFrame.url))
 const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
   Boolean(
     win &&
@@ -263,7 +264,7 @@ const fromApp = (e: IpcMainEvent | IpcMainInvokeEvent) =>
 function registerIpc() {
   ipcMain.on('ui:strings', (e) => {
     const L = locale()
-    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) ? { locale: L, strings: STRINGS[L] } : null
+    e.returnValue = fromShell(e) || fromChrome(e) || fromHostbar(e) || fromFindBar(e) ? { locale: L, strings: STRINGS[L] } : null
   })
   // welcome / team list
   ipcMain.handle('ui:welcome-state', (e) => (fromShell(e) ? win!.welcomeState() : null))
@@ -277,6 +278,11 @@ function registerIpc() {
   // the host strip above the team's sign-in pages
   ipcMain.handle('ui:hostbar-state', (e) => (fromHostbar(e) ? win!.hostbarState() : null))
   ipcMain.on('ui:hostbar-teams', (e) => fromHostbar(e) && win!.showWelcome())
+  // the find bar (Cmd/Ctrl+F): its text, next / previous, close (main/find-bar.ts)
+  ipcMain.handle('ui:find-state', (e) => (fromFindBar(e) ? win!.findBar.state() : null))
+  ipcMain.on('ui:find-query', (e, text: unknown) => fromFindBar(e) && typeof text === 'string' && win!.findBar.query(text))
+  ipcMain.on('ui:find-step', (e, forward: unknown) => fromFindBar(e) && win!.findBar.step(forward !== false))
+  ipcMain.on('ui:find-close', (e) => fromFindBar(e) && win!.findBar.close(true))
   ipcMain.handle('ui:remove-team', (e, id: string) => (fromShell(e) ? win!.removeTeam(String(id)) : null))
   ipcMain.on('ui:open-team', (e, id: string) => fromShell(e) && void win!.openTeam(String(id)))
   // screen ④: the person's answer for the host it showed (AppWindow.answerLink)
@@ -523,7 +529,13 @@ function buildMenu() {
       : []),
     // every item carries its label from the app's own strings: a role's default label follows the OS language,
     // which would mix two languages in one menu (docs/DECISIONS.md "언어")
-    { label: tr('menu.edit'), submenu: [{ role: 'undo', label: tr('menu.undo') }, { role: 'redo', label: tr('menu.redo') }, { type: 'separator' }, { role: 'cut', label: tr('menu.cut') }, { role: 'copy', label: tr('menu.copy') }, { role: 'paste', label: tr('menu.paste') }, { role: 'selectAll', label: tr('menu.selectAll') }] },
+    { label: tr('menu.edit'), submenu: [{ role: 'undo', label: tr('menu.undo') }, { role: 'redo', label: tr('menu.redo') }, { type: 'separator' }, { role: 'cut', label: tr('menu.cut') }, { role: 'copy', label: tr('menu.copy') }, { role: 'paste', label: tr('menu.paste') }, { role: 'selectAll', label: tr('menu.selectAll') },
+      // the find bar over the screen in front (main/find-bar.ts); a page that takes Cmd/Ctrl+F itself keeps it: the menu
+      // only gets a key the page left (common/find-bar.ts)
+      { type: 'separator' },
+      { id: 'find', label: tr('menu.find'), accelerator: 'CmdOrCtrl+F', click: () => win?.find('open') },
+      { id: 'find-next', label: tr('menu.findNext'), accelerator: 'CmdOrCtrl+G', click: () => win?.find('next') },
+      { id: 'find-prev', label: tr('menu.findPrev'), accelerator: 'Shift+CmdOrCtrl+G', click: () => win?.find('prev') }] },
     {
       label: tr('menu.view'),
       submenu: [
@@ -549,7 +561,9 @@ function buildMenu() {
         { role: 'minimize', label: tr('menu.minimize') },
         ...(process.platform === 'darwin'
           ? [{ role: 'zoom' as const, label: tr('menu.zoom') }, { type: 'separator' as const }, { role: 'front' as const, label: tr('menu.front') }]
-          : [{ role: 'close' as const, label: tr('menu.close') }]),
+          : [{ role: 'close' as const, label: tr('menu.close') },
+              // no tray: closing the last window quits, and Linux had no other way to say Quit (Windows: Alt+F4)
+              ...(process.platform === 'linux' ? [{ type: 'separator' as const }, { role: 'quit' as const, label: tr('menu.quit'), accelerator: 'Ctrl+Q' }] : [])]),
       ],
     },
   ]
@@ -567,6 +581,8 @@ async function createWindow() {
     teamLabel: (team) => win?.teamList().find((x) => x.id === team)?.label ?? '',
     // Settings shows whether the program runs now: told to the open team's page
     onChange: (team, id, running) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-running', { id, running }) },
+    // Connect pressed after the check stopped waiting: the open team's page checks the connection again
+    onConfirmed: (team, id) => { if (win?.team?.id === team && win.app && !win.app.webContents.isDestroyed()) win.app.webContents.send('bridge:local-confirmed', { id }) },
   })
   // the app restarted by itself to install an update: the page and window come back as they were (once)
   const resume = takeResume(app.getPath('userData'))
@@ -595,7 +611,7 @@ async function createWindow() {
   const initial = dev ? process.env.MYCEL_DESKTOP_TEAM : undefined
   // set by the developer for this run: no "not run by us" question
   if (initial) await win.addTeam(initial, true)
-  else await win.openLast(resume?.page ?? null)
+  else if (await win.openLast(resume?.page ?? null, launchLink)) launchLink = null
   if (launchLink) {
     const link = launchLink
     launchLink = null

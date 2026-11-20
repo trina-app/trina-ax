@@ -109,7 +109,7 @@ test('a team limit that stops a guest is not said as their own amount (params.ow
   answer(g.id, 800, 300)
   const b = budgetBlock(h.ctx.db, g.id, 'en')!
   expect(b.budget.subjectType).toBe('team')
-  expect(b.params.own).toBeUndefined()
+  expect((b.params as { own?: true }).own).toBeUndefined()
   expect(b.message).not.toContain('tokens)')
 })
 

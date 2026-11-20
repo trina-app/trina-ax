@@ -2,7 +2,8 @@
 //   unit      tests/unit: server components A–G, shared contracts, desktop logic, integration wiring (bun test)
 //   web       web/test/unit (bun test in the web workspace)
 //   relay     tests/relay: relay conformance + hardening against a real Node relay (production: Node 26; 24+) (about 90 s)
-// Flags: --no-relay (skip the slow relay suite), --only <unit|web|relay>. Engines are never called for real here;
+//   demo-gate demo-gate/test: the free-roam demo gate as a real Node process with fake instances (about 10 s)
+// Flags: --no-relay (skip the slow relay suite), --only <unit|web|relay|demo-gate>. Engines are never called for real here;
 // real-engine, Docker, Playwright and packaged-app runs have their own scripts (see README).
 import path from 'node:path'
 
@@ -24,6 +25,10 @@ const suites: Suite[] = [
   {
     name: 'relay', cmd: ['bun', 'test', 'tests/relay'], cwd: ROOT,
     skip: args.includes('--no-relay') ? 'skipped (--no-relay)' : nodeMajor() < 24 ? 'skipped: needs Node 24+ on PATH (the relay runs on Node; production pins 26)' : null,
+  },
+  {
+    name: 'demo-gate', cmd: ['bun', 'test', 'demo-gate/test'], cwd: ROOT,
+    skip: nodeMajor() < 24 ? 'skipped: needs Node 24+ on PATH (the demo gate runs on Node)' : null,
   },
 ]
 

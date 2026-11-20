@@ -40,3 +40,17 @@ test('merge_pdfs and split_pdf: a page list as a number, every as text', () => {
   expect(SplitPdfInput.safeParse({ file_path: 'a.pdf', every: '2' }).data?.every).toBe(2)
   expect(SplitPdfInput.safeParse({ file_path: 'a.pdf', every: 'two' }).success).toBe(false)
 })
+
+// TC-5347: Claude Code hands a top-level text argument over as the model typed it, quotes included, so page "1" reached
+// the server as the three characters "1" and every tool call with it failed on the live server. Checked with the real
+// engine (Claude Code over MCP). Inside an object or a list the same text arrives clean.
+test('a page with the quotes the model typed around it is the page', () => {
+  expect(stamp('"1"').data?.page).toBe(1)
+  expect(stamp("'12'").data?.page).toBe(12)
+  expect(stamp('\u201c3\u201d').data?.page).toBe(3)
+  expect(stamp(' "last" ').data?.page).toBe('last')
+  for (const bad of ['"first"', '""', '"0"', '"1', '1"', '"1.5"']) expect(stamp(bad).success, bad).toBe(false)
+  expect(SplitPdfInput.safeParse({ file_path: 'a.pdf', every: '"2"' }).data?.every).toBe(2)
+  expect(SplitPdfInput.safeParse({ file_path: 'a.pdf', parts: ['"1-3"', '4-last'] }).data?.parts).toEqual(['1-3', '4-last'])
+  expect(EditPdfInput.safeParse({ file_path: 'a.pdf', operations: [{ stamp_image: { image: 's.png', page: '"2"' } }, { remove_pages: '"4"' }] }).success).toBe(true)
+})

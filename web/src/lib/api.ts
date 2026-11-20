@@ -84,11 +84,27 @@ const afterWrite = async <R,>(init: RequestInit | undefined, run: () => Promise<
   try { return await run() } finally { for (const fn of writeListeners) fn() }
 }
 
+const demoLimitListeners = new Set<() => void>()
+/** Told when a request is refused at a free-roam demo's limit (403, params.reason "demo_limit": a send, a skill run):
+ * store/demo.ts opens the limit dialog and stops the AI message boxes. Returns the unsubscribe. */
+export function onDemoLimit(fn: () => void): () => void {
+  demoLimitListeners.add(fn)
+  return () => { demoLimitListeners.delete(fn) }
+}
+/** a 403's body read once more for its reason (only 403: nothing else carries the demo limit) */
+function noteDemoLimit(res: Response) {
+  if (res.status !== 403 || !demoLimitListeners.size) return
+  void res.clone().json().then((b: { error?: { params?: { reason?: unknown } } }) => {
+    if (b?.error?.params?.reason === 'demo_limit') for (const fn of demoLimitListeners) fn()
+  }, () => {})
+}
+
 // uploads (fetchWithProgress below) are not wrapped: no seat refusal comes that way
 // (an answer that says Trina is updating starts the window's wait for it: lib/serverUpdating.ts)
 const fetchWithWindow = (async (input: RequestInfo | URL, init?: RequestInit) => afterWrite(init, async () => {
   const res = await fetch(input, inWindow(init))
   noteAnswer(res)
+  noteDemoLimit(res)
   return storeSafeError(res)
 })) as typeof fetch
 
@@ -122,6 +138,10 @@ export const isServerUpdating = (e: unknown) => e instanceof ApiError && e.statu
  */
 export function errorText(e: unknown, locale: Locale, networkText: string): string {
   if (e instanceof ApiError) {
+    // a free-roam demo's fence (server/src/demo/guard.ts): one short line, the same everywhere, not an error to fix
+    if (e.body.params?.reason === 'demo_fenced') return t('demo.free.fenced')
+    if (e.body.params?.reason === 'demo_busy') return t('demo.free.busy')
+    if (e.body.params?.reason === 'demo_rest') return t('demo.free.rest')
     const known = ERROR_MESSAGES[e.code]
     // handler-specific messages (e.g. "Someone else saved first.") are kept; default ones follow the UI language
     const isDefault = known && Object.values(known).includes(e.message)

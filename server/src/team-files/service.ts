@@ -20,6 +20,7 @@ import { Denied, ToolError } from '../policy/errors'
 import { inSkills, SKILL_FILES_REFUSAL, SKILLS_DIR, skillRootOf, takeSkillAction, type SkillActionGrant } from '../skills/guard'
 import { recordCarriedSkills, skillOwner, type CarriedSkill } from '../skills/changes'
 import { badSegment, foldKey, hiddenEntry, volumeKey } from '../policy/names'
+import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { skillsUnder } from '../skills/switch-on'
 import { skillEntriesOnDisk } from '../chat/skills'
 import { currentPlan } from '../system/limits'
@@ -34,6 +35,7 @@ import { checkRegular, copyTeamFile, freeName, hashFile, hashOpen, installFile, 
 import { AI_TRASH_MAX_ENTRIES, AiTrashChanged, TrashStranded, aiSkillPath, holdsSkillRoot, instructionFile, sameStamps, stampTree, type Stamp } from './ai-trash'
 import crypto from 'node:crypto'
 import { folderSharesOf } from '../files/folder-shares'
+import { sweepEntry } from '../devenv/srt/hook-sweep'
 import { readerCheck, shareAbove, shareReaders } from '../files/share-readers'
 import { fileSharesOf, linkPeopleIn, sharesForgotten, sharesMoved, sharesNarrowedByMove, sharesPurged, sharesRestored, sharesTrashed, type UnsharedByMove } from '../files/shares'
 
@@ -179,7 +181,7 @@ export class TeamFiles {
     if (!r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a file`, 'not_folder')
     const out: FileEntry[] = []
     for (const e of fs.readdirSync(r.abs, { withFileTypes: true })) {
-      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink()) continue
+      if (hiddenEntry(e.name, r.segs.length) || badSegment(e.name) || e.isSymbolicLink() || isRunPlaceholder(path.join(r.abs, e.name))) continue
       const c = [...r.segs, e.name]
       let st: fs.Stats
       try { st = fs.lstatSync(path.join(r.abs, e.name)) } catch { continue }
@@ -904,6 +906,7 @@ export class TeamFiles {
       }
       throw e
     }
+    this.hookSafe(userId, path.join(this.root, ...target))
     this.moveTextCache(fr.rel, toRel, isDir)
     // what was moved, put aside: the caller settles it (settleAside)
     return o.fresh ? aside : null
@@ -1207,6 +1210,7 @@ export class TeamFiles {
     if (o.dryRun) return { viewersAdded: added }
     this.assertSharedConfirmed(tr.segs, added, o.confirm)
     const { files, bytes } = this.copyTree(user, rules, fr, pr.abs, (tmp) => { verifyChain(this.root, tr.segs, true); fs.renameSync(tmp, tr.abs) }, o)
+    this.hookSafe(userId, tr.abs)
     fileEvent(this.ctx.db, { turnId: null, userId, path: tr.rel, action: 'create', size: bytes, detail: { folder: true, sourcePaths: [fr.rel], widened: added > 0, files: files.length, tool: 'file-screen' } })
     for (const f of files) this.extractText([...tr.segs, ...f.segs].join('/'))
     this.publish([{ path: tr.rel, action: 'mkdir', by: this.by(userId), turnId: null }])
@@ -1309,6 +1313,21 @@ export class TeamFiles {
     return size
   }
 
+  /** A git hook that a move, copy or restore puts in place loses its exec bit (QA TC-5348, devenv/srt/hook-sweep.ts): a
+   * run sweeps only when it starts and ends, and these keep a file's mode. A hook-named link changes only a target the
+   * person who moved it may read (never a personal folder). Off the request (find, async); a sweep that fails is tried
+   * once more, then left to the server's next start (it sweeps the whole team folder). Never fails the move. */
+  private hookSafe(userId: string, abs: string, again = true) {
+    const users = path.join(this.root, 'users')
+    const mayRead = (t: string) => {
+      if (!(t === this.root || t.startsWith(this.root + '/')) || t === users || t.startsWith(users + '/')) return false
+      try { authorize(this.fx, this.rules(), this.principal(userId), path.relative(this.root, t), 'read', { mustExist: true }); return true } catch { return false }
+    }
+    void sweepEntry(abs, { visible: { read: [this.root], deny: [users] }, mayRead, timeoutMs: again ? undefined : 5 * 60_000 }).catch((e) => {
+      this.ctx.log.warn('a git hook could not be made safe after a move', { err: String((e as Error)?.message ?? e), again })
+      if (again) setTimeout(() => this.hookSafe(userId, abs, false), 60_000).unref?.()
+    })
+  }
   private moveTextCache(from: string, to: string, isDir: boolean) {
     const office = this.ctx.files.office
     try {
@@ -1453,6 +1472,15 @@ export class TeamFiles {
       // a folder holding a team project went to the trash: a guest whose one place it was is switched off (admin/guests.ts,
       // through the access-change hooks; the project's rules were parked, no afterAccessChange runs here)
       if (isDir && r.segs[0] !== 'users') runAccessHooks(this.ctx, userId)
+      // the projects it took along: their linked channels lose the Files button and Save to project now
+      // (rooms/project-link.ts: a link of a project in the trash is inactive); required lazily (rooms reach files)
+      if (isDir && r.segs[0] !== 'users') {
+        const marked = (this.ctx.db.query('SELECT id FROM projects WHERE trashed_with = ?').all(id) as { id: string }[]).map((x) => x.id)
+        if (marked.length) {
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          try { (require('../rooms/service') as typeof import('../rooms/service')).roomsOf(this.ctx).projectsChanged(marked) } catch (e) { this.ctx.log.warn('linked channels not told of a trash', { err: e }) }
+        }
+      }
     }
     // the AI's delete: it is in the trash now, with its row, whatever a listener does next; the call says so (its trash
     // id goes into the audit row)
@@ -2213,6 +2241,7 @@ export class TeamFiles {
       sharesRestored(this.ctx.db, t.id, t.original_path, r.rel)
     }
     this.ctx.db.query('UPDATE trash_items SET restored_at = ? WHERE id = ?').run(new Date().toISOString(), id)
+    this.hookSafe(userId, r.abs)
     fileEvent(this.ctx.db, { turnId: null, userId, path: r.rel, action: 'restore', size: t.size, detail: { trashId: id, folder: isDir, originalPath: t.original_path } })
     if (!isDir) this.extractText(r.rel)
     this.publish([{ path: r.rel, action: 'restore', by: this.by(userId), turnId: null }])

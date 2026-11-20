@@ -8,12 +8,14 @@ const ID = '019a5c3e-7b2d-7c11-9f00-3a1b2c3d4e5f'
 const at = { scheme: 'trina-ax', origin: 'https://acme.trina.app', chatId: ID, platform: 'mac' as const, client: 'web' as const, phone: false }
 
 describe('"Open in the app" on a chat', () => {
-  test('a computer browser on macOS or Windows: the desktop link to this chat on this team', () => {
+  test('a computer browser on macOS, Windows or Linux: the desktop link to this chat on this team', () => {
     const href = `trina-ax://open?url=${encodeURIComponent(`https://acme.trina.app/c/${ID}`)}`
     expect(chatOpenInAppHref(at)).toBe(href)
     expect(chatOpenInAppHref({ ...at, platform: 'windows' })).toBe(href)
+    // QA TC-5352: a Linux browser was "other" and never got the item
+    expect(chatOpenInAppHref({ ...at, platform: 'linux' })).toBe(href)
   })
-  test('nowhere else: phones, phone width, Linux, inside the apps', () => {
+  test('nowhere else: phones, phone width, ChromeOS and unknown systems, inside the apps', () => {
     for (const platform of ['ios', 'android', 'other'] as const) expect(chatOpenInAppHref({ ...at, platform })).toBeNull()
     expect(chatOpenInAppHref({ ...at, phone: true })).toBeNull()
     for (const client of ['desktop', 'mobile'] as const) expect(chatOpenInAppHref({ ...at, client })).toBeNull()

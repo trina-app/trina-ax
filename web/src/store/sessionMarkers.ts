@@ -29,7 +29,7 @@ import { desktop } from '../lib/desktop'
 import { mobileApp, setAppBadge } from '../lib/mobile'
 import { slideUrl } from '../lib/deckProgress'
 import { navigateTo } from '../lib/nav'
-import { plainLine, roomTitle, roomWantsMe } from '../lib/rooms'
+import { plainLine, roomNoticeWanted, roomTitle } from '../lib/rooms'
 import { attentionCount, iconBadge, markerOf, NOTIFY_DELAY_MS, stillWorthTelling, type IconBadge, type MarkerReason } from '../lib/sessionMarkers'
 import { t, type MessageKey } from '../i18n'
 import { useChats, type OpenRequest } from './chats'
@@ -239,7 +239,7 @@ export function markReadFrom(token: string) {
 function tellRoom(roomId: string, why: RoomWhy, told?: Told) {
   const r = useRooms.getState().rooms.find((x) => x.id === roomId)
   // read meanwhile (here or on another device), or on screen here: nothing
-  if (!r || viewingHere(roomId) || !roomWantsMe(r, useRooms.getState().alerts?.threadReplies ?? true)) return
+  if (!r || viewingHere(roomId) || !roomNoticeWanted(r, useRooms.getState().alerts?.threadReplies ?? true)) return
   // people's names in a notice on the computer: one plain line (no control or bidirectional characters), capped
   const title = plainLabel(titleOf(r), 120)
   // the message's first line while my "show message preview" is on (Settings › Notifications), else the generic line
@@ -374,7 +374,7 @@ export function stopSessionMarkers() {
 export const currentCount = () => {
   const s = useSessionMarkers.getState()
   const chats = useChats.getState(), rooms = useRooms.getState()
-  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests), threadReplies: rooms.alerts?.threadReplies ?? true })
+  return attentionCount(chats.chats, rooms.rooms, { here: s.visible ? s.onScreen : null, cards: cardChats(chats.requests) })
 }
 
 /** n, whether any is a "?", the AI chats' part (tab title, the rail's and the phone tab's mark) and other unread rooms; re-renders when the
@@ -383,9 +383,8 @@ export function useAttention(): ReturnType<typeof attentionCount> {
   const chats = useChats((s) => s.chats)
   const requests = useChats((s) => s.requests)
   const rooms = useRooms((s) => s.rooms)
-  const threadReplies = useRooms((s) => s.alerts?.threadReplies ?? true)
   const here = useSessionMarkers((s) => (s.visible ? s.onScreen : null))
-  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests), threadReplies }), [chats, rooms, here, requests, threadReplies])
+  return useMemo(() => attentionCount(chats, rooms, { here, cards: cardChats(requests) }), [chats, rooms, here, requests])
 }
 
 /** The AI chats whose row shows "?" now (a question waits on me, or a run stopped and wants a look), in the chat list's

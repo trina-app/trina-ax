@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
 
 const MAC_CHROME = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+const LINUX_FIREFOX = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0'
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
 const dir = process.env.OPEN_APP_SHOTS
 const WIDTHS = [1440, 390] as const
@@ -123,7 +124,9 @@ test.describe('in a Mac browser', () => {
       await shot(p2, `${width}-${scheme}-6-app-signin-done`)
       await p2.getByTestId('app-signin-continue').click()
       await expect(p2).not.toHaveURL(/app-signin/)
-      await expect(p2.getByTestId('composer-input').or(p2.getByTestId('welcome-progress')).first()).toBeVisible()
+      // olga's team is from before the steps were started at setup (no progress row): Home, never the steps
+      await expect(p2.getByTestId('composer-input')).toBeVisible()
+      await expect(p2.getByTestId('welcome-progress')).toHaveCount(0)
       // the same code again: expired, with a way to sign in
       const again = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US', viewport: { width, height: width === 390 ? 844 : 900 }, colorScheme: scheme })
       const p3 = await again.newPage()
@@ -190,6 +193,84 @@ test.describe('in a Mac browser', () => {
     await page.getByTestId('open-app-browser').click()
     await expect(page).toHaveURL(/\/welcome$/)
     await expect(page.getByTestId('welcome-progress')).toBeVisible()
+  })
+})
+
+// A fresh owner who goes on in the app (docs/decisions/20261119-welcome-steps-in-app.md): the setup started the welcome
+// steps on the server, with the link's website, so the app's /app-signin → Continue lands in them, the company profile
+// step has the website, and Home keeps "Continue setup · n/5" while they are unfinished. Screenshots when
+// WELCOME_SHOTS names a folder.
+const welcomeDir = process.env.WELCOME_SHOTS
+test.describe('a fresh owner who goes on in the Mac app', () => {
+  test.use({ userAgent: MAC_CHROME, locale: 'en-US' })
+  for (const width of WIDTHS) for (const scheme of SCHEMES) {
+    test(`the welcome steps open in the app, the website prefilled, then Continue setup on Home · ${width} · ${scheme}`, async ({ page, browser }) => {
+      const viewport = { width, height: width === 390 ? 844 : 900 }
+      const snap = async (p: Page, name: string) => { if (welcomeDir) await p.screenshot({ path: `${welcomeDir}/${width}-${scheme}-${name}.png`, fullPage: true }) }
+      await page.setViewportSize(viewport)
+      await page.emulateMedia({ colorScheme: scheme })
+      await reset(page, { setup: true, teamLocale: 'en' })
+      // the account console's link, with the company website
+      await page.goto('/setup#token=setup-token-0123456789&team=Acme&lang=en&site=acme.example')
+      await page.getByLabel('Your name').fill('Kim Owner')
+      await page.getByLabel('Username').fill('kim')
+      await page.getByLabel('Password', { exact: true }).fill('a long password 1')
+      // the link names the team: "Create account and start" since the setup page asks only for the owner then (#74)
+      await page.getByRole('button', { name: /^Create (team|account) and start$/ }).click()
+      await expect(page).toHaveURL(/\/open-app$/)
+      // the server has the steps already, with the website, before /welcome was ever opened
+      const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
+      expect(progress.site).toBe('https://acme.example/')
+      expect(progress.finishedAt).toBeNull()
+      const code = await codeFor(page)
+      // the desktop app: a new window that never saw this tab's storage
+      const app = await browser.newContext({ userAgent: MAC_CHROME, locale: 'en-US', viewport, colorScheme: scheme })
+      const p = await app.newPage()
+      await fakeDesktop(p)
+      await p.goto(`/app-signin#c=${code}`)
+      await p.getByTestId('app-signin-continue').click()
+      // the welcome steps, at the company profile, with the website from the link
+      await expect(p).toHaveURL(/\/welcome/)
+      await expect(p.getByTestId('welcome-progress')).toBeVisible()
+      await expect(p.getByTestId('composer-input')).toHaveCount(0)
+      const siteField = p.getByTestId('profile-step-site').getByRole('textbox')
+      await expect(siteField).toHaveValue('https://acme.example/')
+      await snap(p, '1-app-welcome-profile-site')
+      // put off: Home, and the way back to the steps stays (the list panel's row on a computer, Home's row on a phone)
+      await p.getByTestId('welcome-profile').getByRole('button', { name: 'Do this later' }).click()
+      await expect(p.getByTestId('welcome-progress')).toBeVisible()
+      await p.goto('/')
+      const resume = width === 390 ? p.getByTestId('welcome-resume-text') : p.getByTestId('setup-row-link')
+      await expect(resume).toContainText('Continue setup')
+      await expect(resume).toContainText(/\d\/\d/)
+      await snap(p, '2-app-home-continue-setup')
+      // the browser tab the owner left: the same steps, the same place
+      await page.goto('/')
+      await expect(page).toHaveURL(/\/welcome/)
+      await expect(page.getByTestId('welcome-progress')).toBeVisible()
+      await app.close()
+    })
+  }
+})
+
+// QA TC-5352 / TC-5072: a Linux browser was "other" and /open-app sent it Home, so it could never hand the sign-in back
+test.describe('in a Linux browser', () => {
+  test.use({ userAgent: LINUX_FIREFOX, locale: 'en-US', viewport: { width: 1440, height: 900 } })
+  test('/open-app offers the Linux app and makes its link; no files line (no Find work files on Linux)', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    await page.goto('/open-app')
+    await expect(page.getByTestId('open-app-button')).toHaveText('Continue in the Linux app')
+    await expect(page.getByTestId('auth-frame')).toContainText('the AI can use programs on this computer')
+    await expect(page.getByTestId('auth-frame')).not.toContainText('find work files')
+    const minted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/auth/app-signin'))
+    await page.getByTestId('open-app-button').click()
+    await minted
+    await expect(page.getByTestId('open-app-after')).toBeVisible()
+    await page.goto('/files?path=users/olga')
+    // the folder has loaded (rows or its empty state), and My files has no line
+    await expect(page.getByTestId('file-table').or(page.getByTestId('files-empty-upload'))).toBeVisible()
+    await expect(page.getByTestId('open-app-line')).toHaveCount(0)
   })
 })
 

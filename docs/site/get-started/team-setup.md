@@ -5,7 +5,7 @@ description: The owner's first steps after making a team: connect AI, the compan
 
 After you make a team, the app takes you, the owner, through a few short steps. Only the owner sees them. Every step can be put off, and the steps resume where you stopped, on any device.
 
-If you made the team in a browser on a Mac or Windows computer, the next page offers **Continue in the Mac app** (or the Windows app): the app signs you in by itself, with no second password, and only the app can find work files on your computer. **Continue in the browser** goes on to the steps here.
+If you made the team in a browser on a Mac or Windows computer, the next page offers **Continue in the Mac app** (or the Windows app): the app signs you in by itself, with no second password, and only the app can find work files on your computer. **Continue in the browser** goes on to the steps here. The steps come with you: in the app they open where you stopped, with the company website from your sign-up link already filled in.
 
 ## The steps
 
@@ -14,7 +14,7 @@ If you made the team in a browser on a Mac or Windows computer, the next page of
 Connect a Claude or ChatGPT subscription, or an API key. Without AI the company profile cannot be read, so this step comes first. **Do this later** leaves the steps; the setup row then says **Connect AI**.
 
 #### Company profile
-Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**.
+Type the company website. The AI reads it and writes one line about the company ("Here's what we found: … · Edit"). You can add an intro file or a company deck with **Add an intro file if you have one**. While the AI reads, there is nothing to press. If it takes more than 90 seconds, **Don't wait, go on** moves to the next step and the reading carries on; come back to this step in the same window to see it.
 
 **Save and continue** saves the profile. It also puts the website's photos and a company intro file into the team's brand folder; the line under the button says so. Nothing else starts by itself.
 
@@ -38,6 +38,7 @@ At the end, **You're all set** offers to make a first result with one of the tea
 - **Continue setup · 2/5** shows near the top of the Trina, Chats, Files and Activity lists beside the bar on the left until the steps are finished. It opens the steps where you stopped. On a phone it is at the top of the **☰** list on the **Trina** tab and of the **Files** tab, and Home shows it as a quiet row under the message box.
 - Opening the app on Home also brings you back to the steps, once per browser session.
 - ✕ hides the row. **Show setup again** in Admin › Home brings it back.
+- Home's team goal card and **Ready in your team** have **Hide**. **Settings › Profile** shows them again (the team goal also from Admin › Home).
 
 ## When setup counts as finished
 

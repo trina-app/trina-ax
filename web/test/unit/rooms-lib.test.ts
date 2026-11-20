@@ -179,6 +179,13 @@ describe('group chats and event lines', () => {
     expect(eventText({ type: 'removed', user: null }, ME, w('en'))).toBe('Ada removed ?')
     // a line this build cannot read: neutral, nobody named
     expect(eventText({ type: 'unknown' }, null, w('ko'))).toBe('대화 정보가 바뀌었어요')
+    // a channel linked to a project (docs/decisions/20261119-channel-project-link.md): named only with the project
+    const LS = { id: '0190f0f0-0000-7000-8000-0000000000a1', name: 'Launch site' }
+    expect(eventText({ type: 'project_linked', project: null }, ME, w('en'))).toBe('Ada linked this channel to a project')
+    expect(eventText({ type: 'project_linked', project: LS }, ME, w('en'))).toBe('Ada linked this channel to the project Launch site')
+    expect(eventText({ type: 'project_unlinked', project: null }, ME, w('en'))).toBe('Ada unlinked this channel from a project')
+    expect(eventText({ type: 'project_unlinked', project: LS }, ME, w('en'))).toBe('Ada unlinked this channel from the project Launch site')
+    expect(eventText({ type: 'project_linked', project: null }, boss, w('ko'))).toBe('대표님이 이 채널을 프로젝트에 연결했어요')
   })
 
   test('an event line is a run of its own and ends the run before it', () => {

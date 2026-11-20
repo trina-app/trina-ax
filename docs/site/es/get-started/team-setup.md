@@ -5,7 +5,7 @@ description: Los primeros pasos del propietario después de crear un equipo: con
 
 Después de crear un equipo, la app le guía a usted, el propietario, por unos pasos cortos. Solo el propietario los ve. Cada paso se puede dejar para más tarde, y los pasos continúan donde los dejó, en cualquier dispositivo.
 
-Si creó el equipo en un navegador de un ordenador Mac o Windows, la página siguiente ofrece **Continuar en la app de Mac** (o **Continuar en la app de Windows**): la app inicia la sesión por sí sola, sin una segunda contraseña, y solo la app puede encontrar archivos de trabajo en su ordenador. **Continuar en el navegador** sigue con los pasos de esta página.
+Si creó el equipo en un navegador de un ordenador Mac o Windows, la página siguiente ofrece **Continuar en la app de Mac** (o **Continuar en la app de Windows**): la app inicia la sesión por sí sola, sin una segunda contraseña, y solo la app puede encontrar archivos de trabajo en su ordenador. **Continuar en el navegador** sigue con los pasos de esta página. Los pasos le acompañan: en la app se abren donde los dejó, con el sitio web de la empresa del enlace de registro ya escrito.
 
 ## Los pasos
 
@@ -14,7 +14,7 @@ Si creó el equipo en un navegador de un ordenador Mac o Windows, la página sig
 Conecte una suscripción de Claude o ChatGPT, o una clave de API. Sin IA no se puede leer el perfil de la empresa, por eso este paso va primero. **Hacerlo más tarde** sale de los pasos; la fila de configuración muestra entonces **Conectar IA**.
 
 #### Perfil de la empresa
-Escriba el sitio web de la empresa. La IA lo lee y escribe una línea sobre la empresa ("Esto es lo que entendimos: … · Editar"). Con **Añadir un archivo de presentación si lo tiene** puede añadir un archivo de presentación o una presentación de la empresa.
+Escriba el sitio web de la empresa. La IA lo lee y escribe una línea sobre la empresa ("Esto es lo que entendimos: … · Editar"). Con **Añadir un archivo de presentación si lo tiene** puede añadir un archivo de presentación o una presentación de la empresa. Mientras la IA lee, no hay nada que pulsar. Si tarda más de 90 segundos, **No esperar, continuar** pasa al paso siguiente y la lectura sigue; vuelva a este paso en la misma ventana para verlo.
 
 **Guardar y seguir** guarda el perfil. También pone las fotos del sitio web y un archivo de presentación de la empresa en la carpeta de marca del equipo; la línea bajo el botón lo indica. No empieza nada más por sí solo.
 
@@ -38,6 +38,7 @@ Al final, **Todo listo** le ofrece crear un primer resultado con una de las habi
 - **Seguir con la configuración · 2/5** aparece cerca de la parte superior de las listas de Trina, Chats, Archivos y Actividad, junto a la barra de la izquierda, hasta que termine los pasos. Abre los pasos donde los dejó. En un teléfono está arriba de la lista **☰** de la pestaña **Trina** y de la pestaña **Archivos**, e Inicio la muestra como una fila discreta bajo el cuadro de mensaje.
 - Al abrir la app en Inicio también vuelve a los pasos, una vez por sesión del navegador.
 - ✕ oculta la fila. **Ver la configuración inicial otra vez** en Administración › Inicio la vuelve a mostrar.
+- La tarjeta del objetivo del equipo y **Preparado en su equipo** en Inicio tienen **Ocultar**. **Configuración › Perfil** los vuelve a mostrar (el objetivo del equipo también desde Administración › Inicio).
 
 ## Cuándo se considera terminada la configuración
 

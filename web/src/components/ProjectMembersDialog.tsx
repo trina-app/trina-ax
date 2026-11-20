@@ -34,6 +34,7 @@ import { useLocale, useT } from '../i18n'
 import { useProjects } from '../store/projects'
 import { toast } from '../store/ui'
 import { isAdmin, useMe } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { refusalKey } from '../lib/sharedChat'
 import { isProjectsFolder } from '../lib/projectFolders'
 import { Button, ErrorNote, IconButton, Modal, Skeleton, confirmDialog, useMediaQuery } from './ui'
@@ -149,6 +150,7 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
   // "Invite a guest" (components/GuestInvite.tsx): for whoever changes the members (its creator, the owner, an admin);
   // the dialog takes this one's place
   const [guestInvite, setGuestInvite] = useState(false)
+  const freeRoam = useFreeRoam()
   // a guest added here is in another place already (409 guest_one_place): said in the dialog, with Make team member
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   const shown = (a: ProjectAccess) => {
@@ -316,7 +318,8 @@ export function ProjectMembersDialog({ project, onClose, onSaved, initial }: { p
         {manages && !access && !loadError && <Skeleton lines={4} />}
         {access && editable && (
           <div className="space-y-2">
-            {!isGuestMe(me) && (
+            {/* a free-roam demo: no guest invites (server/src/demo/guard.ts refuses them) */}
+            {!isGuestMe(me) && !freeRoam && (
               <ul className="-mx-2 max-sm:-mx-1" data-testid="project-guest">
                 <InviteGuestRow place="project" onOpen={() => setGuestInvite(true)} />
               </ul>

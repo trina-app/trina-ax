@@ -36,6 +36,7 @@ import { useMessageBuild } from '../../store/deckBuilds'
 import { readsForDeck } from '../../lib/deckProgress'
 import { useAiAccess } from '../../store/aiAccess'
 import { canChooseEngine, useMe } from '../../store/session'
+import { demoAnswerKey } from '../../lib/freeRoam'
 import { meGuest } from '../../lib/guests'
 import { useEngines } from '../../store/engines'
 import { toast } from '../../store/ui'
@@ -720,8 +721,10 @@ export function AssistantMessage({
   const period = m.error?.params?.period
   const limitWords = !guest && resetsAt && (period === 'day' || period === 'month')
     ? limitUsedUpText({ locale, period, at: limitResetText(new Date(resetsAt), locale, meNow?.server.timeZone), who: 'member' }) : null
+  // a free-roam demo's stop or failure (lib/freeRoam.ts): its own plain line, never an AI account's words
+  const demoKey = m.error ? demoAnswerKey(m.error) : null
   const errText = m.error
-    ? limitWords ?? (guestKey === 'guest.aiLimitUntil' ? (guestTokens
+    ? demoKey ? t(demoKey) : limitWords ?? (guestKey === 'guest.aiLimitUntil' ? (guestTokens
       // a token limit says its amount ("this month's AI limit (5M tokens)"); an older US dollar one reads as before
       ? t('guest.aiLimitTokens', { amount: formatNumber(guestTokens, locale, { notation: 'compact', maximumFractionDigits: 1 }), date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) })
       : t(guestKey, { date: formatResetDay(resetsAt!, locale, meNow?.server.timeZone) }))
