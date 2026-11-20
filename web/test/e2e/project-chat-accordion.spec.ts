@@ -98,3 +98,47 @@ test('a phone: the ▸ has its own place in the row and opens the chats under it
   // (the ▸ turns in 150 ms)
   if (shots) await page.waitForTimeout(300).then(() => page.screenshot({ path: `${shots}/after-phone.png` }))
 })
+
+test.describe('a touch phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  test('taps open a project, its counts show, a tap on a chat opens it and Back returns to the list', async ({ page }) => {
+    await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+    await signIn(page)
+    const hn = await project(page, 'Hacker News automation')
+    await project(page, 'trina-ax')
+    const daily = await chat(page, hn, 'Daily top 30 digest')
+    const scrape = await chat(page, hn, 'Scraper keeps timing out')
+    await page.route('**/api/notifications?*', async (route) => {
+      const r = await route.fetch()
+      const body = (await r.json()) as { items: unknown[]; unreadCount: number; noticeUnreadCount?: number }
+      const items = [mention('n1', scrape, 'Bob', 'Scraper keeps timing out'), mention('n2', scrape, 'Bob', 'Scraper keeps timing out'), mention('n3', daily, 'Dana', 'Daily top 30 digest')]
+      await route.fulfill({ response: r, json: { ...body, items: [...items, ...body.items], unreadCount: body.unreadCount + 3, noticeUnreadCount: (body.noticeUnreadCount ?? 0) + 3 } })
+    })
+    await page.goto('/projects')
+    const hnLi = page.locator('li').filter({ has: page.getByTestId('projects-panel-row').filter({ hasText: 'Hacker News automation' }) })
+    await expect(hnLi.getByTestId('projects-panel-mentions')).toHaveText(/^3/)
+    const fold = hnLi.getByTestId('projects-panel-fold')
+    // a 40px target, left of the project's icon (never on it), the row's name not cut by it
+    const fb = (await fold.boundingBox())!
+    const icon = (await hnLi.getByTestId('projects-panel-row').locator('[aria-hidden]').first().boundingBox())!
+    expect(fb.height).toBeGreaterThanOrEqual(40)
+    expect(fb.x + fb.width).toBeLessThanOrEqual(icon.x + 1)
+    // the count fits on the screen
+    const pill = (await hnLi.getByTestId('projects-panel-mentions').boundingBox())!
+    expect(pill.x + pill.width).toBeLessThanOrEqual(390)
+    await fold.tap()
+    await expect(fold).toHaveAttribute('aria-expanded', 'true')
+    // tapping the ▸ opened the list, it did not open the project page
+    await expect(page).toHaveURL(/\/projects$/)
+    const rows = page.getByTestId('projects-panel-chat')
+    await expect(rows).toHaveCount(2)
+    await expect(page.getByTestId('projects-panel-chat-mentions')).toHaveText([/^2/, /^1/])
+    // no sideways scroll
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+    if (shots) await page.waitForTimeout(300).then(() => page.screenshot({ path: `${shots}/touch-${test.info().project.name}.png` }))
+    await rows.first().tap()
+    await expect(page).toHaveURL(new RegExp(`/c/${scrape}`))
+    await page.goBack()
+    await expect(page.getByTestId('projects-panel-chat')).toHaveCount(2)
+  })
+})
