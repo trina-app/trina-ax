@@ -381,6 +381,8 @@ export const TEXT = {
   postRoomDm: t('{name}님과의 1:1 대화', '1:1 chat with {name}', 'obrolan 1:1 dengan {name}', '{name}さんとの1:1', 'chat 1:1 con {name}', '与{name}的私信'),
   postRoomTeamFolder: t('팀 폴더', 'Team folder', 'Folder tim', 'チームフォルダー', 'Carpeta del equipo', '团队文件夹'),
   postRoomMine: t('내 폴더', 'My folder', 'Folder saya', '自分のフォルダー', 'Mi carpeta', '我的文件夹'),
+  /** a place some people there cannot open, with how many files the answer read there ("내 폴더의 파일 2개") */
+  postRoomPlaceFiles: t('{place}의 파일 {n}개', '{n, plural, one {# file} other {# files}} in {place}', '{n} berkas di {place}', '{place}のファイル{n}件', '{n, plural, one {# archivo} other {# archivos}} en {place}', '{place}中的{n}个文件'),
   /** the place of a source when it is a file shared with the person (a grant read; chat/grant-reads.ts grantOnly) */
   postRoomPlaceSharedFile: t('나에게 공유된 파일', 'a file shared with you', 'berkas yang dibagikan kepada Anda', 'あなたに共有されたファイル', 'un archivo compartido con usted', '共享给你的文件'),
   /** a post linking a file the sender has only through a share (/f/ link): people in the room who cannot open it */
