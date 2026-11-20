@@ -3325,7 +3325,7 @@ export const es: Record<MessageKey, string> = {
   "integrations.who.short": "Una conexión para el equipo, o cada miembro conecta la suya.",
   "integrations.kind.short": "Déjelo así salvo que la ayuda de la app diga API.",
   "integrations.auth.short": "Cómo inicia sesión en la app.",
-  "integrations.app.useShort": "Solo para apps como Google que lo piden.",
+  "integrations.app.useShort": "Solo para apps como Google o GitHub que lo piden.",
   "integrations.write.short": "Si la IA pregunta antes de cambiar algo allí.",
   "integrations.field.headerShort": "Déjelo así salvo que la ayuda de la app indique otro.",
   "integrations.pick.search": "Buscar apps",

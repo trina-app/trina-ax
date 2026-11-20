@@ -3325,7 +3325,7 @@ export const ja: Record<MessageKey, string> = {
   "integrations.who.short": "チームで共有する接続1つ、または各メンバーが自分で接続します。",
   "integrations.kind.short": "アプリのヘルプに API とない限り、そのままにします。",
   "integrations.auth.short": "アプリにログインする方法です。",
-  "integrations.app.useShort": "Google のように求めるアプリだけで使います。",
+  "integrations.app.useShort": "Google や GitHub のように求めるアプリだけで使います。",
   "integrations.write.short": "AI がアプリで何かを変える前に確認するかどうかです。",
   "integrations.field.headerShort": "アプリのヘルプに別の名前がない限り、そのままにします。",
   "integrations.pick.search": "アプリを検索",

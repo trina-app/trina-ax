@@ -3368,7 +3368,7 @@ export const ko = {
   "integrations.who.short": "팀이 함께 쓰는 연결 하나, 또는 멤버마다 각자 연결해요.",
   "integrations.kind.short": "앱 도움말에 API라고 없으면 그대로 두세요.",
   "integrations.auth.short": "앱에 로그인하는 방법이에요.",
-  "integrations.app.useShort": "Google처럼 요구하는 앱에서만 켜세요.",
+  "integrations.app.useShort": "Google이나 GitHub처럼 요구하는 앱에서만 켜세요.",
   "integrations.write.short": "AI가 앱에서 무언가 바꾸기 전에 물을지 정해요.",
   "integrations.field.headerShort": "앱 도움말에 다른 이름이 없으면 그대로 두세요.",
   "integrations.pick.search": "앱 검색",

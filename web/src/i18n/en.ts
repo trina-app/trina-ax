@@ -3370,7 +3370,7 @@ export const en: Record<MessageKey, string> = {
   "integrations.who.short": "One connection for the team, or each member connects their own.",
   "integrations.kind.short": "Leave it unless the app's help says API.",
   "integrations.auth.short": "How it signs in to the app.",
-  "integrations.app.useShort": "Only for apps such as Google that ask for it.",
+  "integrations.app.useShort": "Only for apps such as Google or GitHub that ask for it.",
   "integrations.write.short": "Whether the AI asks before it changes something there.",
   "integrations.field.headerShort": "Leave it unless the app's help names another.",
   "integrations.pick.search": "Search apps",

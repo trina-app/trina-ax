@@ -3369,7 +3369,7 @@ export const id: Record<MessageKey, string> = {
   "integrations.who.short": "Satu koneksi untuk tim, atau tiap anggota menghubungkan miliknya.",
   "integrations.kind.short": "Biarkan, kecuali bantuan aplikasi menyebut API.",
   "integrations.auth.short": "Cara masuk ke aplikasi.",
-  "integrations.app.useShort": "Hanya untuk aplikasi seperti Google yang memintanya.",
+  "integrations.app.useShort": "Hanya untuk aplikasi seperti Google atau GitHub yang memintanya.",
   "integrations.write.short": "Apakah AI bertanya dulu sebelum mengubah sesuatu di sana.",
   "integrations.field.headerShort": "Biarkan, kecuali bantuan aplikasi menyebut nama lain.",
   "integrations.pick.search": "Cari aplikasi",

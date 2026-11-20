@@ -3320,7 +3320,7 @@ export const zh: Record<MessageKey, string> = {
   "integrations.who.short": "团队共用一个连接，或每位成员各自连接。",
   "integrations.kind.short": "除非应用的帮助中写明API，否则保持不变。",
   "integrations.auth.short": "如何登录该应用。",
-  "integrations.app.useShort": "仅用于Google等要求此项的应用。",
+  "integrations.app.useShort": "仅用于Google、GitHub等要求此项的应用。",
   "integrations.write.short": "AI在那里做更改前是否先询问。",
   "integrations.field.headerShort": "除非应用的帮助中指定了其他名称，否则保持不变。",
   "integrations.pick.search": "搜索应用",
