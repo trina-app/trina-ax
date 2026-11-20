@@ -5334,7 +5334,7 @@ export const ja: Record<MessageKey, string> = {
   "files.findWork.stale": "この一覧は1時間以上前のものです。追加を押すと、先にフォルダをもう一度確認します。",
   "files.findWork.lookedAgain": "一覧が1時間以上前のものだったので、もう一度確認しました。チェックはそのままです。追加を押してください。",
   "files.findWork.gone": "チェックしたファイルのうち{n, plural, one {#件} other {#件}}は、このコンピューターにもうありません: {names}",
-  "files.findWork.carryCapped": "チェックしたファイルのうち{n, plural, one {#件} other {#件}}はチェックを外しました。一度に{max}件までです",
+  "files.findWork.carryCapped": "チェックしたファイルのうち{n, plural, one {#件} other {#件}}はチェックを外しました。一度に{max, plural, one {#件} other {#件}}までです",
   "files.findWork.notListed": "チェックしたファイルのうち{n, plural, one {#件} other {#件}}は、新しい一覧にありません: {names}",
   "files.findWork.chooseAgain": "{folder} をもう一度選ぶ",
   "files.findWork.lookAgainHint": "このコンピューターに残っているファイルは、チェックされたまま戻ります。",

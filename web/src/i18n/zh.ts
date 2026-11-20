@@ -5312,7 +5312,7 @@ export const zh: Record<MessageKey, string> = {
   "files.findWork.stale": "此列表已超过一小时。点击添加时会先重新查看文件夹。",
   "files.findWork.lookedAgain": "列表已超过一小时，所以重新查看了一遍。已勾选的文件保持不变，请点击添加。",
   "files.findWork.gone": "{n, plural, one {#个已勾选的文件} other {#个已勾选的文件}}已不在这台电脑上：{names}",
-  "files.findWork.carryCapped": "{n, plural, one {#个已勾选的文件} other {#个已勾选的文件}}已取消勾选：每次最多 {max} 个文件",
+  "files.findWork.carryCapped": "{n, plural, one {#个已勾选的文件} other {#个已勾选的文件}}已取消勾选：每次最多{max, plural, one {#个文件} other {#个文件}}",
   "files.findWork.notListed": "{n, plural, one {#个已勾选的文件} other {#个已勾选的文件}}不在新的查看结果中：{names}",
   "files.findWork.chooseAgain": "重新选择 {folder}",
   "files.findWork.lookAgainHint": "仍在这台电脑上的文件会保持勾选。",
