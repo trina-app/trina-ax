@@ -5,7 +5,7 @@
 <h1>Trina AX</h1>
 
 <b>全團隊共用的 AI。</b><br>
-Trina AX 把團隊的檔案、技能和工具集中在一台伺服器上。每個人的 AI 都從這些出發，<br>AI 開啟的每個檔案，都會以提問者本人的權限檢查。
+Trina AX 把團隊的檔案、技能和工具集中在一台伺服器上。每個人的 AI 一開始就用得上這些，<br>AI 開啟的每個檔案，都會以提問者本人的權限檢查。
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-zh-TW.png" height="40" alt="下載 Mac 版"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-zh-TW.png" height="40" alt="下載 Windows 版"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="在 App Store 下載"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="在 Google Play 下載"></a><br>
 <sub>Linux：.deb 和 AppImage（x64、arm64）請見<a href="https://ax.trina.app/download">下載頁面</a></sub>
@@ -16,31 +16,31 @@ Trina AX 把團隊的檔案、技能和工具集中在一台伺服器上。每�
 
 </div>
 
-https://github.com/user-attachments/assets/b9959343-2b5d-40ab-8cc3-c3cbb9c37c62
+https://github.com/user-attachments/assets/7d423557-0f0f-4b05-a1fa-e8b5ad14f9b8
 
-<p align="center"><sub>新人的 AI 第一天能做到什麼。80 秒的故事。</sub><br>開源（AGPL-3.0）· 自架免費，不限人數<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh-TW.png" height="44" alt="在 GitHub 上為 Trina AX 按 Star"></a><br><sub>接著按頁面頂端的 ☆ Star。按個 Star，能讓更多團隊發現 Trina AX。</sub></p>
+<p align="center"><sub>新人到職第一天，AI 能幫他做到什麼？80 秒的故事。</sub><br>開源（AGPL-3.0）· 自架免費，不限人數<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh-TW.png" height="44" alt="在 GitHub 上為 Trina AX 按 Star"></a><br><sub>接著按頁面頂端的 ☆ Star。按個 Star，就能讓更多團隊發現 Trina AX。</sub></p>
 
 <br>
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
-## 設定一次，整個團隊都能用
+## 只要設定一次，整個團隊就能用
 
 **整個團隊共用一個 AI 帳號。** 連結一組 Claude 或 OpenAI 的 API 金鑰（或條款允許的方案），大家都用它來提問，並可依個人、群組或團隊設定 token 上限。
 
-一個人在團隊伺服器上設定好，每個人的 AI 從第一個問題起就能用上，不論是在瀏覽器還是 App 裡。其他人不用安裝 Claude Code，也不用複製技能；頂多登入自己的帳號。
+只要一個人在團隊伺服器上設定好，每個人的 AI 從第一個問題起就用得上，瀏覽器和 App 都一樣。其他人不用安裝 Claude Code，也不用複製技能，頂多登入自己的帳號。
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-zh-TW-dark.webp"><img src="docs/images/readme/v4/set-up-once-zh-TW-light.webp" width="100%" alt="一個人在 Trina 伺服器上把 AI 帳號、Google、應用程式、公司 API、Slack、技能和團隊檔案設定一次，用 Mac 的 Alex、用 iPhone 的 Mina、用 Windows 的 Sam、用瀏覽器的 Leo 和用 Android 的 Jordan，他們的 AI 就全都能用。"></picture>
 
 | 設定一次 | 每個人都能用到 |
 | --- | --- |
-| **AI 帳號。** 擁有者或管理員連結 Claude 或 OpenAI 的 API 金鑰，或條款允許的方案。 | 整個團隊都能得到回答，並可依個人、群組或團隊設定 token 上限。 |
-| **Google。** 與團隊共用雲端硬碟資料夾，或為 Gmail、Calendar、Docs 和 Sheets 連結一個團隊帳號（共用信箱或行事曆）。 | 你選定的人可以在自己的聊天中使用。每個人也仍然可以連結自己的 Google 帳號。 |
+| **AI 帳號。** 擁有者或管理員連結 Claude 或 OpenAI 的 API 金鑰，或條款允許的方案。 | 整個團隊都能向 AI 提問，並可依個人、群組或團隊設定 token 上限。 |
+| **Google。** 與團隊共用雲端硬碟資料夾，或為 Gmail、Calendar、Docs 和 Sheets 連結一個團隊帳號（共用信箱或行事曆）。 | 你選定的人可以在自己的聊天中使用。每個人也還是能連結自己的 Google 帳號。 |
 | **應用程式。** 應用程式清單裡的 Higgsfield、Notion、Linear、Figma 等，或用網址連結任何 MCP 伺服器，例如 Bright Data。 | 每個人的聊天裡都能用這個應用程式的工具：用一個團隊帳號登入，或每個人以自己的身分登入。 |
-| **公司 API。** 一個網址、一組金鑰和幾行說明。 | AI 會呼叫你們自己的系統，而且僅限該網址底下。 |
+| **公司 API。** 一個網址、一組金鑰和幾行說明。 | AI 會呼叫你們自己的系統，但只限這個網址底下。 |
 | **Slack。** 擁有者或管理員新增一次即可。 | 在私訊或任何已邀請 Trina 的頻道裡問 Trina，用的是你自己的權限。 |
 | **技能。** 寫一份 `SKILL.md`，或直接帶入你 `.claude`、`.codex` 資料夾裡的技能。 | 每個人的 AI 都照同樣的步驟做。輸入 `/` 就能使用。 |
-| **團隊檔案。** 一個雲端硬碟：全公司、群組、專案、團隊技能和個人資料夾。 | 每個人的 AI 都從團隊的檔案出發，而且只開啟這個人能開啟的內容。 |
+| **團隊檔案。** 一個雲端硬碟：全公司、群組、專案、團隊技能和個人資料夾。 | 每個人的 AI 一開始就用得上團隊的檔案，而且只會開啟他自己有權開啟的內容。 |
 
 <table>
 <tr>
@@ -56,13 +56,13 @@ https://github.com/user-attachments/assets/b9959343-2b5d-40ab-8cc3-c3cbb9c37c62
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/divider-dark.png"><img src="docs/images/readme/v4/divider-light.png" width="100%" alt=""></picture>
 
-## 每個人都用它來做什麼
+## 大家都用它做這些事
 
 **在任何聊天室旁邊提問，一鍵送出。** 側邊聊天只有你看得到；按一下，Trina 的回答就送進聊天室。
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 聊天室裡，Mina 在只有她看得到的側邊聊天中請 Trina 把參展規定整理成檢查清單，再送進聊天室。">
 
-**每個人的 AI 只看得到這個人能開啟的內容。** Mina 打不開 Finance，她的 AI 也打不開。[權限如何運作](docs/PERMISSIONS.md)
+**每個人的 AI，都只看得到他自己能開啟的內容。** Mina 打不開 Finance，她的 AI 也打不開。[權限的運作方式](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理員變更誰能開啟 Sales 資料夾，接著查看 Mina 能開啟哪些：Finance 不在她的清單裡。">
 
@@ -70,7 +70,7 @@ https://github.com/user-attachments/assets/b9959343-2b5d-40ab-8cc3-c3cbb9c37c62
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打開 Sam 的專案對話，繼續編輯圖卡；她送出的每一則訊息都以她自己的權限執行。">
 
-**依內容找到檔案。** 每天晚上，團隊的 AI 會讀取共用、群組和專案資料夾中新增和變更的檔案，為每個檔案記下一行說明它是什麼，所以名為 `temp.pdf` 的掃描檔、名為 `IMG_2031.jpg` 的照片，也能依內容找到。它使用團隊的 AI 帳號，從不讀取個人資料夾。在 2,238 個虛構檔案的測試中，Claude Code 回答 184 個問題，有這些說明時找對 181 個，沒有時找對 172 個。
+**看內容就找得到檔案。** 每天晚上，團隊的 AI 會讀取共用、群組和專案資料夾中新增和變更的檔案，為每個檔案記下一行說明它是什麼，所以就算掃描檔叫 `temp.pdf`、照片叫 `IMG_2031.jpg`，也能依內容找到。這項功能用的是團隊的 AI 帳號，而且從不讀取個人資料夾。在 2,238 個虛構檔案的測試中，Claude Code 回答 184 個問題，有這些說明時找對 181 個，沒有時找對 172 個。
 
 <table>
 <tr>
@@ -82,13 +82,13 @@ https://github.com/user-attachments/assets/b9959343-2b5d-40ab-8cc3-c3cbb9c37c62
 <td width="50%"><b>全域搜尋。</b> 用 ⌘K 搜尋聊天、歷史紀錄、專案、檔案、技能和排程任務。<br><br><img src="docs/site/images/search/palette.webp" alt="可搜尋聊天、歷史紀錄、專案、檔案、技能和排程任務的 ⌘K 搜尋"></td>
 </tr>
 <tr>
-<td colspan="2"><b>像 Slack 一樣的團隊聊天，還多了 Trina AI。</b> 全員頻道和各群組頻道、私人頻道、私訊、群組聊天、討論串和 @提及，網頁、桌面和手機都能用。在任何一個聊天旁，都能透過只有你看得到的側邊聊天問 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="團隊聊天裡的 Marketing 頻道：左側是頻道和私訊，有表情回應和 @提及、一則送到頻道的回答，右側開著一個討論串"></td>
+<td colspan="2"><b>像 Slack 一樣的團隊聊天，還多了 Trina AI。</b> 全員頻道和各群組頻道、私人頻道、私訊、群組聊天、討論串和 @提及，網頁、桌面和手機都能用。不管在哪個聊天，都能在旁邊開一個只有你看得到的側邊聊天問 Trina。<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="團隊聊天裡的 Marketing 頻道：左側是頻道和私訊，有表情回應和 @提及、一則送到頻道的回答，右側開著一個討論串"></td>
 </tr>
 </table>
 
 - **每次變更都會保留。** 不論是人改的還是他的 AI 改的，任何版本都能還原。
-- **App 內建瀏覽器。** 在桌面版 App 中，Trina 會在聊天旁的窗格開啟網站，讀取內容、點擊並填寫表單，你可以在一旁看著；按 Stop 就會停止。除非你允許所有網站，否則開啟新網站前會先詢問。
-- **應用程式把更新貼進聊天室。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的更新會以卡片形式送達。
+- **App 內建瀏覽器。** 在桌面版 App 中，Trina 會在聊天旁的窗格開啟網站，讀取內容、點擊並填寫表單，你可以在一旁看著；按 Stop 就會停止。開啟新的網站前會先問你，除非你已允許所有網站。
+- **應用程式把更新貼進聊天室。** Sentry、GitHub、Stripe、Jira 和 HubSpot 的更新會變成一張張卡片送進來。
 - **找出工作檔案。** 桌面版 App 會在你的電腦上找出最近的工作檔案，再把你選取的加進來。
 - **文件。** 讀取韓國 Hangul 文件（HWP/HWPX）的文字；預覽 PDF 和 PowerPoint。
 - **所有裝置。** Mac、Windows、Linux、iPhone、Android 和任何瀏覽器，支援六種語言。
@@ -99,7 +99,7 @@ https://github.com/user-attachments/assets/b9959343-2b5d-40ab-8cc3-c3cbb9c37c62
 
 ## 開始使用
 
-- **在瀏覽器裡試用：** 不用安裝，直接用虛構團隊體驗，AI 已關閉。[開啟示範版](https://ax.trina.app/demo/)
+- **在瀏覽器裡試用：** 不用安裝，直接用虛構團隊體驗，AI 已關閉。[立即體驗](https://ax.trina.app/demo/)
 - **Trina 代管：** 不用自己維運伺服器。14 天免費試用，之後按月付費。[價格](https://ax.trina.app/pricing)
 - **App：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)，或任何瀏覽器。
 - **自架：** 你們自己的 Linux 伺服器、Docker 或辦公室的 Mac。免費。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [辦公室 Mac](docs/OFFICE.en.md) · [交給你的 AI 代理安裝](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
@@ -121,7 +121,7 @@ git clone https://github.com/trina-app/trina-ax.git && cd trina-ax
 bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · alice / teamax-demo-1
 ```
 
-需要 Bun 1.3.12 和 Go 1.27+。這不是正式環境的安裝方式。[完整步驟](docs/QUICKSTART.md)
+需要 Bun 1.3.12 和 Go 1.27+。不適合用在正式環境。[完整步驟](docs/QUICKSTART.md)
 
 <br>
 
@@ -129,7 +129,7 @@ bun install --frozen-lockfile && bun run demo   # → http://127.0.0.1:19760 · 
 
 ## 運作方式
 
-一台伺服器以 Claude Code 和 Codex 作為引擎。不論是人還是他的 AI，每個檔案請求都要經過伺服器上的同一道權限檢查。在 Linux 伺服器上，引擎以專屬帳號在 bubblewrap、Landlock 和 seccomp 沙箱中執行，它的 shell 和內建檔案工具都已關閉：只能透過 Trina 的工具存取檔案。[安全與權限](docs/security-and-permissions.md)
+一台伺服器，用 Claude Code 和 Codex 當引擎。不論是人還是他的 AI，每個檔案請求都要經過伺服器上的同一道權限檢查。在 Linux 伺服器上，引擎以專屬帳號在 bubblewrap、Landlock 和 seccomp 沙箱裡執行，shell 和內建的檔案工具都已關閉，只能透過 Trina 的工具存取檔案。[安全與權限](docs/security-and-permissions.md)
 
 Trina 提供的是工作空間，不是 AI 本身：請連結你們已獲授權使用的 Claude 或 OpenAI 帳號與方案。AI 用量由你連結的帳號計費。
 
@@ -144,7 +144,7 @@ Trina 提供的是工作空間，不是 AI 本身：請連結你們已獲授權�
 - 沒有任何資安認證，也不保證回答完美、一定省錢，或自動做出法務、財務或人資決策。請自行審查產出結果與部署邊界。
 - Linux 伺服器不做 OCR：AI 會把照片和掃描頁面當成圖片來看，但無法用文字搜尋。辦公室 Mac 目前還不能讀取影片。
 - 每個團隊都能讀取 HWP/HWPX 的文字；[預覽和建立 Hangul 文件](resources/hwp/README.md)需要選用的 HWP Preview 外掛（macOS，或 glibc 2.39 以上的 Linux；不支援 Debian 12）。
-- 連線：優先使用本人自己符合資格的連線，其次依序是指派給本人、所屬群組和整個團隊的連線。新建立的 Trina 團隊預設可以讓一個公司連線供整個團隊使用；已儲存的選擇維持不變。**這項軟體設定並不授予 Anthropic 或 OpenAI 條款下的許可。** [連線詳細說明](docs/FAQ.md)
+- 連線：優先使用本人自己符合資格的連線，其次依序是指派給本人、所屬群組和整個團隊的連線。新建立的 Trina 團隊，預設一個公司連線就能給整個團隊使用；已儲存的選擇不會改變。**這項軟體設定並不授予 Anthropic 或 OpenAI 條款下的許可。** [連線詳細說明](docs/FAQ.md)
 - Linux 自架需要 Debian 12/13 或 Ubuntu 24.04、啟用 cgroup v2 的 systemd、amd64 或 arm64 架構、4 GB 記憶體和 20 GB 磁碟空間。安裝、更新和從備份還原，都由你們的 IT 團隊負責。
 
 </details>
@@ -155,7 +155,7 @@ Trina 提供的是工作空間，不是 AI 本身：請連結你們已獲授權�
 
 ## 社群
 
-如果 Trina AX 幫到了你的團隊，在 GitHub 上按個 ⭐，能讓更多團隊找到它。
+如果 Trina AX 幫到了你的團隊，在 GitHub 上按個 ⭐，就能讓更多團隊找到它。
 
 [Discord](https://discord.gg/zUVfSR8MVk) · [X](https://x.com/trina_ax) · [版本發布](https://github.com/trina-app/trina-ax/releases/latest) · [更新紀錄](CHANGELOG.md) · [取得支援](SUPPORT.md) · [參與貢獻](CONTRIBUTING.md) · [安全性](SECURITY.md) · [開發](docs/DEVELOPMENT.md) · [設定](docs/CONFIGURATION.md) · [llms.txt](llms.txt)
 
@@ -167,6 +167,6 @@ App 介面支援英文、韓文、印尼文、日文、西班牙文和簡體中�
 
 ## 授權條款
 
-依 [AGPL-3.0-only](LICENSE) 授權，可免費使用，包括商業用途。若你透過網路提供修改後的版本，須向這些使用者提供其原始碼。雲端協定部分採用 MIT 授權（[授權條款](shared/src/cloud-protocol/LICENSE)）。[聲明](NOTICE) · [第三方聲明](docs/THIRD-PARTY-NOTICES.md)
+本專案採用 [AGPL-3.0-only](LICENSE) 授權，可免費使用，包括商業用途。若你透過網路提供修改後的版本，須向這些使用者提供其原始碼。雲端協定部分採用 MIT 授權（[授權條款](shared/src/cloud-protocol/LICENSE)）。[聲明](NOTICE) · [第三方聲明](docs/THIRD-PARTY-NOTICES.md)
 
 Claude Code 和 Codex 各有其使用條款；本專案並未獲得 Anthropic 或 OpenAI 的認可或背書。Claude 是 Anthropic 的商標。
