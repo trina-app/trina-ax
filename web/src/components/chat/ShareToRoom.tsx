@@ -25,6 +25,7 @@ import { navigateTo } from '../../lib/nav'
 import { matchRooms } from '../../lib/roomRefs'
 import { aiName } from '../../lib/tabs'
 import { useRooms } from '../../store/rooms'
+import { useFolderWords, type FolderWords } from '../../lib/folderLabels'
 import { toast } from '../../store/ui'
 import { useRoomTitle } from '../rooms/RoomIcon'
 import { Button, inputCls, Modal, Spinner, Switch, useMediaQuery } from '../ui'
@@ -371,7 +372,8 @@ function FileRow({ file, others, on, full, onChange, source = false }: { file: A
 /** The one line about where the content came from, with the places I may look myself. */
 function Provenance({ p }: { p: AnswerShareProvenance }) {
   const t = useT()
-  const places = p.places.map((x) => placeName(t, x))
+  const words = useFolderWords()
+  const places = p.places.map((x) => placeName(t, x, words))
   const text = p.unknown ? t('shareRoom.unknown') : places.length ? t('shareRoom.provenance', { n: p.people, places: places.join(', ') }) : t('shareRoom.provenanceNoPlace', { n: p.people })
   return (
     <p className="flex items-start gap-2 text-sm leading-6 break-keep text-ink" data-testid="share-room-provenance">
@@ -383,12 +385,15 @@ function Provenance({ p }: { p: AnswerShareProvenance }) {
 
 /** A place the answer used that some people of the room cannot see, as the app names it (also the share of a whole
  * chat: components/chat/ShareChat.tsx). */
-export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace): string {
+export function placeName(t: ReturnType<typeof useT>, place: AnswerSharePlace, words?: FolderWords): string {
   switch (place.kind) {
-    case 'folder':
-      return place.path ? `${place.path.replace(/\/+$/, '')}/` : t('rooms.aiRootFolder')
+    case 'folder': {
+      // in the Files screen's words when given ("부서 › 영업"), with how many files read there count ("…의 파일 2개")
+      const at = place.path ? (words ? words.path(place.path.replace(/\/+$/, ''), ' › ') : `${place.path.replace(/\/+$/, '')}/`) : t('rooms.aiRootFolder')
+      return place.files ? t('shareRoom.placeFiles', { place: at, n: place.files }) : at
+    }
     case 'mine':
-      return t('shareRoom.placeMineFiles')
+      return place.files ? t('shareRoom.placeMineCount', { n: place.files }) : t('shareRoom.placeMineFiles')
     case 'service':
       return place.name
     case 'room':

@@ -627,7 +627,7 @@ describe('injection, retries and changes', () => {
       },
     })
     try {
-      expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (groups/marketing/).\nEveryone in this conversation will see it, including people who join later.")
+      expect(r.card!.question).toBe("Send to #Everyone (5 people)?\n\n1 person there can't see some of the sources of this (Groups › marketing).\nEveryone in this conversation will see it, including people who join later.")
       expect(r.content).toContain('changed while the card waited')
       expect(r.content).toContain('call post_to_room again so they see a new card')
       expect(authored(rooms.all, 'alice')).toBe(before)
