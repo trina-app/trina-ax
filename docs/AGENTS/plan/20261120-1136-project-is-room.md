@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 11:36
 - Branch: `plan/project-is-room` (build branches: `feat/project-room-server`, `feat/project-room-web`,
-  `feat/room-files-list`)
+  `feat/project-room-files`, `feat/room-files-list`)
 - Status: ready to build, revision 4 (two independent reviews, the owner's answers of 2026-11-20)
 - Where: Team AX core (`server/src/rooms/`, `server/src/chat/`, `server/src/uploads/`, `shared/src/api/`,
   `web/src/pages/Room.tsx`, `web/src/pages/Projects.tsx`, `web/src/components/rooms/*`, the six `web/src/i18n/*.ts`,
@@ -73,10 +73,13 @@ Migration **428** (B; 427 is the highest B on dev, and 600/701/702 belong to oth
 -- min_compatible_reader: 1
 ALTER TABLE room_project_links ADD COLUMN mode TEXT NOT NULL DEFAULT 'linked' CHECK (mode IN ('linked', 'room'));
 -- 'room': a project room, members follow the project; 'linked': a row from 0.5.21 or an older build, settled at start (D7)
--- a room file stored in the team folder (D3): where it is and how to follow it, like a chat's team reference
+ALTER TABLE room_project_links ADD COLUMN history_floor_seq INTEGER NOT NULL DEFAULT 0;  -- D2: a converted room's seq
+-- a room file stored in the team folder (D3): where it is and how to follow it. The follow columns are exactly
+-- team_file_refs' (uploads/team-refs.ts:34-37,189,234), so the shared helper reads both tables the same way
 CREATE TABLE room_file_refs (
   room_file_id TEXT PRIMARY KEY REFERENCES room_files(id) ON DELETE CASCADE,
-  path TEXT NOT NULL, inode TEXT, sha256 TEXT, trash_id TEXT, events_seen INTEGER NOT NULL DEFAULT 0
+  path TEXT NOT NULL, path_at_attach TEXT NOT NULL, ino INTEGER, dev INTEGER, sha256 TEXT,
+  event_id INTEGER, trash_suffix TEXT, lost INTEGER NOT NULL DEFAULT 0
 );
 ```
 
@@ -144,7 +147,9 @@ file's viewer check is "a member of the room now **and** reads the path now".
   - `answer-share.ts:370` (opens history before deciding a share).
 - **Only for people added after the room became a project room.** A linked row converted at start (D7) keeps each
   current member's start: at conversion `history_from_seq` is set to their `visible_from_seq`, so nobody suddenly sees
-  messages from before they joined (review finding 4).
+  messages from before they joined (review finding 4). `openHistory` (`history.ts:91`, which always writes 0 today)
+  keeps a non-null start when it checks again. People who join later see the history from `history_floor_seq`, the
+  room's seq at conversion, never the old channel's private past (second review, finding 7).
   - Why: the project's people already read every file the room talks about. A new teammate needs the background.
   - The add itself says so: the members dialog's preview line reads "They'll see the project's files and its chat
     room's history".
@@ -172,9 +177,15 @@ file's viewer check is "a member of the room now **and** reads the path now".
   Chat attachments as an ordinary project file. People delete it from Files themselves, through the normal team trash.
   - **The confirm** keeps its usual words, plus one useful line when the message has files: "The file stays in
     {project} › Chat attachments." That line links to the folder.
-  - **Server:** `removeForMessage` (`rooms/files.ts:373-377`) today deletes a deleted message's bytes from disk. It
-    skips any `room_files` row with a `room_file_refs` row, so a message delete never touches a team file. Only the
-    room's own rows go; the project file and its history stay.
+  - **Server, one rule for every path that deletes room files:** the row is deleted (its `room_file_refs` row goes with
+    it by the cascade), and nothing on disk is deleted for a row that has a ref. The four paths are:
+    - `removeForMessage` (`rooms/files.ts:374-377`)
+    - `discardUnsent` (`:311`)
+    - the unsent sweep (`:540`)
+    - `purgeArchived` (`:576`)
+
+    Each reads the ref before the delete. `abs()` throws for a ref row, so no later change can point it into the team
+    folder. `reconcile` (`:405`) leaves ref rows out of its "missing file" count. One test per path.
   - **Slack, checked on 2026-11-20.**
     [Add files to Slack](https://slack.com/help/articles/201330736-Add-files-to-Slack) says "Files must be deleted
     individually", and that a member deletes a file they uploaded from the file itself.
@@ -186,7 +197,16 @@ file's viewer check is "a member of the room now **and** reads the path now".
   because the message is still there and `room_file_refs` follows the trash id. A file moved or renamed in Files is
   followed. A file moved where a member cannot read it shows "unavailable" to that member.
 - **Before sending:** the ✕ on an unsent chip trashes the uploader's unchanged file, as in the shared chat today
-  (`uploads/team-refs.ts:339-353`). It was never part of a message.
+  (`uploads/team-refs.ts:339-353`). It was never part of a message. The "is it referenced anywhere else" check
+  (`team-refs.ts:345-346`) looks in **both** `team_file_refs` and `room_file_refs`, so neither side trashes a file the
+  other still shows. An unsent project-room upload that the sweep (`:540`) finds abandoned is handled the same way: the
+  uploader's unchanged, unreferenced file goes to the trash; anything else stays.
+- **A team file attached from Files** ("Add from team files", a phone's team pick) is a reference, never a copy. A
+  member who cannot read it sees "unavailable", as in a chat today. Only a file sent from the computer lands in Chat
+  attachments.
+- **Only messages the whole room sees** put files in Chat attachments. A file on a message that is not visible to the
+  whole room (an unposted private AI preview, `visibility` other than `room`) stays in room storage as today, so
+  nothing reaches project readers who were not meant to see it.
 - **Quota.** It counts under "Team files", not under the rooms line (`system/storage.ts:353-364`). Old room-stored
   files stay on the rooms line.
 - **Team export ZIP** (`system/team-export-zip.ts`). The files are already in `files/projects/...` (`:150`). The room's
@@ -259,8 +279,12 @@ The owner (2026-11-20): no team has a linked channel in practice. There is no de
 deadline. One safe pass runs at start in `Rooms.sync()` for every `mode='linked'` row (from 0.5.21, or made by an older
 build after a rollback):
 
+The pass runs after `sync()`'s step that drops disabled and deleted accounts (`service.ts:1283-1289`), so a gone account
+does not spoil the comparison. The readers are `Audiences.of` (`chat/shared.ts:82-91`): active accounts, guests
+included, and owners and admins outside the project left out. That is the same set the room sync uses.
+
 1. **The room's members are exactly the project's readers:** it becomes `mode='room'`, the project's room. Each current
-   member keeps their start (D2), and one event line is written: "This channel is now the project's chat room".
+   member keeps their start, `history_floor_seq` is set to the room's `last_seq` (D2), and one event line is written: "This channel is now the project's chat room".
 2. **Anything else** (the people differ, the room is not an active private channel, or the project is not active in
    the zone): **the link row is deleted**. The channel becomes an ordinary private channel with the same people and
    history, and the project gets its own room the first time someone opens Chat room. This is the choice that
@@ -341,10 +365,11 @@ finding 11). PR 4 can go separately.
   - `b-project-room-ai.test.ts`: the shared chat reads only its own room; no `rooms` tool; another room id refused as
     missing; only messages every audience member sees (a member with a later start, an old hidden answer); no card after
     reading; `post_to_room` still asks; a chat of another project gets nothing.
-  - `b-project-room-migrate.test.ts`: equal people → converted, and each member keeps their start (no older messages
+  - `b-project-room-migrate.test.ts` (PR 1): equal people → converted, and each member keeps their start (no older messages
     appear); different people, an archived room or a trashed project → link deleted, channel unchanged; a row made
     after a rollback is settled on the next start; a `mode='room'` row is never touched by this pass; audit shape with
-    no room id.
+    no room id; a guest in a converted room who reads the project only through a person rule (place counting); later
+    members see only from the floor.
   - `b-project-room.test.ts` also covers: a trashed project keeps members, mutes and read positions and is refused while
     trashed; delete for good archives the room before the cascade; a guest with a group chat and this project keeps
     both; a hand-added member is put back; only changed projects are recomputed.
@@ -353,7 +378,7 @@ finding 11). PR 4 can go separately.
   - Update `b-rooms-project-link*`, `b-side-chat`, `b-rooms-save-to-team` for the removals.
 - **Security** (`tests/security/lib/rooms-cases.ts`, matrix rows):
   - `POST /api/projects/:id/room` for a guest of another place, a non-member, an admin outside and a reader;
-  - `GET /api/rooms/:id/files` and `?recent=1` for a former member, a member when the folder is narrowed, and a guest;
+  - `GET /api/rooms/:id/files` and `GET /api/room-files/recent` for a former member, a member when the folder is narrowed, and a guest;
   - the shared chat's room tool for another room;
   - after a message delete, the room file endpoint answers 404 for that message's file, and the team file is still
     governed by its folder rules only;
@@ -395,6 +420,20 @@ finding 11). PR 4 can go separately.
 | Files list in a plain channel and a DM | Lists the room's files; preview opens |
 | ⌘K before typing | Recent room files listed |
 | Project room at 390, light and dark | Header icons fit; Chat room row; nothing cut off |
+
+## Second review (2026-11-20, a fresh reviewer, the changes since revision 2)
+
+Nothing was blocking, and all seven findings changed the plan:
+
+1. One rule for the four room-file delete paths, `abs()` throws for refs, and `reconcile` skips them (D3).
+2. `room_file_refs` copies the follow columns of `team_file_refs` (D1).
+3. The ✕ and the sweep check both reference tables (D3).
+4. An abandoned upload is trashed like the ✕. A file attached from Files stays a reference (D3).
+5. The start pass runs after the disabled-account step, `openHistory` keeps a set start, and there is a guest test (D2,
+   D7).
+6. The branch list, the `recent` endpoint name and the migrate test placed in PR 1 (Steps, Tests).
+7. Files from messages the room does not all see stay out of Chat attachments, and a history floor is set at conversion
+   (D2, D3).
 
 ## Owner's answers (2026-11-20)
 
