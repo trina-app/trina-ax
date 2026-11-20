@@ -361,11 +361,16 @@ export async function readRoomFileFor(r: RoomFileReader, a: RoomFileArgs, named:
   const files = ctx.files
   const found = findRoomFile(ctx.db, userId, a.room, a.file, timeZone, { ...(r.only ? { only: r.only } : {}), ...(r.audience ? { audience: r.audience } : {}) })
   if ('text' in found) return { ...text(found.text), summary: 'room_file -> not found' }
-  const { file, message, room, title, author } = found
-  // a project room's file kept in the team folder: for an audience, only one every one of them may open now
-  if (r.audienceIds && roomFileRefsOf(ctx).isRef(file.id) && !r.audienceIds.every((u) => roomFileRefsOf(ctx).locate(u, file).state === 'ok')) {
+  const { message, room, title, author } = found
+  // a project room's file kept in the team folder: named and sized as the asker may see it now
+  const refs = roomFileRefsOf(ctx)
+  // for an audience (a shared AI chat), only one every one of them may open now
+  if (r.audienceIds && refs.isRef(found.file.id) && !r.audienceIds.every((u) => refs.locate(u, found.file).state === 'ok')) {
     return { ...text(`No file "${a.file.replace(/[\r\n"]+/g, ' ').slice(0, 120)}" in that room that everyone here can open.`), summary: 'room_file -> not for everyone here' }
   }
+  const view = refs.isRef(found.file.id) ? refs.view(userId, found.file) : null
+  if (view?.state) return { ...text(`No file "${a.file.replace(/[\r\n"]+/g, ' ').slice(0, 120)}" in that room that the user can see.`), summary: 'room_file -> not found' }
+  const file = view ? { ...found.file, name: view.name, size: view.size } : found.file
   // who sees the message it came with sees the file
   r.seen({ type: 'room', id: room.id, fromSeq: message.thread_root_seq ?? message.seq })
   named(file.name)

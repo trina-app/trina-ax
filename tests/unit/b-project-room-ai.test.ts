@@ -73,13 +73,17 @@ test('the shared chat reads its own room (no card, nothing marked); no rooms lis
 test('only what every one of the audience sees: a later start and an answer hidden from one of them are cut, and said', async () => {
   const { roomId, chatId } = await project()
   const early = await send('erin', roomId, 'early words before bob could see')
-  await send('erin', roomId, 'later words everyone sees')
+  const later = await send('erin', roomId, 'later words everyone sees')
+  await h.api('erin').call(API.sendRoomMessage, { params: { id: roomId }, body: { body: 'a reply', clientMessageId: cm(), mentions: [], fileIds: [], threadRootId: later.id } })
   // bob sees the room from after the first message (a converted channel's member keeps their start)
   h.ctx.db.query('UPDATE room_members SET history_from_seq = ? WHERE room_id = ? AND user_id = ?').run(early.seq, roomId, 'bob')
   const r = await run('alice', chatId, `summarise the room\n${read(roomId)}`)
   expect(r.text).toContain('later words everyone sees')
   expect(r.text).not.toContain('early words before bob')
   expect(r.text).toContain(AUDIENCE_CUT_EARLIER)
+  // a thread's counts are one person's view: only that there is one
+  expect(r.text).toContain(`[thread: read it with room_read thread="${later.id}"]`)
+  expect(r.text).not.toContain('1 reply')
   // an old answer hidden from bob: left out for everyone here
   const hidden = await send('erin', roomId, 'an answer bob may not see')
   h.ctx.db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) VALUES (?, ?, ?, ?)').run(roomId, 'bob', hidden.id, hidden.seq)

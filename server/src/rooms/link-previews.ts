@@ -115,10 +115,13 @@ export function prepareLinkPreviews(db: Database, rows: readonly MessageRow[]): 
   const files = new Map<string, { count: number; first?: { name: string; kind: string } }>()
   const live = [...originals.values()].filter((m) => !m.deleted_at && !m.event)
   if (live.length) {
-    for (const f of db.query(`SELECT message_id, name, kind FROM room_files WHERE message_id IN (${live.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...live.map((m) => m.id)) as { message_id: string; name: string; kind: string }[]) {
-      const x = files.get(f.message_id)
-      if (x) x.count++
-      else files.set(f.message_id, { count: 1, first: { name: f.name, kind: f.kind } })
+    // (a project room's file kept in the team folder is counted, never named: its name is the file's now, for whom
+    // may open it)
+    for (const f of db.query(`SELECT message_id, name, kind, EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = room_files.id) ref FROM room_files WHERE message_id IN (${live.map(() => '?').join(',')}) ORDER BY created_at, id`).all(...live.map((m) => m.id)) as { message_id: string; name: string; kind: string; ref: number }[]) {
+      const x = files.get(f.message_id) ?? { count: 0 }
+      x.count++
+      if (!x.first && !f.ref) x.first = { name: f.name, kind: f.kind }
+      files.set(f.message_id, x)
     }
   }
   const snapshotPeople = [...stored.values()].flatMap((s) => (s.snapshots ?? []).map((x) => x.authorId))
@@ -230,14 +233,15 @@ export function snapshotOf(db: Database, link: Pick<MessageLinkRef, 'roomId' | '
   const room = m ? db.query('SELECT * FROM rooms WHERE id = ?').get(m.room_id) as RoomRow | null : null
   const member = m ? db.query(`SELECT m.*, EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden FROM room_members m WHERE m.room_id = ? AND m.user_id = ?`).get(m.room_id, senderId) as MemberRow | null : null
   if (!m || !seesLinked(db, link, m, room ?? undefined, member ?? undefined) || !snapshotAllowed(m)) return null
-  const files = db.query('SELECT name, kind FROM room_files WHERE message_id = ? ORDER BY created_at, id').all(m.id) as { name: string; kind: string }[]
+  const files = db.query('SELECT name, kind, EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = room_files.id) ref FROM room_files WHERE message_id = ? ORDER BY created_at, id').all(m.id) as { name: string; kind: string; ref: number }[]
+  const named = files.find((f) => !f.ref)
   return {
     roomId: m.room_id, messageId: m.id, rootId: m.thread_root_id, kind: room!.kind,
     // a team room's name as the sender sees it; a DM or a group chat by its kind only (who is in it is not the
     // destination's business)
     name: room!.kind === 'team' || room!.kind === 'all' ? roomNaming(db, room!, senderId).name : null,
     authorId: m.author_id, createdAt: m.created_at, body: clipText(m.body), mentions: parseMentions(m.mentions),
-    files: files.length ? { count: files.length, first: { name: files[0]!.name, kind: files[0]!.kind } } : { count: 0 },
+    files: files.length ? { count: files.length, ...(named ? { first: { name: named.name, kind: named.kind } } : {}) } : { count: 0 },
   }
 }
 
