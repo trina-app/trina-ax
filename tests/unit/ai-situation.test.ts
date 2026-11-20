@@ -170,6 +170,8 @@ describe('the block per state', () => {
             if (L === 'en') for (const no of fencedEn) expect(t).not.toContain(no)
             // what the demo has stays: their own Settings, and a file's earlier versions
             expect(t).toContain('Their own things are in Settings')
+            // the name and e-mail are the demo's (QA TC-5745): said, and no page named for them
+            expect(t).toContain('their name and e-mail address stay as they are in this demo')
             expect(t).toContain('earlier versions are in')
           }
         }

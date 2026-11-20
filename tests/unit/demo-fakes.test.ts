@@ -22,7 +22,8 @@ import { DRIVE_CONFIG } from '../lib/fake-google-drive'
 import { activeDemoFakes, demoFakesOf, DEMO_OFFLINE_TEXT, type DemoFakes } from '../../server/src/demo/fakes'
 import { demoOffline } from '../../server/src/demo/fakes/offline'
 import { FakeState, STATE_DIR, STATE_FILE } from '../../server/src/demo/fakes/state'
-import { MEDIA_HOST, pickPicture, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
+import { loadPictures, MEDIA_HOST, pickPicture, VIDEO_REFUSED } from '../../server/src/demo/fakes/higgsfield'
+import { HIGGSFIELD_PICTURE } from '../../scripts/demo/steepling/make'
 import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { workspaceLibraryOf } from '../../server/src/integrations/google-apps/library'
 import { refreshGoogleApp } from '../../server/src/integrations/google-apps/tokens'
@@ -237,6 +238,16 @@ describe('Higgsfield', () => {
     expect(pickPicture(pics, 'Yuzu ginger pouch by a frosted window')!.name).toBe('yuzu-ginger-window.jpg')
     expect(pickPicture(pics, 'something else')!.name).toBe('office-desk.jpg')
     expect(pickPicture([], 'x')).toBeNull()
+    // Steepling's story photo: named "00-…" so it sorts first and stays the default for a prompt no name matches, with
+    // the story's words in English and Korean (the review of the richer Steepling)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pics-'))
+    fs.mkdirSync(path.join(dir, 'higgsfield'))
+    for (const n of [HIGGSFIELD_PICTURE, 'zz-office-desk.jpg']) fs.writeFileSync(path.join(dir, 'higgsfield', n), 'x')
+    const story = loadPictures(dir)
+    expect(story[0]!.name.normalize('NFC')).toBe(HIGGSFIELD_PICTURE.normalize('NFC'))
+    for (const prompt of ['유자 진저 파우치, 창가 아침 햇살', 'Yuzu ginger pouch by a frosted window', '새 배경 만들어 줘']) expect(pickPicture(story, prompt)!.name.normalize('NFC'), prompt).toBe(HIGGSFIELD_PICTURE.normalize('NFC'))
+    expect(pickPicture(story, 'an office desk')!.name).toBe('zz-office-desk.jpg')
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })
 

@@ -709,6 +709,7 @@ export const zh: Record<MessageKey, string> = {
   "files.downloadOnly": "仅限下载",
   "picker.downloadOnly": "AI 无法读取仅限下载的文件，所以无法添加此文件。",
   "files.addToChatNamed": "添加到“{title}”",
+  "files.addToCurrentChat": "添加到当前聊天",
   "files.addedSome": "已添加{n}个；{failed}个无法添加。",
   "voice.start": "语音输入",
   "voice.startHold": "语音输入（按住空格键）",

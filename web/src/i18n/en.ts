@@ -726,6 +726,7 @@ export const en: Record<MessageKey, string> = {
   'files.downloadOnly': 'Download only',
   'picker.downloadOnly': "The AI can't read download-only files, so this file can't be attached.",
   'files.addToChatNamed': 'Add to “{title}”',
+  'files.addToCurrentChat': 'Add to current chat',
   'files.addedSome': '{n} added; {failed} could not be added.',
 
   'voice.start': 'Voice input',
