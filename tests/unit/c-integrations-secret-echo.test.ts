@@ -187,6 +187,31 @@ describe('a turn that repeats the stored key', () => {
     expect(t.deltas.map((d) => d.text).join('')).toBe(text)
   })
 
+  // QA AP-033 (docs/decisions/20261120-ap033-thinking-text.md): the AI's thinking text is kept on its "Thinking" step,
+  // saved with the message (so a reload shows it), with the stored key hidden in the whole text (the key comes cut across
+  // thinking deltas). It never goes into the answer, and an empty thinking block adds no text.
+  test.skipIf(!native)('AP-033: the thinking text is kept on its step, the key hidden, also after a reload', async () => {
+    const first = `The person asks about ${KEY}. Check the connection first.`
+    const t = await turn(fake({ think: first }, { say: 'Done.' }, { think: '  ' }, { say: 'Bye.' }))
+    expect(t.done.content).toBe('Done.\n\nBye.') // two text blocks: two paragraphs, no thinking text
+    const thinking = (steps: { kind: string; detail?: string; status: string }[]) => steps.filter((s) => s.kind === 'thinking')
+    const live = thinking(t.done.steps)
+    expect(live).toHaveLength(2)
+    expect(live[0]!.detail).toBe(`The person asks about ${HIDDEN}. Check the connection first.`)
+    expect(live[0]!.status).toBe('ok')
+    expect(live[1]!.detail).toBeUndefined()
+    // saved with the message: the chat's page after a reload has the same text
+    const page = await h.api('alice').call(API.listMessages, { params: { id: t.chatId } })
+    const answer = page.items.find((m) => m.id === t.done.id)!
+    const reloaded = thinking(answer.steps)
+    expect(reloaded.map((s) => s.detail)).toEqual(live.map((s) => s.detail))
+    // the key is nowhere in the answer: not in the stored steps, the reloaded answer, or any step event the person's apps
+    // got (the person's own message keeps it as typed)
+    const stepEvents = published.filter((p) => p.ev.type === 'message.step' && p.ev.data.messageId === t.done.id)
+    expect(stepEvents.length).toBeGreaterThan(0)
+    expect(leaks(t.stored.steps + JSON.stringify(stepEvents) + JSON.stringify(answer))).toEqual([])
+  })
+
   // QA TC-2981: the step said "Remembered: My key is [hidden key]", the saved memory held the key (Settings › Memory,
   // the export's memories.csv)
   test.skipIf(!native)('remember: the saved memory, Settings › Memory and the export have the key hidden', async () => {

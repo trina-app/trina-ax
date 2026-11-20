@@ -267,6 +267,9 @@ const plainName = (n: string): string => {
 const sameName = (a: string, b: string) => plainName(a) === plainName(b)
 /** a file's history read for its outside mark (fileOutsideLevel): a longer one counts as outside */
 const FILE_TIMELINE_MAX = 1000
+/** how much of one thinking step's text the turn keeps before redaction (the step's detail keeps 4000 characters of it
+ * after redaction; QA AP-033) */
+const THINKING_TEXT_MAX = 64 * 1024
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
@@ -518,6 +521,8 @@ export class TurnExec {
   private newSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
+  /** the open thinking step's text as the engine sent it (QA AP-033): written on the step, redacted, when it closes */
+  private thinkingText = ''
   private toolNames = new Map<string, string>()
   /** a scheduled run's connection calls that only read (their tool_use ids): look-ups for the run's result */
   private lookUpCalls = new Set<string>()
@@ -1978,7 +1983,10 @@ export class TurnExec {
         // thinking step (its place in the answer stays right)
         this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart())))
         this.flushText()
-        if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
+        if (!this.thinkingStep) { this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' }); this.thinkingText = '' }
+        // the text is kept whole (up to a cap far over the step's), never redacted piece by piece: a secret split
+        // across two deltas would not match (closeThinking)
+        if (e.delta && this.thinkingText.length < THINKING_TEXT_MAX) this.thinkingText += e.delta
         return
       case 'init': {
         // what the engine says it started with, against the lockdown (docs/DECISIONS.md "Sub-agents"; Claude only)
@@ -2285,10 +2293,15 @@ export class TurnExec {
     this.live?.step(stored)
   }
 
+  /** The thinking step ends. Its text goes on the step once, as its detail (QA AP-033, docs/decisions/
+   * 20261120-ap033-thinking-text.md): updateStep hides the stored connection secrets in the whole text first, then cuts
+   * it to the detail's cap. One write per step, not one per delta (each write is published to every viewer). */
   private closeThinking() {
     if (!this.thinkingStep) return
-    this.updateStep(this.thinkingStep.id, { status: 'ok', endedAt: new Date().toISOString() })
+    const text = this.thinkingText.trim()
+    this.updateStep(this.thinkingStep.id, { status: 'ok', endedAt: new Date().toISOString(), ...(text ? { detail: text } : {}) })
     this.thinkingStep = null
+    this.thinkingText = ''
   }
 
   // ---------------- remember protection ----------------
