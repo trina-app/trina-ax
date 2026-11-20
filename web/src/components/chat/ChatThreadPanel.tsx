@@ -1,44 +1,52 @@
 // A thread under an AI answer of a shared chat (docs/decisions/20261116-chat-answer-threads.md), at
-// /c/:chatId/t/:messageId: the rooms' thread look (components/rooms/ThreadPanel.tsx) in the column beside the chat on
+// /c/:chatId/t/:messageId: a room's thread (components/rooms/ThreadPanel.tsx) in the column beside the chat on
 // computers (components/rooms/RoomSideColumn.tsx, resizable), the whole screen on phones (a ‹ back to the chat; the
-// tabs stay away as in the chat). The answer on top (clamped, "Show more"), a hairline with how many replies, the
-// replies (face, name, time, the words with their links: never Markdown or HTML) and a box. People only: the AI never
-// reads replies unless someone asks, and the grey line under the box says so (there is no "send to the AI" button).
+// tabs stay away as in the chat). It is drawn with the rooms' own parts (rooms/ThreadParts.tsx, rooms/MessageRun.tsx):
+// the header, the answer on top as a run of the AI's (cut after the last whole block that fits, "Show more"), the
+// hairline with how many replies, and the replies in runs (one person's replies close together under one face, name
+// and time; a date line for a new day), each row with the hover bar (⋮: copy, delete) or, on a touch screen, a long
+// press. What differs from a room is only what is different: the root is the AI's answer; a reply is plain words with
+// their links and mentions (never Markdown or HTML) and has no reactions, edits or files; and replies are people's
+// only: the AI never reads them unless someone asks, and the grey line under the box says so (there is no "send to the
+// AI" button).
 // What I see is marked read while the window has the focus and the end is in sight.
 // "@" in the box lists the people who see the thread now (the page's `people`, docs/decisions/20261118-chat-thread-
 // mentions.md) with the rooms' mention box (components/TokenTextarea.tsx, rooms/useMentionMenu.tsx; no "@everyone");
 // a reply shows its mentions as the rooms do (rooms/MessageText.tsx MentionedText).
 import clsx from 'clsx'
-import { ArrowUp, ChevronLeft, Copy, Loader2, Trash2, X } from 'lucide-react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUp, Copy, Loader2, Trash2 } from 'lucide-react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { CHAT_THREAD_REPLY_MAX, type Chat, type ChatThreadReply, type UserRef } from '@mycel/shared/api'
 import { errorText, isApiError } from '../../lib/api'
 import { lookingAt, onWindowFocus } from '../../lib/attention'
 import { useAutoGrow } from '../../lib/autoGrow'
 import { useServerUpdating } from '../../lib/serverUpdating'
-import { intlTag } from '../../lib/format'
+import { groupRuns, localDayKey } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { reloadAsked } from '../../store/live'
 import { takeReturned, takeReturnedMentions, threadKey, useChatThreads, type PendingReply } from '../../store/chatThreads'
 import { toast } from '../../store/ui'
-import { useAvatarOf, useNameOf } from '../../store/people'
+import { useNameOf } from '../../store/people'
 import { useMe } from '../../store/session'
-import { Avatar } from '../Avatar'
 import { Markdown } from '../LazyMarkdown'
 import { MentionedText } from '../rooms/MessageText'
 import { useMentionMenu } from '../rooms/useMentionMenu'
 import { TokenTextarea } from '../TokenTextarea'
-import { MenuButton, type MenuItem } from '../rooms/MenuButton'
+import { MenuButton, useLongPress, type MenuItem } from '../rooms/MenuButton'
+import { MessageHoverBar } from '../rooms/MessageHoverBar'
+import { DayLine, messageRowClass, RunFace, RunName, RunShell, sameTimeAsAbove, timeOf, WORDS } from '../rooms/MessageRun'
+import { ThreadCountLine, ThreadHead } from '../rooms/ThreadParts'
 import { Tooltip } from '../Tooltip'
-import { ErrorNote, IconButton, Skeleton, confirmDialog, useCopy } from '../ui'
+import { ErrorNote, Skeleton, confirmDialog, useCopy } from '../ui'
 import { ComposerToolbar } from './ComposerToolbar'
-import { composerRadius } from './composerBox'
+import { composerInset, composerRadius } from './composerBox'
 import { SharedReadOnly } from './SharedChat'
 import { capBlankLines } from '../../lib/blankLines'
 
 const NO_PEOPLE: UserRef[] = []
+const NO_PENDING: PendingReply[] = []
 
 /** The names a reply's mentions are looked for by: each person's name now (the directory) and as the thread's list has
  * it (a mention is the name as it was typed); mine as my account has it (I am never on the list). */
@@ -50,10 +58,6 @@ function useMentioned(ids: readonly string[] | undefined, people: UserRef[]): { 
 
 /** the box counts down from here (CHAT_THREAD_REPLY_MAX is 10,000) */
 const COUNT_FROM = 9500
-/** the answer on top is clamped to about 12 lines until "Show more" */
-const CLAMP = 'max-h-[18rem] overflow-hidden [mask-image:linear-gradient(to_bottom,black_75%,transparent)]'
-
-const timeOf = (iso: string, locale: Parameters<typeof intlTag>[0]) => new Intl.DateTimeFormat(intlTag(locale), { timeStyle: 'short' }).format(new Date(iso))
 
 /** `onShownBranch`: the answer is on the version the chat shows (the page knows: its messages). */
 export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, focusBox = false }: { chat: Chat; rootId: string; meId: string; onClose: () => void; onShownBranch: boolean; focusBox?: boolean }) {
@@ -127,18 +131,7 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, fo
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="chat-thread">
-      <div className="flex h-12 shrink-0 items-center gap-1 border-b border-line px-2 max-md:pl-0.5 md:px-4">
-        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="chat-thread-back">
-          <ChevronLeft size={20} aria-hidden />
-        </IconButton>
-        <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="shrink-0 text-title-sm font-semibold text-ink">{t('rooms.thread')}</span>
-          <span className="truncate text-xs text-faint" data-testid="chat-thread-chat">{chat.title || t('chat.untitled')}</span>
-        </h2>
-        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit max-md:hidden" data-testid="chat-thread-close">
-          <X size={16} aria-hidden />
-        </IconButton>
-      </div>
+      <ThreadHead where={chat.title || t('chat.untitled')} onClose={onClose} testIds="chat-thread" whereTestId="chat-thread-chat" />
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="chat-thread-scroller">
         <div ref={content} className="px-4 pt-3 pb-6">
           {notFound ? (
@@ -151,23 +144,16 @@ export function ChatThreadPanel({ chat, rootId, meId, onClose, onShownBranch, fo
               {!!view?.error && !notFound && <ErrorNote onRetry={() => void useChatThreads.getState().load(chatId, rootId)}>{errorText(view.error, locale, t('error.network'))}</ErrorNote>}
               {root && <ThreadAnswer text={root.content} at={root.createdAt} />}
               {versionLine && <p role="note" className="mt-2 rounded-lg bg-subtle px-3 py-2 text-xs leading-5 text-muted" data-testid="chat-thread-version">{versionLine}</p>}
-              {root && (
-                <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="chat-thread-count">
-                  {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
-                  <span className="h-px flex-1 bg-line" aria-hidden />
-                </div>
-              )}
+              {root && <ThreadCountLine count={count} testId="chat-thread-count" />}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
-              <ul className="space-y-3 pt-2" data-testid="chat-thread-replies">
-                {replies.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} people={people} readOnly={readOnly === 'trash' || readOnly === 'safe_ops'} />)}
-                {(pending ?? []).map((p) => <PendingRow key={p.clientId} chatId={chatId} rootId={rootId} p={p} people={people} meId={meId} />)}
-              </ul>
+              <Replies chatId={chatId} rootId={rootId} replies={replies} pending={pending ?? NO_PENDING} meId={meId} people={people} readOnly={readOnly === 'trash' || readOnly === 'safe_ops'} dayBefore={root?.createdAt ?? null} />
             </>
           )}
         </div>
       </div>
       {!notFound && root && (
-        <div className="shrink-0 border-t border-line px-3 pt-2 pb-[max(0.5rem,var(--safe-bottom,0px))]" data-testid="chat-thread-foot">
+        // the box as a room thread's (RoomComposer: no hairline above it, the same inset and bottom gap)
+        <div className={clsx('shrink-0 pb-[var(--box-bottom)]', composerInset)} data-testid="chat-thread-foot">
           {readOnly === 'safe_ops' ? <SharedReadOnly />
             : readOnly ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-read-only">{t(readOnly === 'trash' ? 'chat.thread.inTrash' : 'chat.thread.notShared')}</p>
             : view?.full ? <p role="status" className="px-1 py-2 text-center text-sm text-muted" data-testid="chat-thread-full">{t('chat.thread.full')}</p>
@@ -194,46 +180,122 @@ export function ThreadWaitLine({ slow }: { slow: boolean }) {
   )
 }
 
-/** The answer the thread is under: its text as the chat shows it, clamped to about 12 lines until "Show more". */
+/** about 12 lines of an answer: the answer on top is cut after the last whole block that ends above this */
+const CLAMP_PX = 288
+/** an answer at most this much longer than the cut shows whole: no "Show more" for a line or two */
+const CLAMP_SLACK = 56
+/** the plain text's line height (LazyMarkdown.tsx "answer" size, leading-7) while the formatting code loads */
+const PLAIN_LINE_PX = 28
+
+/** Where to cut the answer (its height in px), or null to show all of it. Only on a block's edge, never through one: after
+ * the last top-level block (a paragraph, a table, a list, a code block) that ends within CLAMP_PX; when the first block is
+ * already taller, after its last table row or list item that fits; failing that, the whole first block. Plain text
+ * (the formatting code still loading) is cut between lines. */
+export function answerCut(el: HTMLElement): number | null {
+  const total = el.scrollHeight
+  if (total <= CLAMP_PX + CLAMP_SLACK) return null
+  const top = el.getBoundingClientRect().top
+  const bottom = (x: Element) => x.getBoundingClientRect().bottom - top
+  const inner = el.firstElementChild
+  const blocks = inner ? [...inner.children] : []
+  if (!blocks.length) return Math.floor(CLAMP_PX / PLAIN_LINE_PX) * PLAIN_LINE_PX
+  let cut = 0
+  for (const b of blocks) {
+    const end = bottom(b)
+    if (end > CLAMP_PX) break
+    cut = end
+  }
+  if (cut === 0) {
+    const first = blocks[0]!
+    for (const row of first.querySelectorAll('tr, li')) {
+      const end = bottom(row)
+      if (end > CLAMP_PX) break
+      cut = end
+    }
+    if (cut === 0) cut = bottom(first)
+  }
+  return cut >= total - 4 ? null : Math.ceil(cut)
+}
+
+/** The answer the thread is under, as a run of the AI's (its face, name and time, as a room thread's root): its text
+ * as the chat shows it, cut on a block's edge (answerCut) until "Show more". */
 function ThreadAnswer({ text, at }: { text: string; at: string }) {
   const t = useT()
-  const locale = useLocale()
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
-  const [long, setLong] = useState(false)
+  const [cut, setCut] = useState<number | null>(null)
   useLayoutEffect(() => {
     const el = box.current
-    if (el) setLong(el.scrollHeight > el.clientHeight + 4)
+    if (!el) return
+    const measure = () => setCut(answerCut(el))
+    measure()
+    // the formatting code arriving (the plain text becomes the formatted one), pictures and fonts loading: again
+    if (typeof ResizeObserver === 'undefined' || typeof MutationObserver === 'undefined') return
+    const sizes = new ResizeObserver(measure)
+    const watch = () => { sizes.disconnect(); for (const c of el.children) sizes.observe(c) }
+    watch()
+    const swaps = new MutationObserver(() => { watch(); measure() })
+    swaps.observe(el, { childList: true })
+    return () => { sizes.disconnect(); swaps.disconnect() }
   }, [text])
   return (
     <div data-testid="chat-thread-answer">
-      <p className="mb-1 text-xs text-faint">{t('chat.thread.answerAt', { name: aiName(t), time: timeOf(at, locale) })}</p>
-      <div ref={box} className={clsx(!open && CLAMP)}>
-        <Markdown text={text} />
-      </div>
-      {(long || open) && (
-        <button type="button" onClick={() => setOpen((o) => !o)} className="touch-hit mt-1 text-xs font-medium text-accent-text hover:underline" data-testid="chat-thread-more">
-          {open ? t('chat.thread.showLess') : t('chat.thread.showMore')}
-        </button>
+      <RunShell face={<RunFace user={null} ai />} name={<RunName user={null} ai />} at={at}>
+        <div ref={box} className={clsx('relative', !open && cut !== null && 'overflow-hidden')} style={!open && cut !== null ? { maxHeight: cut } : undefined} data-cut={!open && cut !== null ? '' : undefined}>
+          <Markdown text={text} className={clsx('min-w-0', WORDS)} />
+        </div>
+        {cut !== null && (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="touch-hit mt-1 text-xs font-medium text-accent-text hover:underline" aria-expanded={open} data-testid="chat-thread-more">
+            {open ? t('chat.thread.showLess') : t('chat.thread.showMore')}
+          </button>
+        )}
+      </RunShell>
+    </div>
+  )
+}
+
+/** The replies in runs (lib/rooms.ts groupRuns, as a room thread's), a date line for a new day (none for the answer's
+ * own day), then mine on their way under them. */
+function Replies({ chatId, rootId, replies, pending, meId, people, readOnly, dayBefore }: { chatId: string; rootId: string; replies: ChatThreadReply[]; pending: PendingReply[]; meId: string; people: UserRef[]; readOnly: boolean; dayBefore: string | null }) {
+  const locale = useLocale()
+  const runs = useMemo(() => groupRuns(replies), [replies])
+  // phones: a run's time only when it differs from the run above it
+  const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])
+  const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId
+  return (
+    <div data-testid="chat-thread-replies">
+      {runs.map((run, i) => {
+        const first = run.messages[0]!
+        return (
+          <Fragment key={run.key}>
+            {run.newDay && !(i === 0 && dayBefore && localDayKey(dayBefore) === localDayKey(first.createdAt)) && <DayLine at={first.createdAt} />}
+            <RunShell face={<RunFace user={first.author} />} name={<RunName user={first.author} />} at={first.createdAt} repeat={repeats[i]}>
+              {run.messages.map((r) => <ReplyRow key={r.id} chatId={chatId} rootId={rootId} r={r} meId={meId} people={people} readOnly={readOnly} />)}
+            </RunShell>
+          </Fragment>
+        )
+      })}
+      {pending.length > 0 && (
+        <div className={clsx('pl-11', !lastMine && 'pt-2')}>
+          {pending.map((p) => <PendingRow key={p.clientId} chatId={chatId} rootId={rootId} p={p} people={people} meId={meId} />)}
+        </div>
       )}
     </div>
   )
 }
 
-function Face({ r }: { r: ChatThreadReply }) {
-  const u = useAvatarOf(r.author ?? undefined)
-  return u ? <Avatar user={u} size={28} /> : <span className="size-7 shrink-0 rounded-full bg-hover" aria-hidden />
-}
-
-/** `readOnly`: the chat is in the trash or safe operations are on: nothing can be deleted (QA TC-3783, TC-3784) */
+/** One reply: its words with their links and mentions (no Markdown), the hover bar's ⋮ (copy; delete what I may) on a
+ * computer, a long press for the same on a touch screen. `readOnly`: the chat is in the trash or safe operations are
+ * on: nothing can be deleted (QA TC-3783, TC-3784) */
 function ReplyRow({ chatId, rootId, r, meId, people, readOnly }: { chatId: string; rootId: string; r: ChatThreadReply; meId: string; people: UserRef[]; readOnly: boolean }) {
   const t = useT()
   const mentioned = useMentioned(r.mentions, people)
   const locale = useLocale()
-  const nameOf = useNameOf()
   const { copy } = useCopy()
+  const [press, setPress] = useState(0)
+  const longPress = useLongPress(() => setPress((n) => n + 1))
   const items: MenuItem[] = [
-    { label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(r.content).then((ok) => ok && toast({ level: 'info', text: t('common.copied') })), testId: 'chat-thread-copy' },
+    { label: t('common.copy'), icon: <Copy size={14} aria-hidden />, onSelect: () => void copy(r.content).then((ok) => ok && toast({ level: 'success', text: t('rooms.copied') })), testId: 'chat-thread-copy' },
     ...(r.canDelete && !readOnly ? [{ label: t('common.delete'), icon: <Trash2 size={14} aria-hidden />, danger: true, testId: 'chat-thread-delete', onSelect: () => void (async () => {
       const ok = await confirmDialog({ title: t('chat.thread.deleteTitle'), body: t('chat.thread.deleteBody'), confirm: t('common.delete'), danger: true })
       if (!ok) return
@@ -242,37 +304,28 @@ function ReplyRow({ chatId, rootId, r, meId, people, readOnly }: { chatId: strin
     })() }] : []),
   ]
   return (
-    <li className="group flex gap-2.5" data-testid="chat-thread-reply" data-mine={r.author?.id === meId ? '' : undefined}>
-      <Face r={r} />
-      <div className="min-w-0 flex-1">
-        <p className="flex items-baseline gap-2 text-sm">
-          <bdi className="min-w-0 truncate font-medium text-ink">{nameOf(r.author) ?? r.author?.name ?? t('rooms.goneUser')}</bdi>
-          <time dateTime={r.createdAt} className="shrink-0 text-xs text-faint">{timeOf(r.createdAt, locale)}</time>
-        </p>
-        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink" data-testid="chat-thread-reply-text"><MentionedText text={capBlankLines(r.content)} mentioned={mentioned} meId={meId} /></p>
-      </div>
-      <MenuButton label={t('rooms.messageActions')} items={items} compact className="shrink-0 self-start opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" testId="chat-thread-reply-menu" />
-    </li>
+    <div className={messageRowClass(false)} data-testid="chat-thread-reply" data-mine={r.author?.id === meId ? '' : undefined} {...longPress}>
+      <p className={clsx('text-reading leading-reading break-words whitespace-pre-wrap text-ink', WORDS)} data-testid="chat-thread-reply-text"><MentionedText text={capBlankLines(r.content)} mentioned={mentioned} meId={meId} /></p>
+      <MessageHoverBar more={items} />
+      <MenuButton label={t('rooms.messageMenu')} className="absolute top-0 right-0" buttonClassName="hidden!" testId="chat-thread-reply-menu" openSignal={press} items={items} />
+    </div>
   )
 }
 
-/** A reply on its way: faint while it goes (and while Trina updates); a lost one says so, with Send again. */
+/** A reply on its way: faint while it goes (and while Trina updates), as a room's; a lost one says so, with Send again. */
 function PendingRow({ chatId, rootId, p, people, meId }: { chatId: string; rootId: string; p: PendingReply; people: UserRef[]; meId: string }) {
   const t = useT()
   const mentioned = useMentioned(p.mentions, people)
   return (
-    <li className="flex gap-2.5 opacity-60" data-testid="chat-thread-pending" data-state={p.state}>
-      <span className="size-7 shrink-0" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm leading-6 break-words whitespace-pre-wrap text-ink"><MentionedText text={capBlankLines(p.text)} mentioned={mentioned} meId={meId} /></p>
-        {p.state === 'failed' && (
-          <p className="flex flex-wrap items-center gap-2 text-xs text-danger" role="status">
-            {t('chat.notSent')}
-            <button type="button" className="touch-hit font-medium underline" onClick={() => void useChatThreads.getState().sendAgain(chatId, rootId, p.clientId)} data-testid="chat-thread-send-again">{t('chat.sendAgain')}</button>
-          </p>
-        )}
-      </div>
-    </li>
+    <div className="py-0.5" data-testid="chat-thread-pending" data-state={p.state}>
+      <p className="text-reading leading-reading break-words whitespace-pre-wrap text-muted"><MentionedText text={capBlankLines(p.text)} mentioned={mentioned} meId={meId} /></p>
+      {p.state === 'failed' && (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-danger" role="status">
+          {t('chat.notSent')}
+          <button type="button" className="touch-hit font-medium underline" onClick={() => void useChatThreads.getState().sendAgain(chatId, rootId, p.clientId)} data-testid="chat-thread-send-again">{t('chat.sendAgain')}</button>
+        </p>
+      )}
+    </div>
   )
 }
 

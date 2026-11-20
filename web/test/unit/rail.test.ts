@@ -42,6 +42,8 @@ const DECIDED: Record<string, RailItem | null> = {
   rooms: 'chats',
   'rooms/:roomId': 'chats',
   'rooms/:roomId/t/:messageId': 'chats',
+  'rooms/:roomId/m/:target': 'chats',
+  'rooms/:roomId/t/:messageId/m/:target': 'chats',
   activity: 'activity',
   'activity/:noticeId': 'activity',
   files: 'files',

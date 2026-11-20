@@ -34,6 +34,7 @@ import { isSkillsPath } from '../lib/skillIssues'
 import { useT } from '../i18n'
 import { useCachedRead } from '../store/listCache'
 import { accessChanged, filesChanged, reloadAsked, skillsChanged } from '../store/live'
+import { useFreeRoam } from '../store/demo'
 import { isAdmin, useMe } from '../store/session'
 import { toast } from '../store/ui'
 import { BringSkillsSheet } from './skills/BringSkillsSheet'
@@ -230,7 +231,9 @@ function BringOwnLine() {
   const admin = isAdmin(me)
   const computer = usePicksFolders()
   const [open, setOpen] = useState(false)
-  if (!me) return null
+  // a free-roam demo: nothing comes in from the visitor's own computer (QA TC-5613; the server refuses it too)
+  const freeRoam = useFreeRoam()
+  if (!me || freeRoam) return null
   if (!computer) return <p className="text-label text-muted" data-testid="skill-bring-phone">{t('skills.catalog.bringPhone')}</p>
   return (
     <>
@@ -352,10 +355,14 @@ function SkillRow({ skill: s, folder, onRun, onMove }: { skill: Skill; folder: b
  * and a bottom sheet with the skill's name on top and no path (rooms/MenuButton.tsx, the app's one sheet). */
 function SkillMenu(props: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
   const phone = useMediaQuery('(max-width: 767.98px)')
-  return phone ? <SkillSheet {...props} /> : <SkillDropdown {...props} />
+  // a free-roam demo: no "Move" (QA TC-5616). The visitor's one person may not write at the other levels, so the
+  // dialog only offered disabled places with no word why
+  const freeRoam = useFreeRoam()
+  const shown = { ...props, onMove: freeRoam ? null : props.onMove }
+  return phone ? <SkillSheet {...shown} /> : <SkillDropdown {...shown} />
 }
 
-function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: (() => void) | null }) {
   const t = useT()
   const name = skillShown(s) ?? `/${s.name}`
   return (
@@ -370,13 +377,13 @@ function SkillSheet({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => v
       items={[
         ...(onUse ? [{ label: t('skills.use'), icon: <MessageSquarePlus size={18} aria-hidden />, onSelect: onUse }] : []),
         { label: t('skills.viewFile'), icon: <FileText size={18} aria-hidden />, onSelect: () => navigateTo(skillFileLink(s.path)), testId: 'skill-file' },
-        { label: t('skills.move'), icon: <ArrowRightLeft size={18} aria-hidden />, onSelect: onMove, testId: 'skill-move-open' },
+        ...(onMove ? [{ label: t('skills.move'), icon: <ArrowRightLeft size={18} aria-hidden />, onSelect: onMove, testId: 'skill-move-open' }] : []),
       ]}
     />
   )
 }
 
-function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: () => void }) {
+function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() => void) | null; onMove: (() => void) | null }) {
   const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -419,9 +426,11 @@ function SkillDropdown({ skill: s, onUse, onMove }: { skill: Skill; onUse: (() =
             <FileText size={14} aria-hidden /> {t('skills.viewFile')}
           </button>
           {/* to another level: the team, a group, a project's chats, only me (skills/MoveSkillDialog.tsx) */}
-          <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onMove() }} data-testid="skill-move-open">
-            <ArrowRightLeft size={14} aria-hidden /> {t('skills.move')}
-          </button>
+          {onMove && (
+            <button role="menuitem" type="button" className={item} onClick={() => { setOpen(false); onMove() }} data-testid="skill-move-open">
+              <ArrowRightLeft size={14} aria-hidden /> {t('skills.move')}
+            </button>
+          )}
           {/* where the file is, for people who manage skills (the row itself keeps to the name and the description) */}
           <p className="mt-1 border-t border-line px-2 pt-1.5 pb-1 font-mono text-micro break-all text-faint" title={t('skills.pathLine', { path: s.path })} data-testid="skill-path">{s.path}</p>
         </div>

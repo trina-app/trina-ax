@@ -557,7 +557,6 @@ test('the projects folder takes no new folder or upload; a project\'s folder the
   await expect(page.getByTestId('crumb').last()).toBeVisible()
   await expect(page.getByTestId('new-folder-button')).toHaveCount(0)
   await expect(page.getByTestId('upload-button')).toHaveCount(0)
-  await expect(page.getByTestId('folder-upload-button')).toHaveCount(0)
   // its row: "Members only", the words of Folder permissions, not "pass-through only" (a click opens its page)
   await expect(row(page, 'falcon').getByTestId('members-only')).toHaveText(t['accessTree.membersOnly'])
   await expect(row(page, 'falcon').getByTestId('pass-through')).toHaveCount(0)

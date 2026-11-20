@@ -7,6 +7,7 @@ import { useT } from '../../i18n'
 import { SIGN_IN_WAIT_MINUTES, useWaitLimit } from '../../lib/signInWait'
 import { peekCached, rememberCached } from '../../store/listCache'
 import { Button, LinkButton, WaitLine, confirmDialog } from '../ui'
+import { GoogleAccountBlock } from '../integrations/GoogleAccount'
 
 /** What a sign-in flow calls on the server: Google Drive's (useDriveFlow) and each Google app's (Gmail, Calendar, Docs,
  * Sheets: integrations/GoogleAppConnector.tsx) are the same steps on their own addresses. `current`: the connection once
@@ -148,7 +149,7 @@ export function DriveFlowPanel({ d, flow }: { d: DriveFlowState; flow: DriveFlow
     {flow.state === 'ready' ? <p role="status">{t('drive.confirmAccount')}</p>
       : <WaitLine text={t('drive.waiting')} hint={t('connect.wait.google', { n: SIGN_IN_WAIT_MINUTES })} testId="drive-flow-wait" />}
     {flow.state === 'ready' && <>
-      <p data-testid="drive-account">{flow.account?.name} {flow.account?.email}</p>
+      <GoogleAccountBlock account={flow.account} testId="drive-account" />
       <Button variant="primary" busy={d.busy} onClick={() => void d.complete()} data-testid="drive-confirm">{t('drive.confirm')}</Button>
     </>}
     {/* waiting: Continue with Google (the window again), Try again (a new window, the server replaces the flow) beside Cancel, always (QA TC-1417) */}

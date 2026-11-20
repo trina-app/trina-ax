@@ -1,7 +1,7 @@
 // Pure helpers of the team chat rooms ("대화방" v1, shared/src/api/rooms.ts): a room's title, runs of one author's
 // messages, event lines, and @mentions (the "@name" being typed, the members that fit it, and the parts of a sent
 // text). No React, no requests: unit tested in test/unit/rooms-lib.test.ts.
-import { roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
+import { isUuid7, roomCounts, roomLightsDot, roomNoticeWanted, roomUnread, roomWantsMe, ROOM_MENTIONS_MAX, type CountedRoomFields, type Room, type RoomEventLine, type RoomMessage, type UserRef } from '@mycel/shared/api'
 
 /** The words a title falls back to: `all` for the everyone room, `gone` for a DM whose other person is gone, and for an
  * unnamed group chat its other members ("가, 나, 다 외 2명"; `alone` when nobody else is left). */
@@ -87,21 +87,32 @@ export function localDayKey(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export interface MessageRun {
+/** What runs are cut by: a room message, or a reply in the thread under a shared chat's AI answer
+ * (components/chat/ChatThreadPanel.tsx), which has no AI author and no event lines. */
+export interface RunItem {
+  id: string
+  createdAt: string
+  author: { id: string } | null
+  authorKind?: RoomMessage['authorKind']
+  askedBy?: { id: string } | null
+  event?: unknown
+}
+
+export interface MessageRun<M extends RunItem = RoomMessage> {
   /** the first message's id */
   key: string
-  messages: RoomMessage[]
+  messages: M[]
   /** the first run of its day (the list shows the date above it) */
   newDay: boolean
 }
 
-const authorKey = (m: RoomMessage) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
+const authorKey = (m: RunItem) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
 
 /** Cut the messages (oldest first) into runs of one author. An event line is a run of its own and ends the one before
  * it (the next message starts a new run with its name and time). */
-export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => string = localDayKey): MessageRun[] {
-  const runs: MessageRun[] = []
-  let prev: RoomMessage | null = null
+export function groupRuns<M extends RunItem>(messages: readonly M[], dayOf: (iso: string) => string = localDayKey): MessageRun<M>[] {
+  const runs: MessageRun<M>[] = []
+  let prev: M | null = null
   let prevDay: string | null = null
   for (const m of messages) {
     const day = dayOf(m.createdAt)
@@ -312,6 +323,33 @@ export function plainLine(md: string): string {
  * unmarked, so closing it never steps back out of the room). */
 export function threadOpening(roomId: string, rootId: string, open: { threadId: string | null; fromRoom: boolean }): { path: string; replace: boolean; state: { fromRoom: boolean } } {
   return { path: `/rooms/${roomId}/t/${rootId}`, replace: !!open.threadId, state: { fromRoom: open.threadId ? open.fromRoom : true } }
+}
+/** The message a room's own timeline goes to and picks out (components/rooms/RoomMessages.tsx `highlight`): with no
+ * thread open, the one a link points at (?m=: an Activity row, a search result, a message link); with a thread open from
+ * a link, an Activity row or a push tap, the thread's first message, so the room shows the message the thread is under
+ * beside it, as Slack does (a push names no ?m=: the thread's address is enough); none for a thread opened by a click in
+ * this room (`openedHere`: that message is in sight already, and the room stays as it was). */
+export function timelineTarget(o: { threadId: string | null; target: string | null; openedHere: boolean }): string | null {
+  if (!o.threadId) return o.target
+  return o.openedHere ? null : o.threadId
+}
+/** A phone notification's path to a message (/rooms/<room>[/t/<root>]/m/<message>: server/src/notifications/push-events.ts
+ * roomPath) as the app's own address: the room or the thread at that message (?m=). An id that is not one: the room or
+ * the thread alone (the page says what it says about a bad thread). */
+export function pushedMessagePath(roomId: string, rootId: string | null, messageId: string): string {
+  const room = `/rooms/${encodeURIComponent(roomId)}${rootId ? `/t/${encodeURIComponent(rootId)}` : ''}`
+  return isUuid7(messageId) && messageId !== rootId ? `${room}?m=${encodeURIComponent(messageId)}` : room
+}
+/** Whether a list picks out (scrolls to and lights) `highlight` now: once for each place in the history that points at
+ * it (`navKey`: the router's location key), so coming back to that place (closing a thread opened from it, Back) leaves
+ * the reader where they scrolled, and a link or a notice clicked again (a new place) picks it out again. `seen` holds
+ * what was picked out already, for the life of the list. */
+export function highlightNow(seen: Set<string>, highlight: string | null, navKey: string | null): boolean {
+  if (!highlight) return false
+  const k = `${navKey ?? ''} ${highlight}`
+  if (seen.has(k)) return false
+  seen.add(k)
+  return true
 }
 /** Closing it: one step back when the room is that step, else to the room in place of the thread. */
 export const threadClosing = (roomId: string, fromRoom: boolean): -1 | { path: string; replace: true } => (fromRoom ? -1 : { path: `/rooms/${roomId}`, replace: true })

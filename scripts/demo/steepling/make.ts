@@ -11,28 +11,38 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { DemoContentCompany } from '../../../shared/src/api'
 import type { FakeDrive, FakeGmail } from '../company/fakes'
+import { TEMPLATES_FOLDER } from '../../../shared/src/folder-labels'
 import { en as minaEn, type Strings } from '../mina/strings/en'
 import { ko as minaKo } from '../mina/strings/ko'
 import { en, type FreeRoamStrings } from './strings/en'
 import { ko } from './strings/ko'
+import { richEn } from './strings/rich.en'
+import { richKo } from './strings/rich.ko'
+import { CHATS, CONTACTS, DRIVE, DRIVE_FOLDERS, EVERYONE, FILES, LAUNCH_DAY_ADD, MAIL, MESSAGES, NEW_PEOPLE, OWN_SKILLS, PROJECTS, ROOMS, type ChatId, type DriveId, type FileId, type MailId, type MessageId, type Msg, type NewPerson, type ProjectId, type RichWords, type RoomSlug, type TurnId, type Who } from './rich'
 
 const MINA = path.resolve(import.meta.dir, '..', 'mina')
 const ASSETS = path.join(MINA, 'assets')
 
 export const STEEPLING_LOCALES = ['en', 'ko'] as const
 export type SteeplingLocale = (typeof STEEPLING_LOCALES)[number]
-const WORDS: Record<SteeplingLocale, { story: Strings; more: FreeRoamStrings }> = { en: { story: minaEn, more: en }, ko: { story: minaKo, more: ko } }
+const WORDS: Record<SteeplingLocale, { story: Strings; more: FreeRoamStrings; rich: RichWords }> = { en: { story: minaEn, more: en, rich: richEn }, ko: { story: minaKo, more: ko, rich: richKo } }
+const OWN_ASSETS = path.join(import.meta.dir, 'assets')
 
 /** the story's people (scripts/demo/mina/story.ts), as accounts; Daniel, the CEO, owns the team */
 const PEOPLE = ['mina', 'sara', 'leo', 'tom', 'aiko', 'omar'] as const
-export const STEEPLING_SKILLS = ['brand-guide', 'social-posts', 'press-release', 'competitor-roundup', 'handover'] as const
-const email = (id: keyof Strings['people']) => `${minaEn.people[id].name.toLowerCase().replace(/\s+/g, '.')}@${id === 'chris' ? 'fieldnote' : 'steepling'}.example`
+export const STEEPLING_SKILLS = ['brand-guide', 'social-posts', 'press-release', 'competitor-roundup', 'handover', 'review-digest'] as const
+const englishName = (id: keyof Strings['people'] | Who) => (id in NEW_PEOPLE ? richEn[`${id as keyof typeof NEW_PEOPLE}.name`] : minaEn.people[id as keyof Strings['people']].name)
+const email = (id: keyof Strings['people'] | Who) => `${englishName(id).toLowerCase().replace(/\s+/g, '.')}@${id === 'chris' ? 'fieldnote' : 'steepling'}.example`
+/** the fake Higgsfield's one picture: `00-` first, so it stays the default for a prompt that matches no name (the picker
+ * takes the first on a tie), with the story's words in English and Korean */
+export const HIGGSFIELD_PICTURE = '00-yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light-유자-진저-파우치-아이스-창가-아침-햇살.jpg'
 
 /** minutes before the build: the story happened this morning, the rest in the days before */
 const T = {
   everyoneWelcome: 240, homeChat: 205, leoDm: 200, saraDm: 195, bannerChat: 150, share: 140, ceoShip: 138, leoHow: 136, gmailHint: 133,
   mailAsk: 125, mailSend: 123, chrisReply: 110, chrisRelayed: 105, shoutout: 100, saraWelcome: 98, launchDay: 90,
   leoChat: 2 * 1440 + 90, leoPost: 2 * 1440 + 80, saraThanks: 2 * 1440 + 60, pressRelease: 1440 + 120, specs: 21 * 1440,
+  bannerThread: 137, brief: 3 * 1440, teamFiles: 7 * 1440, leadership: 10 * 1440, skills: 30 * 1440,
 }
 
 export interface Steepling { company: DemoContentCompany; files: Record<string, string | { asset: string }>; gmail: FakeGmail; drive: FakeDrive; avatars: Record<string, string>; pictures: Record<string, string> }
@@ -54,7 +64,7 @@ export function skillWithTitle(md: string, title: string): string {
 
 /** The content of one language (what writeSteepling puts on disk). */
 export function steepling(locale: SteeplingLocale): Steepling {
-  const { story: s, more: x } = WORDS[locale]
+  const { story: s, more: x, rich: w } = WORDS[locale]
   const a = s.answers, m = s.mail, ev = s.events, pp = s.people
   const MKT = s.marketingGroup
   const P = s.project.name
@@ -66,9 +76,27 @@ export function steepling(locale: SteeplingLocale): Steepling {
   const img = (label: string, p: string) => `![${label}]({file:${p}})`
   const link = (text: string) => text.replaceAll('{project}', `{project:${P}}`)
 
-  // ---- the files: the story's, the launch set Mina's AI made, the other teams', the CEO's folder
+  // ---- the richer team (rich.ts): names, groups, projects, file paths in this language
+  const groupName = { marketing: MKT, operations: x.groups.operations.name, sales: x.groups.sales.name, shop: x.groups.shop.name } as const
+  const nameOf = (id: Who) => (id in NEW_PEOPLE ? w[`${id as NewPerson}.name`] : pp[id as keyof Strings['people']].name)
+  const projectName = (id: ProjectId) => w[`${id}.name`]
+  const fileAt = (id: FileId): string => {
+    if (id === 'intro') return s.paths.companyIntro
+    const f = FILES[id]
+    const folder = f.in === 'mina' ? 'users/mina' : f.in === 'shared' ? 'shared' : f.in === 'templates' ? `shared/${TEMPLATES_FOLDER[locale]}` : f.in === 'marketing' ? `groups/${MKT}` : `projects/${projectName(f.in)}`
+    return `${folder}/${w[`${id}.name`]}`
+  }
+  if (path.basename(s.paths.companyIntro) !== w['intro.name']) throw new Error(`steepling ${locale}: intro.name is not the story's company intro (${s.paths.companyIntro})`)
+  /** `@{id}`, `{file:<id>}`, `{project:<id>}` of rich.ts made into the content format's words */
+  const words = (text: string) => text
+    .replace(/@\{(\w+)\}/g, (_m, id: string) => { if (!EVERYONE.includes(id as Who)) throw new Error(`steepling ${locale}: no person "${id}"`); return `@${nameOf(id as Who)}` })
+    // a file is a link with its name: the content format's bare `{file:<path>}` is only the address (QA TC-5884)
+    .replace(/\{file:([\w.-]+)\}/g, (_m, id: string) => { if (!(id in FILES)) throw new Error(`steepling ${locale}: no file "${id}"`); const at = fileAt(id as FileId); return `[${path.basename(at)}]({file:${at}})` })
+    .replace(/\{project:(\w+)\}/g, (_m, id: string) => { if (!(id in PROJECTS)) throw new Error(`steepling ${locale}: no project "${id}"`); return `{project:${projectName(id as ProjectId)}}` })
+
+  // ---- the files: the story's, the launch set Mina's AI made, the other teams', the CEO's folder, the richer team's
+  // (the company intro is the richer team's: 10 people)
   const files: Steepling['files'] = {
-    [s.paths.companyIntro]: { asset: `company-intro.${locale}.md` },
     [brief]: { asset: `launch-brief.${locale}.md` },
     [leoBanner]: { asset: `banner-leo.${locale}.png` },
     [banner]: { asset: `campaign-banner.${locale}.jpg` },
@@ -76,35 +104,67 @@ export function steepling(locale: SteeplingLocale): Steepling {
     [story]: { asset: `campaign-story.${locale}.jpg` },
     [captions]: `# ${a.captionsTitle}\n\n${a.captions.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n`,
     [photo]: { asset: 'higgsfield-photo.jpg' },
-    ...Object.fromEntries(STEEPLING_SKILLS.map((k) => [`skills/${k}/SKILL.md`, skillWithTitle(fs.readFileSync(path.join(ASSETS, `skill-${k}.${locale}.md`), 'utf8'), x.skillTitles[k])])),
+    ...Object.fromEntries(STEEPLING_SKILLS.map((k) => {
+      const own = (OWN_SKILLS as readonly string[]).includes(k)
+      const md = fs.readFileSync(path.join(own ? OWN_ASSETS : ASSETS, `skill-${k}.${locale}.md`), 'utf8')
+      return [`skills/${k}/SKILL.md`, skillWithTitle(md, x.skillTitles[k])]
+    })),
     ...Object.fromEntries(x.files.map((f) => [f.path, f.text])),
     ...Object.fromEntries(x.leadership.files.map((f) => [`${x.leadership.folder}/${f.name}`, f.text])),
+    ...Object.fromEntries((Object.keys(FILES) as FileId[]).map((id) => [fileAt(id), w[`${id}.text`]])),
   }
 
-  // ---- the AI answers of the story, as they ended
-  const company = `${a.company.text}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- ${a.company.personLine.replace('{name}', `**${pp[id].name}**`).replace('{title}', pp[id].title).replace('{text}', a.company.people[id])}`).join('\n')}`
+  // ---- the AI answers of the story, as they ended (the team is 10 people: the story's company answer says 12)
+  const sized = (text: string) => {
+    const out = text.replace(locale === 'ko' ? '12명이' : '12 of us', locale === 'ko' ? '10명이' : '10 of us')
+    if (out === text) throw new Error(`steepling ${locale}: the company answer no longer says the team's size`)
+    return out
+  }
+  const company = `${sized(a.company.text)}\n\n**${a.company.peopleTitle}**\n${(['sara', 'leo', 'daniel'] as const).map((id) => `- ${a.company.personLine.replace('{name}', `**${pp[id].name}**`).replace('{title}', pp[id].title).replace('{text}', a.company.people[id])}`).join('\n')}`
   const d = a.deliverables
   const pictures = `**${a.compare.before}**\n\n${img(a.compare.before, leoBanner)}\n\n**${a.compare.after}**\n\n${img(d.banner, banner)}\n\n${a.otherSizes}\n\n${img(d.square, square)}\n\n${img(d.story, story)}`
   const captionsQuote = a.captions.map((c, i) => `> ${i + 1}. ${c}`).join('\n>\n')
   const bannerAnswer = `${a.banner.text}\n\n${pictures}\n\n${captionsQuote}\n\n${a.banner.after}`
   const draft = `**${m.labels.to}** ${m.to}\\\n**${m.labels.subject}** ${m.plain.subject}\\\n**${m.labels.attachments}** ${s.paths.banner}, ${s.paths.square}\n\n${m.plain.body.map((l) => (l ? `> ${l}` : '>')).join('\n')}`
 
-  const msg = (from: string, minutesAgo: number, text: string, more: Partial<DemoContentCompany['rooms'][number]['messages'][number]> = {}) =>
+  type RoomMsg = DemoContentCompany['rooms'][number]['messages'][number]
+  const msg = (from: string, minutesAgo: number, text: string, more: Partial<RoomMsg> = {}): RoomMsg =>
     ({ from, minutesAgo, text, files: [], reactions: [], ...more })
+  // the richer team's messages of a room (rich.ts MESSAGES), each thread reply under its root
+  const reactionsOf = (r: Readonly<Partial<Record<string, readonly Who[]>>> | undefined) => Object.entries(r ?? {}).flatMap(([emoji, by]) => (by ?? []).map((from) => ({ from, emoji })))
+  const entries = Object.entries(MESSAGES) as [MessageId, Msg][]
+  const richOf = (room: RoomSlug): RoomMsg[] => entries.filter(([, e]) => e.room === room && !e.thread).map(([id, e]) => {
+    const replies = entries.filter(([, r]) => r.thread === id).sort((p, q) => q[1].ago - p[1].ago)
+    return msg(e.from, e.ago, words(w[id]), {
+      reactions: reactionsOf(e.react),
+      files: (e.files ?? []).map(fileAt),
+      ...(e.unread ? { unread: true as const } : {}),
+      ...(replies.length ? { thread: replies.map(([rid, r]) => ({ from: r.from, text: words(w[rid]), minutesAgo: r.ago, reactions: reactionsOf(r.react), ...(r.unread ? { unread: true as const } : {}) })) } : {}),
+    })
+  })
+  /** a room's messages oldest first: the story's and the richer team's */
+  const timeline = (room: RoomSlug, own: RoomMsg[]) => [...own, ...richOf(room)].sort((p, q) => q.minutesAgo - p.minutesAgo)
+  const people = (id: keyof typeof ROOMS) => [...ROOMS[id].people]
+
+  const opens = (p: string) => !p.startsWith(`${x.leadership.folder}/`) && !(['operations', 'sales', 'shop'] as const).some((g) => p.startsWith(`groups/${groupName[g]}/`))
+  const all = Object.keys(files)
+  const leadershipFile = all.find((f) => f.startsWith(`${x.leadership.folder}/`))!
+  const groupFile = (g: keyof typeof groupName) => all.find((f) => f.startsWith(`groups/${groupName[g]}/`))!
 
   const c: DemoContentCompany = {
     format: 1,
     id: locale === 'en' ? 'steepling' : `steepling-${locale}`,
     teamName: s.company,
     locale,
-    owner: { username: 'daniel', name: pp.daniel.name, group: MKT },
+    owner: { username: 'daniel', name: pp.daniel.name, group: MKT, title: pp.daniel.title, email: email('daniel') },
     people: [
-      { username: 'mina', name: pp.mina.name, group: MKT, note: 'the visitor: new marketing hire, first day' },
-      { username: 'sara', name: pp.sara.name, group: MKT, note: 'Marketing lead, invited Mina' },
-      { username: 'leo', name: pp.leo.name, group: MKT, note: 'made the first banner, moving to Sales' },
-      { username: 'tom', name: pp.tom.name, group: x.groups.operations.name, note: 'Operations lead' },
-      { username: 'aiko', name: pp.aiko.name, group: x.groups.sales.name },
-      { username: 'omar', name: pp.omar.name, group: x.groups.shop.name },
+      { username: 'mina', name: pp.mina.name, group: MKT, note: 'the visitor: new marketing hire, first day', title: pp.mina.title, email: email('mina') },
+      { username: 'sara', name: pp.sara.name, group: MKT, note: 'Marketing lead, invited Mina', title: pp.sara.title, email: email('sara') },
+      { username: 'leo', name: pp.leo.name, group: MKT, note: 'made the first banner, moving to Sales', title: pp.leo.title, email: email('leo') },
+      { username: 'tom', name: pp.tom.name, group: x.groups.operations.name, note: 'Operations lead', title: pp.tom.title, email: email('tom') },
+      { username: 'aiko', name: pp.aiko.name, group: x.groups.sales.name, title: pp.aiko.title, email: email('aiko') },
+      { username: 'omar', name: pp.omar.name, group: x.groups.shop.name, title: pp.omar.title, email: email('omar') },
+      ...(Object.keys(NEW_PEOPLE) as NewPerson[]).map((id) => ({ username: id, name: w[`${id}.name`], group: groupName[NEW_PEOPLE[id].group], note: 'shown with initials (no photo)', title: w[`${id}.title`], email: email(id) })),
     ],
     groups: [
       { name: MKT, description: x.groups.marketing },
@@ -116,6 +176,9 @@ export function steepling(locale: SteeplingLocale): Steepling {
     uploaders: [
       { path: `${inProject(s.paths.leoBanner)}`, username: 'leo' },
       { path: `projects/${P}`, username: 'mina' },
+      { path: `projects/${projectName('p3')}`, username: 'nadia' },
+      { path: `projects/${projectName('p4')}`, username: 'aiko' },
+      { path: `projects/${projectName('p5')}`, username: 'leo' },
       { path: `groups/${MKT}`, username: 'sara' },
       { path: `groups/${x.groups.operations.name}`, username: 'tom' },
       { path: `groups/${x.groups.sales.name}`, username: 'aiko' },
@@ -125,7 +188,8 @@ export function steepling(locale: SteeplingLocale): Steepling {
     defaultUploader: 'daniel',
     packSkills: [],
     settings: { aiSubagents: false, ...(locale === 'ko' ? { timeZone: 'Asia/Seoul' } : {}) },
-    memories: [{ username: 'mina', text: x.memory }],
+    // saved on her first morning (QA TC-5743: it said the build's time)
+    memories: [{ username: 'mina', text: x.memory, minutesAgo: T.everyoneWelcome }],
     profile: { website: 'https://steepling.example', name: s.company, oneLine: x.profile.oneLine, products: x.profile.products, audience: x.profile.audience, tone: x.profile.tone, avoid: x.profile.avoid, sources: [] },
     demo: {
       personas: [
@@ -134,58 +198,76 @@ export function steepling(locale: SteeplingLocale): Steepling {
       ],
     },
     scenarios: [],
+    // who opens what, made from where the files are (not their order): Mina everything but the CEO's folder and the
+    // other teams' folders
     checks: [
-      {
-        username: 'mina',
-        opens: [s.paths.companyIntro, brief, leoBanner, banner, square, story, captions, photo, `skills/${s.brandSkill}/SKILL.md`],
-        closed: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, x.files[0]!.path, x.files[1]!.path],
-        skills: [...STEEPLING_SKILLS],
-      },
-      { username: 'sara', opens: [brief, banner], closed: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, x.files[0]!.path] },
-      { username: 'tom', opens: [s.paths.companyIntro, x.files[0]!.path], closed: [banner, brief, `${x.leadership.folder}/${x.leadership.files[0]!.name}`] },
-      { username: 'daniel', opens: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, banner, x.files[1]!.path], closed: [] },
+      { username: 'mina', opens: all.filter(opens), closed: all.filter((f) => !opens(f)), skills: [...STEEPLING_SKILLS] },
+      { username: 'sara', opens: [brief, banner], closed: [leadershipFile, groupFile('operations')] },
+      { username: 'tom', opens: [s.paths.companyIntro, groupFile('operations'), fileAt('p3.reviews')], closed: [banner, brief, leadershipFile] },
+      { username: 'daniel', opens: [leadershipFile, banner, groupFile('sales')], closed: [] },
     ],
-    projects: [{ name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }] }],
+    // the launch day group chat is the launch project's channel; each new project has its own (only a private channel
+    // links to a project)
+    projects: [
+      { name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }], channel: 'launch-day' },
+      ...(Object.keys(PROJECTS) as ProjectId[]).map((id) => ({
+        name: projectName(id), instructions: w[`${id}.about`], by: PROJECTS[id].by, channel: PROJECTS[id].channel,
+        members: [...PROJECTS[id].groups.map((g) => ({ group: groupName[g] })), ...PROJECTS[id].users.map((u) => ({ user: u }))],
+      })),
+    ],
     rooms: [
       {
-        slug: 'everyone', kind: 'all', messages: [
+        slug: 'everyone', kind: 'all', messages: timeline('everyone', [
           ...x.everyoneBefore.map((e) => msg(e.from, e.minutesAgo, e.text)),
           ...s.rooms.everyone.map((e, i) => msg(e.from, T.everyoneWelcome - i * 3, e.text)),
-          msg('daniel', T.shoutout, ev.ceoShoutout, { reactions: [{ from: 'tom', emoji: '🎉' }, { from: 'aiko', emoji: '🔥' }, { from: 'omar', emoji: '👏' }, { from: 'leo', emoji: '🙌' }, { from: 'sara', emoji: '🎉' }] }),
+          msg('daniel', T.shoutout, ev.ceoShoutout, { reactions: [{ from: 'tom', emoji: '🎉' }, { from: 'aiko', emoji: '🔥' }, { from: 'omar', emoji: '👏' }, { from: 'leo', emoji: '🙌' }, { from: 'sara', emoji: '🎉' }, { from: 'nadia', emoji: '🎉' }, { from: 'grace', emoji: '💛' }] }),
           msg('sara', T.saraWelcome, ev.saraWelcome),
-        ],
+        ]),
       },
       {
-        slug: 'marketing', kind: 'team', group: MKT, messages: [
+        slug: 'marketing', kind: 'team', group: MKT, messages: timeline('marketing', [
           ...x.marketingBefore.map((e) => msg(e.from, e.minutesAgo, e.text)),
           msg('leo', T.leoPost, s.rooms.marketing[0]!.text, { files: [leoBanner] }),
           msg(s.rooms.marketing[1]!.from, T.saraThanks, s.rooms.marketing[1]!.text),
           // the story's moment ③: Mina sends her answer, the team reacts (a room's reactions are its members')
-          msg('mina', T.share, x.shareNote, { shareChat: 'banner', reactions: [{ from: 'leo', emoji: '👏' }, { from: 'sara', emoji: '🔥' }, { from: 'daniel', emoji: '🙌' }] }),
+          msg('mina', T.share, x.shareNote, { shareChat: 'banner', reactions: [{ from: 'leo', emoji: '👏' }, { from: 'sara', emoji: '🔥' }, { from: 'daniel', emoji: '🙌' }, { from: 'ben', emoji: '😍' }] }),
           msg('daniel', T.ceoShip, ev.ceoShip),
           msg('leo', T.leoHow, ev.leoHow),
           msg('sara', T.gmailHint, ev.leadGmail),
           msg('sara', T.chrisRelayed, ev.chrisRelayed.replace('{reply}', ev.chrisReply)),
-        ],
+        ]),
       },
-      { slug: 'dm-sara', kind: 'dm', people: ['sara', 'mina'], messages: [msg('sara', T.saraDm, link(ev.leadDm))] },
-      { slug: 'dm-leo', kind: 'dm', people: ['leo', 'mina'], messages: [msg('leo', T.leoDm, x.leoDm)] },
+      { slug: 'dm-sara', kind: 'dm', people: ['sara', 'mina'], messages: timeline('dm-sara', [msg('sara', T.saraDm, link(ev.leadDm))]) },
+      { slug: 'dm-leo', kind: 'dm', people: ['leo', 'mina'], messages: timeline('dm-leo', [msg('leo', T.leoDm, x.leoDm)]) },
+      { slug: 'dm-daniel', kind: 'dm', people: people('dm-daniel'), messages: timeline('dm-daniel', []) },
+      { slug: 'dm-omar', kind: 'dm', people: people('dm-omar'), messages: timeline('dm-omar', []) },
       {
-        slug: 'launch-day', kind: 'group', people: ['omar', 'sara', 'mina', 'tom'], name: x.launchDay.name,
-        messages: x.launchDay.messages.map((e, i) => msg(e.from, T.launchDay - i * 2, e.text)),
+        slug: 'launch-day', kind: 'group', people: ['omar', 'sara', 'mina', 'tom', ...LAUNCH_DAY_ADD], name: x.launchDay.name,
+        messages: timeline('launch-day', x.launchDay.messages.map((e, i) => msg(e.from, T.launchDay - i * 2, e.text))),
       },
+      ...(['customer-voice', 'cafe-partners', 'social-calendar', 'tea-break'] as const).map((slug) => ({ slug, kind: 'group' as const, people: people(slug), name: w[`room.${slug}`], messages: timeline(slug, []) })),
+      { slug: 'handover', kind: 'group', people: people('handover'), messages: timeline('handover', []) },
     ],
     chats: [
       { slug: 'company', username: 'mina', title: a.company.prompt, turns: [{ ask: a.company.prompt, answer: company, minutesAgo: T.homeChat }] },
       { slug: 'leo-banner', username: 'leo', project: P, title: s.leoChat.title, turns: [{ ask: s.leoChat.ask, answer: `${s.leoChat.answer}\n\n${img(s.leoChat.title, leoBanner)}`, minutesAgo: T.leoChat }] },
       { slug: 'press-release', username: 'sara', project: P, title: x.pressRelease.title, turns: [{ ask: x.pressRelease.ask, answer: x.pressRelease.answer, minutesAgo: T.pressRelease }] },
-      { slug: 'banner', username: 'mina', project: P, title: a.banner.prompt, turns: [{ ask: a.banner.prompt, answer: bannerAnswer, minutesAgo: T.bannerChat }] },
+      { slug: 'banner', username: 'mina', project: P, title: a.banner.prompt, turns: [{ ask: a.banner.prompt, answer: bannerAnswer, minutesAgo: T.bannerChat }],
+        // Sara answers in its thread, naming Mina: her notice in Activity (the free-roam audit, QA TC-5614)
+        thread: [{ from: 'sara', text: x.bannerThread, minutesAgo: T.bannerThread }] },
       {
         slug: 'mail-chris', username: 'mina', sideRoom: 'marketing', title: a.mail.prompt, turns: [
           { ask: a.mail.prompt, answer: `${a.mail.intro}\n\n${draft}`, minutesAgo: T.mailAsk },
           { ask: m.send, answer: m.sent.replaceAll('{subject}', m.plain.subject), minutesAgo: T.mailSend },
         ],
       },
+      ...(Object.keys(CHATS) as ChatId[]).map((id) => {
+        const k: { by: Who; project?: ProjectId; turns: Record<string, number> } = CHATS[id]
+        return {
+          slug: id.replace('.', '-'), username: k.by, ...(k.project ? { project: projectName(k.project) } : {}), title: w[`${id}.title`],
+          turns: (Object.entries(k.turns) as [TurnId, number][]).map(([t, at]) => ({ ask: w[`${t}.ask`], answer: words(w[`${t}.answer`]), minutesAgo: at })),
+        }
+      }),
     ],
     connections: [
       { service: 'gmail', username: 'mina', account: { name: pp.mina.name, email: email('mina') } },
@@ -193,13 +275,29 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { service: 'higgsfield', account: { name: s.company, email: 'team@steepling.example' } },
     ],
     welcome: [{ username: 'mina', inviter: 'sara', asked: true }],
+    // the files' times in the story, not the build's (the free-roam audit, QA TC-5618): the launch set this morning,
+    // Leo's banner two days ago, the richer team's files each at its own time, the rest older; the first entry that
+    // matches a file wins
+    fileTimes: [
+      { path: leoBanner, minutesAgo: T.leoChat },
+      ...(Object.keys(FILES) as FileId[]).map((id) => ({ path: fileAt(id), minutesAgo: FILES[id].ago })),
+      { path: `projects/${P}`, minutesAgo: T.bannerChat },
+      { path: brief, minutesAgo: T.brief },
+      { path: x.leadership.folder, minutesAgo: T.leadership },
+      { path: 'groups', minutesAgo: T.teamFiles },
+      { path: 'shared', minutesAgo: T.specs },
+      { path: 'skills', minutesAgo: T.skills },
+    ],
+    // the team skills and the company profile were set up with the team, not changed lately
+    recentHidden: ['skills'],
     // the scripted demo's own sign-up address (scripts/demo/mina/story.ts end.signup)
     freeRoam: { suggestions: x.suggestions, signupUrl: 'https://ax.trina.app/pricing' },
   }
 
   // ---- the fake Gmail (server/src/demo/fakes/gmail.ts): Mina's mailbox. The mail to Chris in Sent, his reply in the
-  // inbox (unread), Sara's forward of his older mail, her welcome
-  const who = (id: keyof Strings['people']) => `${pp[id].name} <${email(id)}>`
+  // inbox (unread), Sara's forward of his older mail, her welcome; then the richer team's threads (rich.ts MAIL)
+  const who = (id: keyof Strings['people'] | Who) => `${id in NEW_PEOPLE ? nameOf(id as Who) : pp[id as keyof Strings['people']].name} <${email(id)}>`
+  const party = (id: string) => (id === 'sam' ? `${w['contact.sam']} <${CONTACTS.sam}>` : id === 'marketing' || id === 'all' ? CONTACTS[id] : who(id as Who | 'chris'))
   const g = x.gmail
   const reply = `${g.replyPrefix}${m.plain.subject}`
   const gmail: FakeGmail = {
@@ -210,21 +308,34 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { id: 'specs-fwd', threadId: 'specs', from: who('sara'), to: who('mina'), subject: `${g.forwardPrefix}${g.specs.subject}`, date: ago(T.everyoneWelcome + 20), labels: ['INBOX'],
         body: `${g.forwardNote}\n\n${g.forwarded}\n${who('chris')}\n${g.specs.subject}\n\n${g.specs.body}` },
       { id: 'welcome', threadId: 'welcome', from: who('sara'), to: who('mina'), subject: g.welcome.subject, date: ago(T.everyoneWelcome + 30), body: g.welcome.body, labels: ['INBOX'] },
+      ...(Object.keys(MAIL) as MailId[]).map((id) => {
+        const k: { thread: string; from: string; to: readonly string[]; cc?: readonly string[]; ago: number; labels: readonly string[] } = MAIL[id]
+        return { id: id.replace('gm.', ''), threadId: k.thread, from: party(k.from), to: k.to.map(party).join(', '), ...(k.cc ? { cc: k.cc.map(party).join(', ') } : {}), subject: w[`${id}.subject`], date: ago(k.ago), body: w[`${id}.body`], labels: [...k.labels] }
+      }),
     ],
   }
-  // ---- the fake Drive (server/src/demo/fakes/drive.ts): Mina's, with Fieldnote's plan in a folder
-  const folders = [...new Set(x.drive.map((f) => f.folder).filter(Boolean))]
+  // ---- the fake Drive (server/src/demo/fakes/drive.ts): Mina's, with Fieldnote's plan and report in a folder, the
+  // price tracker, her first-week checklist
+  const driveFiles = [
+    ...x.drive,
+    ...(Object.keys(DRIVE) as DriveId[]).map((id) => {
+      const k: { folder?: (typeof DRIVE_FOLDERS)[number]; mime: string; ago: number } = DRIVE[id]
+      return { id: id.replace('dr.', ''), name: w[`${id}.name`], mimeType: k.mime, folder: k.folder ? w[`folder.${k.folder}`] : '', minutesAgo: k.ago, text: w[`${id}.text`] }
+    }),
+  ]
+  const folders = [...new Set(driveFiles.map((f) => f.folder).filter(Boolean))]
   const drive: FakeDrive = {
     me: { name: pp.mina.name, email: email('mina') },
     files: [
       ...folders.map((name, i) => ({ id: `folder-${i + 1}`, name, mimeType: 'application/vnd.google-apps.folder' })),
-      ...x.drive.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, text: f.text, modifiedTime: ago(f.minutesAgo), ...(f.folder ? { parent: `folder-${folders.indexOf(f.folder) + 1}` } : {}) })),
+      ...driveFiles.map((f) => ({ id: f.id, name: f.name, mimeType: f.mimeType, text: f.text, modifiedTime: ago(f.minutesAgo), ...(f.folder ? { parent: `folder-${folders.indexOf(f.folder) + 1}` } : {}) })),
     ],
   }
+  // the story's seven have photos; the three new people show initials
   const avatars = Object.fromEntries(['daniel', ...PEOPLE].map((id) => [id, `avatar-${id}.jpg`]))
-  // ---- the fake Higgsfield's pictures (server/src/demo/fakes/higgsfield.ts picks one by the words of its name): the
+  // ---- the fake Higgsfield's picture (server/src/demo/fakes/higgsfield.ts picks one by the words of its name): the
   // story's photo
-  const higgsfield = { 'yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light.jpg': 'higgsfield-photo.jpg' }
+  const higgsfield = { [HIGGSFIELD_PICTURE]: 'higgsfield-photo.jpg' }
   return { company: c, files, gmail, drive, avatars, pictures: higgsfield }
 }
 

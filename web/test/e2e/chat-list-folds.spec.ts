@@ -78,14 +78,13 @@ test.describe('a phone (390)', () => {
     await expect(panelSection(page, 'team').getByTestId('chats-panel-section-pill')).toHaveAttribute('data-kind', 'mention')
   })
 
-  test('my own folder folds with its pill, and opens again with the keyboard', async ({ page }) => {
+  test('a team category folds with its pill, and opens again with the keyboard', async ({ page }) => {
     await start(page, 390)
-    const bot1 = room('알림 봇', { activityAt: ago(1) }), bot2 = room('배포 봇', { activityAt: ago(2) }), other = room('전체 공지', { activityAt: ago(3) })
+    const f = (await (await send(page, 'post', '/api/room-categories', { name: '🤖 Bots' })).json()) as { id: string }
+    const bot1 = room('알림 봇', { activityAt: ago(1), categoryId: f.id }), bot2 = room('배포 봇', { activityAt: ago(2), categoryId: f.id }), other = room('전체 공지', { activityAt: ago(3) })
     await setRooms(page, [bot1, bot2, other])
-    const f = (await (await send(page, 'post', '/api/nav-folders', { kind: 'rooms', name: '🤖 Bots' })).json()) as { id: string }
-    for (const r of [bot1, bot2]) expect((await send(page, 'put', `/api/rooms/${r.id}/folder`, { folderId: f.id })).ok()).toBeTruthy()
     await page.goto('/rooms')
-    const bots = phoneSection(page, 'folder')
+    const bots = phoneSection(page, 'category')
     await expect(bots.getByTestId('panel-section-name')).toHaveText('🤖 Bots')
     await expect(bots.getByTestId('rooms-row')).toHaveCount(2)
     await bots.getByTestId('panel-section-fold').click()
@@ -95,7 +94,7 @@ test.describe('a phone (390)', () => {
     await setRooms(page, [{ ...bot1, unreadCount: 3, lastSeq: 3 }, { ...bot2, unreadCount: 1, lastSeq: 1 }, other])
     await expect(bots.getByTestId('rooms-section-pill')).toHaveAttribute('data-kind', 'unread')
     await expect(bots.getByTestId('rooms-section-pill').locator('[aria-hidden]')).toHaveText('2')
-    await expect.poll(() => folds(page)).toEqual({ [`room-folder:${f.id}`]: 'folded' })
+    await expect.poll(() => folds(page)).toEqual({ [`section:chats:category:${f.id}`]: 'folded' })
     // the keyboard: focus the header, Enter opens it
     await bots.getByTestId('panel-section-fold').focus()
     await page.keyboard.press('Enter')
@@ -107,12 +106,11 @@ test.describe('a phone (390)', () => {
 })
 
 test.describe('a computer (1440)', () => {
-  test('a folded section keeps the room on screen; the folder folds on the phone too', async ({ page }) => {
+  test('a folded section keeps the room on screen; a category folds on the phone too', async ({ page }) => {
     await start(page, 1440)
-    const design = room('디자인', { activityAt: ago(1) }), dev = room('개발', { activityAt: ago(2) }), sales = room('영업', { activityAt: ago(3) })
+    const f = (await (await send(page, 'post', '/api/room-categories', { name: '우리 팀' })).json()) as { id: string }
+    const design = room('디자인', { activityAt: ago(1) }), dev = room('개발', { activityAt: ago(2) }), sales = room('영업', { activityAt: ago(3), categoryId: f.id })
     await setRooms(page, [design, dev, sales])
-    const f = (await (await send(page, 'post', '/api/nav-folders', { kind: 'rooms', name: '우리 팀' })).json()) as { id: string }
-    expect((await send(page, 'put', `/api/rooms/${sales.id}/folder`, { folderId: f.id })).ok()).toBeTruthy()
     await page.goto(`/rooms/${dev.id}`)
     const team = panelSection(page, 'team')
     await expect(team.getByTestId('sidebar-room-row')).toHaveCount(2)
@@ -121,14 +119,14 @@ test.describe('a computer (1440)', () => {
     await expect(team.getByTestId('sidebar-room-row').locator('span[title]')).toHaveText(['개발'])
     await setRooms(page, [{ ...design, unreadCount: 5, lastSeq: 5 }, dev, sales])
     await expect(team.getByTestId('chats-panel-section-pill').locator('[aria-hidden]')).toHaveText('1')
-    // the folder, folded here, is folded on the phone list
-    const folder = page.getByTestId('chats-panel').getByTestId('room-folder')
-    await folder.getByTestId('room-folder-fold').click()
+    // the category, folded here, is folded on the phone list
+    const folder = panelSection(page, 'category')
+    await folder.getByTestId('panel-section-fold').click()
     await expect(folder.getByTestId('sidebar-room-row')).toHaveCount(0)
-    await expect.poll(() => folds(page)).toEqual({ 'section:chats:team': 'folded', [`room-folder:${f.id}`]: 'folded' })
+    await expect.poll(() => folds(page)).toEqual({ 'section:chats:team': 'folded', [`section:chats:category:${f.id}`]: 'folded' })
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/rooms')
-    await expect(phoneSection(page, 'folder').getByTestId('panel-section-fold')).toHaveAttribute('aria-expanded', 'false')
+    await expect(phoneSection(page, 'category').getByTestId('panel-section-fold')).toHaveAttribute('aria-expanded', 'false')
     await expect(phoneSection(page, 'team').getByTestId('panel-section-fold')).toHaveAttribute('aria-expanded', 'false')
     await expect(phoneSection(page, 'team').getByTestId('rooms-section-pill').locator('[aria-hidden]')).toHaveText('1')
   })

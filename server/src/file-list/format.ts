@@ -173,3 +173,27 @@ export function renderLine(rel: string, f: Fields, real: string | null = null): 
   if (real) what = `${what ? what + ' ' : ''}(actually a ${real} file despite the extension)`
   return `${path} — ${type}; ${names.length ? names.join(', ') : '-'}; ${cleanDate(f.date) || '-'}; ${what || '-'}`
 }
+
+/** A size as a person reads it (1 KB = 1024 bytes). */
+function humanSize(n: number): string {
+  if (n < 1024) return `${n} B`
+  const u = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024, i = 0
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++ }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${u[i]}`
+}
+
+/** What a plain line says in its last field (tests and the AI's instructions match it). */
+export const PLAIN_WHAT = 'not described yet (the AI describes new files at night)'
+
+/**
+ * The line of a file the AI has not described (yet, or not as it is now: changed since, or its folder's access changed
+ * since it was read): its name, a type from its extension, its size and the day it was last changed. Nothing in it
+ * comes from the file's content or from a model, so it says no more than the file's own entry in its folder.
+ */
+export function renderPlainLine(rel: string, size: number, mtimeMs: number): string {
+  const name = rel.slice(rel.lastIndexOf('/') + 1)
+  const ext = /\.([A-Za-z0-9]{1,10})$/.exec(name)?.[1]?.toLowerCase() ?? ''
+  const day = Number.isFinite(mtimeMs) && mtimeMs > 0 ? new Date(mtimeMs).toISOString().slice(0, 10) : '-'
+  return `${rel.normalize('NFC')} — ${ext ? `${ext} file` : 'file'}; -; -; ${humanSize(size)}, changed ${day}, ${PLAIN_WHAT}`
+}

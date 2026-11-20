@@ -31,7 +31,7 @@ Google lists what Trina AX may do, such as "Read, compose and send emails". Keep
 every box ticked."
 
 #### Confirm the account
-Back in Trina AX, check the account shown ("Connect this account?") and choose **Confirm this account**. The page says
+Back in Trina AX, check the account shown ("Connect this account?") and choose **Connect this account**. The page says
 **Connected as** your address.
 :::
 

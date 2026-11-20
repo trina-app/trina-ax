@@ -285,7 +285,9 @@ test('Admin shares one Gmail account with the team (QA TC-198): sign in, confirm
   await dialog.getByTestId('gapp-team-google').click()
   await popup
   await expect(dialog.getByTestId('gapp-team-account')).toContainText('team-gmail@example.test')
-  await dialog.getByTestId('gapp-team-confirm').click()
+  // Cancel and Connect this account in the dialog's footer: one Cancel on screen (QA TC-5625)
+  await expect(page.getByRole('dialog').getByRole('button', { name: '취소' })).toHaveCount(1)
+  await page.getByTestId('gapp-team-confirm').click()
   // then who may use it: nobody until Save
   await expect(dialog).toHaveAttribute('data-step', 'people')
   await expect(dialog.getByTestId('gapp-team-signed-in')).toContainText('team-gmail@example.test')

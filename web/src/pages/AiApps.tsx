@@ -83,7 +83,7 @@ export default function AiApps() {
               logo={app ? <AiAppLogo app={app} className={connectionLogo} /> : <InitialTile name={item.clientName} className={connectionLogo} />}
               name={item.clientName} line={`${t('aiApps.connectedOn', { date: formatDateTime(item.createdAt, locale) })} · ${item.scopes.map(label).join(' · ')}`}
               more={<>
-                <span className="mt-0.5 block truncate text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}{item.currentSession ? ` · ${t('connectors.currentSession')}` : ''}</span>
+                <span className="mt-0.5 block truncate text-xs text-faint">{t('connectors.expires', { date: formatDateTime(item.expiresAt, locale) })}</span>
                 {/* an owner's or admin's connection made before group management came, or while they were a member: it
                     never gains it (a refresh only narrows), so a new connection gets it */}
                 {/* a connection made before conversations came to AI apps (or with the box unticked) never gains them;

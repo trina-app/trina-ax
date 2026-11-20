@@ -195,12 +195,13 @@ export function parseRange(h: string | null | undefined, size: number): { start:
   return { start, end }
 }
 
-/** `seen`: for a file in the team folder, the lstat its permission check took (place.ts openChecked): the file that is
+/** `wholeRange`: a Range answer carries all the bytes asked for (not at most RANGE_MAX).
+ * `seen`: for a file in the team folder, the lstat its permission check took (place.ts openChecked): the file that is
  * sent is then that very file, at the path that was checked. Left out only for folders that only the server writes.
  * `via`: how the request came (http/env.ts info.via); 'relay' gets the lazily read stream (see the top).
  * `cache`: the Cache-Control instead of `private, no-cache` (only ever a private one: auth/media-key.ts keptMediaCache,
  * for a file whose address always means the same bytes, read with this sign-in's key). */
-export async function streamFile(o: { abs: string; seen?: fs.Stats; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string; cache?: `private, ${string}` }): Promise<Response> {
+export async function streamFile(o: { abs: string; seen?: fs.Stats; name: string; req: Request; disposition: 'inline' | 'attachment'; etag?: string; via?: string; cache?: `private, ${string}`; wholeRange?: boolean }): Promise<Response> {
   // the one open of this response: its size, its dates and every byte of the body come from this descriptor
   const { fd, st } = openChecked(o.abs, o.seen)
   // ours to close until a body takes it
@@ -237,7 +238,9 @@ async function answer(o: Parameters<typeof streamFile>[0], st: fs.Stats, give: (
     headers.set('Content-Length', String(size))
     return new Response(o.req.method === 'HEAD' || size === 0 ? null : await fileBody(give(), 0, size, { relayed: o.via === 'relay', signal: o.req.signal }), { status: 200, headers })
   }
-  const end = Math.min(range.end, range.start + RANGE_MAX - 1)
+  // `wholeRange` (a connector download link, remote-mcp/download-link.ts): the whole range asked for, never cut at
+  // RANGE_MAX, since `curl -C -` takes a shorter 206 as the end of the file
+  const end = o.wholeRange ? range.end : Math.min(range.end, range.start + RANGE_MAX - 1)
   headers.set('Content-Range', `bytes ${range.start}-${end}/${size}`)
   headers.set('Content-Length', String(end - range.start + 1))
   return new Response(o.req.method === 'HEAD' ? null : rangeStream(give(), range.start, end), { status: 206, headers })

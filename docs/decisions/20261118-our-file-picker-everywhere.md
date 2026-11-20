@@ -37,3 +37,11 @@ Plan: docs/AGENTS/plan/20261118-1236-our-file-picker-everywhere.md.
   then a row opens it; 1440: the buttons open the file window at once); the phone Files, profile, team logo and room
   app icon specs follow the new rows.
 - Version impact: patch.
+- **2026-11-20 (owner):** "폴더 올리기 하고 올리기 버튼 두 개 필요해?" The computer's Files toolbar now has one 올리기
+  button. Where the folder can be written and the browser picks folders, it opens a small menu first (파일 올리기 /
+  폴더 올리기, as Drive and Dropbox do: one window of the computer cannot pick files and folders together), so on a
+  computer a menu now comes before the file window there. In a read-only folder, a browser with no folder picker
+  and a touch-only screen at 768px or wider (an iPad: WebKit's folder window is unreliable) 올리기 stays the plain
+  button that opens the file window at once (off in a read-only folder). Phones, an empty folder's 올리기 and 새 폴더
+  are unchanged; dropping files and folders on the list too. Tests: `web/test/e2e/upload-menu.spec.ts`,
+  `our-file-picker.spec.ts` (1440: menu → 파일 올리기 → the file window).

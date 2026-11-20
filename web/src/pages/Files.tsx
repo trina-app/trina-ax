@@ -25,7 +25,7 @@
 // projects and files"); a question the server asks (who would lose or gain sight of it) is asked with the row already
 // moved, and a no puts it back.
 import clsx from 'clsx'
-import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
+import { ArchiveRestore, BookmarkPlus, ImageIcon, Link2, ChevronDown, ChevronRight, Copy, Download, Eye, File as FileIcon, FileImage, FileSpreadsheet, FileText, Folder, FolderInput, FolderKanban, FolderPlus, FolderUp, History, Home, Lock, MessageSquarePlus, Paperclip, Pencil, Plus, Presentation, Search, Signpost, SquareCheck, RefreshCw, Trash2, Upload, UserPlus, Users, X, FileCode, FileArchive, FileAudio, FileVideo } from 'lucide-react'
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { type Access, type FileEntry, type FileHistoryEvent, type FileVersion, type HistoryResponse, type TrashItem, type TreeResponse } from '@mycel/shared/api'
@@ -99,7 +99,7 @@ const LONG_PRESS_MS = 500
 const PROJECTS_AGE_MS = 15_000
 const LONG_PRESS_SLOP = 10
 
-/** phones have no folder picker (the attribute can be there and do nothing); the button also hides on a small screen */
+/** phones have no folder picker (the attribute can be there and do nothing): 올리기 is then the plain file button, no menu */
 const canPickFolder = typeof HTMLInputElement !== 'undefined' && 'webkitdirectory' in HTMLInputElement.prototype
 
 /** POST /api/files/move's and a trash restore's answer: the item as the server has it now */
@@ -220,6 +220,11 @@ function Files() {
   // not drag rows (a long press there is the selection, and a row cannot be dropped anywhere useful on that screen)
   const phone = useMediaQuery('(max-width: 767.98px)')
   const touchPhone = useMediaQuery('(max-width: 767.98px) and (pointer: coarse)')
+  // a touch-only screen (an iPad): no 폴더 올리기 in the 올리기 menu (WebKit's folder window is unreliable), so 올리기 is
+  // the plain button; drop still takes folders
+  const coarse = useMediaQuery('(pointer: coarse)')
+  const anyFine = useMediaQuery('(any-pointer: fine)')
+  const menuFolder = canPickFolder && !(coarse && !anyFine)
   const [history, setHistory] = useState<string | null>(params.get('history'))
   const [suggesting, setSuggesting] = useState<string | null>(null)
   // "Who can see it" (components/FolderAccess.tsx): the folder whose panel is open, from the chip or a row's ⋯
@@ -1054,23 +1059,35 @@ function Files() {
               </Button>
             </Tooltip>
             )}
-            {canPickFolder && !projectsTop && (
-              <>
-                <Tooltip label={t('files.uploadFolder')}>
-                  <Button size="sm" variant="ghost" className="max-sm:hidden" onClick={() => folderInput.current?.click()} disabled={!canWrite} aria-label={t('files.uploadFolder')} data-testid="folder-upload-button">
-                    <FolderUp size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.uploadFolder')}</span>
-                  </Button>
-                </Tooltip>
-              </>
-            )}
             {!projectsTop && findWork.button}
-            {!projectsTop && (
+            {/* 올리기: one button for files and folders (owner 11-20, docs/decisions/20261118-our-file-picker-everywhere.md):
+                a small menu (파일 올리기 / 폴더 올리기) where the folder can be written and the browser picks folders, as
+                Drive and Dropbox do (one window cannot pick both); else today's plain button, to the file window at once
+                (off in a read-only folder; a touch-only tablet: WebKit's folder window is unreliable there) */}
+            {!projectsTop && (canWrite && menuFolder ? (
+              <MenuButton
+                bare
+                label={t('files.upload')}
+                testId="upload-button"
+                buttonClassName={buttonClass({ variant: 'primary', size: 'sm' })}
+                icon={
+                  <>
+                    <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
+                    <ChevronDown size={14} className="-mr-0.5 -ml-0.5" aria-hidden data-testid="upload-button-caret" />
+                  </>
+                }
+                items={[
+                  { label: t('files.uploadFiles'), icon: <Upload size={16} className="shrink-0 text-muted" aria-hidden />, onSelect: () => fileInput.current?.click(), testId: 'upload-files' },
+                  { label: t('files.uploadFolder'), icon: <FolderUp size={16} className="shrink-0 text-muted" aria-hidden />, onSelect: () => folderInput.current?.click(), testId: 'folder-upload-button' },
+                ]}
+              />
+            ) : (
             <Tooltip label={t('files.upload')}>
               <Button size="sm" variant="primary" className={clsx(tree && !canWrite && 'max-md:hidden')} onClick={() => fileInput.current?.click()} disabled={!canWrite} aria-label={t('files.upload')} data-testid="upload-button">
                 <Upload size={15} aria-hidden /> <span className="@max-2xl:hidden">{t('files.upload')}</span>
               </Button>
             </Tooltip>
-            )}
+            ))}
           </div>
         )}
       </div>
@@ -1243,7 +1260,7 @@ function Files() {
                           onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
                           onChat={() => chatWith(e)}
                           onAddToChat={chatAttach.target ? () => addToChat(e) : null}
-                          chatTitle={chatAttach.target?.title ?? ''}
+                          chatTitle={chatAttach.target?.title ?? null}
                           onRename={() => void rename(e)}
                           onMove={() => setMoving(e)}
                           onShare={() => setSharing(e)}
@@ -1412,7 +1429,7 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string | null; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -1476,7 +1493,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void (folder ? copyLink(teamFileLink(e.path)) : copyFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
     { label: t(chatItemKey(folder), { name: aiName(t) }), icon: folder ? icon(MessageSquarePlus) : <AiMark place="menu" />, onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
-    ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
+    ...(!folder && onAddToChat ? [{ label: chatTitle ? t('files.addToChatNamed', { title: chatTitle }) : t('files.addToCurrentChat'), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
     ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
     // a file shared with chosen people (QA TC-3093): the dialog says who may change it

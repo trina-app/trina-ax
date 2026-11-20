@@ -31,7 +31,7 @@ kotak tetap dicentang dan pilih **Continue**. Proses masuk dengan kotak yang tid
 tidak dicentang. Hubungkan lagi dan biarkan semua kotak tetap dicentang."
 
 #### Konfirmasi akunnya
-Kembali di Trina AX, periksa akun yang ditampilkan ("Hubungkan akun ini?") lalu pilih **Konfirmasi akun ini**. Halaman
+Kembali di Trina AX, periksa akun yang ditampilkan ("Hubungkan akun ini?") lalu pilih **Hubungkan akun ini**. Halaman
 menampilkan **Terhubung sebagai** dengan alamat Anda.
 :::
 

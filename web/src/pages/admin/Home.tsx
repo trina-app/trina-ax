@@ -5,7 +5,8 @@
 // ranges (Usage: the last 30 days, as Admin > Usage opens); an area that cannot be read says so on its card and the
 // others still show. Diagnostics are the owner's (Admin > System), so only the owner's Home asks for them. The owner
 // also gets the setup steps still to do (OwnerChecklist; it was on the chat Home before), or, while the welcome steps
-// are unfinished, only "시작 설정 다시 보기" when the setup row was hidden (OwnerSetup, docs/DECISIONS.md "W5").
+// are unfinished, only "시작 설정 다시 보기" when the setup row was hidden (OwnerSetup, docs/DECISIONS.md "W5"). An admin
+// gets "팀 파일 정리하기" while nobody applied the setup's folder plan (OrganizeTeamFiles).
 import { Activity, AlertTriangle, Cable, CheckCircle2, ChevronRight, Cpu, Gauge, Lock, Puzzle, ScrollText, UserRoundPlus, Users, type LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -18,6 +19,7 @@ import { AdminPageHeader } from './common'
 import { JobLine } from './jobs'
 import { OwnerSetup } from './OwnerChecklist'
 import { HomeCardsShowAgain } from '../../components/onboarding/CardHide'
+import { OrganizeTeamFiles } from '../../components/onboarding/OrganizeTeamFiles'
 import { OldProjectsCard } from './OldProjectsCard'
 import { FolderShareNotice } from './FolderShareNotice'
 import { DevEnvOfferNotice } from './DevEnvOfferNotice'
@@ -76,6 +78,8 @@ export default function Home() {
       <OfficeMcpNotice />
 
       {owner && <OwnerSetup />}
+      {/* an admin's "팀 파일 정리하기" while nobody applied the setup's folder plan (it was a row of the welcome card) */}
+      <OrganizeTeamFiles />
       {/* the team goal card hidden on Home (its "Hide"): brought back here, where the owner's checklist is */}
       <HomeCardsShowAgain cards={['goalCard']} testId="admin-home-cards" />
 

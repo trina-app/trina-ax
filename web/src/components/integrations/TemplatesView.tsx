@@ -44,7 +44,9 @@ function ServiceIcon({ url, kind }: { url: string; kind: Integration['kind'] }) 
  * connection's address). ?template=<id> (an inbox notice, a scheduled run that needed it) opens that template's
  * Connect. Returns the rows (sorted by name, with their names for the page's own sorting), whether both lists are in,
  * and the dialog to render. */
-const TEMPLATES_KEY = 'connectors:templates'
+export const TEMPLATES_KEY = 'connectors:templates'
+/** the templates for me, as the list above keeps them (a page that only asks whether one serves a service) */
+export const readMyTemplates = () => api.call(API.listIntegrationTemplates).then((r) => r.items)
 export function useFromTeam({ team, latest, version, query, onOpen, onConnected }: {
   team: Integration[] | null
   latest?: Integration[]

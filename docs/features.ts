@@ -53,6 +53,7 @@ export const FEATURES: Feature[] = [
   { id: 'chat.conversation', name: 'Chat with the AI: send, stream, stop', area: 'AI chat', endpoints: ['createChat', 'getChat', 'listMessages', 'sendMessage', 'putChatWaiting', 'stop', 'getChatQueue', 'markChatSeen'], screens: ['/c/:chatId'] },
   { id: 'chat.list', name: 'Chat history: rename, pin, delete, restore', area: 'AI chat', endpoints: ['listChats', 'listChatGroups', 'updateChat', 'deleteChat', 'restoreChat', 'pinChat', 'unpinChat'], screens: ['/trash'] },
   { id: 'chat.list-folders', name: 'List folders: my own folders for AI chats and conversations', area: 'AI chat', endpoints: ['*NavFolder*', 'setChatFolder', 'setRoomFolder'] },
+  { id: 'rooms.categories', name: 'Conversation categories: the team\'s own, made by admins, for the Chats list', area: 'AI chat', endpoints: ['*RoomCategor*', 'setRoomCategory'] },
   { id: 'chat.edit-regenerate', name: 'Edit a question, regenerate, answer branches', area: 'AI chat', endpoints: ['editMessage', 'regenerate', 'selectBranch'] },
   { id: 'chat.cards', name: 'AI questions, confirmations and connect cards in a turn', area: 'AI chat', endpoints: ['listTurnRequests', 'answerTurn', 'connectTurn', 'turnRequestDetail'] },
   { id: 'chat.sources', name: 'Answer sources', area: 'AI chat', endpoints: ['messageSources'] },
@@ -96,7 +97,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Rooms ----------------
   { id: 'rooms.list', name: 'Conversations list, new room, DM and group chat', area: 'Rooms', endpoints: ['listRooms', 'createRoom'], screens: ['/rooms'] },
   { id: 'rooms.messages', name: 'Room messages: send, edit, delete, read', area: 'Rooms', endpoints: ['getRoom', 'listRoomMessages', 'sendRoomMessage', 'editRoomMessage', 'deleteRoomMessage', 'markRoomRead'], screens: ['/rooms/:roomId'] },
-  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId'] },
+  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId', '/rooms/:roomId/m/:target', '/rooms/:roomId/t/:messageId/m/:target'] },
   { id: 'rooms.reactions', name: 'Reactions', area: 'Rooms', endpoints: ['reactRoomMessage'] },
   { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
   { id: 'rooms.app-link-names', name: 'Links to chats, projects, files and conversations show their names', area: 'Rooms', endpoints: ['linkNames'] },
@@ -148,7 +149,7 @@ export const FEATURES: Feature[] = [
   { id: 'onboarding.suggestion', name: 'Suggestion under an answer', area: 'Onboarding', endpoints: ['getResultSuggestion', 'dismissSuggestion'] },
   { id: 'onboarding.member-welcome', name: 'Welcome card for an invited member', area: 'Onboarding', endpoints: ['getMemberWelcome', 'updateMemberWelcome'] },
   { id: 'onboarding.handover', name: 'Handover to a team lead', area: 'Onboarding', endpoints: ['handoverState', 'endPendingConnections', 'dismissLeadCard'] },
-  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns'] },
+  { id: 'onboarding.demo', name: 'Demo mode', area: 'Onboarding', endpoints: ['demoInfo', 'demoSwitch', 'demoBuilderRoomTimes', 'demoBuilderWelcome', 'demoBuilderConnection', 'demoBuilderChatTurns', 'demoBuilderThreadTimes', 'demoBuilderFileTimes'] },
 
   // ---------------- Home ----------------
   { id: 'home.start', name: 'Home: prepared skills, frequent skills, often asked', area: 'Home', endpoints: ['skillExamples', 'popularSkills', 'oftenAsked'], screens: ['/', '/new'] },

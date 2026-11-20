@@ -226,10 +226,14 @@ describe('the setup row', () => {
     } finally { await m.unmount() }
   }, 20_000)
 
-  test('on a computer the row is on Home too (it replaces Home\'s row); on a phone not on the new chat (/new), elsewhere yes', async () => {
+  test('not on Home on a computer (Home\'s top row says it: docs/decisions/20261120-my-setup-card.md); on a phone not on the new chat (/new), elsewhere yes', async () => {
     signIn('owner')
     progress = half()
     let m = await row('/')
+    try {
+      expect(await stateAt(m)).toBe(null)
+    } finally { await m.unmount() }
+    m = await row('/rooms')
     try {
       expect(await stateAt(m)).toBe('resume')
     } finally { await m.unmount() }

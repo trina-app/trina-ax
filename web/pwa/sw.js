@@ -199,6 +199,8 @@ self.addEventListener('push', event => {
       const appRoomId = !roomId && APP_CODES.has(payload.code) && item.link === 'room' && opaqueId(item.roomApp?.roomId) ? item.roomApp.roomId : undefined
       // a reply in a thread opens that thread (its root's id, from the same signed-in fetch)
       const threadId = roomId && opaqueId(item.room?.thread) ? item.room.thread : undefined
+      // the message itself (a mention, a reply): the room goes to it and picks it out (pages/Room.tsx ?m=)
+      const messageId = roomId && opaqueId(item.room?.message) ? item.room.message : undefined
       // an AI chat's answer opens its chat while the person may still open it (the same signed-in fetch); a chat they
       // can no longer open lands on the start page (the Inbox never lists these notices)
       const chatId = !roomId && (payload.code === 'chat.answer_done' || payload.code === 'chat.shared') && item.link === 'chat' && opaqueId(item.chatId) ? item.chatId : undefined
@@ -236,7 +238,7 @@ self.addEventListener('push', event => {
       const markRead = typeof settings.messages?.markRead === 'string' && settings.messages.markRead ? settings.messages.markRead.slice(0, 40) : ''
       const actions = seq !== undefined && markRead ? [{ action: 'read', title: markRead }] : []
       // the light tile (owner 2026-11-16: every app icon is the light tile), so a push never shows the browser's own or a dark icon
-      await self.registration.showNotification(shownTitle, { icon: '/icons/icon-192.png', body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : fileRequest ? { fileRequest } : accessRequest ? { fileRequest: accessRequest } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'file.shared' && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
+      await self.registration.showNotification(shownTitle, { icon: '/icons/icon-192.png', body: preview || (sharer && sharedBy) || body, tag, renotify: false, silent, ...(actions.length ? { actions } : {}), data: roomId ? { notificationId: payload.notificationId, roomId, ...(threadId ? { threadId } : {}), ...(messageId ? { messageId } : {}), ...(seq !== undefined ? { seq } : {}) } : { notificationId: payload.notificationId, ...(chatId ? { chatId } : {}), ...(chatThread ? { chatId: chatThread.chatId, chatThreadId: chatThread.rootId } : {}), ...(appRoomId ? { roomId: appRoomId } : {}), ...(connectionId ? { connectionId } : {}), ...(connectorId ? { connectorId } : {}), ...(fileBatch ? { fileBatch } : fileLink ? { fileLink } : fileRequest ? { fileRequest } : accessRequest ? { fileRequest: accessRequest } : {}), ...(HOME_CODES.has(payload.code) || (payload.code === 'file.shared' && !fileBatch && !fileLink) || (payload.code === 'chat.answer_done' && !chatId) ? { home: true } : {}) } })
       if (generation !== pushEpoch) {
         for (const item of await self.registration.getNotifications({ tag })) item.close()
         return
@@ -267,10 +269,11 @@ self.addEventListener('notificationclick', event => {
   event.waitUntil((async () => {
     // The payload cannot choose a URL or open a chat whose access has since changed. A room notice opens its room (the
     // id stored at show time from the authenticated notice; the room page checks membership again).
-    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, chatId = event.notification.data?.chatId, chatThreadId = event.notification.data?.chatThreadId
+    const roomId = event.notification.data?.roomId, threadId = event.notification.data?.threadId, messageId = event.notification.data?.messageId, chatId = event.notification.data?.chatId, chatThreadId = event.notification.data?.chatThreadId
     const connectionId = event.notification.data?.connectionId, connectorId = event.notification.data?.connectorId
     const fileBatch = event.notification.data?.fileBatch, fileLink = event.notification.data?.fileLink, fileRequest = event.notification.data?.fileRequest
-    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}` : `/rooms/${roomId}`) : opaqueId(chatId) ? (opaqueId(chatThreadId) ? `/c/${chatId}/t/${chatThreadId}` : `/c/${chatId}`)
+    const at = opaqueId(messageId) ? `?m=${messageId}` : ''
+    const target = new URL(opaqueId(roomId) ? (opaqueId(threadId) ? `/rooms/${roomId}/t/${threadId}${at}` : `/rooms/${roomId}${at}`) : opaqueId(chatId) ? (opaqueId(chatThreadId) ? `/c/${chatId}/t/${chatThreadId}` : `/c/${chatId}`)
       : opaqueId(fileBatch) ? `/f/batch/${fileBatch}` : opaqueId(fileLink) ? `/f/${fileLink}` : opaqueId(fileRequest) ? `/activity?n=${fileRequest}`
       : opaqueId(connectionId) ? `/settings/connectors/mcp/${connectionId}` : opaqueId(connectorId) ? `/settings/connectors/${connectorId}`
       : event.notification.data?.home === true ? '/' : '/settings/notifications', self.location.origin).href

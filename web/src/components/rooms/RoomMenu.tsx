@@ -15,7 +15,9 @@
 // The room header's "⋯" of a group chat or a DM also has 초대하기 (`onInvite`, for everyone but a guest; docs/DECISIONS.md
 // "Guests from Invite people"): the room info's add list, whose first row is "Invite a guest". Before 알림 설정, right
 // after the pin; a row of a list has none (it opens the room first).
-import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, UserPlus } from 'lucide-react'
+// The room header's "⋯" starts with 이 대화에서 검색 (`onSearch`; docs/decisions/20261120-search-shortcuts-slack.md):
+// search with "This conversation" on, as ⌘F there; the way to it on a phone and with a mouse.
+import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
 import { errorText } from '../../lib/api'
@@ -25,12 +27,13 @@ import { mayManageApps, useRoomApps } from '../../store/roomApps'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { isPrivateChannel } from '../../lib/rooms'
+import { platform } from '../../lib/pwa'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
 import { MenuButton, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
-import { useFolderRowItems } from '../nav/NavFolders'
+import { useCategoryRowItems } from '../nav/RoomCategories'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
@@ -52,7 +55,7 @@ export interface PhoneHeaderMenu { first?: MenuItem[] }
 
 /** The menu's items for a room: `onNotify` opens the room's level menu (the header's bell; a row has its own, bare).
  * `phone`: the room header's "⋯" on a phone (no 이름 바꾸기, the level after 알림 설정, `first` before the rest). */
-export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: PhoneHeaderMenu, onInvite?: () => void): MenuItem[] {
+export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: PhoneHeaderMenu, onInvite?: () => void, onSearch?: () => void): MenuItem[] {
   const t = useT()
   const locale = useLocale()
   const { copy } = useCopy()
@@ -133,6 +136,8 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
     const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
     items.splice(at, 0, { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
   }
+  // 이 대화에서 검색 first (the room header's: ⌘F does the same)
+  if (onSearch) items.unshift({ label: t('rooms.menu.search'), icon: <Search size={14} aria-hidden />, onSelect: onSearch, keys: platform() === 'mac' || platform() === 'ios' ? 'Meta+F' : 'Control+F', testId: 'room-menu-search' })
   return phone?.first?.length ? [...phone.first, ...items] : items
 }
 
@@ -143,17 +148,17 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
  * room name on top of a phone's sheet (the header's menu needs none: the name is right above it). `phone`: the room
  * header's on a phone (useRoomMenuItems); `dot`: a mark on the button (threads with new replies inside); `buttonRef`:
  * the "⋯" itself (where the keyboard goes back from the header's level menu when the bell is not shown). `onInvite`: the
- * room header's 초대하기 (the add list).
+ * room header's 초대하기 (the add list). `onSearch`: the room header's 이 대화에서 검색.
  */
-export function RoomMenu({ room, onNotify, onInvite, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef, folders = false }: { room: Room; onNotify?: () => void; onInvite?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null>; folders?: boolean }) {
+export function RoomMenu({ room, onNotify, onInvite, onSearch, openSignal, openRequest, label, title, className, buttonClassName, compact, testId = 'room-menu', phone, dot, buttonRef, folders = false }: { room: Room; onNotify?: () => void; onInvite?: () => void; onSearch?: () => void; openSignal?: number; openRequest?: number; label?: string; title?: string; className?: string; buttonClassName?: string; compact?: boolean; testId?: string; phone?: PhoneHeaderMenu; dot?: boolean; buttonRef?: RefObject<HTMLButtonElement | null>; folders?: boolean }) {
   const t = useT()
   const [notify, setNotify] = useState(0)
   const own = useRef<HTMLButtonElement>(null)
   const more = buttonRef ?? own
-  const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone, onInvite)
-  // a row of the 대화 list (`folders`): 폴더로 옮기기 / 폴더에서 빼기 before the last item (나가기 or
-  // 숨기기); a hidden room has none (it is shown again first, as a pin)
-  const folder = useFolderRowItems({ on: folders && !room.hidden, kind: 'rooms', id: room.id, folderId: room.folderId, more })
+  const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone, onInvite, onSearch)
+  // a channel's row of the 대화 list (`folders`), for an admin: 카테고리로 옮기기 / 카테고리에서 빼기 before the last
+  // item (나가기 or 숨기기); a hidden room has none
+  const folder = useCategoryRowItems({ on: folders && !room.hidden, room, more })
   const items = folder.items.length ? [...base.slice(0, -1), ...folder.items, ...base.slice(-1)] : base
   return (
     <>

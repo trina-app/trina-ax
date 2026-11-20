@@ -727,7 +727,7 @@ export function useFindWorkFilesEntry(here: string): { button: ReactNode; dialog
   const t = useT()
   const f = useMyWorkFiles()
   const shown = f.available && (here === f.own || here === runFolder(f.own))
-  // the button: beside Upload folder / Upload (icon only on a narrow page, like them); not at phone width
+  // the button: beside Upload (icon only on a narrow page, like them); not at phone width
   const button = shown && !f.narrow ? (
     <Tooltip label={t('files.findWork.entryButton')}>
       <Button size="sm" variant="ghost" onClick={f.start} aria-label={t('files.findWork.entryButton')} data-testid="files-find-work-entry">

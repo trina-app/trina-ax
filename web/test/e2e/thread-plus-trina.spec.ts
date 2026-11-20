@@ -56,7 +56,10 @@ async function ask(page: Page, text: string): Promise<string> {
 
 /** No serious accessibility problem on the page as it stands. */
 async function audit(page: Page, where: string) {
-  const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
+  // a tooltip under the resting pointer fades in over 100 ms; axe caught mid-fade reads its half-clear text as low
+  // contrast. Reduced motion drops the fade (Tooltip's motion-reduce:transition-none): it is either hidden or fully drawn
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const r =await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']).exclude('iframe').analyze()
   const serious = r.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical')
   expect(serious.map((v) => `${where}: ${v.id} — ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([])
 }
@@ -74,6 +77,12 @@ test('1440: ✦ on a thread keeps the thread: three columns, the list folds; the
   await expect(side).toBeVisible()
   await expect(thread).toBeVisible()
   await expect(pageEl).toHaveAttribute('data-columns', 'three')
+  // the side chat, not the thread, is marked as mine: ✦, "나만 봐요" and its own tint (QA TC-5675)
+  await expect(side.getByTestId('side-chat-mark').locator('svg')).toBeVisible()
+  await expect(side.getByTestId('side-chat-only-you')).toHaveText('·나만 봐요')
+  await expect(thread.getByTestId('side-chat-only-you')).toHaveCount(0)
+  const fill = (l: Locator) => l.evaluate((e) => getComputedStyle(e).backgroundColor)
+  expect(await fill(side.getByTestId('side-chat-panel'))).not.toBe(await fill(thread))
   // the list folded away for the three columns; the rail stays
   await expect(page.getByTestId('chats-panel')).toHaveCount(0)
   await expect(page.getByTestId('rail')).toBeVisible()

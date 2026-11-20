@@ -46,6 +46,8 @@ export interface MenuItem {
    * `footer`), read out with it */
   disabled?: boolean
   describedBy?: string
+  /** the keyboard shortcut that does the same (aria-keyshortcuts, e.g. "Meta+F") */
+  keys?: string
 }
 
 /** The items in a phone's sheet (below 768px): what cannot be undone (delete) last, whatever order the caller gave,
@@ -319,6 +321,7 @@ export function MenuButton({ label, items, className, buttonClassName, compact, 
               type="button"
               disabled={it.disabled}
               aria-describedby={it.describedBy}
+              aria-keyshortcuts={it.keys}
               onClick={() => {
                 if (Date.now() - pressedAt.current < 400) return
                 // the item is gone with the menu: the keyboard goes back to the button (or where it came from) before the

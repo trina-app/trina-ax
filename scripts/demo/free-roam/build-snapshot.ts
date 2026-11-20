@@ -25,6 +25,7 @@ import { seedDemo } from '../seed'
 import { loadContent, type DemoContent } from '../company/content'
 import { roomMembers, seedStoryState } from '../company/story-state'
 import { STEEPLING_LOCALES, writeSteepling, type SteeplingLocale } from '../steepling/make'
+import { FLOORS as STEEPLING_FLOORS } from '../steepling/rich'
 import { baseConfig, baseLayout, cloneBase, freePort, shortTemp, SNAPSHOT_CONFIG, SNAPSHOT_DEMO_FILE, startInstance } from './instance'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
@@ -159,7 +160,10 @@ export async function gateLikeConfig(clone: string): Promise<void> {
 
 /** Boot a clone of the base folder, sign in as the new hire through the persona switch and check what the content
  * promises them. Returns the lines checked; throws on the first problem. The clone is deleted. */
-export async function verifySnapshot(base: string, content: DemoContent, log: (s: string) => void = () => {}): Promise<string[]> {
+/** what a snapshot must at least hold (a thin build fails): Steepling's are scripts/demo/steepling/rich.ts FLOORS */
+export type SnapshotFloors = Partial<Record<'projects' | 'channels' | 'rooms' | 'roomMessages' | 'threads' | 'threadReplies' | 'reactions' | 'chats' | 'filesOpened' | 'skills' | 'gmailThreads' | 'driveFiles' | 'oldestDays', number>>
+
+export async function verifySnapshot(base: string, content: DemoContent, log: (s: string) => void = () => {}, o: { floors?: SnapshotFloors; builtAt?: number } = {}): Promise<string[]> {
   const checked: string[] = []
   const problems = hygieneProblems(base)
   if (problems.length) throw new Error(`the snapshot is not clean: ${problems.join('; ')}`)
@@ -193,16 +197,116 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     const rooms = (await api.call(API.listRooms)).items
     const mine = c.rooms.filter((x) => roomMembers(c, x).some((u) => u.toLowerCase() === hire.username.toLowerCase()))
     if (rooms.length < mine.length) throw new Error(`${hire.username} is in ${rooms.length} rooms, the content says ${mine.length}`)
-    for (const room of rooms) if (room.unreadCount > 0) throw new Error(`room ${room.name ?? room.kind} has ${room.unreadCount} unread messages`)
-    checked.push(`${rooms.length} rooms, all read`)
-    const chats = (await api.call(API.listChats, { query: { limit: 200 } })).items.map((x) => x.title)
-    for (const x of c.chats.filter((y) => y.username.toLowerCase() === hire.username.toLowerCase())) if (!chats.includes(x.title)) throw new Error(`no chat "${x.title}"`)
+    // each room of the content as the new hire has it: its people's messages and thread replies, and what is unread
+    // there is what the content marks unread (the rest is read)
+    const hireName = [c.owner, ...c.people].find((a) => a.username.toLowerCase() === hire.username.toLowerCase())?.name ?? hire.username
+    const nameOf = (u: string) => [c.owner, ...c.people].find((a) => a.username.toLowerCase() === u.toLowerCase())?.name ?? u
+    let roomMessages = 0, threads = 0, replies = 0, reactions = 0, oldestDays = Infinity
+    for (const x of mine) {
+      const others = roomMembers(c, x).filter((u) => u.toLowerCase() !== hire.username.toLowerCase()).map(nameOf).sort()
+      const room = rooms.find((r) => r.kind === x.kind && (x.kind === 'all' || (x.name ? r.name === x.name : x.kind === 'team' ? r.groupId !== null && r.name === x.group : !r.name && r.memberCount === others.length + 1
+        && (others.length > 4 || JSON.stringify(r.peers.map((p) => p.name).sort()) === JSON.stringify(others)))))
+      if (!room) throw new Error(`${hire.username} has no room ${x.slug}`)
+      const items = (await api.call(API.listRoomMessages, { params: { id: room.id }, query: { limit: 200 } })).items.filter((m) => !m.event)
+      const planned = { messages: x.messages.length, replies: x.messages.reduce((n, m) => n + (m.thread?.length ?? 0), 0), unread: x.messages.filter((m) => m.unread).length, threadsUnread: x.messages.filter((m) => m.thread?.some((t) => t.unread)).length }
+      const got = { messages: items.length, replies: items.reduce((n, m) => n + (m.thread?.replyCount ?? 0), 0), unread: room.unreadCount, threadsUnread: room.threadsUnread }
+      if (got.messages < planned.messages || got.replies !== planned.replies) throw new Error(`room ${x.slug} shows ${got.messages} messages and ${got.replies} thread replies to ${hire.username}, the content has ${planned.messages} and ${planned.replies}`)
+      if (got.unread !== planned.unread || got.threadsUnread !== planned.threadsUnread) throw new Error(`room ${x.slug}: ${got.unread} unread messages and ${got.threadsUnread} unread threads for ${hire.username}, the content marks ${planned.unread} and ${planned.threadsUnread}`)
+      roomMessages += items.length
+      threads += items.filter((m) => m.thread?.replyCount).length
+      replies += got.replies
+      reactions += items.reduce((n, m) => n + (m.reactions ?? []).reduce((y, r) => y + r.count, 0), 0)
+      if (x.kind === 'all' || x.kind === 'team') oldestDays = Math.min(oldestDays, (Date.now() - Date.parse(items[0]?.createdAt ?? new Date().toISOString())) / 86_400_000)
+    }
+    checked.push(`${rooms.length} rooms: ${roomMessages} messages, ${threads} threads with ${replies} replies, ${reactions} reactions; unread only where the content says`)
+    // the planned unread rows, none at the build's time; a DM's message is no row. Chats › Mentions & threads: a mention
+    // in a room's unread end, a thread with unread replies; Activity: a chat thread reply naming the new hire (the room
+    // rows are not in Activity, which says "Mentions & threads are in Chats"; QA TC-5700)
+    const mention = `@${hireName}`
+    const plannedRooms = mine.filter((x) => x.messages.some((m) => m.unread && m.text.includes(mention))).length
+      + mine.reduce((n, x) => n + x.messages.filter((m) => m.thread?.some((t) => t.unread)).length, 0)
+    const plannedActivity = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(mention))).length
+    const inbox = await api.call(API.listNotifications, { query: { limit: 100 } })
+    if (inbox.noticeUnreadCount !== plannedActivity) throw new Error(`${hire.username}'s Activity has ${inbox.noticeUnreadCount} unread, the content plans ${plannedActivity}`)
+    if (inbox.roomUnreadCount !== plannedRooms) throw new Error(`${hire.username}'s Mentions & threads has ${inbox.roomUnreadCount} unread, the content plans ${plannedRooms}`)
+    if (inbox.unreadCount !== plannedActivity + plannedRooms) throw new Error(`${hire.username} has ${inbox.unreadCount} unread notices, the content plans ${plannedActivity + plannedRooms}`)
+    // the seed ran after the build's `now`: a notice dated later kept the seed's time, not the story's
+    const late = inbox.items.find((n) => Date.parse(n.createdAt) > (o.builtAt ?? Date.now()))
+    if (late) throw new Error(`${hire.username}'s Activity has a ${late.code} notice at the build's time, not the story's`)
+    checked.push(`Activity: ${inbox.noticeUnreadCount} unread, Mentions & threads: ${inbox.roomUnreadCount}, as planned`)
+    const listed = (await api.call(API.listChats, { query: { limit: 200 } })).items
+    const chats = listed.map((x) => x.title)
+    const own = c.chats.filter((y) => y.username.toLowerCase() === hire.username.toLowerCase())
+    // every seeded chat the new hire sees, by its id: its messages are read below
+    const seen: { title: string; id: string; turns: number }[] = []
+    for (const x of own) {
+      const found = listed.find((y) => y.title === x.title)
+      if (!found) throw new Error(`no chat "${x.title}"`)
+      seen.push({ title: x.title, id: found.id, turns: x.turns.length })
+    }
     const shared = c.chats.filter((y) => y.project && !y.private && y.username.toLowerCase() !== hire.username.toLowerCase())
     for (const p of (await api.call(API.listProjects)).items) {
-      const inP = (await api.call(API.listChats, { query: { limit: 200, projectId: p.id } })).items.map((x) => x.title)
-      for (const x of shared.filter((y) => y.project === p.name)) if (!inP.includes(x.title)) throw new Error(`no shared chat "${x.title}" in ${p.name}`)
+      const inP = (await api.call(API.listChats, { query: { limit: 200, projectId: p.id } })).items
+      for (const x of shared.filter((y) => y.project === p.name)) {
+        const found = inP.find((y) => y.title === x.title)
+        if (!found) throw new Error(`no shared chat "${x.title}" in ${p.name}`)
+        seen.push({ title: x.title, id: found.id, turns: x.turns.length })
+      }
     }
     checked.push(`${chats.length} chats, ${shared.length} shared project chats of others`)
+    // each one reads as its asks and answers (a chat with no shown branch reads as empty: chats.active_leaf_id)
+    for (const x of seen) {
+      const items = (await api.call(API.listMessages, { params: { id: x.id }, query: { limit: 200 } })).items
+      const want = x.turns * 2
+      if (items.length !== want || items.at(-1)?.role !== 'assistant') throw new Error(`chat "${x.title}" shows ${items.length} messages to ${hire.username}, not ${want}`)
+      if (items.some((m) => m.withheld)) throw new Error(`chat "${x.title}" keeps an answer from ${hire.username}`)
+    }
+    checked.push(`${seen.length} seeded chats show all their messages`)
+    // the rest of the story the free-roam audit found missing (QA TC-5614, TC-5618, TC-5619, TC-5620)
+    const accounts = [c.owner, ...c.people]
+    const hireAccount = accounts.find((a) => a.username.toLowerCase() === hire.username.toLowerCase())
+    if (hireAccount?.email && me.user.email !== hireAccount.email) throw new Error(`${hire.username}'s e-mail is ${me.user.email}, not ${hireAccount.email}`)
+    const people = (await api.call(API.listPeople)).people
+    for (const a of accounts.filter((x) => x.title)) {
+      if (!people.some((x) => x.name === a.name && x.title === a.title)) throw new Error(`${a.username} has no title "${a.title}"`)
+    }
+    checked.push(`job titles and ${hire.username}'s e-mail`)
+    const projectList = (await api.call(API.listProjects)).items
+    for (const p of c.projects.filter((x) => x.channel)) {
+      const room = c.rooms.find((r) => r.slug === p.channel)
+      const got = projectList.find((x) => x.name === p.name)?.channel?.name
+      if (got !== room?.name) throw new Error(`project ${p.name}'s channel is ${got ?? 'none'}, not ${room?.name}`)
+    }
+    const threaded = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(`@${hireAccount?.name ?? hire.username}`)))
+    if (threaded.length) {
+      const notices = (await api.call(API.listNotifications, { query: { limit: 30, only: 'notices' } })).items
+      if (!notices.some((n) => n.code === 'chat.thread_reply')) throw new Error(`${hire.username} has no thread notice in Activity`)
+    }
+    const recent = (await api.call(API.recentFiles, { query: { limit: 50 } })).items.map((f) => f.path)
+    for (const top of c.recentHidden ?? []) if (recent.some((f) => f === top || f.startsWith(`${top}/`))) throw new Error(`Files › Recent shows ${top}`)
+    checked.push('the project\'s channel, the thread notice, Files › Recent')
+    // each project the new hire is in holds its files
+    for (const p of projectList) {
+      const want = content.files.filter((f) => f.startsWith(`projects/${p.name}/`)).length
+      const got = (await api.call(API.tree, { query: { path: `projects/${p.name}`, limit: 200 } })).entries.filter((e) => e.type !== 'folder').length
+      if (got < want) throw new Error(`project ${p.name} shows ${got} files to ${hire.username}, the content has ${want}`)
+    }
+    // the floors: a build that lost a whole section fails (rooms, projects, chats, files, skills, the fakes)
+    const fakes = (name: string) => { try { return JSON.parse(fs.readFileSync(path.join(base, SNAPSHOT_FAKES, name), 'utf8')) } catch { return null } }
+    const gmail = fakes('gmail.json') as { messages: { threadId?: string; id?: string }[] } | null
+    const drive = fakes('drive.json') as { files: { mimeType?: string }[] } | null
+    const opened = c.checks.filter((k) => k.username.toLowerCase() === hire.username.toLowerCase()).reduce((n, k) => n + k.opens.length, 0)
+    const have: Required<SnapshotFloors> = {
+      projects: projectList.length, channels: rooms.filter((r) => r.kind === 'all' || r.kind === 'team' || (r.kind === 'group' && !!r.name)).length, rooms: rooms.length,
+      roomMessages, threads, threadReplies: replies, reactions, chats: seen.length, filesOpened: opened,
+      skills: (await api.call(API.listSkills)).items.length,
+      gmailThreads: new Set((gmail?.messages ?? []).map((m) => m.threadId ?? m.id)).size,
+      driveFiles: (drive?.files ?? []).filter((f) => !f.mimeType?.endsWith('.folder')).length,
+      oldestDays: oldestDays === Infinity ? 0 : Math.floor(oldestDays),
+    }
+    const thin = Object.entries(o.floors ?? {}).filter(([k, v]) => have[k as keyof SnapshotFloors] < (v ?? 0))
+    if (thin.length) throw new Error(`the snapshot is thinner than its floors: ${thin.map(([k, v]) => `${k} ${have[k as keyof SnapshotFloors]} < ${v}`).join(', ')}`)
+    checked.push(`projects' files; floors: ${Object.entries(have).map(([k, v]) => `${k} ${v}`).join(', ')}`)
     // the builder is gone
     const b = await fetch(`${inst.url}/api/demo/builder/welcome`, { method: 'POST', headers: { 'content-type': 'application/json', cookie, origin: inst.url, [CSRF_HEADER]: '1' }, body: '{}' })
     if (b.status !== 404 && b.status !== 403) throw new Error(`the builder's route answered ${b.status} in the snapshot`)
@@ -280,7 +384,7 @@ export async function buildSnapshot(o: BuildOptions): Promise<{ dir: string; man
       codeVersion: codeVersion(), locale: o.locale, createdAt: new Date(now).toISOString(), config: SNAPSHOT_CONFIG, demoFile: SNAPSHOT_DEMO_FILE,
       content: { id: content.company.id, hash: contentHash(contentDir) }, git: gitHead(), checks: null,
     }
-    if (o.verify !== false) manifest.checks = await verifySnapshot(base, content, log)
+    if (o.verify !== false) manifest.checks = await verifySnapshot(base, content, log, { builtAt: now, ...(o.content === 'steepling' ? { floors: STEEPLING_FLOORS } : {}) })
 
     // into place: the gate takes <out>/<locale>/<name>/{manifest.json, base/}
     const staging = path.join(work, 'snapshot')

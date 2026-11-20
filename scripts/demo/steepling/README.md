@@ -16,29 +16,39 @@ bun scripts/demo/free-roam/build-snapshot.ts --content steepling --locale en --o
 |---|---|
 | `make.ts` | `steepling(locale)` / `writeSteepling(locale, dir)`: company.json, files/, avatars/, fakes/ |
 | `strings/en.ts`, `strings/ko.ts` | the words beyond the story: lived-in rooms and chats, the other teams, the CEO's folder, the fake Gmail and Drive, the bar's suggestions |
+| `rich.ts` | the richer team, with no words: the three new people, three more projects and their channels, every new message and thread reply (sender, time, reactions, files, unread for Mina), the new chats, files, mail and Drive items, and the snapshot's floors (`FLOORS`) |
+| `strings/rich.en.ts`, `strings/rich.ko.ts` | its words, one flat record per language keyed by `rich.ts`'s ids (`satisfies RichWords`: a missing or extra line fails to compile). Korean is written fresh, not translated: 해요체 in chats, 개조식 in documents |
+| `assets/skill-*.<locale>.md` | Steepling's own versions of four team skills (social-posts, competitor-roundup, handover, review-digest); brand-guide and press-release are the story's |
 
 The cast, names, company, project, skills, files and pictures come from `scripts/demo/mina/strings/<locale>.ts` and
 `assets/`, so they are the scripted demo's by construction (`tests/unit/demo-company-seed.test.ts` checks them).
 
 ## What the team holds
 
-- **People**: Daniel Okoye (CEO) owns the team and is in Marketing; Mina, Sara, Leo (Marketing), Tom (Operations), Aiko
-  (Sales), Omar (Online shop). The demo person is Mina (`newHire`); the snapshot's demo file has her alone.
-- **Files**: the company intro, the launch brief, the launch project with Leo's draft and Mina's launch set (banner,
-  square, story, captions, the Higgsfield photo), five team skills that run (brand-guide, social-posts, press-release,
-  competitor-roundup, handover), a file per other team, and `shared/Leadership/` (ko `shared/대표/`): limited, only
-  the CEO (the owner) opens it.
-- **Rooms** (times are minutes before the build): #Everyone with a week of history, the welcome lines and Daniel's
-  shoutout with reactions; #Marketing with Leo's draft, Mina's banner answer sent to the room, the CEO's OK, Sara's Gmail
-  hint and Chris's reply passed on; Sara's DM with the project link; Leo's DM; the "Launch day" group chat.
-  The reactions on Mina's post come from Marketing's members (in the real app only a room's members react; the
-  scripted story used Tom, Aiko and Omar).
-- **Chats** (plain finished messages, no AI): Mina's "What does our company do?", her banner chat in the project, her
-  ✦ side chat in #Marketing that sent the mail to Chris; Leo's and Sara's chats shared in the project.
+- **People** (10 accounts): Daniel Okoye (CEO) owns the team and is in Marketing; Mina, Sara, Leo, Ben Carter
+  (designer, part-time) in Marketing; Tom, Nadia Rahman (customer care), Grace Kim (office and finance) in Operations;
+  Aiko (Sales); Omar (Online shop). The demo person is Mina (`newHire`); the snapshot's demo file has her alone. Ben,
+  Nadia and Grace have no photo (initials).
+- **Projects**: the story's "November launch campaign" (channel Launch day), and Customer voice (Tom; reviews CSV and
+  the October summary), Café partners (Aiko; the partner cafés CSV, the winter menu card), Social calendar (Leo; the
+  calendar, the last six weeks of posts, hashtag rules). Each has its private channel and one shared AI chat.
+- **Files**: the company intro (10 people), the team directory, three templates in `shared/<Templates>`, the summer
+  retro and two meeting notes in Marketing's folder, the projects' files, six team skills that run with the demo's tools
+  (no web), a file per other team, and `shared/Leadership/` (ko `shared/대표/`): only the CEO opens it.
+- **Rooms** (times are minutes before the build; five weeks of history, Mina a member from each room's start, never
+  "added"): #Everyone, #Marketing, Launch day, Customer voice, Café partners, Social calendar, Tea break, DMs with Sara,
+  Leo, Daniel and Omar, and the handover group DM (Sara, Leo, Mina). About 140 messages, 10 threads, 24 replies.
+- **Unread for Mina** when the visitor arrives: Sara's reply under her banner answer, Nadia's @Mina in Customer voice,
+  Sara's reply in the Social calendar thread, and Omar's DM: Activity 1 (Sara's reply) + Chats › Mentions & threads 2
+  (Nadia's mention, the Social calendar reply) + Omar's DM (QA TC-5700). Everything else is read.
+- **Chats** (plain finished messages, no AI): Mina's "What does our company do?", "Who's who this week?", her banner
+  chat and her ✦ side chat in #Marketing; Leo's and Sara's in the launch project; one in each new project.
 - **Connections**: Mina's Gmail and Google Drive, the team's Higgsfield (auth none). Mina's welcome card says Sara
   invited her.
-- **The bar** (`freeRoam.suggestions`): "Make next week's social posts", "Check Chris's reply", "What am I taking
-  over?" (ko: the same in Korean).
+- **The bar** (`freeRoam.suggestions`): "Draft next week's posts", "Summarise customer reviews", "Did Chris reply?" (ko:
+  the same in Korean).
+- **Dates**: only the story's fixed launch dates (Monday Nov 23 to Dec 6); everything else is relative ("today", "last
+  week"), so a snapshot built on another day still reads right.
 
 ## Fake Gmail, Drive and Higgsfield
 
@@ -85,7 +95,8 @@ folder, where the gate starts it). The server's fakes read it (`server/src/demo/
 - `me` must be the account of a `google-drive` connection.
 
 `fakes/higgsfield/`: pictures (png, jpg, webp) the fake Higgsfield answers with, picked by the words of their file
-names (`yuzu-ginger-tea-pouch-iced-glass-frosted-window-morning-light.jpg`).
+names (`00-yuzu-ginger-tea-pouch-…-유자-진저-…jpg`: `00-` so it sorts first and stays the default for a prompt no name
+matches, with the story's words in English and Korean).
 
 The Drive connection belongs to a Google client set up when it was made: the builder writes a made-up one to
 `<base>/secrets/integrations/google-drive/client.json` before the server starts (nothing uses it; the fake answers

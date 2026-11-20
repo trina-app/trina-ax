@@ -441,11 +441,12 @@ describe('where the steps go', () => {
     expect(inviteSkill({ ...p, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL } })).toBeNull()
   })
 
-  test('the setup row: never on /welcome, finished or hidden; without AI "AI 연결하기" but not on Home; on a phone not on Home', () => {
+  test('the setup row: never on /welcome, finished or hidden; without AI "AI 연결하기" but not on Home; not on Home (its top row says it)', () => {
     const p = atProfile()
     const at = (path: string, aiReady = true, computer = true, row: WelcomeProgress | null = p) => setupRowState(row, { path, aiReady, computer })
     expect(at('/c/abc')).toBe('resume')
-    expect(at('/')).toBe('resume')
+    // Home's top row says it, on a computer too (docs/decisions/20261120-my-setup-card.md)
+    expect(at('/')).toBe('hidden')
     expect(at('/welcome')).toBe('hidden')
     expect(at('/c/abc', true, true, null)).toBe('hidden')
     expect(at('/c/abc', true, true, { ...p, finishedAt: 'x' })).toBe('hidden')
@@ -1492,6 +1493,51 @@ describe('the later steps and the end', () => {
       // a step the phone does: put off, with 지금 하기
       expect(row('files').getAttribute('data-state')).toBe('later')
       expect(row('files').querySelector('[data-testid="welcome-done-later-open"]')).not.toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a phone\'s end screen never ticks 팀 도구, even when the server settled it done (a team connection made before the setup)', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'skipped', invite: null } })
+    withGroup()
+    // server/src/onboarding/welcome.ts settlePutOff: once finished, a put-off 도구 연결 reads done when any connection works
+    const patch = routes['PATCH /api/onboarding/welcome']!
+    routes['PATCH /api/onboarding/welcome'] = (b) => {
+      const p = apply(b)
+      if (p.finishedAt && p.steps.tools === 'skipped') progress = { ...p, steps: { ...p.steps, tools: 'done' } }
+      return json(200, { progress })
+    }
+    const m = await app()
+    const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+    try {
+      await m.click(await m.until(() => m.find('invite-step-done'), 'the invite'))
+      await m.until(() => m.find('welcome-done-summary'), 'the end screen')
+      expect(progress!.steps.tools).toBe('done')
+      expect(row('tools').getAttribute('data-state')).toBe('elsewhere')
+      expect(row('tools').textContent).toContain('컴퓨터에서 할 수 있어요')
+      expect(row('tools').querySelector('svg')).toBeNull()
+      expect(row('files').getAttribute('data-state')).toBe('done')
+    } finally {
+      routes['PATCH /api/onboarding/welcome'] = patch
+      await m.unmount()
+    }
+  })
+
+  test('a phone\'s end screen keeps the ✓ of 팀 도구 done on a computer before (the setup finished on the phone)', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null } })
+    withGroup()
+    const m = await app()
+    const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+    try {
+      await m.click(await m.until(() => m.find('invite-step-done'), 'the invite'))
+      await m.until(() => m.find('welcome-done-summary'), 'the end screen')
+      // nothing recorded for 도구 연결 on the phone: it was done already
+      expect(called('PATCH /api/onboarding/welcome').map((c) => c.body.step?.id).filter(Boolean)).toEqual(['invite'])
+      expect(row('tools').getAttribute('data-state')).toBe('done')
+      expect(row('tools').textContent).not.toContain('컴퓨터에서 할 수 있어요')
     } finally { await m.unmount() }
   })
 

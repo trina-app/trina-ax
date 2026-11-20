@@ -51,6 +51,11 @@ team app changes them only after its own confirmation, which an outside model ca
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- `create_download_link` (`mcp:read`): the mirror, a `GET <origin>/connector-downloads/<token>` URL for a team file's
+  exact bytes (any type, any size the person may read; 10 minutes, at most 3 GETs). Claude Code runs
+  `curl -o "<local file>" "<url>"`, changes the file locally and puts it back with `create_upload_link` (overwrite).
+  The read check runs when the link is made and on every GET; a changed file, lost access or an ended connection
+  gives 404. `read` with `raw: true` gives a small UTF-8 text file's exact text (one read, about 28,000 characters).
 - `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
   `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
   (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no
@@ -645,6 +650,72 @@ Code: `oauth.ts` (`ownClient`, `manualServer`, `issuerMatches`), `service.ts` (`
 `web/src/components/integrations/IntegrationDialog.tsx` (`AppSection`). Tests:
 `tests/unit/c-integrations-own-app.test.ts`, `web/test/unit/integrations.test.ts`.
 
+## GitHub
+
+GitHub's own remote MCP server (`https://api.githubcopilot.com/mcp/`, github.com/github/github-mcp-server) is a Discover
+card. It has OAuth metadata but no dynamic client registration, so every host brings its own app. Here that is ONE
+**GitHub App the server holds**: a person presses Connect, signs in at GitHub and is connected, with nothing to set up
+or paste ([decision](decisions/20261120-github-connector.md)).
+
+- **The app file.** `MYCEL_GITHUB_APP_FILE`, else `<secrets>/integrations/github/app.json`: a private file of the
+  server account (regular, one link, mode 0600, outside the team folder; `server/src/integrations/github/app.ts`),
+  `{ "clientId": "Iv23…", "clientSecret": "…", "slug": "<the app's name in github.com/apps/<slug>>" }`. Read each
+  time (no restart). No answer, log line or audit entry carries it; the list says only `github: { ready, installUrl }`.
+- **Which connections use it.** Only one at GitHub's exact official address (`serverAppAt`: https, that host and path,
+  no port, query or fragment) without an own app of its own or its template's: personal ones, team ones (an admin
+  signs in) and a template's members (each with their own GitHub account). The sign-in and token addresses are GitHub's
+  (`https://github.com/login/oauth/authorize`, `…/access_token`), fixed in code: nothing is discovered, so no server can
+  name another address for the secret. No scope is asked (a GitHub App's permissions are set on the app). The rest is
+  the own-app sign-in above (PKCE S256, state, `iss`, the resource indicator, sealed tokens, the secret only in the
+  token request's body and hidden in answers).
+- **Tokens.** A GitHub App's user token lasts 8 hours and comes with a refresh token (6 months) that works once; it is
+  refreshed ahead of expiry with the app's secret **as the file has it now** (a rotated secret needs no new sign-in;
+  another client ID ends the sign-ins: GitHub refuses the old refresh token), and the new refresh token is kept.
+  GitHub answers a refused code or refresh token with HTTP 200 and `bad_verification_code`, `bad_refresh_token` or
+  `incorrect_client_credentials`; these are read as `invalid_grant` / `invalid_client` (`oauth.ts tokenRequest`).
+- **Repositories.** The AI sees what the person may see AND what the app's installation covers. People choose the
+  repositories on GitHub's installation page (`https://github.com/apps/<slug>/installations/new`), linked from the
+  connection's page ("Choose on GitHub"); an organization's owner installs it there, or a member asks
+  them to (GitHub's own request flow). No picker of our own.
+- **Without the file** the card says "Not set up yet" (a member can ask an admin; an owner or admin reads that the
+  operator adds the app, or that they can add GitHub in Admin › Connected apps with their own GitHub App), and a
+  sign-in fails with "registers no apps" as before. The GitHub dialog keeps Advanced › "Sign in with my own app" (hidden
+  for other listed services), so an admin there makes GitHub a team template or team connection with the company's own
+  GitHub App (its callback: the server's own address). A member's page then says "Your team set up GitHub. Connect it
+  under Your connectors." instead of the ask, and members who asked are told it is ready (QA TC-5656, TC-5661).
+
+Registering the app (once, by an owner of the GitHub organization; GitHub › Settings › Developer settings › GitHub
+Apps › New):
+
+1. Name and homepage; **Callback URL** `https://<team domain>/api/integrations/oauth/callback` with **wildcard
+   matching on** (it then takes every `<team>.<team domain>` with that path; a server on another address adds its own
+   callback, up to 10, or uses an app of its own). **Expire user authorization tokens** on. **Request user
+   authorization (OAuth) during installation** off (it would send the browser to the first callback without our
+   state). Webhook off. Where can it be installed: any account.
+2. Permissions (repository): Contents, Issues, Pull requests: read and write; Metadata: read (always). Add more only
+   when a tool needs them (Actions, Checks, Discussions read for the matching tools).
+3. Generate a client secret. Put `clientId`, the secret and the app's slug in the file above (0600). No private key is
+   needed: the server never acts as the app itself, only as the signed-in person.
+
+Checked for real on 2026-11-20 with the registered app ("Trina AX", github.com/apps/trina-ax, owned by the trina-app
+organization) on a copy of the QA team with the real AI: GitHub's MCP server takes the GitHub App user token (46 tools);
+in a chat the AI listed issues, read README.md, created an issue and opened a one-line pull request (each change behind
+the write card, made "via Trina AX" as the signed-in person); a project chat showed the share card to the asker only
+("Waiting for QA Member to confirm" for the others); a refresh at GitHub after the token's 8 hours (clock moved on)
+kept the new tokens and the next call worked. GitHub's wildcard callback took `qa.trina.app` and `potenlab.trina.app`
+and refused other hosts and other paths.
+
+- **Disconnect** (and signing in again, and a team connection's sign-out at 팀장 넘기기) ends the connection's token at
+  GitHub: `DELETE https://api.github.com/applications/<client ID>/token` with the app's ID and current secret as basic
+  auth (`github/app.ts revokeGitHubToken`, best effort, 204). The person's authorization of the app itself stays on
+  GitHub (GitHub › Settings › Applications › Authorized GitHub Apps lists Trina AX until they revoke it there), so a
+  second connection of the same GitHub account here (a personal one and a team one) keeps working.
+
+Not yet: an admin page for the file, keeping the secret behind the hosting service like the Drive broker.
+Code: `server/src/integrations/github/app.ts`, `connections/service.ts` (`serverApp`, `currentClient`), `oauth.ts`
+(`GITHUB_GRANT_ERRORS`), `shared/src/service-catalog.ts` (`serverAppAt`), `web/src/pages/Connectors.tsx`,
+`web/src/components/integrations/ConnectionPage.tsx`. Tests: `tests/unit/c-integrations-github.test.ts`.
+
 ## HTTP APIs: `api_request`
 
 `{ connection, method: GET|POST|PUT|PATCH|DELETE|HEAD, path, query?, body? }`, offered when the person may use at least
@@ -772,8 +843,9 @@ The services come from the remote servers listed on [mcpservers.org](https://mcp
 with its featured ones and those with a curated logo. A listing is not enough: a service is listed here only if it
 answers the way this server needs, Streamable HTTP and OAuth with dynamic client registration (see above). Checked on
 2026-11-02 with an unauthenticated `initialize` and the public OAuth metadata, not with a real sign-in, so a service can
-still refuse a client it does not know. Left out because they need an app of their own: Slack, GitHub, Asana, HubSpot,
-Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration.
+still refuse a client it does not know. Left out because they need an app of their own: Slack, Asana, HubSpot,
+Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Google Drive has its own integration. GitHub is listed although it registers
+no apps: it signs in through the server's GitHub App ("GitHub" below).
 
 Logos are files in `web/public/icons/connectors`, because the content security policy loads no image from elsewhere,
 and a connection whose address matches a listed service shows its logo too. Where each file came from is not recorded:
