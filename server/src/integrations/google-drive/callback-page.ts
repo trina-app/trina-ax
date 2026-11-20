@@ -5,26 +5,31 @@
 // the page says so, never "received" or "connected". Static words and one same-origin link only: the code and the
 // state never go anywhere else.
 //
-// A sign-in started in the desktop or phone app (google-drive/app-browser.ts) ends here in the system browser, not in
-// the app: the page never sends that browser on to the web app. It says to go back to the app (where the account is
-// confirmed), with a button that opens the desktop app (`<linkScheme>://open?url=<this team>`), and the tab may be
-// closed. A browser not signed in gets a way on instead of a bare line: sign in and connect here, or go back to the app.
+// A sign-in started in the desktop or phone app ends here in the system browser, not in the app: the page never sends
+// that browser on to the web app. It says to go back to the app (where the account is confirmed), with a button that
+// opens the desktop app (`<linkScheme>://open?url=<this team>/`), and the tab may be closed. Google's answer in a
+// browser without a session, for a desktop flow, waits for the app: the button carries the one-time code in the
+// link's fragment (app-return.ts). A browser not signed in otherwise gets a way on: sign in and connect here, or go
+// back to the app.
 import crypto from 'node:crypto'
 import { PRODUCT } from '@mycel/shared'
 import type { Locale } from '@mycel/shared/api'
-import type { AppClient } from './app-browser'
+import { appLink } from './app-return'
+
+export type AppClient = 'desktop' | 'mobile'
 
 /** What the page says: the sign-in came back (confirm it in the app), or why it did not. */
 export type GoogleReturn = 'ok' | 'cancelled' | 'denied_service' | 'scope' | 'expired' | 'signed_out' | 'other_account' | 'failed'
 
 /** How a sign-in ended, as the Drive and Google apps services report it: ok, or the flow's reason code. */
-/** `app`: the app that started the sign-in (app-browser.ts), when this server remembers it. */
-export type CallbackOutcome = { ok: true; app?: AppClient | null } | { ok: false; reason: string; app?: AppClient | null }
+/** `app`: the app whose session started the sign-in; `code`: the one-time code for the desktop app that finishes a
+ * sign-in Google answered in a browser without a session (app-return.ts). */
+export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string } | { ok: false; reason: string; app?: AppClient | null }
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
-type Extra = 'title' | 'login' | 'okApp' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut'
+type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut'
 const TEXT: Record<GoogleReturn | Extra, T> = {
   title: t('Google 로그인', 'Google sign-in', 'Login Google', 'Google ログイン', 'Inicio de sesión de Google', 'Google 登录'),
   hOk: t('거의 다 됐어요', 'Almost done', 'Hampir selesai', 'あと少しです', 'Casi listo', '快完成了'),
@@ -38,6 +43,13 @@ const TEXT: Record<GoogleReturn | Extra, T> = {
     '{product} アプリに戻り、アカウントを確認すると完了です。このタブは閉じてかまいません。',
     'Vuelva a la aplicación {product} y confirme la cuenta allí para terminar. Puede cerrar esta pestaña.',
     '回到 {product} 应用，在那里确认账号即可完成。这个标签页可以关闭。'),
+  okCode: t(
+    '아래 버튼을 눌러 {product} 앱으로 돌아가면 연결이 끝나요. 앱에서 계정을 확인해 주세요. 그다음 이 탭은 닫아도 돼요.',
+    'Press the button below to go back to the {product} app and finish connecting. Confirm the account there; then you can close this tab.',
+    'Tekan tombol di bawah untuk kembali ke aplikasi {product} dan menyelesaikan koneksi. Konfirmasi akunnya di sana; setelah itu tab ini boleh ditutup.',
+    '下のボタンで {product} アプリに戻ると接続が完了します。アプリでアカウントを確認してください。その後、このタブは閉じてかまいません。',
+    'Pulse el botón de abajo para volver a la aplicación {product} y terminar de conectar. Confirme la cuenta allí; después puede cerrar esta pestaña.',
+    '按下面的按钮回到 {product} 应用即可完成连接。请在应用里确认账号，之后这个标签页可以关闭。'),
   signedOutApp: t(
     '이 창에서는 연결을 마치지 못했어요. {product} 앱으로 돌아가서 다시 시도를 누르세요.',
     'This window could not finish connecting. Go back to the {product} app and press Try again.',
@@ -137,21 +149,20 @@ export const GOOGLE_RETURN_CSP = `default-src 'none'; style-src 'sha256-${crypto
 
 /** Where the page may send the person: `origin`, this team's address (the desktop app's button opens it in the app);
  * `connector`, the page of this connector in Settings (sign in here, then connect in this browser). */
-export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string }
-
-/** The desktop app's link to this team (desktop/src/common/address.ts readDesktopLink): it brings the app forward. */
-export function backToAppHref(origin: string): string {
-  return `${PRODUCT.linkScheme}://open?${new URLSearchParams({ url: `${origin}/` })}`
-}
+export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string; code?: string }
 
 /** The return page's HTML and status. */
 export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageOptions = {}): { html: string; status: 200 | 400 } {
   const inApp = !!o.app
-  const appButton = o.app === 'desktop' && o.origin && /^https?:\/\/[^/?#\s]+$/.test(o.origin)
-    ? `<a class="cta" href="${esc(backToAppHref(o.origin))}">${esc(say('backToApp', locale))}</a>` : ''
+  const origin = o.origin && /^https?:\/\/[^/?#\s]+$/.test(o.origin) ? o.origin : null
+  const appButton = o.app === 'desktop' && origin ? `<a class="cta" href="${esc(appLink(origin))}">${esc(say('backToApp', locale))}</a>` : ''
   const login = `/login?${new URLSearchParams({ next: o.connector ?? '/settings/connectors' })}`
   let title: string, text: string, actions = ''
-  if (r === 'ok' && inApp) {
+  if (r === 'ok' && o.code && origin) {
+    // the app on this computer finishes it with its own session: the code only in the link's fragment
+    title = say('hOk', locale); text = say('okCode', locale)
+    actions = `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
+  } else if (r === 'ok' && inApp) {
     title = say('hOkApp', locale); text = say('okApp', locale); actions = appButton
   } else if (r === 'ok') {
     title = say('hOk', locale); text = say('ok', locale)
@@ -172,4 +183,31 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
       + `<main><h1>${esc(title)}</h1><p role="status">${esc(text)}</p>${actions}</main>`,
     status: r === 'ok' ? 200 : 400,
   }
+}
+
+const GO: Record<'title' | 'lead' | 'notYou' | 'next', T> = {
+  title: t('Google Drive 연결', 'Connect Google Drive', 'Hubungkan Google Drive', 'Google Drive を接続', 'Conectar Google Drive', '连接 Google Drive'),
+  lead: t(
+    'Google Drive를 {name}({username}) 님의 {product} 계정에 연결해요.',
+    'You are connecting Google Drive to the {product} account of {name} ({username}).',
+    'Anda menghubungkan Google Drive ke akun {product} milik {name} ({username}).',
+    'Google Drive を {name}（{username}）さんの {product} アカウントに接続します。',
+    'Va a conectar Google Drive a la cuenta de {product} de {name} ({username}).',
+    '你正在把 Google Drive 连接到 {name}（{username}）的 {product} 账号。'),
+  notYou: t(
+    '본인이 아니라면 이 창을 닫으세요. 남이 보낸 링크로는 연결하지 마세요.',
+    'If that is not you, close this window. Never connect through a link someone sent you.',
+    'Jika itu bukan Anda, tutup jendela ini. Jangan pernah menghubungkan lewat tautan yang dikirim orang lain.',
+    'ご本人でなければ、このウィンドウを閉じてください。他の人から送られたリンクで接続しないでください。',
+    'Si no es usted, cierre esta ventana. No conecte nunca desde un enlace que le haya enviado otra persona.',
+    '如果这不是你，请关闭这个窗口。不要通过别人发来的链接进行连接。'),
+  next: t('계속', 'Continue', 'Lanjutkan', '続ける', 'Continuar', '继续'),
+}
+
+/** The desktop app's page before Google (app-return.ts GO_PATH): whose Trina gets the Drive, then on to the sign-in. */
+export function drivePreGooglePage(locale: Locale, o: { name: string; username: string; url: string }): string {
+  const g = (k: keyof typeof GO) => (GO[k][locale] ?? GO[k].en).replace(/\{product\}/g, PRODUCT.displayName)
+  const lead = g('lead').replace('{name}', o.name).replace('{username}', o.username)
+  return `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(g('title'))}</title><style>${STYLE}</style>`
+    + `<main><h1>${esc(g('title'))}</h1><p data-testid="drive-go-person">${esc(lead)}</p><p>${esc(g('notYou'))}</p><a class="cta" href="${esc(o.url)}" rel="noopener noreferrer">${esc(g('next'))}</a></main>`
 }

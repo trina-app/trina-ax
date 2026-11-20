@@ -77,10 +77,10 @@ test('a browser reserves a blank window in the click and sends it to the address
 })
 
 test('the desktop app opens the server\'s one-time address first, only in its exact shape on this origin', () => {
-  const t = 'T'.repeat(43), path = `/api/integrations/google-drive/open?flow=0190abcd-1234&t=${t}`
+  const t = 'T'.repeat(43), path = `/api/integrations/google-drive/go?flow=0190abcd-1234&k=${t}`
   expect(desktopOpenUrl({ openPath: path }, 'https://acme.trina.app')).toBe(`https://acme.trina.app${path}`)
   // an older server sends none: the sign-in page as before
   expect(desktopOpenUrl({}, 'https://acme.trina.app')).toBeNull()
-  for (const bad of ['https://evil.test/x', '//evil.test/api/integrations/google-drive/open?flow=a&t=' + t, `/api/integrations/google-drive/open?flow=a&t=${t}&next=x`, '/api/integrations/google-drive/open?flow=a&t=short'])
+  for (const bad of ['https://evil.test/x', '//evil.test/api/integrations/google-drive/go?flow=a&k=' + t, `/api/integrations/google-drive/go?flow=a&k=${t}&next=x`, '/api/integrations/google-drive/go?flow=a&k=short'])
     expect(desktopOpenUrl({ openPath: bad }, 'https://acme.trina.app')).toBeNull()
 })

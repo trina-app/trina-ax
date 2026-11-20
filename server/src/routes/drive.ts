@@ -3,8 +3,8 @@ import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
 import type { AppContextC } from '../http/env'
-import { GOOGLE_RETURN_CSP, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
-import { BIND_COOKIE, OPEN_PATH, bindCookie, cookieValue } from '../integrations/google-drive/app-browser'
+import { GOOGLE_RETURN_CSP, drivePreGooglePage, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
+import { GO_PATH } from '../integrations/google-drive/app-return'
 import { CALLBACK_PATH } from '../integrations/google-drive/config'
 import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { driveAdminStatus, setDriveClient } from '../integrations/google-drive/admin-setup'
@@ -22,10 +22,12 @@ async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
 export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.myDriveConnection, ({ auth }) => safe(() => googleDriveOf(ctx).status(auth.user.id)))
   // the session's kind: a sign-in from the desktop or phone app ends on a page that sends the person back to the app,
-  // and the desktop app's system browser can finish it (google-drive/app-browser.ts)
+  // and the desktop app first opens a page that names whose Trina gets the Drive (google-drive/app-return.ts)
   kit.handle(API.authorizeDrive, ({ auth }) => safe(() => googleDriveOf(ctx).begin(auth.user.id, auth.session.id, undefined, auth.session.client)))
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
+  // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow only
+  kit.handle(API.claimDriveFlow, ({ auth, body }) => safe(() => googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code)))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
@@ -41,34 +43,30 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.driveShareFolders, ({ auth, params, query }) => safe(async () => ({ items: await shareFolders(ctx, auth.user.id, params.id, query.q) })))
   kit.handle(API.updateDriveShare, ({ auth, params, body }) => safe(() => updateShare(ctx, auth.user.id, params.id, body)))
   kit.handle(API.stopDriveShare, ({ auth, params }) => safe(() => stopShare(ctx, auth.user.id, params.id)))
-  // The desktop app's first stop in the system browser (google-drive/app-browser.ts): a one-time ticket of a flow its
-  // session started gives this browser the cookie that finishes that flow, then on to the flow's sign-in page. No
-  // session here (the system browser has none); the ticket is the proof. A used, late or unknown one: the expired page.
-  kit.raw('GET', OPEN_PATH, async c => {
+  // The desktop app's page before Google (google-drive/app-return.ts): the Trina person the Drive will belong to, then
+  // on to the sign-in page. No session here (the system browser has none); the flow's key only shows this page.
+  kit.raw('GET', GO_PATH, async c => {
     const cc = c as unknown as AppContextC
-    let to: { url: string; bind: string } | null = null
-    try { to = googleDriveOf(ctx).openInBrowser(c.req.query('flow'), c.req.query('t')) } catch {}
-    c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
-    if (!to) {
-      c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
+    let go: ReturnType<ReturnType<typeof googleDriveOf>['goPage']> = null
+    try { go = googleDriveOf(ctx).goPage(c.req.query('flow'), c.req.query('k')) } catch {}
+    c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer'); c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
+    if (!go) {
       const page = googleReturnPage('expired', cc.get('locale'), { app: 'desktop', origin: new URL(c.req.url).origin })
       return c.html(page.html, 400)
     }
-    c.header('Set-Cookie', bindCookie(c.req.url, CALLBACK_PATH, to.bind, 600), { append: true })
-    return c.redirect(to.url, 302)
+    return c.html(drivePreGooglePage(cc.get('locale'), go), 200)
   })
   kit.raw('GET', CALLBACK_PATH, async c => {
     let r: CallbackOutcome = { ok: false, reason: 'provider_unavailable' }
     const cc = c as unknown as AppContextC
     const auth = cc.get('auth')
-    const bind = cookieValue(c.req.header('cookie'), BIND_COOKIE)
-    try { r = await googleDriveOf(ctx).callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined, bind) } catch {}
+    try { r = await googleDriveOf(ctx).callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
     c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
-    if (bind && r.ok) c.header('Set-Cookie', bindCookie(c.req.url, CALLBACK_PATH, '', 0), { append: true })
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and same-origin
-    // links only (a sign-in started in an app: the app's own link to this team): never carry code or state into a link
-    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive' })
+    // links only (a sign-in started in an app: the app's own link to this team, a desktop one with its one-time code in
+    // the fragment): never carry Google's code or the state into a link
+    const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'), { app: r.app, origin: new URL(c.req.url).origin, connector: '/settings/connectors/google-drive', code: r.ok ? r.code : undefined })
     return c.html(page.html, page.status)
   })
 }

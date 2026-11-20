@@ -1,39 +1,65 @@
-# A Drive sign-in from the desktop app finishes in the system browser it opened
+# A Drive sign-in from the desktop app finishes in the app, with a one-time code from the browser
 
 - Date: 2026-11-20
 - Status: accepted
 - Supersedes: none (narrows "the system browser must be signed in" of [Connectors that take only an app on the computer](../DECISIONS.md#connectors-that-take-only-an-app-on-the-computer-sign-in-from-the-desktop-app-featconnector-desktop-loopback-signin-2026-11-15) for Google Drive)
-- Branch: fix/drive-connect-return-to-app (the owner's QA on diontest, 2026-11-20)
+- Branch: fix/drive-connect-return-to-app (the owner's QA on diontest, 2026-11-20; security review of #98)
 
-Where: `server/src/integrations/google-drive/{app-browser,oauth,callback-page}.ts`, `server/src/routes/drive.ts`,
-`shared/src/api/drive.ts` (`openPath`), `web/src/lib/driveSignIn.ts`, `web/src/components/{settings/DriveConnection,integrations/DriveShares}.tsx`,
-`desktop/src/common/address.ts` (`isShownTeamStart`), `desktop/src/main/app-window.ts`.
+Where: `server/src/integrations/google-drive/{app-return,oauth,store,callback-page}.ts`, `server/src/routes/drive.ts`,
+`shared/src/api/drive.ts` (`openPath`, `claimDriveFlow`), `web/src/lib/driveSignIn.ts`,
+`web/src/components/{settings/DriveConnection,integrations/DriveShares}.tsx`, `desktop/src/common/address.ts`
+(`isShownTeamStart`, `signInCode`), `desktop/src/main/app-window.ts`.
 
-The owner connected Google Drive from the welcome steps' Tools step in the desktop app on a hosted team. Google's
-answer reached the team server in the system browser, which has no session of the app, so the return refused it
-(`browser_session_required`), showed "This browser is not signed in to Trina AX" and the app kept "Waiting for
-Google…" until its 5-minute limit. The app never noticed, because nothing had happened. Decided:
-- **The browser the app opened is proof enough.** A desktop session's start answers with `openPath`, a one-time
-  address on this server (a 32-byte ticket, only its hash kept, in memory). The app opens it in the system browser
-  instead of the sign-in page. It works once, within 2 minutes (`TICKET_MS`; the app opens it at once), only while the
-  flow waits. It gives that browser a cookie (`mycel_drive_signin`, a new random value, hash kept; `Path` = the
-  return path, HttpOnly, SameSite=Lax, 10 minutes) and sends it on to the flow's sign-in page. The return accepts that
-  browser for that flow without a session. A browser signed in as the same person still works, as before.
-- **What still holds:** the flow is still pending, its session is alive, PKCE, the hosting service's single-use
-  handoff, and the person confirms the Google account in the app. A forwarded `openPath` is dead within 2 minutes and
-  after its first use. Another flow's cookie, no cookie, or a different person's browser are refused as before. The
-  remaining exposure is narrower than "no proof": someone would have to make the person open their own fresh address
-  within 2 minutes. **Security review requested** before this goes to dev.
-- **The last page goes back to the app, never to the web app.** When a flow was started in the desktop or phone app,
-  the return page says "Connected. Go back to the Trina AX app and confirm the account there. You can close this
-  tab." The desktop app also gets a Back to the app button (`trina-ax://open?url=<team>/`). The desktop app now only
-  brings its window forward for a link to the start of the team it shows (`isShownTeamStart`), instead of asking on
-  screen ④ to connect a team it already shows. An older desktop app still asks; "No" goes back.
-- **Not signed in is no dead end.** "Sign in and connect here" (`/login?next=/settings/connectors/google-drive`), and
-  for an app's flow, "go back to the app and press Try again". The page has its own small style (CSP by hash).
-- **Not now:** the phone app (its browser hand-off accepts only Google's address, so it gets no `openPath`; it needs a
-  phone release), Gmail, Calendar, Docs and Sheets (`google-apps`), and MCP connectors (Notion). They still need the
-  system browser signed in, and are the next step with the same pattern. The hosting service's start page shows
-  Google's warning as two marked pictures (trina-cloud).
-- Tests: `tests/unit/c-drive-app-browser.test.ts`, `tests/unit/c-google-return-page.test.ts`. Version impact: patch
-  (an optional answer field and a new public GET; older apps open the sign-in page as before).
+- **Ask:** the owner connected Google Drive from the welcome steps' Tools step in the desktop app on a hosted team.
+  Google's answer reached the team server in the system browser, which has no session of the app. The return refused it
+  (`browser_session_required`), showed "This browser is not signed in to Trina AX", and the app kept "Waiting for
+  Google…" until its 5-minute limit. The app noticed nothing because nothing had happened.
+- **Rejected first design (security review, HIGH):** a one-time address that gave the system browser a cookie to finish
+  the flow. Anyone can mint such addresses: any member, or a `client: 'desktop'` login made with curl. They could
+  phish a victim and get the victim's Drive on the attacker's account. The cookie also overrode a browser signed in as
+  someone else. A 2-minute single-use limit does not help (the attacker mints fresh addresses), nor does the account
+  confirm (the attacker confirms). Removed entirely.
+- **Rule:** the answer goes to the app on the computer that signed in (the idea of RFC 8252):
+  - When Google's return comes in a browser **without a session**, for a flow a **desktop** session started, the server
+    takes the hosting service's handoff (it lives 2 minutes) and keeps the result sealed in the flow. The flow stays
+    `exchanging`, and no account is shown to anyone. The server makes a one-time completion code: 32 random bytes, only
+    its hash kept in the sealed secret, valid for `CLAIM_MS` (5 minutes).
+  - The page gives the code only in the "Back to the app" link's **fragment**:
+    `trina-ax://open?url=<team>/#code=<code>`. It is never in a query string, so no server, proxy or log sees it.
+  - The desktop app takes it only for the team it shows (`signInCode`) and posts it with **its own session**
+    (`POST /api/integrations/google-drive/claim`). The code counts only for a flow of that same session. The flow
+    turns `ready` and the person confirms the account as always. A code that is used, unknown, from another session's
+    flow, or late is refused. A late code ends its flow.
+  - A phished victim's browser hands the code to the victim's own computer. That app's session is not the attacker's,
+    so nothing connects.
+  - A browser signed in as **someone else** is refused, as before. A browser signed in as the **same person** finishes
+    at once, as before.
+  - **Before Google**, the desktop app opens a page of the team server (`GO_PATH`, with a random key whose hash is
+    sealed in the flow). It names the Trina person the Drive will belong to ("Connecting Google Drive to the account
+    of Olga (olga). If that is not you, close this window."), then links on to the hosting service's guide and
+    Google. It grants nothing.
+- **Why not a 127.0.0.1 listener:** the hosting service sends the browser only to the team's https address. From there
+  a page cannot hand a fragment to http://127.0.0.1 (the listener never receives fragments), and a query would put the
+  code in a query string. The app's own link carries it instead. One press on "Back to the app" (and the browser's
+  "open the app?" prompt) is the cost.
+- **Pages:**
+  - After Google, an app's flow says to go back to the app, never to the web app. With a code: "Press the button to go
+    back to the app and finish". Signed in as the same person: "Connected. Go back to the app".
+  - The desktop app only brings its window forward for a link to the start of the team it shows.
+  - A browser not signed in gets "Sign in and connect here", and an app's flow gets "go back to the app and press Try
+    again".
+  - The page has its own small style, with its CSP allowing only that style (by hash).
+- **Not now:**
+  - The phone app: its browser hand-off takes Google's address only, and the phone app does not read a code from a
+    link yet. It needs a phone release; until then its page says to go back and try again.
+  - Gmail, Calendar, Docs and Sheets (`google-apps`) and MCP connectors (Notion): next, with the same pattern.
+  - A held result that is never claimed is dropped when the flow ends. The Google grant it got is not revoked.
+- **Tests:** `tests/unit/c-drive-app-return.test.ts` covers:
+  - attack (A), a curl desktop session plus a victim browser without a session, and attack (B), a victim browser signed
+    in as the victim: both must not connect
+  - code reuse, a late code, redemption by another session, and the code only in the fragment
+  - the page before Google, and the web and phone flows
+  
+  Also `tests/unit/c-google-return-page.test.ts`, `e-desktop-common`, `server-app`, the security matrix
+  (`claimDriveFlow`, `RAW GET GO_PATH`), and web `drive-sign-in` and `connect-card`. Version impact: patch (optional
+  answer field, a new endpoint, a new public GET; older apps open the sign-in page as before).

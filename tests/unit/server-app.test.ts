@@ -231,8 +231,8 @@ describe('route registry', () => {
       'GET /api/integrations/google-drive/callback', 'GET /api/integrations/google-apps/callback', 'GET /api/integrations/oauth/callback',
       // the client metadata document services fetch for a sign-in (tests/unit/c-integrations-approved-apps.test.ts)
       'GET /api/integrations/oauth/client-metadata.json',
-      // the desktop app's one-time address for a Drive sign-in in the system browser (tests/unit/c-drive-app-browser.test.ts; matrix: P4_RAW_COVERED)
-      'GET /api/integrations/google-drive/open',
+      // the desktop app's page before a Drive sign-in in the system browser (tests/unit/c-drive-app-return.test.ts; matrix: P4_RAW_COVERED)
+      'GET /api/integrations/google-drive/go',
       // Sign in with Slack's return (tests/unit/c-slack.test.ts; matrix: SLACK_RAW_COVERED)
       'GET /api/integrations/slack/oauth/callback',
       // "Add to Slack"'s return from the hosting service (the official app; tests/unit/c-slack-official.test.ts; matrix: SLACK_RAW_COVERED)

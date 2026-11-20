@@ -1,5 +1,5 @@
-- Connecting Google Drive from the desktop app now finishes on its own: the system browser no longer needs to be signed
-  in to Trina AX. After Google, the browser shows "Connected. Go back to the Trina AX app" with a Back to the app
-  button instead of the web sign-in page, and the app's "Waiting for Google…" turns into the account to confirm within
-  a few seconds. A browser that is not signed in now offers "Sign in and connect here" instead of a bare line.
+- Connecting Google Drive from the desktop app no longer ends on the web sign-in page. Before Google, a page shows
+  whose Trina AX account the Drive will join. After Google, the browser shows "Back to the app". That button hands the
+  app a one-time code, the app finishes the connection with its own sign-in, and its "Waiting for Google…" turns into
+  the account to confirm. A browser that is not signed in now offers "Sign in and connect here" instead of a bare line.
 - The in-app hint for Google's warning names Google's real link: "Go to Trina AX (unsafe)".

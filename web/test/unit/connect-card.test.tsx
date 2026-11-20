@@ -666,7 +666,7 @@ describe('the card, clicked', () => {
     open(r)
     connects({ state: 'connected' })
     const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
-    const openPath = `/api/integrations/google-drive/open?flow=d3&t=${'T'.repeat(43)}`
+    const openPath = `/api/integrations/google-drive/go?flow=d3&k=${'T'.repeat(43)}`
     routes['POST /api/integrations/google-drive/authorize'] = () => json({ flowId: 'd3', authorizationUrl: google, openPath, expiresAt })
     routes['GET /api/integrations/google-drive/flows/d3'] = () => json({ flowId: 'd3', state: 'pending', account: null, expiresAt, reason: null })
     const asked: string[] = []
@@ -679,7 +679,7 @@ describe('the card, clicked', () => {
       await m.click('connect-drive')
       await m.until(() => asked.length > 0, 'the one-time address opened')
       expect(asked).toEqual([`${globalThis.location.origin}${openPath}`])
-      // the link beside the wait stays Google's page (the browser keeps its cookie for this sign-in)
+      // the link beside the wait stays the sign-in page
       expect(m.get('connect-card').innerHTML).toContain(google)
       await m.unmount()
     } finally {

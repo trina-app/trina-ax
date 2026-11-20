@@ -35,6 +35,8 @@ export const P4_SPECS: Record<string, Spec> = {
   driveFlow: { build: c => c.get('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
   completeDriveFlow: { build: c => c.post('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000/complete', {}), scope: 'self' },
   cancelDriveFlow: { build: c => c.del('/api/integrations/google-drive/flows/00000000-0000-7000-8000-000000000000'), scope: 'nobody' },
+  // the desktop app's one-time code (google-drive/app-return.ts): an unknown code finishes nothing for anyone
+  claimDriveFlow: { build: c => c.post('/api/integrations/google-drive/claim', { code: 'A'.repeat(43) }), scope: 'nobody' },
   disconnectDrive: { build: c => c.del('/api/integrations/google-drive'), scope: 'self' },
   // Admin › App connectors: setting up Google (admins only; this world has no public address, so a 409 after the check)
   driveAdminStatus: { build: c => c.get('/api/admin/google-drive'), scope: 'byLevel' },
@@ -77,7 +79,6 @@ export const P4_SPECS: Record<string, Spec> = {
   stopDriveShare: { build: c => c.del('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
 }
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
-// OPEN_PATH (the desktop app's one-time address, google-drive/app-browser.ts) takes no session: its ticket is the proof.
-// c-drive-app-browser covers it: once, within TICKET_MS, a waiting flow only, no cookie otherwise, another flow's or
-// another person's cookie refused.
-export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH', 'RAW GET OPEN_PATH']
+// GO_PATH (the desktop app's page before Google, google-drive/app-return.ts) takes no session and grants nothing: it only
+// names the flow's person for its key. c-drive-app-return covers it and the attacks on the code that follows.
+export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH', 'RAW GET GO_PATH']
