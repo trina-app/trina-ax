@@ -4,7 +4,7 @@
 // the middle as it was. A phone notification's path names the message as /m/<id> (no query): the same place as ?m=.
 import { describe, expect, test } from 'bun:test'
 import { highlightNow, pushedMessagePath, timelineTarget } from '../../src/lib/rooms'
-import { LINKED_PAGES, linkedAnswer, linkedStep } from '../../src/lib/linkedAnswer'
+import { LINKED_PAGES, focusInPlace, linkedAnswer, linkedStep } from '../../src/lib/linkedAnswer'
 import { roomNoticeLink } from '../../src/components/settings/RoomNoticeRow'
 
 const ROOM = '019a5f00-0000-7000-8000-000000000001'
@@ -78,5 +78,14 @@ describe('a linked message is picked out once for each place in the history', ()
     const seen = new Set<string>()
     expect(highlightNow(seen, REPLY, 'k1')).toBe(true)
     expect(highlightNow(seen, REPLY, 'k3')).toBe(true)
+  })
+})
+
+describe('closing a chat thread', () => {
+  test('the focus goes back to the answer without scrolling the chat to it', () => {
+    const calls: unknown[] = []
+    focusInPlace({ focus: (o: unknown) => calls.push(o) } as unknown as HTMLElement)
+    expect(calls).toEqual([{ preventScroll: true }])
+    expect(() => focusInPlace(null)).not.toThrow()
   })
 })

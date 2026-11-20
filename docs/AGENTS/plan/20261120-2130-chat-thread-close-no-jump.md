@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 21:30
 - Branch: `fix/chat-thread-close-no-jump`
-- Status: in progress
+- Status: done
 - Where: web/ (pages/Chat.tsx, lib/linkedAnswer.ts). Why: pre-release QA on a private QA copy of dev (QA sheet, new row for this finding).
 - Version impact: patch (a web-only fix for a scroll jump)
 
@@ -30,4 +30,4 @@ Focus return stays (TC-3888); only the scroll goes. No change to the notice rule
 
 ## Result
 
-(filled when done)
+Verified on a private QA copy (origin/dev + this fix, 1440): thread opened from a link, chat scrolled to the top, thread closed: scrollTop stays 0 (before: 552). Phone still shows the answer on close. Unit test in web/test/unit/linked-answer.test.ts.
