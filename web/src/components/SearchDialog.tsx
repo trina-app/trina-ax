@@ -912,9 +912,10 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
                     toggleChip(c)
                     inputRef.current?.focus()
                   }}
-                  className={clsx('inline-flex shrink-0 items-center gap-1 rounded-full border px-3 text-xs max-md:h-11 md:h-7', on ? 'border-accent bg-accent/10 font-medium text-accent-text' : 'border-line text-muted hover:bg-hover hover:text-text')}
+                  className={clsx('inline-flex shrink-0 items-center gap-1 rounded-full border px-3 text-xs max-md:h-11 max-md:px-2.5 md:h-7', on ? 'border-accent bg-accent/10 font-medium text-accent-text' : 'border-line text-muted hover:bg-hover hover:text-text')}
                 >
-                  {on && <Check size={13} aria-hidden />}
+                  {/* the tick on a computer only: three chips fit a 390 px phone without it (on: the colour says so) */}
+                  {on && <Check size={13} aria-hidden className="max-md:hidden" />}
                   {t(CHIP_LABEL[c])}
                 </button>
               )

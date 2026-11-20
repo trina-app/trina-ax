@@ -75,8 +75,9 @@ export default function Layout() {
       const panelNow = getSidePanel()
       const key = searchShortcut(e, {
         open: ui.searchOpen,
-        // another dialog (the image and file viewer is one too): ⌘F is left alone
-        dialog: !!document.querySelector('[role="dialog"]:not([data-testid="search-palette"])'),
+        // another dialog (the image and file viewer is one too): ⌘F is left alone. Not a room's thread or side chat drawn
+        // as a sheet in a narrow window (pages/Room.tsx data-sheet): that is the conversation itself
+        dialog: !!document.querySelector('[role="dialog"]:not([data-testid="search-palette"]):not([data-sheet])'),
         path: window.location.pathname,
         reading: panelNow?.kind === 'file' || panelNow?.kind === 'artifact',
         mac: platform() === 'mac' || platform() === 'ios',

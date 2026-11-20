@@ -4314,7 +4314,7 @@ export const es: Record<MessageKey, string> = {
   "search.chip.mentions": "Me mencionan",
   "search.hereHint": "Escriba para buscar en esta conversación.",
   "search.hereGone": "Ya no está en esta conversación, así que no se buscó nada.",
-  "search.mentionsYou": "que te mencionan",
+  "search.mentionsYou": "que le mencionan",
   "search.sort": "Orden de los mensajes",
   "search.sortRelevant": "Más relevantes",
   "search.sortRecent": "Más recientes",

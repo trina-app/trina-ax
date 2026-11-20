@@ -250,3 +250,38 @@ test.describe('a phone (390 px)', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 })
+
+// This conversation + Sent by me + "budget" sends from:me with room=, whichever order the chip and the text come in
+test('This conversation + Sent by me sends q "budget from:me" with room=', async ({ page }) => {
+  const asked = await signedIn(page)
+  await page.goto(`/rooms/${R(1)}`)
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  await pressF(page)
+  await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+  await chip(page, 'mine').click()
+  await input(page).fill('budget')
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')).toEqual({ path: '/api/room-messages', q: 'budget from:me', room: R(1) })
+  await expect.poll(() => lastAsked(asked, '/api/room-files')).toEqual({ path: '/api/room-files', q: 'budget from:me', room: R(1) })
+  // order reversed: Sent by me first, then text, then the chip after typing
+  await chip(page, 'mine').click()
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')).toEqual({ path: '/api/room-messages', q: 'budget', room: R(1) })
+  await chip(page, 'mine').click()
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')).toEqual({ path: '/api/room-messages', q: 'budget from:me', room: R(1) })
+  // every request that carried "budget" while Sent by me was on had from:me
+  expect(asked.filter((a) => a.q === 'budget' && a.path === '/api/room-messages').length).toBeGreaterThan(0)
+})
+
+// a narrow computer window (768–811 px): the thread is a sheet with role="dialog" over the room (pages/Room.tsx
+// data-sheet); it is the conversation, not another dialog, so ⌘F still opens search on This conversation
+test.describe('a narrow window (790 px)', () => {
+  test.use({ viewport: { width: 790, height: 860 } })
+  test('⌘F on a thread drawn as a sheet opens This conversation', async ({ page }) => {
+    await signedIn(page)
+    await page.goto(`/rooms/${R(1)}/t/019a5f00-0000-7000-8000-000000000900`)
+    await expect(page.locator('[role="dialog"][data-sheet]')).toHaveCount(1)
+    await watchKey(page)
+    await pressF(page)
+    expect(await lastPrevented(page)).toBe(true)
+    await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+  })
+})
