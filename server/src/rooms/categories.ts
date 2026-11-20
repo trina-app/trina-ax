@@ -1,4 +1,4 @@
-// Conversation categories (shared/src/api/room-categories.ts; migration 428). The team's own: admins and the owner make,
+// Conversation categories (shared/src/api/room-categories.ts; migration 429). The team's own: admins and the owner make,
 // rename, order and delete them and put channels in them (the routes are auth 'admin'); everyone reads the same list.
 // A room carries its category (rooms.category_id, Room.categoryId) for every member alike. Only channels go in one: a
 // 1:1 or an unnamed group chat is personal (409 room_category_personal). A category never changes who is in a room.

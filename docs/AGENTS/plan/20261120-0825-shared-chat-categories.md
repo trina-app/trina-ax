@@ -20,7 +20,7 @@ Out: deleting the personal folder API and its data (hidden from Chats now, clean
 
 ## Steps
 
-1. Migration 428: `room_categories` and `rooms.category_id` (additive, reader 1).
+1. Migration 429: `room_categories` and `rooms.category_id` (additive, reader 1).
 2. Contract `shared/src/api/room-categories.ts`, `Room.categoryId`, ws `roomCategories.changed`.
 3. Server `rooms/categories.ts` and route module; admin-only changes via `auth: 'admin'`.
 4. Web store and `nav/RoomCategories.tsx`; RoomsByKind and pages/Rooms.tsx draw categories; the room row menu offers
@@ -33,7 +33,7 @@ Out: deleting the personal folder API and its data (hidden from Chats now, clean
 
 ## Risks
 
-Migration number 428 (highest b on dev was 427). Permissions: every change is admin-only on the server; a category
+Migration number 429 (427 was the highest on dev; open PR #99 holds 428). Permissions: every change is admin-only on the server; a category
 never changes who is in a room or what anyone can open. A member only sees the channels of a category they are in.
 
 ## Tests

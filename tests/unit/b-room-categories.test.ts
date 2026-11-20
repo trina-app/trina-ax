@@ -1,4 +1,4 @@
-// Conversation categories (shared/src/api/room-categories.ts, server/src/rooms/categories.ts, migration 428): the team's
+// Conversation categories (shared/src/api/room-categories.ts, server/src/rooms/categories.ts, migration 429): the team's
 // own, made by admins. Covered: only an admin or the owner makes, renames, orders, deletes and files (a member 403);
 // everyone reads the same list; names unique in any letter case; a channel's category is the same for every member;
 // a DM or an unnamed group chat cannot go in one (409); a room I am not in 404; deleting a category takes its channels

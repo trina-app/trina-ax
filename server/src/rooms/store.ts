@@ -29,7 +29,7 @@ export const MAX_UNREAD = 999
 const EXCERPT_QUOTE = ROOM_QUOTE_EXCERPT_MAX
 const EXCERPT_LIST = 120
 
-export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null; /** the team category (migration 428); absent from rows made in code or read with named columns */ category_id?: string | null }
+export interface RoomRow { id: string; kind: RoomKind; group_id: string | null; dm_key: string | null; created_by: string | null; created_at: string; last_seq: number; activity_at: string; archived_at: string | null; name: string | null; /** the team category (migration 429); absent from rows made in code or read with named columns */ category_id?: string | null }
 /** muted / notify_level: my level for the room (rooms/alerts.ts ownLevel; notify_level is absent from rows made in code).
  * hidden_at: when I hid the room from my own lists (docs/DECISIONS.md "대화 숨기기"); null or absent: shown */
 /** visible_from_seq: the room's last seq when they joined (the floor of their read position); history_from_seq: where

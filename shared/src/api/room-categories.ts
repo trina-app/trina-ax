@@ -1,5 +1,5 @@
 // Conversation categories (team-wide). Owner: B (server/src/rooms/categories.ts, registered by
-// server/src/routes/room-categories.ts; migration 428).
+// server/src/routes/room-categories.ts; migration 429).
 //
 // An admin or the owner makes categories for the Chats list and puts channels in them (a team room, the everyone room
 // or a named group room: never a 1:1 or an unnamed group chat, which are personal). Everyone on the team sees the same
