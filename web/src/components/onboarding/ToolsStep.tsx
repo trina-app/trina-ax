@@ -3,7 +3,8 @@
 // the other steps. One list, two kinds of rows:
 //  - a team connection, for a tool the team connects once (Notion, a team-scope connection everyone may use; Slack,
 //    its own page in Admin): [팀으로 연결], "팀 전체가 이 연결을 같이 써요". The sign-in is the team account's, at the
-//    service, in the window reserved during the click; never the owner's own connection.
+//    service, in the window reserved during the click; never the owner's own connection. Slack shows 연결됨 only while
+//    it is connected (else [다시 연결] once added, [팀으로 연결] before).
 //  - a tool each person connects with their own account (Google Drive where this server has it, Gmail where it can be
 //    connected): a [팀 추천] switch (TeamSettings.recommendedTools, shared/src/api/team-tools.ts). Recommended tools come
 //    first in everyone's Settings › Connectors; nothing is gated, anyone may still connect anything. Saved at once; a
@@ -11,7 +12,7 @@
 // Then one quiet "다른 도구 보기" line: Settings › Connectors, the full list (a tool's page there has the same 팀 추천
 // switch for an owner or admin). Settings is a dialog over this step (App.tsx useSettingsOverlay), so its close comes
 // back here, which reads everything again; it opens with the step's way back in its history state (SetupReturn.tsx).
-// Never blocking: once something is done (a team connection connected, a tool recommended; Slack's row only opens its page) the primary is the next
+// Never blocking: once something is done (a team connection connected, Slack connected, a tool recommended) the primary is the next
 // step; until then only "나중에 하기". A phone walks past the step (pages/Welcome.tsx), as before.
 import { Check, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -20,7 +21,6 @@ import { API, SLACK, type Integration } from '@mycel/shared/api'
 import { api, errorText } from '../../lib/api'
 import { APP_CONNECTORS, appConnectorLogo, connectorLogo, CONNECTORS, CONNECTORS_HOME, servesAt, SLACK_ADMIN_PATH, SLACK_APP, slackLogo, type Connector } from '../../lib/connectors'
 import { lineKey, type BuiltInId } from '../../lib/googleApps'
-import { connectorsPlace } from '../../pages/settingsTabs'
 import { setupReturnState } from '../../lib/welcome'
 import { useRealPath } from '../../lib/realPath'
 import { useRecommendedTools } from '../../lib/teamTools'
@@ -70,7 +70,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
         <h2 className="text-display font-semibold text-ink">{t('welcome.tools.title')}</h2>
-        <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { where: connectorsPlace(t) })}</p>
+        <p className="text-sm text-balance text-muted">{t('welcome.tools.desc')}</p>
       </div>
       <div className="space-y-4">
         <ul className="divide-y divide-line border-y border-line" data-testid="welcome-tools-cards">
@@ -125,19 +125,18 @@ function useRecommendable() {
   return { ids, reload }
 }
 
-/** The team's connections (GET /api/admin/integrations) and its Slack (GET /api/admin/slack, null: not on this server
- * or not readable): what the team rows show, and whether one works (`anyOn`: any team connection connected). Slack's
- * row is the way to its own page; a Slack added before does not count as this step done. */
+/** The team's connections (GET /api/admin/integrations) and its Slack (GET /api/admin/slack, null: not readable): what
+ * the team rows show, and whether one works (`anyOn`: a team connection connected, or Slack connected). */
 function useTeamConnections() {
   const [items, setItems] = useState<Integration[] | null>(null)
-  const [slack, setSlack] = useState<boolean | null>(null)
+  const [slack, setSlack] = useState<'connected' | 'added' | 'none' | null>(null)
   const reload = useCallback(() => {
     api.call(API.listTeamIntegrations).then((r) => setItems(r.items), () => setItems((x) => x ?? []))
-    api.call(SLACK.slackAdmin).then((s) => setSlack(!!s.tokens || s.lastError === 'removed'), () => setSlack(null))
+    api.call(SLACK.slackAdmin).then((s) => setSlack(s.state === 'connected' ? 'connected' : s.tokens || s.lastError === 'removed' ? 'added' : 'none'), () => setSlack(null))
   }, [])
   useEffect(reload, [reload])
   useEffect(() => integrationsChanged.on(reload), [reload])
-  return { items, setItems, slack, reload, anyOn: !!items?.some(isOn) }
+  return { items, setItems, slack, reload, anyOn: !!items?.some(isOn) || slack === 'connected' }
 }
 
 /** The team rows: each listed service of WELCOME_SERVICES as one team connection everyone may use, made from the list
@@ -208,15 +207,17 @@ function TeamRows({ team }: { team: ReturnType<typeof useTeamConnections> }) {
         )
       })}
       {team.slack !== null && (
-        <li className={rowCls} data-testid="welcome-tools-service" data-id={SLACK_APP.id} data-kind="team" data-state={team.slack ? 'connected' : 'available'}>
+        <li className={rowCls} data-testid="welcome-tools-service" data-id={SLACK_APP.id} data-kind="team" data-state={team.slack === 'connected' ? 'connected' : team.slack === 'added' ? 'needs-attention' : 'available'}>
           <LogoTile src={slackLogo} className={logoCls} />
           <div className="min-w-0 flex-1 space-y-0.5">
             <p className="text-sm font-medium text-ink">{SLACK_APP.name}</p>
             <p className="text-sm break-words text-muted" data-testid="welcome-tools-service-line">{t('welcome.tools.slackLine')}</p>
           </div>
-          {team.slack ? connected : (
+          {team.slack === 'connected' ? connected : (
             <Button size="sm" variant="secondary" className="shrink-0" onClick={() => navigate(SLACK_ADMIN_PATH, { state: setupReturnState('tools') })}
-              aria-label={`${t('welcome.tools.teamConnect')}: ${SLACK_APP.name}`} data-testid="welcome-tools-team-connect">{t('welcome.tools.teamConnect')}</Button>
+              aria-label={`${t(team.slack === 'added' ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}: ${SLACK_APP.name}`} data-testid="welcome-tools-team-connect">
+              {t(team.slack === 'added' ? 'welcome.tools.reconnect' : 'welcome.tools.teamConnect')}
+            </Button>
           )}
         </li>
       )}

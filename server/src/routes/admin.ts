@@ -387,7 +387,9 @@ export const adminRoutes: RouteModule = {
         if (n.oftenAsked !== cur.oftenAsked) oftenAskedSwitched(ctx.db, n.oftenAsked)
         return n
       })()
-      const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && (cur as Record<string, unknown>)[k] !== v))
+      // by value, as stored (a list compared by its items; team picks as cleaned): saving the same again changes nothing
+      const changed = Object.fromEntries(Object.entries(body).filter(([k, v]) => v !== undefined && JSON.stringify((cur as Record<string, unknown>)[k]) !== JSON.stringify((next as Record<string, unknown>)[k]))
+        .map(([k]) => [k, (next as Record<string, unknown>)[k]]))
       if (Object.keys(changed).length) audit(ctx.db, { actor: auth.user.id, action: 'settings.update', target: null, detail: changed })
       // the people whose switch went off (audited above) are told
       for (const id of turnedOff) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)

@@ -7,7 +7,7 @@
 // 파일, 도구 연결 (put off here), 팀원 초대. With nothing shared the invite names no skill (docs/DECISIONS.md "DS3"), the
 // end screen offers 홈으로 only (no kept skill in the team); a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 import { phoneHome } from './nav'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
@@ -28,6 +28,7 @@ const brandFiles = async (page: Page) => {
 test('회사 소개 saves the profile and puts the brand materials in, starting nothing; the steps go on to 도구 연결 and the invite; the invite names no skill; a member lands on Home', async ({ page, browser }) => {
   const errors = watchConsole(page)
   await reset(page)
+  await noSlack(page)
   await signIn(page)
   await page.goto('/welcome')
   await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')

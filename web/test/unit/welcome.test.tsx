@@ -68,7 +68,7 @@ const ran = (over: Partial<WelcomeProgress> = {}): WelcomeProgress => ({ ...fres
 // ---- a fake of the server: the progress row (the server's rules in short) and the few other answers the steps need
 let progress: WelcomeProgress | null = null
 let ai = { usable: true, action: 'connect_team', requested: false }
-let calls: { key: string; body: any }[] = []
+let calls: { key: string; body: any; url?: string }[] = []
 /** uploads that fail before one works (a retry then goes through) */
 let failUploads = 0
 /** the brand materials refused (the folder rules, say), in the server's words */
@@ -183,7 +183,7 @@ beforeAll(() => {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const key = `${init?.method ?? 'GET'} ${String(input).split('?')[0]}`
     const body = bodyOf(init?.body)
-    calls.push({ key, body })
+    calls.push({ key, body, url: String(input) })
     return routes[key]?.(body) ?? json(404, { error: { code: 'not_found', message: `no route ${key}` } })
   }) as unknown as typeof fetch
   Object.defineProperty(g, 'history', { configurable: true, writable: true, value: { state: null, replaceState: () => {} } })
@@ -1175,43 +1175,71 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
-  test('the invite with a shared skill: the link made for it, the message names it; the end screen sums the steps up with their facts (where the intro went, the skills, the files, the team\'s tools, the invites); a fact that cannot be read leaves its row without it', async () => {
+  test('the invite with a shared skill: the link made for it, the message names it; the end screen sums the steps up with their facts (where the intro went, the skills, the files in the team\'s home at every level, the team\'s tools, the team link and who came in); a fact that cannot be read leaves its row without it', async () => {
     signIn('owner')
-    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null }, shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: QUOTE_SKILL, title: '견적서 쓰기' }], landing: QUOTE_SKILL }, landingSkill: QUOTE_SKILL })
+    // a team whose start ran since "Team folder basics": its home is shared/
+    const HOME = { ...TEAM, home: 'shared', notesFolder: 'shared/회의록', brandFolder: 'shared/브랜드' }
+    progress = ran({ teamGroup: HOME, steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'done', invite: null }, shared: { at: '2026-11-04T00:05:00.000Z', skills: [{ path: QUOTE_SKILL, title: '견적서 쓰기' }], landing: QUOTE_SKILL }, landingSkill: QUOTE_SKILL })
     withGroup()
-    routes['GET /api/files/tree'] = () => json(200, { path: TEAM.folder, access: 'write', nextCursor: null, entries: [
-      { name: '회의록', path: TEAM.notesFolder, type: 'folder', size: null, mtime: '2026-11-04T00:00:00.000Z', mime: null, access: 'write' },
-      { name: '브랜드', path: TEAM.brandFolder, type: 'folder', size: null, mtime: '2026-11-04T00:00:00.000Z', mime: null, access: 'write' },
-      { name: '견적', path: `${TEAM.folder}/견적`, type: 'folder', size: null, mtime: '2026-11-04T00:00:00.000Z', mime: null, access: 'write' },
-      { name: '2025 보고서.md', path: `${TEAM.folder}/2025 보고서.md`, type: 'file', size: 10, mtime: '2026-11-04T00:00:00.000Z', mime: 'text/markdown', access: 'write' },
-      { name: '양식.md', path: `${TEAM.folder}/양식.md`, type: 'file', size: 10, mtime: '2026-11-04T00:00:00.000Z', mime: 'text/markdown', access: 'write' },
-    ] })
+    const entry = (path: string, type: 'file' | 'folder') => ({ name: path.slice(path.lastIndexOf('/') + 1), path, type, size: type === 'file' ? 10 : null, mtime: '2026-11-04T00:00:00.000Z', mime: null, access: 'write' })
+    const trees: Record<string, unknown[]> = {
+      shared: [entry('shared/회의록', 'folder'), entry('shared/브랜드', 'folder'), entry('shared/견적', 'folder'), entry('shared/2025 보고서.md', 'file')],
+      'shared/견적': [entry('shared/견적/양식.md', 'file'), entry('shared/견적/2026', 'folder')],
+      'shared/견적/2026': [entry('shared/견적/2026/1월.md', 'file')],
+      'shared/회의록': [entry('shared/회의록/메모.md', 'file')],
+    }
+    const read: string[] = []
+    routes['GET /api/files/tree'] = () => { const path = new URL(calls.at(-1)!.url!, 'http://x').searchParams.get('path') ?? ''; read.push(path); return json(200, { path, access: 'write', nextCursor: null, entries: trees[path] ?? [] }) }
     routes['GET /api/admin/integrations'] = () => json(200, { items: [] })
     routes['GET /api/admin/settings'] = () => json(200, settingsWith(['google-drive']))
-    // the invites cannot be read: that row shows without a number
-    routes['GET /api/admin/invites'] = () => json(503, { error: { code: 'unavailable', message: 'down' } })
     const m = await app()
     const fact = (step: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${step}"]`)?.querySelector('[data-testid="welcome-done-fact"]')?.textContent ?? null
     try {
       await m.until(() => m.find('team-link-message'), 'the message')
       expect(called('POST /api/admin/team-link').map((c) => c.body)).toEqual([{ groupIds: [TEAM.id], expiresInDays: 14, skillPath: QUOTE_SKILL }])
       expect((m.get('team-link-message') as unknown as { value: string }).value).toContain("우리 팀용으로 '견적서 쓰기' 스킬을 준비해 뒀어요")
+      // two people came in with the link meanwhile
+      openLink({ uses: 2 })
       await m.click('invite-step-done')
       await m.until(() => m.find('welcome-done'), 'the end screen')
-      await m.until(() => fact('files') && fact('tools'), 'the facts read')
-      expect(fact('profile')).toBe(' · Acme › 브랜드에 저장했어요')
+      await m.until(() => fact('files') && fact('tools') && fact('invite'), 'the facts read')
+      expect(fact('profile')).toBe(' · 전사 공유 › 브랜드에 저장했어요')
       expect(fact('skills')).toBe(' · 견적서 쓰기')
-      expect(fact('files')).toBe(' · 파일 2개 · 폴더 1개')
+      // every level of shared/, never its notes or brand folders
+      expect(fact('files')).toBe(' · 파일 3개')
+      expect(read).not.toContain('shared/회의록')
       expect(fact('tools')).toBe(' · Google Drive 추천')
-      expect(fact('invite')).toBeNull()
-      expect(m.container.querySelector('[data-testid="welcome-done-row"][data-step="invite"]')!.getAttribute('data-state')).toBe('done')
+      expect(fact('invite')).toBe(' · 팀 링크를 만들었어요 · 2명 들어왔어요')
       // no "'견적서 쓰기' 먼저 써 보기" any more: 내 설정 시작 is the one primary
       expect(m.find('welcome-done-try')).toBeNull()
       expect(m.get('welcome-done-home').textContent).toBe('내 설정 시작')
       expect(primaries(m)).toBe(1)
     } finally {
       await m.unmount()
-      for (const k of ['GET /api/files/tree', 'GET /api/admin/integrations', 'GET /api/admin/settings', 'GET /api/admin/invites']) delete routes[k]
+      for (const k of ['GET /api/files/tree', 'GET /api/admin/integrations', 'GET /api/admin/settings']) delete routes[k]
+    }
+  })
+
+  test('the end screen leaves out a fact it cannot read whole: the team files (a tree that does not fit) and the team link (none) show no number', async () => {
+    signIn('owner')
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'skipped', invite: null } })
+    withGroup()
+    routes['GET /api/files/tree'] = () => json(200, { path: 'x', access: 'write', nextCursor: 'more', entries: [] })
+    const m = await app()
+    try {
+      await m.until(() => m.find('invite-step-done'), 'the invite')
+      // the link is gone by the end (revoked meanwhile): no link fact
+      routes['GET /api/admin/team-link'] = () => json(200, { link: null, seats: { used: 1, limit: null } })
+      await m.click('invite-step-done')
+      await m.until(() => m.find('welcome-done') && called('GET /api/files/tree').length > 0, 'the end screen read')
+      await m.settle()
+      const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+      expect(row('files').querySelector('[data-testid="welcome-done-fact"]')).toBeNull()
+      expect(row('files').getAttribute('data-state')).toBe('done')
+      expect(row('invite').querySelector('[data-testid="welcome-done-fact"]')).toBeNull()
+    } finally {
+      await m.unmount()
+      delete routes['GET /api/files/tree']
     }
   })
 
@@ -1285,7 +1313,7 @@ describe('the later steps and the end', () => {
       await m.until(() => stepOf(m) === 'tools', '팀이 쓸 도구')
       expect(m.get('welcome-progress').querySelector('[aria-current="step"]')!.textContent).toContain('4/5 팀 도구')
       expect(m.get('welcome-tools').querySelector('h2')?.textContent).toBe('팀이 쓸 도구')
-      expect(m.get('welcome-tools').textContent).toContain('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 언제든 설정 › 커넥터에서 바꿀 수 있어요.')
+      expect(m.get('welcome-tools').textContent).toContain('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 팀 연결은 관리자 › 커넥터, 추천은 각 도구 페이지에서 바꿀 수 있어요.')
       await m.until(() => called('GET /api/integrations/google-drive').length > 0, 'the Drive read')
       const services = await m.until(() => { const x = m.container.querySelectorAll('[data-testid="welcome-tools-service"]'); return x.length ? x : null }, 'the rows')
       // Notion for the team only (no Drive on this server; Gmail cannot be connected here; no Slack answer)
@@ -1444,6 +1472,26 @@ describe('the later steps and the end', () => {
       expect(m.find('welcome-back')).toBeNull()
       expect(m.find('welcome-bar-back')).not.toBeNull()
       expect(m.find('welcome-bar-later')?.textContent).toBe(translate('ko', 'welcome.leave'))
+    } finally { await m.unmount() }
+  })
+
+  test('a phone\'s end screen: 팀 도구, which a phone walks past, says "컴퓨터에서 할 수 있어요" with no 지금 하기, never "나중에 하기로 했어요"', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'skipped', tools: 'skipped', invite: null } })
+    withGroup()
+    const m = await app()
+    const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+    try {
+      await m.click(await m.until(() => m.find('invite-step-done'), 'the invite'))
+      await m.until(() => m.find('welcome-done-summary'), 'the end screen')
+      expect(row('tools').getAttribute('data-state')).toBe('elsewhere')
+      expect(row('tools').textContent).toContain('컴퓨터에서 할 수 있어요')
+      expect(row('tools').textContent).not.toContain('나중에 하기로 했어요')
+      expect(row('tools').querySelector('[data-testid="welcome-done-later-open"]')).toBeNull()
+      // a step the phone does: put off, with 지금 하기
+      expect(row('files').getAttribute('data-state')).toBe('later')
+      expect(row('files').querySelector('[data-testid="welcome-done-later-open"]')).not.toBeNull()
     } finally { await m.unmount() }
   })
 

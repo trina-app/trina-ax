@@ -4,12 +4,24 @@
 // still connect anything. Stored as TeamSettings.recommendedTools (changed with PATCH /api/admin/settings) and read by
 // everyone with their connections: GET /api/integrations `recommendedTools`.
 import { z } from 'zod'
+import { SERVICE_CATALOG } from '../service-catalog'
 
 /** a tool's id: 'google-drive', a Google app's id ('gmail', 'calendar', 'docs', 'sheets'), a listed service's id
  * (shared/src/service-catalog.ts), a listed app on the computer (web/src/lib/localApps.ts) */
 export const TeamToolId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
 export type TeamToolId = z.infer<typeof TeamToolId>
 export const RECOMMENDED_TOOLS_MAX = 50
+/** Tools the team connects once for everyone (the welcome steps' [팀으로 연결]): never a team pick. */
+export const TEAM_CONNECT_TOOLS = ['notion', 'slack'] as const
+/** The listed apps on a computer (web/src/lib/localApps.ts LISTED_LOCAL_APPS). */
+const LOCAL_APP_TOOLS = ['aside', 'ego-lite'] as const
+/** Every id a team pick may hold: Google Drive and the Google apps, the listed services and the listed apps on a
+ * computer, minus the team-connect tools. */
+export const RECOMMENDABLE_TOOLS: readonly string[] = ['google-drive', 'gmail', 'calendar', 'docs', 'sheets', ...SERVICE_CATALOG.map((c) => c.id), ...LOCAL_APP_TOOLS]
+  .filter((id) => !(TEAM_CONNECT_TOOLS as readonly string[]).includes(id))
+export const isRecommendable = (id: string) => RECOMMENDABLE_TOOLS.includes(id)
+/** The list as stored: known recommendable ids only, each once, in their order (the server writes this). */
+export const cleanRecommended = (ids: readonly string[]): string[] => [...new Set(ids.filter(isRecommendable))]
 /** in the order they were recommended; empty (and absent: every team before it, an older server): none, the usual order */
 export const RecommendedTools = z.array(TeamToolId).max(RECOMMENDED_TOOLS_MAX)
 export type RecommendedTools = z.infer<typeof RecommendedTools>

@@ -69,6 +69,7 @@
 import { z } from 'zod'
 import type { DriveShare as MockDriveShare, DriveShareFolder as MockDriveFolder } from '@mycel/shared/api'
 import type { LocalSpeechTool } from '@mycel/shared/api'
+import { cleanRecommended } from '@mycel/shared/api'
 import type { FileListStatus } from '@mycel/shared/api'
 import { WideningAnswer } from '@mycel/shared/api'
 import type { ChatAudience } from '@mycel/shared/api'
@@ -4710,6 +4711,8 @@ export class MockServer {
       const providerChanged = c.body.speechProvider !== undefined && c.body.speechProvider !== this.speechNow()
       if (c.body.speechProvider !== undefined) this.speechChosen = true
       Object.assign(this.settings, c.body)
+      // like server/src/admin/settings.ts: team picks are stored clean (known ids, each once)
+      if (c.body.recommendedTools) this.settings.recommendedTools = cleanRecommended(c.body.recommendedTools)
       if (providerChanged && c.body.aiMediaTranscripts === undefined) this.settings.aiMediaTranscripts = null
       this.syncLocales()
       if (this.settings.defaultLocale !== before) this.publish(LOCALE_CHANGED)

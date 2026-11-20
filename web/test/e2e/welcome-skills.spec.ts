@@ -7,7 +7,7 @@
 //   drive the OS folder window); only known places are read; the list comes back checked and judged; [팀에 넣기 · N개]
 //   puts the ticked ones in. The kept skills' rows and the example viewer: onb6-skills.spec.ts.
 import { expect, test } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 
 /** A .claude folder: skills, a plugin, a command, CLAUDE.md, and what must never be opened. */
 const TREE = {
@@ -25,6 +25,7 @@ const TREE = {
 test('the setup walk: the skills step offers only the skills Trina prepared; one goes in → 팀 파일; 이전 shows 다음; the invite; 준비 끝났어요 → its form', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
+  await noSlack(page)
   await signIn(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()

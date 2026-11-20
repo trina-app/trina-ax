@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
 import { Navigate, parsePath, useLocation, useNavigate } from 'react-router-dom'
-import { WELCOME_BRAND_FILES_MAX, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { WELCOME_BRAND_FILES_MAX, SLACK, teamHome, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { useGoBack } from '../lib/back'
 import { markBusy } from '../lib/busy'
@@ -34,7 +34,8 @@ import { sameScreen, useScreenName } from '../lib/screens'
 import { setupSite } from '../lib/setupLink'
 import { uploadFile, type UploadProgress } from '../lib/upload'
 import { APP_CONNECTORS, CONNECTORS } from '../lib/connectors'
-import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
+import { useFolderWords } from '../lib/folderLabels'
+import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -766,42 +767,69 @@ function InviteWizardStep({ progress, onDone, onSkip, onStep }: { progress: Welc
 /** The five steps the end screen sums up, in their order (the AI step is not one of them: the primary says it). */
 const SUMMED: WelcomeStep[] = ['profile', 'skills', 'files', 'tools', 'invite']
 
+/** At most this many folders are read to count the team's files; a bigger tree shows the row without the number. */
+const FACT_FOLDERS_MAX = 25
+
+/** The files under `root` (every level), leaving out `skip` folders; null when it cannot be read whole (a page more, or
+ * more than FACT_FOLDERS_MAX folders). */
+async function countFiles(root: string, skip: ReadonlySet<string>): Promise<number | null> {
+  let files = 0
+  let reads = 0
+  const queue = [root]
+  while (queue.length) {
+    if (++reads > FACT_FOLDERS_MAX) return null
+    const r = await api.call(API.tree, { query: { path: queue.shift()! } })
+    if (r.nextCursor) return null
+    for (const e of r.entries) {
+      if (e.type === 'file') files++
+      else if (!skip.has(e.path)) queue.push(e.path)
+    }
+  }
+  return files
+}
+
 /** One short fact per step done, read for the end screen; a fact that cannot be read is left out (the row shows
- * without it). */
+ * without it), never a count that could mislead. */
 function useDoneFacts(progress: WelcomeProgress): Partial<Record<WelcomeStep, string>> {
   const t = useT()
+  const words = useFolderWords()
   const [facts, setFacts] = useState<Partial<Record<WelcomeStep, string>>>({})
   useEffect(() => {
     let live = true
     const put = (s: WelcomeStep, v: string | null) => { if (live && v) setFacts((f) => ({ ...f, [s]: v })) }
     const g = progress.teamGroup
-    const done = (s: WelcomeStep) => progress.steps[s as keyof typeof progress.steps] === 'done'
-    // 회사 소개: where it was saved (the brand folder, as the sidebar names it)
-    if (done('profile') && g?.brandFolder) put('profile', t('welcome.done.fact.profile', { place: g.brandFolder.split('/').slice(1).join(' › ') }))
-    // 스킬: the names the owner shared, the first three
+    const done = (s: WelcomeStep) => stepDone(progress, s)
+    const home = g ? teamHome(g) : null
+    // 회사 소개: where it was saved, as the sidebar names it ("전사 공유 › 브랜드", "Acme › 브랜드")
+    if (done('profile') && g?.brandFolder && home) {
+      const inside = g.brandFolder.startsWith(`${home}/`) ? g.brandFolder.slice(home.length + 1).split('/') : [g.brandFolder.slice(g.brandFolder.lastIndexOf('/') + 1)]
+      put('profile', t('welcome.done.fact.profile', { place: [words.name(home, home.slice(home.lastIndexOf('/') + 1)), ...inside].join(' › ') }))
+    }
+    // 스킬: the names the owner shared, the first three (never a raw folder name)
     const names = (progress.shared?.skills ?? []).map((x) => skillLabel({ name: skillNameOf(x.path), title: x.title }))
     if (done('skills') && names.length) put('skills', names.length > 3 ? t('welcome.done.fact.skillsMore', { names: names.slice(0, 3).join(', '), n: names.length - 3 }) : names.join(', '))
-    // 팀 파일: files and folders in the team's folder (its notes and brand folders are the setup's own)
-    if (done('files') && g?.folder) {
-      api.call(API.tree, { query: { path: g.folder } }).then((r) => {
-        if (r.nextCursor) return
-        const own = new Set([g.notesFolder, g.brandFolder].filter(Boolean))
-        const entries = r.entries.filter((e) => !own.has(e.path))
-        put('files', t('welcome.done.fact.files', { files: entries.filter((e) => e.type === 'file').length, folders: entries.filter((e) => e.type === 'folder').length }))
-      }, () => {})
+    // 팀 파일: the files in the team's home (teamHome: shared/ since "Team folder basics"), every level, without its
+    // notes and brand folders (the setup's own)
+    if (done('files') && g && home) {
+      countFiles(home, new Set([g.notesFolder, g.brandFolder].filter((x): x is string => !!x)))
+        .then((n) => put('files', n ? t('welcome.done.fact.files', { files: n }) : null), () => {})
     }
-    // 팀이 쓸 도구: the team's connections that work, and the tools recommended
+    // 팀이 쓸 도구: the team's connections that work (Slack too), and the tools recommended
     if (done('tools')) {
       void Promise.all([
         api.call(API.listTeamIntegrations).then((r) => r.items.filter((i) => i.status === 'connected').map((i) => i.name), () => null),
+        api.call(SLACK.slackAdmin).then((x) => (x.state === 'connected' ? ['Slack'] : []), () => []),
         api.call(API.settings).then((r) => (r.recommendedTools ?? []).map(toolName), () => null),
-      ]).then(([team, rec]) => {
-        const parts = [team?.length ? t('welcome.done.fact.toolsTeam', { names: team.join(', ') }) : null, rec?.length ? t('welcome.done.fact.toolsRecommended', { names: rec.join(', ') }) : null].filter(Boolean)
+      ]).then(([team, slack, rec]) => {
+        const on = [...(team ?? []), ...slack]
+        const parts = [on.length ? t('welcome.done.fact.toolsTeam', { names: on.join(', ') }) : null, rec?.length ? t('welcome.done.fact.toolsRecommended', { names: rec.join(', ') }) : null].filter(Boolean)
         put('tools', parts.join(' · '))
       })
     }
-    // 팀원 초대: the invites made
-    if (done('invite')) api.call(API.listInvites).then((r) => put('invite', r.items.length ? t('welcome.done.fact.invites', { n: r.items.length }) : null), () => {})
+    // 팀원 초대: the team link (what the step makes), and how many came in with it
+    if (done('invite')) {
+      api.call(API.getTeamLink).then((r) => put('invite', !r.link ? null : r.link.uses > 0 ? `${t('welcome.done.fact.teamLink')} · ${t('welcome.done.fact.joined', { n: r.link.uses })}` : t('welcome.done.fact.teamLink')), () => {})
+    }
     return () => { live = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -833,17 +861,18 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
       <StepHead title={t('welcome.done.title')} />
       <ul className="divide-y divide-line rounded-xl border border-line" data-testid="welcome-done-summary">
         {SUMMED.map((s) => {
-          const state = progress.steps[s as keyof typeof progress.steps]
-          const later = state !== 'done'
+          const later = !stepDone(progress, s)
+          // a step this device does not do (a phone walks past 팀이 쓸 도구): "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요"
+          const elsewhere = later && !offeredHere(s, computer)
           return (
-            <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={later ? 'later' : 'done'}>
+            <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : 'done'}>
               {later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}
               <span className="min-w-0 flex-1">
                 <span className="font-medium text-ink">{t(STEP_LABEL[s]!)}</span>
-                {later ? <span className="text-muted"> · {t('welcome.done.laterRow')}</span>
+                {later ? <span className="text-muted"> · {t(elsewhere ? 'welcome.done.onComputer' : 'welcome.done.laterRow')}</span>
                   : facts[s] ? <span className="text-muted" data-testid="welcome-done-fact"> · {facts[s]}</span> : null}
               </span>
-              {later && offeredHere(s, computer) && <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>}
+              {later && !elsewhere && <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>}
             </li>
           )
         })}

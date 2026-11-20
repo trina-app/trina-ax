@@ -30,10 +30,10 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
-import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
@@ -401,8 +401,9 @@ function ConnectorPage() {
   const { id = '' } = useParams()
   const { admin } = useConnectors()
   const page = <ConnectorPageBody id={id} />
-  // an owner or admin: "팀 추천", under the page (docs/decisions/20261120-team-vs-personal-onboarding.md)
-  return admin && (isBuiltIn(id) || CONNECTORS.some((c) => c.id === id) || !!localAppById(id)) ? <>{page}<RecommendRow id={id} /></> : page
+  // an owner or admin: "팀 추천", under the page of a tool each person connects (never Notion's or Slack's, connected
+  // for the team in the welcome steps) (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  return admin && isRecommendable(id) ? <>{page}<RecommendRow id={id} /></> : page
 }
 
 /** "팀 추천": an owner or admin recommends this tool to the team (TeamSettings.recommendedTools), as in the welcome

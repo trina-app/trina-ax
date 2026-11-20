@@ -8,7 +8,7 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
 import { translate, type MessageKey, type Params } from '../../src/i18n'
-import { OWNER, realErrors, reset, signIn, watchConsole } from './helpers'
+import { OWNER, realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 import { activityRows, openNotice } from './nav'
 
 const ko = (k: MessageKey, p?: Params) => translate('ko', k, p)
@@ -211,6 +211,7 @@ test('"…" › 팀장 넘기기: only for someone who signed in and changed the
 
 test("the welcome steps' invite step has no owner flag (one link invites many people); Admin › Members' invite dialog keeps it, and a second flag replaces the first", async ({ page }) => {
   await reset(page)
+  await noSlack(page)
   const errors = watchConsole(page)
   await signIn(page)
   await page.goto('/welcome')

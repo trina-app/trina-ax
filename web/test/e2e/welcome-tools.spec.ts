@@ -10,7 +10,7 @@
 // Google is answered by the page's own routes (the mock has no Google client), as in drive.spec.ts.
 import { expect, test, type Page } from '@playwright/test'
 import { CSRF_HEADER } from '@mycel/shared/api'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { noSlack, realErrors, reset, signIn, watchConsole } from './helpers'
 
 const account = { name: 'Olga Kim', email: 'olga@acme.example' }
 const expiresAt = '2099-01-01T00:00:00.000Z'
@@ -48,6 +48,7 @@ const recommended = async (page: Page) => (await (await page.request.get('/api/a
 
 /** The owner's steps up to 팀이 쓸 도구: 회사 소개, 내 스킬 and 팀 파일 put off. */
 async function toTools(page: Page) {
+  await noSlack(page)
   await page.goto('/welcome')
   await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
   await expect(page.getByTestId('welcome-progress')).toContainText('2/5 스킬')
@@ -70,7 +71,7 @@ test('팀이 쓸 도구 with Drive: the step order (n/5); one list (Notion for t
   await expect(bar.locator('[aria-current="step"]')).toContainText('4/5 팀 도구')
   const tools = page.getByTestId('welcome-tools')
   await expect(tools.getByRole('heading', { name: '팀이 쓸 도구' })).toBeVisible()
-  await expect(tools).toContainText('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 언제든 설정 › 커넥터에서 바꿀 수 있어요.')
+  await expect(tools).toContainText('팀이 같이 쓸 도구는 여기서 한 번 연결하고, 각자 자기 계정으로 쓰는 도구는 추천해 두세요. 팀 연결은 관리자 › 커넥터, 추천은 각 도구 페이지에서 바꿀 수 있어요.')
   const notion = page.locator('[data-testid="welcome-tools-service"][data-id="notion"]')
   await expect(notion).toHaveAttribute('data-kind', 'team')
   await expect(notion).toContainText('팀 전체가 이 연결을 같이 써요')
@@ -199,6 +200,35 @@ test('no Drive on this server: Notion and "다른 도구 보기"; that line open
   expect(realErrors(errors)).toEqual([])
 })
 
+test('Slack: 연결됨 only while it is connected, and that counts as the step done (the primary, no 나중에 하기); added but not connected: [다시 연결] to its page; not added: [팀으로 연결]', async ({ page }) => {
+  const errors = watchConsole(page)
+  await reset(page)
+  await signIn(page)
+  // the mock's Slack is connected: 연결됨, and the team already has a tool
+  await page.goto('/welcome')
+  await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+  await page.getByTestId('skills-later').click()
+  await page.getByTestId('welcome-later').click()
+  const slack = page.locator('[data-testid="welcome-tools-service"][data-id="slack"]')
+  await expect(slack).toHaveAttribute('data-state', 'connected')
+  await expect(slack.getByTestId('welcome-tools-team-on')).toContainText('연결됨')
+  await expect(page.getByTestId('welcome-tools-next')).toHaveText('다음: 팀원 초대')
+  await expect(page.getByTestId('welcome-later')).toHaveCount(0)
+  // added, but its connection does not work now: [다시 연결], and not done
+  expect((await page.request.post('/__test/slack', { data: { admin: { state: 'error', lastError: 'invalid_auth' } } })).ok()).toBeTruthy()
+  await page.reload()
+  await expect(slack).toHaveAttribute('data-state', 'needs-attention')
+  await expect(slack.getByTestId('welcome-tools-team-connect')).toHaveText('다시 연결')
+  await expect(page.getByTestId('welcome-later')).toBeVisible()
+  await slack.getByTestId('welcome-tools-team-connect').click()
+  await expect(page).toHaveURL(/\/admin\/connectors\/slack/)
+  // not added: [팀으로 연결]
+  await noSlack(page)
+  await page.goto('/welcome')
+  await expect(slack.getByTestId('welcome-tools-team-connect')).toHaveText('팀으로 연결')
+  expect(realErrors(errors)).toEqual([])
+})
+
 test('"Set up" in the list opened from the step (Google Drive on a server without a Google client) goes to Admin with "Back to getting started", which returns to the step', async ({ page }) => {
   const errors = watchConsole(page)
   await reset(page)
@@ -227,7 +257,7 @@ test('a member\'s list: the team\'s picks first, marked 팀 추천; nothing gate
   const errors = watchConsole(page)
   await reset(page)
   await signIn(page)
-  expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { recommendedTools: ['linear', 'notion'] } })).ok()).toBe(true)
+  expect((await page.request.patch('/api/admin/settings', { headers: { [CSRF_HEADER]: '1' }, data: { recommendedTools: ['linear', 'figma'] } })).ok()).toBe(true)
   await page.context().clearCookies()
   await signIn(page, { username: 'bob', password: 'bob password 1' })
   await page.goto('/settings/connectors')
@@ -235,7 +265,7 @@ test('a member\'s list: the team\'s picks first, marked 팀 추천; nothing gate
   await expect(settings.getByTestId('connector-discover')).toBeVisible()
   const cards = settings.locator('[data-testid="connector-card"]')
   await expect(cards.nth(0)).toHaveAttribute('data-id', 'linear')
-  await expect(cards.nth(1)).toHaveAttribute('data-id', 'notion')
+  await expect(cards.nth(1)).toHaveAttribute('data-id', 'figma')
   await expect(cards.nth(0)).toContainText('팀 추천 ·')
   await expect(cards.nth(2)).not.toContainText('팀 추천')
   expect(await cards.count()).toBeGreaterThan(2)
