@@ -136,7 +136,7 @@ describe('Home without AI', () => {
     } finally { await m.unmount() }
   })
 
-  test('the owner with AI: on a phone the quiet row (회사 소개 saved: it opens 내 스킬, 2/4 of the phone\'s four), nothing recorded; on a computer no row on Home', async () => {
+  test('the owner with AI: on a phone the quiet row (회사 소개 saved: it opens 내 스킬, 2/4 of the phone\'s four), nothing recorded; on a computer the same row at the top (2/5)', async () => {
     signIn('owner')
     access = { usable: true, action: 'connect_team', requested: false }
     progress = { ...putOff(), steps: { profile: 'done', result: null, invite: null } }
@@ -154,9 +154,10 @@ describe('Home without AI', () => {
     useWelcome.getState().reset()
     m = await home()
     try {
-      await m.until(() => called('GET /api/onboarding/goal').length || useWelcome.getState().loaded, 'Home\'s top')
-      await m.settle(40)
-      expect(m.find('welcome-resume')).toBeNull()
+      // the team setup's row at the top on a computer too (docs/decisions/20261120-my-setup-card.md): the goal waits
+      await m.until(() => m.find('welcome-resume'), 'the row')
+      expect(m.get('welcome-resume-link').textContent).toBe(rowText(2, 5))
+      expect(m.find('team-goal')).toBeNull()
     } finally { await m.unmount() }
   })
 

@@ -14,7 +14,7 @@
 // of offering Mac and Windows files. Profile on a phone (QA TC-382): the photo centred, a tap on it changes it (the same
 // choices: a new one, or take it away), the name, job title and email as rows of one group, the username and role as
 // list rows, and Save in the bar (SettingsBar.tsx) once something changed: the same one Save of the same form.
-import { HomeCardsShowAgain } from '../components/onboarding/CardHide'
+import { HomeCardsShowAgain, MySetupShowAgain } from '../components/onboarding/CardHide'
 import clsx from 'clsx'
 import { rowName } from '../components/list/List'
 import { Brain, KeyRound, Laptop, Loader2, LogOut, Monitor, Pencil, Plus, Send, ShieldAlert, Smartphone, Tablet, Trash2 } from 'lucide-react'
@@ -334,7 +334,8 @@ function Profile() {
         </div>
         )}
       </Section>
-      {/* a Home card the person hid (the team goal, "Ready in your team"): one quiet row each that brings it back */}
+      {/* a Home card the person hid (My setup, the team goal, "Ready in your team"): one quiet row each that brings it back */}
+      <MySetupShowAgain className="mb-8 max-md:mb-12" />
       <HomeCardsShowAgain cards={['goalCard', 'preparedCard']} testId="profile-home-cards" className="mb-8 max-md:mb-12" />
       {phone ? (
         // a phone: one row "Language   한국어 ›" whose sheet holds the languages (owner 2026-11-16: no list of every language

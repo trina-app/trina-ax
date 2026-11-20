@@ -17,6 +17,9 @@ import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
 import { useMemberWelcome } from '../../src/store/memberWelcome'
 import { useSession } from '../../src/store/session'
+import { OrganizeTeamFiles } from '../../src/components/onboarding/OrganizeTeamFiles'
+import { MySetupShowAgain } from '../../src/components/onboarding/CardHide'
+import { ALL_SET_SHOW_MS } from '../../src/components/onboarding/MemberWelcome'
 import { installDom, mount, removeDom } from './dom-host'
 import { message } from './rooms-fixtures'
 
@@ -33,16 +36,19 @@ const card = (over: Partial<MemberWelcome> = {}): MemberWelcome => ({
   team: 'Acme', inviter: { id: 'alex', name: 'Alex Kim' }, people: 6,
   rooms: [{ id: EVERYONE, kind: 'all', name: null }, { id: SALES, kind: 'team', name: 'Sales' }],
   owner: { id: 'olga', name: 'Olga Berg' },
-  steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false, ...over,
+  steps: { rooms: true, hi: false, photo: false, asked: false, tools: false }, allSet: false, ...over,
 })
 
 let welcome: MemberWelcome | null = card()
+/** the answer's other fields (hidden, organizeFiles) */
+let extra: Record<string, unknown> = {}
 let access: Record<string, unknown> = { usable: true, action: 'ask_owner', requested: false }
 let calls: { key: string; body: any }[] = []
 const routes: Record<string, (body: any) => Response> = {
-  'GET /api/me/welcome': () => json(200, { welcome }),
-  'PATCH /api/me/welcome': (b: { hide?: true; asked?: true }) => {
-    if (b.hide) welcome = null
+  'GET /api/me/welcome': () => json(200, { welcome, ...extra }),
+  'PATCH /api/me/welcome': (b: { hide?: true; show?: true; asked?: true }) => {
+    if (b.hide) { extra = { hidden: true }; welcome = null }
+    if (b.show) { extra = {}; welcome = card() }
     if (b.asked && welcome) welcome = { ...welcome, steps: { ...welcome.steps, asked: true } }
     return json(200, { welcome })
   },
@@ -79,6 +85,7 @@ beforeAll(() => {
 })
 afterEach(() => {
   welcome = card()
+  extra = {}
   access = { usable: true, action: 'ask_owner', requested: false }
   calls = []
   localStorage.clear()
@@ -107,13 +114,14 @@ describe('the card on Home', () => {
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(text(m, 'member-welcome-title')).toBe('Welcome to Acme, Mina')
-      expect(text(m, 'member-welcome-line')).toBe('Alex Kim invited you · 6 people are here')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
-      expect(m.get('member-welcome-rooms').getAttribute('data-done')).toBe('true')
-      expect(text(m, 'member-welcome-rooms')).toContain("You're in Everyone and # Sales")
-      expect(m.get('member-welcome-rooms-open').getAttribute('href')).toBe('/rooms')
-      // the place is named as the nav names it (Chats), on a computer too, not "Conversations" that no label shows
-      expect(text(m, 'member-welcome-rooms')).toContain("Your team's channels are in Chats")
+      // the rooms are one line under the title now, a link to Chats (docs/decisions/20261120-my-setup-card.md)
+      expect(text(m, 'member-welcome-line')).toBe("Alex Kim invited you · 6 people are here · You're in Everyone and # Sales")
+      expect(m.get('member-welcome-rooms').getAttribute('href')).toBe('/rooms')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
+      // the rows, in order: tools first; no rooms row any more
+      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-hi', 'member-welcome-photo', 'member-welcome-ask'])
+      expect(text(m, 'member-welcome-tools')).toContain('Connect your tools')
+      expect(m.get('member-welcome-tools').getAttribute('data-optional')).toBeNull()
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
       expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')
@@ -128,24 +136,32 @@ describe('the card on Home', () => {
     } finally { await m.unmount() }
   })
 
-  test('an admin\'s "Sort the team\'s files" row (not counted) only while the server says so; it opens the 팀 파일 step', async () => {
+  test('the owner\'s own card: its own words, three rows (tools, photo, files), no count, no hi or ask', async () => {
     signIn()
-    welcome = card({ organizeFiles: true })
-    routes['GET /api/onboarding/welcome'] = () => json(200, { progress: null })
+    welcome = card({ kind: 'owner', inviter: null })
     const m = await home()
     try {
-      await m.until(() => m.find('member-welcome-organize'), 'the row')
-      expect(text(m, 'member-welcome-organize')).toContain("Sort the team's files")
-      expect(text(m, 'member-welcome-organize')).toContain('Company-wide')
-      expect(m.get('member-welcome-organize').getAttribute('data-optional')).toBe('true')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
-    } finally { await m.unmount(); delete routes['GET /api/onboarding/welcome'] }
-    welcome = card({ organizeFiles: false })
-    const n = await home()
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect(m.get('member-welcome').getAttribute('data-kind')).toBe('owner')
+      expect(text(m, 'member-welcome-title')).toBe('Now your own setup, Mina')
+      expect(text(m, 'member-welcome-line')).toBe('The team is set up. These are just for you.')
+      expect(text(m, 'member-welcome-progress')).toBe('Only you see this')
+      expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-photo'])
+      expect(m.find('member-welcome-rooms')).toBeNull()
+      // the one thing at the top: no goal card under it
+      expect(m.find('team-goal')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('the owner\'s card waits while no AI answers the owner: the no-AI line comes first', async () => {
+    signIn()
+    welcome = card({ kind: 'owner', inviter: null })
+    access = { usable: false, action: 'connect_team', requested: false }
+    const m = await home()
     try {
-      await n.until(() => n.find('member-welcome'), 'the card')
-      expect(n.find('member-welcome-organize')).toBeNull()
-    } finally { await n.unmount() }
+      await m.until(() => m.find('no-ai-card'), 'the no-AI line')
+      expect(m.find('member-welcome')).toBeNull()
+    } finally { await m.unmount() }
   })
 
   test('no inviter ("Add directly"): the line without "invited you"', async () => {
@@ -154,7 +170,7 @@ describe('the card on Home', () => {
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
-      expect(text(m, 'member-welcome-line')).toBe('1 person is here')
+      expect(text(m, 'member-welcome-line')).toBe("1 person is here · You're in Everyone and # Sales")
     } finally { await m.unmount() }
   })
 
@@ -167,7 +183,7 @@ describe('the card on Home', () => {
       await m.until(() => m.find('member-welcome-hi-open'), 'done')
       expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina"])
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 2 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
     } finally { await m.unmount() }
   })
@@ -246,9 +262,8 @@ describe('the card on Home', () => {
       expect(m.get('home-top').querySelector('[data-testid="member-welcome"]')).not.toBeNull()
       expect(m.get('member-welcome').getAttribute('class')).toContain('md:border')
       expect(m.get('member-welcome').getAttribute('class')).not.toMatch(/(^| )border( |$)/)
-      for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button', 'member-welcome-rooms-open'])
+      for (const id of ['member-welcome-hide', 'member-welcome-hi-button', 'member-welcome-photo-button'])
         expect(m.get(id).getAttribute('class')).toContain('max-md:min-h-11')
-      expect(text(m, 'member-welcome-rooms')).toContain('Your team\'s channels are in Chats')
     } finally { await m.unmount() }
   })
 
@@ -281,6 +296,126 @@ describe('the card on Home', () => {
   })
 })
 
+describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () => {
+  const NOTION = { id: 'int-notion', scope: 'personal', kind: 'mcp', name: 'Notion', slug: 'notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', authHeader: null, hasSecret: false, account: null, notes: null, writePolicy: 'ask', status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null, access: null, createdBy: null, createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z', lastUsedAt: null, canManage: true }
+  const app = (id: string, o: Record<string, unknown> = {}) => ({ id, available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: [], shared: null, ...o })
+  let items: unknown[] = []
+  let memberTools: string[] | null | undefined
+  const KEYS = ['GET /api/integrations', 'GET /api/integrations/google-drive', 'GET /api/integrations/google-apps', 'POST /api/integrations', 'POST /api/integrations/int-notion/authorize', 'GET /api/integrations/flows/flow-n']
+  const setRoutes = (apps: unknown[] = [app('gmail'), app('calendar', { available: false }), app('docs'), app('sheets')]) => {
+    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: true, ...(memberTools !== undefined ? { memberTools } : {}) })
+    routes['GET /api/integrations/google-drive'] = () => json(200, { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
+    routes['GET /api/integrations/google-apps'] = () => json(200, { apps })
+  }
+  const press = (e: { click(): void } | null | undefined) => act(async () => { e!.click() })
+  /** one tool's line, and its parts (the fake document has no descendant selectors) */
+  const item = (m: Awaited<ReturnType<typeof home>>, id: string) => [...m.container.querySelectorAll('[data-testid="my-tools-item"]')].find((li) => li.getAttribute('data-id') === id)
+  const part = (m: Awaited<ReturnType<typeof home>>, id: string, testId: string) => item(m, id)?.querySelector(`[data-testid="${testId}"]`) ?? null
+  const tools = (m: Awaited<ReturnType<typeof home>>) => [...m.container.querySelectorAll('[data-testid="my-tools-item"]')].map((li) => `${li.getAttribute('data-id')}:${li.getAttribute('data-state')}`)
+  afterEach(() => { for (const k of KEYS) delete routes[k]; items = []; memberTools = undefined; delete g.open })
+
+  test('the usual tools when the team chose none (an older server): Drive, Gmail, Notion; a Google app that is off is left out', async () => {
+    signIn()
+    setRoutes()
+    const m = await home()
+    try {
+      await m.until(() => m.find('my-tools'), 'the tools')
+      expect(tools(m)).toEqual(['google-drive:open', 'gmail:open', 'notion:open'])
+      // a Google tool opens its page in Settings › Connectors (its own sign-in)
+      await press(part(m, 'google-drive', 'my-tools-connect'))
+      await m.until(() => m.find('where'), 'Settings')
+      expect(text(m, 'where')).toBe('/settings/connectors/google-drive')
+    } finally { await m.unmount() }
+  })
+
+  test('the team\'s recommended tools first; a member sees only those; one the team connected for everyone says so, no button', async () => {
+    signIn()
+    memberTools = ['linear', 'notion']
+    items = [{ ...NOTION, id: 'team-notion', scope: 'team', status: 'connected', hasSecret: true }]
+    setRoutes()
+    const m = await home()
+    try {
+      await m.until(() => m.find('my-tools'), 'the tools')
+      expect(tools(m)).toEqual(['linear:open', 'notion:team'])
+      expect(part(m, 'notion', 'my-tools-team')!.textContent).toBe('Team connected')
+      expect(part(m, 'notion', 'my-tools-connect')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('a listed service in place: the person\'s own connection from the list, its sign-in in the window reserved during the click; connected: the row is done', async () => {
+    signIn()
+    setRoutes([])
+    let opened = 0
+    routes['POST /api/integrations'] = () => { items = [NOTION]; return json(201, NOTION) }
+    routes['POST /api/integrations/int-notion/authorize'] = () => json(200, { flowId: 'flow-n', authorizationUrl: 'https://mcp.notion.com/authorize?state=x', expiresAt: '2099-01-01T00:00:00.000Z' })
+    // the server counts it once it is connected
+    routes['GET /api/integrations/flows/flow-n'] = () => { items = [{ ...NOTION, hasSecret: true, status: 'connected' }]; welcome = card({ steps: { rooms: true, hi: false, photo: false, asked: false, tools: true } }); return json(200, { flowId: 'flow-n', state: 'completed', expiresAt: '2099-01-01T00:00:00.000Z', reason: null }) }
+    g.open = () => { opened++; return { opener: {}, close() {}, closed: false, location: { replace() {} } } }
+    const m = await home()
+    try {
+      await m.until(() => part(m, 'notion', 'my-tools-connect'), 'Notion')
+      await press(part(m, 'notion', 'my-tools-connect'))
+      expect(opened).toBe(1)
+      await m.until(() => called('POST /api/integrations/int-notion/authorize').length > 0, 'the sign-in started')
+      expect(called('POST /api/integrations').map((c) => c.body)).toEqual([{ kind: 'mcp', name: 'Notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', writePolicy: 'ask' }])
+      await m.until(() => item(m, 'notion')?.getAttribute('data-state') === 'mine' || null, 'connected', 6000)
+      await m.until(() => m.get('member-welcome-tools').getAttribute('data-done') === 'true' || null, 'the row done')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+    } finally { await m.unmount() }
+  }, 20_000)
+})
+
+describe('when the card goes', () => {
+  test('"You\'re all set" a few seconds, then gone without a write; Hide offers it again in Settings › Profile', async () => {
+    signIn()
+    welcome = card({ steps: { rooms: true, hi: true, photo: false, asked: true, tools: true }, allSet: true })
+    const m = await home()
+    try {
+      await m.until(() => m.find('member-welcome'), 'the card')
+      expect(m.get('member-welcome').getAttribute('data-state')).toBe('all-set')
+      expect(ALL_SET_SHOW_MS).toBeLessThanOrEqual(10_000)
+      await m.until(() => (m.find('member-welcome') ? null : true), 'gone', ALL_SET_SHOW_MS + 2000)
+      expect(called('PATCH /api/me/welcome')).toEqual([])
+    } finally { await m.unmount() }
+    useMemberWelcome.getState().reset()
+    welcome = card()
+    const n = await home()
+    try {
+      await n.until(() => n.find('member-welcome-hide'), 'the card')
+      await n.click('member-welcome-hide')
+      expect(useMemberWelcome.getState().hidden).toBe(true)
+    } finally { await n.unmount() }
+    const s = await mount(<MemoryRouter><MySetupShowAgain /></MemoryRouter>)
+    try {
+      await s.until(() => s.find('profile-my-setup-show'), 'the row')
+      expect(text(s, 'profile-my-setup-show')).toBe('Show my setup on Home again')
+      await s.click('profile-my-setup-show')
+      await s.until(() => (s.find('profile-my-setup') ? null : true), 'shown again')
+      expect(called('PATCH /api/me/welcome').map((c) => c.body)).toEqual([{ hide: true }, { show: true }])
+      expect(useMemberWelcome.getState().welcome).not.toBeNull()
+    } finally { await s.unmount() }
+  }, 20_000)
+
+  test('an admin\'s "Sort the team\'s files" is on Admin › Home, only while the server says so', async () => {
+    signIn()
+    extra = { organizeFiles: true }
+    routes['GET /api/onboarding/welcome'] = () => json(200, { progress: null })
+    const m = await mount(<MemoryRouter><OrganizeTeamFiles /></MemoryRouter>)
+    try {
+      await m.until(() => m.find('admin-organize-files'), 'the row')
+      expect(text(m, 'admin-organize-files')).toContain("Sort the team's files")
+      expect(text(m, 'admin-organize-files')).toContain('Company-wide')
+    } finally { await m.unmount(); delete routes['GET /api/onboarding/welcome'] }
+    useMemberWelcome.getState().reset()
+    extra = {}
+    const n = await mount(<MemoryRouter><OrganizeTeamFiles /></MemoryRouter>)
+    try {
+      await n.until(() => useMemberWelcome.getState().loaded || null, 'read')
+      expect(n.find('admin-organize-files')).toBeNull()
+    } finally { await n.unmount() }
+  })
+})
+
 describe('the desktop app\'s files row (optional, not counted)', () => {
   const bridge = (version = 1, scan: () => Promise<unknown> = async () => ({ state: 'cancelled' })) => ({
     bridgeVersion: 1,
@@ -289,13 +424,13 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
   const setApp = (b: unknown) => { g.mycelDesktop = b }
   afterEach(() => { delete g.mycelDesktop })
 
-  test('a browser (no desktop app): no row; "1 of 3"', async () => {
+  test('a browser (no desktop app): no row; "0 of 3"', async () => {
     signIn()
     const m = await home()
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(m.find('member-welcome-files')).toBeNull()
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
     } finally { await m.unmount() }
   })
 
@@ -312,7 +447,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
     }
   })
 
-  test('the desktop app: the row, optional, and still "1 of 3"; a phone\'s width: no row', async () => {
+  test('the desktop app: the row, optional, and still "0 of 3"; a phone\'s width: no row', async () => {
     setApp(bridge())
     signIn()
     const m = await home()
@@ -323,7 +458,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
       expect(text(m, 'member-welcome-files')).toContain('Bring work files from this computer')
       expect(text(m, 'member-welcome-files')).toContain('only you see them, in My files › From this computer')
       expect(text(m, 'member-welcome-files-button')).toBe('Find files')
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
     } finally { await m.unmount() }
     useMemberWelcome.getState().reset()
     phoneWidth()
@@ -331,7 +466,7 @@ describe('the desktop app\'s files row (optional, not counted)', () => {
     try {
       await p.until(() => p.find('member-welcome'), 'the card')
       expect(p.find('member-welcome-files')).toBeNull()
-      expect(text(p, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(p, 'member-welcome-progress')).toBe('Get started · 0 of 3')
     } finally { await p.unmount() }
   })
 
@@ -423,7 +558,7 @@ describe('no AI for the person', () => {
       await act(async () => { await useAiAccess.getState().load(true) })
       await m.until(() => m.find('member-welcome-ask-button'), 'the question')
       expect(m.get('member-welcome-ask').getAttribute('data-done')).toBeNull()
-      expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
+      expect(text(m, 'member-welcome-progress')).toBe('Get started · 0 of 3')
     } finally { await m.unmount() }
   })
 })

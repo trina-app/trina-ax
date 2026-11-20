@@ -4,10 +4,11 @@
 // owner's or admin's block is all quiet), else what people of my group (or team) often ask (components/OftenAsked.tsx,
 // docs/DECISIONS.md "Home: what my group often asks": 3 lines, More shows up to 10, a click fills the box). While no AI
 // answers a member, the block shows read-only under the no-AI card (owners and admins: the card alone). Owners and
-// admins get ONE thing at the top: on a phone the welcome steps'
-// "continue" row while they are unfinished, else the 7-day goal card (docs/DECISIONS.md "Y — Home shows one thing at a
-// time"); on a computer the list panel's setup row stands for the welcome steps (components/onboarding/SetupRow.tsx,
-// docs/DECISIONS.md "W5"), so the top is the goal card there. The owner's setup checklist is on Admin › Home. While no
+// admins get ONE thing at the top (docs/DECISIONS.md "Y — Home shows one thing at a time",
+// docs/decisions/20261120-my-setup-card.md): the team setup's "설정 이어서 하기" row while it is unfinished (on a computer
+// too; the list panel's setup row hides on Home then, components/onboarding/SetupRow.tsx), then the owner's own My
+// setup card (made when the setup ended), then the 7-day goal card once that is done or hidden. The owner's setup
+// checklist is on Admin › Home. While no
 // AI answers the person (GET /api/me/ai-access), everyone gets ONE quiet line under the greeting instead
 // (components/onboarding/ConnectAi.tsx NoAiCard, QA TC-5447: the owner connects, anyone else asks), in place of that row, the suggestions (which would all fail) and the line above the box; the welcome steps'
 // row comes back once AI answers, so it never leads back to the AI step it was put off at. On a demo server (`bun run
@@ -23,9 +24,10 @@
 // then (the owner, 11-12: "채팅이 보고싶은 걸 수도 있는데"); with the keyboard up the card sits on it. No list of the AI's
 // chats here: the whole history is behind ☰ in the top bar. A project's new chat ("/?project=") shows no goal and no
 // setup row: they are about the team.
-// Someone who joined with a team link, an invite or "Add directly" gets the welcome card as the one thing at the top while
-// it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place of the
-// no-AI card (its last row is the no-AI way out), the goal card and "Ready in your team".
+// Someone who joined with a team link, an invite or "Add directly" gets the My setup card as the one thing at the top
+// while it shows (components/onboarding/MemberWelcome.tsx, docs/DECISIONS.md "A welcome for invited people"): in place
+// of the no-AI card (its ask row is the no-AI way out), the goal card and "Ready in your team". The owner's own card has
+// no AI row, so while no AI answers the owner the no-AI line comes first.
 // The owner whose lead link someone joined with gets that card as the one thing at the top instead (components/handover/
 // HandoverCard.tsx, docs/DECISIONS.md "W6").
 // On a phone this page is the 트리나 tab itself, as the AI apps have it, with the history behind ☰ (components/phone/
@@ -139,7 +141,8 @@ function HomePage() {
   const welcome = useMemberWelcome((s) => s.welcome)
   useEffect(() => { void useMemberWelcome.getState().load() }, [])
   const welcomeKnown = welcomeLoaded || !extras
-  const welcomeCard = extras && !projectId && welcome && <MemberWelcomeCard welcome={welcome} />
+  // the owner's own card has no AI row: without AI the no-AI line is the one thing instead
+  const welcomeCard = extras && !projectId && welcome && !(welcome.kind === 'owner' && noAi) && <MemberWelcomeCard welcome={welcome} />
   const admin = isAdmin(me)
   /** a suggestion chosen: into the box (focused, the caret after it), never sent */
   const choose = (text: string, waits?: string) => setPreset({ text, n: (preset?.n ?? 0) + 1, waits })
@@ -262,11 +265,11 @@ function NotesLine({ notes }: { notes: NotesHint }) {
 }
 
 /**
- * The one thing at the top of Home for owners and admins while AI answers them: on a phone the owner's quiet "설정
- * 이어서 하기 · 2/4" while the welcome steps are unfinished (started, neither finished nor hidden), else the goal card;
- * on a computer always the goal card, since the list panel's setup row stands for the steps there (docs/DECISIONS.md
- * "W5"). The owner's waits for the steps' progress so the goal card never shows for a moment first on a phone; a failed
- * read counts as "nothing to continue". Exported for its test.
+ * The one thing at the top of Home for owners and admins while AI answers them (and no My setup card shows): the
+ * owner's quiet "설정 이어서 하기 · 2/5" while the welcome steps are unfinished (started, neither finished nor hidden),
+ * on a phone and a computer alike (docs/decisions/20261120-my-setup-card.md; the list panel's setup row hides on Home),
+ * else the goal card. The owner's waits for the steps' progress so the goal card never shows for a moment first; a
+ * failed read counts as "nothing to continue". Exported for its test.
  */
 export function HomeTop({ owner, onGoal }: { owner: boolean; onGoal?: (shown: boolean) => void }) {
   const loaded = useWelcome((s) => s.loaded)
@@ -282,12 +285,13 @@ export function HomeTop({ owner, onGoal }: { owner: boolean; onGoal?: (shown: bo
   useEffect(() => {
     if (aiPutOff) void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
   }, [aiPutOff])
-  // a phone's unfinished steps show their row instead of the goal: no goal card then
-  const resumeRow = owner && !computer && loaded && showResume(progress, false)
+  // unfinished steps show their row instead of the goal: no goal card then
+  const resumeRow = owner && loaded && showResume(progress, computer)
   useEffect(() => { if (resumeRow) onGoal?.(false) }, [resumeRow, onGoal])
-  if (!owner || computer) return <HomeGoal onShown={onGoal} />
+  if (!owner) return <HomeGoal onShown={onGoal} />
   if (!loaded) return null
   if (resumeRow) return <WelcomeResume />
+  if (computer) return <HomeGoal onShown={onGoal} />
   // 내 스킬 put off for a computer: the phone keeps the step's promise in one quiet line, above the goal
   return <><SkillsOnComputer /><HomeGoal onShown={onGoal} /></>
 }

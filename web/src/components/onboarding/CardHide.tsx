@@ -2,13 +2,14 @@
 // muted words, not a ✕, the same on every card (owner 2026-11-20: every Home onboarding card can be closed). On a phone
 // it is a full 44px target. The goal and "Ready in your team" keep their hide in the person's preferences on the server
 // (prefs.goalCard, prefs.preparedCard: the same on every device, the app and the browser alike), with an undo toast and
-// a way back (HomeCardsShowAgain: Settings › Profile, and Admin › Home for the goal). The member welcome card keeps its
-// own record (store/memberWelcome.ts).
+// a way back (HomeCardsShowAgain: Settings › Profile, and Admin › Home for the goal). The My setup card keeps its own
+// record (store/memberWelcome.ts) and its own way back in Settings › Profile while its days last (MySetupShowAgain).
 import clsx from 'clsx'
 import { RotateCcw } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useT, type MessageKey } from '../../i18n'
 import { useMe, useSession } from '../../store/session'
+import { useMemberWelcome } from '../../store/memberWelcome'
 import { toast } from '../../store/ui'
 
 export function CardHide({ onClick, label, testId, className, disabled }: { onClick: () => void; label: string; testId: string; className?: string; disabled?: boolean }) {
@@ -75,6 +76,28 @@ export function HomeCardsShowAgain({ cards, testId = 'home-cards-show', classNam
           <span className="min-w-0 flex-1 truncate">{t(SHOW[c])}</span>
         </button>
       ))}
+    </section>
+  )
+}
+
+/** Settings › Profile: "Show my setup on Home again" while the My setup card is hidden and its days last (the server
+ * says: GET /api/me/welcome `hidden`); nothing otherwise. The same quiet row as HomeCardsShowAgain's. */
+export function MySetupShowAgain({ className }: { className?: string }) {
+  const t = useT()
+  const hidden = useMemberWelcome((s) => s.hidden)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void useMemberWelcome.getState().load() }, [])
+  if (!hidden) return null
+  const show = () => {
+    setBusy(true)
+    void useMemberWelcome.getState().show().then((ok) => toast(ok ? { level: 'success', text: t('homeCards.back') } : { level: 'error', text: t('error.network') })).finally(() => setBusy(false))
+  }
+  return (
+    <section className={clsx('space-y-2', className)} data-testid="profile-my-setup">
+      <button type="button" disabled={busy} onClick={show} className="flex min-h-11 w-full items-center gap-3 rounded-xl border border-line bg-surface px-4 py-2.5 text-left text-sm hover:bg-hover disabled:opacity-60" data-testid="profile-my-setup-show">
+        <RotateCcw size={15} className="shrink-0 text-faint" aria-hidden />
+        <span className="min-w-0 flex-1 truncate">{t('homeCards.showMySetup')}</span>
+      </button>
     </section>
   )
 }
