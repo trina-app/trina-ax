@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 10:06
 - Branch: `fix/ami-prune-keep-in-use`
-- Status: in progress
+- Status: done
 - Where: `scripts/image/` (release CI). Why: the 0.5.21 team-image run removed the 0.5.16 AMIs in Seoul and Virginia
   while the hosted control plane still made new teams from them (its 0.5.21 rollout was still baking), and new-team
   creation failed with `InvalidAMIID.NotFound`.
@@ -58,4 +58,8 @@ More AMIs kept: each is a ~20 GiB snapshot per region, a few dollars a month. No
 
 ## Result
 
-Filled in at the end.
+Built as planned. `ami-prune.sh` reads launch templates, instances (with their `ax:template`), `ax:template` volumes
+and the CI images per region, `ami-prune-select.ts` decides and every keep is logged with all its reasons. The
+workflow keeps 5 releases and 14 days. The fix takes effect from the next release tag (the team-image run uses the
+tag's own scripts). Control plane follow-up (trina-cloud): tag its current template's AMIs `ax:in-use` and move
+`PRUNE_KEEP` in `src/fleet/reminders.ts` to the new rule.

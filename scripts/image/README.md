@@ -300,7 +300,9 @@ Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws
 Every stable release builds its AMI in CI (`.github/workflows/team-image.yml`, started by release.yml's `build-ami`
 job): `build-ami.sh` in ap-northeast-2 with `--tag ax:built-by=release-ci`, `--manifest-v2 --copy-to ap-southeast-1 --copy-to us-east-1` (`AMI_COPY_TO`)
 signed with the release key, `scripts/release/publish-ami.ts` puts the manifest and `team-image.json` under
-`server/<version>/` on the update feed, and `ami-prune.sh` keeps the newest 3 CI images per region. AWS access is a
+`server/<version>/` on the update feed, and `ami-prune.sh` removes old CI images per region: it keeps every image of the newest 5 releases,
+every image younger than 14 days, and any image tagged `ax:keep=true` or `ax:in-use`, run by an instance, named by a
+launch template or whose `ax:template` a tenant instance or volume carries (`ami-prune-select.ts`; `--dry-run` previews). AWS access is a
 GitHub OIDC role, no stored key. Setup, IAM policy, network and cost: `docs/RELEASE-CI.md` section 10.
 
 ### Several regions: the v2 manifest
