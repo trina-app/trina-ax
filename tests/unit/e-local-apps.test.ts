@@ -12,7 +12,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { LOCAL_APP_PRESETS, type LocalAppSpec, type LocalCall } from '@mycel/shared/api'
 import { t } from '../../desktop/src/common/i18n'
-import { ASIDE_SIGNED_OUT, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
+import { ASIDE_PROFILES_DESCRIPTION, ASIDE_SIGNED_OUT, asideAccountList, asideProfilesIn, asideSessionId, asideToolsList, asideNotRunning, egoDown, EGO_BUNDLE_ID, isListedEgo, notOpenWords, withAsideSignedOut, asideAccountMismatch, asideAccountsWithProfiles, asideSuggestedAccount, isListedAside, CLI_OUTPUT_MAX, cliArgv, cliOutputText, cliTools, commandHash, defaultSearchPath, hideValues, HIDDEN_VALUE, LocalApps, resolveProgram, SlotError } from '../../desktop/src/common/local-apps'
 
 setDefaultTimeout(30_000)
 const FAKE = path.join(import.meta.dir, '..', 'fixtures', 'local-apps', 'fake-mcp.ts')
@@ -324,6 +324,131 @@ describe('Aside with an account no Aside Browser profile uses', () => {
     expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp'], env: [] })).toBe(true)
     expect(isListedAside({ adapter: 'mcp', command: 'aside', args: ['mcp', '--account', 'u1'], env: [] })).toBe(false)
     expect(isListedAside({ adapter: 'mcp', command: '/usr/local/bin/aside', args: ['mcp'], env: [] })).toBe(false)
+  })
+})
+
+describe('Aside with several accounts, each with its own profiles', () => {
+  // like a Mac where Aside has accounts u0 (current, two profiles), u1 and u2 (one each): Claude Code reaches all four
+  const PROFILES = {
+    u0: [{ profileId: 'prof-a', label: 'Work' }, { profileId: 'prof-b', label: 'Personal' }],
+    u1: [{ profileId: 'prof-c', label: 'Shop' }],
+    u2: [{ profileId: 'prof-d', label: 'Video' }],
+  }
+  function multi(extra: Record<string, string> = {}) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aside-multi-'))
+    fs.writeFileSync(path.join(dir, 'aside'), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" "$@"\n`, { mode: 0o755 })
+    const spawned: string[][] = []
+    const confirmed = new Map<string, string>()
+    let asked = 0
+    const env = { FAKE_ASIDE_PROFILES: JSON.stringify(PROFILES), FAKE_ASIDE_CURRENT: 'u0', ...extra }
+    const apps = new LocalApps({
+      confirm: async () => { asked++; return true },
+      confirmed: (team, id) => confirmed.get(`${team}/${id}`) ?? null, setConfirmed: (team, id, h) => { confirmed.set(`${team}/${id}`, h) },
+      settings: () => env, isRoot: () => false, searchPath: () => [dir],
+      spawn: ((file: string, args: readonly string[], opts: unknown) => { spawned.push([...args]); return spawn(file, args, opts as never) }) as never,
+    })
+    all.push(apps)
+    let n = 0
+    const call = (message: Record<string, unknown>) => apps.call(TEAM, { callId: `m-${++n}`, turnId: null, connectionId: 'aside-1', name: 'Aside', spec: LOCAL_APP_PRESETS.find((p) => p.id === 'aside')!.spec, message, deadline: Date.now() + 10_000 })
+    const tool = (name: string, args: Record<string, unknown> = {}) => call({ jsonrpc: '2.0', id: `t-${n + 1}`, method: 'tools/call', params: { name, arguments: args } })
+    const texts = (r: Awaited<ReturnType<typeof call>>) => ((r.message?.result as { content?: { text: string }[] })?.content ?? []).map((c) => c.text)
+    const init = () => call({ jsonrpc: '2.0', id: 'i1', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
+    const mcpRuns = () => spawned.filter((a) => a[0] === 'mcp')
+    const done = () => { apps.stopAll(); fs.rmSync(dir, { recursive: true, force: true }) }
+    return { apps, spawned, asked: () => asked, call, tool, texts, init, mcpRuns, done }
+  }
+
+  test('browser_profiles lists every account\'s profiles, each with its account; tools/list says so', async () => {
+    const h = multi()
+    try {
+      await h.init()
+      const list = await h.call({ jsonrpc: '2.0', id: 'l1', method: 'tools/list' })
+      const bp = (list.message?.result as { tools: { name: string; description: string }[] }).tools.find((t) => t.name === 'browser_profiles')!
+      expect(bp.description).toBe(ASIDE_PROFILES_DESCRIPTION)
+      expect(bp.description).not.toContain("this MCP server's")
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; label: string; account: string; connected: boolean }[]
+      expect(profiles.map((p) => [p.profileId, p.label, p.account])).toEqual([['prof-a', 'Work', 'u0'], ['prof-b', 'Personal', 'u0'], ['prof-c', 'Shop', 'u1'], ['prof-d', 'Video', 'u2']])
+      expect(profiles.every((p) => p.connected === true)).toBe(true)
+      // listing starts no other `aside mcp`: one-shot `host profiles` for the other accounts only
+      expect(h.mcpRuns()).toEqual([['mcp']])
+      expect(h.spawned.filter((a) => a[0] === 'host').sort()).toEqual([['host', 'profiles', '--account', 'u1', '--json'], ['host', 'profiles', '--account', 'u2', '--json']])
+      expect(h.asked()).toBe(1)
+    } finally { h.done() }
+  })
+
+  test('repl and exec in a profile of another account run in that account\'s own aside mcp; the default account\'s stay in the main one', async () => {
+    const h = multi()
+    try {
+      await h.init()
+      await h.tool('browser_profiles')
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-c' }))).toEqual(['ok as u1 in prof-c'])
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp', '--account', 'u1']])
+      // the repl goes on in that profile without profile_id, in the same process
+      expect(h.texts(await h.tool('repl', { title: 't', code: '2' }))).toEqual(['ok as u1'])
+      // the default account's profile: the main process, and the repl goes on there
+      expect(h.texts(await h.tool('repl', { title: 't', code: '3', profile_id: 'prof-b' }))).toEqual(['ok as u0 in prof-b'])
+      expect(h.texts(await h.tool('repl', { title: 't', code: '4' }))).toEqual(['ok as u0'])
+      // exec in u2's profile, then continued by its session id there
+      const started = JSON.parse(h.texts(await h.tool('exec', { prompt: 'https://example.com', profile_id: 'prof-d' }))[0]!) as { session_id: string }
+      expect(started.session_id).toStartWith('s-u2-')
+      expect(h.texts(await h.tool('exec', { prompt: 'go on', session_id: started.session_id }))).toEqual([`continued ${started.session_id} as u2`])
+      // a main-account exec session stays on the main process
+      const mine = JSON.parse(h.texts(await h.tool('exec', { prompt: 'x' }))[0]!) as { session_id: string }
+      expect(h.texts(await h.tool('exec', { prompt: 'y', session_id: mine.session_id }))).toEqual([`continued ${mine.session_id} as u0`])
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp', '--account', 'u1'], ['mcp', '--account', 'u2']])
+      // each new process was initialized before its first call; one confirm for all; Stop ends them all
+      expect(h.asked()).toBe(1)
+      expect(h.apps.runningIds(TEAM)).toEqual(['aside-1'])
+      h.apps.stop(TEAM, 'aside-1')
+      for (let i = 0; i < 50 && h.apps.runningIds(TEAM).length; i++) await Bun.sleep(50)
+      expect(h.apps.runningIds(TEAM)).toEqual([])
+    } finally { h.done() }
+  })
+
+  test('a profile id the AI did not get from browser_profiles in this run is still found (Aside\'s account list read then)', async () => {
+    const h = multi()
+    try {
+      await h.init()
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-d' }))).toEqual(['ok as u2 in prof-d'])
+      // an id no account has: the main process answers with Aside's own words
+      const r = h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'nope' }))
+      expect(r[0]).toContain('is not available for account u0')
+    } finally { h.done() }
+  })
+
+  test('an older Aside without host profiles --json: the other accounts\' profile ids from its account list', async () => {
+    const h = multi({ FAKE_ASIDE_OLD_CLI: '1' })
+    try {
+      await h.init()
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; label: string | null; account: string }[]
+      expect(profiles.map((p) => [p.profileId, p.account])).toEqual([['prof-a', 'u0'], ['prof-b', 'u0'], ['prof-c', 'u1'], ['prof-d', 'u2']])
+      expect(profiles[2]!.label).toBeNull()
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-c' }))).toEqual(['ok as u1 in prof-c'])
+    } finally { h.done() }
+  })
+
+  test('one account only: Aside\'s own list, no other program started', async () => {
+    const h = multi({ FAKE_ASIDE_PROFILES: JSON.stringify({ u0: PROFILES.u0 }) })
+    try {
+      await h.init()
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string }[]
+      expect(profiles.map((p) => p.profileId)).toEqual(['prof-a', 'prof-b'])
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-b' }))).toEqual(['ok as u0 in prof-b'])
+      expect(h.mcpRuns()).toEqual([['mcp']])
+      expect(h.spawned.some((a) => a[0] === 'host')).toBe(false)
+    } finally { h.done() }
+  })
+
+  test('reading Aside\'s account list, profile lists and exec answers', () => {
+    expect(asideAccountList('{"currentAccountId":2,"accounts":[{"id":0,"hasSession":true,"profileBindings":[{"profileId":"a"},{"profileId":"b"}]},{"id":2,"profileBindings":[]},{"id":"x"}]}')).toEqual({ current: 'u2', accounts: [{ id: 'u0', signedIn: true, profileIds: ['a', 'b'] }, { id: 'u2', signedIn: false, profileIds: [] }] })
+    expect(asideAccountList('nope')).toEqual({ current: null, accounts: [] })
+    expect(asideProfilesIn('{"host":"local","profiles":[{"profileId":"a","label":"Work","connected":true},{"id":"old"}]}')).toEqual([{ profileId: 'a', label: 'Work', connected: true }])
+    expect(asideProfilesIn('{"profiles":"x"}')).toBeNull()
+    expect(asideProfilesIn('Browser profile "x" is not available')).toBeNull()
+    expect(asideSessionId({ result: { content: [{ type: 'text', text: '{"session_id":"abc-123","status":"done"}' }] } })).toBe('abc-123')
+    expect(asideSessionId({ result: { content: [{ type: 'text', text: 'Session: none' }] } })).toBeNull()
+    const tl = asideToolsList({ result: { tools: [{ name: 'repl', description: 'r' }, { name: 'browser_profiles', description: 'old' }] } })
+    expect((tl.result as { tools: { description: string }[] }).tools.map((t) => t.description)).toEqual(['r', ASIDE_PROFILES_DESCRIPTION])
   })
 })
 

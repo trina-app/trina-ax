@@ -129,6 +129,23 @@
   kept and the page checks the connector again by itself (`DesktopBridge.localApps.onConfirmed`). A turn's first call
   waits up to 5 minutes for the confirm (was 3).
 
+## Every Aside profile, in every Aside account (2026-11-20)
+
+- **The owner hit it:** Aside has 13 profiles on their Mac and Claude Code moves between all of them, but in Trina the AI
+  said Aside has one profile. Aside's profiles belong to its accounts (`aside account list`), and one `aside mcp` reaches
+  only the profiles of the account it started with: `browser_profiles` lists those, and a `profile_id` of another
+  account is refused ("Browser profile … is not available for account u0", Aside CLI 1.26). The Aside CLI reaches every
+  profile with `--account uN`.
+- **For the listed Aside command only** (exactly `aside mcp`), the desktop app now:
+  - answers `browser_profiles` with the main process's profiles plus every other account's, from `aside host profiles
+    --account uN --json` (an older Aside without it: the profile ids `aside account list --json` binds to that
+    account, with no label), each with its `account`. tools/list describes `browser_profiles` as listing every account.
+  - runs `repl` or `exec` with a `profile_id` of another account (and an `exec` `session_id` started there, and a later
+    `repl` without `profile_id`) in an `aside mcp --account uN` of its own, started on first use and kept beside the
+    main one. Stop and quitting end all of them.
+- Nothing else changes: Aside's own tools, the one-time confirm for the same command, the normal ask card and Always
+  allow. With one account, Aside's own list goes through as it is and no other program starts.
+
 ## Open questions
 
 - **Keeping the known tools list up to date.** Who checks a tool's command shape, and how a new version reaches desktop
