@@ -80,7 +80,7 @@ export function useSignInFlow<C>(ops: SignInOps<C>, onConnected: (c: C) => void)
       if (place === 'phone') await openExternal(url, { purpose: 'google-oauth' })
       // the desktop app: the server's one-time address first, so the system browser can finish without a sign-in
       // (Drive only; the link beside the wait stays the sign-in page)
-      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(result, location.origin)) || url)
+      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(result, globalThis.location?.origin)) || url)
     } catch (e) { if (g === generation.current) { setError(true); setReason(e instanceof ApiError ? e.message : null); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }

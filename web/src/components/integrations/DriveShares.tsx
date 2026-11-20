@@ -68,7 +68,7 @@ function useShareFlow() {
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
       if (place === 'phone') await openExternal(href, { purpose: 'google-oauth' })
-      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(r, location.origin)) || href)
+      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(r, globalThis.location?.origin)) || href)
     } catch { if (g === generation.current) { setError(true); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }

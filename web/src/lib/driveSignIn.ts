@@ -29,8 +29,8 @@ export function driveSignInUrl(answer: { authorizationUrl: string; connectUrl?: 
  * on to the sign-in page (server/src/integrations/google-drive/app-browser.ts). Exactly that shape on this origin, or
  * null (an older server, another shape: the sign-in page itself, as before). */
 const OPEN_PATH = /^\/api\/integrations\/google-drive\/open\?flow=[A-Za-z0-9_-]{1,64}&t=[A-Za-z0-9_-]{43}$/
-export function desktopOpenUrl(answer: { openPath?: string }, origin: string): string | null {
-  return answer.openPath && OPEN_PATH.test(answer.openPath) ? origin + answer.openPath : null
+export function desktopOpenUrl(answer: { openPath?: string }, origin: string | undefined): string | null {
+  return origin && answer.openPath && OPEN_PATH.test(answer.openPath) ? origin + answer.openPath : null
 }
 
 /** Where a sign-in (Google's, or another service's: IntegrationRow.tsx useSignIn) opens: the phone app hands the address to its browser (lib/mobile.ts openExternal), the

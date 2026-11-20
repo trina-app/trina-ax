@@ -661,6 +661,34 @@ describe('the card, clicked', () => {
     }
   })
 
+  test('Google Drive in the desktop app with a server that sends the one-time address: the system browser opens it first', async () => {
+    const r = card({ target: 'google_drive', name: 'Google Drive', service: undefined })
+    open(r)
+    connects({ state: 'connected' })
+    const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
+    const openPath = `/api/integrations/google-drive/open?flow=d3&t=${'T'.repeat(43)}`
+    routes['POST /api/integrations/google-drive/authorize'] = () => json({ flowId: 'd3', authorizationUrl: google, openPath, expiresAt })
+    routes['GET /api/integrations/google-drive/flows/d3'] = () => json({ flowId: 'd3', state: 'pending', account: null, expiresAt, reason: null })
+    const asked: string[] = []
+    const was = globalThis.open, hadLocation = 'location' in globalThis
+    // the team page's own address (the desktop app shows the team at its origin)
+    Object.assign(globalThis, { mycelDesktop: { bridgeVersion: 1 }, open: (url: string) => { asked.push(url); return null } })
+    if (!hadLocation) Object.assign(globalThis, { location: { origin: 'https://acme.trina.app' } })
+    try {
+      const m = await mount(<ConnectCard request={r} />)
+      await m.click('connect-drive')
+      await m.until(() => asked.length > 0, 'the one-time address opened')
+      expect(asked).toEqual([`${globalThis.location.origin}${openPath}`])
+      // the link beside the wait stays Google's page (the browser keeps its cookie for this sign-in)
+      expect(m.get('connect-card').innerHTML).toContain(google)
+      await m.unmount()
+    } finally {
+      delete (globalThis as Record<string, unknown>).mycelDesktop
+      if (!hadLocation) delete (globalThis as Record<string, unknown>).location
+      globalThis.open = was
+    }
+  })
+
   test('done that failed: the card offers it again, and the second one finishes', async () => {
     const r = linear()
     open(r)
