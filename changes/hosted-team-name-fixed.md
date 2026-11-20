@@ -1,1 +1,0 @@
-- On a team made in Trina Cloud, the first setup page no longer asks for the team name and language again. It shows the ones chosen at sign-up and only asks for the owner's account. The owner can still rename the team later in Team settings.
