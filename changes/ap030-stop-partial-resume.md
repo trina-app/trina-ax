@@ -1,1 +1,0 @@
-- After you stop an answer, the next message knows what the AI had written so far. It said its last reply was blank.

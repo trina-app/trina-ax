@@ -1,1 +1,0 @@
-- The Trina history in the sidebar is easier to read on a computer: each row is 36px high with 14px text, and the rows have a 2px gap. The other lists and the phone do not change.

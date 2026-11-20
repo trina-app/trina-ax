@@ -1,1 +1,0 @@
-- Desktop app: the "Find work files on this computer" window is wider, so each line under the list fits on one line.
