@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-20 11:36
 - Branch: `plan/project-is-room` (build branches: `feat/project-room-server`, `feat/project-room-web`,
   `feat/project-room-files`, `feat/room-files-list`)
-- Status: ready to build, revision 4 (two independent reviews, the owner's answers of 2026-11-20)
+- Status: ready to build, revision 5 (two independent reviews, the owner's answers of 2026-11-20)
 - Where: Team AX core (`server/src/rooms/`, `server/src/chat/`, `server/src/uploads/`, `shared/src/api/`,
   `web/src/pages/Room.tsx`, `web/src/pages/Projects.tsx`, `web/src/components/rooms/*`, the six `web/src/i18n/*.ts`,
   `docs/site`). Why: rooms, projects, files and permissions are core.
