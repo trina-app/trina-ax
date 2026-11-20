@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 02:51
 - Branch: `ap038-export-my-chats`
-- Status: in progress
+- Status: done
 - Where: trina-ax server, shared contract, web. Why: the AI parity QA (AP-038) found that claude.ai lets every user
   export their data, and in Trina only the owner has an export (Admin › System).
 - Version impact: minor. A new endpoint pair and a new Settings section; nothing removed or changed.
@@ -53,4 +53,9 @@ web unit test.
 
 ## Result
 
-(filled in at the end)
+Built as planned: `server/src/system/my-export.ts`, `ownChats` in `server/src/system/export.ts` (one chat selection for
+both exports), `POST /api/me/export` and `GET /api/me/export/:jobId/download` in `server/src/routes/system.ts`, the
+Settings section `web/src/components/settings/MyExport.tsx`. Also: a permission matrix case for each route, the feature
+`settings.export` in docs/features.ts with its AI scenario line and case SET-03, the regenerated HTTP API page.
+Differences: guests do not get it (the guest endpoint list is deny by default); the decision is a file in
+docs/decisions/, not a section in docs/DECISIONS.md (the archive; check:docs refuses new lines there).
