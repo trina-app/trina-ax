@@ -28,16 +28,12 @@ import { isGuestMe, personIsGuest } from '../../lib/guests'
 import { isAdmin } from '../../store/session'
 import { useFreeRoam } from '../../store/demo'
 import { useRoomTitle } from './RoomIcon'
-import { isPrivateChannel } from '../../lib/rooms'
+import { isPrivateChannel, isProjectRoom } from '../../lib/rooms'
 
 /** `new`: New message (no name: one person opens the DM, two or more the group DM of those people, made or reopened);
  * `channel`: Create a channel (a name is required: a private channel); `invite`: add people to a room
  * (docs/decisions/20261117-named-groups-private-channels.md). */
-export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'channel'; project?: ChannelForProject } | { kind: 'invite'; roomId: string }
-/** Create a channel for a project (pages/Projects.tsx; docs/decisions/20261119-channel-project-link.md D8): its name
- * and the project's people ticked (a copy, never a sync; no group rows), made and linked in one step. `people`: how
- * many others the project has; past what a channel holds nobody is ticked and one line says so. */
-export interface ChannelForProject { id: string; name: string; preselect: string[]; people: number }
+export type PickerMode = { kind: 'new'; preselect?: string[] } | { kind: 'channel' } | { kind: 'invite'; roomId: string }
 
 export function PeoplePicker({ open, onClose, mode = { kind: 'new' } }: { open: boolean; onClose: () => void; mode?: PickerMode }) {
   if (!open) return null
@@ -88,15 +84,14 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const navigate = useNavigate()
   const inviting = mode.kind === 'invite' ? mode.roomId : null
   const channel = mode.kind === 'channel'
-  const forProject = mode.kind === 'channel' ? mode.project ?? null : null
   const room = useRooms((s) => (inviting ? s.rooms.find((r) => r.id === inviting) : undefined))
   const inRoom = useRooms((s) => (inviting ? s.members[inviting] : undefined))
   useEffect(() => {
     if (inviting) void useRooms.getState().loadMembers(inviting)
   }, [inviting])
   const [q, setQ] = useState('')
-  const [picked, setPicked] = useState<string[]>(() => (mode.kind === 'new' ? (mode.preselect ?? []).filter((id) => id !== meId) : forProject ? forProject.preselect.filter((id) => id !== meId) : []))
-  const [name, setName] = useState(() => forProject?.name.slice(0, ROOM_NAME_MAX) ?? '')
+  const [picked, setPicked] = useState<string[]>(() => (mode.kind === 'new' ? (mode.preselect ?? []).filter((id) => id !== meId) : []))
+  const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   // "Invite a guest" (components/GuestInvite.tsx): a group chat's add list only, for anyone in it but a guest; the
   // dialog takes this one's place
@@ -105,7 +100,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const [onePlace, setOnePlace] = useState<{ guestId?: string } | null>(null)
   // a free-roam demo: no guest invites (server/src/demo/guard.ts refuses them)
   const freeRoam = useFreeRoam()
-  const mayInviteGuest = !freeRoam && !!room && room.kind === 'group' && !isGuestMe(me)
+  const mayInviteGuest = !freeRoam && !!room && room.kind === 'group' && !isProjectRoom(room) && !isGuestMe(me)
   // "New conversation" (no room yet): the same row, which picks the group chat or project first (GuestInviteFlow)
   const mayInviteGuestAnywhere = !freeRoam && !inviting && !isGuestMe(me)
   const roomTitle = useRoomTitle()
@@ -130,7 +125,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   const teamRooms = useRooms((s) => s.rooms)
   const directory = useMemo(() => new Set((people ?? []).map((p) => p.id)), [people])
   // a group ticks the people of it that can be picked now; one with nobody left to pick is not listed
-  const groupRows = useMemo(() => (forProject ? [] : groups ?? [])
+  const groupRows = useMemo(() => (groups ?? [])
     .map((g) => {
       const channel = teamRooms.find((r) => r.kind === 'team' && r.groupId === g.id)
       return {
@@ -142,7 +137,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
       }
     })
     .filter((g) => g.ids.length > 0 && (!needle || g.name.toLocaleLowerCase().includes(needle)))
-    .sort((a, b) => a.name.localeCompare(b.name)), [forProject, groups, active, needle, teamRooms, directory, meId, roomTitle])
+    .sort((a, b) => a.name.localeCompare(b.name)), [groups, active, needle, teamRooms, directory, meId, roomTitle])
 
   // a guest starts 1:1 chats only (a group chat would be a second place: the server refuses it)
   const max = inviting ? ROOM_GROUP_MAX - (room?.memberCount ?? 1) : isGuestMe(me) ? 1 : ROOM_GROUP_MAX - 1
@@ -162,7 +157,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
         onClose()
         return
       }
-      const r = forProject ? await useRooms.getState().createProjectChannel(forProject.id, picked, name) : channel ? await useRooms.getState().createGroup(picked, name) : picked.length === 1 ? await useRooms.getState().openDm(picked[0]!) : await useRooms.getState().createGroup(picked, null)
+      const r = channel ? await useRooms.getState().createGroup(picked, name) : picked.length === 1 ? await useRooms.getState().openDm(picked[0]!) : await useRooms.getState().createGroup(picked, null)
       onClose()
       navigate(`/rooms/${r.id}`)
     } catch (e) {
@@ -192,7 +187,7 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
   // the rows' words line up with the dialog's 20px (16px on a phone)
   const list = 'px-2 max-sm:px-1'
   return (
-    <Modal open onClose={onClose} title={inviting ? action : forProject ? t('projects.channel.createTitle', { name: forProject.name }) : channel ? t('rooms.section.newChannel') : t('rooms.newChat')} width={420} footer={footer}>
+    <Modal open onClose={onClose} title={inviting ? action : channel ? t('rooms.section.newChannel') : t('rooms.newChat')} width={420} footer={footer}>
       <div className="-mx-5 -mt-5 border-b border-line px-5 py-3 max-sm:-mx-4 max-sm:px-4">
         {/* Create a channel: its name first, labelled and required (a group DM has none: New message), then the people */}
         {channel && (
@@ -208,12 +203,6 @@ function PeopleDialog({ onClose, mode }: { onClose: () => void; mode: PickerMode
               [data-autofocus] first); Create a channel starts on its name */}
           <input autoFocus={!channel} data-autofocus={channel ? undefined : true} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('rooms.people.search')} className={`${inputCls} pl-9`} data-testid="people-search" />
         </label>
-        {forProject && (
-          <div className="mt-2 space-y-1 text-sm text-muted" data-testid="picker-project-note">
-            {forProject.people > ROOM_GROUP_MAX - 1 && <p className="text-ink" data-testid="picker-project-too-many">{t('projects.channel.tooMany', { n: forProject.people })}</p>}
-            <p>{t('projects.channel.createNote')}</p>
-          </div>
-        )}
       </div>
       {(mayInviteGuest || mayInviteGuestAnywhere) && (
         <ul className="-mx-5 border-b border-line px-2 py-1 max-sm:-mx-4 max-sm:px-1" data-testid="picker-guest">

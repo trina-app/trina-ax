@@ -70,6 +70,7 @@ import { WhoSeesLine } from '../components/chat/WhoSees'
 import { askPrivately, askPrivatelyHome, lastOwnQuestion } from '../components/chat/privateAsk'
 import { openChatShare, startShare, useSharedWithNames } from '../components/chat/ChatShareDialog'
 import { HeaderShare, WhoSeesWords } from '../components/HeaderShare'
+import { ProjectRoomButton } from '../components/rooms/ProjectRoomButton'
 import { PeopleStack, useProjectPeople } from '../components/ProjectPeople'
 import { ProjectMembersDialog } from '../components/ProjectMembersDialog'
 import { useProjects } from '../store/projects'
@@ -690,6 +691,9 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
           {/* a chat only I see in a team project: its lock, where a shared one has its people (QA TC-1068) */}
           {!shared && chat && privateInTeamProject(chat, project) && <PrivateChatMark />}
         </div>
+        {/* a chat of a team project: the project's chat room, one tap away (docs/decisions/20261120-project-is-room.md D5;
+            a phone: its icon, a dot while something is unread) */}
+        {chat && !chat.deletedAt && <ProjectRoomButton project={project} look={phone ? 'icon' : 'button'} testId="chat-project-room" />}
         {/* who sees it and Share (components/HeaderShare.tsx); a phone: the Share icon only */}
         {chat && !phone && <HeaderShare who={headerWho} onShare={onShare} testId="chat-share" />}
         {isDesktop() && <BrowserToggle />}

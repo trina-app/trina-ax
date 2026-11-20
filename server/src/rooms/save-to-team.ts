@@ -20,10 +20,7 @@
 // answers fast and works with the AI off.
 import fs from 'node:fs'
 import path from 'node:path'
-import { DEFAULT_LOCALE, SMALL_UPLOAD_MAX, type Locale, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
-import { isProjectPlainName } from '@mycel/shared'
-import { tr } from '../chat/i18n'
-import { activeProjectOf } from './project-link'
+import { SMALL_UPLOAD_MAX, type RoomSavePlan, type RoomSaveResult, type RoomSavedFile } from '@mycel/shared/api'
 import type { AppContext } from '../context'
 import { HttpError, fail } from '../http/errors'
 import { isGuest } from '../auth/guests'
@@ -227,12 +224,8 @@ export async function savePlan(ctx: AppContext, userId: string, roomId: string, 
   return out
 }
 
-/** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it.
- * `oneClick` (Save to project in a linked channel, docs/decisions/20261119-channel-project-link.md): without the sheet, so
- * only into the top of the channel's active linked project folder and only documents and media by name
- * (shared/src/files/plain-kinds.ts) that do not look personal; anything else is 409 needs_sheet and nothing is saved. A
- * guard on the one-click path only: the person may still save any file there through the sheet (a plain save). */
-export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string, oneClick = false, locale: Locale = DEFAULT_LOCALE): Promise<RoomSaveResult> {
+/** POST /api/rooms/:id/save-to-team: copy the files into `folder`, each next to what is there, never over it. */
+export async function saveToTeam(ctx: AppContext, userId: string, roomId: string, fileIds: readonly string[], folder: string): Promise<RoomSaveResult> {
   noGuests(ctx, userId)
   const files = componentC(ctx).files
   const rooms = roomFilesOf(ctx)
@@ -241,19 +234,6 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
   const found = ids.map((id) => lookup(ctx, userId, roomId, id))
   const user0 = files.principal(userId)
   const at = writableFolder(files, user0, files.rules(), folder)
-  if (oneClick) {
-    const needsSheet = () => fail('conflict', tr('roomSaveNeedsSheet', locale), { params: { reason: 'needs_sheet' } })
-    const linked = activeProjectOf(ctx.db, roomId)
-    if (!linked || linked.folder_path !== at) needsSheet()
-    for (const f of found) {
-      if (!isProjectPlainName(f.file.name) || instructionLike(`${at}/${f.file.name}`)) needsSheet()
-      const sniff = () => {
-        if (f.file.size > SNIFF_MAX) return null
-        try { return readRegular(rooms.open(userId, roomId, f.file.id, false).abs, SNIFF_MAX).bytes } catch { return null }
-      }
-      if (looksSensitive(f.file.name, contextWords(ctx, f), sniff)) needsSheet()
-    }
-  }
   for (const f of found) {
     if (ctx.files.quarantine.hasHash(f.file.sha256)) throw new HttpError('unavailable', 'This file is held by the team\'s safety check.', { params: { reason: 'quarantined' } })
     if (f.file.size > SMALL_UPLOAD_MAX) throw new HttpError('payload_too_large', 'Larger than 50 MB: download it and upload it on the Files screen.', { params: { reason: 'too_large' } })
@@ -306,54 +286,10 @@ export async function saveToTeam(ctx: AppContext, userId: string, roomId: string
       let seen: string | null = null
       try { seen = statKey(fs.statSync(path.join(files.root, ...made.path.split('/')))) } catch { /* hashed on the next read */ }
       recordRoomFileSave(ctx, f.file.id, made.path, made.sha256, made.size, seen)
-      // one-click (Save to project): an Undo token for this copy only, the one this save made
-      const undo = oneClick && seen && made.sha256 === f.file.sha256 ? undoToken(ctx, { userId, roomId, fileId: f.file.id, path: made.path, key: seen, sha256: made.sha256 }) : null
-      saved.push({ fileId: f.file.id, path: made.path, existed: false, ...(nextTo ? { nextTo } : {}), ...(undo ? { undo } : {}) })
+      // (no Undo token any more: Save to project's Undo was retired with the project link, its endpoint answers 410)
+      saved.push({ fileId: f.file.id, path: made.path, existed: false, ...(nextTo ? { nextTo } : {}) })
     } finally { fs.rmSync(work, { recursive: true, force: true }) }
   }
   return { saved }
 }
 
-// ---------------- Undo of a one-click Save to project ----------------
-/** how long a save's Undo token lasts (the toast's Undo is shorter) */
-export const UNDO_TTL_MS = 30_000
-type UndoEntry = { userId: string; roomId: string; fileId: string; path: string; key: string; sha256: string; until: number }
-const undoTokens = new WeakMap<AppContext, Map<string, UndoEntry>>()
-/** A token for undoing one copy this save made (existed false): bound to the person, the room, the room file, the place
- * and the copy's identity on disk, for UNDO_TTL_MS, usable once. Kept in memory: a restart ends every Undo. */
-function undoToken(ctx: AppContext, e: Omit<UndoEntry, 'until'>, now = Date.now()): string {
-  let m = undoTokens.get(ctx)
-  if (!m) { m = new Map(); undoTokens.set(ctx, m) }
-  for (const [k, v] of m) if (v.until <= now) m.delete(k)
-  const token = Buffer.from(crypto.getRandomValues(new Uint8Array(24))).toString('base64url')
-  m.set(token, { ...e, until: now + UNDO_TTL_MS })
-  return token
-}
-
-/** POST /api/rooms/:id/save-undo (Save to project's Undo; docs/decisions/20261119-channel-project-link.md D6): with the
- * token its save gave. Only the same person, in the same room, before it expires, once; the place still the same file on
- * disk (its identity, statKey) with the room file's own bytes (sha256), read and moved in one synchronous step; their
- * write access is checked by the delete. Every other case is the same 404 and nothing changes (no answer tells whether a
- * place exists or what is in it). */
-export function undoSave(ctx: AppContext, userId: string, roomId: string, token: string, now = Date.now()): { removed: true } {
-  noGuests(ctx, userId)
-  const m = undoTokens.get(ctx)
-  const e = m?.get(token)
-  if (!e || e.userId !== userId || e.roomId !== roomId || e.until <= now) return fail('not_found')
-  try {
-    // still in the room, the message still visible to them
-    lookup(ctx, userId, roomId, e.fileId)
-    const files = componentC(ctx).files
-    const a = authorize(files.fx, files.rules(), files.principal(userId), e.path, 'write', { mustExist: true })
-    if (!a.st?.isFile() || statKey(a.st) !== e.key) return fail('not_found')
-    const bytes = readRegular(a.abs, SMALL_UPLOAD_MAX).bytes
-    if (new Bun.CryptoHasher('sha256').update(bytes).digest('hex') !== e.sha256) return fail('not_found')
-    m!.delete(token)
-    files.remove(userId, a.rel, null)
-    ctx.db.query('DELETE FROM room_file_saves WHERE file_id = ? AND path = ?').run(e.fileId, e.path)
-    return { removed: true }
-  } catch (err) {
-    if (err instanceof HttpError && err.code === 'not_found') throw err
-    return fail('not_found')
-  }
-}

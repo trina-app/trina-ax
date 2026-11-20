@@ -9,6 +9,7 @@
 // often has several (a burst of mentions, a mention and a reply in one thread): the row is all of them, so the Inbox shows
 // "민준 외 2명 · 답글 3개" once. Reading the row reads every notice in it.
 import type { Database } from 'bun:sqlite'
+import { NOT_HELD_SQL } from './project-room'
 import { plainLabel, type InboxNotification, type Locale } from '@mycel/shared/api'
 import { ROOM_WORDS } from '../notifications/text'
 import { parseStored, unescapeMarkdown } from './apps/card'
@@ -23,7 +24,7 @@ export const LISTED_SQL = `(n.event_type = 'room.mention' OR (m.thread_root_id I
 export const COUNTED_SQL = LISTED_SQL
 /** What the person may read now (`rm` their member row, `r` the room): not archived, not hidden by them, the message
  * there, theirs to see. A notice of a message they can no longer read is no row at all. */
-const READABLE_SQL = `r.archived_at IS NULL AND rm.hidden_at IS NULL AND m.deleted_at IS NULL AND m.event IS NULL
+const READABLE_SQL = `r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} AND rm.hidden_at IS NULL AND m.deleted_at IS NULL AND m.event IS NULL
   AND COALESCE(m.thread_root_seq, m.seq) > COALESCE(rm.history_from_seq, rm.visible_from_seq) AND (m.visibility = 'room' OR m.visible_to = n.user_id)
   AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = n.user_id AND h.message_id IN (m.id, m.thread_root_id))`
 
@@ -191,7 +192,7 @@ export function roomNoticeOut(db: Database, notice: { id: string; user_id: strin
   const s = db.query(`SELECT ${MSG}, m.room_id, m.thread_root_id, m.thread_root_seq, m.visibility, m.visible_to, m.mentions, m.mentions_all FROM room_messages m WHERE m.id = ?`)
     .get(notice.source_id) as (Msg & { room_id: string; thread_root_id: string | null; thread_root_seq: number | null; visibility: string; visible_to: string | null; mentions: string; mentions_all: number }) | null
   const room = s && db.query(`SELECT r.kind, r.name, r.group_id, rm.last_read_seq, rm.visible_from_seq, rm.history_from_seq FROM rooms r JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ?
-    WHERE r.id = ? AND r.archived_at IS NULL AND rm.hidden_at IS NULL`).get(notice.user_id, s.room_id) as RoomInfo | null
+    WHERE r.id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} AND rm.hidden_at IS NULL`).get(notice.user_id, s.room_id) as RoomInfo | null
   if (!s || !room || s.deleted_at || seenSeq(s) <= (room.history_from_seq ?? room.visible_from_seq) || (s.visibility !== 'room' && s.visible_to !== notice.user_id)
     || isHiddenFor(db, { id: s.id, room_id: s.room_id, thread_root_id: s.thread_root_id }, notice.user_id)) return null
   const who = writer(db, s), name = roomName(db, room)

@@ -146,6 +146,13 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   const everyone = useEveryone(roomId, members, meId)
   const others = members.filter((m) => m.id !== meId).length
   const me = useMe()
+  // a project's chat room: a file sent here goes into the project's Chat attachments folder, so it needs write there
+  // (Room.project.attach, for everyone, guests too; docs/decisions/20261120-project-is-room.md D1). Someone who may
+  // only read the project, or only not that folder, sends text only (the server refuses with 403
+  // shared_upload_read_only). A member who cannot open the project now has no Room.project: text only too.
+  const roomNow = useRooms((s) => s.rooms.find((r) => r.id === roomId))
+  const attach = roomNow?.project?.room ? (roomNow.project.attach ?? (roomNow.project.canSave ? 'ok' : 'read_only')) : roomNow?.projectRoom ? 'read_only' : 'ok'
+  const noFiles = attach === 'ok' ? null : t(attach === 'folder' ? 'rooms.project.noAttachFolder' : 'rooms.project.noAttach')
   // the owner or an admin (never a guest): a full disk's refusal links what takes the space
   const staff = isAdmin(me)
   // the largest file I may send here: 1 GB, or for a guest what the team allows guests (Me.team.uploadMaxBytes;
@@ -332,6 +339,10 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   /** `dropFolders`: the folders a drop held besides (lib/fileDrop.ts filesOfDrop). A folder is never a chip: one line
    * says so, however many there were; the files beside them go on as usual (TC-4483). */
   const addFiles = async (all: File[], dropFolders = 0): Promise<boolean> => {
+    if (noFiles) {
+      toast({ level: 'info', text: noFiles })
+      return false
+    }
     const sorted = await withoutFolders(all)
     if (dropFolders + sorted.folders) toast({ level: 'warn', text: t('composer.folders') })
     const picked = sorted.files
@@ -467,7 +478,12 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
   }
 
   // the clip: the attach sheet on a phone, the file input on a computer
-  const attach = (
+  const clip = noFiles ? (
+    // off, with why: a tap says it too (a disabled button would give a finger no tooltip)
+    <IconButton tip={noFiles} compact label={noFiles} aria-disabled onClick={() => toast({ level: 'info', text: noFiles })} className="opacity-40" data-testid="room-attach-off">
+      <Paperclip size={18} />
+    </IconButton>
+  ) : (
     <>
       {phone ? (
         <AttachSheet key={key} onFiles={addFiles} room={ROOM_FILES_MAX - files.length} fileMax={fileMax} onTeam={() => setTeamPicker(true)} icon={<Paperclip size={18} />} testId="room-attach" filesTestId="room-file-input" />
@@ -770,14 +786,14 @@ export function RoomComposer({ roomId, threadRootId = null, members, meId, onSen
               </div>
             ) : phone ? (
               <div className="flex items-end gap-1 py-1.5 pr-3 pl-2">
-                <div className="flex h-composer-line shrink-0 items-center">{attach}</div>
+                <div className="flex h-composer-line shrink-0 items-center">{clip}</div>
                 {field}
                 <div className="flex h-composer-line shrink-0 items-center gap-1">{sendControls}</div>
               </div>
             ) : (
               <>
                 {field}
-                <ComposerToolbar testId="room-composer-tools" start={attach} end={sendControls} />
+                <ComposerToolbar testId="room-composer-tools" start={clip} end={sendControls} />
               </>
             )}
           </>

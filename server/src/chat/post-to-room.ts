@@ -71,7 +71,7 @@ import { redactorFor } from '../integrations/connections/redact'
 import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } from '../rooms/reader'
 import { roomsOf } from '../rooms/service'
 import { groupName, isOwnerOrAdmin, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
-import { historyKinds } from '../rooms/history'
+import { historyRoom } from '../rooms/history'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { scopeWithListing, sourceKey, sourceOf } from './read-scope'
 import { tr } from './i18n'
@@ -463,12 +463,12 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a new 1:1 chat: the user and the teammate)
         const people = pendingTo ? 2 : memberCount(db, roomId)
         // (the quote without its Markdown marks: a title is plain text, chat/share-words.ts plainQuote)
-        const quote = root ? oneLine(plainQuote(plainRoomRefs(root.body)), 40) || oneLine((db.query('SELECT name FROM room_files WHERE message_id = ? ORDER BY created_at, id LIMIT 1').get(root.id) as { name: string } | null)?.name ?? '', 40) : ''
+        const quote = root ? oneLine(plainQuote(plainRoomRefs(root.body)), 40) || oneLine((db.query('SELECT name FROM room_files f WHERE message_id = ? AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) ORDER BY created_at, id LIMIT 1').get(root.id) as { name: string } | null)?.name ?? '', 40) : ''
         const ask = root
           ? quote ? tr('postRoomAskThread', L, { room: title, n: String(people), quote }) : tr('postRoomAskThreadNoQuote', L, { room: title, n: String(people) })
           : pendingTo ? tr('postRoomAskNewDm', L, { name: oneLine(pendingTo.name, 40) }) : tr('postRoomAsk', L, { room: title, n: String(people) })
-        // a team room or the everyone room: a later member sees its history, this message included (rooms/history.ts)
-        const later = !pendingTo && historyKinds(roomRow(db, roomId)?.kind ?? 'dm')
+        // a team room, the everyone room or a project's room: a later member sees its history, this message included (rooms/history.ts)
+        const later = !pendingTo && historyRoom(db, roomRow(db, roomId))
         const sharedFile = grantOnly(exec)
         // a file the sender has only through a share, linked as /f/<id>: who in the room cannot open it, in plain words
         // (the room's check reads only team-path links; chat/share-next-steps.ts grantedLinksCant)

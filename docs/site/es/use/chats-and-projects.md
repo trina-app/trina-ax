@@ -292,23 +292,26 @@ Empiece un chat desde la página del proyecto, o lleve un chat a él con **Mover
   pueden abrirlo, y una línea debajo lo indica. Necesita permiso de escritura en la carpeta del proyecto (sin él, **+**
   solo ofrece archivos del equipo); **✕** antes de enviar mueve el archivo a la papelera.
 
-### Un canal para el proyecto
+### La sala de chat del proyecto
 
-Un proyecto del equipo puede tener un canal privado: su gente conversa ahí y los archivos quedan en un solo lugar, la carpeta del proyecto.
+Cada proyecto del equipo tiene su propia sala de chat. Las personas del proyecto son las personas de la sala, y sus
+archivos son los del proyecto: una sola lista de personas y un solo lugar para los archivos.
 
-- **Crear un canal** en el recuadro **Canal** de la página del proyecto crea un canal privado con las personas del
-  proyecto ya marcadas (puede desmarcar a quien quiera). **Vincular un canal** vincula uno de sus canales privados. También
-  puede vincularlo desde el canal: abra su nombre arriba y elija **Vincular a un proyecto**.
-- En un canal vinculado, **Archivos** arriba abre la carpeta del proyecto. Un documento o una imagen enviados ahí tienen
-  **Guardar en el proyecto**: un clic guarda una copia en la carpeta del proyecto, y **Deshacer** en el aviso que aparece
-  la quita. Otros tipos de archivo, y los que parecen personales, preguntan primero dónde guardarlos.
-- Trina, en el chat lateral del canal, guarda en la carpeta del proyecto los documentos nuevos que usted le pida. Si
-  personas que no están en el canal pueden abrir esa carpeta, le pregunta antes.
-- Solo quien puede abrir el proyecto ve su nombre, el botón **Archivos** y **Guardar en el proyecto**. Los demás del
-  canal solo ven que se vinculó a un proyecto. Los miembros del proyecto ven el nombre del canal en la página del proyecto.
-- Quién está en el canal y quién está en el proyecto van por separado: añadir a alguien a uno no lo añade al otro.
-- **Desvincular** está en la información del canal y en la página del proyecto. Los archivos guardados en el proyecto
-  se quedan ahí; los enviados en el canal se quedan en el canal.
+- **Sala de chat** en la página del proyecto (en un teléfono, una fila bajo el nombre del proyecto) abre la sala. La
+  primera vez se crea con el nombre del proyecto. Un pequeño icono de chat en la fila del proyecto en **Proyectos** (con
+  un punto si hay algo sin leer) y **Sala de chat** arriba en los chats de IA del proyecto también la abren.
+- Arriba en la sala, el botón de carpeta con el nombre del proyecto abre la página del proyecto: sus archivos y sus
+  chats de IA. La sala aparece en **Canales**, con un icono de carpeta, cuando alguien escribe en ella.
+- **Quién está en ella sigue al proyecto.** Añadir a alguien al proyecto lo añade a la sala, y ve todo su historial;
+  sacarlo del proyecto lo saca de la sala. El diálogo de miembros lo dice antes de añadir a nadie. Para cambiarlo, abra
+  el nombre de la sala arriba y luego **Gestionar personas** (para quien puede cambiar las personas del proyecto).
+  **Silenciar** deja la sala en silencio; **Salir del proyecto** sale del proyecto y de su sala.
+- **Un archivo que envía allí va a la carpeta Adjuntos del chat del proyecto**, donde las personas del proyecto lo
+  encuentran en Archivos. Quien solo puede ver el proyecto puede escribir mensajes, pero no añadir archivos.
+- **Eliminar un mensaje elimina solo el mensaje.** Su archivo se queda en Adjuntos del chat del proyecto; elimínelo en
+  Archivos si quiere que desaparezca.
+- Trina en el chat lateral de la sala guarda los documentos nuevos en la carpeta del proyecto, y los chats de IA del
+  proyecto pueden leer la sala. Ambos los ven las mismas personas, así que no se pregunta quién puede verlo.
 
 ## Encontrar cualquier cosa
 

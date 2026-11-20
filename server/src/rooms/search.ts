@@ -39,7 +39,7 @@ import { fail } from '../http/errors'
 import { reachFilter } from '../auth/guests'
 import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
 import { unescapeMarkdown } from './apps/card'
-import { canSee, fileOut, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
+import { canSee, filesOutFor, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -344,20 +344,26 @@ function fileHits(db: Database, userId: string, mine: Map<string, Mine>, page: (
   const files = new Map(kept.length ? (db.query(`SELECT * FROM room_files WHERE id IN (${kept.map(() => '?').join(',')})`).all(...kept.map((h) => h.file_id)) as FileRow[]).map((f) => [f.id, f]) : [])
   const people = refsOf(db, kept.map((h) => (h.author_kind === 'ai' ? null : h.author_id)))
   const items: RoomFileSearchHit[] = []
-  for (const h of kept) {
-    const f = files.get(h.file_id)
-    if (!f || f.message_id !== h.id || f.room_id !== h.room_id) continue
-    items.push({ file: fileOut(f), messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
+  // a project room's file (kept in the team folder): only while this person reads it now, as it is now
+  const hits = kept.filter((h) => { const f = files.get(h.file_id); return !!f && f.message_id === h.id && f.room_id === h.room_id })
+  const shown = filesOutFor(db, hits.map((h) => files.get(h.file_id)!), userId)
+  for (const [i, h] of hits.entries()) {
+    const file = shown[i]!
+    if (file.state) continue
+    items.push({ file, messageId: h.id, roomId: h.room_id, threadRootId: h.thread_root_id ?? null, author: h.author_kind === 'ai' || !h.author_id ? null : people.get(h.author_id) ?? null, createdAt: h.created_at })
   }
   const rooms: RoomSearchRoom[] = [...new Set(items.map((i) => i.roomId))].map((id) => { const m = mine.get(id)!; return { id, kind: m.room.kind, ...roomNaming(db, m.room, userId) } })
   return { items, rooms }
 }
 
 /** Mine only: the rows of the rooms I am in now, of a message of mine that is sent, not deleted and that I see. */
-const MINE_WHERE = `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
-  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL}`
+const MINE_WHERE = () => `f.user_id = ? AND f.message_id IS NOT NULL AND m.author_kind = 'user' AND m.author_id = f.user_id
+  AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND ${SEE_MEMBER_SQL} AND ${NOT_REF_SQL}`
 const MINE_FROM = `room_files f CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = f.user_id`
+/** ...and never a file kept in the team folder (a project room's: it is a project file, managed in Files; deleting it
+ * here would not free room storage, docs/decisions/20261120-project-is-room.md D3) */
+const NOT_REF_SQL = 'NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id)'
 
 /** "Files you sent" (docs/decisions/20261116-room-files-cleanup.md): my files in the rooms I am in now, of my messages
  * I still see, largest first (equal sizes oldest first: the index's own order), by the index room_files_by_sender
@@ -371,13 +377,13 @@ export function listMyRoomFiles(db: Database, userId: string, o: { cursor?: stri
   if (!mine.size) return { items: [], rooms: [], nextCursor: null, totalBytes: 0 }
   const ids = JSON.stringify([...mine.keys()])
   const rows = db.query(`SELECT f.rowid AS fr, f.size AS fsize, f.id AS file_id, ${COLS} FROM ${MINE_FROM}
-    WHERE ${MINE_WHERE}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
+    WHERE ${MINE_WHERE()}${cur ? ' AND (f.size < ? OR (f.size = ? AND f.rowid > ?))' : ''} ORDER BY f.size DESC, f.rowid LIMIT ?`)
     .all(userId, ids, ...(cur ? [Number(cur.s), Number(cur.s), Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; fsize: number; file_id: string })[]
   const page = rows.slice(0, limit)
   const last = page.at(-1)
   const nextCursor = rows.length > limit && last ? encodeCursor({ s: String(last.fsize), f: String(last.fr) }) : null
   // the total with the first page only (a later page answers 0: the app keeps the first one's)
-  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE}`).get(userId, ids) as { n: number }).n
+  const total = cur ? 0 : (db.query(`SELECT COALESCE(SUM(f.size), 0) AS n FROM ${MINE_FROM} WHERE ${MINE_WHERE()}`).get(userId, ids) as { n: number }).n
   return { ...fileHits(db, userId, mine, page), nextCursor, totalBytes: total }
 }
 

@@ -569,7 +569,8 @@ export function afterAccessChange(ctx: AppContext, before: AccessState, by: { ac
   recheckHistories(ctx, accessChanged)
   // the team rooms of the people whose access changed, as they were before the sync (joiners get the sync's `added`)
   const seats = changedPaths.size ? teamRoomSeats(ctx, accessChanged) : new Set<string>()
-  syncRoomsNow(ctx)
+  // (and a project's chat room for the projects near a folder whose access changed: rooms/project-room.ts)
+  syncRoomsNow(ctx, [...changedPaths])
   // and a team room's header Files button shows or hides for whoever's answer changed (QA TC-3848; never throws)
   groupFoldersChanged(ctx, before, after, [...changedPaths], seats)
   // a Drive shared with the team stops when its admin is disabled, deleted or no longer an admin

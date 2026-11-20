@@ -1,4 +1,5 @@
 // Small lifecycle bridge: auth/notification policy can cancel work without importing network/secret modules.
+import { NOT_HELD_SQL } from '../rooms/project-room'
 import type { AppContext } from '../context'
 import { ROOM_PUSH_EVENTS, type NotificationPreferences } from '@mycel/shared/api'
 import { eventEnabled, pushEventEnabled } from './preferences'
@@ -73,7 +74,7 @@ pushPaths.set('connection.reconnect', reconnectPushPath)
 // thread's root and what the person may see of the message again
 const roomPath: PushPath = (ctx, id) => {
   const r = ctx.db.query(`SELECT n.room_id, s.id AS message_id, s.thread_root_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
-    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL LEFT JOIN room_messages s ON s.id=n.source_id WHERE n.id=?`).get(id) as { room_id: string; message_id: string | null; thread_root_id: string | null } | null
+    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} LEFT JOIN room_messages s ON s.id=n.source_id WHERE n.id=?`).get(id) as { room_id: string; message_id: string | null; thread_root_id: string | null } | null
   if (!r) return null
   const at = r.message_id ? `/m/${r.message_id}` : ''
   return r.thread_root_id ? `/rooms/${r.room_id}/t/${r.thread_root_id}${at}` : `/rooms/${r.room_id}${at}`
