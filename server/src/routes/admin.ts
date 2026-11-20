@@ -3,6 +3,7 @@
 // CREDENTIALS (AI connections, registered from ./credentials.ts, the same owner)
 // Contract: shared/src/api/admin.ts, shared/src/api/credentials.ts
 // Nothing here returns chat or memory contents: admins manage people, folders and engines, not conversations.
+import { reportTeamName } from '../system/cloud-team-name'
 import { linkPeopleIn } from '../files/shares'
 import { editableRow as editableRowOf, onlyGrants as onlyGrantsOf, saveFolderAccess } from '../admin/folder-save'
 import { API, EngineId, OWNER_ONLY_SETTINGS, type EngineId as EngineIdT } from '@mycel/shared/api'
@@ -393,6 +394,8 @@ export const adminRoutes: RouteModule = {
       for (const id of turnedOff) ctx.services.realtime.publish(id, WEB_ACCESS_CHANGED)
       // everyone's screen shows "Team default (…)", and people without their own language switch with it
       if ('defaultLocale' in changed) ctx.services.realtime.publishEach(() => LOCALE_CHANGED)
+      // a hosted team: the hosting service's console, billing pages and mails show the new name (system/cloud-team-name.ts)
+      if ('teamName' in changed) void reportTeamName(ctx, next.teamName)
       // a new team time zone: the enabled schedules run at their times in it (chat/schedules.ts)
       if ('timeZone' in changed) { try { getChatRuntime(ctx).schedules.recomputeAll() } catch {} }
       // ...and everyone's quiet hours are read in it: the web app's sound takes the zone from the rooms list again

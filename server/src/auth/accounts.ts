@@ -1,4 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
+import { reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
@@ -155,6 +156,8 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
+  // a hosted team: the name the owner just gave goes to the hosting service too (system/cloud-team-name.ts)
+  void reportTeamName(ctx, o.teamName)
   ensurePersonalFolder(ctx.files.fx.root, id)
   // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
   // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)
