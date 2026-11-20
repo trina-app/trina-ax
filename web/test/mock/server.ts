@@ -6588,7 +6588,20 @@ export class MockServer {
       const r = roomOf(c)
       return { items: this.sharedAudience(p).map((u) => ({ user: { id: u.id, name: u.name }, joinedAt: r.createdAt })) }
     })
-    over('listRoomMessages', (c, base) => { if (this.projectOfRoom(c.params.id)) roomOf(c); return base(c) })
+    // a project room's files as the server shows them now (rooms/file-refs.ts): in the team folder where they are, or
+    // "deleted" while not there (in the trash; a restore brings them back)
+    const fileNow = (f: RoomFile, u: User): RoomFile => {
+      const path = this.projectRoomFiles.get(f.id)
+      if (!path) return f
+      if (!this.files.has(path)) return { ...f, name: '', size: 0, teamFile: true, state: 'deleted' }
+      return this.access(path, u) === 'none' ? { ...f, name: '', size: 0, teamFile: true, state: 'unavailable' } : { ...f, teamFile: true, teamPath: path }
+    }
+    over('listRoomMessages', (c, base) => {
+      if (!this.projectOfRoom(c.params.id)) return base(c)
+      roomOf(c)
+      const r = base(c) as { items: RoomMessage[] }
+      return { ...r, items: r.items.map((m) => ({ ...m, files: m.files.map((f) => fileNow(f, c.user)) })) }
+    })
     over('getProject', (c, base) => {
       const p = base(c) as Project
       const id = this.projectRooms.get(p.id)
@@ -6632,8 +6645,8 @@ export class MockServer {
       list.push(message)
       this.roomMessages.set(room.id, list)
       Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: message.body.slice(0, 120), fileCount: files.length, deleted: false, createdAt: message.createdAt } })
-      this.publish({ type: 'room.message', data: { roomId: room.id, message } })
-      return { status: 201, body: message }
+      this.publish({ type: 'room.message', data: { roomId: room.id, message: { ...message, files: message.files.map((f) => fileNow(f, c.user)) } } })
+      return { status: 201, body: { ...message, files: message.files.map((f) => fileNow(f, c.user)) } }
     }
     // the message goes for everyone; in a project room its files stay in Chat attachments (D3)
     h.deleteRoomMessage = (c) => {

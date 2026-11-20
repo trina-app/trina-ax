@@ -7088,6 +7088,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.project.noAttach": "你不能向这个项目添加文件",
   "rooms.deleteBodyKeepsFiles": "这条消息会对聊天中的所有人移除。此操作无法撤销。",
   "rooms.deleteFileStays": "{n, plural, one {文件} other {文件}}仍保留在 {place}。",
+  "rooms.file.deleted": "文件已删除",
+  "rooms.file.unavailable": "文件不可用",
   "audit.act.project.channel_link": "频道已关联到项目",
   "audit.act.project.channel_unlink": "频道已取消与项目的关联",
   "audit.act.project.room": "项目聊天室已创建或更改",

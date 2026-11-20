@@ -7116,6 +7116,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.project.noAttach": "No puede añadir archivos a este proyecto",
   "rooms.deleteBodyKeepsFiles": "El mensaje se elimina para todos en la conversación. No se puede deshacer.",
   "rooms.deleteFileStays": "{n, plural, one {El archivo se queda} other {Los archivos se quedan}} en {place}.",
+  "rooms.file.deleted": "Archivo eliminado",
+  "rooms.file.unavailable": "Archivo no disponible",
   "audit.act.project.channel_link": "Canal vinculado al proyecto",
   "audit.act.project.channel_unlink": "Canal desvinculado del proyecto",
   "audit.act.project.room": "Sala de chat del proyecto creada o cambiada",

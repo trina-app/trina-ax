@@ -280,6 +280,17 @@ describe('the delete confirm and the lists', () => {
     expect(renderToStaticMarkup(<RoomIcon room={channel} size={24} />)).toContain('lucide-lock')
   })
 
+  test('a project room\'s file trashed in Files: "File deleted"; one I cannot open: "File unavailable"; no name, no menu', () => {
+    const r = projectRoom()
+    const f = (o: Record<string, unknown>) => ({ id: uuidv7(), name: '', size: 0, mime: 'application/pdf', kind: 'pdf', thumb: false, teamFile: true, ...o })
+    const m = message({ roomId: r.id, seq: 1, author: BEN, body: 'brief', files: [f({ state: 'deleted' }), f({ state: 'unavailable' }), f({ name: 'plan.pdf', size: 9, teamPath: 'projects/Launch site/Chat attachments/plan.pdf' })] as never })
+    const html = renderToStaticMarkup(<MemoryRouter><RoomMessages roomId={r.id} messages={[m]} pending={[]} meId={ME.id} members={[ME, BEN]} onThread={() => {}} /></MemoryRouter>)
+    expect(html).toContain(`data-state="deleted"`)
+    expect(html).toContain(en('rooms.file.deleted'))
+    expect(html).toContain(en('rooms.file.unavailable'))
+    expect(html.split('data-testid="room-file"').length - 1).toBe(1)
+  })
+
   test('an old link line still reads in the timeline (it is no longer written)', () => {
     const r = room({ kind: 'group', name: 'Plan' })
     const lines = [

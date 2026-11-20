@@ -7116,6 +7116,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.project.noAttach": "このプロジェクトにはファイルを追加できません",
   "rooms.deleteBodyKeepsFiles": "トークの全員からメッセージが消えます。元に戻せません。",
   "rooms.deleteFileStays": "{n, plural, one {ファイルは} other {ファイルは}}{place}に残ります。",
+  "rooms.file.deleted": "削除されたファイル",
+  "rooms.file.unavailable": "開けないファイル",
   "audit.act.project.channel_link": "チャンネルをプロジェクトに連携",
   "audit.act.project.channel_unlink": "チャンネルとプロジェクトの連携を解除",
   "audit.act.project.room": "プロジェクトのチャットルームを作成・変更",

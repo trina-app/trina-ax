@@ -7160,6 +7160,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.project.noAttach": "Anda tidak bisa menambahkan file ke proyek ini",
   "rooms.deleteBodyKeepsFiles": "Pesan dihapus untuk semua orang di percakapan ini. Ini tidak bisa dibatalkan.",
   "rooms.deleteFileStays": "{n, plural, one {File tetap ada} other {File-file tetap ada}} di {place}.",
+  "rooms.file.deleted": "File dihapus",
+  "rooms.file.unavailable": "File tidak tersedia",
   "audit.act.project.channel_link": "Saluran ditautkan ke proyek",
   "audit.act.project.channel_unlink": "Tautan saluran dari proyek dilepas",
   "audit.act.project.room": "Ruang obrolan proyek dibuat atau diubah",

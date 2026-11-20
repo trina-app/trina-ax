@@ -33,7 +33,7 @@
 // over several messages copies their words as plain text, one message per block under its author and time
 // (lib/messageCopy.ts).
 import clsx from 'clsx'
-import { Copy, Download, FileText, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
+import { Copy, Download, FileText, FileX, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
 import { CHAT_FILES_FOLDER } from '@mycel/shared'
@@ -282,6 +282,8 @@ function useRoomFileSave(roomId: string, f: RoomFile, siblings: readonly RoomFil
   const saved = useRoomSaves((s) => s.byRoom[roomId]?.[f.id])
   useEffect(() => { if (!guest) useRoomSaves.getState().load(roomId) }, [guest, roomId])
   if (guest) return null
+  // a project room's file is in the team folder already (RoomFile.teamFile): its place there, nothing to save
+  if (f.teamFile) return f.teamPath ? { saved: f.teamPath, open: () => navigateTo(`/files/view?path=${encodeURIComponent(f.teamPath!)}`), save: () => {} } : null
   // the tapped file first, then the message's other files (one sheet for all of them)
   const ids = [f.id, ...siblings.filter((x) => x.id !== f.id).map((x) => x.id)]
   const openPath = (p: string) => navigateTo(`/files/view?path=${encodeURIComponent(p)}`)
@@ -418,8 +420,9 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const del = async () => {
     // a project's chat room: the message goes, its files stay in the project's Chat attachments folder (docs/decisions/
     // 20261120-project-is-room.md D3), one line says where, a link to it
-    const keeps = roomProject && m.files.length > 0 && m.visibility === 'room' ? roomProject : null
-    const body = keeps ? <FileStaysLines project={keeps} n={m.files.length} /> : t('rooms.deleteBody')
+    const kept = m.files.filter((f) => f.teamFile && f.state !== 'deleted').length
+    const keeps = roomProject && kept > 0 ? roomProject : null
+    const body = keeps ? <FileStaysLines project={keeps} n={kept} /> : t('rooms.deleteBody')
     const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body, confirm: t('common.delete'), danger: true })
     if (!ok) return
     await useRooms
@@ -612,13 +615,28 @@ function Files({ roomId, files }: { roomId: string; files: RoomFile[] }) {
   return (
     <div className="mt-1 mb-0.5 flex flex-wrap items-start gap-2">
       {files.map((f) =>
-        f.kind === 'image' && f.thumb ? (
+        f.state ? (
+          <GoneFile key={f.id} state={f.state} />
+        ) : f.kind === 'image' && f.thumb ? (
           <RoomPicture key={f.id} roomId={roomId} f={f} siblings={files} />
         ) : (
           <FileChip key={f.id} roomId={roomId} f={f} siblings={files} />
         ),
       )}
     </div>
+  )
+}
+
+/** A project room's file that is not there for me now (RoomFile.state; docs/decisions/20261120-project-is-room.md D3):
+ * "File deleted" (trashed or deleted in Files: a restore brings the chip back) or "File unavailable" (moved where I cannot
+ * open it). No name, no menu: the server sends nothing about it. */
+function GoneFile({ state }: { state: 'deleted' | 'unavailable' }) {
+  const t = useT()
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-xl border border-dashed border-line px-3 py-1.5 text-xs text-faint" data-testid="room-file-gone" data-state={state}>
+      <FileX size={14} className="shrink-0" aria-hidden />
+      {t(state === 'deleted' ? 'rooms.file.deleted' : 'rooms.file.unavailable')}
+    </span>
   )
 }
 

@@ -7160,6 +7160,8 @@ export const ko = {
   "rooms.project.noAttach": "이 프로젝트에는 파일을 올릴 수 없어요",
   "rooms.deleteBodyKeepsFiles": "이 대화의 모두에게서 메시지가 지워져요. 되돌릴 수 없어요.",
   "rooms.deleteFileStays": "{n, plural, one {파일은} other {파일들은}} {place}에 그대로 있어요.",
+  "rooms.file.deleted": "삭제된 파일",
+  "rooms.file.unavailable": "열 수 없는 파일",
   "audit.act.project.channel_link": "프로젝트에 채널 연결",
   "audit.act.project.channel_unlink": "프로젝트와 채널 연결 해제",
   "audit.act.project.room": "프로젝트 채팅방 만듦 또는 바뀜",
