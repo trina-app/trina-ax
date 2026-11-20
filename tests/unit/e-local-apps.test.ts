@@ -355,8 +355,40 @@ describe('Aside with several accounts, each with its own profiles', () => {
     const init = () => call({ jsonrpc: '2.0', id: 'i1', method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
     const mcpRuns = () => spawned.filter((a) => a[0] === 'mcp')
     const done = () => { apps.stopAll(); fs.rmSync(dir, { recursive: true, force: true }) }
-    return { apps, spawned, asked: () => asked, call, tool, texts, init, mcpRuns, done }
+    return { apps, env, spawned, asked: () => asked, call, tool, texts, init, mcpRuns, done }
   }
+
+  test('Aside\'s current account switched while the main aside mcp runs: that process keeps its own account', async () => {
+    // a plain `aside mcp` takes Aside's current account at its first call and keeps it (review finding 1 on #149)
+    const h = multi()
+    try {
+      await h.init()
+      await h.tool('browser_profiles')
+      // `aside account use u1` on this Mac (Claude Code, the Aside app): the main process still runs as u0
+      ;(h.env as Record<string, string>).FAKE_ASIDE_CURRENT = 'u1'
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; account: string }[]
+      expect(profiles.map((p) => [p.profileId, p.account])).toEqual([['prof-a', 'u0'], ['prof-b', 'u0'], ['prof-c', 'u1'], ['prof-d', 'u2']])
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-a' }))).toEqual(['ok as u0 in prof-a'])
+      expect(h.texts(await h.tool('repl', { title: 't', code: '2', profile_id: 'prof-c' }))).toEqual(['ok as u1 in prof-c'])
+      // u0's own profile went to the main process: no `aside mcp --account u0` beside it
+      expect(h.mcpRuns()).toEqual([['mcp'], ['mcp', '--account', 'u1']])
+      const mine = JSON.parse(h.texts(await h.tool('exec', { prompt: 'x' }))[0]!) as { session_id: string }
+      expect(mine.session_id).toStartWith('s-u0-')
+      expect(h.texts(await h.tool('exec', { prompt: 'y', session_id: mine.session_id }))).toEqual([`continued ${mine.session_id} as u0`])
+    } finally { h.done() }
+  })
+
+  test('a profile id no account has is not looked for again on every call', async () => {
+    const h = multi()
+    try {
+      await h.init()
+      const lists = () => h.spawned.filter((a) => a[0] === 'account').length
+      expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'nope' }))[0]).toContain('is not available for account u0')
+      const after = lists()
+      expect(h.texts(await h.tool('repl', { title: 't', code: '2', profile_id: 'nope' }))[0]).toContain('is not available for account u0')
+      expect(lists()).toBe(after)
+    } finally { h.done() }
+  })
 
   test('browser_profiles lists every account\'s profiles, each with its account; tools/list says so', async () => {
     const h = multi()
@@ -431,8 +463,10 @@ describe('Aside with several accounts, each with its own profiles', () => {
     const h = multi({ FAKE_ASIDE_PROFILES: JSON.stringify({ u0: PROFILES.u0 }) })
     try {
       await h.init()
-      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string }[]
+      const profiles = JSON.parse(h.texts(await h.tool('browser_profiles'))[0]!).profiles as { profileId: string; account?: string }[]
       expect(profiles.map((p) => p.profileId)).toEqual(['prof-a', 'prof-b'])
+      // Aside's answer as it is (review finding 2 on #149): nothing added
+      expect(profiles.some((p) => 'account' in p)).toBe(false)
       expect(h.texts(await h.tool('repl', { title: 't', code: '1', profile_id: 'prof-b' }))).toEqual(['ok as u0 in prof-b'])
       expect(h.mcpRuns()).toEqual([['mcp']])
       expect(h.spawned.some((a) => a[0] === 'host')).toBe(false)

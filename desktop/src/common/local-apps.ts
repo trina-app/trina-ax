@@ -34,6 +34,8 @@ const STDERR_KEEP = 4000
 export const CLI_OUTPUT_MAX = 2 * 1024 * 1024
 /** a program that does not stop on SIGTERM is killed after this long */
 const KILL_AFTER_MS = 2000
+/** the listed Aside: how long a profile id no Aside account has is not looked for again */
+const ASIDE_MISS_MS = 60_000
 /** a value shorter than this is not hidden (it would replace ordinary words) */
 const HIDE_MIN = 4
 export const HIDDEN_VALUE = '[hidden]'
@@ -349,6 +351,9 @@ interface Running {
   onExit: Set<(why: string) => void>
   /** the listed Aside started with `--account` this account (isListedAside) */
   account?: string
+  /** the listed Aside started without `--account`: the account it took at its first call and keeps for its life (Aside's
+   * current account then; one switched to later is not this process's: review finding 1 on #149) */
+  pinned?: string
   /** start the program again before the next request (Aside had no signed-in account with a profile: once the person
    * signs in, a fresh `aside mcp` picks it) */
   restartNext?: boolean
@@ -377,6 +382,8 @@ export class LocalApps {
   private asideReplAccount = new Map<string, string>()
   /** the listed Aside, per connection: Aside's current account (what a plain `aside mcp` uses) */
   private asideCurrent = new Map<string, string>()
+  /** the listed Aside: profile ids no account had when last looked for (connection and id), and when */
+  private asideMissed = new Map<string, number>()
   private spawn: typeof nodeSpawn
   constructor(private d: LocalAppsDeps) { this.spawn = d.spawn ?? nodeSpawn }
 
@@ -454,6 +461,8 @@ export class LocalApps {
     const cur = this.running.get(slot)
     if (cur && !cur.exited && cur.key === key) return cur
     if (cur) this.kill(cur)
+    // the main program with a new command (settings changed): the ones beside it ran the old one
+    if (!pool && cur && cur.key !== key) this.killAsidePools(ck)
     const spec = call.spec as Extract<LocalAppSpec, { adapter: 'mcp' }>
     const dirs = (this.d.searchPath ?? defaultSearchPath)()
     const program = resolveProgram(spec.command, dirs)
@@ -581,7 +590,7 @@ export class LocalApps {
     // a profile (or an exec session, or the repl) of another Aside account: that account's own `aside mcp --account uN`
     if (aside && !retried && (tool === 'repl' || tool === 'exec')) {
       const target = await this.asideTarget(team, call, tool, args)
-      const main = r.account ?? this.asideCurrent.get(ck) ?? null
+      const main = this.asideMain(r, ck)
       if (target && target !== main) return this.passAsidePool(team, call, key, signal, target, tool, args)
       // the repl goes on in the main process's profile
       if (tool === 'repl' && typeof args.profile_id === 'string') this.asideReplAccount.delete(ck)
@@ -595,6 +604,8 @@ export class LocalApps {
         this.asideAccount.set(ck, next)
         this.running.delete(ck)
         this.kill(r)
+        // the main process is that account's now: one started for it beside the main one is not needed any more
+        this.killAsidePools(ck, next)
         return this.passMcp(team, call, key, signal, true)
       }
       r.restartNext = true
@@ -607,7 +618,7 @@ export class LocalApps {
     if (aside && 'message' in answer && answer.message) {
       if (method === 'tools/list') return { message: asideToolsList(answer.message) }
       if (tool === 'browser_profiles') return { message: await this.asideAllProfiles(team, call, r, answer.message) }
-      if (tool === 'exec' && typeof args.session_id !== 'string') this.asideRemember(ck, answer.message, r.account ?? this.asideCurrent.get(ck) ?? null)
+      if (tool === 'exec' && typeof args.session_id !== 'string') this.asideRemember(ck, answer.message, this.asideMain(r, ck))
     }
     return answer
   }
@@ -619,7 +630,18 @@ export class LocalApps {
     if (typeof args.profile_id === 'string' && args.profile_id) {
       const pid = args.profile_id
       // a profile not seen yet (the AI took its id from elsewhere, or a profile was added): Aside's accounts read again
-      if (!this.asideProfileAccount.get(ck)?.has(pid)) await this.asideList(team, call, null, [])
+      // (an id no account has is not looked for again for a minute: each look runs Aside's account list and its profiles)
+      const missKey = `${ck}\u0000${pid}`
+      const missed = this.asideMissed.get(missKey)
+      const now = (this.d.now ?? Date.now)()
+      if (!this.asideProfileAccount.get(ck)?.has(pid) && !(missed !== undefined && now - missed < ASIDE_MISS_MS)) {
+        await this.asideList(team, call, [])
+        if (this.asideProfileAccount.get(ck)?.has(pid)) this.asideMissed.delete(missKey)
+        else {
+          this.asideMissed.set(missKey, now)
+          if (this.asideMissed.size > 500) this.asideMissed.delete(this.asideMissed.keys().next().value!)
+        }
+      }
       return this.asideProfileAccount.get(ck)?.get(pid) ?? null
     }
     if (tool === 'exec') return typeof args.session_id === 'string' ? this.asideSessionAccount.get(ck)?.get(args.session_id) ?? null : null
@@ -642,6 +664,21 @@ export class LocalApps {
     return answer
   }
 
+  /** The account the main `aside mcp` runs in: its `--account`, else the one it took at its first call, else (not known
+   * yet) Aside's current one. */
+  private asideMain(r: Running, ck: string): string | null {
+    return r.account ?? r.pinned ?? this.asideCurrent.get(ck) ?? null
+  }
+
+  /** Stop the `aside mcp --account uN` started beside a connection's main one (all of them, or only `account`'s). */
+  private killAsidePools(ck: string, account?: string) {
+    for (const [k, r] of [...this.running]) {
+      if (!k.startsWith(`${ck}\u0000aside:`) || (account && k !== `${ck}\u0000aside:${account}`)) continue
+      this.running.delete(k)
+      this.kill(r)
+    }
+  }
+
   /** An exec answer's session, kept with the account it runs in (a later exec with that session_id goes there). */
   private asideRemember(ck: string, answer: Record<string, unknown>, account: string | null) {
     const sid = asideSessionId(answer)
@@ -655,11 +692,14 @@ export class LocalApps {
   /** Every account's profiles, each with its account, kept for routing: `mine` are the main process's (its account:
    * `account`, else Aside's current one); the other accounts' come from `aside host profiles --account uN --json` (an
    * older Aside without it: the profile ids its account list binds to the account). */
-  private async asideList(team: string, call: LocalCall, account: string | null, mine: NonNullable<ReturnType<typeof asideProfilesIn>>): Promise<{ main: string | null; all: AsideProfile[] }> {
+  private async asideList(team: string, call: LocalCall, mine: NonNullable<ReturnType<typeof asideProfilesIn>>): Promise<{ main: string | null; all: AsideProfile[] }> {
     const ck = this.k(team, call.connectionId)
     const list = asideAccountList(await this.runAside(team, call, ['account', 'list', '--json']))
     if (list.current) this.asideCurrent.set(ck, list.current)
-    const main = account ?? list.current ?? this.asideCurrent.get(ck) ?? null
+    // a plain `aside mcp` keeps the account it took at its first call: Aside's current one the first time it is read
+    const r = this.running.get(ck)
+    if (r && !r.exited && !r.account && !r.pinned && list.current) r.pinned = list.current
+    const main = r && !r.exited ? this.asideMain(r, ck) : list.current ?? this.asideCurrent.get(ck) ?? null
     const mineIds = new Set(mine.map((p) => p.profileId))
     const others = await Promise.all(list.accounts.filter((a) => a.id !== main && a.profileIds.length > 0).map(async (a) => {
       const listed = asideProfilesIn(await this.runAside(team, call, ['host', 'profiles', '--account', a.id, '--json']))
@@ -682,8 +722,10 @@ export class LocalApps {
     if (!result || result.isError === true || !Array.isArray(result.content)) return answer
     const at = result.content.findIndex((c) => typeof c?.text === 'string' && asideProfilesIn(c.text) !== null)
     if (at < 0) return answer
-    const { main, all } = await this.asideList(team, call, r.account ?? null, asideProfilesIn(result.content[at]!.text as string)!)
-    if (!main) return answer
+    const mine = asideProfilesIn(result.content[at]!.text as string)!
+    const { main, all } = await this.asideList(team, call, mine)
+    // no other account has a profile (one account): Aside's own answer as it is
+    if (!main || all.length <= mine.length) return answer
     const content = result.content.map((c, i) => (i === at ? { ...c, text: JSON.stringify({ profiles: all }) } : c))
     return { ...answer, result: { ...result, content } }
   }

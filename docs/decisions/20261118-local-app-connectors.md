@@ -145,6 +145,11 @@
     main one. Stop and quitting end all of them.
 - Nothing else changes: Aside's own tools, the one-time confirm for the same command, the normal ask card and Always
   allow. With one account, Aside's own list goes through as it is and no other program starts.
+- **Review on #149:** a plain `aside mcp` keeps the account it took at its first call, so the main process's account is
+  the current one the first time it is read, kept on the process (`pinned`), not re-read: an `aside account use` later
+  does not mislabel its profiles or route its calls elsewhere. A main process started again with a new command, or
+  moved to an account, stops the `--account` ones beside it that are no longer needed. A `profile_id` no account has
+  is looked for once a minute at most.
 
 ## Open questions
 
