@@ -14,12 +14,14 @@ import { dropAdminScope, isTeamAdmin, remoteOAuthOf, type Grant, type RemoteOAut
 import { checkWriteTarget, isOutcome, uploadFile, uploadTool, writeNotes } from './upload'
 import { openScope, saveScope, scopeFull, scopeSources, SCOPE_SOURCES_MAX } from './scope'
 import { createUploadLink, uploadLinkTool } from './upload-link'
+import { createDownloadLink, downloadLinkTool } from './download-link'
 import { shareSkills, shareSkillsTool } from './share'
 import { GROUP_TOOLS, groupTool, groupTools } from './groups'
 import { mergeSources, ROOM_SEND, ROOM_TOOLS, roomReadTools, roomSendTool, roomTool } from './rooms'
 
 const WRITE = new Set(['write', 'edit', 'upload_file', 'create_upload_link', 'share_skills'])
-const CONNECTOR_ONLY = new Set(['upload_file', 'create_upload_link'])
+// the connector's own tools (not FILE_TOOLS); create_download_link is read-scope (not in WRITE)
+const CONNECTOR_ONLY = new Set(['upload_file', 'create_upload_link', 'create_download_link'])
 const toolList = Object.entries(FILE_TOOLS).map(([name, t]) => {
   const schema = z.toJSONSchema(t.input as any, { target: 'draft-7' }) as Record<string, unknown>
   delete schema.$schema
@@ -45,7 +47,7 @@ export class RemoteTools {
     // the group tools: the scope, and the person's role now (a demoted admin's grant does not list them)
     const admin = scopes.includes(ADMIN_SCOPE) && isTeamAdmin(this.ctx.db, g.user_id)
     const rooms = scopes.includes(ROOMS_SCOPE), roomsWrite = rooms && scopes.includes(ROOMS_WRITE_SCOPE)
-    return [...[...toolList, uploadTool, uploadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool,
+    return [...[...toolList, uploadTool, uploadLinkTool, downloadLinkTool].filter(t => !WRITE.has(t.name) || scopes.includes('mcp:write')), skillTool,
       ...(scopes.includes('mcp:write') ? [shareSkillsTool] : []), ...(rooms ? roomReadTools : []), ...(roomsWrite ? [roomSendTool] : []), ...(admin ? groupTools : [])]
   }
   private policy(user: string) {
@@ -127,6 +129,19 @@ export class RemoteTools {
         // a proposal only: nothing reaches the team before the person confirms it in the app (skills/share.ts)
         const out = shareSkills(this.ctx, oauth, user, args)
         // counts and the proposal's id, never a skill's name or content
+        audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
+        return result(out.text, out.isError)
+      }
+      if (name === 'create_download_link') {
+        // the read tool's check (download-link.ts); the file joins this session's read scope as a read does, so a later
+        // save to a wider place is judged by it. Synchronous: nothing awaits between the check and the link
+        const out = createDownloadLink(this.ctx, oauth, fresh, user, args, rel => {
+          const sources = new Map([...scope.sources, ...scopeSources(this.ctx.db, scope.grantId, scope.key, oauth.now())].map(s => [sourceKey(s), s]))
+          const source = sourceOf(this.ctx.db, this.ctx.files.rules(), rel); sources.set(sourceKey(source), source)
+          if (sources.size > SCOPE_SOURCES_MAX) return scopeFull(scope)
+          saveScope(this.ctx.db, scope, [...sources.values()], oauth.now())
+          return null
+        })
         audit(this.ctx.db, { actor: user.id, action: 'remote_mcp.tool', target: fresh.id, detail: { tool: name, ok: !out.isError, via: 'connector', ...out.audit } })
         return result(out.text, out.isError)
       }

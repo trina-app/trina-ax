@@ -3234,6 +3234,7 @@ export const zh: Record<MessageKey, string> = {
   "audit.act.remote_mcp.disconnected": "断开了外部应用",
   "audit.act.remote_mcp.tool": "使用了外部应用的工具",
   "audit.act.remote_mcp.upload": "通过上传链接从外部应用上传了文件",
+  "audit.act.remote_mcp.download": "通过下载链接将文件下载到外部应用",
   "audit.act.remote_mcp.scope_dropped": "取消了外部应用连接的小组管理权限",
   "audit.reason.notAdmin": "已不再是所有者或管理员",
   "audit.reason.disabled": "账号已被停用",

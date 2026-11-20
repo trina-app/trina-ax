@@ -51,6 +51,11 @@ team app changes them only after its own confirmation, which an outside model ca
 - `create_upload_link`: a one-time `PUT <origin>/connector-uploads/<token>` URL for a larger file (at most 50 MiB,
   10 minutes, one path). Claude Code runs `curl -T "<local file>" "<url>"`. The permissions are checked when the link
   is made and again when the file arrives.
+- `create_download_link` (`mcp:read`): the mirror, a `GET <origin>/connector-downloads/<token>` URL for a team file's
+  exact bytes (any type, any size the person may read; 10 minutes, at most 3 GETs). Claude Code runs
+  `curl -o "<local file>" "<url>"`, changes the file locally and puts it back with `create_upload_link` (overwrite).
+  The read check runs when the link is made and on every GET; a changed file, lost access or an ended connection
+  gives 404. `read` with `raw: true` gives a small UTF-8 text file's exact text (one read, about 28,000 characters).
 - `share_skills` (내 스킬 가져오기, docs/DECISIONS.md "SK"): Claude Code sends the person's own Claude skills (from
   `~/.claude/skills`, the projects' `.claude/skills` it knows and `~/.claude/commands`), the names of those it left out
   (plugin skills, a skill with a key: names only), CLAUDE.md as text and its remote MCP servers (https addresses only, no

@@ -3281,6 +3281,7 @@ export const en: Record<MessageKey, string> = {
   'audit.act.remote_mcp.disconnected': 'Disconnected an external app',
   'audit.act.remote_mcp.tool': 'Used a tool from an external app',
   'audit.act.remote_mcp.upload': 'Uploaded a file from an external app with an upload link',
+  'audit.act.remote_mcp.download': 'Downloaded a file to an external app with a download link',
   'audit.act.remote_mcp.scope_dropped': 'Took group management away from an external app connection',
   'audit.reason.notAdmin': 'No longer an owner or admin',
   'audit.reason.disabled': 'The account was turned off',

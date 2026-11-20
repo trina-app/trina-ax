@@ -3279,6 +3279,7 @@ export const ko = {
   'audit.act.remote_mcp.disconnected': '외부 앱 연결 해제',
   'audit.act.remote_mcp.tool': '외부 앱 도구 사용',
   'audit.act.remote_mcp.upload': '외부 앱 업로드 링크로 파일 올림',
+  'audit.act.remote_mcp.download': '외부 앱 다운로드 링크로 파일 내려받음',
   'audit.act.remote_mcp.scope_dropped': '외부 앱 연결의 부서 관리 권한을 거뒀어요',
   'audit.reason.notAdmin': '팀장·관리자가 아니게 됐어요',
   'audit.reason.disabled': '계정이 꺼졌어요',

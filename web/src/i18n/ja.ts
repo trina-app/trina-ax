@@ -3239,6 +3239,7 @@ export const ja: Record<MessageKey, string> = {
   'audit.act.remote_mcp.disconnected': "外部アプリの接続を解除",
   'audit.act.remote_mcp.tool': "外部アプリからツールを使用",
   'audit.act.remote_mcp.upload': "外部アプリからアップロードリンクでファイルを送信",
+  'audit.act.remote_mcp.download': "ダウンロードリンクで外部アプリにファイルをダウンロード",
   'audit.act.remote_mcp.scope_dropped': "外部アプリ接続のグループ管理権限を取り消し",
   'audit.reason.notAdmin': "オーナーまたは管理者ではなくなった",
   'audit.reason.disabled': "アカウントが無効になった",
