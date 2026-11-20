@@ -796,6 +796,7 @@ export const ko = {
   'steps.secs': '{s}초',
   'steps.minSecs': '{m}분 {s}초',
   'steps.subtaskShow': '하위 작업 단계 보기',
+  'steps.thinkingShow': '생각한 내용 보기',
   'steps.subtaskHidden': '이 하위 작업의 앞선 단계 {n}개는 남기지 않았어요',
 
   'ask.title': 'AI가 확인하고 싶어 해요',

@@ -797,6 +797,7 @@ export const id: Record<MessageKey, string> = {
   'steps.secs': '{s} dtk',
   'steps.minSecs': '{m} mnt {s} dtk',
   'steps.subtaskShow': 'Lihat langkah subtugas',
+  'steps.thinkingShow': 'Lihat isi pemikiran',
   'steps.subtaskHidden': '{n} langkah awal subtugas ini tidak disimpan',
 
   'ask.title': 'AI ingin memastikan sesuatu',

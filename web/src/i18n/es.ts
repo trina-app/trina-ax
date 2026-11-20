@@ -779,6 +779,7 @@ export const es: Record<MessageKey, string> = {
   'steps.secs': "{s} s",
   'steps.minSecs': "{m} min {s} s",
   'steps.subtaskShow': "Ver los pasos de la subtarea",
+  'steps.thinkingShow': "Ver lo que pensó",
   'steps.subtaskHidden': "{n, plural, one {No se guardó # paso anterior de esta subtarea} other {No se guardaron # pasos anteriores de esta subtarea}}",
   'ask.title': "La IA tiene una pregunta",
   'ask.serverTitle': "Revise, por favor",
