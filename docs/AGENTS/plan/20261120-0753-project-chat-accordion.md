@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 07:53
 - Branch: `feat/project-chat-accordion`
-- Status: in progress
+- Status: done
 - Where: web (`web/src/components/panels/ProjectsPanel.tsx`). Why: a UI change of the web app's 프로젝트 panel only
   (see docs/REPOSITORY-RULES.md)
 - Version impact: minor, a new visible feature of the 프로젝트 panel, no API change
@@ -17,7 +17,7 @@ mentions of me wait, with who mentioned me on hover.
 ## Scope
 
 In: a fold button on each project row (not a trashed project, not a guest without AI); its chats under it (the
-project's chats I can open, newest first, at most 10, "더 보기" opens the project page); the mention count from my
+project's chats I can open, newest first, at most 8, "더 보기" opens the project page); the mention count from my
 unread Inbox notices `chat.thread_reply` with `chatThread.mention`; the five app languages.
 Out: room (channel) mentions; a server endpoint for counts (the Inbox's first 100 notices are read on the client).
 
@@ -44,4 +44,7 @@ nobody sees a chat they could not open there.
 
 ## Result
 
-(to fill in)
+Built as planned: the ▸ in the section's indent (a phone: a 40 px button left of the icon), at most 8 chats under an
+open project (a chat with mentions first, in bold), "All chats" for the rest, and the round count (CountPill) on the
+project and the chat, with who mentioned me on hover. Fold kept as `project:<id>` in the lists' folds. Tests:
+web/test/unit/chat-mentions.test.ts, web/test/e2e/project-chat-accordion.spec.ts (computer and phone).
