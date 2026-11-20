@@ -106,7 +106,8 @@ describe('every surface that sums', () => {
     const a = attentionCount([], [quietChannel(), muted()])
     expect(a).toMatchObject({ n: 0, unread: true })
     expect(iconBadge(a)).toBe('dot')
-    expect(attentionCount([], [quietChannel({ mentioned: true }), dmAll()]).n).toBe(2)
+    // the DM by its row's number (2); the mentioned channel at 멘션만 once, not its row's 3 (review of #108, finding 1)
+    expect(attentionCount([], [quietChannel({ mentioned: true }), dmAll()]).n).toBe(3)
   })
 })
 

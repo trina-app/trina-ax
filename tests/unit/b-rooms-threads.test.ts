@@ -250,11 +250,11 @@ test('followers: the root\'s author, repliers and people mentioned are notified 
   const r2 = await reply(nora.client, team.id, root.id, '@OTTO what do you think', { mentions: [otto.id] })
   expect(unreadNotices(otto.id).map((n) => [n.event_type, n.source_id])).toEqual([['room.mention', r2.id]])
   expect(await teamRoom(otto.client)).toMatchObject({ threadsUnread: 1, mentioned: true })
-  // one notice per unread run in a thread: mia's first is still unread, so the second reply adds none
-  expect(unreadNotices(mia.id)).toHaveLength(1)
+  // every reply is a notice of its own: mia has one for each of the two replies
+  expect(unreadNotices(mia.id)).toHaveLength(2)
   // reading the room does not read the thread; reading the thread does (and its notices)
   await mia.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
-  expect(unreadNotices(mia.id)).toHaveLength(1)
+  expect(unreadNotices(mia.id)).toHaveLength(2)
   expect((await teamRoom(mia.client)).threadsUnread).toBe(1)
   const read = await mia.client.call('POST', `/api/rooms/${team.id}/messages/${root.id}/thread/read`, { seq: r2.seq })
   expect(read).toMatchObject({ lastReadSeq: r2.seq, room: { id: team.id, threadsUnread: 0, nextThreadId: null } })

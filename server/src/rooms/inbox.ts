@@ -4,9 +4,9 @@
 // read the message.
 //
 // A row is one place (a room's timeline, or one thread) and what is unread there for me; once read, the notices read
-// together stay one row. One notice already stands for one unread run (Notifications.roomNotice: no second notice of a
-// kind and place while one is unread; what it held back is kept as last_seq / last_at), but a place can have several
-// (a mention and a reply in one thread, a run split by quiet hours): the row is all of them, so the Inbox shows
+// together stay one row. Each message that alerts the person is a notice of its own (Notifications.roomNotice; only a
+// quiet one or an app's stands for an unread run, and what it held back is kept as last_seq / last_at), so a place
+// often has several (a burst of mentions, a mention and a reply in one thread): the row is all of them, so the Inbox shows
 // "민준 외 2명 · 답글 3개" once. Reading the row reads every notice in it.
 import type { Database } from 'bun:sqlite'
 import { plainLabel, type InboxNotification, type Locale } from '@mycel/shared/api'
