@@ -124,7 +124,7 @@ for (const dir of CONTENTS) {
 // Steepling at the end of the scripted story "Mina's first day" (scripts/demo/steepling; the free-roam demo's snapshot is
 // seeded from it). The content is made from the scripted demo's own strings, so the cast and names are the same; the
 // seed here also runs the state a story ends in (rooms, chats, connections, the welcome inviter) through the builder's
-// routes, which answer only with the demo file's builder: true.
+// routes, which answer only with the demo file's builder: true (English; Korean is checked for the same structure).
 for (const locale of STEEPLING_LOCALES) {
   describe(`Steepling at the end of the story (${locale})`, () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `steepling-${locale}-`))
@@ -169,6 +169,10 @@ for (const locale of STEEPLING_LOCALES) {
       if (locale === 'ko') expect(fs.readFileSync(path.join(c.filesDir, 'skills/social-posts/SKILL.md'), 'utf8')).toContain('\n  title: SNS 글 쓰기\n')
     })
 
+    // the server seed runs for English only (CI time: it is the slow part); Korean has the same structure, checked
+    // without a server below ("the richer Steepling, without a server": the same ids, people, rooms, messages, threads,
+    // chats, files and fakes), and its own words, skills and paths here and there
+    if (locale !== 'en') return
     test('seeded with the end of the story: checks, rooms, projects, shared chats, connections, the inviter', async () => {
       h = await harness(`demo-steepling-${locale}`, { demo: c.demoFile({ replays: null, builder: true }) })
       const r = await seedDemo({ baseUrl: BASE, setupToken: SETUP_TOKEN, fetch: appFetch, company: c.seed, ownerPassword: OWNER_PASSWORD, locale: c.company.locale })

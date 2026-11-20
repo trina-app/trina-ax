@@ -710,7 +710,7 @@ export const ja: Record<MessageKey, string> = {
   'files.downloadOnly': "ダウンロード専用",
   'picker.downloadOnly': "ダウンロード専用のファイルはAIが読めないため、添付できません。",
   'files.addToChatNamed': "“{title}”に追加",
-  'files.addToCurrentChat': '今のチャットに追加',
+  'files.addToCurrentChat': '現在のチャットに追加',
   'files.addedSome': "{n}個追加しました。{failed}個は追加できませんでした。",
   'voice.start': "音声入力",
   'voice.startHold': "音声入力（Space長押し）",
