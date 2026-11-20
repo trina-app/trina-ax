@@ -12,7 +12,7 @@ Trina AX puts your team's files, skills and tools on one server. Everyone's AI s
 
 [Website](https://ax.trina.app) · [Docs](docs/README.md) · [Pricing](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
+English · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 

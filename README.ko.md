@@ -12,7 +12,7 @@
 
 [웹사이트](https://ax.trina.app) · [문서](docs/README.md) · [요금제](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md)
+[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
