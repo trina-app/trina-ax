@@ -38,11 +38,11 @@
   --c-code-bg: #1e1d1b;
   --c-code-ink: #ece9e3;
   --c-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 4px 16px -6px rgb(0 0 0 / 0.08);
-  /* the ✦ Trina side panel's fill (components/rooms/SideChatPanel.tsx): a light wash of the brand's soft accent over the
-     surface, so the private side chat reads as its own surface beside the room and its thread. Mixed from the edition's
-     own tokens, so it follows the light and dark looks (computed on :root, where .dark sits); c-faint on it stays
-     >= 5:1 in both. */
-  --c-aside: color-mix(in srgb, var(--c-accent-soft) 60%, var(--c-surface));
+  /* the ✦ Trina side panel's fill (components/rooms/SideChatPanel.tsx): a warm wash of the brand, so the private side
+     chat reads as its own surface beside the room and its thread. Made from the edition's own tokens (computed on :root,
+     where .dark sits): c-accent-soft with 2 % of c-accent here, c-accent-soft itself in dark (the .dark block below).
+     c-faint on it 5.1:1 (light) and 5.05:1 (dark). */
+  --c-aside: color-mix(in srgb, var(--c-accent) 2%, var(--c-accent-soft));
 }
 
 .dark {
@@ -70,6 +70,7 @@
   --c-code-bg: #141311;
   --c-code-ink: #ece9e3;
   --c-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 4px 16px -6px rgb(0 0 0 / 0.5);
+  --c-aside: var(--c-accent-soft);
 }
 
 @theme {
