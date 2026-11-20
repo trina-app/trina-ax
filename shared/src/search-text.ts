@@ -55,8 +55,7 @@ export function nameMatch(name: string, query: string): 0 | 1 | 2 | null {
 // ---------------- room message search: filters, phrases, word forms (QA TC-5365, "at least as good as Slack") ----------------
 
 /** What a search of the room messages reads in its text, as Slack does: `from:` a person (`from:me`, `from:@name`,
- *  `from:"Full Name"`), `in:` a room or a 1:1 chat (`in:#room`, `in:@person`, `in:"Room name"`), `mentions:me` (the
- *  messages that mention me, @everyone included: the search box's "Mentions me" chip sends it), a "quoted phrase"
+ *  `from:"Full Name"`), `in:` a room or a 1:1 chat (`in:#room`, `in:@person`, `in:"Room name"`), a "quoted phrase"
  *  (matched as it is, its words together in that order) and the words (each in any order). */
 export interface SearchParts {
   /** the words and the quoted phrases, as typed (NFC), at most SEARCH_WORDS_MAX, none repeated in another case */
@@ -69,16 +68,14 @@ export interface SearchParts {
   /** the people named by from: (as typed, without @), and the rooms named by in: (without # or @) */
   from: string[]
   in: string[]
-  /** what mentions: named (as typed, without @): only "me" (or 나) finds anything; anything else reads as nobody */
-  mentions: string[]
 }
 
-const FILTER_RE = /(?:^|\s)(from|in|mentions):(?:"([^"]*)"?|(\S+))|"([^"]+)"|(\S+)/giu
+const FILTER_RE = /(?:^|\s)(from|in):(?:"([^"]*)"?|(\S+))|"([^"]+)"|(\S+)/giu
 
 /** A search's text read into its parts (see SearchParts). A quote with no closing one is a character to find, as a
  *  filter with nothing after it ("from:") is a plain word. */
 export function parseSearch(q: string): SearchParts {
-  const words: string[] = [], phrases: boolean[] = [], from: string[] = [], inn: string[] = [], mentions: string[] = []
+  const words: string[] = [], phrases: boolean[] = [], from: string[] = [], inn: string[] = []
   const seen = new Set<string>()
   const add = (w: string, phrase: boolean) => {
     const v = w.replace(/\s+/g, ' ').trim()
@@ -92,14 +89,13 @@ export function parseSearch(q: string): SearchParts {
     if (kind) {
       const v = (quoted ?? bare ?? '').trim().replace(/^[@#]+/, '').trim()
       if (!v) { add(`${kind}:`, false); continue }
-      const k = kind.toLowerCase()
-      const list = k === 'from' ? from : k === 'in' ? inn : mentions
+      const list = kind.toLowerCase() === 'from' ? from : inn
       if (!list.some((x) => x.toLowerCase() === v.toLowerCase())) list.push(v)
     } else if (phrase !== undefined) add(phrase, true)
     else if (word) add(word, false)
   }
   const n = Math.min(words.length, SEARCH_WORDS_MAX)
-  return { words: words.slice(0, n), phrases: phrases.slice(0, n), terms: words.slice(0, n).map((w, i) => (phrases[i] ? w : searchStem(w))), from: from.slice(0, 4), in: inn.slice(0, 4), mentions: mentions.slice(0, 4) }
+  return { words: words.slice(0, n), phrases: phrases.slice(0, n), terms: words.slice(0, n).map((w, i) => (phrases[i] ? w : searchStem(w))), from: from.slice(0, 4), in: inn.slice(0, 4) }
 }
 
 /** Korean particles and endings that follow a noun, the longest first: "회의를" is searched as "회의" */

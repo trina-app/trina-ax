@@ -48,7 +48,6 @@ import { useT } from '../i18n'
 import { usePeople, usePeopleList, useReadPeopleFor } from '../store/people'
 import { findMessage, keptFor, keptPlace, placeKey, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
-import { useUi } from '../store/ui'
 import { sideChatOf, useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
@@ -628,7 +627,6 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             room={room}
             onNotify={() => setNotifyRequest((n) => n + 1)}
             onInvite={invitePeople}
-            onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
             className="shrink-0"
             buttonClassName="touch-hit"
             buttonRef={moreRef}

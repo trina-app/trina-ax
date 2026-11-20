@@ -39,7 +39,7 @@ import { fail } from '../http/errors'
 import { reachFilter } from '../auth/guests'
 import { myRooms, ROOM_EVERYONE_WORDS, titleOf, type Mine } from './reader'
 import { unescapeMarkdown } from './apps/card'
-import { canSee, fileOut, hiddenAmong, MENTIONS_SQL, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
+import { canSee, fileOut, hiddenAmong, messagesOut, MSG_COLS, refsOf, roomNaming, SEE_MEMBER_SQL, type FileRow, type MessageRow } from './store'
 
 /** hits a page gives by default */
 export const ROOM_SEARCH_DEFAULT = 20
@@ -51,8 +51,7 @@ const COLS = MSG_COLS.split(', ').map((c) => `m.${c}`).join(', ')
 const fold = (s: string) => s.replace(/[A-Z]/g, (c) => c.toLowerCase())
 const likeArg = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
 
-/** room: only that one of my rooms ("This conversation"; resolveFilters) */
-export interface SearchInput { q: string; cursor?: string; limit?: number; sort?: RoomSearchSort; room?: string }
+export interface SearchInput { q: string; cursor?: string; limit?: number; sort?: RoomSearchSort }
 
 /** "Best match" ranks this many of the newest matches a person sees (bounded: a page never sorts a whole room's
  * history); past them the pages go on newest first */
@@ -60,15 +59,12 @@ export const RELEVANT_POOL = 300
 /** a near match (typing mistakes) looks at this many candidates of the index, the most alike first */
 const NEAR_POOL = 2000
 
-/** "me" in from: and mentions: (나 in Korean) */
-const isMe = (v: string) => v.toLowerCase() === 'me' || v === '나'
-
 /** The people `from:` names: "me"; a username or a name, exactly (any case); else every person whose name or username
  * holds it (nameMatch: Korean initials too). At most 50. Only people the searcher may see (guests.ts reachFilter: a
  * guest only the people of their places, a member no guest outside theirs), and of the accounts no longer in use only
  * those still in one of the searcher's rooms: anyone else reads as a name nobody has (no list of the team through it). */
 function fromPeople(db: Database, userId: string, v: string, roomIds: string): UserRef[] {
-  if (isMe(v)) return db.query('SELECT id, name FROM users WHERE id = ?').all(userId) as UserRef[]
+  if (v.toLowerCase() === 'me' || v === '나') return db.query('SELECT id, name FROM users WHERE id = ?').all(userId) as UserRef[]
   const reach = reachFilter(db, userId)
   const all = (db.query(`SELECT id, username, name FROM users u WHERE (u.status = 'active' AND u.deleted_at IS NULL)
       OR EXISTS (SELECT 1 FROM room_members rm WHERE rm.user_id = u.id AND rm.room_id IN (SELECT value FROM json_each(?))) ORDER BY name, id`)
@@ -135,7 +131,7 @@ export function searchRoomMessages(db: Database, userId: string, o: SearchInput)
   if (bad) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
   const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
-  const f = resolveFilters(db, userId, mine, parts, o.room)
+  const f = resolveFilters(db, userId, mine, parts)
   const empty: RoomSearchPage = { items: [], rooms: [], nextCursor: null, ...(f.out ? { filters: f.out } : {}) }
   if ((!parts.terms.length && !f.filtered) || !f.rooms.length || f.authors?.length === 0) return empty
   const q = candidates(parts, f)
@@ -196,20 +192,13 @@ interface Filters {
   rooms: Mine[]
   /** from: the authors (null: anyone; empty: nobody of that name) */
   authors: string[] | null
-  /** mentions:me: only the messages that mention the person (store.ts MENTIONS_SQL: by name, or @everyone by someone
-   * else) */
-  mentions: boolean
   filtered: boolean
   /** what the filters were read as (for the app to say it) */
   out: RoomSearchFilters | null
   userId: string
 }
-/** The filters of the text (from:, in:, mentions:) and `room` ("This conversation"), read against my rooms only: each
- * one narrows `mine` (myRooms: the rooms I am in now, not archived, a guest's as the guest rules give them), never
- * widens it. `room` is looked up in `mine` alone (a room I left, an archived one, one not mine: none, roomGone) and
- * with in: it is both. A bare `room` is a filter too (only room messages and files are searched). */
-function resolveFilters(db: Database, userId: string, mine: Map<string, Mine>, parts: SearchParts, room?: string): Filters {
-  if (!parts.from.length && !parts.in.length && !parts.mentions.length && !room) return { rooms: [...mine.values()], authors: null, mentions: false, filtered: false, out: null, userId }
+function resolveFilters(db: Database, userId: string, mine: Map<string, Mine>, parts: SearchParts): Filters {
+  if (!parts.from.length && !parts.in.length) return { rooms: [...mine.values()], authors: null, filtered: false, out: null, userId }
   const missing: string[] = []
   let authors: UserRef[] | null = null
   if (parts.from.length) {
@@ -225,21 +214,9 @@ function resolveFilters(db: Database, userId: string, mine: Map<string, Mine>, p
     for (const v of parts.in) { const r = inRooms(named, v); if (!r.length) missing.push(`in:${v}`); for (const x of r) found.set(x.room.id, x) }
     rooms = [...found.values()]
   }
-  // mentions: me (or 나) only; another name reads as nobody (nothing found), as a from: that names nobody does
-  const others = parts.mentions.filter((v) => !isMe(v))
-  for (const v of others) missing.push(`mentions:${v}`)
-  const mentions = parts.mentions.length > 0
-  const here = room ? mine.get(room) : undefined
-  const roomGone = !!room && !here
-  // in: lists what it named (the label); "This conversation" narrows that list too but is never named (the chip says it)
-  const inList = rooms
-  if (room) rooms = here && rooms.includes(here) ? [here] : []
   return {
-    rooms: others.length ? [] : rooms, authors: authors ? authors.map((a) => a.id) : null, mentions, filtered: true, userId,
-    out: {
-      from: (authors ?? []).slice(0, 10), in: parts.in.length ? inList.slice(0, 10).map((m) => ({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })) : [], missing,
-      ...(mentions ? { mentions: true } : {}), ...(roomGone ? { roomGone: true } : {}),
-    },
+    rooms, authors: authors ? authors.map((a) => a.id) : null, filtered: true, userId,
+    out: { from: (authors ?? []).slice(0, 10), in: parts.in.length ? rooms.slice(0, 10).map((m) => ({ id: m.room.id, kind: m.room.kind, ...roomNaming(db, m.room, userId) })) : [], missing },
   }
 }
 
@@ -253,13 +230,13 @@ function candidates(parts: SearchParts, f: Filters) {
   // LIKE with the longest term; no term (filters only): the rooms' messages themselves
   const long = terms.filter((w) => [...w].length >= 3)
   const roomIds = JSON.stringify(f.rooms.map((m) => m.room.id))
-  const who = whoSql(f)
+  const who = f.authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${f.authors.map(() => '?').join(',')})` : ''
   const check = terms.map(() => " AND m.body LIKE ? ESCAPE '\\'").join('')
   if (!terms.length) {
     const sql = `SELECT m.rowid AS r, ${COLS} FROM room_messages m CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
       WHERE m.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL AND m.body <> ''
         AND ${SEE_MEMBER_SQL}${who} ORDER BY m.rowid DESC LIMIT ?`
-    return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, before, roomIds, ...whoArgs(f), n) as (MessageRow & { r: number })[] }
+    return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, before, roomIds, ...(f.authors ?? []), n) as (MessageRow & { r: number })[] }
   }
   const find = long.length ? 'room_messages_fts MATCH ?' : 'f.body LIKE ?'
   const findArg = long.length ? long.map(ftsPhrase).join(' AND ') : `%${terms.reduce((a, b) => ([...b].length > [...a].length ? b : a))}%`
@@ -268,13 +245,9 @@ function candidates(parts: SearchParts, f: Filters) {
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
     WHERE ${find} AND f.rowid < ? AND m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
       AND ${SEE_MEMBER_SQL}${who}${check} ORDER BY f.rowid DESC LIMIT ?`
-  return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, findArg, before, roomIds, ...whoArgs(f), ...terms.map(likeArg), n) as (MessageRow & { r: number })[] }
+  return { rows: (db: Database, before: number, n: number) => db.query(sql).all(f.userId, findArg, before, roomIds, ...(f.authors ?? []), ...terms.map(likeArg), n) as (MessageRow & { r: number })[] }
 }
 const ftsPhrase = (w: string) => `"${w.replace(/"/g, '""')}"`
-/** from: (the authors) and mentions:me as SQL on room_messages `m`, and their parameters in the same order */
-const whoSql = (f: Pick<Filters, 'authors' | 'mentions'>) =>
-  `${f.authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${f.authors.map(() => '?').join(',')})` : ''}${f.mentions ? ` AND ${MENTIONS_SQL}` : ''}`
-const whoArgs = (f: Pick<Filters, 'authors' | 'mentions' | 'userId'>) => [...(f.authors ?? []), ...(f.mentions ? [f.userId, f.userId] : [])]
 
 /** Near matches (nothing matched as typed): the index's rows that share the most three-letter pieces with the words (its
  * own rank, NEAR_POOL of them, who sees them decided in the query as above), each word then in the text as typed or with
@@ -284,46 +257,45 @@ function nearRows(db: Database, parts: SearchParts, f: Filters): (MessageRow & {
   for (const t of parts.terms) { const c = [...fold(t)]; for (let i = 0; i + 3 <= c.length; i++) grams.add(c.slice(i, i + 3).join('')) }
   if (!grams.size) return []
   const roomIds = JSON.stringify(f.rooms.map((m) => m.room.id))
-  const who = whoSql(f)
+  const who = f.authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${f.authors.map(() => '?').join(',')})` : ''
   // the index ranks its own rows first (NEAR_POOL, the most alike), then who sees them is decided on those
   const rows = db.query(`SELECT c.rowid AS r, ${COLS} FROM (SELECT rowid FROM room_messages_fts WHERE room_messages_fts MATCH ? ORDER BY rank LIMIT ?) c
     CROSS JOIN room_messages m ON m.rowid = c.rowid
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
     WHERE m.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
       AND ${SEE_MEMBER_SQL}${who}`)
-    .all([...grams].map(ftsPhrase).join(' OR '), NEAR_POOL, f.userId, roomIds, ...whoArgs(f)) as (MessageRow & { r: number })[]
+    .all([...grams].map(ftsPhrase).join(' OR '), NEAR_POOL, f.userId, roomIds, ...(f.authors ?? [])) as (MessageRow & { r: number })[]
   return rows.filter((row) => parts.terms.every((t, i) => fold(row.body).includes(fold(t)) || (!parts.phrases[i] && (nearMatch(row.body, parts.words[i]!) || nearMatch(row.body, t)))))
     .sort((a, b) => b.r - a.r)
 }
 
 /** The room files query for `words` terms (parameters: the person, the rooms searched as JSON, each author when
- * `authors`, the person twice when `mentions` (mentions:me: the message the file was sent with mentions them), each
- * term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
+ * `authors`, each term's LIKE, the cursor's file rowid when `after`, the LIMIT). CROSS JOIN keeps SQLite on room_files,
  * newest first by rowid: no sort, and a page stops when it is full (a plain JOIN walked every message of the person's
  * rooms and sorted: seconds on a million messages, the independent review measured). Exported for the test that reads
  * its plan. */
-export const roomFilesSql = (words: number, after: boolean, authors = 0, mentions = false) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
+export const roomFilesSql = (words: number, after: boolean, authors = 0) => `SELECT f.rowid AS fr, f.id AS file_id, ${COLS} FROM room_files f
     CROSS JOIN room_messages m ON m.id = f.message_id AND m.room_id = f.room_id
     CROSS JOIN room_members mm ON mm.room_id = m.room_id AND mm.user_id = ?
     WHERE f.message_id IS NOT NULL AND f.room_id IN (SELECT value FROM json_each(?)) AND m.deleted_at IS NULL AND m.event IS NULL
-      AND ${SEE_MEMBER_SQL}${authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${Array.from({ length: authors }, () => '?').join(',')})` : ''}${mentions ? ` AND ${MENTIONS_SQL}` : ''}${Array.from({ length: words }, () => " AND f.name LIKE ? ESCAPE '\\'").join('')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
+      AND ${SEE_MEMBER_SQL}${authors ? ` AND m.author_kind = 'user' AND m.author_id IN (${Array.from({ length: authors }, () => '?').join(',')})` : ''}${Array.from({ length: words }, () => " AND f.name LIKE ? ESCAPE '\\'").join('')}${after ? ' AND f.rowid < ?' : ''} ORDER BY f.rowid DESC LIMIT ?`
 
 /** Files sent in my rooms by name: every term of the text (parseSearch: a word without its particle or ending, a
- * quoted phrase as it is), in the rooms in: names (and `room`), sent by the people from: names and with a message that
- * mentions me (mentions:me), when the text has them (only filters: every file of those rooms or people). */
+ * quoted phrase as it is), in the rooms in: names and sent by the people from: names, when the text has them (only
+ * filters: every file of those rooms or people). */
 export function searchRoomFiles(db: Database, userId: string, o: SearchInput): RoomFileSearchPage {
   const parts = parseSearch(o.q)
   const cur = decodeCursor(o.cursor, ['f'])
   if (o.cursor && (!cur || !/^\d{1,18}$/.test(cur.f))) fail('validation', undefined, { fields: { 'query.cursor': 'invalid cursor' } })
   const limit = Math.min(ROOM_SEARCH_PAGE_MAX, Math.max(1, o.limit ?? ROOM_SEARCH_DEFAULT))
   const mine = new Map(myRooms(db, userId).map((m) => [m.room.id, m]))
-  const f = resolveFilters(db, userId, mine, parts, o.room)
+  const f = resolveFilters(db, userId, mine, parts)
   const empty: RoomFileSearchPage = { items: [], rooms: [], nextCursor: null, ...(f.out ? { filters: f.out } : {}) }
   if ((!parts.terms.length && !f.filtered) || !f.rooms.length || f.authors?.length === 0) return empty
   // who sees the message is decided in the query, as for a message found by its text (SEE_MEMBER_SQL on its room's
   // member row)
-  const rows = db.query(roomFilesSql(parts.terms.length, !!cur, f.authors?.length ?? 0, f.mentions))
-    .all(userId, JSON.stringify(f.rooms.map((m) => m.room.id)), ...whoArgs(f), ...parts.terms.map(likeArg), ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
+  const rows = db.query(roomFilesSql(parts.terms.length, !!cur, f.authors?.length ?? 0))
+    .all(userId, JSON.stringify(f.rooms.map((m) => m.room.id)), ...(f.authors ?? []), ...parts.terms.map(likeArg), ...(cur ? [Number(cur.f)] : []), limit + 1) as (MessageRow & { fr: number; file_id: string })[]
   const page = rows.slice(0, limit)
   // more: a hit past the page; the next page goes on below this page's last row of the query (a file they see), not
   // the last one kept below

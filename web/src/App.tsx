@@ -33,7 +33,6 @@ import { usePeople } from './store/people'
 import { startLive, stopLive } from './store/live'
 import { useEngines } from './store/engines'
 import { resetInbox } from './store/inbox'
-import { resetChatMentions } from './store/chatMentions'
 import { useJobs } from './store/jobs'
 import { useSessionMarkers } from './store/sessionMarkers'
 import { resetAdminReads } from './store/adminPeople'
@@ -170,7 +169,6 @@ function dropPersonStores() {
   usePeople.getState().reset()
   useEngines.getState().reset()
   resetInbox()
-  resetChatMentions()
   useJobs.getState().reset()
   useSessionMarkers.getState().reset()
   useRailMemory.getState().reset()

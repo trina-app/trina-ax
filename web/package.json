@@ -24,7 +24,6 @@
     "clsx": "2.1.1",
     "docx-preview": "0.4.1",
     "emojibase-data": "18.0.0",
-    "es-module-lexer": "3.0.4",
     "hash-wasm": "4.12.0",
     "hast-util-from-html": "2.0.3",
     "highlight.js": "11.12.0",

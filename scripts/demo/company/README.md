@@ -96,20 +96,17 @@ A content folder may also say what the people did before the visitor came. All o
 | Field | What |
 |---|---|
 | `owner.group` | a group the owner is in too (a CEO who owns the team and is in #Marketing) |
-| `owner.title`, `owner.email`, `people[].title`, `people[].email` | the job title and the e-mail on a person's profile, each set by them |
-| `projects` | `{ name, instructions, by?, members: [{ group } \| { user }] }`: a team project `projects/<name>` made by `by` (default the owner); its files may be in `files/projects/<name>/`; `channel` (a `rooms` slug of a group chat with a name: only a private channel links) is linked to it by its maker |
+| `projects` | `{ name, instructions, by?, members: [{ group } \| { user }] }`: a team project `projects/<name>` made by `by` (default the owner); its files may be in `files/projects/<name>/` |
 | `rooms` | `{ slug, kind: all \| team \| dm \| group, group?, people?, name?, messages }`; a message is `{ from, text, minutesAgo, files?, reactions?, shareChat? }`, oldest first. In `text`, `{project:<name>}` is a link to the project, `{file:<team path>}` the file's address, `@<a person's name>` a mention; `shareChat` sends that chat's last answer to the room ("Send to room") with `text` as the note |
-| `chats` | `{ slug, username, project?, sideRoom?, private?, title, turns: [{ ask, answer, minutesAgo }] }`: past AI chats as plain finished messages (no AI runs); in a project they are shared with its members, `sideRoom` makes the room's ✦ side chat. A shared project chat may have `thread: [{ from, text, minutesAgo }]`: replies under its last answer, `@<a person's name>` mentions them (the answer's asker and the people named get its notice in Activity). The builder dates the answers from the hidden-answers cutover on, so the project's members see them |
+| `chats` | `{ slug, username, project?, sideRoom?, private?, title, turns: [{ ask, answer, minutesAgo }] }`: past AI chats as plain finished messages (no AI runs); in a project they are shared with its members, `sideRoom` makes the room's ✦ side chat |
 | `connections` | `{ service: gmail \| google-drive \| higgsfield, username?, account: { name, email } }`: a person's own Gmail or Drive, the team's Higgsfield, with made-up secrets |
 | `welcome` | `{ username, inviter, asked? }`: who invited a person (their welcome card), and whether they asked what they can do |
-| `fileTimes` | `[{ path, minutesAgo }]`: when files changed in the story (a file, or a folder for all under it; the first match wins), on disk and in Files › Recent |
-| `recentHidden` | team paths whose seeding stays out of Files › Recent (the team skills, the company profile) |
 | `freeRoam` | `{ suggestions: [{ label, prompt }] (1–3), signupUrl? }`: the free-roam bar's chips and where "Start free" goes |
 | `avatars/<username>.jpg` | profile photos (png, webp too), each set by its person |
 | `fakes/` | the fake Gmail, Drive and Higgsfield pictures (format: [`../steepling/README.md`](../steepling/README.md)) |
 
 Every address in company.json and fakes/ must be a reserved `.example` one. The writes the public API cannot make
-(times in the past of messages, thread replies and files, the inviter, connection rows, finished answers without the AI) go through the builder's routes
+(times in the past, the inviter, connection rows, finished answers without the AI) go through the builder's routes
 `/api/demo/builder/*` (`server/src/routes/demo-builder.ts`): the owner only, and only on a server whose demo file says
 `builder: true`; 404 everywhere else, and never in a snapshot.
 

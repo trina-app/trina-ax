@@ -142,8 +142,7 @@ export default function SettingsDialog({ onClose, page }: { onClose: () => void;
   // the section's one action in a phone's bar (SettingsBar.tsx)
   const [barSlot, setBarSlot] = useState<HTMLElement | null>(null)
   const back = useGoBack(page ? `/settings/${tab}` : '/settings')
-  // a phone: /settings is the 나 tab, so its pages go back to "‹ Me", never "‹ Settings" (QA TC-5614)
-  const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => (phone && p === '/settings' ? t('tabs.me') : settingsPageName(p, t)))
+  const backLabel = useBackLabel(page ? `/settings/${tab}` : '/settings', (p) => settingsPageName(p, t))
   // Connectors' older addresses here (MCP and Google Drive were sections of their own): its section, with what the
   // address asked for (?add=1, ?template=, ?request=), and Google Drive's page under it
   if (tab === 'integrations') return <Navigate to={`${CONNECTORS_HOME}${location.search}`} replace />
@@ -278,12 +277,9 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
   // the 나 tab's count (the app's own notices: mentions and thread replies are counted on 대화)
   const inbox = useNoticeUnread()
   const groups = SETTINGS_GROUPS.map((g) => tabs.filter((x) => x.group === g && !PHONE_TOP.has(x.id) && !PHONE_FOLDED.has(x.id))).filter((g) => g.length)
-  // a free-roam demo: no sign-out (QA TC-5623; AccountMenu.tsx says why)
-  const freeRoam = useFreeRoam()
-  // signing out asks first (a tap at the end of a long list is easily made by mistake); the sheet says what it does
-  // (its body was empty: QA TC-5623)
+  // signing out asks first (a tap at the end of a long list is easily made by mistake)
   const signOut = async () => {
-    if (await confirmDialog({ title: t('settings.logoutConfirm'), body: t('settings.logoutBody'), confirm: t('auth.logout'), danger: true })) void logout()
+    if (await confirmDialog({ title: t('settings.logoutConfirm'), confirm: t('auth.logout'), danger: true })) void logout()
   }
   return (
     <nav ref={navRef} aria-label={t('tabs.me')} className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="settings-menu">
@@ -325,11 +321,9 @@ function PhoneSettingsList({ tabs, navRef }: { tabs: SettingsTab[]; navRef: Reac
         </PhoneListGroup>
       ))}
       {/* signing out lives here (the phone has no account menu) */}
-      {!freeRoam && (
-        <PhoneListGroup>
-          <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
-        </PhoneListGroup>
-      )}
+      <PhoneListGroup>
+        <PhoneListRow icon={<LogOut size={16} />} title={t('auth.logout')} onClick={() => void signOut()} testId="settings-logout" />
+      </PhoneListGroup>
     </nav>
   )
 }

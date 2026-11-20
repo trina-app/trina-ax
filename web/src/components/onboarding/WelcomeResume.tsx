@@ -1,7 +1,7 @@
-// Home's quiet setup row (docs/DECISIONS.md "W5 — Onboarding v5", "W6"): "설정 이어서 하기 · 2/5" (or, with one step
+// Home's quiet setup row on a phone (docs/DECISIONS.md "W5 — Onboarding v5", "W6"): "설정 이어서 하기 · 2/5" (or, with one step
 // left, "남은 일: 팀 파일") under the message box, the same words and count as the setup row (SetupRow.tsx,
-// both from lib/welcome.ts setupRowWords), which hides on Home so the two never show together; on a computer too
-// since docs/decisions/20261120-my-setup-card.md (Home's top: this, then My setup, then the goal). Nothing shows for anyone
+// both from lib/welcome.ts setupRowWords), which hides on Home so the two never show together. On a computer the
+// list panel's setup row replaces it (Home shows the goal card). Nothing shows for anyone
 // else, before the steps were started, or while no AI answers the owner (Home's connect card stands in its place, so the
 // row never leads back to the AI step). On a landing the owner goes to the steps themselves (useResumeOnLanding). A phone
 // whose only step left is 내 스킬, put off for a computer, shows one quiet line instead (SkillsOnComputer); 도구 연결 is

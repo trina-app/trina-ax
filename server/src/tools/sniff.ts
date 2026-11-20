@@ -7,12 +7,9 @@
 // sniffDownload adds a zip or compound-file container and CSV text on the first bytes, and settleKind decides what the
 // whole file is once it is downloaded (the names in a zip's directory, the streams of a compound file, the text of a
 // CSV), refusing program packages and installers.
-// save_url also takes JavaScript files (docs/decisions/20261120-team-scripts-in-previews.md): a library that an HTML
-// page in the team folder runs (web/src/lib/frame-scripts.ts). Like a table: its Content-Type or its .js / .mjs / .cjs
-// name says so and the bytes are text (no NUL, not a page, a picture, an archive or a #! program).
 
 export type KindName = 'png' | 'jpeg' | 'gif' | 'webp' | 'pdf' | 'mp4' | 'mov' | 'webm' | 'mp3' | 'wav' | 'm4a' | 'aac' | 'flac' | 'ogg' | 'opus'
-  | 'docx' | 'docm' | 'xlsx' | 'xlsm' | 'pptx' | 'pptm' | 'doc' | 'xls' | 'ppt' | 'hwp' | 'hwpx' | 'odt' | 'ods' | 'odp' | 'msg' | 'zip' | 'csv' | 'tsv' | 'js'
+  | 'docx' | 'docm' | 'xlsx' | 'xlsm' | 'pptx' | 'pptm' | 'doc' | 'xls' | 'ppt' | 'hwp' | 'hwpx' | 'odt' | 'ods' | 'odp' | 'msg' | 'zip' | 'csv' | 'tsv'
   /** a compound file (OLE2) whose kind settleKind decides after the download; never saved as it is */
   | 'ole'
 export interface FileKind { name: KindName; ext: string; mime: string; label: string; image: boolean; media: 'image' | 'document' | 'video' | 'audio' | 'archive' | 'data'; /** a document with macros (programs inside it): the AI warns the person */ macros?: true }
@@ -52,7 +49,6 @@ export const KINDS: Record<KindName, FileKind> = {
   zip: K('zip', 'zip', 'application/zip', 'ZIP', 'archive'),
   csv: K('csv', 'csv', 'text/csv', 'CSV', 'data'),
   tsv: K('tsv', 'tsv', 'text/tab-separated-values', 'TSV', 'data'),
-  js: K('js', 'js', 'text/javascript', 'JavaScript', 'data'),
   ole: K('ole', 'bin', 'application/x-ole-storage', 'compound file', 'document'),
 }
 /** extensions that already name a kind correctly (kept as written) */
@@ -63,10 +59,9 @@ const SAME_EXT: Partial<Record<KindName, string[]>> = {
   doc: ['doc', 'dot'], xls: ['xls', 'xlt'], ppt: ['ppt', 'pot', 'pps'], odt: ['odt', 'ott'], ods: ['ods', 'ots'], odp: ['odp', 'otp'],
   // zip-based formats that are not documents read here (an e-book, Apple's iWork files) keep their name
   zip: ['zip', 'epub', 'pages', 'numbers', 'key'], csv: ['csv', 'txt'], tsv: ['tsv', 'tab', 'txt'],
-  js: ['js', 'mjs', 'cjs'],
 }
 export const ACCEPTED = 'PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, MP3, WAV, M4A, AAC, FLAC and Ogg (Vorbis, Opus) audio, ' +
-  'Word, Excel, PowerPoint, Hangul (HWP, HWPX) and OpenDocument files, Outlook emails (.msg), CSV / TSV tables, ZIP archives and JavaScript files (.js, .mjs: libraries for HTML pages)'
+  'Word, Excel, PowerPoint, Hangul (HWP, HWPX) and OpenDocument files, Outlook emails (.msg), CSV / TSV tables and ZIP archives'
 
 const ascii = (b: Uint8Array, at: number, n: number) => String.fromCharCode(...b.subarray(at, at + n))
 /** MP4 major / compatible brands that are a video file (not HEIC / AVIF images; QuickTime's `qt  ` is MOV) */
@@ -169,20 +164,17 @@ const DECLARED: Record<string, KindName> = {
   'application/x-hwp': 'hwp', 'application/haansofthwp': 'hwp', 'application/vnd.hancom.hwp': 'hwp', 'application/vnd.ms-outlook': 'msg',
   'text/csv': 'csv', 'application/csv': 'csv', 'text/x-csv': 'csv', 'application/x-csv': 'csv', 'text/comma-separated-values': 'csv',
   'text/tab-separated-values': 'tsv',
-  'text/javascript': 'js', 'application/javascript': 'js', 'application/x-javascript': 'js', 'text/ecmascript': 'js', 'application/ecmascript': 'js',
 }
 const declaredKind = (declared: string): KindName | undefined => DECLARED[declared.split(';')[0]!.trim().toLowerCase()]
 const isZipHead = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 3 && b[3] === 4
 const isOleHead = (b: Uint8Array) => b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1
-/** a table or a script as text: says CSV / TSV / JavaScript (its Content-Type, or the address's or the asked name's
- * extension), no NUL in its first bytes (a UTF-16 table with a byte order mark too), and not a page, a picture or a
- * #! program */
+/** a table as text: says CSV / TSV (its Content-Type, or the address's or the asked name's extension), no NUL in its
+ * first bytes (a UTF-16 table with a byte order mark too), and not a page, a picture or a script */
 function tableKind(b: Uint8Array, declared: string, name: string): FileKind | null {
   const said = declaredKind(declared)
   const e = EXT_OF(name)
-  // Excel's CSV download often comes as application/vnd.ms-excel, text/plain or octet-stream with a .csv name; a CDN
-  // may send a library as text/plain
-  const kind: KindName | null = said === 'csv' || said === 'tsv' || said === 'js' ? said : e === 'csv' || e === 'tsv' ? e : e === 'js' || e === 'mjs' || e === 'cjs' ? 'js' : null
+  // Excel's CSV download often comes as application/vnd.ms-excel, text/plain or octet-stream with a .csv name
+  const kind: KindName | null = said === 'csv' || said === 'tsv' ? said : e === 'csv' || e === 'tsv' ? e : null
   if (!kind) return null
   const bom16 = b.length >= 2 && ((b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff))
   if (!bom16 && b.subarray(0, 8192).includes(0)) return null
@@ -374,10 +366,10 @@ export function settleKind(k: FileKind, read: ReadAt, size: number, declared: st
     if (all.has('__properties_version1.0') && names.some((n) => n.startsWith('__substg1.0_'))) return KINDS.msg
     throw refuse()
   }
-  if (k.name === 'csv' || k.name === 'tsv' || k.name === 'js') {
+  if (k.name === 'csv' || k.name === 'tsv') {
     const head = read(0, 8192)
     const bom16 = head.length >= 2 && ((head[0] === 0xff && head[1] === 0xfe) || (head[0] === 0xfe && head[1] === 0xff))
-    if (!bom16 && head.includes(0)) throw new RefusedKind(k.name === 'js' ? 'a binary file, not a JavaScript file' : 'a binary file, not a CSV table')
+    if (!bom16 && head.includes(0)) throw new RefusedKind('a binary file, not a CSV table')
   }
   return k
 }

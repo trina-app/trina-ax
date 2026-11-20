@@ -182,7 +182,7 @@ export async function routeRooms(page: Page, specs: MockRoomSpec[]): Promise<Moc
       memberCount: s.peers.length + 1, peers: s.peers.slice(0, 4), lastSeq: 3, unreadCount: s.unread ?? 0, threadsUnread: s.threads ?? 0, nextThreadId: null,
       mentioned: !!s.mentioned, lastReadSeq: 3 - Math.min(3, s.unread ?? 0),
       lastMessage: { id: msgId(i), seq: 3, author: s.peers[0] ?? null, excerpt: s.last, fileCount: 0, deleted: false, createdAt: when(s.ago) },
-      muted: !!s.muted || level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
+      muted: level === 'off', notify: { own: s.own, byDefault, level }, createdAt: when(600), activityAt: when(s.ago),
       ...(s.hidden ? { hidden: true } : {}),
       ...(s.pinnedAt ? { pinnedAt: s.pinnedAt } : {}),
       ...(s.groupFolder ? { groupFolder: s.groupFolder } : {}),

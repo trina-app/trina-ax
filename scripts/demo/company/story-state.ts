@@ -8,11 +8,6 @@
 //                as plain finished messages: no AI runs
 //   connections  a person's Gmail or Google Drive, the team's Higgsfield, with made-up secrets (the demo's fakes answer)
 //   welcome      who invited a person (their welcome card on Home)
-//   people       each person's job title and e-mail on their profile (set by them)
-//   projects     a project's channel (a private channel of the rooms, linked by the project's maker)
-//   threads      replies under a shared chat's last answer, with @mentions (the answer's asker gets the notice)
-//   fileTimes    when the files were changed in the story (on disk and in Files › Recent); recentHidden: the seed's
-//                own changes kept out of Recent (team skills, company profile)
 //
 // Everything a person can do goes through the public REST API as that person. What nobody can do in the product
 // (a message sent yesterday, an inviter, a connection without signing in, a finished answer without the AI) goes
@@ -31,8 +26,7 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 
 /** the people of the content: the owner first */
 function accountsOf(c: ContentCompany) {
-  return [{ username: c.owner.username, name: c.owner.name, group: c.owner.group ?? null, title: c.owner.title, email: c.owner.email },
-    ...c.people.map((p) => ({ username: p.username, name: p.name, group: p.group, title: p.title, email: p.email }))]
+  return [{ username: c.owner.username, name: c.owner.name, group: c.owner.group ?? null }, ...c.people.map((p) => ({ username: p.username, name: p.name, group: p.group }))]
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
@@ -70,14 +64,6 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
   }
   const unique = (what: string, names: string[]) => { for (const [i, n] of names.entries()) if (names.indexOf(n) !== i) problems.push(`${what} "${n}" is there twice`) }
   const oldestFirst = (where: string, times: number[]) => { if (times.some((t, i) => i > 0 && t > times[i - 1]!)) problems.push(`${where}: oldest first (minutesAgo may only go down)`) }
-  // what the new hire has not read: someone else's, and only at the end (everything after it is unread too)
-  const hire = c.demo.personas.find((p) => p.key === 'newHire')?.username
-  const unreadAtEnd = (where: string, list: { from: string; unread?: true }[]) => {
-    const first = list.findIndex((x) => x.unread)
-    if (first < 0) return
-    if (list.slice(first).some((x) => !x.unread)) problems.push(`${where}: "unread" only at the end (everything after an unread message is unread too)`)
-    if (hire && list.some((x) => x.unread && same(x.from, hire))) problems.push(`${where}: ${hire}'s own message is never unread for them`)
-  }
 
   unique('project', c.projects.map((p) => nfc(p.name)))
   for (const p of c.projects) {
@@ -87,15 +73,6 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
       if ('user' in m && !account(m.user)) problems.push(`project ${p.name}: no account "${m.user}"`)
     }
   }
-
-  for (const p of c.projects.filter((x) => x.channel)) {
-    const r = c.rooms.find((y) => y.slug === p.channel)
-    // only a private channel links to a project (rooms/project-link.ts isPrivateChannelRow); its maker must be in it
-    if (!r) problems.push(`project ${p.name}: no room "${p.channel}"`)
-    else if (r.kind !== 'group' || !r.name) problems.push(`project ${p.name}: its channel ${r.slug} is not a private channel (a group chat with a name)`)
-    else if (!roomMembers(c, r).some((u) => same(u, p.by ?? c.owner.username))) problems.push(`project ${p.name}: ${p.by ?? c.owner.username} is not in its channel ${r.slug}`)
-  }
-  for (const [i, path] of (c.fileTimes ?? []).entries()) if (!hasFile(path.path) && !files.some((f) => f.startsWith(nfc(path.path) + '/'))) problems.push(`fileTimes ${i + 1}: no file or folder ${path.path} in files/`)
 
   unique('room', c.rooms.map((r) => r.slug))
   if (c.rooms.filter((r) => r.kind === 'all').length > 1) problems.push('rooms: one everyone room (kind "all") at most')
@@ -123,21 +100,7 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
         else if (chat.turns.at(-1)!.minutesAgo < m.minutesAgo) problems.push(`${at}: sent before chat ${chat.slug} was answered`)
       }
       placeholders(at, m.text)
-      // a thread: replies of the room's people, oldest first, after the message they answer
-      const thread = m.thread ?? []
-      if (thread.length && m.shareChat) problems.push(`${at}: a shared answer has no thread here`)
-      oldestFirst(`${at} thread`, thread.map((r) => r.minutesAgo))
-      if (thread[0] && thread[0].minutesAgo > m.minutesAgo) problems.push(`${at}: its thread starts before it`)
-      for (const [j, r] of thread.entries()) {
-        if (!inRoom(r.from)) problems.push(`${at} thread reply ${j + 1}: "${r.from}" is not in the room`)
-        for (const x of r.reactions) if (!inRoom(x.from)) problems.push(`${at} thread reply ${j + 1}: "${x.from}" reacts but is not in the room`)
-        placeholders(`${at} thread reply ${j + 1}`, r.text)
-      }
-      unreadAtEnd(`${at} thread`, thread)
     }
-    unreadAtEnd(where, r.messages)
-    if (r.messages.some((m) => m.unread || m.thread?.some((x) => x.unread)) && !hire) problems.push(`${where}: "unread" needs a new hire (demo persona newHire)`)
-    else if (hire && !inRoom(hire) && r.messages.some((m) => m.unread || m.thread?.some((x) => x.unread))) problems.push(`${where}: unread for ${hire}, who is not in the room`)
   }
 
   unique('chat', c.chats.map((x) => x.slug))
@@ -157,15 +120,6 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
     }
     oldestFirst(where, x.turns.map((t) => t.minutesAgo))
     for (const [i, t] of x.turns.entries()) placeholders(`${where} turn ${i + 1}`, t.answer)
-    const thread = x.thread ?? []
-    if (thread.length) {
-      // a thread is under an answer of a shared chat: a project's (chat/threads.ts), seen by its members
-      const p = x.project && !x.private ? c.projects.find((y) => nfc(y.name) === nfc(x.project!)) : undefined
-      if (!p) problems.push(`${where}: a thread needs a shared project chat`)
-      else for (const [i, r] of thread.entries()) if (!projectMembers(c, p).some((u) => same(u, r.from))) problems.push(`${where} thread reply ${i + 1}: ${r.from} is not in project ${p.name}`)
-      oldestFirst(`${where} thread`, thread.map((r) => r.minutesAgo))
-      if (thread[0]!.minutesAgo > x.turns.at(-1)!.minutesAgo) problems.push(`${where}: the thread starts before the answer`)
-    }
   }
 
   const conn = new Set<string>()
@@ -197,7 +151,7 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
 }
 
 export interface StoryResult {
-  rooms: Record<string, { id: string; messages: number; replies: number }>
+  rooms: Record<string, { id: string; messages: number }>
   chats: Record<string, { id: string; answers: string[] }>
   connections: { service: string; username: string | null; id: string }[]
   welcome: number
@@ -256,12 +210,6 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       await (await as(a.username)).call(API.putMyAvatar, { query: { type: a.type }, body: new Uint8Array(fs.readFileSync(a.file)) })
     }
 
-    // 0b. job titles and e-mails, each set by its person (the free-roam audit, QA TC-5619)
-    for (const a of accountsOf(c)) {
-      if (a.title) await (await as(a.username)).call(API.updateMyProfile, { body: { title: a.title } })
-      if (a.email) await (await as(a.username)).call(API.updateMe, { body: { email: a.email } })
-    }
-
     // 1. who invited whom, and the connections (the fakes answer them)
     for (const w of c.welcome) {
       await owner.call(API.demoBuilderWelcome, { body: { userId: idOf(w.username), inviterId: idOf(w.inviter) } })
@@ -288,12 +236,6 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       if (!room) throw new Error(`room ${r.slug}: not on the server`)
       rooms.set(r.slug, room)
     }
-    // a project's channel, linked by the project's maker from the project (before the messages: the link's line in the
-    // channel then dates to just before its first message)
-    for (const p of c.projects.filter((x) => x.channel)) {
-      await (await as(p.by ?? c.owner.username)).call(API.linkRoomProject, { params: { id: rooms.get(p.channel!)!.id }, body: { projectId: projects.get(nfc(p.name))!, via: 'project' } })
-      log(`project ${p.name}: channel ${p.channel}`)
-    }
 
     // 3. the past AI chats: made by their person, answered by the builder (plain finished messages, at their times)
     for (const x of c.chats) {
@@ -304,39 +246,17 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       const r = await owner.call(API.demoBuilderChatTurns, { body: { chatId: chat.id, turns: x.turns.map((t) => ({ ask: t.ask, answer: resolve(t.answer), at: atOf(t.minutesAgo) })) } })
       result.chats[x.slug] = { id: chat.id, answers: r.turns.map((t) => t.answerId) }
       log(`chat "${x.title}" of ${x.username}`)
-      if (x.thread?.length) {
-        const p = c.projects.find((y) => nfc(y.name) === nfc(x.project!))!
-        const root = r.turns.at(-1)!.answerId
-        const times: { replyId: string; at: string }[] = []
-        for (const t of x.thread) {
-          const reply = await (await as(t.from)).call(API.sendChatThreadReply, { params: { id: chat.id, messageId: root }, body: { text: t.text, clientId: crypto.randomUUID(), mentions: mentionsIn(t.text, projectMembers(c, p)) } })
-          times.push({ replyId: reply.id, at: atOf(t.minutesAgo) })
-        }
-        await owner.call(API.demoBuilderThreadTimes, { body: { chatId: chat.id, times } })
-        log(`chat "${x.title}": ${times.length} thread replies`)
-      }
     }
 
-    // 4. the messages and their thread replies, oldest first in each room, as their people; then their times and the
-    // reactions. Sent in time order, so the room's positions (seq) follow the story's times and "read up to" means it
-    type Item = { m: { from: string; text: string; minutesAgo: number; files: string[]; reactions: { from: string; emoji: string }[]; shareChat?: string; unread?: true }; root: number | null; index: number }
-    const unreadPlan = new Map<string, { firstUnreadSeq: number | null; threads: { rootId: string; seqs: number[]; firstUnreadSeq: number | null }[] }>()
+    // 4. the messages, oldest first in each room, as their people; then their times and the reactions
     for (const r of c.rooms) {
       const room = rooms.get(r.slug)!
       const members = roomMembers(c, r)
-      const sent: { id: string; at: string; seq: number; unread: boolean; root: number | null }[] = []
-      const items: Item[] = []
-      for (const [i, m] of r.messages.entries()) {
-        items.push({ m, root: null, index: i })
-        for (const t of m.thread ?? []) items.push({ m: { ...t, files: [] }, root: i, index: i })
-      }
-      // oldest first; a root before its replies at the same time
-      items.sort((p, q) => q.m.minutesAgo - p.m.minutesAgo || (p.root === null ? -1 : 0) - (q.root === null ? -1 : 0))
-      const rootIds = new Map<number, string>()
-      for (const { m, root, index } of items) {
+      const sent: { id: string; at: string }[] = []
+      for (const m of r.messages) {
         const api = await as(m.from)
         const text = resolve(m.text)
-        let id: string, seq: number
+        let id: string
         if (m.shareChat) {
           const chat = result.chats[m.shareChat]!
           const answer = chat.answers.at(-1)!
@@ -347,21 +267,18 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
             out = await retrying(() => api.call(API.shareAnswerToRoom, { params: { id: chat.id, messageId: answer }, body: { ...body, confirmKey: confirm.confirmKey, attach: confirm.files.filter((f) => f.attach === 'yes' && f.path).map((f) => f.path!) } }))
           }
           if (out.status !== 'sent') throw new Error(`room ${r.slug}: the answer of chat ${m.shareChat} was not sent`)
-          id = out.message.id; seq = out.message.seq
+          id = out.message.id
         } else {
           const fileIds: string[] = []
           for (const f of m.files) fileIds.push((await retrying(() => api.call(API.attachRoomTeamFile, { params: { id: room.id }, body: { path: f } }))).file.id)
           const mentions = mentionsIn(m.text, members)
-          const threadRootId = root === null ? null : rootIds.get(root)!
-          const sentMsg = await retrying(() => api.call(API.sendRoomMessage, { params: { id: room.id }, body: { body: text, mentions, fileIds, clientMessageId: crypto.randomUUID(), ...(threadRootId ? { threadRootId } : {}) } }))
-          id = sentMsg.id; seq = sentMsg.seq
+          id = (await retrying(() => api.call(API.sendRoomMessage, { params: { id: room.id }, body: { body: text, mentions, fileIds, clientMessageId: crypto.randomUUID() } }))).id
         }
-        if (root === null) rootIds.set(index, id)
-        for (const x of m.reactions) await retrying(async () => (await as(x.from)).call(API.reactRoomMessage, { params: { id: room.id, messageId: id }, body: { emoji: x.emoji, on: true } }))
-        sent.push({ id, at: atOf(m.minutesAgo), seq, unread: !!m.unread, root: root === null ? null : root })
+        for (const x of m.reactions) await (await as(x.from)).call(API.reactRoomMessage, { params: { id: room.id, messageId: id }, body: { emoji: x.emoji, on: true } })
+        sent.push({ id, at: atOf(m.minutesAgo) })
       }
-      // every line of the room gets a time: a sent message its own (thread replies too), the room's own lines ("… made
-      // this group") the time of the message after them (or before, at the end)
+      // every line of the room gets a time: a sent message its own, the room's own lines ("… made this group") the time
+      // of the message after them (or before, at the end)
       const timeline = await roomTimeline(await as(members.find((m) => same(m, c.owner.username)) ?? members[0]!), room.id)
       const known = new Map(sent.map((s) => [s.id, s.at]))
       const times: { messageId: string; at: string }[] = []
@@ -371,53 +288,15 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
         if (at) { times.push({ messageId: m.id, at }); next = at }
       }
       for (const m of timeline) if (!times.some((t) => t.messageId === m.id) && sent.length) times.push({ messageId: m.id, at: sent.at(-1)!.at })
-      for (const x of sent) if (!times.some((t) => t.messageId === x.id)) times.push({ messageId: x.id, at: x.at })
-      // the seed's "joined" lines are today's, not the story's: gone from the everyone room and the team rooms
-      const dated = await owner.call(API.demoBuilderRoomTimes, { body: { roomId: room.id, times, dropJoinLines: r.kind === 'all' || r.kind === 'team' } })
-      result.rooms[r.slug] = { id: room.id, messages: sent.filter((x) => x.root === null).length, replies: sent.filter((x) => x.root !== null).length }
-      // what step 5 leaves unread for the new hire: from the first unread message of the timeline, and of each thread
-      const firstSeq = (list: typeof sent) => list.find((x) => x.unread)?.seq ?? null
-      unreadPlan.set(r.slug, {
-        firstUnreadSeq: firstSeq(sent.filter((x) => x.root === null)),
-        threads: [...rootIds.entries()].map(([i, rootId]) => {
-          const replies = sent.filter((x) => x.root === i)
-          return { rootId, seqs: replies.map((x) => x.seq), firstUnreadSeq: firstSeq(replies) }
-        }).filter((t) => t.seqs.length),
-      })
-      log(`room ${r.slug}: ${result.rooms[r.slug]!.messages} messages, ${result.rooms[r.slug]!.replies} thread replies (${dated.updated} dated${dated.dropped ? `, ${dated.dropped} join lines dropped` : ''})`)
+      const dated = await owner.call(API.demoBuilderRoomTimes, { body: { roomId: room.id, times, dropJoinLines: r.kind === 'all' } })
+      result.rooms[r.slug] = { id: room.id, messages: sent.length }
+      log(`room ${r.slug}: ${sent.length} messages (${dated.updated} dated${dated.dropped ? `, ${dated.dropped} join lines dropped` : ''})`)
     }
 
-    // 4b. the files' times in the story, and the seed's own changes out of Files › Recent (the free-roam audit, QA TC-5618)
-    const memoryTimes = c.memories.filter((m) => m.minutesAgo !== undefined).map((m) => ({ userId: idOf(m.username), text: m.text, at: atOf(m.minutesAgo!) }))
-    if (c.fileTimes?.length || c.recentHidden?.length || memoryTimes.length) {
-      const files = o.content.files
-      const times: { path: string; at: string }[] = []
-      for (const f of files) {
-        const hit = (c.fileTimes ?? []).find((t) => nfc(f) === nfc(t.path) || nfc(f).startsWith(nfc(t.path) + '/'))
-        if (hit) times.push({ path: f, at: atOf(hit.minutesAgo) })
-      }
-      const r = await owner.call(API.demoBuilderFileTimes, { body: { times, hideFromRecent: c.recentHidden ?? [], memories: memoryTimes } })
-      log(`files: ${r.updated} dated, ${r.hidden} seed changes out of Recent`)
-    }
-
-    // 5. everyone has read what was there when the visitor arrives, the threads they follow too (the room's read
-    // position never covers them); for the new hire, all but what the content marks unread (the end of a room or of a
-    // thread). The welcome rows asked for are done
-    const hire = c.demo.personas.find((p) => p.key === 'newHire')?.username
+    // 5. everyone has read what was there when the visitor arrives; the welcome rows asked for are done
     for (const a of accountsOf(c)) {
       const api = await as(a.username)
-      const isHire = !!hire && same(a.username, hire)
-      const slugOf = new Map([...rooms.entries()].map(([slug, room]) => [room.id, slug]))
-      for (const room of (await api.call(API.listRooms)).items) {
-        const plan = unreadPlan.get(slugOf.get(room.id) ?? '')
-        const upTo = isHire && plan?.firstUnreadSeq ? plan.firstUnreadSeq - 1 : room.lastSeq
-        if (upTo > 0) await api.call(API.markRoomRead, { params: { id: room.id }, body: { seq: upTo } })
-        for (const t of plan?.threads ?? []) {
-          const to = isHire && t.firstUnreadSeq ? t.firstUnreadSeq - 1 : Math.max(...t.seqs)
-          // only a thread they follow has a read position (wrote the root, replied, or were mentioned)
-          await api.call(API.markRoomThreadRead, { params: { id: room.id, messageId: t.rootId }, body: { seq: to } }).catch((e) => { if (!(e instanceof ApiError) || e.status !== 404) throw e })
-        }
-      }
+      for (const room of (await api.call(API.listRooms)).items) if (room.lastSeq > 0) await api.call(API.markRoomRead, { params: { id: room.id }, body: { seq: room.lastSeq } })
     }
     for (const w of c.welcome.filter((x) => x.asked)) await (await as(w.username)).call(API.updateMemberWelcome, { body: { asked: true } }).catch(() => {})
     return result

@@ -115,8 +115,6 @@ export function situationSection(s: Situation, L: Locale): string {
   // (Admin › System). What is not in the demo is demoRule's to say.
   if (s.freeRoam) {
     lines.push(`- Role: ${s.role === 'owner' ? 'the team\'s owner' : s.role === 'admin' ? 'an admin' : 'a member'} in this demo. Admin and its pages are not in the demo: never send them to an Admin page. Their own things are in ${SCREEN.settings(L)}.`)
-    // QA TC-5745: asked to change the name, the AI pointed to the profile; the demo keeps the name and e-mail as seeded
-    lines.push('- Profile: their name and e-mail address stay as they are in this demo (they cannot be changed here). Asked to change either, say so in one sentence and never point to a page or setting for it.')
     if (app) lines.push(app)
     if (s.connectedFolders !== undefined) lines.push(`- Files: earlier versions are in ${SCREEN.fileHistory(L)}; you can show who saved each version and what changed (read with versions); bringing one back is the person's ${SCREEN.restoreButton(L)} there (the current one is kept as a version too).`)
     return plainNames(['## About this person and place', ...lines].join('\n'))

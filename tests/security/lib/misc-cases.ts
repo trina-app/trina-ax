@@ -279,8 +279,6 @@ export const MISC_SPECS: Record<string, Spec> = {
   demoBuilderWelcome: { skipPositive: true, build: (c) => c.post('/api/demo/builder/welcome', { userId: 'nobody', inviterId: 'nobody' }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
   demoBuilderConnection: { skipPositive: true, build: (c) => c.post('/api/demo/builder/connections', { service: 'higgsfield', account: { name: 'X', email: 'x@team.example' } }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
   demoBuilderChatTurns: { skipPositive: true, build: (c) => c.post('/api/demo/builder/chat-turns', { chatId: DEMO_UUID7, turns: [{ ask: 'a', answer: 'b', at: '2026-01-01T00:00:00.000Z' }] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
-  demoBuilderThreadTimes: { skipPositive: true, build: (c) => c.post('/api/demo/builder/thread-times', { chatId: DEMO_UUID7, times: [{ replyId: DEMO_UUID7, at: '2026-01-01T00:00:00.000Z' }] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
-  demoBuilderFileTimes: { skipPositive: true, build: (c) => c.post('/api/demo/builder/file-times', { times: [{ path: 'shared/a.md', at: '2026-01-01T00:00:00.000Z' }], hideFromRecent: ['skills'] }), scope: 'nobody', check: (r, _w, who) => builderOff(r.status, who) },
 
   // ---- after-update to-dos (owners and admins); a to-do nobody has: 404 after the check
   afterUpdateActions: { build: (c) => c.get('/api/admin/after-update'), scope: 'byLevel' },

@@ -7,7 +7,7 @@ import { inputCls } from './ui'
  * shows the current language and lists each language in its own name, never a row of every language. `teamDefault`
  * adds a first choice "Team default (…)", value `team` (a person's or a member's own setting). A phone's Settings keeps
  * its iPhone-style checkmark list (PhoneChecks / PhoneChoiceRow). */
-export function LanguageSelect<V extends Locale | 'team'>({ value, onChange, teamDefault, className, compact, id, testId, label, describedBy, disabled, only }: {
+export function LanguageSelect<V extends Locale | 'team'>({ value, onChange, teamDefault, className, compact, id, testId, label, describedBy, disabled }: {
   value: V
   onChange: (value: V) => void
   /** the label of the "team default" choice; without it there is no such choice */
@@ -21,8 +21,6 @@ export function LanguageSelect<V extends Locale | 'team'>({ value, onChange, tea
   label?: string
   describedBy?: string
   disabled?: boolean
-  /** only these languages (and the current one, whatever it is); default: every language */
-  only?: readonly Locale[]
 }) {
   return (
     <select
@@ -36,7 +34,7 @@ export function LanguageSelect<V extends Locale | 'team'>({ value, onChange, tea
       disabled={disabled}
     >
       {teamDefault !== undefined && <option value="team">{teamDefault}</option>}
-      {LOCALES.filter((l) => !only || only.includes(l.id) || l.id === value).map((l) => (
+      {LOCALES.map((l) => (
         <option key={l.id} value={l.id} lang={l.id}>
           {l.label}
         </option>

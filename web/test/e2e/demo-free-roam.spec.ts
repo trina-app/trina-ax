@@ -126,11 +126,17 @@ for (const width of [1440, 390] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
         // a chip: tall enough to tap on a phone
         if (width === 390) expect((await page.getByTestId('free-roam-chip').first().boundingBox())!.height).toBeGreaterThanOrEqual(32)
-        // every chip whole inside the width, on a phone too: the chips wrap, none is cut at the edge (QA TC-5622)
-        for (const c of await page.getByTestId('free-roam-chip').all()) {
-          const r = (await c.boundingBox())!
-          expect(r.x).toBeGreaterThanOrEqual(0)
-          expect(r.x + r.width).toBeLessThanOrEqual(width + 0.5)
+        // a phone: the row scrolls sideways and its edge fades while more chips are past it, until its end
+        const row = page.getByTestId('free-roam-chips')
+        if (width === 390) {
+          await expect(row).toHaveAttribute('data-more', 'true')
+          expect(await row.evaluate((el) => getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage)).toContain('gradient')
+          await row.evaluate((el) => { el.scrollLeft = el.scrollWidth })
+          await expect(row).not.toHaveAttribute('data-more')
+          await row.evaluate((el) => { el.scrollLeft = 0 })
+          await expect(row).toHaveAttribute('data-more', 'true')
+        } else {
+          await expect(row).not.toHaveAttribute('data-more')
         }
         await shot(page, `${at}-2-bar`)
 

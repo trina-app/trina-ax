@@ -44,9 +44,6 @@ import { googleTransport, isGoogleAppSecret, setGoogleFetch, tokensOf, type Goog
 import { workspaceLibraryOf } from './library'
 import type { CallbackOutcome } from '../google-drive/callback-page'
 
-/** The key of a Google app connection the demo's snapshot builder makes (routes/demo-builder.ts): no Google app made it. */
-export const DEMO_GOOGLE_KEY = 'demo'
-
 export class GoogleAppError extends Error {
   name = 'GoogleAppError'
   constructor(readonly reason: string, readonly status = 400) { super(`google_app_${reason}`) }
@@ -152,13 +149,7 @@ export class GoogleApps {
   /** connected, or needs a new sign-in (its tokens gone, refused by Google, or made with a Google app set up earlier) */
   private stateOf(row: Row, setupKey: string): 'connected' | 'needs_reconnect' {
     const secret = this.secretOf(row)
-    return secret && row.status !== 'needs_auth' && this.keyMatches(secret.google.key, setupKey) ? 'connected' : 'needs_reconnect'
-  }
-  /** Was the connection made with the Google app set up now? On a demo server with fakes, a connection the snapshot
-   * builder made (key DEMO_GOOGLE_KEY: there is no Google app, the demo's fake answers it) counts as made with it, so
-   * Settings › Connectors shows the demo's Gmail as connected (the free-roam audit, QA TC-5611). */
-  private keyMatches(key: string, setupKey: string): boolean {
-    return key === setupKey || (key === DEMO_GOOGLE_KEY && !!this.ctx.config.demo?.fakes)
+    return secret && row.status !== 'needs_auth' && secret.google.key === setupKey ? 'connected' : 'needs_reconnect'
   }
   private secretOf(row: Row): GoogleAppSecret | null {
     if (!row.secret_enc) return null
@@ -179,7 +170,7 @@ export class GoogleApps {
     const reason = this.reasonOf(app)
     const row = this.row(user, app)
     const secret = row ? this.secretOf(row) : null
-    const status: GoogleAppView['status'] = !row ? 'disconnected' : secret && row.status !== 'needs_auth' && this.keyMatches(secret.google.key, setup.key) ? 'connected' : 'needs_reconnect'
+    const status: GoogleAppView['status'] = !row ? 'disconnected' : secret && row.status !== 'needs_auth' && secret.google.key === setup.key ? 'connected' : 'needs_reconnect'
     const account = row ? accountOf(row) : null
     // the team's shared account, only for the people its rule includes now (an admin it does not include sees it on the
     // admin page, not here)

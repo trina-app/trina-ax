@@ -374,10 +374,6 @@ export class MockServer {
   /** an invited person's welcome card on Home (server/src/onboarding/member-welcome.ts): none in these tests unless one
    * sets it (POST /__test/member-welcome {welcome}), as for the team's creator and people who joined before it existed */
   memberWelcome: MemberWelcome | null = null
-  /** the card hidden (Hide) while its days last: Settings › Profile can show it again (PATCH { show }) */
-  memberWelcomeHidden: MemberWelcome | null = null
-  /** an admin's "팀 파일 정리하기" on Admin › Home (POST /__test/member-welcome {organizeFiles}) until a plan is applied */
-  organizeFilesRow = false
   /** a saved welcome row: finished once 회사 소개 is answered (saved or put off) and 내 스킬, 팀 파일, 도구 연결 and the
    * invite are each done or put off, not while 내 스킬 waits for a computer (server/src/onboarding/welcome.ts
    * welcomeFinished, docs/DECISIONS.md "W6") */
@@ -701,8 +697,6 @@ export class MockServer {
     this.revokedTeamLinks.clear()
     this.welcome = null
     this.memberWelcome = null
-    this.memberWelcomeHidden = null
-    this.organizeFilesRow = false
     this.companyProfile = null
     this.packExamples = {}
     this.packsFail = false
@@ -1055,14 +1049,7 @@ export class MockServer {
     if (!w) return null
     const from = `users/${userId}/${FROM_COMPUTER_DIR}/`
     const files = [...this.files].some(([p, n]) => n.type === 'file' && p.startsWith(from))
-    // "all set" once the counted rows are done (the owner's card: tools only; a member's: tools, hi and asked)
-    const steps = { ...w.steps, files }
-    const allSet = w.allSet || (steps.tools !== undefined && (w.kind === 'owner' ? !!steps.tools : !!steps.tools && steps.hi && steps.asked))
-    return { ...w, steps, allSet }
-  }
-  memberWelcomeAnswer(userId: string, role: string) {
-    const welcome = this.memberWelcomeFor(userId)
-    return { welcome, ...(!welcome && this.memberWelcomeHidden ? { hidden: true } : {}), ...(role === 'admin' && this.organizeFilesRow && !this.filesOrganized ? { organizeFiles: true } : {}) }
+    return { ...w, steps: { ...w.steps, files }, ...(w.organizeFiles ? { organizeFiles: !this.filesOrganized } : {}) }
   }
   isFolder(p: string) { return p === '' || this.files.get(p)?.type === 'folder' || this.folders.some((f) => f.path === p) }
   explainFolder(q: { path?: string; cursor?: string; limit?: string }): FolderAccessResponse {
@@ -4269,13 +4256,11 @@ export class MockServer {
     // an invited person's welcome card (shared/src/api/member-welcome.ts): none by default; Hide ends it, Ask marks its row
     // an admin's "팀 파일 정리하기" row goes once a folder plan was applied (server/src/onboarding/member-welcome.ts)
     // the desktop app's optional files row: a file in the caller's My files › From this computer (looked at on every read)
-    getMemberWelcome: (c) => this.memberWelcomeAnswer(c.user.id, c.user.role),
+    getMemberWelcome: (c) => ({ welcome: this.memberWelcomeFor(c.user.id) }),
     updateMemberWelcome: (c) => {
-      if (c.body.hide) { if (this.memberWelcome && !this.memberWelcome.allSet) this.memberWelcomeHidden = this.memberWelcome; this.memberWelcome = null }
-      else if (c.body.show && this.memberWelcomeHidden) { this.memberWelcome = this.memberWelcomeHidden; this.memberWelcomeHidden = null }
-      if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
-      if (c.body.tools && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, tools: true } }
-      return this.memberWelcomeAnswer(c.user.id, c.user.role)
+      if (c.body.hide) this.memberWelcome = null
+      else if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
+      return { welcome: this.memberWelcomeFor(c.user.id) }
     },
     updateWelcome: (c) => {
       const at = now()
@@ -6200,11 +6185,7 @@ export class MockServer {
     else if (p === '/__test/storage-notice') for (const u of this.users.filter((x) => (x.role === 'owner' || x.role === 'admin') && x.status === 'active')) this.note(u.id, { kind: 'storage_filling', percent: Number(body.percent), roomsBytes: body.roomsBytes == null ? null : Number(body.roomsBytes) })
     else if (p === '/__test/google-apps') { this.googleApps.control(body); this.settleServiceRequests() }
     else if (p === '/__test/plugin-previous') this.plugins.control(body as { id: string; version: string; trusted: boolean; untrusted?: boolean })
-    else if (p === '/__test/member-welcome') {
-      this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
-      this.memberWelcomeHidden = null
-      this.organizeFilesRow = body.organizeFiles === true
-    }
+    else if (p === '/__test/member-welcome') this.memberWelcome = (body.welcome as MemberWelcome | null | undefined) ?? null
     else if (p === '/__test/drive-client') { this.driveClient = body.on === false ? 'none' : 'app'; this.settleServiceRequests() }
     else if (p === '/__test/popular-skills') this.popular = (body.items as { path: string; uses: number; users: number }[]) ?? []
     else if (p === '/__test/often-asked') this.oftenAsked = { team: (body.team as string[] | undefined) ?? [], groups: (body.groups as Record<string, string[]> | undefined) ?? {} }

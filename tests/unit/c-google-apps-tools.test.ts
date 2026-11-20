@@ -9,9 +9,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { makeCApp, PEOPLE, type CApp, type Person } from '../lib/c-app'
 import { APP_CLIENT, FakeGoogle, FakeLibrary, sessionRow } from '../lib/fake-google-apps'
-import { DEMO_GOOGLE_KEY, googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
-import { integrationsOf } from '../../server/src/integrations/connections/service'
-import { connectionAad, getRow } from '../../server/src/integrations/connections/store'
+import { googleAppsOf, type GoogleApps } from '../../server/src/integrations/google-apps/service'
 import { integrationToolProvider } from '../../server/src/integrations/connections/tools'
 import { readScope } from '../../server/src/chat/read-scope'
 import { TurnFiles } from '../../server/src/files/service'
@@ -342,21 +340,5 @@ describe('the library down', () => {
     expect(apps.view('alice', 'gmail').status).toBe('connected')
     noTokens(logs.join('\n'))
     noTokens(['integrations', 'google_app_flows', 'audit_log', 'tool_events'].map((x) => JSON.stringify(A.ctx.db.query(`SELECT * FROM ${x}`).all())).join('\n'))
-  })
-
-  test('a connection made by the demo snapshot builder (its key) is no sign-in of this server: Reconnect off a demo (free-roam audit, QA TC-5611)', () => {
-    const box = integrationsOf(A.ctx).box
-    const row = getRow(A.ctx.db, aliceGmail)!
-    const before = { enc: row.secret_enc, kv: row.key_version }
-    const secret = box.open<{ google: { key: string } }>(connectionAad(row), row.secret_enc!, row.key_version)
-    const sealed = box.seal(connectionAad(row), { ...secret, google: { ...secret.google, key: DEMO_GOOGLE_KEY } })
-    A.ctx.db.query('UPDATE integrations SET secret_enc = ?, key_version = ? WHERE id = ?').run(sealed.enc, sealed.keyVersion, aliceGmail)
-    try {
-      expect(A.ctx.config.demo).toBeUndefined()
-      expect(apps.view('alice', 'gmail').status).toBe('needs_reconnect')
-    } finally {
-      A.ctx.db.query('UPDATE integrations SET secret_enc = ?, key_version = ? WHERE id = ?').run(before.enc, before.kv, aliceGmail)
-    }
-    expect(apps.view('alice', 'gmail').status).toBe('connected')
   })
 })

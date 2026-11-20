@@ -159,7 +159,7 @@ describe('the card and the allowance', () => {
     await expect(gate(chat, 'https://scoped.example/c', null, { user: null })).rejects.toThrow(/nobody can confirm/)
   })
 
-  test('a long random-looking part still asks, highlighted; an unknown exit address still asks; a long plain query is covered in a watched turn', async () => {
+  test('a long random-looking part still asks, highlighted; a long query and an unknown exit address still ask', async () => {
     const chat = await chatOf()
     await gate(chat, 'https://leaky.example/start', person('site'))
     const asked: Asked[] = []
@@ -172,13 +172,10 @@ describe('the card and the allowance', () => {
     // the marked block shows the address decoded, but never a direction or control character it decodes to
     await expect(gate(chat, 'https://leaky.example/%E2%80%AEfdp/c2fsyxj5ltk4nzy1ndmy', person(null, asked))).rejects.toThrow(/did not allow/)
     expect(asked.at(-1)!.extra!.details![0]!.text).toBe('https://leaky.example/�fdp/c2fsyxj5ltk4nzy1ndmy')
-    // a query over 200 characters with no random-looking part: the site allowance covers it in a turn the person
-    // watches (docs/decisions/20261120-url-gate-camelcase-params.md), never where nobody can be asked
-    const n = asked.length
     const long = 'https://leaky.example/q?d=' + 'a-b-'.repeat(60)
-    expect(await gate(chat, long, person(null, asked))).toBe('site')
-    expect(asked).toHaveLength(n)
-    await expect(gate(chat, long, null)).rejects.toThrow(/long query part/)
+    await expect(gate(chat, long, person(null, asked))).rejects.toThrow(/did not allow/)
+    expect(asked.at(-1)!.question).toContain('has a lot of text at the end')
+    expect(asked.at(-1)!.options).toBeUndefined()
     await expect(gate(chat, 'https://leaky.example/plain', person(null, asked), { egressKnown: false })).rejects.toThrow(/did not allow/)
     expect(asked.at(-1)!.options).toBeUndefined()
     expect(await gate(chat, 'https://leaky.example/plain', null)).toBe('site')

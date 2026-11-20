@@ -110,14 +110,5 @@ Tekan **⌘K** (Ctrl+K di Windows), atau pilih **Cari** di bawah **Tanya Trina**
 - **File yang dikirim di percakapan** ditemukan berdasarkan nama di tab Semua dan File, setelah file tim Anda: file itu, siapa yang mengirimnya, di mana, dan kapan. Hanya file dari pesan yang bisa Anda lihat yang ditemukan. Pilih salah satu untuk membuka percakapan di pesan tempat file itu dikirim.
 - **Setiap kata dihitung**, dalam urutan apa pun: "견적서 보내" menemukan "견적서를 보내드렸어요" di pesan, chat, dan nama file.
 - **Tombol:** ↑ dan ↓ untuk berpindah, Enter untuk membuka, ← dan → untuk mengganti tab, Esc untuk menutup.
-- **Chip** di bawah kotak mempersempit pesan dan file yang ditemukan: **Percakapan ini** (saat Anda membuka pencarian di percakapan), **Dikirim oleh saya**, dan **Menyebut saya**. Mengetik `from:me` atau `mentions:me` sama saja.
-
-| Tombol | Fungsinya |
-| --- | --- |
-| **⌘K** (Ctrl+K) | Membuka pencarian dari mana saja. |
-| **⌘F** (Ctrl+F) di saluran, pesan langsung, obrolan grup, atau utas | Membuka pencarian dengan **Percakapan ini** aktif. Menu **⋯** percakapan juga punya **Cari di percakapan ini**. |
-| **⌘F** (Ctrl+F) di obrolan AI, penampil file, atau saat file atau artefak terbuka di samping | Mencari di halaman, seperti sebelumnya. |
-| **⌘F** (Ctrl+F) di tempat lain | Sama dengan ⌘K. |
-| **⌘F** lagi saat pencarian terbuka | Kembali ke kotak pencarian, dengan teksnya terpilih. Untuk mencari di halaman, gunakan **Edit › Cari…** di aplikasi desktop. |
 
 ![Pencarian menemukan sebuah kata di pesan ruang obrolan: siapa yang menulisnya, di ruang mana, dan kapan](../../images/search/messages.webp "Pencarian juga menemukan pesan")

@@ -156,7 +156,7 @@ describe('the workflows', () => {
     const run = j.steps.map((s) => s.run ?? '').join('\n')
     expect(run).toContain('--tag ax:built-by=release-ci')
     expect(run).toContain('--manifest-v2 --yes')
-    expect(run).toContain('scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP" --protect-template "$TEMPLATE" --min-age-days "$AMI_MIN_AGE_DAYS"')
+    expect(run).toContain('scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP" --protect-template "$TEMPLATE"')
   })
 
   test('the IAM policy docs are JSON and scope deletes to the CI\'s tag', () => {

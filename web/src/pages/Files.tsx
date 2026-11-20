@@ -1243,7 +1243,7 @@ function Files() {
                           onOpen={() => (e.type === 'folder' ? go(e.path) : openTeamFile(e.path))}
                           onChat={() => chatWith(e)}
                           onAddToChat={chatAttach.target ? () => addToChat(e) : null}
-                          chatTitle={chatAttach.target?.title ?? null}
+                          chatTitle={chatAttach.target?.title ?? ''}
                           onRename={() => void rename(e)}
                           onMove={() => setMoving(e)}
                           onShare={() => setSharing(e)}
@@ -1412,7 +1412,7 @@ function TwoLines({ phone, meta, children }: { phone: boolean; meta: string; chi
   )
 }
 
-function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string | null; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
+function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, draggable, onDragStart, onDragEnd, dragged, dropTarget, drop, onOpen, onChat, onAddToChat, chatTitle, onRename, onMove, onShare, onDelete, onHistory, project, membersOnly = false, onProject, onSuggest, onAccess, sharedThrough = null }: { e: FileEntry; selected: boolean; open: boolean; checked: boolean; onCheck: (shift: boolean) => void; pressSelect: boolean; selecting: boolean; draggable: boolean; onDragStart: (ev: React.DragEvent) => void; onDragEnd: () => void; dragged: boolean; dropTarget: DropHandlers | null; drop: DropOver | null; onOpen: () => void; onChat: () => void; onAddToChat: (() => void) | null; chatTitle: string; onRename: () => void; onMove: () => void; onShare: () => void; onDelete: () => void; onHistory: () => void; project: FolderProjectAction; membersOnly?: boolean; onProject: (a: NonNullable<FolderProjectAction>) => void; onSuggest: (() => void) | null; onAccess: (() => void) | null; sharedThrough?: string | null }) {
   const t = useT()
   const locale = useLocale()
   const words = useFolderWords()
@@ -1476,7 +1476,7 @@ function FileRow({ e, selected, open, checked, onCheck, pressSelect, selecting, 
     { label: t('rooms.menu.copyLink'), icon: icon(Link2), onSelect: run(() => void (folder ? copyLink(teamFileLink(e.path)) : copyFileLink(e.path))), testId: 'file-copy-link' },
     ...(!folder ? [{ label: t('common.download'), icon: icon(Download), onSelect: run(() => startDownload(fileUrl(e.path), e.name)), testId: 'file-download' }] : []),
     { label: t(chatItemKey(folder), { name: aiName(t) }), icon: folder ? icon(MessageSquarePlus) : <AiMark place="menu" />, onSelect: run(onChat), disabled: aiOff, describedBy: aiWhy, testId: 'chat-with-file' },
-    ...(!folder && onAddToChat ? [{ label: chatTitle ? t('files.addToChatNamed', { title: chatTitle }) : t('files.addToCurrentChat'), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
+    ...(!folder && onAddToChat ? [{ label: t('files.addToChatNamed', { title: chatTitle }), icon: icon(Paperclip), onSelect: run(onAddToChat), disabled: aiOff, describedBy: aiWhy, testId: 'add-to-chat' }] : []),
     ...(project ? [{ label: t('files.openProject'), icon: icon(FolderKanban), onSelect: run(() => onProject(project)), testId: 'open-project' }] : []),
     ...(onAccess ? [{ label: t('folderAccess.menu'), icon: icon(UserPlus), onSelect: run(onAccess), testId: 'folder-access-menu' }] : []),
     // a file shared with chosen people (QA TC-3093): the dialog says who may change it

@@ -4,10 +4,9 @@
 // Someone who joined with a team link, a single-use invite or an admin's "Add directly" gets one card at the top of Home
 // while they joined in the last MEMBER_WELCOME_DAYS days and have not finished or hidden it: who invited them, how many
 // people are here, and four rows (the rooms they are in, say hi, a photo, ask Trina what they can do here). The team's
-// creator gets it once the team setup reaches its end screen ("My setup", docs/decisions/20261120-my-setup-card.md:
-// kind 'owner', its 14 days from then); people who joined before it existed never get it. Progress and Hide are stored
-// per person on the server, so they follow the person across devices. Only the caller's own card: there is no way to
-// read or change anyone else's.
+// creator never gets it (they have the welcome steps), nor people who joined before it existed. Progress and Hide are
+// stored per person on the server, so they follow the person across devices. Only the caller's own card: there is no
+// way to read or change anyone else's.
 import { z } from 'zod'
 import { Uuid7 } from '../ids'
 import { endpoint } from './endpoint'
@@ -22,9 +21,6 @@ export const WelcomeRoom = z.object({ id: Uuid7, kind: z.enum(['all', 'team']), 
 export type WelcomeRoom = z.infer<typeof WelcomeRoom>
 
 export const MemberWelcome = z.object({
-  /** 'owner': the team's creator after the team setup (rows: tools, photo, files; only tools counts); 'member' (absent
-   * from older servers): someone who joined (tools, hi and asked count) */
-  kind: z.enum(['member', 'owner']).optional(),
   team: z.string(),
   /** who invited them (the link's or the invite's maker); null: "Add directly", or that account is gone */
   inviter: UserRef.nullable(),
@@ -36,35 +32,26 @@ export const MemberWelcome = z.object({
   owner: UserRef.nullable(),
   /** rooms: always done; hi: they wrote a message in a room; photo: they have a profile photo (optional, not counted);
    * asked: they asked Trina what they can do here; files: a file is in their My files › From this computer (the desktop
-   * app's "Bring work files from this computer" row: optional, not counted; absent from older servers); tools: they
-   * have a connection of their own (a listed service, Google Drive or a Google app; counted; absent from older servers) */
-  steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean(), files: z.boolean().optional(), tools: z.boolean().optional() }),
-  /** older servers only: an admin's "팀 파일 정리하기" row, now on Admin › Home (MemberWelcomeResponse.organizeFiles) */
+   * app's "Bring work files from this computer" row: optional, not counted; absent from older servers) */
+  steps: z.object({ rooms: z.literal(true), hi: z.boolean(), photo: z.boolean(), asked: z.boolean(), files: z.boolean().optional() }),
+  /** an admin's extra row "팀 파일 정리하기" (not counted): no owner or admin has applied the setup's folder plan yet
+   * (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"); it opens the same 팀 파일 step. Absent from older servers. */
   organizeFiles: z.boolean().optional(),
   /** every counted row is done: the card says "You're all set" (for a few minutes, then it is gone for good) */
   allSet: z.boolean(),
 })
 export type MemberWelcome = z.infer<typeof MemberWelcome>
 
-export const MemberWelcomeResponse = z.object({
-  welcome: MemberWelcome.nullable(),
-  /** the card was hidden while its days last and its rows are not done: Settings › Profile can show it again */
-  hidden: z.boolean().optional(),
-  /** an admin's "팀 파일 정리하기" on Admin › Home: no owner or admin has applied the setup's folder plan yet
-   * (docs/DECISIONS.md "Setup 팀 파일: the AI proposes folders"); it opens the same 팀 파일 step. Absent from older servers. */
-  organizeFiles: z.boolean().optional(),
-})
+export const MemberWelcomeResponse = z.object({ welcome: MemberWelcome.nullable() })
 export type MemberWelcomeResponse = z.infer<typeof MemberWelcomeResponse>
 
-/** hide: the card's Hide; show: Settings › Profile's "show it again" (while its days last); asked: the "what can I do
- * here" chat was started; tools: every tool the "Connect your tools" row offers is connected by the team for everyone
- * (nothing left to connect: the row counts as done) */
-export const MemberWelcomeUpdate = z.strictObject({ hide: z.literal(true).optional(), show: z.literal(true).optional(), asked: z.literal(true).optional(), tools: z.literal(true).optional() })
-  .refine((b) => b.hide || b.show || b.asked || b.tools, { message: 'nothing to change' })
+/** hide: the card's Hide (for good); asked: the "what can I do here" chat was started */
+export const MemberWelcomeUpdate = z.strictObject({ hide: z.literal(true).optional(), asked: z.literal(true).optional() })
+  .refine((b) => b.hide || b.asked, { message: 'nothing to change' })
 
 export const MEMBER_WELCOME = {
   getMemberWelcome: endpoint({ method: 'GET', path: '/api/me/welcome', auth: 'user', owner: 'B', response: MemberWelcomeResponse,
-    summary: 'My setup card on Home (invited people, and the owner after the team setup) while it still shows (14 days, not hidden, not finished); else null.' }),
+    summary: 'My welcome card on Home, when I was invited and it still shows (joined in the last 14 days, not hidden, not finished); else null.' }),
   updateMemberWelcome: endpoint({ method: 'PATCH', path: '/api/me/welcome', auth: 'user', owner: 'B', body: MemberWelcomeUpdate, response: MemberWelcomeResponse,
-    summary: 'Hide my setup card or show it again, or record that I asked Trina what I can do here or that the team connected every tool it offers me. Mine only.' }),
+    summary: 'Hide my welcome card, or record that I asked Trina what I can do here. Mine only.' }),
 } as const

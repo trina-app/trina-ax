@@ -15831,7 +15831,7 @@ the project's audience, the answer goes to the room; otherwise it stays private 
 rule and the search palette are core chat.
 
 From the team chat: "Chat search: search the messages in rooms and DMs", "search chat must be included on the search
-menu with cmd+k". The owner approved it on 2026-11-08. Later: ⌘F and the chips ([20261120](decisions/20261120-search-shortcuts-slack.md)).
+menu with cmd+k". The owner approved it on 2026-11-08.
 
 - **Where: the palette there is.** No new screen, no new tab, no filter chips. On the 전체 tab, after the chat records
   (기록), a "대화방 메시지" section: the first 5 hits, then "메시지 더 보기", which shows more in place and asks for the

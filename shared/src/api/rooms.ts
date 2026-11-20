@@ -692,10 +692,6 @@ export const RoomSearchQuery = z.object({
   /** messages only: recent (the default: newest first) or relevant (the best match first among the newest matches, then
    * newest first; what the app asks for) */
   sort: z.enum(['relevant', 'recent']).optional(),
-  /** only this one of my rooms ("This conversation": ⌘F in a room, a DM or a thread). It narrows, never widens: a room
-   * I am not in now (left, archived, not mine) finds nothing and says so with filters.roomGone, as an in: that named
-   * none of my rooms does; with in: it is both (the room only if in: names it too). */
-  room: Uuid7.optional(),
 })
 export const RoomSearchSort = z.enum(['relevant', 'recent'])
 export type RoomSearchSort = z.infer<typeof RoomSearchSort>
@@ -722,11 +718,9 @@ export type RoomSearchHit = z.infer<typeof RoomSearchHit>
 /** The rooms of the hits on a page, as much as their titles need (the app names them as in its lists) */
 export const RoomSearchRoom = z.object({ id: Uuid7, kind: RoomKind, name: z.string().nullable(), peers: z.array(UserRef), memberCount: z.number().int().nonnegative() })
 export type RoomSearchRoom = z.infer<typeof RoomSearchRoom>
-/** What the search's from:, in: and mentions: were read as (shared/src/search-text.ts parseSearch): the people and
- * rooms (at most 10 each), and each filter that named nobody or none of my rooms ("from:kim", "in:sales",
- * "mentions:kim": only mentions:me finds anything): then nothing is found. mentions: mentions:me applied. roomGone: the
- * `room` asked for is not one of my rooms now (nothing found; never named, so no room id is shown). */
-export const RoomSearchFilters = z.object({ from: z.array(UserRef), in: z.array(RoomSearchRoom), missing: z.array(z.string()), mentions: z.boolean().optional(), roomGone: z.boolean().optional() })
+/** What the search's from: and in: were read as (shared/src/search-text.ts parseSearch): the people and rooms (at most
+ * 10 each), and each filter that named nobody or none of my rooms ("from:kim", "in:sales"): then nothing is found. */
+export const RoomSearchFilters = z.object({ from: z.array(UserRef), in: z.array(RoomSearchRoom), missing: z.array(z.string()) })
 export type RoomSearchFilters = z.infer<typeof RoomSearchFilters>
 /** near: nothing matched as typed, so these are near matches (typing mistakes), one page. filters: how from:/in: were
  * read (only when the text has them). */
@@ -939,8 +933,8 @@ export const ROOMS = {
   getRoom: endpoint({ method: 'GET', path: '/api/rooms/:id', auth: 'user', owner: 'B', response: Room, summary: 'One room I am in (404 for anyone else, admins included).' }),
   updateRoom: endpoint({ method: 'PATCH', path: '/api/rooms/:id', auth: 'user', owner: 'B', body: UpdateRoomBody, response: Room, summary: 'Set my notification level for a room (all, mentions, off, or my default), or rename it (group chats: any member, and a private channel, a group chat with a name, cannot be left without one; team and everyone rooms: owner or admin members; never a DM).' }),
   listRoomMessages: endpoint({ method: 'GET', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomMessagesPage, summary: 'The timeline of a room I am in from my join on (thread replies only when sent to the room too), newest page first, oldest first within it. With around: the page around that message, and newerCursor for the newer ones.' }),
-  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case, a Korean word without its particle and an English one without its ending; "quoted phrases"; from:person, in:room and mentions:me narrow it, and room= to one room of mine), newest first or the best match first (sort), near matches when nothing matched as typed, with the text around the first word found and the rooms of the hits.' }),
-  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case; from:, in:, mentions:me and room= as for messages), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
+  searchRoomMessages: endpoint({ method: 'GET', path: '/api/room-messages', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomSearchPage, summary: 'Search the messages I can see in the rooms, 1:1 and group chats I am in now (q: every word, in any order and any case, a Korean word without its particle and an English one without its ending; "quoted phrases"; from:person and in:room narrow it), newest first or the best match first (sort), near matches when nothing matched as typed, with the text around the first word found and the rooms of the hits.' }),
+  searchRoomFiles: endpoint({ method: 'GET', path: '/api/room-files', auth: 'user', owner: 'B', query: RoomSearchQuery, response: RoomFileSearchPage, summary: 'Search the files sent in the rooms, 1:1 and group chats I am in now by name (q: every word, any case; from: and in: as for messages), only those of messages I can see, newest first, with the message each was sent with and the rooms of the hits.' }),
   listMyRoomFiles: endpoint({ method: 'GET', path: '/api/room-files/mine', auth: 'user', owner: 'B', query: MyRoomFilesQuery, response: MyRoomFilesPage, summary: 'The files I sent in the rooms, 1:1 and group chats I am in now, with a message that is not deleted, largest first, with the room of each and how much space they take together ("Files you sent"). Only my own; deleting one is deleting its message.' }),
   sendRoomMessage: endpoint({ method: 'POST', path: '/api/rooms/:id/messages', auth: 'user', owner: 'B', status: 201, body: SendRoomMessageBody, response: RoomMessage, summary: 'Send a message as myself (never another author), or a reply in a thread, with @mentions (or @everyone, written as the everyone room word of each language: mentionsAll; in the everyone room owners and admins only) and files; DMs, group chats, mentions and followed threads notify.' }),
   listRoomThread: endpoint({ method: 'GET', path: '/api/rooms/:id/messages/:messageId/thread', auth: 'user', owner: 'B', query: ListRoomMessagesQuery, response: RoomThreadPage, summary: 'A thread in a room I am in: its root and the replies I can see (none of it when I cannot see the root).' }),
