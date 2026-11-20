@@ -239,6 +239,12 @@ describe('the builder\'s routes are not there without the demo file\'s builder: 
         const users = (await owner.call(API.listUsers)).items
         const err = await owner.call(API.demoBuilderWelcome, { body: { userId: users[1]!.id, inviterId: users[2]!.id } }).then(() => null, (e) => e as ApiError)
         expect(err?.status).toBe(404)
+        // the free-roam audit's two (QA TC-5614, TC-5618): not there either
+        const id = '01a1f758-2656-7058-84d5-497e9999f691'
+        for (const call of [
+          () => owner.call(API.demoBuilderThreadTimes, { body: { chatId: id, times: [{ replyId: id, at: new Date().toISOString() }] } }),
+          () => owner.call(API.demoBuilderFileTimes, { body: { times: [{ path: 'shared/a.md', at: new Date().toISOString() }], hideFromRecent: ['skills'] } }),
+        ]) expect((await call().then(() => null, (e) => e as ApiError))?.status).toBe(404)
       } finally { await h.close() }
     }
   }, 180_000)

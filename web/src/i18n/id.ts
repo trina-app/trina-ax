@@ -291,6 +291,7 @@ export const id: Record<MessageKey, string> = {
   'auth.signIn': 'Masuk',
   'auth.logout': 'Keluar',
   "settings.logoutConfirm": "Keluar?",
+  "settings.logoutBody": "Anda bisa masuk lagi kapan saja.",
   'auth.username': 'Nama pengguna',
   'auth.usernameHint': "Dipakai untuk masuk: minimal 2 huruf Latin atau angka, tanpa spasi. Boleh juga . _ - @",
   'auth.password': 'Kata sandi',

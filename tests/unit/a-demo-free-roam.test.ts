@@ -182,7 +182,9 @@ describe('a free-roam demo server', () => {
       'createScheduleFromTemplate', 'runScheduleNow', 'registerPushDevice', 'subscribePush', 'connectInfo', 'installPlugin',
       'devEnv', 'myDevEnvRuns', 'transcribe', 'renderPromoVideo', 'pollLocalCalls', 'diagnostics', 'startUpdate',
       // QA TC-5578: the real AI account's engine, model and cost
-      'myUsage', 'chatEngines']) {
+      'myUsage', 'chatEngines',
+      // the free-roam audit (QA TC-5613): "Bring my skills"
+      'contributeSkills', 'createSkillShare']) {
       expect(names.has(n)).toBe(true)
     }
     // what a visitor uses stays

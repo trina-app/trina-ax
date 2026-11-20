@@ -4,6 +4,7 @@
 // no "sign in as someone else" (docs/WORKPLAN.md A): switching to another demo person is a normal sign-in of that
 // seeded account with the demo's public password, done by the server so the browser never holds the password.
 import { z } from 'zod'
+import { PROFILE_TITLE_MAX } from '../avatar'
 import { UserId, Uuid7 } from '../ids'
 import { Locale } from './common'
 import { endpoint } from './endpoint'
@@ -125,6 +126,8 @@ const ContentSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/, 'lowercase let
 const ContentPath = z.string().min(1).max(512)
   .refine((p) => !p.startsWith('/') && !p.split('/').some((s) => s === '..' || s === '.' || s === ''), 'a team path like shared/a.md')
 const ContentAccess = z.enum(['read', 'write'])
+const ContentProfileTitle = z.string().trim().min(1).max(PROFILE_TITLE_MAX)
+const ContentEmail = z.string().email().max(200)
 const ContentRule = z.union([
   z.object({ group: ContentName, access: ContentAccess }).strict(),
   z.object({ user: Username, access: ContentAccess }).strict(),
@@ -142,6 +145,9 @@ export const DemoContentProject = z.object({
   by: Username.optional(),
   /** who is in it (they write in its folder) */
   members: z.array(z.union([z.object({ group: ContentName }).strict(), z.object({ user: Username }).strict()])).min(1).max(20),
+  /** its channel: a private channel of `rooms` (kind "group" with a name; `rooms[].slug`), linked by its maker (a team
+   * room or a DM never links: rooms/project-link.ts) */
+  channel: ContentSlug.optional(),
 }).strict()
 export type DemoContentProject = z.infer<typeof DemoContentProject>
 /** One past message. In `text`, `{project:<name>}` becomes a link to that project, `{file:<team path>}` the file's
@@ -181,6 +187,9 @@ export const DemoContentChat = z.object({
   title: z.string().min(1).max(200),
   /** oldest first; an answer shows a team picture with `![label]({file:<team path>})` */
   turns: z.array(z.object({ ask: z.string().min(1).max(4000), answer: z.string().min(1).max(20_000), minutesAgo: MinutesAgo }).strict()).min(1).max(20),
+  /** replies in the thread under the last answer (a shared chat: a project's), oldest first; `@<a person's name>`
+   * mentions them. The answer's asker and anyone mentioned get the reply's notice (Activity) */
+  thread: z.array(z.object({ from: Username, text: z.string().min(1).max(2000), minutesAgo: MinutesAgo }).strict()).max(20).optional(),
 }).strict()
 export type DemoContentChat = z.infer<typeof DemoContentChat>
 const DemoAccount = z.object({ name: z.string().min(1).max(80), email: z.string().email().max(200) }).strict()
@@ -203,7 +212,9 @@ export const DemoContentCompany = z.object({
   /** the team's owner: an account of its own, never a demo person; its password is random (<data>/owner-password) */
   owner: z.object({ username: Username, name: ContentName,
     /** a group the owner is in too (a CEO who owns the team and is in #Marketing); none by default */
-    group: ContentName.nullable().optional() }).strict(),
+    group: ContentName.nullable().optional(),
+    /** the job title on their profile, and their e-mail (a reserved `.example` address), each set by them */
+    title: ContentProfileTitle.optional(), email: ContentEmail.optional() }).strict(),
   /** everyone else, all members: a demo may be open to the network with a public password, so nobody else is an owner
    * or an admin */
   people: z.array(z.object({
@@ -213,6 +224,10 @@ export const DemoContentCompany = z.object({
     group: ContentName.nullable(),
     /** who they are in the story ("CEO", "Marketing lead"), for people reading the file; shown nowhere */
     note: z.string().max(200).optional(),
+    /** the job title on their profile (people lists, mentions), set by them */
+    title: ContentProfileTitle.optional(),
+    /** their e-mail (Settings › Profile; a reserved `.example` address), set by them */
+    email: ContentEmail.optional(),
   }).strict()).min(3).max(60),
   groups: z.array(z.object({ name: ContentName, description: z.string().max(200) }).strict()).max(20),
   /** folder rules beyond the group folders (each group gets groups/<name>/, written by its members) */
@@ -275,6 +290,11 @@ export const DemoContentCompany = z.object({
   welcome: z.array(z.object({ username: Username, inviter: Username,
     /** they asked the AI what they can do here (the card's row is done) */
     asked: z.boolean().optional() }).strict()).max(60).default([]),
+  /** when the files were last changed in the story (a file, or a folder for all under it: the first entry that
+   * matches); a file none matches keeps the time it was seeded */
+  fileTimes: z.array(z.object({ path: ContentPath, minutesAgo: MinutesAgo }).strict()).max(200).optional(),
+  /** files and folders whose seeding stays out of Files › Recent (the team skills, the company profile) */
+  recentHidden: z.array(ContentPath).max(50).optional(),
   /** the free-roam demo's bar: two or three suggestion chips */
   freeRoam: z.object({ suggestions: z.array(DemoSuggestion).min(1).max(3),
     /** where "Start free" goes at the demo limit (https) */
@@ -342,6 +362,17 @@ export const DemoBuilderChatTurnsBody = z.object({
 }).strict()
 export const DemoBuilderChatTurns = z.object({ turns: z.array(z.object({ askId: Uuid7, answerId: Uuid7 })) })
 export type DemoBuilderChatTurns = z.infer<typeof DemoBuilderChatTurns>
+/** replies in a seeded chat's thread: when each was sent (the notices they made follow the thread's latest one) */
+export const DemoBuilderThreadTimesBody = z.object({
+  chatId: Uuid7,
+  times: z.array(z.object({ replyId: Uuid7, at: BuilderAt }).strict()).min(1).max(50),
+}).strict()
+/** team files: when each one was last changed (its time on disk, and its place in Files › Recent), and the paths (a
+ * file or a folder with all under it) whose seeded changes stay out of Files › Recent */
+export const DemoBuilderFileTimesBody = z.object({
+  times: z.array(z.object({ path: z.string().min(1).max(512), at: BuilderAt }).strict()).max(500),
+  hideFromRecent: z.array(z.string().min(1).max(512)).max(50).default([]),
+}).strict()
 
 const DEMO_BUILDER = {
   demoBuilderRoomTimes: endpoint({
@@ -359,6 +390,14 @@ const DEMO_BUILDER = {
   demoBuilderChatTurns: endpoint({
     method: 'POST', path: '/api/demo/builder/chat-turns', auth: 'owner', owner: 'A', body: DemoBuilderChatTurnsBody, response: DemoBuilderChatTurns,
     summary: 'Demo snapshot builder only: past questions and finished answers of a chat, as plain messages at the times given (no AI runs).',
+  }),
+  demoBuilderThreadTimes: endpoint({
+    method: 'POST', path: '/api/demo/builder/thread-times', auth: 'owner', owner: 'A', body: DemoBuilderThreadTimesBody, response: z.object({ updated: z.number().int() }),
+    summary: 'Demo snapshot builder only: when the replies in a seeded chat\'s thread were sent; the thread notices they made carry the latest time.',
+  }),
+  demoBuilderFileTimes: endpoint({
+    method: 'POST', path: '/api/demo/builder/file-times', auth: 'owner', owner: 'A', body: DemoBuilderFileTimesBody, response: z.object({ updated: z.number().int(), hidden: z.number().int() }),
+    summary: 'Demo snapshot builder only: when team files were last changed (on disk and in Files › Recent, oldest first), and which seeded changes stay out of Recent.',
   }),
 } as const
 
