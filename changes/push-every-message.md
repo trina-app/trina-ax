@@ -1,0 +1,1 @@
+- Your phone now rings for every new message, not only the first of a burst, and the app icon counts unread messages (five messages show 5, not 1).

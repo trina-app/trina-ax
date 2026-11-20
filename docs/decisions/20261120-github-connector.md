@@ -47,3 +47,10 @@
   file (operators and the hosting service write it), moving the client secret behind the control plane like the Drive
   broker (every hosted server holds the app's secret; the token is useless without the person's sign-in, and the
   secret can be rotated on GitHub without anyone signing in again).
+- **Known risks (accepted):**
+  - Every team server holds the same GitHub App client secret, and the one wildcard callback
+    (`https://trina.app/api/integrations/oauth/callback`) also matches every `<team>.trina.app` address. If the secret
+    leaks and an untrusted host exists under trina.app, that host could get sign-in codes for people who already
+    approved the app, so trina.app never gets an untrusted subdomain (QA TC-5736).
+  - If GitHub's answer to a refresh is lost on the way, the refresh token is already spent and the person has to
+    connect GitHub again. GitHub's design allows no fix for this, so we accept it (QA TC-5738).

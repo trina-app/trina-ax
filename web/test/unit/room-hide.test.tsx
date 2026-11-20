@@ -246,7 +246,7 @@ describe('hidden rooms count nowhere', () => {
     expect(totalUnread([hiddenDm, shown])).toBe(2)
     expect(roomWantsMe(hiddenDm)).toBe(false)
     expect(roomWantsMe(shown)).toBe(true)
-    expect(attentionCount([], [hiddenDm, shown]).n).toBe(1)
+    expect(attentionCount([], [hiddenDm, shown]).n).toBe(2)
     expect(shownInLists([hiddenDm, shown]).map((r) => r.id)).toEqual([shown.id])
     // the room on screen stays in the lists, hidden or not
     expect(shownInLists([hiddenDm, shown], hiddenDm.id)).toHaveLength(2)
