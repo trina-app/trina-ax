@@ -239,6 +239,8 @@ describe('route registry', () => {
       'GET /.well-known/oauth-authorization-server', 'GET /oauth/authorize',
       'POST /oauth/register', 'POST /oauth/token', 'POST /oauth/revoke',
       'GET /mcp', 'POST /mcp', 'DELETE /mcp', 'PUT /connector-uploads/:token',
+      // the one-use download link (tests/unit/remote-mcp-download-link.test.ts)
+      'GET /connector-downloads/:token',
       // the platforms' own formats for the phone app's links (tests/unit/app-links.test.ts)
       'GET /.well-known/apple-app-site-association', 'GET /.well-known/assetlinks.json',
       // an app's room address, its token the auth, and anything else under /in/ (tests/unit/b-room-apps-*.test.ts; matrix: ROOM_APPS_RAW_COVERED)
