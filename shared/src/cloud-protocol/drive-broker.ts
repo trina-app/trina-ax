@@ -97,7 +97,10 @@ export const DRIVE_BROKER_HANDOFF_TTL_MS = 2 * 60_000
 export const DRIVE_BROKER_PURPOSES = ['personal', 'share'] as const
 export type DriveBrokerPurpose = (typeof DRIVE_BROKER_PURPOSES)[number]
 
-/** `app`: a Google app other than Drive (only with purpose "personal"); left out: Drive. */
+/** `app`: a Google app other than Drive; left out: Drive. With an app, `purpose` says whose connection it is (the
+ * hosting service's start page words it): "personal" one person's own, "share" one connection the team uses (an admin
+ * connects it). An older control plane accepts an app only with "personal" (invalid_request otherwise); a team server
+ * then starts again with "personal". The scopes are the app's one set either way. */
 export interface DriveBrokerStart { v: 1; purpose: DriveBrokerPurpose; returnState: string; codeChallenge: string; app?: GoogleBrokerApp }
 export interface DriveBrokerRedeem { v: 1; handoff: string; codeVerifier: string }
 export interface DriveBrokerRefresh { v: 1; refreshToken: string; app?: GoogleBrokerApp }
@@ -120,8 +123,12 @@ export const DRIVE_BROKER_ERRORS = {
   not_hosted: 403,
   /** too many calls of this team or this address; try again later */
   rate_limited: 429,
-  /** Google failed or answered something unexpected */
-  provider_error: 502,
+  /** Google's answer to a sign-in lacks part of its scope set (a box left unticked on Google's consent screen): the
+   * person signs in again and allows every access. Older control planes answered provider_error for it. */
+  scope_denied: 400,
+  /** Google failed or answered something unexpected. 503, not 502: Cloudflare, in front of the console host, replaces
+   * an origin's 502 and 504 with its own page, and the team server could not read the code. */
+  provider_error: 503,
   /** the control plane has no Google Drive client */
   not_configured: 503,
 } as const
@@ -150,7 +157,6 @@ export function parseDriveBrokerStart(raw: unknown): DriveBrokerStart | null {
   const app = parseApp(o)
   if (!o || app === false || !exactly(o, ['v', 'purpose', 'returnState', 'codeChallenge', ...(app ? ['app'] : [])]) || o.v !== 1) return null
   if (!(DRIVE_BROKER_PURPOSES as readonly unknown[]).includes(o.purpose)) return null
-  if (app && o.purpose !== 'personal') return null
   if (typeof o.returnState !== 'string' || !B64URL43.test(o.returnState)) return null
   if (typeof o.codeChallenge !== 'string' || !B64URL43.test(o.codeChallenge)) return null
   return { v: 1, purpose: o.purpose as DriveBrokerPurpose, returnState: o.returnState, codeChallenge: o.codeChallenge, ...(app ? { app } : {}) }
