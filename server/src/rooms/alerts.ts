@@ -1,6 +1,7 @@
 // Room notification settings on the server (docs/DECISIONS.md "대화방 알림 설정"): each member's level for a room, what
 // the app is told (Room.notify, the rooms list's alerts) and whether a room notice may still be pushed. The rule itself
 // is shared with the web app (shared/src/api/room-alerts.ts: roomLevel, roomAlert, inQuietHours).
+import { NOT_HELD_SQL } from './project-room'
 import type { Database } from 'bun:sqlite'
 import { inQuietHours, roomLevel, type Room, type RoomAlertSettings, type RoomNotifyLevel } from '@mycel/shared/api'
 import { teamTimeZone } from '../admin/settings'
@@ -38,7 +39,7 @@ export function setOwnLevel(db: Database, roomId: string, userId: string, level:
 export function noticeWanted(db: Database, noticeId: string, now = Date.now()): boolean {
   const r = db.query(`SELECT n.user_id, n.event_type, r.kind, EXISTS (SELECT 1 FROM room_project_links l WHERE l.room_id = r.id AND l.mode = 'room') project_room, m.muted, m.notify_level, m.hidden_at, s.thread_root_id,
     EXISTS(SELECT 1 FROM room_thread_follows f WHERE f.root_id = s.thread_root_id AND f.user_id = n.user_id) following FROM room_notices n
-    JOIN room_members m ON m.room_id = n.room_id AND m.user_id = n.user_id JOIN rooms r ON r.id = n.room_id AND r.archived_at IS NULL
+    JOIN room_members m ON m.room_id = n.room_id AND m.user_id = n.user_id JOIN rooms r ON r.id = n.room_id AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')}
     LEFT JOIN room_messages s ON s.id = n.source_id WHERE n.id = ?`).get(noticeId) as { user_id: string; event_type: string; kind: string; project_room: number; muted: number; notify_level: string | null; thread_root_id: string | null; following: number; hidden_at: string | null } | null
   if (!r || r.hidden_at) return false
   const prefs = getPreferences(db, r.user_id)
