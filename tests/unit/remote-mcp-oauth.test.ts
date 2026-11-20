@@ -47,16 +47,26 @@ test('PKCE, resource and client binding cannot exchange or revoke another client
   expect(() => f.svc.authenticate(f.owner.cookie!)).toThrow('invalid_token')
 })
 
-test('refresh rotation invalidates the old access token; replay revokes the whole family durably', async () => {
+test('refresh rotation: a new pair each time, the spent token retried at once still works, a replay later revokes the whole family durably', async () => {
   const f = await fixture('refresh'), first = f.exchange(f.code('mcp:read mcp:write offline_access'))
   const refresh = { client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp', refresh_token: first.refresh_token }
+  const t0 = Date.now(); f.svc.now = () => t0
   const next = f.svc.token({ ...refresh, scope: 'mcp:read offline_access' })
   expect(next.scope).toBe('mcp:read offline_access')
-  expect(() => f.svc.authenticate(first.access_token)).toThrow('invalid_token')
+  expect(next.refresh_token).not.toBe(first.refresh_token)
   expect(() => f.svc.token({ ...refresh, refresh_token: next.refresh_token, scope: 'mcp:read mcp:write offline_access' })).toThrow('invalid_scope')
   expect(f.svc.authenticate(next.access_token)).toBeDefined()
+  // the spent token once more right away (an answer lost on the network): a fresh pair, and the first one stays good
+  const retry = f.svc.token(refresh)
+  expect(retry.scope).toBe('mcp:read offline_access')
+  expect(f.svc.authenticate(retry.access_token)).toBeDefined()
+  expect(f.svc.authenticate(next.access_token)).toBeDefined()
+  // later than five minutes: a stolen token, the whole connection ends, also for a new instance
+  f.svc.now = () => t0 + 5 * 60_000 + 1
   expect(() => f.svc.token(refresh)).toThrow('invalid_grant')
-  expect(() => new RemoteOAuth(f.h.ctx.db, { origin }).authenticate(next.access_token)).toThrow('invalid_token')
+  expect(() => f.svc.authenticate(next.access_token)).toThrow('invalid_token')
+  expect(() => f.svc.token({ ...refresh, refresh_token: next.refresh_token })).toThrow('invalid_grant')
+  expect(() => new RemoteOAuth(f.h.ctx.db, { origin, now: f.svc.now }).authenticate(retry.access_token)).toThrow('invalid_token')
 })
 
 test('write is the person\'s choice and group management the owner\'s role, whatever the app asked; the token says what was granted; refresh only narrows', async () => {
@@ -90,7 +100,7 @@ test('write is the person\'s choice and group management the owner\'s role, what
   expect(JSON.parse(connected[0]!.detail)).toEqual({ scopes: ['mcp:read', 'mcp:write', 'mcp:admin', 'offline_access'], asked: ['mcp:read', 'offline_access'], app: 'Test connector' })
 })
 
-test('authorization code replay revokes its issued family; user disconnect and logout stop access', async () => {
+test('authorization code replay revokes its issued family; disconnect stops access; a browser sign-out does not', async () => {
   const f = await fixture('revoke'), code = f.code(), first = f.exchange(code)
   expect(() => f.exchange(code)).toThrow('invalid_grant')
   expect(() => f.svc.authenticate(first.access_token)).toThrow()
@@ -102,8 +112,8 @@ test('authorization code replay revokes its issued family; user disconnect and l
   expect(gone.map((r) => ({ target: r.target, ...JSON.parse(r.detail) }))).toEqual([{ target: grant.id, app: 'Test connector' }])
   const third = f.exchange(f.code())
   await f.owner.call('POST', '/api/auth/logout', {})
-  expect(() => f.svc.authenticate(third.access_token)).toThrow()
-  expect(f.h.ctx.db.query('SELECT * FROM remote_mcp_grants').all()).toHaveLength(0)
+  expect(f.svc.authenticate(third.access_token).user_id).toBe(f.auth.user.id)
+  expect(f.svc.token({ client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp', refresh_token: third.refresh_token }).refresh_token).toBeDefined()
 })
 
 test('read-only default has no refresh; denial issues no code; active user and expiry checked per call', async () => {

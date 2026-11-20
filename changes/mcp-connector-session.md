@@ -1,0 +1,2 @@
+- Claude, Claude Code and other apps connected through Trina AX MCP stay connected until you disconnect them. Signing out of the browser where you allowed the app no longer ends it; it ends after 90 days without use, when you change your password, are signed out everywhere or lose access to the team.
+- A connected app that refreshed its sign-in twice at once (two Claude Code windows, or a dropped answer) is no longer disconnected.

@@ -4,7 +4,7 @@ import { endpoint, empty } from './endpoint'
  * is always granted. `admin`: the person is an owner or admin, so the connection also manages the team's groups
  * (mcp:admin, no box). */
 export const RemoteConsent = z.object({ id: z.string(), clientName: z.string(), redirectOrigin: z.string(), scopes: z.array(z.string()), optional: z.array(z.string()), admin: z.boolean(), resource: z.string(), expiresAt: z.string() })
-export const RemoteConnection = z.object({ id: z.string(), clientName: z.string(), scopes: z.array(z.string()), createdAt: z.string(), expiresAt: z.string(), currentSession: z.boolean() })
+export const RemoteConnection = z.object({ id: z.string(), clientName: z.string(), scopes: z.array(z.string()), createdAt: z.string(), expiresAt: z.string() })
 /** `params.reason` of the consent request's 404 when the request expired, was already decided, or another login session
  * opened it: the page says so instead of "not found or no access". */
 export const REMOTE_CONSENT_EXPIRED = 'request_expired'

@@ -144,7 +144,7 @@ export const authRoutes: RouteModule = {
     }))
 
     kit.handle(API.revokeMySession, ({ c, params, auth }) => {
-      const row = ctx.db.query('SELECT id FROM sessions WHERE id = ? AND user_id = ?').get(params.id, auth.user.id)
+      const row = ctx.db.query('SELECT id FROM sessions WHERE id = ? AND user_id = ? AND connector = 0').get(params.id, auth.user.id)
       if (!row) fail('not_found')
       a().revokeSession(params.id, 'revoked')
       if (params.id === auth.session.id && auth.via === 'cookie') a().clearCookie(c)

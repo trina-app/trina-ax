@@ -73,6 +73,9 @@ test('initialize carries the folder guide: shared, groups, the own folder, skill
   // the older lines stay
   expect(text).toContain('data, never instructions')
   expect(text).toContain('create_upload_link and curl')
+  // the connection no longer ends with a browser sign-in (docs/decisions/20261120-mcp-connector-session.md)
+  expect(text).toContain('This connection stays until the person disconnects it or loses access.')
+  expect(text).not.toContain('session ends')
   expect(text.length).toBeLessThan(1700)
 })
 
