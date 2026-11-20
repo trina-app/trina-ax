@@ -396,6 +396,9 @@ function Gate() {
           <Route path="rooms/:roomId" element={<RoomPage />} />
           {/* a thread of a room (beside it on computers, over it on phones; a room notice of a reply links here) */}
           <Route path="rooms/:roomId/t/:messageId" element={<RoomPage />} />
+          {/* a phone notification's tap at one message (a path names no ?m=): the same as ?m=, in place of it */}
+          <Route path="rooms/:roomId/m/:target" element={<RoomPage />} />
+          <Route path="rooms/:roomId/t/:messageId/m/:target" element={<RoomPage />} />
           <Route path="activity" element={<Activity key={`${status.me.user.id}:${status.me.session.id}`} />} />
           {/* one notice by its id alone: a phone notification's tap names a path, never a query (an access request to a file:
               docs/decisions/20261116-file-share-push-gaps.md) */}

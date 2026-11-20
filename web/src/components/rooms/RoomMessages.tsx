@@ -39,7 +39,7 @@ import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type RoomFile, type RoomMess
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, highlightNow, lineBreaks, localDayKey, projectEventKey } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
@@ -144,7 +144,7 @@ export const HIGHLIGHT_MS = 2400
  * `highlight`: a message a link points at (an Inbox row: pages/Room.tsx ?m=): once it is on the list it is scrolled to
  * the middle and marked for a moment, once. */
 /** `onAskTrina`: "Ask Trina about this" on a message (the room's side chat opens with it quoted) */
-export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null }) {
+export function RoomMessages({ roomId, messages, pending, meId, members, onThread, onAskTrina, onAskFile, variant = 'timeline', dayBefore = null, highlight = null, highlightKey = null }: { roomId: string; messages: RoomMessage[]; pending: PendingSend[]; meId: string | null; members: UserRef[]; onThread?: (rootId: string, focus?: boolean) => void; onAskTrina?: (m: RoomMessage) => void; onAskFile?: (seed: SideSeed) => void; variant?: ListVariant; dayBefore?: string | null; highlight?: string | null; highlightKey?: string | null }) {
   // a picture's or file's 트리나에게 묻기 (its right-click menu): where this list asks about a message, it asks about a
   // file too, in the same side chat (the room page's, or the image viewer's column: `onAskFile`)
   const askFile = useMemo(() => (onAskTrina ? (fileId: string, name: string) => void (onAskFile ? onAskFile(fileSeed(fileId, name)) : askTrinaInRoom(roomId, fileSeed(fileId, name))) : null), [onAskTrina, onAskFile, roomId])
@@ -185,14 +185,15 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   // sent to the room too): after the list has gone to its bottom (the page's layout effect), once
   const list = useRef<HTMLDivElement>(null)
   const [lit, setLit] = useState<string | null>(null)
-  const shown = useRef<string | null>(null)
+  // once for each place in the history that points at it (`highlightKey`): back at that place (a thread opened from it
+  // closed) the reader stays where they scrolled; a notice clicked again picks it out again (lib/rooms.ts highlightNow)
+  const shown = useRef(new Set<string>())
   useEffect(() => {
-    if (!highlight || shown.current === highlight || !loaded.has(highlight)) return
-    shown.current = highlight
+    if (!highlight || !loaded.has(highlight) || !highlightNow(shown.current, highlight, highlightKey)) return
     list.current?.querySelector<HTMLElement>(`[id="${messageDomId(highlight)}"]`)?.scrollIntoView({ block: 'center' })
     setLit(highlight)
     setTimeout(() => setLit((x) => (x === highlight ? null : x)), HIGHLIGHT_MS)
-  }, [highlight, loaded])
+  }, [highlight, highlightKey, loaded])
   const lastMine = runs.at(-1)?.messages[0]?.author?.id === meId && meId !== null && !runs.at(-1)?.messages[0]?.event
   // phones: a run's time only when it differs from the run above it ("오전 11:56" once for four messages of that minute)
   const repeats = useMemo(() => sameTimeAsAbove(runs, (iso) => timeOf(iso, locale)), [runs, locale])

@@ -97,7 +97,7 @@ export const FEATURES: Feature[] = [
   // ---------------- Rooms ----------------
   { id: 'rooms.list', name: 'Conversations list, new room, DM and group chat', area: 'Rooms', endpoints: ['listRooms', 'createRoom'], screens: ['/rooms'] },
   { id: 'rooms.messages', name: 'Room messages: send, edit, delete, read', area: 'Rooms', endpoints: ['getRoom', 'listRoomMessages', 'sendRoomMessage', 'editRoomMessage', 'deleteRoomMessage', 'markRoomRead'], screens: ['/rooms/:roomId'] },
-  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId'] },
+  { id: 'rooms.threads', name: 'Thread replies in a room', area: 'Rooms', endpoints: ['listRoomThread', 'markRoomThreadRead'], screens: ['/rooms/:roomId/t/:messageId', '/rooms/:roomId/m/:target', '/rooms/:roomId/t/:messageId/m/:target'] },
   { id: 'rooms.reactions', name: 'Reactions', area: 'Rooms', endpoints: ['reactRoomMessage'] },
   { id: 'rooms.message-links', name: 'Message links: Copy link, previews, Show message, remove preview', area: 'Rooms', endpoints: ['roomMessageLinkAudience', 'hideRoomLinkPreview'] },
   { id: 'rooms.app-link-names', name: 'Links to chats, projects, files and conversations show their names', area: 'Rooms', endpoints: ['linkNames'] },
