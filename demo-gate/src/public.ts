@@ -96,9 +96,11 @@ export function cookiesForInstance(h: string | undefined): string | null {
   const kept = (h ?? '').split(';').map((s) => s.trim()).filter((s) => s && !s.startsWith(VISITOR_COOKIE + '='))
   return kept.length ? kept.join('; ') : null
 }
-/** an instance cookie as the browser gets it: host-only, Secure (the visitor is on https; the instance on plain http) */
+/** an instance cookie as the browser gets it: host-only, Secure (the visitor is on https; the instance on plain http).
+ * A __Host- cookie (the instance's session, __Host-sid) also needs Path=/, or the browser drops it. */
 export function secureCookie(c: string): string {
-  const parts = c.split(';').map((s) => s.trim()).filter((s) => s && !/^domain=/i.test(s))
+  let parts = c.split(';').map((s) => s.trim()).filter((s) => s && !/^domain=/i.test(s))
+  if (parts[0]?.startsWith('__Host-') && !parts.some((s) => /^path=\/$/i.test(s))) parts = [parts[0], 'Path=/', ...parts.slice(1).filter((s) => !/^path=/i.test(s))]
   if (!parts.some((s) => /^secure$/i.test(s))) parts.push('Secure')
   return parts.join('; ')
 }
