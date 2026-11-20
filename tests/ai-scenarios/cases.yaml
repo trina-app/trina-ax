@@ -2042,6 +2042,18 @@ cases:
     good: Plain steps for rename, list folders and regenerate/edit.
     checks: []
 
+- id: CHT-17
+  title: Team categories in Chats
+  features: [rooms.categories]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Where did my conversation folders go, and how do I put the alert channels together in one group?
+  expect:
+    outcome: explain
+    good: Says folders were replaced by team categories that admins make; an admin moves a channel with its ⋯ › Move to category, and everyone sees the same categories; a member asks an admin.
+    checks: []
+
 - id: CHT-12
   title: AI not available
   features: [chat.ai-access]
