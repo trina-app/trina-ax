@@ -131,6 +131,12 @@
   --spacing-row-min: 1.875rem; /* a ListRow's least height: 30px */
   --spacing-row-page: 3rem; /* a page's main list (ListRow scale="page": a project's 트리나 기록, 팀 스킬): 48px on a
      computer and a phone, not the panels' 30px (docs/DECISIONS.md "Page lists: page density") */
+  /* the Trina history's rows (ListRow scale="history": nav/ChatItem.tsx, a task's folded runs, a group's "N more"): 36px
+     and 14px on a computer, as ChatGPT's sidebar, so a long history reads easily; the other panels keep 30px and 15px. A
+     phone uses the phone list sizes (the block below). docs/decisions/20261120-sidebar-history-row-spacing.md */
+  --spacing-row-history: 2.25rem; /* 36px */
+  --text-row-history: 0.875rem; /* 14px */
+  --text-row-history--line-height: 1.25rem; /* 20px */
   --spacing-list-icon: 1rem; /* a row's icon box: the bare 16px icon */
   --spacing-list-glyph: 1rem; /* the icon inside it */
   --spacing-list-face: 1.75rem; /* a row's icon box when it holds people's pictures (the member picker): 28px */
@@ -289,6 +295,10 @@ textarea[data-token-input]::selection { -webkit-text-fill-color: transparent; ba
     --text-row--line-height: 1.375rem; /* 22px */
     --spacing-row-indent: 0.75rem; /* the rows' own 12px: no extra indent */
     --spacing-row-min: 3rem; /* 48px */
+    /* the Trina history's rows: the same as every phone list row */
+    --spacing-row-history: var(--spacing-row-min);
+    --text-row-history: var(--text-row);
+    --text-row-history--line-height: var(--text-row--line-height);
     --spacing-list-icon: 2rem; /* 32px */
     --spacing-list-glyph: 1.125rem; /* 18px */
     --spacing-list-face: 2rem; /* 32px, as the icon box */
