@@ -22,7 +22,7 @@ import { api, API } from '../../lib/api'
 import { optimistic, optimisticPending, optimisticPendingKeys } from '../../lib/optimistic'
 import { formatDateTime } from '../../lib/format'
 import { useLocale, useT } from '../../i18n'
-import { isAdmin, useMeStrict } from '../../store/session'
+import { isAdmin, isOwner, useMeStrict } from '../../store/session'
 import { Badge, Button, Field, Switch, inputCls, useMediaQuery } from '../../components/ui'
 import { AdminPageHeader, Loadable, useAction, useLoad } from './common'
 import { ENGINE_FAMILY, ProviderAccounts, ProviderLogo, accountsNeedLook, addAccountBelow, useTeamCredentials, type ProviderMark } from './Credentials'
@@ -295,10 +295,24 @@ export function ApiKeyHint({ preset }: { preset: string }) {
   )
 }
 
+/** The body of a save. No new key typed and a new address whose provider needs no key (Ollama): the old key goes
+ * (QA TC-4826; the server never sends a stored key to a new address, and a newcomer would not guess "Remove key"). */
+export function apiSaveKey(o: { typed: string; savedBaseUrl: string | null; baseUrl: string; hasKey: boolean }): string | null | undefined {
+  if (o.typed.trim()) return o.typed.trim()
+  const p = API_PRESETS.find((x) => x.baseUrl === o.baseUrl.trim())
+  if (o.hasKey && p && p.keys === null && (o.savedBaseUrl ?? '') !== o.baseUrl.trim()) return null
+  return undefined
+}
+
+/** Only the owner sets an http address (one on this computer or the local network: the server refuses an admin's,
+ * routes/admin.ts); an admin sees why up front (QA TC-4825) */
+export const ownerOnlyAddress = (baseUrl: string) => /^http:\/\//i.test(baseUrl.trim())
+
 /** The team's API engine settings (owner and admins): address, model, display name, key (never shown again once saved). */
 function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
   const t = useT()
   const act = useAction()
+  const owner = isOwner(useMeStrict())
   const state = useLoad(() => api.call(API.getApiEngine))
   const [form, setForm] = useState<{ baseUrl: string; model: string; label: string; key: string; password: string; vision: 'auto' | 'on' | 'off' } | null>(null)
   useEffect(() => {
@@ -324,12 +338,16 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
               const p = API_PRESETS.find((x) => x.id === e.target.value)
               if (p) setForm({ ...form, baseUrl: p.baseUrl, model: presetModel(form.model, p.id) })
             }}>
-              {API_PRESETS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+              {API_PRESETS.map((p) => {
+                const ownerOnly = !owner && ownerOnlyAddress(p.baseUrl)
+                return <option key={p.id} value={p.id} disabled={ownerOnly}>{ownerOnly ? t('engines.api.ownerOnlyOption', { name: p.label }) : p.label}</option>
+              })}
               <option value="custom">{t('engines.api.custom')}</option>
             </select>
           </Field>
           <Field label={t('engines.api.baseUrl')}>
             <input className={inputCls} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="https://…/v1" />
+            {!owner && ownerOnlyAddress(form.baseUrl) && <p className="mt-1 text-xs text-muted" data-testid="api-engine-owner-only">{t('engines.api.ownerOnlyHint')}</p>}
           </Field>
           <Field label={t('engines.api.model')}>
             <input className={inputCls} value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
@@ -359,7 +377,7 @@ function ApiEngineForm({ onSaved }: { onSaved: () => void }) {
             <input type="password" autoComplete="current-password" className={inputCls} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="api-engine-password" />
           </Field>
           <div className="flex items-end gap-2">
-            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(form.key.trim() ? form.key.trim() : undefined)}>{t('engines.api.save')}</Button>
+            <Button disabled={!form.baseUrl.trim() || !form.model.trim() || !form.password} onClick={() => void save(apiSaveKey({ typed: form.key, savedBaseUrl: state.data?.baseUrl ?? null, baseUrl: form.baseUrl, hasKey: !!state.data?.hasKey }))}>{t('engines.api.save')}</Button>
             {state.data?.hasKey && <Button variant="ghost" disabled={!form.password} onClick={() => void save(null)}>{t('engines.api.keyRemove')}</Button>}
           </div>
         </div>

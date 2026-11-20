@@ -2049,6 +2049,8 @@ export const ko = {
   'engines.api.keyKeep': '저장된 키 그대로 (바꾸려면 입력)',
   "engines.api.getKeyAt": "{site}에서 키 만들기",
   "engines.api.noKeyLocal": "Ollama는 서버 컴퓨터에서 돌아가서 키가 필요 없어요.",
+  "engines.api.ownerOnlyOption": "{name} (팀장만)",
+  "engines.api.ownerOnlyHint": "http 주소(이 컴퓨터나 내부 네트워크 주소)는 팀장만 정할 수 있어요. 팀장에게 부탁하거나 https 주소를 쓰세요.",
   'engines.api.keyRemove': '키 지우기',
   'engines.api.vision': "이미지 읽기",
   'engines.api.visionUnknown': "알 수 없음: 글자만",

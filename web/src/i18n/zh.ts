@@ -2019,6 +2019,8 @@ export const zh: Record<MessageKey, string> = {
   "engines.api.keyKeep": "已保留保存的密钥（输入即可替换）",
   "engines.api.getKeyAt": "在 {site} 创建密钥",
   "engines.api.noKeyLocal": "Ollama 运行在服务器自己的电脑上，不需要密钥。",
+  "engines.api.ownerOnlyOption": "{name}（仅所有者）",
+  "engines.api.ownerOnlyHint": "只有所有者能设置 http 地址（这台电脑或本地网络上的地址）。请联系所有者，或使用 https 地址。",
   "engines.api.keyRemove": "移除密钥",
   "engines.api.vision": "读取图片",
   "engines.api.visionUnknown": "未知：仅文字",

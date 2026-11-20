@@ -2050,6 +2050,8 @@ export const en: Record<MessageKey, string> = {
   'engines.api.keyKeep': 'Saved key kept (type to replace)',
   "engines.api.getKeyAt": "Make a key at {site}",
   "engines.api.noKeyLocal": "Ollama runs on the server's own computer and needs no key.",
+  "engines.api.ownerOnlyOption": "{name} (owner only)",
+  "engines.api.ownerOnlyHint": "Only the owner can set an http address (one on this computer or the local network). Ask the owner, or use an https address.",
   'engines.api.keyRemove': 'Remove key',
   'engines.api.vision': "Reads pictures",
   'engines.api.visionUnknown': "Not known: text only",

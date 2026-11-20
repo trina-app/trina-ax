@@ -151,10 +151,10 @@ describe('a failed engine check shows a plain line', () => {
   describe('the API engine: a timeout and an address that does not answer have different lines', () => {
     const real = globalThis.fetch
     afterAll(() => { globalThis.fetch = real })
-    const api = async (thrown: Error) => {
+    const api = async (thrown: Error, baseUrl = 'https://api.example.com/v1') => {
       globalThis.fetch = (async () => { throw thrown }) as unknown as typeof fetch
       const d = fs.mkdtempSync(path.join(dir, 'api-'))
-      writeApiEngine(d, { baseUrl: 'http://127.0.0.1:9/v1', model: 'm', label: 'QA API', key: 'sk-test-12345678' })
+      writeApiEngine(d, { baseUrl, model: 'm', label: 'QA API', key: 'sk-test-12345678' })
       try { return await checkEngine('api', { dataDir: d } as EngineEnv, true, 'en') } finally { globalThis.fetch = real }
     }
     test('a timeout says it took too long, with the engine name', async () => {
@@ -169,10 +169,22 @@ describe('a failed engine check shows a plain line', () => {
       expect(s.errorDetail).toContain('ECONNREFUSED')
       expect(s.errorDetail).not.toContain('sk-test-12345678')
     })
+    test('QA TC-4827: a refused connection on this computer says nothing runs there; for Ollama, to open it', async () => {
+      const refused = () => new TypeError('fetch failed', { cause: new Error('Unable to connect. Is the computer able to access the url? ECONNREFUSED') })
+      const ollama = await api(refused(), 'http://127.0.0.1:11434/v1')
+      expect(ollama).toMatchObject({ status: 'error', detail: T.apiOllamaNotRunning!.en })
+      expect(ollama.errorDetail).toContain('ECONNREFUSED')
+      const lmstudio = await api(refused(), 'http://192.168.1.20:1234/v1')
+      expect(lmstudio).toMatchObject({ status: 'error', detail: T.apiLocalNotRunning!.en })
+      // a public address that refuses: the usual line (check the address)
+      expect((await api(refused(), 'https://api.example.com/v1')).detail).toBe(T.apiUnreachable!.en)
+      // an unknown host on a local name is not "not running"
+      expect((await api(new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND') }), 'http://127.0.0.1:11434/v1')).detail).toBe(T.apiUnreachable!.en)
+    })
   })
 
   test('every plain line has all six languages and no raw placeholder left', () => {
-    for (const k of ['checkFailed', 'checkTimeout', 'checkNetwork', 'apiUnreachable'] as const) {
+    for (const k of ['checkFailed', 'checkTimeout', 'checkNetwork', 'apiUnreachable', 'apiOllamaNotRunning', 'apiLocalNotRunning'] as const) {
       for (const l of ['ko', 'en', 'id', 'ja', 'es', 'zh'] as const) {
         expect(T[k]![l]).toBeTruthy()
         expect(T[k]![l]).not.toContain('{e}')

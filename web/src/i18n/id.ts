@@ -2050,6 +2050,8 @@ export const id: Record<MessageKey, string> = {
   'engines.api.keyKeep': 'Kunci tersimpan dipakai (ketik untuk mengganti)',
   "engines.api.getKeyAt": "Buat kunci di {site}",
   "engines.api.noKeyLocal": "Ollama berjalan di komputer server sendiri dan tidak perlu kunci.",
+  "engines.api.ownerOnlyOption": "{name} (hanya owner)",
+  "engines.api.ownerOnlyHint": "Hanya owner yang dapat mengatur alamat http (alamat di komputer ini atau jaringan lokal). Minta owner, atau gunakan alamat https.",
   'engines.api.keyRemove': 'Hapus kunci',
   'engines.api.vision': "Membaca gambar",
   'engines.api.visionUnknown': "Tidak diketahui: hanya teks",

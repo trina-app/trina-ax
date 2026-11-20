@@ -2022,6 +2022,8 @@ export const ja: Record<MessageKey, string> = {
   'engines.api.keyKeep': "保存済みのキーを保持（入力すると置換）",
   "engines.api.getKeyAt": "{site} でキーを作成",
   "engines.api.noKeyLocal": "Ollama はサーバー自身のコンピューターで動くため、キーは不要です。",
+  "engines.api.ownerOnlyOption": "{name}（オーナーのみ）",
+  "engines.api.ownerOnlyHint": "http のアドレス（このコンピューターやローカルネットワークのアドレス）を設定できるのはオーナーだけです。オーナーに頼むか、https のアドレスを使ってください。",
   'engines.api.keyRemove': "キーを削除",
   'engines.api.vision': "画像の読み取り",
   'engines.api.visionUnknown': "不明: テキストのみ",
