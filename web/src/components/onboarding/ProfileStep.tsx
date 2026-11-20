@@ -370,17 +370,9 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
   )
   const note = error && <ErrorNote>{error}</ErrorNote>
   const toQuestions = () => setPhase({ kind: 'questions' })
-  const noAiNote = noAi && (
-    <div data-testid="profile-step-no-ai">
-      <AiAccessBanner />
-      <p className="text-sm text-muted">
-        {t('onboarding.profile.noAi')}{' '}
-        <button type="button" className="font-medium text-accent-text hover:underline" onClick={toQuestions} data-testid="profile-step-no-ai-questions">
-          {t('onboarding.profile.answer')}
-        </button>
-      </p>
-    </div>
-  )
+  // no AI (QA TC-200): one line with "Connect AI" (the dialog opens in place, what was typed stays: TC-201); the quiet
+  // "We have no website" becomes "Answer three questions" (without AI the fallback offers only those), no second note
+  const noAiNote = noAi && <div data-testid="profile-step-no-ai"><AiAccessBanner /></div>
 
   if (phase.kind === 'site')
     return (
@@ -395,9 +387,15 @@ export default function ProfileStep({ onDone, onSkip, skipLabel, initial, initia
           <Button type="submit" variant="primary" busy={busy} disabled={!site.trim() || noAi}>
             {t('onboarding.profile.read')}
           </Button>
-          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })} disabled={busy}>
-            {t('onboarding.profile.noSite')}
-          </Button>
+          {noAi ? (
+            <Button type="button" variant="ghost" onClick={toQuestions} disabled={busy} data-testid="profile-step-no-ai-questions">
+              {t('onboarding.profile.answer')}
+            </Button>
+          ) : (
+            <Button type="button" variant="ghost" onClick={() => setPhase({ kind: 'fallback', failed: null })} disabled={busy}>
+              {t('onboarding.profile.noSite')}
+            </Button>
+          )}
           <span className="ml-auto">{skip}</span>
         </div>
       </form>
