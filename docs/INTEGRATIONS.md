@@ -689,6 +689,14 @@ Apps › New):
 3. Generate a client secret. Put `clientId`, the secret and the app's slug in the file above (0600). No private key is
    needed: the server never acts as the app itself, only as the signed-in person.
 
+Checked for real on 2026-11-20 with the registered app ("Trina AX", github.com/apps/trina-ax, owned by the trina-app
+organization) on a copy of the QA team with the real AI: GitHub's MCP server takes the GitHub App user token (46 tools);
+in a chat the AI listed issues, read README.md, created an issue and opened a one-line pull request (each change behind
+the write card, made "via Trina AX" as the signed-in person); a project chat showed the share card to the asker only
+("Waiting for QA Member to confirm" for the others); a refresh at GitHub after the token's 8 hours (clock moved on)
+kept the new tokens and the next call worked. GitHub's wildcard callback took `qa.trina.app` and `potenlab.trina.app`
+and refused other hosts and other paths.
+
 Not yet: revoking the grant at GitHub on Disconnect (the person can in GitHub › Settings › Applications), an admin
 page for the file, keeping the secret behind the hosting service like the Drive broker.
 Code: `server/src/integrations/github/app.ts`, `connections/service.ts` (`serverApp`, `currentClient`), `oauth.ts`

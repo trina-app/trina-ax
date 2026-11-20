@@ -35,6 +35,9 @@
   - Refreshes use the app **as it is now** (a rotated secret works without anyone signing in again; another client
     ID ends the sign-ins). GitHub's HTTP-200 token errors (`bad_refresh_token`, `bad_verification_code`,
     `incorrect_client_credentials`) are read as refusals.
+  - **Checked for real (2026-11-20)** with the registered app (trina-app › "Trina AX", slug `trina-ax`): the GitHub
+    App user token works on GitHub's MCP server; reading, an issue and a pull request from a chat; the shared-chat card;
+    a refresh; the wildcard callback takes `<team>.trina.app` and refuses other hosts and paths.
   - Without the app file the card says "Not set up yet" (a member can ask an admin; an admin reads where it is set
     up), and a sign-in fails as for any service that registers no apps.
 - **Not now (MVP first):** revoking the grant at GitHub on Disconnect (GitHub's `DELETE /applications/{client_id}/grant`
