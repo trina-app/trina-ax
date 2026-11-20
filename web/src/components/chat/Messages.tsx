@@ -840,8 +840,9 @@ export function AssistantMessage({
               <span className="ml-auto flex flex-wrap justify-end gap-2">
                 {isNoAiReason(reason) && (!guest || guestOwn) && <AiAccessButton />}
                 {reason === 'engine_missing' && <NotReadyButton role={role} />}
-                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one) */}
-                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && (
+                {/* used up until a later time: the same AI is refused until then, so only "another model" (when there is one);
+                    out of credit: the same account fails the same way until an admin adds credit (its words say so) */}
+                {!(usageUntil && Date.parse(usageUntil) > Date.now()) && reason !== 'no_credit' && (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(m)} data-testid="retry">
                     <RotateCcw size={13} aria-hidden /> {t('common.retry')}
                   </Button>

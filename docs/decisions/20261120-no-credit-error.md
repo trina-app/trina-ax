@@ -14,6 +14,8 @@
   account; the owner and admins read to add credit with the provider or switch account in Admin › AI providers (the
   path filled in, as `credential_unusable`). Every locale. The file-list reader treats it as unavailable, like a
   sign-in error. The proxy's own reading of an API key out of credit (switch to the next account) is unchanged.
-- Try again stays on the answer: once credit is added it works.
-- Tests: `tests/unit/anthropic-refusal.test.ts`, `tests/unit/b-chat.test.ts`, `web/test/unit/chat-error-words.test.ts`.
+- No plain **Try again** on that answer (the same account fails the same way, and the words say a retry won't help);
+  "Try with another model" stays when another engine is connected. Once credit is added, the person sends it again.
+- Tests: `tests/unit/anthropic-refusal.test.ts`, `tests/unit/b-chat.test.ts`, `web/test/unit/chat-error-words.test.ts`,
+  `web/test/unit/connect-ai.test.tsx`.
 - Version impact: **patch** (a new error reason; older apps show its stored text).

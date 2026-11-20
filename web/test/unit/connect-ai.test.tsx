@@ -222,6 +222,24 @@ describe('a failed answer with AI connected', () => {
       expect(m.find('ai-access-button')).toBeNull()
     } finally { await m.unmount() }
   })
+  test('out of credit: a member reads who fixes it, with no Try again (the same account fails the same way); an admin reads where', async () => {
+    useAiAccess.setState({ loaded: true, usable: true, requested: false })
+    const error = { code: CHAT_ERROR_MESSAGES.no_credit.code, message: CHAT_ERROR_MESSAGES.no_credit.ko, params: { reason: 'no_credit' } }
+    for (const role of ['member', 'admin'] as const) {
+      signIn(role)
+      const m = await mount(
+        <MemoryRouter>
+          <AssistantMessage m={msg({ role: 'assistant', content: '', status: 'error', error } as never)} chatId={CHAT} isLast busy={false} switchedFrom={null} onRegenerate={() => {}} onSelectBranch={() => {}} onAskOwnFolder={() => {}} />
+        </MemoryRouter>,
+      )
+      try {
+        await m.until(() => m.find('answer-error'), 'the error')
+        const want = role === 'member' ? CHAT_ERROR_MESSAGES.no_credit.ko : translate('ko', 'chat.error.admin.no_credit', { path: `${ko('admin.title')} › ${ko('admin.providers')}` })
+        expect(m.get('answer-error').textContent).toContain(want)
+        expect(m.find('retry')).toBeNull()
+      } finally { await m.unmount() }
+    }
+  })
 })
 
 describe('Home\'s one line without AI (QA TC-5447)', () => {
