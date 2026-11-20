@@ -4473,6 +4473,7 @@ export const id: Record<MessageKey, string> = {
   "rooms.closeThread": "Tutup utas",
   "sideChat.open": "Tanya {name}",
   "sideChat.title": "{name}",
+  "sideChat.onlyYou": "Hanya Anda",
   "sideChat.close": "Tutup",
   "sideChat.new": "Chat baru",
   "sideChat.openFull": "Buka sebagai chat penuh",
