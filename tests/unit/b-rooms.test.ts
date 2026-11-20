@@ -4,13 +4,15 @@
 // permissions (members only, admins included; the author is never taken from the request), my own read position and
 // badge (no read receipts: nobody is told who has read what), realtime fan-out to members only, notices, room files
 // outside the team folder, and the replay check on reconnect.
-import { afterEach, expect, setDefaultTimeout, test } from 'bun:test'
+import { afterEach, expect, setDefaultTimeout, setSystemTime, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
 import type { RealtimeConn } from '../../server/src/services'
 import { Hub } from '../../server/src/realtime/hub'
 import { notificationsOf } from '../../server/src/notifications/service'
 import { savePreferences } from '../../server/src/notifications/preferences'
+import { updateTeamSettings } from '../../server/src/admin/settings'
+import { roomsOf } from '../../server/src/rooms/service'
 import { newId } from '../../server/src/db'
 import { addMember, harness, RecordingHub, withOwner, type Client, type Harness } from './a-lib'
 
@@ -283,11 +285,26 @@ test('session markers: each room.message says the notice its recipient got, as t
   await nora.client.call('PATCH', `/api/rooms/${team.id}`, { notifyLevel: 'all' })
   const t3 = await send(mia.client, team.id, 'every message now')
   expect(marks(t3.id)[nora.id]).toBe('room.dm')
-  // quiet hours (all day but the minute 23:59–24:00, weekends whole): the notice is kept but never rings, so no mark
-  await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
-  n.setPreferences(nora.id, { quietHours: { on: true, start: '00:00', end: '23:59', weekends: true } })
-  const t4 = await send(mia.client, team.id, '@NORA at night', { mentions: [nora.id] })
-  expect(marks(t4.id)[nora.id]).toBeNull()
+  // quiet hours (22:00–08:00, across midnight, in the team's zone): the notice is kept but never rings, so no mark.
+  // The clock is pinned (it used to be the real one with a 00:00–23:59 window, which failed in the minute 23:59).
+  // 2026-11-18 is a Wednesday, so the weekend rule plays no part. The sending budget keeps its own clock, moving
+  // forward, so the jumps of the pinned one never empty it.
+  updateTeamSettings(h.ctx.db, { timeZone: 'UTC' })
+  let budget = Date.now()
+  roomsOf(h.ctx).clock = () => (budget += 10_000)
+  n.setPreferences(nora.id, { quietHours: { on: true, start: '22:00', end: '08:00', weekends: false } })
+  const mentionAt = async (iso: string, body: string) => {
+    await nora.client.call('POST', `/api/rooms/${team.id}/read`, { seq: 999 })
+    setSystemTime(new Date(iso))
+    try { return marks((await send(mia.client, team.id, `@NORA ${body}`, { mentions: [nora.id] })).id)[nora.id] }
+    finally { setSystemTime() }
+  }
+  expect(await mentionAt('2026-11-18T23:59:30Z', 'just before midnight')).toBeNull()
+  expect(await mentionAt('2026-11-19T00:00:30Z', 'just after midnight')).toBeNull()
+  expect(await mentionAt('2026-11-19T07:59:30Z', 'before eight')).toBeNull()
+  // outside the window it rings again
+  expect(await mentionAt('2026-11-19T08:00:30Z', 'at eight')).toBe('room.mention')
+  expect(await mentionAt('2026-11-18T21:59:30Z', 'before ten')).toBe('room.mention')
 })
 
 test('a failure while recording notices never holds a new message back from anyone (it goes out unmarked)', async () => {
