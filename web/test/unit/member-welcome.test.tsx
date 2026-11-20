@@ -300,10 +300,10 @@ describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () =
   const NOTION = { id: 'int-notion', scope: 'personal', kind: 'mcp', name: 'Notion', slug: 'notion', url: 'https://mcp.notion.com/mcp', auth: 'oauth', authHeader: null, hasSecret: false, account: null, notes: null, writePolicy: 'ask', status: 'needs_auth', lastError: null, tools: [], toolsUpdatedAt: null, access: null, createdBy: null, createdAt: '2026-11-12T00:00:00.000Z', updatedAt: '2026-11-12T00:00:00.000Z', lastUsedAt: null, canManage: true }
   const app = (id: string, o: Record<string, unknown> = {}) => ({ id, available: true, reason: null, status: 'disconnected', account: null, writePolicy: 'ask', serviceDown: false, tools: [], shared: null, ...o })
   let items: unknown[] = []
-  let memberTools: string[] | null | undefined
+  let recommendedTools: string[] | undefined
   const KEYS = ['GET /api/integrations', 'GET /api/integrations/google-drive', 'GET /api/integrations/google-apps', 'POST /api/integrations', 'POST /api/integrations/int-notion/authorize', 'GET /api/integrations/flows/flow-n']
   const setRoutes = (apps: unknown[] = [app('gmail'), app('calendar', { available: false }), app('docs'), app('sheets')]) => {
-    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: true, ...(memberTools !== undefined ? { memberTools } : {}) })
+    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: true, ...(recommendedTools !== undefined ? { recommendedTools } : {}) })
     routes['GET /api/integrations/google-drive'] = () => json(200, { configured: true, status: 'disconnected', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
     routes['GET /api/integrations/google-apps'] = () => json(200, { apps })
   }
@@ -312,9 +312,9 @@ describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () =
   const item = (m: Awaited<ReturnType<typeof home>>, id: string) => [...m.container.querySelectorAll('[data-testid="my-tools-item"]')].find((li) => li.getAttribute('data-id') === id)
   const part = (m: Awaited<ReturnType<typeof home>>, id: string, testId: string) => item(m, id)?.querySelector(`[data-testid="${testId}"]`) ?? null
   const tools = (m: Awaited<ReturnType<typeof home>>) => [...m.container.querySelectorAll('[data-testid="my-tools-item"]')].map((li) => `${li.getAttribute('data-id')}:${li.getAttribute('data-state')}`)
-  afterEach(() => { for (const k of KEYS) delete routes[k]; items = []; memberTools = undefined; delete g.open })
+  afterEach(() => { for (const k of KEYS) delete routes[k]; items = []; recommendedTools = undefined; delete g.open })
 
-  test('the usual tools when the team chose none (an older server): Drive, Gmail, Notion; a Google app that is off is left out', async () => {
+  test('the usual tools when the team recommends none (an older server): Drive, Gmail, Notion; a Google app that is off is left out', async () => {
     signIn()
     setRoutes()
     const m = await home()
@@ -328,15 +328,15 @@ describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () =
     } finally { await m.unmount() }
   })
 
-  test('the team\'s recommended tools first; a member sees only those; one the team connected for everyone says so, no button', async () => {
+  test('the team\'s recommended tools first, then the usual ones, for a member too (nothing gated); one the team connected for everyone says so, no button', async () => {
     signIn()
-    memberTools = ['linear', 'notion']
+    recommendedTools = ['linear']
     items = [{ ...NOTION, id: 'team-notion', scope: 'team', status: 'connected', hasSecret: true }]
     setRoutes()
     const m = await home()
     try {
       await m.until(() => m.find('my-tools'), 'the tools')
-      expect(tools(m)).toEqual(['linear:open', 'notion:team'])
+      expect(tools(m)).toEqual(['linear:open', 'google-drive:open', 'gmail:open', 'notion:team'])
       expect(part(m, 'notion', 'my-tools-team')!.textContent).toBe('Team connected')
       expect(part(m, 'notion', 'my-tools-connect')).toBeNull()
     } finally { await m.unmount() }

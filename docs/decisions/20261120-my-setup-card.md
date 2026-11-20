@@ -18,15 +18,16 @@
   "The team is set up. These are just for you.", and "Only you see this" in place of a count (one counted row).
 - **A member's card:** 내 도구 연결, 인사하기, 사진, Trina에게 묻기 (or 내 AI 연결 while no AI answers them), the
   files row. "Get started · n of 3" counts tools, hi and asked.
-- **내 도구 연결:** the team's recommended tools first (TeamSettings.memberTools, read from GET /api/integrations,
-  the decision of PR #93, branch fix/welcome-tools-personal-wording; this branch adds the optional field to the contract so it
-  passes through once the server sends it), then Google Drive, Gmail, Google Calendar and Notion, at most four. A member
-  sees only tools that are on for members; owners and admins see every tool. Left out: what this server cannot connect
-  for the person. Each has its own [연결] with the person's own account: a listed service connects in place (the
-  welcome tools step's flow), a Google tool opens its page in Settings › Connectors (its own sign-in and account
-  check). A tool the team connected for everyone says "팀 연결됨" with no button. Done (server) once the person has a
-  working connection of their own (a personal connection or Google Drive); a team where personal connections are off
-  is not held back by it. "More tools" opens Settings › Connectors.
+- **내 도구 연결:** the team's recommended tools first (TeamSettings.recommendedTools from GET /api/integrations, ordered
+  with `recommendedFirst`, [20261120-team-vs-personal-onboarding.md](20261120-team-vs-personal-onboarding.md)), then
+  Google Drive, Gmail, Google Calendar and Notion, at most four. Nothing is gated: owners, admins and members see the
+  same list. Left out: what this server cannot connect for the person (Drive not set up, a Google app off, personal
+  connections off, as that setting already does). Each has its own [연결] with the person's own account: a listed
+  service connects in place (the welcome tools step's flow), a Google tool opens its page in Settings › Connectors (its
+  own sign-in and account check). A tool the team connected for everyone says "팀 연결됨" with no button. Done
+  (server) once the person has a working connection of their own (a personal connection or Google Drive); a team where
+  personal connections are off is not held back by it. "More tools" opens Settings › Connectors. There is no separate
+  Home line for connecting tools: this row is the one place.
 - **Merged:** "이 컴퓨터 파일 가져오기" (desktop app) and "데스크톱 앱 열기" (a Mac or Windows browser, /open-app) are one
   row by where the card is seen; the rooms row is one line under the title (a link to Chats); "팀 파일 정리하기" moved to
   Admin › Home (`organizeFiles` at the top of the answer, card or not).

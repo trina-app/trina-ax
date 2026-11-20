@@ -2,10 +2,11 @@
 // card.md): which tools it lists and how each one stands. Pure rules, unit-tested in web/test/unit/my-tools.test.ts.
 //
 // The team's recommended tools first, then the usual ones, at most MAX_TOOLS. The recommended list is
-// TeamSettings.memberTools as GET /api/integrations sends it (docs/decisions/20261120-team-tools-step.md, PR #93):
-// null or left out (not chosen, an older server, a build before it) is "every tool", so the usual ones alone show.
-// For a member a tool shows only while it is on for members; owners and admins see every tool. A tool this server
-// cannot connect for the person (Drive not set up, a Google app off, personal connections off) is left out.
+// TeamSettings.recommendedTools as GET /api/integrations sends it (shared/src/api/team-tools.ts, ordered with its
+// recommendedFirst); absent (an older server) or empty is none, so the usual ones alone show. Nothing is gated by it:
+// owners, admins and members see the same list. A tool this server cannot connect for the person (Drive not set up, a
+// Google app off, personal connections off) is left out.
+import { recommendedFirst } from '@mycel/shared/api'
 import { CONNECTORS } from './connectors'
 import { isGoogleApp } from './googleApps'
 
@@ -20,10 +21,8 @@ export interface ToolOffer { id: string; kind: ToolKind; state: ToolState }
 
 /** What the row knows about each tool, read from the person's own lists (the server's words, simplified). */
 export interface ToolFacts {
-  /** TeamSettings.memberTools (undefined: not sent) */
+  /** TeamSettings.recommendedTools (undefined: not sent) */
   recommended: readonly string[] | null | undefined
-  /** an owner or admin: every tool, whatever is on for members */
-  admin: boolean
   drive: { configured: boolean; mine: boolean } | null
   google: readonly { id: string; available: boolean; mine: boolean; team: boolean }[]
   /** the person may add their own connections (IntegrationList.personalAllowed) */
@@ -32,9 +31,6 @@ export interface ToolFacts {
   listedMine: ReadonlySet<string>
   listedTeam: ReadonlySet<string>
 }
-
-/** whether the tool `id` is on for members (null or left out: every tool) */
-const onForMembers = (tools: readonly string[] | null | undefined, id: string) => tools == null || tools.includes(id)
 
 function offer(id: string, f: ToolFacts): ToolOffer | null {
   if (id === 'google-drive') return f.drive?.configured ? { id, kind: 'drive', state: f.drive.mine ? 'mine' : 'open' } : null
@@ -53,11 +49,10 @@ function offer(id: string, f: ToolFacts): ToolOffer | null {
 
 /** The row's tools, in order: the team's recommended ones, then the usual ones; each once, at most MAX_TOOLS. */
 export function myTools(f: ToolFacts, max = MAX_TOOLS): ToolOffer[] {
-  const ids = [...new Set([...(f.recommended ?? []), ...DEFAULT_TOOLS])]
+  const ids = recommendedFirst([...new Set([...(f.recommended ?? []), ...DEFAULT_TOOLS])].map((id) => ({ id })), f.recommended).map((x) => x.id)
   const out: ToolOffer[] = []
   for (const id of ids) {
     if (out.length >= max) break
-    if (!f.admin && !onForMembers(f.recommended, id)) continue
     const o = offer(id, f)
     if (o) out.push(o)
   }

@@ -38,7 +38,7 @@ import { useLocale, useT } from '../../i18n'
 import { useAiAccess } from '../../store/aiAccess'
 import { useChats } from '../../store/chats'
 import { useMemberWelcome } from '../../store/memberWelcome'
-import { isAdmin, useMeStrict, useSession } from '../../store/session'
+import { useMeStrict, useSession } from '../../store/session'
 import { toast } from '../../store/ui'
 import { Button, buttonClass, useMediaQuery } from '../ui'
 import { PhonePickButton, useDevicePick } from '../DevicePick'
@@ -175,7 +175,6 @@ function Row({ id, done, title, hint, children, optional, below }: { id: string;
 /** "Connect your tools": the tools under the words, each [연결] with the person's own account (MyToolsRow.tsx). */
 function ToolsRow({ done }: { done: boolean }) {
   const t = useT()
-  const me = useMeStrict()
   const mark = useMemberWelcome((s) => s.mark)
   // one of theirs works now: done at once, and the server's answer (all set?) follows
   const mine = useCallback(() => {
@@ -183,7 +182,7 @@ function ToolsRow({ done }: { done: boolean }) {
     mark('tools')
     void useMemberWelcome.getState().load()
   }, [mark])
-  return <Row id="tools" done={done} title={t('memberWelcome.tools')} hint={t('memberWelcome.toolsHint', { ai: aiName(t) })} below={<MyToolsList admin={isAdmin(me)} onMine={mine} />} />
+  return <Row id="tools" done={done} title={t('memberWelcome.tools')} hint={t('memberWelcome.toolsHint', { ai: aiName(t) })} below={<MyToolsList onMine={mine} />} />
 }
 
 /** "👋 Hi, I'm {name}" in the everyone room, as the person (the room's own send; a second tap is the same message). */

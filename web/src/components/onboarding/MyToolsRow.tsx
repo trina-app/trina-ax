@@ -28,7 +28,7 @@ const WAITING = new Set(['starting', 'pending', 'exchanging'])
 const works = (i: Integration) => i.status === 'connected' && (i.auth !== 'oauth' || i.hasSecret)
 
 /** The person's lists, read once and again when the connections change or Settings closes; null while unknown. */
-function useToolFacts(admin: boolean) {
+function useToolFacts() {
   const [facts, setFacts] = useState<(ToolFacts & { mine: Integration[] }) | null>(null)
   const load = useCallback(async () => {
     const [list, drive, google] = await Promise.all([
@@ -39,10 +39,9 @@ function useToolFacts(admin: boolean) {
     if (!list) return setFacts((f) => f ?? null)
     const listed = (scope: 'personal' | 'team') => new Set(list.items.filter((i) => i.scope === scope && !i.templateId && works(i)).flatMap((i) => CONNECTORS.filter((c) => servesAt(c, i.url)).map((c) => c.id)))
     setFacts({
-      // the team's recommended tools (TeamSettings.memberTools, docs/decisions/20261120-team-tools-step.md); a server
-      // without them leaves it out: the usual tools alone
-      recommended: list.memberTools,
-      admin,
+      // the team's recommended tools (TeamSettings.recommendedTools, shared/src/api/team-tools.ts); a server without
+      // them leaves it out: the usual tools alone
+      recommended: list.recommendedTools,
       drive: drive ? { configured: drive.configured, mine: drive.status === 'connected' } : null,
       google: (google?.apps ?? []).map((a) => ({ id: a.id, available: a.available, mine: a.status === 'connected', team: a.shared?.status === 'connected' })),
       listedAllowed: list.personalAllowed,
@@ -50,7 +49,7 @@ function useToolFacts(admin: boolean) {
       listedTeam: listed('team'),
       mine: list.items.filter((i) => i.scope === 'personal' && !i.templateId),
     })
-  }, [admin])
+  }, [])
   useEffect(() => { void load() }, [load])
   useEffect(() => integrationsChanged.on(() => void load()), [load])
   // back from Settings › Connectors (a dialog over Home): read again
@@ -64,11 +63,11 @@ function useToolFacts(admin: boolean) {
 }
 
 /** The tools under the row's words. `onMine`: one of theirs works now (the row is done). */
-export function MyToolsList({ admin, onMine }: { admin: boolean; onMine: () => void }) {
+export function MyToolsList({ onMine }: { onMine: () => void }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
-  const { facts, load } = useToolFacts(admin)
+  const { facts, load } = useToolFacts()
   const [busy, setBusy] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
   // connections made here, before the lists are read again
