@@ -219,18 +219,21 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
       if (x.kind === 'all' || x.kind === 'team') oldestDays = Math.min(oldestDays, (Date.now() - Date.parse(items[0]?.createdAt ?? new Date().toISOString())) / 86_400_000)
     }
     checked.push(`${rooms.length} rooms: ${roomMessages} messages, ${threads} threads with ${replies} replies, ${reactions} reactions; unread only where the content says`)
-    // Activity: the planned unread rows (a mention in a room's unread end, a thread with unread replies, a chat thread
-    // reply naming the new hire), none at the build's time; a DM's message is no row
+    // the planned unread rows, none at the build's time; a DM's message is no row. Chats › Mentions & threads: a mention
+    // in a room's unread end, a thread with unread replies; Activity: a chat thread reply naming the new hire (the room
+    // rows are not in Activity, which says "Mentions & threads are in Chats"; QA TC-5700)
     const mention = `@${hireName}`
-    const plannedActivity = mine.filter((x) => x.messages.some((m) => m.unread && m.text.includes(mention))).length
+    const plannedRooms = mine.filter((x) => x.messages.some((m) => m.unread && m.text.includes(mention))).length
       + mine.reduce((n, x) => n + x.messages.filter((m) => m.thread?.some((t) => t.unread)).length, 0)
-      + c.chats.filter((x) => x.thread?.some((r) => r.text.includes(mention))).length
+    const plannedActivity = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(mention))).length
     const inbox = await api.call(API.listNotifications, { query: { limit: 100 } })
-    if (inbox.unreadCount !== plannedActivity) throw new Error(`${hire.username}'s Activity has ${inbox.unreadCount} unread, the content plans ${plannedActivity}`)
+    if (inbox.noticeUnreadCount !== plannedActivity) throw new Error(`${hire.username}'s Activity has ${inbox.noticeUnreadCount} unread, the content plans ${plannedActivity}`)
+    if (inbox.roomUnreadCount !== plannedRooms) throw new Error(`${hire.username}'s Mentions & threads has ${inbox.roomUnreadCount} unread, the content plans ${plannedRooms}`)
+    if (inbox.unreadCount !== plannedActivity + plannedRooms) throw new Error(`${hire.username} has ${inbox.unreadCount} unread notices, the content plans ${plannedActivity + plannedRooms}`)
     // the seed ran after the build's `now`: a notice dated later kept the seed's time, not the story's
     const late = inbox.items.find((n) => Date.parse(n.createdAt) > (o.builtAt ?? Date.now()))
     if (late) throw new Error(`${hire.username}'s Activity has a ${late.code} notice at the build's time, not the story's`)
-    checked.push(`Activity: ${inbox.unreadCount} unread, as planned`)
+    checked.push(`Activity: ${inbox.noticeUnreadCount} unread, Mentions & threads: ${inbox.roomUnreadCount}, as planned`)
     const listed = (await api.call(API.listChats, { query: { limit: 200 } })).items
     const chats = listed.map((x) => x.title)
     const own = c.chats.filter((y) => y.username.toLowerCase() === hire.username.toLowerCase())
