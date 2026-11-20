@@ -14,6 +14,7 @@ import { api, API, errorText } from '../../lib/api'
 import { formatSize, listTime } from '../../lib/format'
 import { roomFileItem, type ViewerMetaValue } from '../../lib/imageViewer'
 import { useLocale, useT } from '../../i18n'
+import { roomMessageGone } from '../../store/rooms'
 import { useMe } from '../../store/session'
 import { toast } from '../../store/ui'
 import { ImageGroup, useViewerItem, ViewerMeta } from '../ImageViewer'
@@ -49,6 +50,8 @@ export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { room
     void load()
     return () => { life.current++ }
   }, [load, refresh])
+  // a message deleted (here or by anyone, live): its files leave the list, the pages loaded stay
+  useEffect(() => roomMessageGone.on((g) => { if (g.roomId === roomId) setItems((cur) => (cur && cur.some((x) => x.messageId === g.messageId) ? cur.filter((x) => x.messageId !== g.messageId) : cur)) }), [roomId])
   const loadMore = async () => {
     if (!next) return
     setMore(true)
@@ -83,7 +86,9 @@ export function RoomFilesPanel({ roomId, refresh, groupFolder, onClose }: { room
         )}
         {error && <div className="px-1 pt-2"><ErrorNote onRetry={() => void load()}>{t('rooms.files.loadError')}</ErrorNote></div>}
         {!items && !error && <Skeleton lines={4} className="px-1 pt-2" />}
-        {items && !items.length && !next && (
+        {/* nothing listed: the plain words, also when a page came back empty with more after it (rows the checks left
+            out; Load more stays under them) */}
+        {items && !items.length && (
           <EmptyState icon={<Files size={24} aria-hidden />} title={t('rooms.files.empty')}>
             <p>{t('rooms.files.emptyHint')}</p>
           </EmptyState>

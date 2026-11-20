@@ -13,6 +13,7 @@ import RoomPage from '../../src/pages/Room'
 import SearchDialog from '../../src/components/SearchDialog'
 import { closeImageViewer, getImageViewer } from '../../src/lib/imageViewer'
 import { useRooms } from '../../src/store/rooms'
+import { peekCached, RECENT_ROOM_FILES, rememberCached, useListCache } from '../../src/store/listCache'
 import { useSession } from '../../src/store/session'
 import { useUi } from '../../src/store/ui'
 import { installDom, mount, removeDom, type FakeElement } from './dom-host'
@@ -50,6 +51,7 @@ afterEach(() => {
   routes = {}
   asked = []
   closeImageViewer()
+  useListCache.getState().reset()
   useUi.setState({ toasts: [], searchOpen: false })
   useRooms.getState().reset()
 })
@@ -171,6 +173,40 @@ describe('the room\'s Files list', () => {
   })
 })
 
+describe('the list follows the room', () => {
+  test('a message deleted while the list is open (mine or anyone\'s, live): its file leaves, the pages loaded stay', async () => {
+    const r = room({ kind: 'group', name: 'Deletes', groupId: null })
+    const a = hit(r.id, 'keep.pdf'), b = hit(r.id, 'gone.pdf'), c = hit(r.id, 'older.pdf')
+    serveRoom(r, (url) => json(url.searchParams.get('cursor') === 'p2' ? { items: [c], nextCursor: null } : { items: [a, b], nextCursor: 'p2' }))
+    useRooms.getState().setSide(r.id, 'files')
+    const m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-files-more'), 'the first page', 3000)
+      await m.click('room-files-more')
+      await m.until(() => rowsOf(m.get('room-files-list')).length === 3, 'the second page')
+      const reads = asked.filter((x) => x.startsWith(`GET /api/rooms/${r.id}/files`)).length
+      await act(async () => {
+        useRooms.getState().handleEvent({ type: 'room.message.updated', data: { roomId: r.id, message: { id: b.messageId, roomId: r.id, seq: 9, authorKind: 'user', author: BEN, askedBy: null, visibility: 'room', body: '', replyTo: null, mentions: [], files: [], createdAt: at(-4), editedAt: null, deletedAt: at(-1) } } } as never)
+      })
+      await m.until(() => rowsOf(m.get('room-files-list')).length === 2, 'the row gone')
+      expect([...rowsOf(m.get('room-files-list'))].map((x) => x.getAttribute('data-file-name'))).toEqual(['keep.pdf', 'older.pdf'])
+      // nothing read again: the second page is still there
+      expect(asked.filter((x) => x.startsWith(`GET /api/rooms/${r.id}/files`)).length).toBe(reads)
+    } finally { await m.unmount() }
+  })
+
+  test('a page that comes back empty with more after it: the plain words, and Load more', async () => {
+    const r = room({ kind: 'group', name: 'Sparse', groupId: null })
+    serveRoom(r, () => json({ items: [], nextCursor: 'p2' }))
+    useRooms.getState().setSide(r.id, 'files')
+    const m = await roomPage(r.id)
+    try {
+      await m.until(() => m.find('room-files')?.textContent?.includes(en('rooms.files.empty')), 'the empty state', 3000)
+      expect(m.find('room-files-more')).toBeTruthy()
+    } finally { await m.unmount() }
+  })
+})
+
 describe('⌘K before anything is typed', () => {
   const TEAM = room({ name: 'acme-design' })
   test('"Recent files": at most five, with who sent it and where; a row opens the file viewer and closes search', async () => {
@@ -200,5 +236,49 @@ describe('⌘K before anything is typed', () => {
       expect(getImageViewer()?.entry.item.key).toBe(`room:${TEAM.id}:${items[0]!.file.id}`)
       expect(useUi.getState().searchOpen).toBe(false)
     } finally { await m.unmount() }
+  })
+
+  const OTHER = room({ kind: 'group', name: 'left-room', groupId: null })
+  const baseRoutes = () => ({
+    'GET /api/chats': () => json({ items: [], nextCursor: null }),
+    'GET /api/projects': () => json({ items: [] }),
+    'GET /api/skills': () => json({ items: [] }),
+    'GET /api/schedules': () => json({ items: [] }),
+    'GET /api/integrations': () => json({ items: [], personalAllowed: false }),
+    'GET /api/rooms': () => json({ items: [TEAM] }),
+  })
+  const recentNames = (body: FakeElement) => [...(body.querySelector('[data-testid="search-section-recentFiles"]')?.querySelectorAll('[role="option"]') ?? [])].map((x) => x.textContent ?? '')
+
+  test('a room I was taken out of: its kept rows leave the list at once, and are never shown from what was kept', async () => {
+    const mine = hit(TEAM.id, 'mine.pdf'), theirs = hit(OTHER.id, 'from-left-room.pdf')
+    const kept = { items: [theirs, mine], rooms: [{ id: TEAM.id, kind: 'team', name: 'acme-design', peers: [BEN], memberCount: 3 }, { id: OTHER.id, kind: 'group', name: 'left-room', peers: [BEN], memberCount: 3 }] }
+    rememberCached(RECENT_ROOM_FILES, kept)
+    useRooms.setState({ rooms: [TEAM, OTHER], loaded: true })
+    // taken out of the room (room.updated "removed"): its rows go from what is kept
+    act(() => { useRooms.getState().handleEvent({ type: 'room.updated', data: { roomId: OTHER.id, change: 'removed' } } as never) })
+    expect((peekCached(RECENT_ROOM_FILES) as typeof kept).items.map((i) => i.file.name)).toEqual(['mine.pdf'])
+    // and a list read before the removal (still naming the room) shows only the rooms in my list now
+    let answer: () => Response = () => json(kept)
+    routes = { ...baseRoutes(), 'GET /api/room-files/recent': () => answer() }
+    useUi.setState({ searchOpen: true })
+    const m = await mount(<MemoryRouter initialEntries={['/']}><SearchDialog /></MemoryRouter>)
+    try {
+      const body = m.container.ownerDocument!.body
+      await m.until(() => recentNames(body).length > 0, 'Recent files', 3000)
+      await m.settle(50)
+      expect(recentNames(body).some((x) => x.includes('mine.pdf'))).toBe(true)
+      expect(recentNames(body).some((x) => x.includes('from-left-room.pdf'))).toBe(false)
+    } finally { await m.unmount() }
+    // a read that fails: nothing kept is shown
+    answer = () => json({ error: { code: 'internal', message: 'x' } }, 500)
+    rememberCached(RECENT_ROOM_FILES, kept)
+    useUi.setState({ searchOpen: true })
+    const m2 = await mount(<MemoryRouter initialEntries={['/']}><SearchDialog /></MemoryRouter>)
+    try {
+      const body = m2.container.ownerDocument!.body
+      await m2.until(() => asked.some((a) => a.startsWith('GET /api/room-files/recent')), 'the read', 3000)
+      await m2.settle(100)
+      expect(body.querySelector('[data-testid="search-section-recentFiles"]')).toBeNull()
+    } finally { await m2.unmount() }
   })
 })

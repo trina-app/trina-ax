@@ -153,6 +153,58 @@ describe('a room\'s Files list', () => {
   })
 })
 
+describe('review probes', () => {
+  test('a reply in the thread of an answer hidden from me is left out, with the answer itself', async () => {
+    const chat = await groupChat(mia.client, [nora.id, otto.id], 'Hidden thread')
+    const root = await sendFile(nora, chat, 'hidden-root.pdf')
+    await sendFile(otto, chat, 'reply-under-hidden.pdf', { threadRootId: root.message.id })
+    h.ctx.db.query('INSERT INTO room_hidden_answers (room_id, user_id, message_id, see_seq) SELECT ?1, ?2, ?3, seq FROM room_messages WHERE id = ?3').run(chat, mia.id, root.message.id)
+    for (const n of ['hidden-root.pdf', 'reply-under-hidden.pdf']) {
+      expect(names(await list(mia.client, chat))).not.toContain(n)
+      expect(names(await recent(mia.client))).not.toContain(n)
+    }
+    expect(names(await list(nora.client, chat))).toEqual(['reply-under-hidden.pdf', 'hidden-root.pdf'])
+  })
+
+  test('an archived room: its list answers 404 and its files leave recent', async () => {
+    const chat = await groupChat(mia.client, [nora.id], 'Archived')
+    await sendFile(mia, chat, 'archived-room.pdf')
+    expect(names(await recent(nora.client))).toContain('archived-room.pdf')
+    h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), chat)
+    expect((await nora.client.try('GET', `/api/rooms/${chat}/files`)).status).toBe(404)
+    expect(names(await recent(nora.client))).not.toContain('archived-room.pdf')
+  })
+
+  test('a project in the trash: its room\'s files leave recent', async () => {
+    const p = await mia.client.call('POST', '/api/projects', { name: 'Trashed for recent', participants: [user(nora.id)] })
+    const room = await mia.client.call('POST', `/api/projects/${p.id}/room`)
+    await sendFile(mia, room.id, 'trashed-project.pdf')
+    expect(names(await recent(nora.client))).toContain('trashed-project.pdf')
+    await mia.client.call('DELETE', `/api/projects/${p.id}`)
+    expect(names(await recent(nora.client))).not.toContain('trashed-project.pdf')
+    expect(names(await recent(mia.client))).not.toContain('trashed-project.pdf')
+  })
+
+  test('a forged but well-formed cursor: a member gets only what they see below it, a non-member the room\'s 404', async () => {
+    const chat = await groupChat(mia.client, [nora.id], 'Cursors')
+    await sendFile(mia, chat, 'cursor.pdf')
+    const enc = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+    // a huge rowid: everything is below it, still only the room's own files
+    const big = await nora.client.call('GET', `/api/rooms/${chat}/files?cursor=${enc({ f: '999999999999999999' })}`)
+    expect(names(big)).toEqual(['cursor.pdf'])
+    // a rowid below every file: nothing
+    expect(names(await nora.client.call('GET', `/api/rooms/${chat}/files?cursor=${enc({ f: '1' })}`))).toEqual([])
+    // not a rowid: refused
+    for (const bad of [enc({ f: '-1' }), enc({ f: '1e5' }), enc({ f: 1 }), 'x'.repeat(600)]) expect((await nora.client.try('GET', `/api/rooms/${chat}/files?cursor=${bad}`)).status).toBe(400)
+    // a non-member: the room's 404 whatever the cursor (the room is checked first), the same as a room that is not there
+    const forged = await otto.client.try('GET', `/api/rooms/${chat}/files?cursor=${enc({ f: '999999999999999999' })}`)
+    const missing = await otto.client.try('GET', `/api/rooms/${uuidv7()}/files`)
+    expect(forged.status).toBe(404)
+    const bare = (b: { error: Record<string, unknown> }) => ({ ...b.error, requestId: undefined })
+    expect(bare(forged.body)).toEqual(bare(missing.body))
+  })
+})
+
 describe('⌘K recent files', () => {
   test('the newest five across my rooms, readable rows only, with their rooms; nothing after leaving', async () => {
     // two people of their own, so other tests' rooms are not theirs (only the everyone room, older)

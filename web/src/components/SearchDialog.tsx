@@ -49,7 +49,7 @@ import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check,
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, parseSearch, searchWords } from '@mycel/shared'
-import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
+import { skillTitle, type Chat, type FileEntry, type Integration, type Person, type Project, type RecentRoomFiles, type Room, type RoomFileSearchHit, type RoomSearchFilters, type RoomSearchHit, type RoomSearchRoom, type RoomSearchSort, type Schedule } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { connectionHref, CONNECTORS_HOME } from '../lib/connectors'
 import { formatRelative, listTime } from '../lib/format'
@@ -84,7 +84,7 @@ import { useAvatarOf, usePeopleList } from '../store/people'
 import { useRooms } from '../store/rooms'
 import { useChats } from '../store/chats'
 import { useInboxUnread } from '../store/inbox'
-import { readIntegrations, readSchedules, readSkillList, SHARED, useCachedRead } from '../store/listCache'
+import { readIntegrations, readSchedules, readSkillList, RECENT_ROOM_FILES, SHARED, useCachedRead } from '../store/listCache'
 import { useProjects } from '../store/projects'
 import { cardChats, cardQuestion, reasonText, useSessionMarkers } from '../store/sessionMarkers'
 import { SessionMarker } from './chat/ChatState'
@@ -358,8 +358,11 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   useFocusTrap(ref, true, () => (menu ? closeMenu() : onClose()))
 
   const recent = useList('search:recent', readRecent)
-  // the newest files of my rooms, read on every open (a file sent a moment ago is the one looked for)
-  const recentFiles = useList('search:roomFilesRecent', readRecentRoomFiles, { always: true })
+  // the newest files of my rooms, read on every open (a file sent a moment ago is the one looked for). What was kept
+  // shows while it is read, never once that read failed (the kept rows may be of a room I am no longer in), and only the
+  // rows of rooms in my list now (a room I left or was taken out of: store/rooms.ts drops its rows too)
+  const recentRead = useCachedRead<RecentRoomFiles>(RECENT_ROOM_FILES, readRecentRoomFiles)
+  const recentFiles = recentRead.failed ? null : recentRead.data ?? null
   const me = useMe()
   // the project list as Search last read it, with each project's name as this window knows it now (a rename here)
   const projectsRead = useList('search:projects', readProjects)
@@ -381,6 +384,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
   const meId = useMe()?.user.id
   // rooms & people: my rooms list and the team's people, as the app has them (read now if no screen has yet)
   const myRooms = useRooms((s) => s.rooms)
+  const roomsLoaded = useRooms((s) => s.loaded)
   useEffect(() => {
     if (!useRooms.getState().loaded) void useRooms.getState().loadRooms()
   }, [])
@@ -668,7 +672,11 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     const allMcp = ok(mcp)?.items ?? []
     const out: Section[] = []
     const push = (id: string, label: string, rows: Row[]) => rows.length && out.push({ id, label, rows })
-    const recentFileRows = () => { const r = ok(recentFiles); return r ? r.items.map((h) => recentFileRow(h, r.rooms)) : [] }
+    const recentFileRows = () => {
+      if (!recentFiles) return []
+      const mine = roomsLoaded ? new Set(myRooms.map((r) => r.id)) : null
+      return recentFiles.items.filter((h) => !mine || mine.has(h.roomId)).map((h) => recentFileRow(h, recentFiles.rooms))
+    }
     // the messages found: "Close matches" when nothing matched as typed; what from: and in: were read as
     const pushMessages = () => {
       if (!hitsNow) return
@@ -763,7 +771,7 @@ function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; 
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, sent, room, chips, chipsShown, parts, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam, recentFiles, me])
+  }, [query, sent, room, chips, chipsShown, parts, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam, recentFiles, roomsLoaded, me])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
