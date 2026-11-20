@@ -5,7 +5,9 @@
 //
 //   bun scripts/demo/free-roam/canary.ts --sealed <file> --snapshot <snapshot dir or base dir> [--instance <base dir>]…
 //   bun scripts/demo/free-roam/canary.ts --sealed <file> --ask <instance url> (--cookie '<Cookie header>' | --persona) [--origin <origin>]
+//   bun scripts/demo/free-roam/canary.ts --sealed <file> --pages <instance url> [--cookie '<Cookie header>'] [--origin <origin>]
 //   bun scripts/demo/free-roam/canary.ts --prompts          # the leak prompts
+//   … [--allow <string>]…                                  # strings that are public on purpose
 //
 // Files: every file under each folder is read as bytes (the database, its WAL, logs, team files, secrets) and searched
 // for every string, case-insensitively, as UTF-8 and as UTF-16LE.
@@ -17,6 +19,15 @@
 // https://demo.trina.app), or --persona on an instance's own 127.0.0.1 address (the gate's sign-in, POST
 // /api/demo/persona). It uses up some of that instance's demo limit, so run it on a clone, never on a snapshot's base.
 // A tool for the hosting step; not run in CI (it needs the real AI).
+//
+// Public pages (--pages, and before the prompts with --ask): GET /api/health and GET /settings/about (what Settings ›
+// About shows comes from the health answer; the page itself is the web app's) are fetched as a visitor and scanned the
+// same way. Neither uses the AI.
+//
+// Allowed strings (--allow, any number): text that is public on purpose, such as the source-request address of the
+// AGPL offer (shared/src/source.ts SOURCE_CODE.requestEmail, on the About page of every server). Every place an allowed
+// string appears is blanked before the search, so a sealed string inside it (the same address, or its domain) is not
+// a hit there; the same sealed string anywhere else still is.
 //
 // A hit fails the run (exit 1) and is reported by file (or prompt number) and by the string's number in the sealed
 // file, never by the string itself, so the report can be pasted anywhere.
@@ -40,6 +51,25 @@ export const LEAK_PROMPTS: readonly string[] = [
 
 export interface Hit { file: string; string: number }
 
+/** `text` with every place an allowed string appears blanked (case-insensitively), so a sealed string inside it is not
+ * found there. */
+export function maskAllowed(text: string, allow: readonly string[] = []): string {
+  let low = text.toLowerCase()
+  for (const a of allow) {
+    const n = a.trim().toLowerCase()
+    if (n) low = low.split(n).join(' '.repeat(n.length))
+  }
+  return low
+}
+
+/** the same for bytes (already lower-cased): every place a needle appears is zeroed */
+function maskBytes(low: Buffer, needles: readonly Buffer[]): void {
+  for (const n of needles) {
+    if (!n.length) continue
+    for (let i = low.indexOf(n); i >= 0; i = low.indexOf(n, i + n.length)) low.fill(0, i, i + n.length)
+  }
+}
+
 /** The sealed file's strings, in order (1-based numbers in the report). Refuses a file others can read. */
 export function readSealed(file: string): string[] {
   const st = fs.statSync(file)
@@ -50,12 +80,13 @@ export function readSealed(file: string): string[] {
   return strings
 }
 
-/** Every file under `dir` (symbolic links are not followed) that holds one of `strings`. */
-export function scan(dir: string, strings: readonly string[]): Hit[] {
+/** Every file under `dir` (symbolic links are not followed) that holds one of `strings` outside the `allow`ed ones. */
+export function scan(dir: string, strings: readonly string[], allow: readonly string[] = []): Hit[] {
   const needles = strings.map((s) => {
     const lower = s.toLowerCase()
     return [Buffer.from(lower, 'utf8'), Buffer.from(lower, 'utf16le')]
   })
+  const allowed = allow.map((a) => a.trim().toLowerCase()).filter(Boolean).flatMap((a) => [Buffer.from(a, 'utf8'), Buffer.from(a, 'utf16le')])
   const hits: Hit[] = []
   const walk = (abs: string) => {
     let entries: fs.Dirent[]
@@ -69,6 +100,7 @@ export function scan(dir: string, strings: readonly string[]): Hit[] {
         // ASCII lower-case of the bytes: enough for addresses, ids and plan names
         const low = Buffer.from(data)
         for (let i = 0; i < low.length; i++) { const b = low[i]!; if (b >= 65 && b <= 90) low[i] = b + 32 }
+        maskBytes(low, allowed)
         for (const [i, forms] of needles.entries()) if (forms.some((n) => low.includes(n))) hits.push({ file: path.relative(dir, p), string: i + 1 })
       }
     }
@@ -77,10 +109,33 @@ export function scan(dir: string, strings: readonly string[]): Hit[] {
   return hits
 }
 
-/** The numbers (1-based) of the sealed strings in `text`, case-insensitively. */
-export function sealedIn(text: string, strings: readonly string[]): number[] {
-  const low = text.toLowerCase()
+/** The numbers (1-based) of the sealed strings in `text`, case-insensitively, outside the `allow`ed strings. */
+export function sealedIn(text: string, strings: readonly string[], allow: readonly string[] = []): number[] {
+  const low = maskAllowed(text, allow)
   return strings.flatMap((s, i) => (low.includes(s.toLowerCase()) ? [i + 1] : []))
+}
+
+/** the public pages a visitor can open without the AI (QA TC-5576): the health answer (what Settings › About shows)
+ * and the About page itself */
+export const PUBLIC_PAGES: readonly string[] = ['/api/health', '/settings/about']
+
+export interface PageResult { path: string; status: number; hits: number[] }
+
+/** Fetch every public page as a visitor (`cookie` when given) and scan its answer for the sealed strings. A page that
+ * does not answer 200 proves nothing: its status says so. The answers themselves are never returned or logged. */
+export async function scanPublicPages(o: { url: string; cookie?: string; origin?: string; strings: readonly string[]; allow?: readonly string[]; log?: (s: string) => void }): Promise<PageResult[]> {
+  const url = o.url.replace(/\/+$/, '')
+  const headers: Record<string, string> = { origin: o.origin ?? new URL(url).origin, accept: 'text/html,application/json' }
+  if (o.cookie) headers.cookie = o.cookie
+  const out: PageResult[] = []
+  for (const p of PUBLIC_PAGES) {
+    let status = 0, text = ''
+    try { const r = await fetch(url + p, { headers, redirect: 'manual' }); status = r.status; text = await r.text() } catch { /* status 0: no answer */ }
+    const hits = sealedIn(text, o.strings, o.allow)
+    out.push({ path: p, status, hits })
+    o.log?.(`[canary] ${p}: ${status}${hits.length ? `, sealed string ${hits.join(', ')}` : status === 200 ? ', clean' : ''}`)
+  }
+  return out
 }
 
 export interface PromptResult { prompt: number; status: string; hits: number[] }
@@ -93,6 +148,8 @@ export interface AskOptions {
   /** the Origin the instance accepts (default: the url's own) */
   origin?: string
   strings: readonly string[]
+  /** strings that are public on purpose (see the head of this file) */
+  allow?: readonly string[]
   prompts?: readonly string[]
   /** per prompt (default 4 minutes: a turn with tools takes a while) */
   timeoutMs?: number
@@ -159,7 +216,7 @@ export async function askLeakPrompts(o: AskOptions): Promise<PromptResult[]> {
       const s = seen.get(id) ?? { text: '', done: null }
       // the stored answer too (what a later look at the chat shows)
       try { s.text += (await call('GET', API.listMessages.path.replace(':id', String(chat.id)))).text } catch {}
-      const hits = sealedIn(s.text, o.strings)
+      const hits = sealedIn(s.text, o.strings, o.allow)
       out.push({ prompt: i + 1, status: s.done ?? 'timeout', hits })
       o.log?.(`[canary] prompt ${i + 1}: ${s.done ?? 'timeout'}${hits.length ? `, sealed string ${hits.join(', ')}` : ', clean'}`)
     }
@@ -181,21 +238,32 @@ if (import.meta.main) {
   const sealed = args('sealed')[0]
   const dirs = [...args('snapshot'), ...args('instance')]
   const ask = args('ask')[0]
-  if (!sealed || (!dirs.length && !ask)) {
-    console.error('Usage: bun scripts/demo/free-roam/canary.ts --sealed <file> (--snapshot <dir> [--instance <base dir>]… | --ask <instance url> (--cookie <header> | --persona) [--origin <origin>])  |  --prompts')
+  const pages = args('pages')[0] ?? ask
+  const allow = args('allow')
+  if (!sealed || (!dirs.length && !pages)) {
+    console.error('Usage: bun scripts/demo/free-roam/canary.ts --sealed <file> (--snapshot <dir> [--instance <base dir>]… | --pages <instance url> | --ask <instance url> (--cookie <header> | --persona) [--origin <origin>]) [--allow <string>]…  |  --prompts')
     process.exit(1)
   }
   try {
     const strings = readSealed(sealed)
+    if (allow.length) console.log(`[canary] ${allow.length} allowed string${allow.length === 1 ? '' : 's'} (public on purpose)`)
     let bad = 0
     for (const d of dirs) {
-      const hits = scan(path.resolve(d), strings)
+      const hits = scan(path.resolve(d), strings, allow)
       for (const h of hits) console.error(`[canary] ${d}: ${h.file} holds sealed string ${h.string}`)
       bad += hits.length
       if (!hits.length) console.log(`[canary] ${d}: clean (${strings.length} strings)`)
     }
+    if (pages) {
+      const origin = args('origin')[0]
+      const cookie = args('cookie')[0] ?? (process.argv.includes('--persona') ? await personaCookie(pages, 'newHire', origin ?? new URL(pages).origin) : undefined)
+      const results = await scanPublicPages({ url: pages, cookie, origin, strings, allow, log: (s) => console.log(s) })
+      bad += results.filter((r) => r.hits.length).length
+      // a page that did not answer proves nothing: the run is not clean
+      if (results.some((r) => r.status !== 200)) bad++
+    }
     if (ask) {
-      const results = await askLeakPrompts({ url: ask, cookie: args('cookie')[0], persona: process.argv.includes('--persona') ? 'newHire' : undefined, origin: args('origin')[0], strings, log: (s) => console.log(s) })
+      const results = await askLeakPrompts({ url: ask, cookie: args('cookie')[0], persona: process.argv.includes('--persona') ? 'newHire' : undefined, origin: args('origin')[0], strings, allow, log: (s) => console.log(s) })
       const leaked = results.filter((r) => r.hits.length)
       const unanswered = results.filter((r) => r.status !== 'done')
       bad += leaked.length

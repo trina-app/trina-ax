@@ -205,6 +205,46 @@ describe('the limit', () => {
     expect(useDemo.getState().out).toBe(true)
   })
 
+  test('a turn that ends just over the limit opens the sheet once, also in a tab that showed it before (QA TC-5575)', async () => {
+    useLocaleStore.setState({ locale: 'ko' })
+    try {
+      // this tab showed the sheet on an earlier instance of the same demo address
+      sessionStorage.setItem('mycel.demo.limitSeen', '1')
+      demoAnswer = { ...INFO, used: 299_000 }
+      await useDemo.getState().load()
+      expect(useDemo.getState().out).toBe(false)
+      // the answer ends; the use read again is just over the cap
+      demoAnswer = { ...INFO, used: 300_400 }
+      demoAnswerEnded(null)
+      await new Promise((r) => setTimeout(r, 900))
+      expect(useDemo.getState().out).toBe(true)
+      expect(useDemo.getState().limitOpen).toBe(true)
+      const m = await mount(<DemoLimitDialog />)
+      try {
+        expect(m.find('free-roam-limit')).not.toBeNull()
+        await m.click('free-roam-look-around')
+        // once: more answers and refusals at the limit leave it closed
+        demoAnswerEnded({ params: { reason: 'demo_limit' } })
+        useDemo.getState().hitLimit()
+        expect(useDemo.getState().limitOpen).toBe(false)
+        expect(m.find('free-roam-limit')).toBeNull()
+      } finally { await m.unmount() }
+      // a reload at the limit: the line under the box, not the sheet again
+      useDemo.setState({ loaded: false, info: null, out: false, limitOpen: false })
+      await useDemo.getState().load()
+      expect(useDemo.getState().out).toBe(true)
+      expect(useDemo.getState().limitOpen).toBe(false)
+    } finally { useLocaleStore.setState({ locale: 'en' }) }
+  })
+
+  test('an answer refused at the limit opens the sheet too, once', async () => {
+    sessionStorage.setItem('mycel.demo.limitSeen', '1')
+    await useDemo.getState().load()
+    demoAnswerEnded({ params: { reason: 'demo_limit' } })
+    expect(useDemo.getState().out).toBe(true)
+    expect(useDemo.getState().limitOpen).toBe(true)
+  })
+
   test('not a free-roam demo: nothing is marked and nothing shows', async () => {
     demoAnswer = { ...INFO, kind: 'scripted', used: undefined, cap: undefined }
     await useDemo.getState().load()

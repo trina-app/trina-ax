@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { IsoTime, JobAccepted } from './common'
 import { UserRef } from './entities'
-import { empty, endpoint } from './endpoint'
+import { empty, endpoint, stream } from './endpoint'
 import { SourceCodeOffer } from '../source'
 
 export const Health = z.object({
@@ -310,6 +310,9 @@ export const SYSTEM = {
   startBackup: endpoint({ method: 'POST', path: '/api/admin/backup', auth: 'owner', owner: 'G', status: 202, body: StartBackupBody, response: JobAccepted, summary: 'Back up now (VACUUM INTO + team folder manifest diff).' }),
   startRestore: endpoint({ method: 'POST', path: '/api/admin/restore', auth: 'owner-reauth', owner: 'G', status: 202, body: StartRestoreBody, response: JobAccepted, summary: 'Restore a backup (everything after it is lost; the UI shows how much).' }),
   startExport: endpoint({ method: 'POST', path: '/api/admin/export', auth: 'owner', owner: 'G', status: 202, body: StartExportBody, response: JobAccepted, summary: 'Export chats / memories / files (optionally password-encrypted with age).' }),
+  // Settings › Export (QA AP-038): every member, their own chats only (docs/decisions/20261120-export-my-chats.md)
+  startMyExport: endpoint({ method: 'POST', path: '/api/me/export', auth: 'user', owner: 'G', status: 202, response: JobAccepted, summary: "A ZIP of the caller's own AI chats (Markdown + JSON per chat, attachments as links), built on the server. Never a chat of somebody else, also not one shared with the caller. One at a time per person (409 busy). Result: MyExportResult." }),
+  myExportDownload: endpoint({ method: 'GET', path: '/api/me/export/:jobId/download', auth: 'user', owner: 'G', response: stream(false), summary: "The ZIP of the caller's own export job, for 24 hours after it is made (404 for anyone else's job and after that)." }),
   connection: endpoint({ method: 'GET', path: '/api/admin/connection', auth: 'owner', owner: 'G', response: ConnectionStatus, summary: 'Relay / direct connection state (from the relay client, component F).' }),
   connectInfo: endpoint({ method: 'GET', path: '/api/connect-info', auth: 'user', owner: 'G', response: ConnectInfo, summary: 'Office-network address and certificate fingerprint for the desktop app (pinning).' }),
   lanFailure: endpoint({ method: 'POST', path: '/api/connect-info/lan-failure', auth: 'user', owner: 'G', status: 204, body: LanFailureBody, response: empty, summary: 'The desktop app could not use the office address (shown in Diagnostics).' }),

@@ -27,8 +27,10 @@ interface State {
   limitOpen: boolean
   /** free roam: read the demo's use again (after an answer) */
   refresh: () => Promise<void>
-  /** free roam: a send or an answer was refused at the demo limit */
-  hitLimit: () => void
+  /** free roam: the demo limit is used up. `live` (the default): it was reached while this page was open (an answer
+   * ended at or over it, a send was refused at it), and the limit sheet opens once; not live (the page loaded at the
+   * limit): it opens only when this tab has not shown it yet */
+  hitLimit: (live?: boolean) => void
   closeLimit: () => void
 }
 
@@ -45,7 +47,7 @@ export const useDemo = create<State>((set, get) => ({
   load() {
     if (get().loaded) return Promise.resolve(get().info)
     inflight ??= api.call(API.demoInfo).then(
-      (info) => { set({ loaded: true, info }); noteUse(info); return info },
+      (info) => { set({ loaded: true, info }); noteUse(info, false); return info },
       (e) => {
         // 404: no demo here; anything else: show the normal app rather than half a demo
         if (!isApiError(e, 'not_found')) console.warn('demo info', e)
@@ -60,26 +62,30 @@ export const useDemo = create<State>((set, get) => ({
     try {
       const info = await api.call(API.demoInfo)
       set({ info })
-      noteUse(info)
+      noteUse(info, true)
     } catch { /* the next answer reads it again */ }
   },
-  hitLimit() {
+  hitLimit(live = true) {
     if (!isFreeRoam(get().info) || get().out) return
-    const show = !seenLimit()
-    if (show) markSeen()
+    // QA TC-5575: a turn that ended just over the limit showed only the line under the box, because this tab had shown
+    // the sheet before (an earlier instance on the same demo address keeps the tab's flag). Reaching 100 % on this
+    // page always opens it, once (`out` stays set); only a reload at the limit leaves it to the line
+    const show = live || !seenLimit()
+    markSeen()
     set({ out: true, limitOpen: show })
   },
   closeLimit() { set({ limitOpen: false }) },
 }))
 
-/** what GET /api/demo says about the limit: used up opens the dialog once (a reload at the limit keeps only the line) */
-function noteUse(info: DemoInfo | null) {
+/** what GET /api/demo says about the limit: used up opens the dialog once; `live`: read again after an answer, so the
+ * limit was reached on this page (a reload at the limit keeps only the line) */
+function noteUse(info: DemoInfo | null, live: boolean) {
   if (!isFreeRoam(info)) return
-  if (demoMeter(info.used, info.cap).out) useDemo.getState().hitLimit()
+  if (demoMeter(info.used, info.cap).out) useDemo.getState().hitLimit(live)
 }
 
 // a send (or any request) refused at the demo limit, wherever it came from
-onDemoLimit(() => useDemo.getState().hitLimit())
+onDemoLimit(() => useDemo.getState().hitLimit(true))
 
 /** store/live.ts: an AI answer ended. Free roam only: one refused at the limit marks it; any other reads the use again
  * (a little later, so the server has counted the answer) */

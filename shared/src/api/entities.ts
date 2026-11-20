@@ -714,7 +714,11 @@ export const BackupResult = z.object({ backupId: z.string(), size: z.number().in
 export const RestoreResult = z.object({ backupId: z.string(), restoredAt: IsoTime, lostSince: IsoTime.nullable() })
 export const UpdateResult = z.object({ fromVersion: z.string(), toVersion: z.string(), rolledBack: z.boolean() })
 export const ExportResult = z.object({ path: RelPath, size: z.number().int().nonnegative() })
-export const JobResult = z.union([TranscribeResult, BackupResult, RestoreResult, UpdateResult, ExportResult])
+/** A member's own export (Settings › Export, POST /api/me/export): `download` is where its maker gets the ZIP, for 24
+ * hours; `chats` how many chats it holds. */
+export const MyExportResult = z.object({ download: z.string().regex(/^\/api\/me\/export\/[0-9a-f-]{36}\/download$/), size: z.number().int().nonnegative(), chats: z.number().int().nonnegative() })
+export type MyExportResult = z.infer<typeof MyExportResult>
+export const JobResult = z.union([TranscribeResult, BackupResult, RestoreResult, UpdateResult, ExportResult, MyExportResult])
 export const Job = z.object({
   id: Uuid7,
   kind: JobKind,

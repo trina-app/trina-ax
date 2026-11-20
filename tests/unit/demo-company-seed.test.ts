@@ -19,6 +19,8 @@ import { seedStoryState } from '../../scripts/demo/company/story-state'
 import { STEEPLING_LOCALES, STEEPLING_SKILLS, writeSteepling } from '../../scripts/demo/steepling/make'
 import { en as minaEn } from '../../scripts/demo/mina/strings/en'
 import { ko as minaKo } from '../../scripts/demo/mina/strings/ko'
+import { en as steeplingEn } from '../../scripts/demo/steepling/strings/en'
+import { ko as steeplingKo } from '../../scripts/demo/steepling/strings/ko'
 
 const OWNER_PASSWORD = 'a random owner password for tests 1'
 const BASE = 'http://team.localhost'
@@ -155,7 +157,12 @@ for (const locale of STEEPLING_LOCALES) {
       for (const rel of c.files.filter((f) => /^skills\/.+\/SKILL\.md$/.test(f))) {
         const parsed = checkSkill(fs.readFileSync(path.join(c.filesDir, rel), 'utf8'), rel)
         expect(parsed.ok && parsed.title, rel).toBeTruthy()
+        // the language's own title, never the folder name (QA TC-5553: the ko team skill showed "social-posts")
+        const slug = rel.split('/')[1]! as keyof typeof steeplingEn.skillTitles
+        expect(parsed.ok && parsed.title, rel).not.toBe(slug)
+        expect(parsed.ok && parsed.title, rel).toBe((locale === 'ko' ? steeplingKo : steeplingEn).skillTitles[slug])
       }
+      if (locale === 'ko') expect(fs.readFileSync(path.join(c.filesDir, 'skills/social-posts/SKILL.md'), 'utf8')).toContain('\n  title: SNS 글 쓰기\n')
     })
 
     test('seeded with the end of the story: checks, rooms, projects, shared chats, connections, the inviter', async () => {
