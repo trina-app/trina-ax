@@ -196,6 +196,7 @@ func TestSeedCopiesTheTreeLikeCpA(t *testing.T) {
 		t.Log("the temp file system takes no user xattrs: xattrs are not compared")
 	}
 	want := treeOf(t, h.e.P.Seed, xattr)
+	h.env["AX_ENROLL_SEED_READERS"] = "32" // the read-ahead is off by default; the copy must be the same with it on
 	must(t, h.e.seed())
 	sameTree(t, want, treeOf(t, h.e.P.Base, xattr))
 	if h.e.kitVersion != "0.3.0" || exists(filepath.Join(h.e.P.Base, seedMarker)) {
@@ -251,13 +252,16 @@ func TestSeedRetriesAHalfCopy(t *testing.T) {
 }
 
 func TestSeedReadersSetting(t *testing.T) {
+	// off by default: a cold-read test on EC2 found the read-ahead slower than a plain cp -a (see defaultSeedReaders)
+	if defaultSeedReaders != 0 {
+		t.Fatalf("default readers %d, want 0 (off)", defaultSeedReaders)
+	}
 	h := newHarness(t)
-	h.env["AX_ENROLL_SEED_READERS"] = "0"
 	must(t, h.e.seed())
 	if strings.Contains(h.out.String(), "read ahead") || !strings.Contains(h.out.String(), "copied in") {
-		t.Fatalf("readers 0 still read ahead:\n%s", h.out.String())
+		t.Fatalf("the default still reads ahead:\n%s", h.out.String())
 	}
-	for v, want := range map[string]int{"4": 4, "256": 256, "x": defaultSeedReaders, "-1": defaultSeedReaders, "999": defaultSeedReaders} {
+	for v, want := range map[string]int{"0": 0, "4": 4, "32": 32, "256": 256, "x": defaultSeedReaders, "-1": defaultSeedReaders, "999": defaultSeedReaders} {
 		h.env["AX_ENROLL_SEED_READERS"] = v
 		if got := h.e.seedReaders(); got != want {
 			t.Fatalf("%q: %d, want %d", v, got, want)
