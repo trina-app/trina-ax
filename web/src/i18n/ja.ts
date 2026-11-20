@@ -947,7 +947,7 @@ export const ja: Record<MessageKey, string> = {
   'preview.truncated': "ファイルの先頭部分のみ表示しています。",
   'preview.externalImages': "{n, plural, one {Web上の画像#件はプレビューでブロックされます。AIにファイルとして保存するよう頼んでください} other {Web上の画像#件はプレビューでブロックされます。AIにファイルとして保存するよう頼んでください}}",
   'preview.webScripts': "{n, plural, one {Web上のスクリプト#件はプレビューで実行されません。ライブラリをページの隣にチームファイルとして保存するようAIに頼んでください} other {Web上のスクリプト#件はプレビューで実行されません。ライブラリをページの隣にチームファイルとして保存するようAIに頼んでください}}",
-  'preview.missingScripts': "{n, plural, one {チームのスクリプト#件をページに入れられませんでした（ファイルがない、権限がない、.jsファイルではない、または5MB超）: {list}} other {チームのスクリプト#件をページに入れられませんでした（ファイルがない、権限がない、.jsファイルではない、または5MB超）: {list}}}",
+  'preview.missingScripts': "{n, plural, one {チームのスクリプト#件をページに入れられませんでした} other {チームのスクリプト#件をページに入れられませんでした}}（ファイルがない、権限がない、.jsファイルではない、または5MB超）: {list}",
   'preview.photoBusy': "多数の写真のプレビューを作成中です。しばらくしてから再試行してください。",
   'preview.photoUnavailable': "この写真はここではプレビューできません。ダウンロードして開いてください。",
   'preview.unsupportedShort': "この形式のプレビューはありません",
