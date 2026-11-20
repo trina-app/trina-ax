@@ -19,7 +19,7 @@
 - **A member's card:** 내 도구 연결, 인사하기, 사진, Trina에게 묻기 (or 내 AI 연결 while no AI answers them), the
   files row. "Get started · n of 3" counts tools, hi and asked.
 - **내 도구 연결:** the team's recommended tools first (TeamSettings.memberTools, read from GET /api/integrations,
-  [20261120-team-tools-step.md](20261120-team-tools-step.md); this branch adds the optional field to the contract so it
+  the decision of PR #93, branch fix/welcome-tools-personal-wording; this branch adds the optional field to the contract so it
   passes through once the server sends it), then Google Drive, Gmail, Google Calendar and Notion, at most four. A member
   sees only tools that are on for members; owners and admins see every tool. Left out: what this server cannot connect
   for the person. Each has its own [연결] with the person's own account: a listed service connects in place (the

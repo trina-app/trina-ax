@@ -175,6 +175,11 @@
   "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
  },
  {
+  "file": "onboarding/my-setup.ts",
+  "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL",
+  "reason": "filter on owner/admin only: a guest is stored as role 'member' (users.guest = 1) and never matches"
+ },
+ {
   "file": "onboarding/suggestions.ts",
   "sql": "SELECT 1 FROM users WHERE id = ? AND role = 'member' AND guest = 0 AND status = 'active' AND deleted_at IS NULL",
   "reason": "role = 'member' AND guest = 0: guests left out on purpose"

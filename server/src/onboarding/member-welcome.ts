@@ -179,7 +179,7 @@ export function welcomeAnswer(ctx: AppContext, userId: string, now = Date.now())
   const welcome = welcomeOf(ctx, userId, now)
   const c = welcome ? null : cardRow(ctx.db, userId, now)
   const hidden = !!c?.row.hidden_at && !c.row.done_at
-  const role = (ctx.db.query("SELECT role FROM users WHERE id = ? AND guest = 0").get(userId) as { role: string } | null)?.role
+  const role = (ctx.db.query("SELECT CASE WHEN guest = 1 THEN 'guest' ELSE role END AS role FROM users WHERE id = ?").get(userId) as { role: string } | null)?.role
   const organizeFiles = role === 'admin' && !filesOrganized(ctx) && readWelcome(ctx) !== null && welcomeOpened(ctx)
   return { welcome, ...(hidden ? { hidden: true } : {}), ...(organizeFiles ? { organizeFiles: true } : {}) }
 }
