@@ -1,0 +1,1 @@
+- Closing a thread in an AI chat no longer scrolls the chat back to the answer it was under when you had scrolled elsewhere.
