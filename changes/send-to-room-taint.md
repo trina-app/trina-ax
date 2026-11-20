@@ -1,3 +1,0 @@
-- **Send to conversation** under an answer now honours **Always allow** for room posts: it sends at once, as the AI's own send does. Before, the button asked every time, even with Always allow on.
-- When **Send to conversation** does ask, it now says what the AI read that some people in the room can't open, in plain words and with counts ("2 of my files, 1 file in Groups › marketing"), instead of a folder path and "this answer includes content from".
-- In the side chat of a channel linked to a project, the AI looks in the project's folder first, so a question about the channel's work no longer reads private folders that make sending ask.

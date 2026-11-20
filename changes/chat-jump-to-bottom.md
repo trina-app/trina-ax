@@ -1,1 +1,0 @@
-- In an AI chat, a round button above the message box takes you back to the newest message after you scroll up.

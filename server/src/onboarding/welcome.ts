@@ -34,6 +34,7 @@ import { listTeamSkills, sameSkillName } from '../chat/skills'
 import { componentC } from '../team-files/component'
 import { readCompanyProfile } from './profile'
 import { retireLegacyDefaultSkills } from './retired-skills'
+import { startMySetup } from './my-setup'
 
 export const WELCOME_SETTING = 'onboarding.welcome'
 
@@ -295,8 +296,12 @@ export function updateWelcome(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppC
     if (!p.finishedAt) raw.finishedAt = now
   }
   const r = saveRow(ctx, raw, now)
-  // the legacy "finish" sets finishedAt itself: it ends the steps too
-  if (r.finished || (u.finish && !p.finishedAt)) finishedNow(ctx, userId)
+  // the legacy "finish" sets finishedAt itself: it ends the steps too. The end screen is next: the owner's own card
+  // ("My setup", my-setup.ts) starts now
+  if (r.finished || (u.finish && !p.finishedAt)) {
+    startMySetup(ctx, userId, now)
+    finishedNow(ctx, userId)
+  }
   // hiding the steps (✕) lets what waited for them go, but only once it holds: the setup row's toast can undo it
   if (u.dismissed && !p.dismissedAt) afterDismissHold(ctx, userId)
   return r.progress
@@ -377,6 +382,8 @@ export function endHeldDismissal(ctx: Pick<AppContext, 'db' | 'log'> & Partial<A
   let p: WelcomeProgress | null
   try { p = readWelcome(ctx) } catch { return false }
   if (!p || p.finishedAt || !dismissHeld(p, now)) return false
+  // the steps closed for good: the owner's own card ("My setup", my-setup.ts), its days from the ✕
+  startMySetup(ctx, ownerId, p.dismissedAt!)
   finishedNow(ctx, ownerId)
   return true
 }
@@ -595,7 +602,7 @@ export function recordShared(ctx: Pick<AppContext, 'db' | 'log'> & Partial<AppCo
     ;(raw.steps as Raw).skills = 'done'
     delete raw.skillsLater
     const r = saveRow(ctx, raw, now)
-    if (r.finished) finishedNow(ctx, userId)
+    if (r.finished) { startMySetup(ctx, userId, now); finishedNow(ctx, userId) }
     return r.finished
   } catch (err) {
     ctx.log.warn('welcome shared skills not recorded', { err })

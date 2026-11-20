@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>팀 모두가 같이 쓰는 AI.</b><br>
-트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작하고,<br>AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
+트리나 AX는 팀의 파일, 스킬, 도구를 서버 하나에 모아요. 모두의 AI가 거기서 시작해요.<br>동료의 AI 세션을 그대로 이어받고, AI가 여는 파일은 모두 물어본 사람의 권한으로 확인해요.
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ko.png" height="40" alt="맥용 다운로드"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ko.png" height="40" alt="Windows용 다운로드"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Store에서 다운로드"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play에서 다운로드"></a><br>
 <sub>Linux: .deb와 AppImage(x64, arm64)는 <a href="https://ax.trina.app/download">다운로드 페이지</a>에 있어요</sub>
 
 [웹사이트](https://ax.trina.app) · [문서](docs/README.md) · [요금제](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
+[English](README.md) · 한국어 · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
@@ -58,6 +58,10 @@ https://github.com/user-attachments/assets/1547962d-e40b-458f-ba6b-d488bcd9bc68
 
 ## 모두가 이걸로 하는 일
 
+**동료가 하던 일, 그대로 이어서.** 팀 프로젝트에서 동료의 AI 세션을 열면 지금까지의 대화와 답이 모두 보이고, 바로 이어서 물을 수 있어요. 새 답은 물어본 사람의 권한으로 처리돼요. 그 밖의 세션도 Google Drive 파일처럼 사람이나 그룹에 공유할 수 있어요.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina가 Sam의 프로젝트 세션을 열어 카드뉴스를 이어서 고쳐요. Mina가 묻는 건 Mina의 권한으로 처리돼요.">
+
 **어느 대화방 옆에서든 묻고, 클릭 한 번으로 보내요.** 나만 보는 옆 채팅에서 묻고, 클릭 한 번이면 트리나의 답이 대화방에 올라가요.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crew 대화방에서 Mina가 자기만 보는 옆 채팅으로 트리나에게 참가 규정을 체크리스트로 만들어 달라고 하고, 그 답을 대화방에 올려요.">
@@ -65,10 +69,6 @@ https://github.com/user-attachments/assets/1547962d-e40b-458f-ba6b-d488bcd9bc68
 **각자의 AI도 그 사람이 열 수 있는 것만 봐요.** Mina가 Finance를 못 열면 Mina의 AI도 못 열어요. [권한은 이렇게 돌아가요](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="관리자가 Sales 폴더를 열 수 있는 사람을 바꾸고, Mina가 열 수 있는 폴더를 확인해요. Finance는 목록에 없어요.">
-
-**팀 프로젝트에서 동료의 세션을 이어받아요.** 팀 프로젝트의 세션은 프로젝트 멤버에게 공유돼요. 동료의 세션을 열어 이어서 하고, 내가 묻는 건 내 권한으로 처리돼요. 그 밖의 세션도 Google Drive 파일처럼 사람이나 그룹에 공유할 수 있어요.
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina가 Sam의 프로젝트 세션을 열어 카드뉴스를 이어서 고쳐요. Mina가 묻는 건 Mina의 권한으로 처리돼요.">
 
 **파일을 내용으로 찾아요.** 밤마다 팀 AI가 공유·그룹·프로젝트 폴더의 새 파일과 바뀐 파일을 읽고, 파일마다 무엇인지 한 줄씩 적어 둬요. 그래서 `temp.pdf`라는 스캔본이나 `IMG_2031.jpg`라는 사진도 내용으로 찾아요. 팀 AI 계정을 쓰고, 개인 폴더는 읽지 않아요. 가상 파일 2,238개로 시험했을 때 Claude Code는 질문 184개 중 이 목록이 있으면 181개, 없으면 172개에서 맞는 파일을 찾았어요.
 
@@ -100,6 +100,7 @@ https://github.com/user-attachments/assets/1547962d-e40b-458f-ba6b-d488bcd9bc68
 
 ## 시작하기
 
+- **브라우저에서 써 보기:** 설치 없이 가상 팀으로 써 봐요. AI는 꺼져 있어요. [데모 열기](https://ax.trina.app/demo/ko/)
 - **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
 - **앱:** [맥, Windows, Linux, 아이폰, 안드로이드](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)

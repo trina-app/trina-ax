@@ -66,10 +66,10 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   const progress = (await (await page.request.get('/api/onboarding/welcome')).json()).progress
   expect(progress.resultChatId).toBeNull()
   expect(progress.steps.profile).toBe('done')
-  // the way back: the setup row at the step it opens, "2/5" as the steps' bar says 내 스킬
+  // the way back: Home's top row at the step it opens, "2/5" as the steps' bar says 내 스킬
   await page.goto('/')
-  await expect(page.getByTestId('setup-row-count')).toHaveText('· 2/5')
-  await page.getByTestId('setup-row-link').click()
+  await expect(page.getByTestId('welcome-resume-text')).toContainText('· 2/5')
+  await page.getByTestId('welcome-resume-link').click()
   await expect(page).toHaveURL(/\/welcome$/)
   await expect(page.locator('[data-step="skills"]')).toBeVisible()
   // ← 이전 to 회사 소개: the same line; saving again only fills in what is missing

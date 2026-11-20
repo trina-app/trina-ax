@@ -6,7 +6,7 @@ import { addMember, harness, OWNER_PW, SETUP_TOKEN, type Harness } from './a-lib
 import fs from 'node:fs'
 import path from 'node:path'
 import { recordShared, startWelcomeAtSetup, updateWelcome, WELCOME_SETTING, welcomeOpened, welcomeUnfinishedFor } from '../../server/src/onboarding/welcome'
-import { recordJoin, welcomeOf } from '../../server/src/onboarding/member-welcome'
+import { recordJoin, welcomeAnswer, welcomeOf } from '../../server/src/onboarding/member-welcome'
 import { mergeWaits } from '../../server/src/skills/share-merge'
 import { getSetting, setSetting } from '../../server/src/admin/settings'
 import { WelcomeProgress } from '@mycel/shared/api'
@@ -169,12 +169,12 @@ test('unopened: no shared skill recorded, merges not held, an admin\'s "sort the
   // a merge chosen now does not wait for steps nobody opened (as with no row: it goes at once)
   expect(welcomeUnfinishedFor(h.ctx, ownerId)).toBe(false)
   expect(mergeWaits(h.ctx.db, ownerId)).toBe(false)
-  expect(welcomeOf(h.ctx, ada.id)!.organizeFiles).toBe(false)
+  expect((welcomeAnswer(h.ctx, ada.id).organizeFiles ?? false)).toBe(false)
   expect((await ada.client.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('b.md') })).recorded).toBe(false)
   // opened: each of them as before
   updateWelcome(h.ctx, ownerId, {})
   expect(mergeWaits(h.ctx.db, ownerId)).toBe(true)
-  expect(welcomeOf(h.ctx, ada.id)!.organizeFiles).toBe(true)
+  expect((welcomeAnswer(h.ctx, ada.id).organizeFiles ?? false)).toBe(true)
   recordShared(h.ctx, ownerId, [{ path: 'skills/weekly/SKILL.md', title: 'Weekly', recommended: true }])
   expect((getSetting<Record<string, unknown>>(h.ctx.db, WELCOME_SETTING) as { shared?: { landing: string } }).shared?.landing).toBe('skills/weekly/SKILL.md')
   expect((await ada.client.call('POST', '/api/onboarding/files/landed', { path: newSharedFile('c.md') })).recorded).toBe(true)

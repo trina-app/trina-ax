@@ -3,8 +3,8 @@
 // are unfinished and not hidden: "설정 이어서 하기 · 2/5" (or, with one step left, "남은 일: 도구 연결"), which opens /welcome
 // at the step it resumes on; while no AI answers the owner: "AI 연결하기", which opens the same connect dialog as every
 // other "AI 연결하기" (ConnectAi.tsx).
-// Never on /welcome itself. Without AI it hides on Home, where the no-AI card stands; on a phone it hides on Home,
-// whose own quiet row under the message box says the same (WelcomeResume); on a computer it replaces that row. ✕ hides
+// Never on /welcome itself. Without AI it hides on Home, where the no-AI card stands; while unfinished it hides on Home
+// (a phone and a computer), whose own top row says the same (WelcomeResume, docs/decisions/20261120-my-setup-card.md). ✕ hides
 // it (the row's `dismissedAt`) with an undo toast; Admin › Home's "시작 설정 다시 보기" brings it back. The rules are
 // lib/welcome.ts setupRowState; the words and counts are the steps' own (setupRowWords: the same as Home's row). Five
 // steps since 도구 연결 (docs/DECISIONS.md "W6"; six with AI 연결); on a phone 도구 연결 is not named or

@@ -1,1 +1,0 @@
-- An AI answer's **Thinking** step now keeps what the AI thought. Click the step to open the text; it stays after a reload. Stored connection keys are hidden in it, and in a shared chat only the person who asked sees it.

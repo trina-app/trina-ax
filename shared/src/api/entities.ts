@@ -650,6 +650,12 @@ export const Message = z.object({
   withheld: z.literal(true).optional(),
   /** a finished answer of a shared chat with replies under it that I may see: the thread's summary (absent: none) */
   thread: ChatThreadSummary.optional(),
+  /** questions only: this message is the person's answer on the AI's cards (its questions, a website, a delete, a
+   * share: chat/open-questions.ts), picked with the cards' buttons, not typed. Each card's choice in words, null for
+   * Skip. The apps show it as one quiet line under the answer that asked, never as a message the person wrote.
+   * `hidden`: a shared chat where the cards' words are hidden (their answer used what not everyone may read): the line
+   * says only that they answered, and `choices` is empty. Absent: the person's own words */
+  cardAnswer: z.object({ choices: z.array(z.string().nullable()), hidden: z.literal(true).optional() }).optional(),
 })
 export type Message = z.infer<typeof Message>
 

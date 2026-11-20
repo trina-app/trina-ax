@@ -10,7 +10,9 @@
 //
 // The menu's Cmd/Ctrl+F only runs for a key the page did not take (Chromium gives the page the key first and the
 // window's menu only what the page left; desktop/README.md "Find on the page"): a site with its own find (a document
-// editor in the in-app browser) keeps it.
+// editor in the in-app browser) keeps it, and so does the team web app where its Cmd/Ctrl+F opens its own search (a
+// room, a DM or a thread, and pages with no text of their own; web/src/lib/searchKeys.ts). In an AI chat, the file
+// viewer and with a file or artifact panel open the page leaves the key, and the bar opens; Edit › Find… always does.
 // Pure (no Electron, no DOM globals): unit-tested in tests/unit/e-find-bar.test.ts.
 
 export interface Rect {
