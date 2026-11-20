@@ -47,7 +47,7 @@ test('PKCE, resource and client binding cannot exchange or revoke another client
   expect(() => f.svc.authenticate(f.owner.cookie!)).toThrow('invalid_token')
 })
 
-test('refresh rotation: a new pair each time, the spent token retried at once still works, a replay later revokes the whole family durably', async () => {
+test('refresh rotation: a new pair each time; a retry before the new pair was used replaces it; any other reuse revokes the whole family durably', async () => {
   const f = await fixture('refresh'), first = f.exchange(f.code('mcp:read mcp:write offline_access'))
   const refresh = { client_id: f.client.client_id, grant_type: 'refresh_token', resource: origin + '/mcp', refresh_token: first.refresh_token }
   const t0 = Date.now(); f.svc.now = () => t0
@@ -55,17 +55,16 @@ test('refresh rotation: a new pair each time, the spent token retried at once st
   expect(next.scope).toBe('mcp:read offline_access')
   expect(next.refresh_token).not.toBe(first.refresh_token)
   expect(() => f.svc.token({ ...refresh, refresh_token: next.refresh_token, scope: 'mcp:read mcp:write offline_access' })).toThrow('invalid_scope')
-  expect(f.svc.authenticate(next.access_token)).toBeDefined()
-  // the spent token once more right away (an answer lost on the network): a fresh pair, and the first one stays good
+  // the answer was lost: the spent token once more, before anything of `next` was used, replaces `next`
   const retry = f.svc.token(refresh)
   expect(retry.scope).toBe('mcp:read offline_access')
-  expect(f.svc.authenticate(retry.access_token)).toBeDefined()
-  expect(f.svc.authenticate(next.access_token)).toBeDefined()
-  // later than five minutes: a stolen token, the whole connection ends, also for a new instance
-  f.svc.now = () => t0 + 5 * 60_000 + 1
-  expect(() => f.svc.token(refresh)).toThrow('invalid_grant')
   expect(() => f.svc.authenticate(next.access_token)).toThrow('invalid_token')
   expect(() => f.svc.token({ ...refresh, refresh_token: next.refresh_token })).toThrow('invalid_grant')
+  expect(f.svc.authenticate(retry.access_token)).toBeDefined()
+  // `retry` is in use now: the spent token again, inside the window, is a replay and ends everything, also for a new instance
+  expect(() => f.svc.token(refresh)).toThrow('invalid_grant')
+  expect(() => f.svc.authenticate(retry.access_token)).toThrow('invalid_token')
+  expect(() => f.svc.token({ ...refresh, refresh_token: retry.refresh_token })).toThrow('invalid_grant')
   expect(() => new RemoteOAuth(f.h.ctx.db, { origin, now: f.svc.now }).authenticate(retry.access_token)).toThrow('invalid_token')
 })
 

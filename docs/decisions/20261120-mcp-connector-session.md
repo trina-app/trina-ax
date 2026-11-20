@@ -24,11 +24,23 @@
     out there. Live grants of live sign-ins are moved to such a row by the migration.
   - Access token 1 hour (unchanged). A connection ends 90 days after its last refresh (was: at most 30 days, often less);
     every refresh moves the grant's, its row's and the new refresh token's end.
-  - Refresh tokens rotate. A spent one still works within 5 minutes of its first use (each time a fresh pair; the token issued first stays
-    good, so two processes each keep their own chain); later it is taken as stolen and the whole connection ends, as
-    before. Only the presented refresh token is spent; access tokens already given out end on their own (1 hour) or
-    with the connection. Spent tokens are kept 7 days to recognise a replay, expired ones are deleted, so a connection
-    in use for months stays far below the 4,096-token cap.
+  - Refresh tokens rotate, one live chain per connection. A token issued by a refresh records the token it came from
+    (`remote_mcp_token_links`, migration 130, a side table because an older build inserts tokens without column names),
+    and an access token records its first use. A spent refresh token may be presented again only while it is within
+    5 minutes of being spent **and nothing it issued has been used yet** (the answer to the refresh never arrived, or a
+    second process of the app refreshed with the same stored token at the same moment): what it issued is replaced and
+    a fresh pair comes from it. Any other reuse is a replay and ends the whole connection, inside the window too.
+  - The loser of such a race: the pair it got was replaced before it used it, so its next call is refused and its
+    refresh token gets `invalid_grant`, without ending the connection. It reads its stored token again (Claude Code
+    keeps one credential store for all its processes) or signs in again. It does not get another retry: that would let
+    two chains live side by side.
+  - Spent refresh tokens are kept (hashes only) until the connection ends, so a replay of any of them, however late,
+    ends it. Expired or replaced access tokens and expired unused refresh tokens are deleted. The 4,096-token cap counts
+    live tokens only. A spent refresh token inside the 5 minutes counts as a live credential for the rate limits, so a
+    genuine retry is not slowed down.
+  - Accepted gap: someone who copies a refresh token and uses it within 5 minutes of the app's own refresh, before the
+    app used its new pair, replaces the app's pair. The app is then signed out (it shows) and the connection stays
+    listed in Settings, where the person can disconnect it.
   - Still ends it: disconnect in Settings, the client's `/oauth/revoke`, a password change or reset, an admin signing
     the person out everywhere, removal from the team, deactivation (and turning the person back on does not revive it),
     becoming a guest, `must_change_password`, and 90 days without use. Signing out of one browser, or one sign-in
@@ -45,8 +57,10 @@
 - **Left out:** refresh tokens for apps that do not ask for `offline_access` (ChatGPT may not; they sign in again every
   hour), tracked as before.
 - **Tests:** `tests/unit/remote-mcp-lifetime.test.ts` (refresh after sign-out and after the sign-in expired and was
-  swept, not a device, 90-day slide, expired refresh refused, token rows bounded, two processes, every revocation,
+  swept, not a device, 90-day slide, expired refresh refused, live tokens bounded, two processes resolve to one chain,
+  every revocation,
   the 51st connection, migration 130), `tests/unit/remote-mcp-oauth.test.ts` (rotation, retry window, replay),
   `tests/security/remote-mcp-connection-session.test.ts` (the row signs nobody in, other people, replay, other app,
-  guests), `tests/unit/remote-mcp-guide.test.ts`.
+  guests; review of #127: a reuse after the new pair was used ends the connection inside the window, 20 reuses leave one
+  live chain, a replay of a token spent 8 days earlier still ends it), `tests/unit/remote-mcp-guide.test.ts`.
 - **Version impact:** patch (migration 130, reader 1).

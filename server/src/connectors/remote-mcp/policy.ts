@@ -19,12 +19,12 @@ export const OPTIONAL_SCOPES = ['mcp:write', ROOMS_SCOPE, ROOMS_WRITE_SCOPE] as 
  * Lifetimes (docs/decisions/20261120-mcp-connector-session.md). ACCESS_MS: an access token. GRANT_MS: a
  * connection that is not used: every refresh moves its end (and its refresh token's) to now + GRANT_MS, so a
  * connection in use stays, like Claude's own connectors, until the person disconnects it or loses access.
- * REFRESH_REUSE_MS: a refresh token already spent still works within this time (an answer lost on the network, two
- * processes of one app refreshing at once); later it counts as stolen and ends the connection. USED_TOKEN_KEEP_MS: how
- * long spent tokens are kept to recognise such a replay.
+ * REFRESH_REUSE_MS: a spent refresh token may be retried within this time, and only while nothing it issued has been
+ * used (an answer lost on the network, two processes of one app refreshing at once): what it issued is replaced, so a
+ * connection keeps one live chain (oauth.ts token()). Any other reuse ends the connection.
  */
 export const ACCESS_MS = 60 * 60_000, GRANT_MS = 90 * 86400_000, REQUEST_MS = 10 * 60_000, CODE_MS = 5 * 60_000
-export const REFRESH_REUSE_MS = 5 * 60_000, USED_TOKEN_KEEP_MS = 7 * 86400_000
+export const REFRESH_REUSE_MS = 5 * 60_000
 export const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex')
 export const secret = (prefix = '') => prefix + crypto.randomBytes(32).toString('base64url')
 export const challenge = (value: string) => crypto.createHash('sha256').update(value).digest('base64url')

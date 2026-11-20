@@ -18,3 +18,12 @@ INSERT INTO sessions (id, user_id, token_hash, client, user_agent, created_at, l
 UPDATE remote_mcp_grants SET session_id = 'connector-' || id
   WHERE EXISTS (SELECT 1 FROM sessions s WHERE s.id = 'connector-' || remote_mcp_grants.id);
 CREATE INDEX sessions_connector ON sessions(user_id, connector);
+-- One live refresh chain per connection (review of #127): a token issued by a refresh records the refresh token it came
+-- from (parent, a sha256 like remote_mcp_tokens.hash), when an access token was first used (seen_at) and whether a
+-- retry replaced it before it was ever used (superseded). A side table, not new columns: an older build inserts into
+-- remote_mcp_tokens without column names. It goes with its token (ON DELETE CASCADE).
+CREATE TABLE remote_mcp_token_links (
+  hash TEXT PRIMARY KEY REFERENCES remote_mcp_tokens(hash) ON DELETE CASCADE,
+  parent TEXT NOT NULL, seen_at INTEGER, superseded INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX remote_mcp_token_links_parent ON remote_mcp_token_links(parent);

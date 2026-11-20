@@ -75,26 +75,32 @@ test('a refresh moves the end 90 days on; unused for 90 days, the refresh token 
   // then 90 days and a minute without use
   f.svc.now = () => t0 + 180 * DAY + GRANT_MS + 60_000
   expect(() => f.refresh(r)).toThrow('invalid_grant')
-  // spent tokens do not pile up: a connection refreshed every hour for 200 days stays far under the cap
+  // a connection refreshed every hour for 200 days stays under the cap
   f.svc.now = () => t0
   const g2 = await f.connect(f.member.client)
   let r2 = g2.tokens.refresh_token!
   for (let i = 1; i <= 200 * 24; i += 1) { f.svc.now = () => t0 + i * 3600_000; r2 = f.refresh(r2).refresh_token! }
-  const n = (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=?').get(g2.grant.id) as { n: number }).n
-  expect(n).toBeLessThan(400)
+  // the cap counts live tokens only (one chain); spent refresh tokens stay to recognise a replay; old access tokens go
+  const live = (f.h.ctx.db.query('SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND used_at IS NULL').get(g2.grant.id) as { n: number }).n
+  const access = (f.h.ctx.db.query("SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND kind='access'").get(g2.grant.id) as { n: number }).n
+  expect(live).toBe(2)
+  expect(access).toBeLessThanOrEqual(2)
+  expect(f.refresh(r2).access_token).toMatch(/^tax_mcp_a_/)
 })
 
-test('two processes of one app refreshing with the same token at once both keep working', async () => {
+test('two processes of one app refreshing with the same token at once: one chain, the loser gets nothing and ends nothing', async () => {
   const f = await setup('race')
   const { tokens } = await f.connect(f.member.client)
   const a = f.refresh(tokens.refresh_token!)
   const b = f.refresh(tokens.refresh_token!)
-  expect(f.svc.authenticate(a.access_token)).toBeDefined()
+  // b replaced a before a was used: a is gone, b goes on
+  expect(() => f.svc.authenticate(a.access_token)).toThrow('invalid_token')
+  expect(() => f.refresh(a.refresh_token!)).toThrow('invalid_grant')
   expect(f.svc.authenticate(b.access_token)).toBeDefined()
-  // each goes on with its own chain
-  const a2 = f.refresh(a.refresh_token!), b2 = f.refresh(b.refresh_token!)
-  expect(f.svc.authenticate(a2.access_token)).toBeDefined()
+  const b2 = f.refresh(b.refresh_token!)
   expect(f.svc.authenticate(b2.access_token)).toBeDefined()
+  // a process that read the shared store again (b2) carries on
+  expect(f.svc.authenticate(f.refresh(b2.refresh_token!).access_token)).toBeDefined()
 })
 
 test('disconnect, removal, deactivation, a password change and signing out everywhere end the connection', async () => {

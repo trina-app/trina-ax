@@ -73,3 +73,46 @@ test('a guest is never given a connection; a member made guest loses theirs at t
   expect(() => f.refresh(tokens.refresh_token!)).toThrow('invalid_grant')
   await expect(f.connect(f.mia.client)).rejects.toThrow('access_denied')
 })
+
+// review of #127: the retry window must not hand a thief a chain of their own, and a late replay must still be caught
+test('a thief reusing a spent refresh token after its new pair was used ends the connection, even inside the window', async () => {
+  const f = await setup('thief')
+  const { tokens } = await f.connect(f.mia.client)
+  const t0 = Date.now(); f.svc.now = () => t0
+  const legit = f.refresh(tokens.refresh_token!)
+  f.svc.authenticate(legit.access_token)
+  f.svc.now = () => t0 + 4 * 60_000
+  expect(() => f.refresh(tokens.refresh_token!)).toThrow('invalid_grant')
+  expect(() => f.svc.authenticate(legit.access_token)).toThrow('invalid_token')
+  expect(() => f.refresh(legit.refresh_token!)).toThrow('invalid_grant')
+})
+
+test('reusing one spent token many times inside the window never leaves more than one live chain', async () => {
+  const f = await setup('chains')
+  const { tokens, grant } = await f.connect(f.mia.client)
+  const pairs = Array.from({ length: 20 }, () => f.refresh(tokens.refresh_token!))
+  const live = f.h.ctx.db.query("SELECT count(*) AS n FROM remote_mcp_tokens WHERE grant_id=? AND kind='refresh' AND used_at IS NULL").get(grant.id) as { n: number }
+  expect(live.n).toBe(1)
+  for (const p of pairs.slice(0, -1)) {
+    expect(() => f.svc.authenticate(p.access_token)).toThrow('invalid_token')
+    expect(() => f.refresh(p.refresh_token!)).toThrow('invalid_grant')
+  }
+  const last = pairs.at(-1)!
+  expect(f.svc.authenticate(last.access_token).id).toBe(grant.id)
+  // and 30 days on the replaced ones still give nothing
+  f.svc.now = () => Date.now() + 30 * 86400_000
+  expect(() => f.refresh(pairs[0]!.refresh_token!)).toThrow('invalid_grant')
+})
+
+test('a replay of a refresh token spent 8 days ago still ends the connection', async () => {
+  const f = await setup('late')
+  const { tokens } = await f.connect(f.mia.client)
+  const t0 = Date.now()
+  let r = tokens.refresh_token!
+  const spent = r
+  // used every hour for 9 days
+  for (let i = 1; i <= 9 * 24; i++) { f.svc.now = () => t0 + i * 3600_000; r = f.refresh(r).refresh_token! }
+  const current = r
+  expect(() => f.refresh(spent)).toThrow('invalid_grant')
+  expect(() => f.refresh(current)).toThrow('invalid_grant')
+})
