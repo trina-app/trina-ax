@@ -29,7 +29,7 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   (designer, part-time) in Marketing; Tom, Nadia Rahman (customer care), Grace Kim (office and finance) in Operations;
   Aiko (Sales); Omar (Online shop). The demo person is Mina (`newHire`); the snapshot's demo file has her alone. Ben,
   Nadia and Grace have no photo (initials).
-- **Projects**: the story's "November launch campaign" (channel Launch day), and Customer voice (Tom; reviews CSV and
+- **Projects**: the story's "Yuzu Ginger launch campaign" (channel Launch day), and Customer voice (Tom; reviews CSV and
   the October summary), Café partners (Aiko; the partner cafés CSV, the winter menu card), Social calendar (Leo; the
   calendar, the last six weeks of posts, hashtag rules). Each has its private channel and one shared AI chat.
 - **Files**: the company intro (10 people), the team directory, three templates in `shared/<Templates>`, the summer
@@ -47,8 +47,9 @@ The cast, names, company, project, skills, files and pictures come from `scripts
   invited her.
 - **The bar** (`freeRoam.suggestions`): "Draft next week's posts", "Summarise customer reviews", "Did Chris reply?" (ko:
   the same in Korean).
-- **Dates**: only the story's fixed launch dates (Monday Nov 23 to Dec 6); everything else is relative ("today", "last
-  week"), so a snapshot built on another day still reads right.
+- **Dates**: no calendar dates and no launch-month names, not even for the launch (it is "Monday", the offer runs
+  "two weeks"): the banners travel as files, so a date in them goes stale. Everything else is relative ("today", "last
+  week"), so a snapshot built on another day still reads right. `tests/unit/demo-story-no-dates.test.ts` checks it.
 
 ## Fake Gmail, Drive and Higgsfield
 
@@ -85,7 +86,7 @@ folder, where the gate starts it). The server's fakes read it (`server/src/demo/
   "me": { "name": "Mina Lee", "email": "mina.lee@steepling.example" },
   "files": [
     { "id": "folder-1", "name": "Fieldnote", "mimeType": "application/vnd.google-apps.folder" },
-    { "id": "media-plan", "name": "Fieldnote media plan, November", "mimeType": "application/vnd.google-apps.spreadsheet",
+    { "id": "media-plan", "name": "Fieldnote media plan, Yuzu Ginger launch", "mimeType": "application/vnd.google-apps.spreadsheet",
       "parent": "folder-1", "text": "Channel,Size,From,To,Budget\n…", "modifiedTime": "-9d" }
   ]
 }

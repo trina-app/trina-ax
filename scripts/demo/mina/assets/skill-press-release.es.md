@@ -8,7 +8,7 @@ metadata:
 # Borrador de nota de prensa
 
 ## Fuentes
-- Datos de la empresa de `shared/Presentación de la empresa.md`, producto y fechas del brief de la campaña.
+- Datos de la empresa de `shared/Presentación de la empresa.md`, producto del brief de la campaña. Deja la fecha como "[fecha]".
 
 ## Formato
 1. **Titular**: menos de 12 palabras, qué sale y cuándo.

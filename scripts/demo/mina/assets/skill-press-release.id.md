@@ -8,7 +8,7 @@ metadata:
 # Draft siaran pers
 
 ## Sumber
-- Fakta perusahaan dari `shared/Profil perusahaan.md`, produk dan tanggal dari brief kampanye.
+- Fakta perusahaan dari `shared/Profil perusahaan.md`, produk dari brief kampanye. Biarkan tanggal sebagai "[tanggal]".
 
 ## Format
 1. **Judul**: kurang dari 12 kata, apa yang dirilis dan kapan.

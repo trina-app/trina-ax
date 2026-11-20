@@ -9,7 +9,7 @@ metadata:
 
 ## Sources
 - The handover notes in the team folder, for example `groups/Marketing/Meeting notes – Leo's handover.md`.
-- The projects the person is in, for example "November launch campaign", "Social calendar" and "Café partners".
+- The projects the person is in, for example "Yuzu Ginger launch campaign", "Social calendar" and "Café partners".
 - `shared/Team directory.md` for who does what.
 - Only files the person can open.
 
