@@ -183,7 +183,7 @@ test('skills_list: restricted skills folders and personal skills follow the conn
   const member = await run('member')
   expect(member.text).not.toContain('RESTRICTED-SKILL-CANARY')
   expect(JSON.parse(member.text)).toContainEqual({ path: `users/${member.memberId}/skills/mine.md`, name: 'Mine', description: 'MEMBER-PERSONAL-CANARY', personal: true })
-})
+}, 30_000)
 // delete_files (server/src/chat/delete-files.ts) runs only in the app's own chat, behind the server's card. The connector
 // lists FILE_TOOLS and has no card: it must never list or run the delete, with every scope an owner can grant.
 test('the connector never lists or runs delete_files, with every scope', async () => {

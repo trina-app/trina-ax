@@ -16,7 +16,7 @@ import { authorize } from '../../policy/authorize'
 import { Denied, ToolError } from '../../policy/errors'
 import { audit } from '../../admin/audit'
 import { touchActivity } from '../../system/activity'
-import { streamFile } from '../../team-files/download'
+import { parseRange, streamFile } from '../../team-files/download'
 import { HttpError } from '../../http/errors'
 import { hash, OAuthError, secret } from './policy'
 import { remoteOAuthOf, type Grant, type RemoteOAuth } from './oauth'
@@ -125,11 +125,22 @@ export async function linkDownload(ctx: AppContext, request: Request, token: str
     }
     const st = r.st!
     if (r.rel !== link.path || String(st.ino) !== link.ino || st.size !== link.size || st.mtimeMs !== link.mtime_ms) { record(false, { reason: 'changed' }); return gone() }
+    // a Range past the end: 416 with the size, and the use is given back (nothing was sent)
+    if (parseRange(request.headers.get('range'), st.size) === 'bad') {
+      ctx.db.query('UPDATE remote_mcp_download_links SET uses=uses-1 WHERE hash=? AND uses>0').run(link.hash)
+      record(false, { reason: 'range' })
+      return new Response(JSON.stringify({ error: 'range_not_satisfiable' }), { status: 416, headers: { 'content-type': 'application/json', 'content-range': `bytes */${st.size}`, ...noStore } })
+    }
     // a download through a live link is use of the team (system/activity.ts)
     touchActivity()
+    // always the bytes (200 or 206): a conditional request would answer 304 and use up a GET for nothing. If-Range goes
+    // too, so the Range checked above is the one served (the link is for one version of the file anyway)
+    const headers = new Headers(request.headers)
+    for (const h of ['if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since', 'if-range']) headers.delete(h)
+    const req = new Request(request.url, { method: 'GET', headers, signal: request.signal })
     let res: Response
     try {
-      res = await streamFile({ abs: r.abs, seen: st, name: r.segs[r.segs.length - 1]!, req: request, disposition: 'attachment', via: o.via })
+      res = await streamFile({ abs: r.abs, seen: st, name: r.segs[r.segs.length - 1]!, req, disposition: 'attachment', via: o.via, wholeRange: true })
     } catch (e) {
       // the file was swapped between the check and the open (place.ts openChecked), or a bad Range
       if (e instanceof Denied || e instanceof ToolError) { record(false, { reason: 'changed' }); return gone() }

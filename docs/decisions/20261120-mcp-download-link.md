@@ -24,6 +24,11 @@
   permission now and the version are checked. Every refusal after the token is the same 404 `invalid_link`. The bytes
   go through `streamFile` (one descriptor of the very file the check saw, `O_NOFOLLOW`; `attachment` with the UTF-8
   file name, the type from the extension, `nosniff`, a sandbox CSP), with `no-store`.
+  A Range answer carries the whole range asked for (`streamFile` `wholeRange`, never cut at `RANGE_MAX`: `curl -C -`
+  takes a short 206 as the end of the file, and an overwrite upload of that copy would cut the team file). Conditional
+  headers (If-None-Match, If-Modified-Since, If-Match, If-Unmodified-Since, If-Range) are dropped, so a GET always
+  answers 200 or 206, never a 304 that uses up a GET. A Range past the end answers 416 with `Content-Range: bytes
+  */<size>`, is audited (`reason: 'range'`) and gives the use back.
 - **Audit.** Link: `remote_mcp.tool` `{tool: 'create_download_link', ok, path, size, expiresAt}`. Each GET:
   `remote_mcp.download` (actor = the person, target = the grant) `{via: 'connector_link', ok, path, use, size}` or
   `{ok: false, reason}`. Never the token or its hash; `loggablePath` hides it. Rows go with the account

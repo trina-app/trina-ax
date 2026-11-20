@@ -3280,6 +3280,7 @@ export const id: Record<MessageKey, string> = {
   'audit.act.remote_mcp.disconnected': 'Memutuskan aplikasi eksternal',
   'audit.act.remote_mcp.tool': 'Menggunakan alat dari aplikasi eksternal',
   'audit.act.remote_mcp.upload': 'Mengunggah file dari aplikasi eksternal lewat tautan unggah',
+  'audit.act.remote_mcp.download': 'Mengunduh file ke aplikasi eksternal lewat tautan unduh',
   'audit.act.remote_mcp.scope_dropped': 'Mencabut izin kelola grup dari koneksi aplikasi eksternal',
   'audit.reason.notAdmin': 'Bukan owner atau admin lagi',
   'audit.reason.disabled': 'Akunnya dinonaktifkan',

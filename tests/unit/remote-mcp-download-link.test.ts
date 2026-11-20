@@ -245,3 +245,48 @@ test('the guide names the download loop', async () => {
   const f = await setup('guide')
   expect(connectorInstructions(f.h.ctx, f.auth.user.id)).toContain('create_download_link and curl -o, then create_upload_link (overwrite)')
 })
+
+test('a resumed download gets the whole rest of the file, never cut at 8 MiB (curl -C - would take a short 206 as the end)', async () => {
+  const f = await setup('range-whole')
+  const big = Buffer.alloc(9 * 1024 * 1024 + 123)
+  for (let i = 0; i < big.length; i += 4096) big[i] = (i / 4096) & 0xff
+  f.write('shared/big.bin', big)
+  const { body } = await f.link({ path: 'shared/big.bin' })
+  const from = 1000
+  const res = await f.get(body.url, { range: `bytes=${from}-` })
+  expect(res.status).toBe(206)
+  expect(res.headers.get('content-range')).toBe(`bytes ${from}-${big.length - 1}/${big.length}`)
+  expect(res.headers.get('content-length')).toBe(String(big.length - from))
+  const got = Buffer.from(await res.arrayBuffer())
+  expect(got.length).toBe(big.length - from)
+  expect(sha(got)).toBe(sha(big.subarray(from)))
+})
+
+test('conditional headers are ignored: always the bytes, never a 304 that uses up a GET', async () => {
+  const f = await setup('conditional')
+  f.write('shared/a.md', 'synthetic text')
+  const { body } = await f.link({ path: 'shared/a.md' })
+  const first = await f.get(body.url)
+  const etag = first.headers.get('etag')!, modified = first.headers.get('last-modified')!
+  expect(etag).toBeTruthy()
+  const again = await f.get(body.url, { 'if-none-match': etag, 'if-modified-since': modified })
+  expect(again.status).toBe(200); expect(await again.text()).toBe('synthetic text')
+  // If-Range with another tag does not turn a Range into a whole file either
+  const part = await f.get(body.url, { range: 'bytes=0-8', 'if-range': '"other"' })
+  expect(part.status).toBe(206); expect(await part.text()).toBe('synthetic')
+})
+
+test('a Range past the end: 416 with Content-Range, audited, and the use is given back', async () => {
+  const f = await setup('range-bad')
+  f.write('shared/a.md', 'synthetic text')
+  const { body } = await f.link({ path: 'shared/a.md' })
+  const bad = await f.get(body.url, { range: 'bytes=999-' })
+  expect(bad.status).toBe(416)
+  expect(bad.headers.get('content-range')).toBe('bytes */14')
+  expect(((await bad.json()) as any).error).toBe('range_not_satisfiable')
+  const rows = (f.h.ctx.db.query("SELECT detail FROM audit_log WHERE action = 'remote_mcp.download'").all() as { detail: string }[]).map(r => JSON.parse(r.detail))
+  expect(rows).toEqual([expect.objectContaining({ ok: false, reason: 'range' })])
+  // every use is still there
+  for (let i = 0; i < DOWNLOAD_LIMITS.uses; i++) expect((await f.get(body.url)).status).toBe(200)
+  expect((await f.get(body.url)).status).toBe(404)
+})

@@ -3239,6 +3239,7 @@ export const es: Record<MessageKey, string> = {
   'audit.act.remote_mcp.disconnected': "Desconectó una aplicación externa",
   'audit.act.remote_mcp.tool': "Usó una herramienta desde una aplicación externa",
   'audit.act.remote_mcp.upload': "Subió un archivo desde una aplicación externa con un enlace de carga",
+  'audit.act.remote_mcp.download': "Descargó un archivo en una aplicación externa con un enlace de descarga",
   'audit.act.remote_mcp.scope_dropped': "Retiró la gestión de grupos de una conexión de aplicación externa",
   'audit.reason.notAdmin': "Ya no es propietario ni administrador",
   'audit.reason.disabled': "La cuenta se desactivó",
