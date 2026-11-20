@@ -31,11 +31,16 @@ const chatOf = (userId: string) => {
 }
 const installs = () => (h.ctx.db.query("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'onboarding.pack_install'").get() as { n: number }).n
 
-test('nothing until the steps start; then each step is kept on the server and read back on any device', async () => {
+test('the steps start at setup (docs/decisions/20261119-welcome-steps-in-app.md); each step is kept on the server and read back on any device', async () => {
   const { owner, ada, mia } = await setup()
-  expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
+  const atSetup = (await owner.call('GET', '/api/onboarding/welcome')).progress
+  expect(atSetup.steps).toEqual({ profile: null, result: null, skills: null, files: null, tools: null, invite: null })
+  expect(atSetup.site).toBeNull()
 
-  // the first visit starts it, with the setup link's website (normalized)
+  // a team from before that (no row): nothing until the first visit, which starts it with the setup link's website
+  // (normalized)
+  h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
+  expect((await owner.call('GET', '/api/onboarding/welcome')).progress).toBeNull()
   const started = (await owner.call('PATCH', '/api/onboarding/welcome', { site: 'www.acme.example' })).progress
   expect(started.steps).toEqual({ profile: null, result: null, skills: null, files: null, tools: null, invite: null })
   expect(started.site).toBe('https://www.acme.example/')
@@ -247,6 +252,8 @@ test('내 스킬 and 팀 파일: put off on a phone waits for a computer; the sh
 
 test('a share recorded on a row that is not there, or not an object, changes nothing and never throws', async () => {
   const { ownerId } = await setup()
+  // a team from before the steps started at setup
+  h.ctx.db.query('DELETE FROM settings WHERE key = ?').run(WELCOME_SETTING)
   recordShared(h.ctx, ownerId, [{ path: 'skills/weekly-report/SKILL.md', title: '주간 업무 보고', recommended: true }])
   expect(getSetting(h.ctx.db, WELCOME_SETTING) ?? null).toBeNull()
   setSetting(h.ctx.db, WELCOME_SETTING, 'broken')

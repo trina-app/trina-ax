@@ -30,7 +30,7 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
@@ -39,7 +39,9 @@ import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
-import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
+import { useFreeRoam } from '../store/demo'
+import { Button, EmptyState, ErrorNote, Skeleton, Switch, inputCls } from '../components/ui'
+import { useRecommendedTools } from '../lib/teamTools'
 import { ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
@@ -127,6 +129,10 @@ const useConnectors = () => useContext(Ctx)!
  * …/mcp/<id>). */
 export function ConnectorsSettings() {
   const { id, integrationId } = useParams()
+  // a free-roam demo: the list only, read-only (a connection's page changes or removes it; server/src/demo/guard.ts
+  // refuses connecting, changing and removing)
+  const freeRoam = useFreeRoam()
+  if (freeRoam && (id || integrationId)) return <Navigate to={CONNECTORS_HOME} replace />
   return (
     <ConnectorsProvider>
       {integrationId ? <CustomConnectorPage /> : id ? <ConnectorPage /> : <ConnectorsHome />}
@@ -185,6 +191,8 @@ function ConnectorsHome() {
   const navigate = useNavigate()
   const { list, drive, google, asks, requests, actions, setDialog, admin, local } = useConnectors()
   const hosted = useMe()?.server.deployment === 'hosted'
+  // a free-roam demo (store/demo.ts): what the demo has connected, read-only; nothing to connect, ask for or set up
+  const freeRoam = useFreeRoam()
   // opened from the welcome steps' "Connect another tool": "Set up" (to Admin) carries their way back
   const fromStep = useSetupReturnState()
   const [query, setQuery] = useState('')
@@ -268,7 +276,11 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
-  const cards = [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
+  // "팀 추천" (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
+  // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  const recommended = list.data?.recommendedTools
+  const tag = (c: Card): Card => (isRecommended(recommended, c.id) ? { ...c, line: `${t('connectors.recommendedTag')} · ${c.line}` } : c)
+  const cards = freeRoam ? [] : recommendedFirst([...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable].map(tag), recommended)
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -296,11 +308,12 @@ function ConnectorsHome() {
   const loading = !list.data && !list.error
   const nothing = !!q && fromTeam.ready && !cards.length && !yours.length
   // nothing connected and nothing this person can add (the team has set nothing up for members): say so once
-  const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length
+  // (a free-roam demo with nothing connected: its own line above says it all)
+  const empty = !q && !loading && fromTeam.ready && !cards.length && !yours.length && !freeRoam
   // next to the search: an owner or admin's Add custom connector; a member's "Not listed? Ask an admin to add it." (an
   // owner who asked why a member's screen had no Add, 2026-11-18: the line was under Discover's last card, out of sight);
   // not with the empty list's own words for members, which say the same
-  const custom = customConnectorAction(personalAllowed, admin)
+  const custom = freeRoam ? null : customConnectorAction(personalAllowed, admin)
   // in the desktop app Add custom connector also adds a program on this computer; a member, who adds no server by its
   // address, gets it for that alone (the dialog says to ask an admin for an address)
   const localHere = desk && !!list.data?.localAllowed && !!personalAllowed
@@ -336,11 +349,12 @@ function ConnectorsHome() {
       </div>
       <div className="mt-6 space-y-8 pb-6">
         {/* what an admin asked this person to connect: answered, its own page, with its row */}
-        <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />
+        {freeRoam && <p className="text-sm text-muted" data-testid="connectors-demo">{t('demo.free.connectors')}</p>}
+        {!freeRoam && <MyRequests version={requests} onConnected={(i, signIn) => { actions.saved(i, signIn, !list.data?.items.some((x) => x.id === i.id)); navigate(connectionHref(i.id)) }} />}
         {list.error && <ErrorNote onRetry={() => void list.reload()}>{list.error}</ErrorNote>}
         {/* a service a member looked for and did not find: where to go next is the line next to the search */}
         {/* the team turned own connections off: said once, whether or not this person has any (QA TC-2932) */}
-        {personalAllowed === false && (
+        {personalAllowed === false && !freeRoam && (
           <p role="note" className="rounded-xl bg-warn-soft px-3 py-2 text-sm text-warn" data-testid="integrations-personal-off">{t('integrations.personalOff')}</p>
         )}
         {loading ? <Skeleton lines={4} /> : nothing ? (
@@ -357,8 +371,8 @@ function ConnectorsHome() {
                 <ul data-testid="connected-apps">{yours.map((x) => x.row)}</ul>
               </section>
             )}
-            {!q && <SlackAccount />}
-            {cards.length > 0 && (
+            {!q && !freeRoam && <SlackAccount />}
+            {cards.length > 0 && !freeRoam && (
               <section aria-labelledby="connectors-discover" data-testid="connector-discover">
                 <div className="mb-1 flex items-center gap-2">
                   <h3 id="connectors-discover" className="text-title-sm font-semibold" data-testid="connector-discover-title">{q ? t('connectors.results') : t('connectors.discover')}</h3>
@@ -385,6 +399,36 @@ function ConnectorsHome() {
 /** /settings/connectors/:id: a built-in card's page, or a listed service's. */
 function ConnectorPage() {
   const { id = '' } = useParams()
+  const { admin } = useConnectors()
+  const page = <ConnectorPageBody id={id} />
+  // an owner or admin: "팀 추천", under the page of a tool each person connects (never Notion's or Slack's, connected
+  // for the team in the welcome steps) (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  return admin && isRecommendable(id) ? <>{page}<RecommendRow id={id} /></> : page
+}
+
+/** "팀 추천": an owner or admin recommends this tool to the team (TeamSettings.recommendedTools), as in the welcome
+ * steps' 팀이 쓸 도구: it comes first in everyone's list. Each person still connects their own account. */
+function RecommendRow({ id }: { id: string }) {
+  const t = useT()
+  const m = useRecommendedTools()
+  const { list } = useConnectors()
+  if (m.tools === undefined) return null
+  const error = m.error?.id === id ? m.error.text : null
+  return (
+    <section className="w-full max-w-3xl border-t border-line pt-5 pb-10" data-testid="team-recommend">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-0.5">
+          <label htmlFor="team-recommend-switch" className="text-sm font-medium text-ink">{t('connectors.recommend')}</label>
+          <p className={`text-sm ${error ? 'text-warn' : 'text-muted'}`} role={error ? 'alert' : undefined} data-testid="team-recommend-line">{error ?? t('connectors.recommendHint')}</p>
+        </div>
+        <Switch id="team-recommend-switch" external checked={m.on(id)} disabled={m.saving !== null} label={t('connectors.recommend')}
+          onChange={(v) => { void m.set(id, v).then(() => void list.reload()) }} testId="team-recommend-switch" />
+      </div>
+    </section>
+  )
+}
+
+function ConnectorPageBody({ id }: { id: string }) {
   const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {

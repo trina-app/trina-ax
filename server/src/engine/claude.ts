@@ -124,21 +124,41 @@ export const MCP_TOOL_TIMEOUT_MS = 1_800_000
  * a skill's description in the sub-agents' instructions) keeps it as written, not the chat folder's path. */
 export const launcherLiteral = (s: string) => s.replace(/\{(MCP_CONFIG|SYSTEM_PROMPT_FILE|TURN_DIR|CHAT_DIR|BRIDGE|TOOLS_SOCK)\}/g, '{\u200b$1}')
 
-const effortKnown = new Map<string, boolean>()
-const effortAsked = new Set<string>()
-/** `bin --help`, off the event loop, in a bare environment (no server variables, a temp folder), within 5 s. */
-const askHelp = (bin: string) => new Promise<string>((ok, no) => execFile(bin, ['--help'], { timeout: 5000, env: { PATH: '/usr/bin:/bin' }, cwd: os.tmpdir() }, (e, out) => (e ? no(e) : ok(String(out)))))
-/** Does this Claude Code take `--effort` (its own --help lists it)? Known after the first ask, which runs in the
- * background: until then (and when it could not tell: asked again next time) the answer is false, so an engine without
- * the flag is never handed one (an unknown flag would fail the turn). Only a real answer is kept. */
-export function claudeKnowsEffort(bin: string, ask: (bin: string) => Promise<string> = askHelp): boolean {
-  const known = effortKnown.get(bin)
+const flagKnown = new Map<string, boolean>()
+const flagAsked = new Set<string>()
+/** Whether the engine `bin` takes a flag, from the text `ask` gets from it. Known after the first ask, which runs in
+ * the background: until then (and when it could not tell: asked again next time) the answer is false, so an engine
+ * without the flag is never handed one (an unknown flag would fail the turn). Only a real answer is kept. */
+function knowsFlag(flag: string, bin: string, ask: (bin: string) => Promise<string>, test: (text: string) => boolean): boolean {
+  const key = `${flag}\0${bin}`
+  const known = flagKnown.get(key)
   if (known !== undefined) return known
-  if (!effortAsked.has(bin)) {
-    effortAsked.add(bin)
-    void ask(bin).then((help) => { effortKnown.set(bin, /--effort\b/.test(help)) }, () => { effortAsked.delete(bin) })
+  if (!flagAsked.has(key)) {
+    flagAsked.add(key)
+    void ask(bin).then((text) => { flagKnown.set(key, test(text)) }, () => { flagAsked.delete(key) })
   }
   return false
+}
+/** `bin <args>`, off the event loop, in a bare environment (no server variables, a temp folder), within 5 s. `failing`:
+ * the command is meant to fail (a refused argument): its exit code does not count, its output and error text are the
+ * answer. A time-out or a program that did not start (e.code a string, e.g. ENOENT) is no answer either way. */
+const askEngine = (args: string[], failing = false) => (bin: string) => new Promise<string>((ok, no) => {
+  const child = execFile(bin, args, { timeout: 5000, env: { PATH: '/usr/bin:/bin' }, cwd: os.tmpdir() },
+    (e, out, err) => (e && (!failing || e.killed || typeof e.code === 'string') ? no(e) : ok(`${out}\n${err}`)))
+  child.stdin?.end() // nothing to read: a program that reads its input does not wait for it
+})
+const askHelp = askEngine(['--help'])
+/** Does this Claude Code take `--effort` (its own --help lists it)? */
+export function claudeKnowsEffort(bin: string, ask: (bin: string) => Promise<string> = askHelp): boolean {
+  return knowsFlag('--effort', bin, ask, (help) => /--effort\b/.test(help))
+}
+/** `-p --thinking-display x`: refused at argument parsing, before any network call. A Claude Code with the flag (hidden
+ * from --help) lists its choices ("Allowed choices are summarized, omitted, highlights"); one without says "unknown
+ * option". */
+const askThinkingDisplay = askEngine(['-p', '--thinking-display', 'x'], true)
+/** Does this Claude Code take `--thinking-display summarized` (QA AP-033, docs/decisions/20261120-ap033-thinking-display.md)? */
+export function claudeKnowsThinkingDisplay(bin: string, ask: (bin: string) => Promise<string> = askThinkingDisplay): boolean {
+  return knowsFlag('--thinking-display', bin, ask, (text) => /Allowed choices are[^\n]*\bsummarized\b/.test(text))
 }
 
 export function buildClaudeLaunch(i: {
@@ -184,6 +204,10 @@ export function buildClaudeLaunch(i: {
     '--max-turns', String(i.maxTurns),
     ...(model ? ['--model', model] : []),
     ...(i.effort && claudeKnowsEffort(conf.bin) ? ['--effort', i.effort] : []),
+    // the readable thinking summary for the Thinking step (QA AP-033): Claude Opus 5.5 and later return empty thinking
+    // text by default, and Claude Code in -p mode sends no display of its own. Display only: the model thinks and is
+    // billed the same
+    ...(claudeKnowsThinkingDisplay(conf.bin) ? ['--thinking-display', 'summarized'] : []),
     ...(i.resume ? ['--resume', i.sessionId] : ['--session-id', i.sessionId]),
   ]
   // temp files stay in the chat folder: with only TMPDIR, Claude Code still creates /tmp/claude-<uid> and

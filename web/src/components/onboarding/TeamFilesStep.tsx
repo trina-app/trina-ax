@@ -41,9 +41,9 @@ import { useWelcome } from '../../store/welcome'
 import { useAiAccess } from '../../store/aiAccess'
 import { retryFolderUpload, startFolderUpload, stopFolderUpload, useFolderUploadsSettled } from '../FolderUploads'
 import { useTeamPrepared } from './TeamPrepared'
-import { failedReason, FindWorkFiles } from './FindWorkFiles'
+import { failedReason, FindWorkFiles, lookAgainOf, rememberRunDocs, type Carry } from './FindWorkFiles'
 import { OpenAppLine } from './OpenAppLine'
-import { cloudName, workFilesBridge } from '../../lib/workFiles'
+import { cloudName, workFilesBridge, type CarriedFile } from '../../lib/workFiles'
 import { hasResume, takeResume } from '../../lib/workFilesResume'
 import { TickFold, TickRow, TickSearch } from './TickList'
 import { beginOrganize, OrganizeView, organizeWanted, RESUMED, rememberLanded, resumeOrganize, useOrganize } from './OrganizeFiles'
@@ -327,6 +327,9 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   }, [])
   const draft = useDraft()
   const run = useRuns((s) => s.tagged[TAG] ?? null)
+  /** Look again from the run (F5): the files found on this computer that failed changed or gone, ticked again in a new
+   * look; leaving that look goes back to the run */
+  const [carry, setCarry] = useState<Carry | undefined>(undefined)
   const org = useOrganize()
   const runStatus = run?.view.status
   // a finished run that landed files in 전사 공유: the folder plan starts (once per run)
@@ -478,13 +481,17 @@ export function TeamFilesStep({ progress, busy: stepBusy, nextLabel, onDone, onS
   if (draft.phase !== 'idle') body = <Looking phase={draft.phase} count={draft.count} />
   else if (resumed) body = <OrganizeView uploaded={org.org.s === 'proposal' ? org.org.plan.rows.length : org.org.s === 'result' ? org.org.applied.moved.length : 0} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
   else if (draft.screen === 'run' && run && organizing) body = <OrganizeView uploaded={run.view.done} teamGroupId={team?.id ?? null} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} />
-  else if (draft.screen === 'run' && run) body = <RunView run={run} places={places} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} onMore={phone ? null : () => void pickFolder(false)} />
+  else if (draft.screen === 'run' && run) {
+    body = <RunView run={run} places={places} nextLabel={nextLabel} busy={stepBusy} phone={phone} onDone={onDone} onMore={phone ? null : () => void pickFolder(false)}
+      onLookAgain={computer && place ? (files) => { setCarry({ files, why: 'again' }); patch({ screen: 'computer' }) } : null} />
+  }
   else if (draft.screen === 'computer' && computer && place) {
     body = (
       <FindWorkFiles bridge={computer} rank="team" audience={place.who} placeName={t('welcome.files.homeFolder', { team: place.name })} phone={phone}
         alreadyIn={(docs) => alreadyFor(docs, place.folder)}
-        onAdd={(docs) => { startStepRun({ files: docs.map((d) => ({ rel: `${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }, place.folder) }}
-        onClose={() => patch({ screen: 'start' })} />
+        carry={carry}
+        onAdd={(docs, _reasons, chosen) => { setCarry(undefined); const r = startStepRun({ files: docs.map((d) => ({ rel: `${d.pick}/${d.rel}`, size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }, place.folder); rememberRunDocs(r.run, docs, (d) => `${d.pick}/${d.rel}`, chosen) }}
+        onClose={() => { const back = !!carry && !!run; setCarry(undefined); patch({ screen: back ? 'run' : 'start' }) }} />
     )
   }
   else if (draft.screen === 'list' && draft.docs.length) body = <ListView draft={draft} places={places} place={place} phone={phone} busy={stepBusy} later={later} onAddFolder={() => void pickFolder(true)} onOtherFolder={() => void pickFolder(false)} />
@@ -741,7 +748,7 @@ function ListView({ draft, places, place, phone, busy, later, onAddFolder, onOth
 }
 
 /** F4 while the run goes, F5 after: what went up, what did not, and the way on. */
-function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run: Run; places: Place[]; nextLabel: string; busy: boolean; phone: boolean; onDone: (n: number) => void; onMore: (() => void) | null }) {
+function RunView({ run, places, nextLabel, busy, phone, onDone, onMore, onLookAgain }: { run: Run; places: Place[]; nextLabel: string; busy: boolean; phone: boolean; onDone: (n: number) => void; onMore: (() => void) | null; onLookAgain: ((files: CarriedFile[]) => void) | null }) {
   const t = useT()
   const locale = useLocale()
   const v = run.view
@@ -752,6 +759,8 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
   const left = rows.filter((r) => r.state !== 'done')
   const failed = rows.filter((r) => r.state === 'failed')
   const notSent = rows.filter((r) => r.state === 'queued')
+  // files found on this computer that changed or went away since the look: a new look, them ticked again
+  const lookAgain = running || !onLookAgain ? [] : lookAgainOf(run.run)
   const reason = (r: (typeof rows)[number]) => {
     if (r.state === 'queued') return t('welcome.teamFiles.notSent')
     if (r.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(L.fileBytes, locale) })
@@ -800,7 +809,18 @@ function RunView({ run, places, nextLabel, busy, phone, onDone, onMore }: { run:
           ))}
         </ul>
       )}
-      {!running && (failed.length > 0 || notSent.length > 0) && <ErrorNote onRetry={again}>{t('welcome.teamFiles.failed')}</ErrorNote>}
+      {!running && (failed.length > 0 || notSent.length > 0) && (
+        // only files a new look helps: no 다시 (it would read them again and fail the same way), Look again instead
+        <ErrorNote onRetry={lookAgain.length > 0 && lookAgain.length === failed.length && !notSent.length ? undefined : again}>
+          {t('welcome.teamFiles.failed')}
+          {lookAgain.length > 0 && (
+            <p className="mt-2 text-sm">
+              <button type="button" className={quietLink} onClick={() => onLookAgain?.(lookAgain)} data-testid="welcome-team-files-look-again">{t('files.findWork.again')}</button>
+              {' · '}{t('files.findWork.lookAgainHint')}
+            </p>
+          )}
+        </ErrorNote>
+      )}
       <div className={phone ? 'space-y-2' : 'flex flex-wrap items-center justify-between gap-3'}>
         {running ? (
           <button type="button" className={clsx(quietLink, 'text-sm')} onClick={() => void stopFolderUpload(run)} data-testid="welcome-team-files-stop-upload">{t('welcome.teamFiles.stopUpload')}</button>

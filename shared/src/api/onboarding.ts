@@ -6,6 +6,7 @@
 import { z } from 'zod'
 import { endpoint } from './endpoint'
 import { SKILL_SHARE } from './onboarding-skill'
+import { PRODUCT } from '../product'
 
 /** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
  * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
@@ -149,9 +150,15 @@ export function normalizeWebsite(raw: string): string | null {
   return u.href.length > PROFILE_LIMITS.website ? null : u.href
 }
 
-/** The company's name as everything uses it: the profile's own, else the team's name (Admin › Team settings). */
-export const profileName = (p: Pick<CompanyProfileInput, 'name'> | null | undefined, teamName = ''): string =>
-  (p?.name ?? '').trim() || teamName.trim()
+/** The company's name as everything uses it: the profile's own, else the team's name (Admin › Team settings). The
+ * team-name setting's default is the product's name (admin/settings.ts): a team that never named itself has no name
+ * here, so nothing says "Company name: <product>" (review finding 1 on #105). */
+export const profileName = (p: Pick<CompanyProfileInput, 'name'> | null | undefined, teamName = ''): string => {
+  const own = (p?.name ?? '').trim()
+  if (own) return own
+  const team = teamName.trim()
+  return team === PRODUCT.displayName ? '' : team
+}
 
 /** The skill-input prefill keys (stream C reads them): `company.<field>` and `company.website`, each as text (tone chips
  * joined with ", "). Empty fields are left out; no profile, no keys. `company.name` falls back to `teamName`. */

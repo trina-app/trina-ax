@@ -3,6 +3,7 @@
 // and scripts use `Authorization: Bearer`, mobile WebSocket shells the `mycel.bearer.<token>` subprotocol.
 // This file implements SessionService for the whole app (installed by routes/auth.ts init()).
 import type { Context } from 'hono'
+import { isFreeRoam } from '../app-config'
 import {
   DEV_SESSION_COOKIE, SESSION_COOKIE, WS_BEARER_PREFIX,
   type ClientKind, type LoginResponse, type Me,
@@ -66,7 +67,7 @@ function parseCookies(h: string | null): Map<string, string> {
 }
 
 /** Session token from the request and how it came. */
-export function readToken(req: Request): { token: string; via: 'cookie' | 'bearer' } | null {
+export function readToken(req: Request, freeRoam = false): { token: string; via: 'cookie' | 'bearer' } | null {
   const authz = req.headers.get('authorization')
   if (authz) {
     const m = /^Bearer\s+([A-Za-z0-9_-]{20,200})\s*$/.exec(authz)
@@ -81,19 +82,28 @@ export function readToken(req: Request): { token: string; via: 'cookie' | 'beare
   // Only the cookie name of this scheme: on https only __Host-sid, which another *.treesoop.com site cannot set.
   // Accepting the dev name there would let a sibling team address plant a session cookie (session fixation, tab 7).
   const cookies = parseCookies(req.headers.get('cookie'))
-  const c = cookies.get(cookieFor(req.url).name)
+  const c = cookies.get(cookieFor(req.url, freeRoam).name)
   if (c && /^[A-Za-z0-9_-]{20,200}$/.test(c)) return { token: c, via: 'cookie' }
   return null
 }
 
-/** __Host-sid on https; the dev cookie name on plain http (browsers refuse __Host- without Secure). */
-export function cookieFor(reqUrl: string): { name: string; secure: boolean } {
+/** A free-roam demo's session cookie, on the instance's plain http too: the visitor is on https behind demo-gate
+ * (demo-gate/src/public.ts secureCookie: host-only, Secure), so the browser keeps the https name, never the plain-http
+ * "mycel-dev-sid" (the product's code name and "dev", QA TC-5578) nor a bare "sid" another *.trina.app site could plant
+ * (review finding 2 on #105). The browser takes a __Host- cookie only with Secure, Path=/ and no Domain: the instance
+ * says Secure itself, so the cookie is valid whether or not the gate adds it, and reads the same name back on its
+ * loopback http. Every other plain-http server keeps DEV_SESSION_COOKIE (the desktop app and older clients look for it). */
+export const FREE_ROAM_SESSION_COOKIE = SESSION_COOKIE
+
+/** __Host-sid on https; the dev cookie name on plain http (browsers refuse __Host- without Secure), except a free-roam
+ * demo's, which is __Host-sid with Secure there too (its visitors are on https in front of the gate). */
+export function cookieFor(reqUrl: string, freeRoam = false): { name: string; secure: boolean } {
   const https = new URL(reqUrl).protocol === 'https:'
-  return https ? { name: SESSION_COOKIE, secure: true } : { name: DEV_SESSION_COOKIE, secure: false }
+  return https || freeRoam ? { name: SESSION_COOKIE, secure: true } : { name: DEV_SESSION_COOKIE, secure: false }
 }
 
-export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number): string {
-  const { name, secure } = cookieFor(reqUrl)
+export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number, freeRoam = false): string {
+  const { name, secure } = cookieFor(reqUrl, freeRoam)
   return `${name}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure ? '; Secure' : ''}`
 }
 
@@ -114,7 +124,7 @@ export class AuthService implements SessionService {
 
   // ---------------- SessionService ----------------
   async resolve(req: Request, _info: RequestInfo): Promise<AuthInfo | null> {
-    const t = readToken(req)
+    const t = readToken(req, isFreeRoam(this.ctx.config))
     if (!t) return null
     const row = this.db.query(`SELECT s.id AS sid, s.client, s.expires_at AS s_expires, s.last_seen_at AS s_seen, s.temp_login, ${USER_COLS_U}
       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?`).get(hashToken(t.token)) as (UserRow & { sid: string; client: ClientKind; s_expires: string; s_seen: string; temp_login: number }) | null
@@ -237,7 +247,7 @@ export class AuthService implements SessionService {
     firstSignIn(this.ctx, userId)
     // the cookie keeps the normal lifetime either way: the server decides when a temporary sign-in ends, and a changed
     // password turns it into a normal session without a new cookie
-    if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000)), { append: true })
+    if (tokenMode === 'cookie') c.header('Set-Cookie', sessionCookie(c.req.url, s.token, Math.floor(SESSION_TTL_MS / 1000), isFreeRoam(this.ctx.config)), { append: true })
     const me = this.me(userId, s.id, reachedAt(c))
     return tokenMode === 'bearer' ? { me, token: s.token } : { me }
   }
@@ -249,14 +259,14 @@ export class AuthService implements SessionService {
    * register it (QA TC-835; another person's live session elsewhere still keeps its token, TC-201). The same person's
    * earlier session is left as it is (the desktop app copies one cookie to its second team address). */
   private endReplacedSession(req: Request, userId: string): void {
-    const t = parseCookies(req.headers.get('cookie')).get(cookieFor(req.url).name)
+    const t = parseCookies(req.headers.get('cookie')).get(cookieFor(req.url, isFreeRoam(this.ctx.config)).name)
     if (!t || !/^[A-Za-z0-9_-]{20,200}$/.test(t)) return
     const old = this.db.query('SELECT id, user_id FROM sessions WHERE token_hash = ?').get(hashToken(t)) as { id: string; user_id: string } | null
     if (old && old.user_id !== userId) this.revokeSession(old.id, 'logout')
   }
 
   clearCookie(c: Context<AppEnv>): void {
-    c.header('Set-Cookie', sessionCookie(c.req.url, '', 0), { append: true })
+    c.header('Set-Cookie', sessionCookie(c.req.url, '', 0, isFreeRoam(this.ctx.config)), { append: true })
   }
 
   /** The HWP Preview plugin is on and usable here (plugins/manager.ts); a plugin store that cannot be read is off. */
@@ -298,7 +308,8 @@ export class AuthService implements SessionService {
       team: { name: settings.teamName, defaultLocale: settings.defaultLocale, browserAllowAll: settings.browserAllowAll, ...(settings.browserAllowAll && settings.webAllowAll ? { webAllowAll: true as const } : {}), ...teamIconOfMe(this.ctx.config.dataDir), voiceInput: voiceInputOn(this.db, this.ctx.files.speech), ...(voiceInputOutside(this.db) ? { voiceInputOutside: true as const } : {}), ...(wantsWavRecordings(this.ctx.files.speech) ? { voiceInputWav: true as const } : {}), chatTrashRetentionDays: settings.chatTrashRetentionDays, trashRetentionDays: settings.trashRetentionDays, projectCreators: settings.projectCreators, ...(settings.roomAlwaysAllow === false ? { alwaysAllowOff: true as const } : {}), ...(address ? { address } : {}) , ...(u.role === 'guest' ? { uploadMaxBytes: roomFilesOf(this.ctx).maxFor(u.id) } : {}) },
       session: { id: s.id, client: s.client, expiresAt: s.expires_at, tempLogin: tempLoginOf(s, u), ...(mediaKey ? { mediaKey } : {}) },
       // office mode runs dev's engine setup on purpose (docs/OFFICE.md): the office's desks get no DEV banner
-      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office,
+      // ...nor a free-roam demo's visitor (docs/decisions/20261119-demo-free-roam-a.md)
+      server: { version: this.ctx.version, dev: this.ctx.config.mode === 'dev' && !this.ctx.config.office && !isFreeRoam(this.ctx.config),
         deployment: deploymentOf(this.ctx.config), features: featuresOf(this.ctx.config), timeZone: settings.timeZone,
         ...(safeOpsEnabled() ? { allChatsConfidential: true as const } : {}),
         ...(devEnvFlag() ? { devEnv: true as const } : {}),

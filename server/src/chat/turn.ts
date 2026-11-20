@@ -45,7 +45,7 @@ import { saveSources } from '../files/sources'
 import { fileSharesOf } from '../files/shares'
 import { SERVER_OWN_FOLDERS } from '../files/own-folders'
 import { CONTEXT_RECOVER_MAX, contextRecoverBlock } from './context-recover'
-import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
+import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, continuationBlock, contextTokensFor, stoppedAnswerBlock, historyTrimmed, instructionFiles, neutralizeTags, promptBudget, skillBlock, skillHintsBlock, type PromptInput } from './prompt'
 import { sessionPicturesKept, setApiVisionTurn, textTokens, turnImageCaps } from '../files/vision'
 import { sideRoomOf } from './side-room'
 import { activeProjectOf } from '../rooms/project-link'
@@ -120,7 +120,8 @@ import { connectionRoute } from '../credentials/access'
 import { isGuestUser } from '../credentials/guest-ai'
 import { situationOf } from './situation'
 import { appMapView } from './app-map'
-import { isManaged } from '../app-config'
+import { isFreeRoam, isManaged } from '../app-config'
+import { demoRestError, freeRoamTurnError } from '../demo/free-roam'
 import { runKindOf } from '../system/deployment'
 import { guestPromptOf } from './guest-tools'
 import { credentialsOf, getRow, metaOf } from '../credentials/store'
@@ -266,6 +267,9 @@ const plainName = (n: string): string => {
 const sameName = (a: string, b: string) => plainName(a) === plainName(b)
 /** a file's history read for its outside mark (fileOutsideLevel): a longer one counts as outside */
 const FILE_TIMELINE_MAX = 1000
+/** how much of one thinking step's text the turn keeps before redaction (the step's detail keeps 4000 characters of it
+ * after redaction; QA AP-033) */
+const THINKING_TEXT_MAX = 64 * 1024
 /** sha256 of no bytes: an empty file carries nothing (bytesOutsideLevel) */
 const EMPTY_SHA256 = sha256(new Uint8Array(0))
 /** Tools that patch their own step exactly once per call (chat/room-tools.ts label): a cover's step words go with it. */
@@ -355,6 +359,8 @@ export class TurnExec {
   /** the engine this turn runs on (after routing): the skill tool cuts its result to that engine's limit */
   engineRunning: EngineId | null = null
   browser = false
+  /** the turn was sent from the asker's own desktop window, connected now (shared chats too; `browser` is this and not shared) */
+  desktop = false
   /** the dev environment of this turn (devenv/tool.ts box_shell): off (null), or on with the chat's project (null for a
    * chat with no project, srt runner only) */
   devEnv: { project: { id: string; folderPath: string; name: string } | null; shared?: SharedRun } | null = null
@@ -515,6 +521,8 @@ export class TurnExec {
   private newSaved: string[] = []
   private registered = false
   private thinkingStep: Step | null = null
+  /** the open thinking step's text as the engine sent it (QA AP-033): written on the step, redacted, when it closes */
+  private thinkingText = ''
   private toolNames = new Map<string, string>()
   /** a scheduled run's connection calls that only read (their tool_use ids): look-ups for the run's result */
   private lookUpCalls = new Set<string>()
@@ -823,8 +831,12 @@ export class TurnExec {
       }
     }
 
-    // never in a shared chat: the in-app browser shows the person's signed-in pages
-    this.browser = !this.restricted && !this.shared && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    // the asker's own desktop window is connected: their apps on the computer (integrations/connections/local.ts) work
+    // in any chat they write in, a shared or project chat too (each person's turn uses their own connections; another
+    // member's turn never has this window). The in-app browser stays out of shared chats: it shows the person's
+    // signed-in pages
+    this.desktop = !this.restricted && spec.clientKind === 'desktop' && !!spec.windowId && await rt.relay.waitForWindow(spec.userId, spec.windowId)
+    this.browser = this.desktop && !this.shared
     if (this.stopReason) return
     // the dev environment (devenv/setting.ts), never in a scheduled run (nobody there answers the credential card), an
     // approved template run (its scope is fixed) or a company profile draft (web_fetch only). Any chat of a person in
@@ -931,8 +943,10 @@ export class TurnExec {
     // a guest: no web search and no sub-agents (their project's data never goes out in search queries; security review)
     const guestTurn = isGuestUser(rt.db, spec.userId)
     const guestPrompt = guestTurn ? guestPromptOf(rt.db, spec.userId) ?? { places: [], inviter: null } : null
-    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn
-    const subagents = !!claude && !guestTurn && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
+    // a free-roam demo (docs/decisions/20261119-demo-free-roam-a.md): no web search and no sub-agents either
+    const freeRoam = isFreeRoam(rt.ctx.config)
+    const webSearch = !this.templateScope && !this.restricted && !confidential && !guestTurn && !freeRoam
+    const subagents = !!claude && !guestTurn && !freeRoam && !this.templateScope && !this.restricted && getTeamSettings(rt.db).aiSubagents
       && !(claude.authMode === 'local-login' && confidential && !LOCAL_LOGIN_CONFIDENTIAL_SUBAGENTS)
     // the skills of this turn (chat/skill-list.ts), one walk for the instructions, the hints and "/name": every skill
     // the person can use, one line each, the descriptions in the chat's fixed order (so the instructions stay the same
@@ -964,7 +978,9 @@ export class TurnExec {
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office,
           // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
-          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }) }
+          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }),
+          // a free-roam demo: no page the demo fences or hides (QA TC-5570)
+          ...(freeRoam ? { freeRoam: true } : {}) }
     const runKind = runKindOf(rt.ctx.config)
     // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
     // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
@@ -1041,6 +1057,7 @@ export class TurnExec {
       // a guest: their places and who invited them (prompt.ts guestSection), no team-wide text
       guest: guestPrompt,
       devEnvDown: this.devEnvDown,
+      demo: freeRoam ? { company: rt.ctx.config.demo!.company } : null,
     })
     // what a general-purpose sub-agent may use, and the instructions every sub-agent gets (memories and history never)
     let turnTools = [...Object.keys(FILE_TOOLS), ...extraTools]
@@ -1112,6 +1129,10 @@ export class TurnExec {
     // (not an answer hidden from this person: they never saw it, chat/shared-answers.ts)
     const cutOff = before?.role === 'assistant' && !this.sharedWithheld.has(before.id) ? stopReasonOf(before.stop_reason) : null
     const continued = cutOff ? `${continuationBlock(cutOff)}\n\n` : ''
+    // the previous answer was stopped (or failed) mid-answer: the engine was killed before it saved that text in its
+    // session, so a resumed session is told what the person saw (QA AP-030). A fresh session has it in its history.
+    const unfinished = before?.role === 'assistant' && (before.status === 'stopped' || before.status === 'error') && before.content.trim() && !this.sharedWithheld.has(before.id)
+      ? `${stoppedAnswerBlock(before.content, before.status)}\n\n` : ''
     // the skill list is cut (more skills than fit): the few whose words match this message go in front of it, so the
     // AI does not miss one only because it is listed by name only (not for a "/name" message: that skill is given)
     const hints = !invoked && !this.restricted && !guestTurn && skillList.cut ? skillHintsBlock(hintSkills(skills, userMsg.content, { scores: skillScores })) : ''
@@ -1147,10 +1168,11 @@ export class TurnExec {
     // a resumed Claude session keeps its first system prompt: what changes per turn travels with the message, with the
     // skills added, changed or removed since that session's instructions listed them
     const claudeMessage = (resumed: boolean, sessionId: string) => {
-      if (!resumed || this.restricted) return message
+      if (!resumed) return message
+      if (this.restricted) return unfinished + message
       const before = listedFor(rt.db, spec.chatId, sessionId, spec.userId)
       const changes = skillChangesText(before === 'stale' ? 'stale' : skillChanges(before, skills), neutralizeTags)
-      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${message}`
+      return `${buildTurnContext(rt.files, { ...promptInput(false), connected: toolSet.context.join('\n\n') || null, skillChanges: guestTurn ? '' : changes })}\n\n${unfinished}${message}`
     }
     // the API engine's model may read much less than the window made for Claude (a local Ollama / LM Studio model:
     // 4k-32k tokens). Its context size, learned from its server (engine/api-context.ts), bounds the history: what the
@@ -1580,7 +1602,7 @@ export class TurnExec {
         prepareCodexTurn(codex, chatDir)
         // Codex's own web search, cached index only (docs/DECISIONS.md "Codex web search"): never in an approved
         // template run or a confidential chat; the model proxy refuses its searches for a token without it as well
-        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId)
+        const webSearch = !this.templateScope && !this.restricted && !confidentialChat(rt.db, spec.chatId) && !isGuestUser(rt.db, spec.userId) && !isFreeRoam(rt.ctx.config)
         const parser = new CodexEventParser()
         const errors: EngineEvent[] = []
         this.attemptHadOutput = false
@@ -1716,6 +1738,7 @@ export class TurnExec {
     const L = this.spec.locale
     if (ev.type === 'lockdown') return this.stopAtLockdown(ev.reason, 'proxy')
     if (ev.type === 'auth') this.proxyError = engineError('auth', L)
+    else if (ev.type === 'budget' && ev.demoRest) this.proxyError = demoRestError(L)
     else if (ev.type === 'budget') this.proxyError = ((b) => ({ code: 'budget_exceeded' as const, message: b?.message ?? tr('errBudget', L), ...(b ? { params: b.params } : {}) }))(budgetBlock(this.rt.db, this.spec.userId, L))
     else if (ev.type === 'credential') {
       this.proxyError = ev.reason === 'over_limit' ? { code: 'budget_exceeded', message: tr('errCredentialLimit', L) } : engineError('credential_unusable', L)
@@ -1962,7 +1985,10 @@ export class TurnExec {
         // thinking step (its place in the answer stays right)
         this.emitText(this.answerText.push(this.fileLinks.push(this.narration.toolStart())))
         this.flushText()
-        if (!this.thinkingStep) this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' })
+        if (!this.thinkingStep) { this.thinkingStep = this.addStep({ kind: 'thinking', label: tr('thinking', this.spec.locale), status: 'running' }); this.thinkingText = '' }
+        // the text is kept whole (up to a cap far over the step's), never redacted piece by piece: a secret split
+        // across two deltas would not match (closeThinking)
+        if (e.delta && this.thinkingText.length < THINKING_TEXT_MAX) this.thinkingText += e.delta
         return
       case 'init': {
         // what the engine says it started with, against the lockdown (docs/DECISIONS.md "Sub-agents"; Claude only)
@@ -2269,10 +2295,15 @@ export class TurnExec {
     this.live?.step(stored)
   }
 
+  /** The thinking step ends. Its text goes on the step once, as its detail (QA AP-033, docs/decisions/
+   * 20261120-ap033-thinking-text.md): updateStep hides the stored connection secrets in the whole text first, then cuts
+   * it to the detail's cap. One write per step, not one per delta (each write is published to every viewer). */
   private closeThinking() {
     if (!this.thinkingStep) return
-    this.updateStep(this.thinkingStep.id, { status: 'ok', endedAt: new Date().toISOString() })
+    const text = this.thinkingText.trim()
+    this.updateStep(this.thinkingStep.id, { status: 'ok', endedAt: new Date().toISOString(), ...(text ? { detail: text } : {}) })
     this.thinkingStep = null
+    this.thinkingText = ''
   }
 
   // ---------------- remember protection ----------------
@@ -5014,6 +5045,8 @@ export class TurnExec {
     // the budget ran out during the answer: whatever the engine said after it was stopped, the person reads why
     // (a broken lockdown stays what the person reads: it says more than the budget)
     else if (this.budgetHit && this.stopReason !== 'stopped' && this.error?.params?.reason !== 'lockdown') this.error = this.budgetHit
+    // a free-roam demo: one neutral line for every failure, nothing about the AI account (demo/free-roam.ts)
+    if (this.error && isFreeRoam(this.rt.ctx.config)) this.error = freeRoamTurnError(this.error, this.spec.locale)
     const status: MessageStatus = this.terminationUnconfirmed ? 'error' : this.stopReason === 'stopped' ? 'stopped' : this.error ? 'error' : 'done'
     const turnStatus = this.stopReason === 'shutdown' ? 'interrupted' : status
     const stopReason = status === 'done' ? this.limitReason : null

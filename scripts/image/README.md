@@ -50,8 +50,14 @@ image mode + the first-boot pieces (`mycel-enroll`).
   enabled mount would hold `multi-user.target` for the device timeout. The mycel units pull it in instead through
   drop-ins `mycel-{server,launcher,firewall,update}.service.d/10-ax-data.conf` (`RequiresMountsFor=/var/lib/mycel`), so
   no service ever runs on the empty OS-disk directory. `mycel-enroll` starts the mount itself.
-- `90-axdata-resize.rules`: on a block `change` uevent of the `axdata` filesystem, `resize2fs` online (resizeTenant).
-- `axdata-grow.service` (enabled, `WantedBy=var-lib-mycel.mount`): `resize2fs` each time the data disk is mounted. EC2
+- `90-axdata-resize.rules`: on a block `change` uevent of the `axdata` filesystem, `axdata-resize` online (resizeTenant).
+- `axdata-resize` at `/usr/local/sbin/axdata-resize DEV`: `resize2fs` only when the device is at least one block group
+  bigger than the filesystem (`dumpe2fs -h`, `blockdev --getsize64`). `resize2fs` opens the disk for writing, and its
+  close makes udev send another `change`, so a bare `resize2fs` in the rule started `ax-axdata-resize.service` 100-160
+  times in a first boot. Check on a server: `journalctl -b -u ax-axdata-resize | grep -c Started` is 0-2 after a boot,
+  and a grow of the volume still shows "growing the file system" once. A grow smaller than one block group (128 MiB)
+  is left to `mycel-ctl data-grow`, which runs `resize2fs` itself.
+- `axdata-grow.service` (enabled, `WantedBy=var-lib-mycel.mount`): `axdata-resize` each time the data disk is mounted. EC2
   grows a volume while the instance is stopped, and the bigger disk shows up at boot as an `add` event, which the udev
   rule does not see.
 - `mycel-link` at `/usr/local/sbin/mycel-link` + `mycel-link.service` (enabled, `ConditionPathExists=/etc/ax/link.json`):
@@ -294,7 +300,9 @@ Local test without AWS: `bun test tests/unit/image-build-ami.test.ts` (stub `aws
 Every stable release builds its AMI in CI (`.github/workflows/team-image.yml`, started by release.yml's `build-ami`
 job): `build-ami.sh` in ap-northeast-2 with `--tag ax:built-by=release-ci`, `--manifest-v2 --copy-to ap-southeast-1 --copy-to us-east-1` (`AMI_COPY_TO`)
 signed with the release key, `scripts/release/publish-ami.ts` puts the manifest and `team-image.json` under
-`server/<version>/` on the update feed, and `ami-prune.sh` keeps the newest 3 CI images per region. AWS access is a
+`server/<version>/` on the update feed, and `ami-prune.sh` removes old CI images per region: it keeps every image of the newest 5 releases,
+every image younger than 14 days, the newest release older than that, and any image tagged `ax:keep=true` or `ax:in-use`, run by an instance, named by a
+launch template or whose `ax:template` a tenant instance or volume carries (`ami-prune-select.ts`; `--dry-run` previews). AWS access is a
 GitHub OIDC role, no stored key. Setup, IAM policy, network and cost: `docs/RELEASE-CI.md` section 10.
 
 ### Several regions: the v2 manifest

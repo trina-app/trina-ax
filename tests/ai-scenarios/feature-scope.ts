@@ -125,6 +125,7 @@ export const FEATURE_SCOPE: Record<string, Scope> = {
   // Settings
   'settings.list': { reach: 'explains' },
   'settings.notifications': { reach: 'explains' },
+  'settings.export': { reach: 'explains' },
   'settings.push': { reach: 'explains' },
   'settings.apps': { reach: 'explains' },
   'settings.about': { reach: 'explains' },

@@ -28,6 +28,7 @@ import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLef
 import { refreshGoogleApp } from '../google-apps/tokens'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
+import { demoFakesOf } from '../../demo/fakes'
 import { workspaceLibraryOf } from '../google-apps/library'
 import { getChatRuntime } from '../../chat/runtime'
 import { isGuestUser } from '../../credentials/guest-ai'
@@ -205,7 +206,9 @@ export class Integrations {
   constructor(readonly ctx: AppContext, deps: IntegrationDeps = {}) {
     this.now = deps.now ?? Date.now
     this.box = new SecretBox(path.join(resolveLayout(ctx.config).secretsDir, 'integrations', 'connections'))
-    this.net = { ...deps.net, blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
+    // a demo server with fakes: Higgsfield is answered in this process, anything else is refused (server/src/demo/fakes/)
+    const fakes = demoFakesOf(ctx)
+    this.net = { ...deps.net, ...(fakes ? { answer: fakes.net } : {}), blockedIps: () => [...(deps.net?.blockedIps?.() ?? []), ...egressOf(ctx).ips] }
   }
   private get db() { return this.ctx.db }
 
@@ -214,8 +217,9 @@ export class Integrations {
     // Gmail, Calendar, Docs and Sheets have their own page (google-apps/): not in the generic list
     const personal = this.db.query(`${selectRows(this.db)} WHERE scope = 'personal' AND owner_user_id = ? AND google_app IS NULL ORDER BY name, id`).all(viewer.id) as Row[]
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
-    const personalAllowed = getTeamSettings(this.db).personalIntegrations
-    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db) }
+    const settings = getTeamSettings(this.db)
+    const personalAllowed = settings.personalIntegrations
+    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db), recommendedTools: settings.recommendedTools ?? [] }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
     // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)

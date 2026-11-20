@@ -60,7 +60,8 @@ export function revokeProxyTokens(db: Database, turnId: string) {
  * connection, and shows the reason). */
 export type ProxyTurnEvent =
   | { type: 'auth' }
-  | { type: 'budget' }
+  /** `demoRest`: a free-roam demo's gate stopped it (its daily cap or pause), not this server's budget */
+  | { type: 'budget'; demoRest?: true }
   | { type: 'rate_limit'; retryAt: string | null; credentialId?: string }
   /** a short 429 or a 529: the engine tries again by itself (on); the provider answered again (off). Shown to the person
    * while it lasts (QA TC-388); the turn goes on */
@@ -444,7 +445,20 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       const outHeaders = new Headers()
       for (const [k, v] of up.headers) if (!DROP_RESPONSE.has(k.toLowerCase())) outHeaders.set(k, v)
 
-      if (up.status === 401 && broker) {
+      // a free-roam demo (credentials/broker.ts freeRoam): its one connection is a stand-in that demo-gate swaps for the
+      // real one, so whatever the upstream answers says nothing about it; nothing is marked and the answer goes on as it
+      // came (the gate words its errors itself)
+      const marks = !!broker && !broker.freeRoam
+      // ...but demo-gate's own stop (its daily cap or its pause: a 403 budget_exceeded, the shape this proxy gives) ends
+      // the turn on the budget path, like the demo limit
+      if (up.status === 403 && broker?.freeRoam) {
+        const text = await up.text()
+        let gateStop = false
+        try { const e = (JSON.parse(text) as { error?: { type?: unknown; message?: unknown } }).error; gateStop = e?.type === 'budget_exceeded' || e?.message === 'budget_exceeded' } catch {}
+        if (gateStop) o.onTurnEvent?.(row.turn_id, { type: 'budget', demoRest: true })
+        return new Response(text, { status: up.status, headers: outHeaders })
+      }
+      if (up.status === 401 && broker && marks) {
         // this connection only: marked refused (the owner is told), the turn moves to another connection or ends
         await broker.onUnauthorized(cred.credentialId, sent)
         o.onTurnEvent?.(row.turn_id, { type: 'credential', credentialId: cred.credentialId, reason: 'invalid' })
@@ -453,7 +467,7 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
       // off): marked, so it is not "healthy" again on the next turn, and the turn moves on (QA TC-4835,
       // ./anthropic-refusal.ts). Any other 403 skips the account in this turn only. Only /v1/messages, only an answer
       // in Anthropic's error shape with a request-id, only from Anthropic itself (never a gateway or another upstream).
-      if ((up.status === 400 || up.status === 402 || up.status === 403) && broker && 'kind' in cred && upstreamSpeaksForAccount(cred.upstream, !!gateway)) {
+      if ((up.status === 400 || up.status === 402 || up.status === 403) && broker && marks && 'kind' in cred && upstreamSpeaksForAccount(cred.upstream, !!gateway)) {
         const text = await up.text()
         let r = accountRefusal({ path: url.pathname, status: up.status, body: text, requestId: up.headers.get('request-id'), kind: cred.kind })
         if (r?.action === 'invalid' && up.status === 403) {
@@ -483,7 +497,8 @@ export async function startModelProxy(o: ProxyOpts): Promise<ModelProxy> {
           // the subscription's own limit: this connection stays out until it resets; the turn moves on or ends
           await up.body?.cancel().catch(() => {})
           const until = new Date(Date.now() + s * 1000)
-          broker.onLongLimit(cred.credentialId, until)
+          // (a free-roam demo's stand-in is never held out: the answer ends, the next one tries the gate again)
+          if (marks) broker.onLongLimit(cred.credentialId, until)
           o.onTurnEvent?.(row.turn_id, { type: 'rate_limit', retryAt: until.toISOString(), credentialId: cred.credentialId })
           return apiError(403, 'permission_error', 'subscription_limited', { 'retry-after': String(s) })
         }

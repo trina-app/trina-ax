@@ -2,7 +2,7 @@
 // service's start page when the server sent one in its exact shape; the phone app always gets Google's page. And the
 // window it opens in: a browser reserves one during the click, the desktop app opens the address once it is known.
 import { expect, test } from 'bun:test'
-import { driveSignInUrl, googleAuthorization, openSignInWindow, reserveSignInWindow, type SignInPlace } from '../../src/lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, googleAuthorization, openSignInWindow, reserveSignInWindow, type SignInPlace } from '../../src/lib/driveSignIn'
 
 const google = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=abc'
 const state = 'A'.repeat(43)
@@ -74,4 +74,13 @@ test('a browser reserves a blank window in the click and sends it to the address
   expect(reserveSignInWindow('phone', p.open)).toBeNull()
   openSignInWindow('phone', null, google, p.open)
   expect(p.calls).toEqual([])
+})
+
+test('the desktop app opens the server\'s one-time address first, only in its exact shape on this origin', () => {
+  const t = 'T'.repeat(43), path = `/api/integrations/google-drive/go?flow=0190abcd-1234&k=${t}`
+  expect(desktopOpenUrl({ openPath: path }, 'https://acme.trina.app')).toBe(`https://acme.trina.app${path}`)
+  // an older server sends none: the sign-in page as before
+  expect(desktopOpenUrl({}, 'https://acme.trina.app')).toBeNull()
+  for (const bad of ['https://evil.test/x', '//evil.test/api/integrations/google-drive/go?flow=a&k=' + t, `/api/integrations/google-drive/go?flow=a&k=${t}&next=x`, '/api/integrations/google-drive/go?flow=a&k=short'])
+    expect(desktopOpenUrl({ openPath: bad }, 'https://acme.trina.app')).toBeNull()
 })

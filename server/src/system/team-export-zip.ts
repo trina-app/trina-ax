@@ -38,7 +38,7 @@ export function safeSegment(s: string, max = 120): string {
 }
 
 /** names given out per folder of the zip: the same name twice (or differing only in case) gets " (2)", " (3)" … */
-class Names {
+export class Names {
   private used = new Map<string, Set<string>>()
   take(dir: string, want: string): string {
     let set = this.used.get(dir)
@@ -85,7 +85,7 @@ function has(db: Database, table: string, column?: string): boolean {
   return column ? cols.some((c) => c.name === column) : cols.length > 0
 }
 
-function textBytes(s: string): () => Bytes {
+export function textBytes(s: string): () => Bytes {
   const b = Buffer.from(s, 'utf8')
   return () => (async function* () { yield b })()
 }

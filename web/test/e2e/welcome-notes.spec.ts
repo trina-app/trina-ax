@@ -7,7 +7,7 @@
 // 파일, 도구 연결 (put off here), 팀원 초대. With nothing shared the invite names no skill (docs/DECISIONS.md "DS3"), the
 // end screen offers 홈으로 only (no kept skill in the team); a member who joins lands on Home.
 import { expect, test, type Page } from '@playwright/test'
-import { realErrors, reset, signIn, watchConsole } from './helpers'
+import { realErrors, reset, signIn, watchConsole, noSlack } from './helpers'
 import { phoneHome } from './nav'
 
 const doc = (name: string, text: string) => ({ name, mimeType: 'text/markdown', buffer: Buffer.from(text) })
@@ -28,6 +28,7 @@ const brandFiles = async (page: Page) => {
 test('회사 소개 saves the profile and puts the brand materials in, starting nothing; the steps go on to 도구 연결 and the invite; the invite names no skill; a member lands on Home', async ({ page, browser }) => {
   const errors = watchConsole(page)
   await reset(page)
+  await noSlack(page)
   await signIn(page)
   await page.goto('/welcome')
   await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
@@ -84,7 +85,7 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   await expect(page.getByTestId('welcome-team-files')).toBeVisible()
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
-  await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+  await expect(page.getByTestId('welcome-progress')).toContainText('4/5 팀 도구')
   await page.getByTestId('welcome-later').click()
   await expect(page.getByTestId('invite-step')).toBeVisible()
   await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
@@ -98,12 +99,12 @@ test('회사 소개 saves the profile and puts the brand materials in, starting 
   const link = (await (await page.request.get('/api/admin/team-link')).json()).link
   expect(link.skill).toBeNull()
   await page.getByTestId('invite-step-done').click()
-  // 준비 끝났어요: no deck line, no kept skill in the team: 홈으로 the one button
+  // 준비 끝났어요: the steps summed up, no first result: 내 설정 시작 the one button
   await expect(page.getByTestId('welcome-done')).toContainText('준비 끝났어요')
   await expect(page.getByTestId('welcome-done')).not.toContainText('회사 소개서')
   await expect(page.getByTestId('welcome-done-try')).toHaveCount(0)
   await expect(page.getByTestId('welcome-done-make')).toHaveCount(0)
-  await expect(page.getByTestId('welcome-done-home')).toHaveText('홈으로')
+  await expect(page.getByTestId('welcome-done-home')).toHaveText('내 설정 시작')
   await expect(page.getByTestId('setup-row')).toHaveCount(0)
 
   // a member joins with the link and lands on Home (the link names no skill)

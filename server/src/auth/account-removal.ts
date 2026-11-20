@@ -11,6 +11,7 @@ import type { AppContext } from '../context'
 import { hashToken } from './passwords'
 import { authOf, readToken } from './service'
 import { getTeamSettings } from '../admin/settings'
+import { isFreeRoam } from '../app-config'
 
 export interface AccountCleanup {
   /** the area's name, for the log */
@@ -180,7 +181,7 @@ export function noteRemovedSignIns(ctx: AppContext, userId: string, guest?: 'lef
 export function removedSignIn(ctx: AppContext, req: Request): { guest?: 'left' | 'removed'; team?: string } | null {
   const m = removedSignIns.get(ctx)
   if (!m?.size) return null
-  const t = readToken(req)
+  const t = readToken(req, isFreeRoam(ctx.config))
   if (!t) return null
   const key = hashToken(t.token)
   const n = m.get(key)

@@ -16,6 +16,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DEMO_CONTENT_FORMAT, DemoContentCompany, DemoFile, DemoRecording, type DemoPersonaKey } from '../../../shared/src/api'
+import { readFakes, type Fakes } from './fakes'
+import { storyProblems } from './story-state'
 import { DEMO_PASSWORD, listFiles, type DemoCompany } from '../seed'
 
 const ROOT = path.resolve(import.meta.dir, '..', '..', '..')
@@ -43,7 +45,13 @@ export interface DemoContent {
   files: string[]
   /** the demo file the server reads (MYCEL_DEMO). `replays`: the recordings folder, or null while recording (no
    * replays: every prompt goes to the real AI). A showcase prompt is suggested only once it is recorded. */
-  demoFile(o?: { replays?: string | null }): DemoFile
+  /** builder: the snapshot builder's routes on; fakes: the demo fakes' folder; freeRoam: a free-roam demo (kind, one
+   * person: the new hire, the sign-up address) */
+  demoFile(o?: { replays?: string | null; builder?: boolean; fakes?: string; freeRoam?: boolean }): DemoFile
+  /** fakes/: the fake Gmail, Drive and Higgsfield pictures (fakes.ts) */
+  fakes: Fakes
+  /** profile photos (avatars/<username>.<ext>), set by each person (story-state.ts) */
+  avatars: { username: string; file: string; type: string }[]
 }
 
 /** Which content folder: --content, else MYCEL_DEMO_CONTENT, else the open example (null when content is required). */
@@ -118,8 +126,9 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
     if (!files.length) problems.push('files/ is empty')
     for (const f of files) {
       const [top, second] = f.split('/')
-      if (!['shared', 'groups', 'skills'].includes(top!) || f.split('/').length < 2) problems.push(`files/${f}: sample files go under shared/, groups/<group>/ or skills/`)
+      if (!['shared', 'groups', 'skills', 'projects'].includes(top!) || f.split('/').length < 2) problems.push(`files/${f}: sample files go under shared/, groups/<group>/, projects/<project>/ or skills/`)
       else if (top === 'groups' && !groupNames.includes(second!)) problems.push(`files/${f}: no group "${second}"`)
+      else if (top === 'projects' && !c.projects.some((p) => nfc(p.name) === second)) problems.push(`files/${f}: no project "${second}" in company.json projects`)
     }
   }
   const packFiles = c.packSkills.flatMap((p) => p.skills.map((s) => ({ rel: `skills/${p.pack}/${s}/SKILL.md`, source: path.join(root, 'resources', 'skill-packs', p.pack, p.locale, s, 'SKILL.md') })))
@@ -143,12 +152,27 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
       }
     }
   }
+
+  // the state a story ends in (projects, rooms, chats, connections, the welcome inviter) and the fake Gmail and Drive
+  if (c.owner.group && !groupNames.includes(nfc(c.owner.group))) problems.push(`owner: no group "${c.owner.group}"`)
+  const fakes = readFakes(dir, problems)
+  problems.push(...storyProblems(c, [...files, ...packFiles.map((f) => f.rel)], fakes))
+  // profile photos: avatars/<username>.jpg (or .png, .webp), each set by its person
+  const avatarsDir = path.join(dir, 'avatars')
+  const avatars: DemoContent['avatars'] = []
+  if (fs.existsSync(avatarsDir)) {
+    for (const n of fs.readdirSync(avatarsDir).filter((x) => !x.startsWith('.')).sort()) {
+      const m = /^(.+)\.(jpe?g|png|webp)$/i.exec(n)
+      if (!m || !account(m[1]!)) { problems.push(`avatars/${n}: name it <username>.jpg, .png or .webp, for one of the accounts`); continue }
+      avatars.push({ username: m[1]!, file: path.join(avatarsDir, n), type: m[2]!.toLowerCase() === 'png' ? 'image/png' : m[2]!.toLowerCase() === 'webp' ? 'image/webp' : 'image/jpeg' })
+    }
+  }
   if (problems.length) fail(problems)
 
   const ownerName = c.owner.username
   const seed: DemoCompany = {
     teamName: c.teamName,
-    people: [{ username: ownerName, name: c.owner.name, role: 'owner', group: null }, ...c.people.map((p) => ({ username: p.username, name: p.name, role: 'member' as const, group: p.group }))],
+    people: [{ username: ownerName, name: c.owner.name, role: 'owner', group: c.owner.group ?? null }, ...c.people.map((p) => ({ username: p.username, name: p.name, role: 'member' as const, group: p.group }))],
     groups: c.groups,
     rules: c.rules.map((r) => ({ path: r.path, rules: r.rules, ...(r.limited ? { limited: true } : {}), why: r.why ?? [...(r.limited ? ['limited'] : []), ...r.rules.map((x) => `${'group' in x ? x.group : 'user' in x ? x.user : 'everyone'}: ${x.access}`)].join(', ') })),
     filesDir,
@@ -157,9 +181,10 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
     ...(c.profile ? { profile: c.profile } : {}),
     ...(c.settings ? { settings: c.settings } : {}),
     memories: c.memories,
+    ...(c.projects.length ? { projects: c.projects.map((p) => ({ name: p.name, folderPath: `projects/${p.name}`, instructions: p.instructions, ...(p.by ? { by: p.by } : {}), members: p.members })) } : {}),
   }
   const content: DemoContent = {
-    dir, company: c, seed, filesDir, recordingsDir,
+    dir, company: c, seed, filesDir, recordingsDir, fakes, avatars,
     files: [...files, ...packFiles.map((f) => f.rel)],
     demoFile(d = {}) {
       const replays = d.replays === undefined ? recordingsDir : d.replays
@@ -169,10 +194,15 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
         password: DEMO_PASSWORD,
         ...(c.demo.sameQuestion ? { sameQuestion: c.demo.sameQuestion } : {}),
         ...(replays ? { replays } : {}),
-        personas: personas.map((p) => ({
+        // a free-roam demo has its one person, the new hire (the gate signs the visitor in as them)
+        personas: personas.filter((p) => !d.freeRoam || p.key === 'newHire').map((p) => ({
           ...p,
           questions: [...p.questions, ...c.scenarios.filter((s) => s.kind === 'showcase' && s.username.toLowerCase() === p.username.toLowerCase() && recorded(s.slug)).map((s) => s.prompt)],
         })),
+        ...(c.freeRoam ? { freeRoam: { suggestions: c.freeRoam.suggestions } } : {}),
+        ...(d.freeRoam ? { kind: 'freeRoam', ...(c.freeRoam?.signupUrl ? { signupUrl: c.freeRoam.signupUrl } : {}) } : {}),
+        ...(d.builder ? { builder: true } : {}),
+        ...(d.fakes ? { fakes: { content: d.fakes } } : {}),
       })
     },
   }

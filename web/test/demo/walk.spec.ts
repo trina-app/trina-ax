@@ -33,10 +33,17 @@ const timed = (line: string) => new RegExp(line.split('{time}').map((x) => x.rep
 const START = './'
 // the page breaks no rule of the CSP it is served with (test/demo/serve.ts DEMO_CSP): a blocked load is a failure
 const blocked = new WeakMap<Page, string[]>()
-test.beforeEach(({ page }) => {
+const LIVE_OK = process.env.DEMO_LIVE === 'available'
+/** how often the gate's status was asked (the busy line's Try again asks again) */
+const statusAsks = new Map<Page, number>()
+test.beforeEach(async ({ page }) => {
   const list: string[] = []
   blocked.set(page, list)
   page.on('console', (m) => { if (/Content Security Policy|Refused to/i.test(m.text())) list.push(m.text()) })
+  // the live demo after the story (web/demo/live.ts) is never asked for real here: busy, so the end keeps the plans
+  // link alone; DEMO_LIVE=available walks the other state (both: test/unit/demo-live-end.test.tsx)
+  statusAsks.set(page, 0)
+  await page.route('https://demo.trina.app/**', (r) => { statusAsks.set(page, (statusAsks.get(page) ?? 0) + 1); return r.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' }, json: { available: LIVE_OK } }) })
 })
 test.afterEach(({ page }) => { expect(blocked.get(page) ?? []).toEqual([]) })
 
@@ -204,6 +211,21 @@ for (const { branch, byGuide } of runs) {
     await expect(page.getByTestId('demo-end')).toContainText(timed(`${script.end.title} (${script.end.contrast})`))
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('href', script.end.signup.url)
     await expect(page.getByTestId('demo-signup')).toHaveAttribute('target', '_blank')
+    // the live demo (beforeEach): busy, its line and no "Now try it yourself"; available, the button to it first
+    if (script.end.live && LIVE_OK) {
+      await expect(page.getByTestId('demo-try-live')).toHaveAttribute('href', script.end.live.url)
+      await expect(page.getByTestId('demo-live-busy')).toHaveCount(0)
+    } else {
+      if (script.end.live) await expect(page.getByTestId('demo-live-busy')).toHaveText(script.end.live.busy)
+      await expect(page.getByTestId('demo-try-live')).toHaveCount(0)
+      // the busy line's small Try again asks the gate once more (still busy here)
+      if (script.end.live?.retry) {
+        const before = statusAsks.get(page) ?? 0
+        await page.getByTestId('demo-live-retry').click()
+        await expect.poll(() => statusAsks.get(page) ?? 0).toBe(before + 1)
+        await expect(page.getByTestId('demo-live-busy')).toHaveText(script.end.live.busy)
+      }
+    }
     await shot(page, `${branch}-9-end`)
     // no card of the demo's own anywhere
     await expect(page.locator('.demo-toast, .demo-end-backdrop, [data-testid="demo-send-to"], [data-testid="demo-compare"]')).toHaveCount(0)

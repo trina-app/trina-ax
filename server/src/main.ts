@@ -11,7 +11,8 @@ import { directFetch } from './http/tunnel'
 import { TAILNET_RELOAD_MS, tailnetListener } from './http/tailnet-listener'
 import { createContext, SERVER_VERSION, socketPathProblems, type AppContext } from './context'
 import { SchemaTooNewError, openDb } from './db'
-import { syncFollowingLocales } from './admin/settings'
+import { getTeamSettings, syncFollowingLocales } from './admin/settings'
+import { reportTeamNameAtStart } from './system/cloud-team-name'
 import { createLogger, type Logger } from './log'
 import { ERROR_REPORT_ENV, errorReportsFrom, reportLogLine, reportServerCrashes, setErrorReports } from './system/error-reports'
 import { applyPendingRestore, recordRestore } from './system/backup'
@@ -33,8 +34,10 @@ import { speechBigEnough } from './system/limits'
 import { startModelPrefetch } from './jobs/model-prefetch'
 import { settleHostedFallback } from './admin/engine-choice'
 import { repointDeckLinks } from './auth/team-links'
+import { userCount } from './auth/accounts'
 import { retireLegacyDefaultSkills } from './onboarding/retired-skills'
 import { MIGRATE_DB_ENV, migrateBeforeStart, runMigrateChild } from './system/migrate-start'
+import { demoFakesOf } from './demo/fakes'
 
 /** how often the installed server checks that its office TLS certificate still names every LAN address */
 const LAN_CERT_CHECK_MS = 60_000
@@ -196,6 +199,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   if (settleHostedFallback({ db, config: cfg })) log.info('turned on "answer with the other AI" for this hosted server')
   const ctx = createContext({ config: cfg, db, log })
   ctx.onClose(() => db.close())
+  // a demo whose file asks for fakes: Gmail, Drive and Higgsfield answer in this process and the outside is fenced off
+  // before anything else can reach it (demo/fakes/)
+  demoFakesOf(ctx)
   // an Apple silicon Mac with whisper-cli (the office zip's) and macOS's decoders, or a server with whisper-cli and
   // ffmpeg (the Linux kit, the Docker image) and at least 4 cores and 8 GB: voice input and the AI's reads of
   // recordings work on this server with no key, so 'local' is what "not chosen" reads (admin/settings.ts)
@@ -291,6 +297,9 @@ export async function start(cfg: AppConfig, log: Logger): Promise<Started> {
   try { retireLegacyDefaultSkills(ctx.db) } catch (e) { log.warn('the old default skills not recorded as retired', { err: e }) }
   // old open invite links that lead to the intro deck: pointed once at the landing skill (docs/DECISIONS.md "W5")
   try { const n = repointDeckLinks(ctx); if (n) log.info('invite links pointed at the landing skill', { n }) } catch (e) { log.warn('invite links to the intro deck not repointed', { err: e }) }
+  // a hosted team's name on the hosting service: a rename it missed (unreachable, or before this release) reaches it
+  // now, after a random 0-60 s
+  if (cfg.mode === 'prod' && isHosted(cfg) && userCount(db) > 0) reportTeamNameAtStart(ctx, () => getTeamSettings(db).teamName)
   if (cfg.setupToken) {
     // office mode: the installer prints the link (`teamax setup-link`); the log stays free of the token
     if (cfg.mode === 'dev' && !cfg.office) log.info(`first-run setup: POST /api/setup with setupToken ${cfg.setupToken} (or open ${url}/setup?token=${cfg.setupToken})`)

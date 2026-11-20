@@ -7,7 +7,7 @@
 // anchorWhileFollowing: the browser's scroll anchoring is off while the list follows, so a reloaded chat stays at its
 // bottom with the running answer and the waiting messages in sight (QA TC-4962).
 import { expect, test } from 'bun:test'
-import { anchorWhileFollowing, followsAfterScroll, holdPlace, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
+import { anchorWhileFollowing, farFromBottom, followsAfterScroll, JUMP_BUTTON_PX, holdPlace, jumpToBottom, onListScroll, placeAfterResize, scrolledByReader, watchListSize, type ListSize } from '../../src/lib/stickToBottom'
 
 /** a ResizeObserver whose callbacks the test runs, as the browser would after a layout */
 class FakeRO {
@@ -394,4 +394,15 @@ test("holdPlace with the list's reanchor: anchoring is put back by the list's fo
   list.add('old', 2, 'start')
   keep()
   expect([asked, list.style.overflowAnchor]).toEqual([1, 'none'])
+})
+
+// QA AP-043: the AI chat shows a jump-to-bottom button once the reader is far from the newest message (like claude.ai)
+test('farFromBottom: the jump-to-bottom button shows only past JUMP_BUTTON_PX from the end', () => {
+  const box = (scrollTop: number) => ({ scrollTop, scrollHeight: 5000, clientHeight: 800 })
+  expect(farFromBottom(box(4200))).toBe(false) // at the bottom
+  expect(farFromBottom(box(4200 - JUMP_BUTTON_PX))).toBe(false) // just at the limit
+  expect(farFromBottom(box(4200 - JUMP_BUTTON_PX - 1))).toBe(true)
+  expect(farFromBottom(box(0))).toBe(true)
+  // a short chat that does not scroll never shows it
+  expect(farFromBottom({ scrollTop: 0, scrollHeight: 600, clientHeight: 800 })).toBe(false)
 })

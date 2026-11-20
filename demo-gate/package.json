@@ -1,0 +1,14 @@
+{
+  "name": "@mycel/demo-gate",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Free-roam demo gate: landing, per-visitor instance pool, reverse proxy, model upstream (Node 24+, no dependencies).",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/main.ts"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

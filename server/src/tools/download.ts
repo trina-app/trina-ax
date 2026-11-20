@@ -20,6 +20,7 @@ import tls from 'node:tls'
 import { PRODUCT, SOURCE_CODE } from '@mycel/shared'
 import { ToolError } from '../policy/errors'
 import { acceptLanguage, precheckTarget, resolveTarget, type ResolveOptions, type Target } from './web-fetch'
+import { activeDemoFakes } from '../demo/fakes'
 
 export const DOWNLOAD_MAX_REDIRECTS = 5
 /** per hop: the name lookup, the connection and the answer's head */
@@ -252,6 +253,19 @@ async function* bodyOf(conn: Conn, h: Head): AsyncGenerator<Buffer> {
   }
 }
 
+/** A demo fake's file written to `dst` with the caller's limits (size, the sniff, the disk room), like a download. */
+function saveFake(url: string, f: { bytes: Buffer; contentType: string }, dst: string, o: DownloadOptions): Downloaded {
+  if (o.signal?.aborted) throw stopped()
+  if (o.maxBytes !== undefined && f.bytes.length > o.maxBytes) throw new ToolError(`the file is larger than the limit (${o.maxBytes} bytes)`)
+  const first = f.bytes.subarray(0, SNIFF_BYTES)
+  o.sniff?.(first, f.contentType)
+  o.room?.(f.bytes.length)
+  const fd = fs.openSync(dst, 'wx', 0o600)
+  try { fs.writeSync(fd, f.bytes) } catch (e) { fs.closeSync(fd); fs.rmSync(dst, { force: true }); throw e }
+  fs.closeSync(fd)
+  return { url, size: f.bytes.length, sha256: crypto.createHash('sha256').update(f.bytes).digest('hex'), contentType: f.contentType, first: Buffer.from(first), openEnded: false }
+}
+
 /** The size the answer announces (Content-Length without chunked framing), or null. */
 export function announcedSize(headers: Record<string, string>): number | null {
   if (/chunked/i.test(headers['transfer-encoding'] ?? '')) return null
@@ -261,6 +275,10 @@ export function announcedSize(headers: Record<string, string>): number | null {
 
 /** GET `rawUrl` into the new file `dst` (created, 0600; never an existing file). Throws ToolError; `dst` is then gone. */
 export async function downloadToFile(rawUrl: string, dst: string, o: DownloadOptions = {}): Promise<Downloaded> {
+  // a demo server with fakes: a file only a fake has (a generated picture) comes from it; anything else is refused by
+  // resolveTarget before a lookup (demo/fakes/offline.ts)
+  const fake = activeDemoFakes()?.download(rawUrl)
+  if (fake) return saveFake(rawUrl, fake, dst, o)
   const connectMs = o.connectTimeoutMs ?? DOWNLOAD_CONNECT_TIMEOUT_MS
   const idleMs = o.idleTimeoutMs ?? DOWNLOAD_IDLE_TIMEOUT_MS
   const totalMs = o.totalTimeoutMs ?? DOWNLOAD_TOTAL_TIMEOUT_MS

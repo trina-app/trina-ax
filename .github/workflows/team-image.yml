@@ -5,7 +5,8 @@
 #                           on the release's tag
 #   build-ami (here)        AWS through GitHub OIDC (no AWS key is stored anywhere), scripts/image/build-ami.sh in
 #                           ap-northeast-2, ami-manifest-v2.sh --copy-to for each AMI_COPY_TO region, a short signing step,
-#                           publish-ami.ts, then ami-prune.sh keeps the CI's newest 3 releases' images per region
+#                           publish-ami.ts, then ami-prune.sh removes the CI's old images per region (keeps the newest 5
+#                           releases, anything younger than 14 days, anything tagged ax:keep or still in use)
 #
 # Its own workflow, not a job of release.yml: an image takes up to three hours, and release.yml's concurrency group is
 # also the one of feed.yml (hold, promote). A hold must never wait for an image. GitHub keeps one pending run per
@@ -46,7 +47,11 @@ env:
   # region here first, or the copy and the whole run fail.
   AMI_REGION: ap-northeast-2
   AMI_COPY_TO: ap-southeast-1 us-east-1
-  AMI_KEEP: "3"
+  # ami-prune.sh: the newest AMI_KEEP releases and every image younger than AMI_MIN_AGE_DAYS stay. The control plane
+  # makes new teams from an older release while a newer one's hosted rollout bakes (2026-11-20: 0.5.16 was removed
+  # while still the new-team template, five releases behind), and the CI cannot read the control plane.
+  AMI_KEEP: "5"
+  AMI_MIN_AGE_DAYS: "14"
 
 jobs:
   build-ami:
@@ -236,7 +241,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           TEMPLATE: ${{ steps.ami.outputs.template }}
         run: bun scripts/release/publish-ami.ts --version "$VERSION" --manifest "dist/image/teamax-$TEMPLATE.v2.ami.json"
-      - name: Keep the newest ${{ env.AMI_KEEP }} releases' images per region
+      - name: Remove old images (keep the newest ${{ env.AMI_KEEP }} releases, younger than ${{ env.AMI_MIN_AGE_DAYS }} days, in use)
         if: steps.release.outputs.build == 'true'
         env:
           ACCOUNT: ${{ steps.go.outputs.account }}
@@ -244,7 +249,7 @@ jobs:
         run: |
           regions=(--region "$AMI_REGION")
           for r in $AMI_COPY_TO; do regions+=(--region "$r"); done
-          scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP" --protect-template "$TEMPLATE" "${regions[@]}"
+          scripts/image/ami-prune.sh --account "$ACCOUNT" --keep "$AMI_KEEP" --protect-template "$TEMPLATE" --min-age-days "$AMI_MIN_AGE_DAYS" "${regions[@]}"
       # a cancel or a time-out can stop build-ami.sh before its own clean-up: remove exactly what its state file names
       - name: Remove what an interrupted build left behind
         if: (cancelled() || failure()) && steps.release.outputs.build == 'true'

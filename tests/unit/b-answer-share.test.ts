@@ -181,7 +181,8 @@ describe('"confirm" first when some member could not read what it used', () => {
     const r = await share('alice', a, body)
     expect(r.status).toBe(200)
     // bob (finance) cannot read groups/marketing; carol and dana (admin, owner) and erin may. No linked file: no row
-    const marketing = { people: 1, places: [{ kind: 'folder', path: 'groups/marketing' }], otherPlaces: false }
+    // (with how many files read there count: the card's "1 file in Groups › marketing")
+    const marketing = { people: 1, places: [{ kind: 'folder', path: 'groups/marketing', files: 1 }], otherPlaces: false }
     expect(r.json).toEqual({ status: 'confirm', ...marketing, files: [], provenance: marketing, confirmKey: expect.any(String) })
     for (const n of NAMES) expect(r.text).not.toContain(n)
     expect((await messagesAs('alice', rooms.all)).length).toBe(before)
@@ -601,7 +602,7 @@ describe('linked files: a row each, the switch, attaching', () => {
     expect(r.json).toMatchObject({ status: 'confirm', files: [{ path: at, attach: 'yes', unable: 1 }], provenance: null })
     // an older client cannot attach: it is told about both, the file's place too
     expect(r.json.people).toBe(1)
-    expect(r.json.places).toEqual([{ kind: 'mine' }])
+    expect(r.json.places).toEqual([{ kind: 'mine', files: 1 }])
   })
 
   test('only files of this answer that may go: anything else is refused, nothing sent', async () => {

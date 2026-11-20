@@ -2,6 +2,8 @@ import { confidentialChat, localTool } from "../safe-ops/confidential"
 // The tools of one turn besides the six file tools: B's remember / forget / ask_user / connect_service / set_title and the browser pane tools
 // (desktop window only), plus whatever other components registered in ctx.services.turnTools (C: make_file,
 // share_file, artifact, web_fetch). Served over the same MCP connection as the file tools (mcp__team__<name>).
+import { isFreeRoam } from '../app-config'
+import { freeRoamToolCallRefused, freeRoamToolFenced } from '../demo/guard'
 import { stampOutputOf } from '../tools/stamp-pdf'
 import { commentDocxOutput } from '../tools/comment-docx'
 import { editOfficeOutput } from '../tools/edit-office'
@@ -125,6 +127,9 @@ export const B_TOOL_DESCRIPTIONS = {
   move_skill: 'Move one of the user\'s skills to another level, or copy it there when the user asks for a copy (keep: true; the original stays): the whole team, one of the user\'s groups (an owner or admin: any group), a project (only that project\'s chats use it) or the user\'s own skills, any move the user could make with the Move item on the Skills page. Nothing moves or is copied until the user says yes on the server\'s card, which says who newly gets the skill, who stops getting it and who newly may change it, lists every file and shows SKILL.md; you do not need to ask first. A copy is every file of the skill, byte for byte, in one card. The same checks as the Skills page: the user can write the target (and, for a move, the skill\'s place), no skill of that name is at the target, a project takes SKILL.md folders and no name a wider skill has. One name runs personal > group > team > project, so a project copy under the name of a skill the user keeps at a wider level would not run for its people, the user included: give the copy another name (name) or move it instead. A refusal says why and what to do: tell the user that in their words. The result says who gains and loses it (by name when the user may see that), so you can answer who. Skills never move or copy with move_files or copy_files, and never write a copy file by file; never leave a README or an empty skills folder as a stand-in. A folder that is not a project yet must be made a project first.',
 } as const
 
+/** intro_deck's "read" step in a free-roam demo (demo/guard.ts freeRoamToolCallRefused) */
+const DEMO_SITE_READER_OFF = 'Error: reading web pages is not available in this demo. Build the deck from the team\'s files and what the user tells you (step "outline" with sources from them).'
+
 /** A turn's tool set, plus what per-person tools add: a section for the instructions and their own step labels. */
 export interface ChatToolSet extends TurnToolSet {
   /** sections for the AI's instructions from per-person tools (connected services) */
@@ -190,6 +195,16 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
     // (skills/share-merge.ts), 팀 파일's picks (onboarding/file-rank.ts): no tool at all besides the file tools (refused,
     // or for a merge only on its team skills)
     if (exec.skillDraft || exec.shareJudge || exec.shareMerge || exec.fileRank) return false
+    // a free-roam demo (demo/guard.ts FREE_ROAM_REFUSED_TOOLS): no new connections, no background work, nothing that
+    // fetches an address the visitor picks, no dev environment, no video render; intro_deck without its site reader
+    if (freeRoamToolFenced(exec.rt.ctx, t.name)) return false
+    if (t.name === 'intro_deck' && freeRoamToolCallRefused(exec.rt.ctx, t.name, { step: 'read' })) {
+      const inner = t
+      t = { ...inner, async call(args, files) {
+        if (freeRoamToolCallRefused(exec.rt.ctx, inner.name, args)) return { ...text(DEMO_SITE_READER_OFF, true), summary: 'intro_deck read -> refused: not in the demo' }
+        return inner.call(args, files)
+      } }
+    }
     if(confidential && !localTool(t.name)) return false
     if (guest && !GUEST_TURN_TOOLS.has(t.name)) return false
     // ...and the room tools only for a guest whose place is a group chat (the one room they may read, chat/room-tools.ts)
@@ -295,11 +310,13 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   // a shared chat: only the connections' provider, in its shared mode (the asker's card before a call some people here
   // could not see the answer of; no team connection while a guest is here; docs/decisions/20261118-shared-chat-connections.md).
   // Slack reading stays off there
-  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? providers.filter((p) => p.name === 'integrations') : providers
+  // a free-roam demo: no Slack reading (its API calls go out directly: docs/decisions/20261119-demo-free-roam-a.md)
+  const kept = isFreeRoam(exec.rt.ctx.config) ? providers.filter((p) => p.name !== 'slack') : providers
+  const offered = confidential || exec.restricted || guest ? [] : exec.shared ? kept.filter((p) => p.name === 'integrations') : kept
   const sharedConn = exec.shared ? exec.sharedConnections() : undefined
   for (const p of offered) {
     let built: ReturnType<typeof p.build>
-    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, desktop: exec.desktop, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
       if (!add(wrapRegistered(exec, t), { connection: !!sharedConn })) continue

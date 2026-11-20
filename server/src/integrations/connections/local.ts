@@ -44,6 +44,15 @@ export function turnWindow(db: Database, turnId: string): string | null {
   return t && t.client_kind === 'desktop' && t.window_id ? t.window_id : null
 }
 
+/** Why an app on the computer cannot run for this turn, as one known fact (never a guess): where the message came from,
+ * or that the desktop window that sent it is not connected. */
+export type LocalAway = 'web' | 'mobile' | 'window' | 'schedule' | 'no_local_apps' | 'other'
+export function turnAway(db: Database, turnId: string): LocalAway {
+  const t = db.query('SELECT window_id, client_kind FROM turns WHERE id = ?').get(turnId) as { window_id: string | null; client_kind: string | null } | null
+  const k = t?.client_kind
+  return k === 'web' ? 'web' : k === 'mobile' ? 'mobile' : k === 'schedule' ? 'schedule' : k === 'desktop' && t?.window_id ? 'window' : 'other'
+}
+
 /** Why a local call did not run, with words for the AI (never a setting's value) and the reason stored on the
  * connection (text.ts: local_offline, local_declined, local_failed). */
 export class LocalError extends Error {
@@ -55,14 +64,28 @@ export class LocalError extends Error {
 }
 
 const desktop = `the ${PRODUCT.displayName} desktop app`
-/** For the AI, in words it can pass on: the app runs only from the desktop app on the person's computer. */
-export const offlineWords = (name: string) =>
-  `${name} is an app on the user's own computer, and you can use it only when they write from ${desktop} on that computer. This message came from somewhere else (the web, the phone app, or a desktop window that is not connected now), so nothing ran. Tell them so in one or two plain sentences, and that it works when they send the message from ${desktop} on that computer.`
+const AWAY: Record<LocalAway, string> = {
+  web: `this message was sent from the web page, not from ${desktop}`,
+  mobile: `this message was sent from the phone app, not from ${desktop}`,
+  window: `this message was sent from ${desktop}, but that window was not connected to the team server when it was needed`,
+  schedule: 'this is a scheduled run, and an app on the computer never runs in one',
+  no_local_apps: 'the window that sent this message answered that it cannot run apps on the computer now (it has no team open, or it is not the desktop app)',
+  other: `this message was not sent from ${desktop}`,
+}
+const SAY_ONLY = `Tell them exactly that in one or two plain sentences, and that it works when they send the message from ${desktop} on that computer. Do not guess at other causes (another computer, the app's version or where it was installed).`
+/** For the AI, in words it can pass on: the app runs only from the desktop app on the person's computer, and the one
+ * known reason it did not run now. No guessing: the AI once told the owner it might be the Mac App Store or another
+ * computer when the real cause was the server's (a shared chat, 2026-11-20). */
+export const offlineWords = (name: string, away: LocalAway = 'other') =>
+  `${name} is an app on the user's own computer, and it runs only when they write from ${desktop} on the computer where they added it. Nothing ran, because ${AWAY[away]}. ${SAY_ONLY}`
+/** The same for the AI's instructions, before anyone asks: why it is not usable in this answer. */
+export const awayWords = (away: LocalAway) =>
+  `it runs only when the user writes from ${desktop} on the computer where they added it, and ${AWAY[away]}. When they ask for it, ${SAY_ONLY.charAt(0).toLowerCase()}${SAY_ONLY.slice(1)}`
 
 function errorOf(name: string, r: LocalResult): LocalError {
   const detail = (r.error ?? '').replace(/[\u0000-\u001f]/g, ' ').slice(0, 300)
   switch (r.failure) {
-    case 'not_desktop': return new LocalError('not_desktop', offlineWords(name))
+    case 'not_desktop': return new LocalError('not_desktop', offlineWords(name, 'no_local_apps'))
     case 'declined': return new LocalError('declined', `The user chose Cancel when ${desktop} asked whether to connect ${name} on their computer, so nothing ran. Do not try again unless they ask; they can connect it in Settings › Connectors › ${name}.`)
     case 'unconfirmed': return new LocalError('unconfirmed', `${desktop} on the user's computer is asking them whether to connect ${name} ("Connect this program?"), and they have not pressed Connect yet, so nothing ran. Tell them to press Connect in that window on their computer, then ask again.`)
     case 'root': return new LocalError('root', `${desktop} on the user's computer runs with administrator (root) rights, and it never starts ${name} then. Nothing ran.`)
@@ -83,12 +106,12 @@ export function localTransport(o: { relay: LocalRelay; userId: string; via: Loca
     // computer (the one-time confirm): it waits as long as a person reads that window, not a network's 30 s
     const deadline = r.long?.deadline ?? Date.now() + (message.method === 'initialize' ? CONFIRM_WAIT_MS : TIMEOUT_MS)
     const timeoutMs = Math.max(1000, deadline - Date.now())
-    if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name))
+    if (!o.relay.windowAlive(o.userId, o.via.windowId)) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
     const res = await o.relay.call({ userId: o.userId, windowId: o.via.windowId, turnId: o.via.turnId, connectionId: o.row.id, name: o.row.name, spec: o.spec, message, timeoutMs, signal: r.signal })
     if (!res.ok) {
       if (r.signal?.aborted) throw new NetError('timeout')
       if (!res.failure && /did not answer in time$/.test(res.error ?? '')) throw new NetError(r.long?.reason ?? 'timeout')
-      if (!res.failure && /^local_unavailable/.test(res.error ?? '')) throw new LocalError('offline', offlineWords(o.row.name))
+      if (!res.failure && /^local_unavailable/.test(res.error ?? '')) throw new LocalError('offline', offlineWords(o.row.name, 'window'))
       throw errorOf(o.row.name, res)
     }
     const body = res.message ? Buffer.from(JSON.stringify(res.message)) : Buffer.alloc(0)

@@ -95,6 +95,8 @@ export function TaskRunsRow({ runs, projectTag = false, menuSpace = false }: { r
   return (
     <ListRow
       to={taskRunsPath(runs)}
+      // in the Trina history, the chat rows' height and size (nav/ChatItem.tsx)
+      scale="history"
       selected={selected}
       unread={unread}
       testId="task-runs-row"

@@ -167,12 +167,13 @@ export type WorkFileScan =
 export type WorkCloudProvider = 'icloud' | 'onedrive' | 'googleDrive' | 'dropbox' | 'box' | 'cloud'
 
 /** read(): the bytes, or why not: unknown (not an id of this look) · expired (the look is over an hour old) · limit (100
- * files or 1 GB read from this look) · changed (moved, replaced, a link now, another size or date) · unreadable ·
+ * files or 1 GB read from this look) · changed (replaced, a link now, another size or date) · missing (deleted or moved
+ * away since the look; older apps say unreadable) · unreadable ·
  * cloudTimeout (its content was coming from `cloud` and did not arrive within the read's minute; older apps say
  * unreadable). */
 export type WorkFileRead =
   | { ok: true; bytes: Uint8Array }
-  | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'unreadable' }
+  | { ok: false; reason: 'unknown' | 'expired' | 'limit' | 'changed' | 'missing' | 'unreadable' }
   | { ok: false; reason: 'cloudTimeout'; cloud: WorkCloudProvider }
 
 /** add(): added (these files can be read now) · refused (no key or mouse press of the person's on the page in the 2 s

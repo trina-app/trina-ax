@@ -30,7 +30,7 @@ import { profileOf } from '../auth/profiles'
 import { notifyTeamJoined } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { filesOrganized } from './files-organize'
-import { readWelcome } from './welcome'
+import { readWelcome, welcomeOpened } from './welcome'
 
 export type JoinVia = 'team_link' | 'invite' | 'admin'
 const DAY_MS = 86_400_000
@@ -142,7 +142,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
     owner,
     steps,
     // an admin who joined later can sort the team's files while nobody has (the step needs the team's steps row)
-    organizeFiles: me.role === 'admin' && !filesOrganized(ctx) && readWelcome(ctx) !== null,
+    organizeFiles: me.role === 'admin' && !filesOrganized(ctx) && readWelcome(ctx) !== null && welcomeOpened(ctx),
     allSet,
   }
 }

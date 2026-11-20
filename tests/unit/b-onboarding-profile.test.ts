@@ -5,8 +5,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
 import fs from 'node:fs'
 import path from 'node:path'
-import { API, PROFILE_BLOCK_MAX, PROFILE_LIMITS, profilePrefill, type CompanyProfileInput } from '@mycel/shared/api'
-import { getTeamSettings } from '../../server/src/admin/settings'
+import { PRODUCT } from '@mycel/shared'
+import { API, PROFILE_BLOCK_MAX, PROFILE_LIMITS, profileName, profilePrefill, type CompanyProfileInput } from '@mycel/shared/api'
+import { getTeamSettings, setSetting } from '../../server/src/admin/settings'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { buildSubagentPrompt, buildTurnContext, buildTurnPrompt, companyProfileBlock, teamRuleFiles, type PromptInput } from '../../server/src/chat/prompt'
 import { listSkills, skillIssues } from '../../server/src/chat/skills'
@@ -149,14 +150,26 @@ describe('company profile API', () => {
   })
 
   test('the company name: the profile\'s own first in the block and the prefill, else the team\'s name', async () => {
-    const team = getTeamSettings(h.ctx.db).teamName
-    expect(team).toBeTruthy()
-    // a profile without a name (saved before the field existed, or left empty): the team's name stands in
+    // a profile without a name (saved before the field existed, or left empty), on a team that never named itself (the
+    // setting's default is the product's name): no company name at all, never "Company name: <product>" (review
+    // finding 1 on #105)
+    expect(getTeamSettings(h.ctx.db).teamName).toBe(PRODUCT.displayName)
     await h.api('carol').call(API.saveCompanyProfile, { body: profile() })
     expect((await h.api('alice').call(API.getCompanyProfile)).profile!.name).toBe('')
     let block = companyProfileBlock(h.ctx.files, h.ctx.files.principal('alice'))
-    expect(block.split('\n')[2]).toBe(`Company name: ${team}`)
+    expect(block).not.toContain('Company name:')
+    expect(profilePrefill((await h.api('alice').call(API.getCompanyProfile)).profile, PRODUCT.displayName)['company.name']).toBeUndefined()
+    expect(profileName({ name: '' }, `  ${PRODUCT.displayName} `)).toBe('')
+    // a team with its own name: that name stands in
+    const team = 'Acme Team'
+    setSetting(h.ctx.db, 'teamName', team)
+    try {
+      block = companyProfileBlock(h.ctx.files, h.ctx.files.principal('alice'))
+      expect(block.split('\n')[2]).toBe(`Company name: ${team}`)
+    } finally { setSetting(h.ctx.db, 'teamName', PRODUCT.displayName) }
     expect(profilePrefill((await h.api('alice').call(API.getCompanyProfile)).profile, team)['company.name']).toBe(team)
+    // the profile's own name wins even when it is the product's (a company may really be called that)
+    expect(profileName({ name: PRODUCT.displayName }, team)).toBe(PRODUCT.displayName)
     // its own name, cleaned to one line, wins everywhere
     await h.api('carol').call(API.saveCompanyProfile, { body: profile({ name: '  Acme\nFans ', sources: [{ field: 'name', url: 'https://www.acme.example/', excerpt: 'Acme Fans' }] }) })
     const saved = (await h.api('alice').call(API.getCompanyProfile)).profile!

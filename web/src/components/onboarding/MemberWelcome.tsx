@@ -44,6 +44,7 @@ import { useMyWorkFiles } from './FindWorkFiles'
 import { runFolder } from '../../lib/workFiles'
 import { hasResume } from '../../lib/workFilesResume'
 import { TeamFilesStep } from './TeamFilesStep'
+import { CardHide } from './CardHide'
 
 /** The name to greet: the first word of a name with spaces in a script that writes given names first ("Mina Park" →
  * "Mina"); a name without spaces, or in Korean, Japanese or Chinese (family name first), stays whole. */
@@ -100,9 +101,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
       </div>
       <div className="mt-4 flex items-center justify-between gap-3 border-b border-line pb-2 max-md:mt-3 max-md:px-3">
         <p className="text-xs font-medium text-muted" data-testid="member-welcome-progress">{t('memberWelcome.progress', { done, total })}</p>
-        <button type="button" onClick={() => void hide()} aria-label={t('memberWelcome.hideLabel')} className={clsx('touch-hit rounded-md px-1.5 py-0.5 text-xs text-muted hover:bg-hover hover:text-ink', tap)} data-testid="member-welcome-hide">
-          {t('common.hide')}
-        </button>
+        <CardHide onClick={() => void hide()} label={t('memberWelcome.hideLabel')} testId="member-welcome-hide" />
       </div>
       <ul className="divide-y divide-line" data-testid="member-welcome-rows">
         <RoomsRow welcome={welcome} />

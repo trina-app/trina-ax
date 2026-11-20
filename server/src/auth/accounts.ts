@@ -1,4 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
+import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
@@ -36,6 +37,7 @@ import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByU
 import { notifyResetLink, notifyTeamJoined, notifyTemplateOffers } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { recordJoin } from '../onboarding/member-welcome'
+import { startWelcomeAtSetup } from '../onboarding/welcome'
 import { afterLeadJoin, handoverText, leadInviteBeforeInsert, leadInviteShape, resetLinkRefused } from '../admin/handover'
 
 export const RESET_TTL_MS = 24 * 3600_000
@@ -139,6 +141,9 @@ export interface OwnerInput { username: string; name: string; password: string; 
  * concurrent setups cannot both win). Used by POST /api/setup and the server CLI.
  */
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
+  // a hosted team's name must be one the hosting service takes (system/cloud-team-name.ts)
+  const named = hostedTeamName(ctx, o.teamName)
+  o = { ...o, teamName: 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', o.locale), { fields: { 'body.teamName': named.problem } }) }
   const passwordHash = await hashPassword(o.password)
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
@@ -154,6 +159,8 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
+  // a hosted team: the name the owner just gave goes to the hosting service too (system/cloud-team-name.ts)
+  void reportTeamName(ctx, o.teamName)
   ensurePersonalFolder(ctx.files.fx.root, id)
   // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
   // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)
@@ -182,6 +189,8 @@ export async function setup(c: Context<AppEnv>, ctx: AppContext, b: In<typeof Se
   if (relay && userCount(ctx.db) > 0) fail('conflict', msg('setupDone', locale))
   checkNewPassword(b.owner.password, b.owner.username, locale, 'body.owner.password')
   const id = await bootstrapOwner(ctx, { username: b.owner.username, name: b.owner.name, password: b.owner.password, email: b.owner.email ?? null, teamName: b.teamName, locale: b.locale, timeZone: b.timeZone ?? null })
+  // the owner's welcome steps start now, with the link's website: the desktop app resumes them too (/open-app)
+  startWelcomeAtSetup(ctx, b.site)
   return authOf(ctx).signIn(c, id, 'web', 'cookie')
 }
 

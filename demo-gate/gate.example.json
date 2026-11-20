@@ -1,0 +1,48 @@
+{
+  "publicOrigin": "https://demo.trina.app",
+  "listen": { "host": "127.0.0.1", "port": 19190 },
+  "upstreamListen": { "host": "127.0.0.1", "port": 19191 },
+  "stateDir": "/var/demo-gate/state",
+  "pauseFile": "/var/demo-gate/PAUSE",
+  "clientIpHeader": "cf-connecting-ip",
+  "turnstile": {
+    "siteKey": "<turnstile site key>",
+    "secretFile": "/var/demo-gate/secrets/turnstile-secret"
+  },
+  "ai": {
+    "mode": "claude-subscription",
+    "credentialFile": "/var/demo-gate/secrets/ai-credential",
+    "upstream": "https://api.anthropic.com"
+  },
+  "pool": {
+    "snapshotsDir": "/var/demo-gate/snapshots",
+    "instancesDir": "/private/tmp/tdg",
+    "codeVersion": "0.5.21",
+    "locales": ["en", "ko"],
+    "warmPerLocale": 2,
+    "maxLive": 10,
+    "ttlHours": 24,
+    "command": ["/usr/local/bin/bun", "/opt/demo/server/src/main.ts", "--config", "{config}"],
+    "portRange": [19200, 19399],
+    "startTimeoutMs": 90000,
+    "path": "/opt/demo/claude/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    "runAs": { "uid": 451, "gid": 451 },
+    "diskCapMB": 1024,
+    "env": { "MYCEL_LOG_LEVEL": "info" }
+  },
+  "limits": {
+    "startsPerHour": 3,
+    "startsPerDay": 6,
+    "livePerIp": 2,
+    "maxStreams": 4,
+    "streamsPerInstance": 2,
+    "instanceCapMargin": 1.2,
+    "streamWaitMs": 30000,
+    "dailyWeightedTokens": 30000000
+  },
+  "links": {
+    "scriptedDemo": "https://ax.trina.app/demo",
+    "pricing": "https://ax.trina.app/pricing",
+    "statusOrigins": ["https://ax.trina.app"]
+  }
+}

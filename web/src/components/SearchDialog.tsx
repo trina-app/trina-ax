@@ -53,6 +53,7 @@ import { aiName } from '../lib/tabs'
 import { newChatPath } from '../lib/newChat'
 import { useOverlayEntry } from '../lib/backCloses'
 import { isAdmin, useMe } from '../store/session'
+import { useFreeRoam } from '../store/demo'
 import { useGuestAiOff, useGuestFolderHref } from './GuestView'
 import { openTeamFile } from '../lib/sidePanel'
 import { isGuestMe, meGuest } from '../lib/guests'
@@ -333,6 +334,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // the window's own unread count (the rail's), not a read of its own
   const unread = useInboxUnread()
   const admin = isAdmin(useMe())
+  // a free-roam demo: no Invite people or Scheduled actions (server/src/demo/guard.ts refuses both)
+  const freeRoam = useFreeRoam()
   const guest = isGuestMe(useMe())
   const guestFolder = useGuestFolderHref()
   const guestHasProject = !!meGuest(useMe())?.project
@@ -570,7 +573,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       // a guest makes no projects or scheduled tasks and has no Files page (components/GuestView.tsx)
       ...(guest ? [] : [
         { key: 'act:project', kind: 'action' as const, icon: FolderPlus, title: t('projects.new'), href: '/projects?new=1' },
-        { key: 'act:schedule', kind: 'action' as const, icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' },
+        ...(freeRoam ? [] : [{ key: 'act:schedule', kind: 'action' as const, icon: CalendarPlus, title: t('search.newScheduled'), href: '/scheduled' }]),
       ]),
     ]
     const m = ok(mcp)
@@ -584,7 +587,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // 모든 프로젝트 and Usage (in Settings) are found here too
     list.push(
       { key: 'act:projects', kind: 'action', icon: FolderKanban, title: t('sidebar.projects'), href: '/projects', typed: true },
-      { key: 'act:usage', kind: 'action', icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true },
+      ...(freeRoam ? [] : [{ key: 'act:usage', kind: 'action' as const, icon: Gauge, title: t('sidebar.usage'), href: '/settings/usage', terms: t('settings.title'), typed: true }]),
     )
     // the inbox lives in Settings > Notifications; unread notifications show as a count and an attention dot
     const n = unread
@@ -593,14 +596,14 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
       sub: n > 0 ? t('notifications.unread', { count: n }) : undefined, attention: n > 0,
     })
     // the team menu's items (owners and admins), found by their words: "Invite teammates", "Members & invites" too
-    if (admin)
+    if (admin && !freeRoam)
       list.push(
         { key: 'act:invite', kind: 'action', icon: UserPlus, title: t('teamMenu.invite'), href: '', terms: `${t('goal.invite')} ${t('admin.members')}`, typed: true, after: () => void openTeamInvite(navigate, null) },
         { key: 'act:admin', kind: 'action', icon: Shield, title: t('sidebar.admin'), href: '/admin', terms: `${t('admin.title')} ${t('admin.members')} ${t('admin.settings')}`, typed: true },
       )
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mcp, unread, locale, admin, guest])
+  }, [mcp, unread, locale, admin, guest, freeRoam])
 
   const sections: Section[] = useMemo(() => {
     const chats = ok(recent) ?? []
@@ -681,7 +684,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') pushMessages()
     if (tab === 'all' || tab === 'projects') push('projects', typeLabel('projects'), allProjects.filter((p) => has(query, p.name, p.folderPath)).slice(0, few).map(projectRow))
     if (!guest && (tab === 'all' || tab === 'skills')) push('skills', typeLabel('skills'), allSkills.filter((s) => has(query, s.name, s.title, s.description)).slice(0, few).map(skillRow))
-    if (!guest && (tab === 'all' || tab === 'scheduled')) push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
+    if (!guest && !freeRoam && (tab === 'all' || tab === 'scheduled')) push('scheduled', typeLabel('scheduled'), allSchedules.filter((s) => has(query, scheduleName(s, t), scheduleText(s))).slice(0, few).map((s) => scheduleRow(s)))
     if (!guest && (tab === 'all' || tab === 'mcp')) push('mcp', typeLabel('mcp'), allMcp.filter((i) => has(query, i.name, i.url)).slice(0, few).map((i) => mcpRow(i)))
     // the team's files by name, then the files sent in my rooms: 4 in all on 전체
     if (tab === 'all' || tab === 'files')
@@ -693,7 +696,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where])
+  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -759,7 +762,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }, [tab])
   // a guest: only what they can reach (no team skills, scheduled tasks or services; 프로젝트 only with a project, 기록
   // only with AI): docs/DECISIONS.md "Search results and Open in Files for guests"
-  const types = guest ? SEARCH_TYPES.filter((x) => x === 'all' || x === 'rooms' || x === 'files' || (x === 'projects' && guestHasProject) || (x === 'chats' && !guestAiOff)) : SEARCH_TYPES
+  const types = guest ? SEARCH_TYPES.filter((x) => x === 'all' || x === 'rooms' || x === 'files' || (x === 'projects' && guestHasProject) || (x === 'chats' && !guestAiOff)) : freeRoam ? SEARCH_TYPES.filter((x) => x !== 'scheduled') : SEARCH_TYPES
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
   // a from:/in: that named nobody or none of my conversations (the messages' answer, or the room files' on 파일)
   const missingFilters = (wantMessages ? hitsNow?.filters : wantNames ? roomFilesNow?.filters : undefined)?.missing

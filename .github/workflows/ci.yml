@@ -249,6 +249,10 @@ jobs:
       - name: Relay conformance and hardening (real Node 26 relay)
         if: needs.scope.outputs.mode == 'full'
         run: bun run test:relay
+      # the free-roam demo gate (demo-gate/): a real Node gate with fake instances, a fake model API and Turnstile
+      - name: Demo gate suite (real Node 26 gate)
+        if: needs.scope.outputs.mode == 'full'
+        run: bun run test:demo-gate
       # a queued entry (merge_group): the phone app typecheck of the mobile job below, here instead of a job of its own,
       # so the entry runs 10 jobs with 6 unit shards. The same steps. (The mobile job keeps its name everywhere else:
       # main's ruleset requires "Mobile app typecheck".)
