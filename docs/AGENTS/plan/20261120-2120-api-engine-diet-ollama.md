@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 21:20
 - Branch: `feat/api-engine-diet` (plan first drafted on `plan/api-engine-diet-ollama`)
-- Status: in progress
+- Status: done
 - Where: `server/src/engine/`, `server/src/chat/` (API engine branch only), `web/src/pages/admin/Engines.tsx`. Why: the
   API engine is part of the open server (docs/REPOSITORY-RULES.md).
 - Version impact: patch. Bug fixes and cheaper requests on the API engine; no new setting, no API or data change.
@@ -132,4 +132,8 @@ engines tests.
 
 ## Result
 
-Filled in at the end.
+Built as planned on `feat/api-engine-diet`. Differences: a model whose whole list does not fit its share of the context
+keeps the small-model fitting (no tools on demand there), so 20261118-history-small-models behaves as before; the
+blind-guess check still compares with the whole list. Measured before and after on OpenRouter Claude Sonnet 5.5 (five
+member questions): first-round prompt 70,206 → 36,184 tokens, cached 0 → 99% from the second question, cost $2.14 →
+$0.17, all answers right. Details in docs/decisions/20261120-api-engine-stable-prompt.md.
