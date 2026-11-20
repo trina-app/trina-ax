@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 21:20
 - Branch: `fix/team-gmail-broker-redeem`
-- Status: in progress
+- Status: done
 - Where: server/src/integrations/google-apps, server/src/integrations/google-drive/broker.ts,
   shared/src/cloud-protocol/drive-broker.ts. Why: the Google app flows and the broker client live there; the contract is
   shared with trina-cloud (docs/REPOSITORY-RULES.md).
@@ -67,4 +67,6 @@ same). Older control plane: share+app refused → fallback to personal (tested).
 
 ## Result
 
-(at the end)
+Built as planned: https://github.com/trina-app/trina-ax/pull/177. The trina-cloud half (scope_denied on redeem,
+provider_error 503, the team wording on the start page, contract re-pinned to 6c726f5a3) is its own PR into trina-cloud
+dev and needs a CP deploy with the owner's OK. Until then team sign-ins work as before (fallback to "personal").
