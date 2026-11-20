@@ -55,7 +55,7 @@ export class Names {
 interface Person { id: string; username: string; name: string; email: string | null; role: string; status: string; deleted_at: string | null }
 interface RoomRow { id: string; kind: 'team' | 'all' | 'dm' | 'group'; name: string | null; group_id: string | null; dm_key: string | null; created_at: string; archived_at: string | null }
 interface RoomMsg { id: string; seq: number; author_kind: 'user' | 'ai'; author_id: string | null; asked_by: string | null; visibility: 'room' | 'private'; visible_to: string | null; body: string; created_at: string; edited_at: string | null; event: string | null; thread_root_id: string | null }
-interface RoomFile { id: string; message_id: string | null; name: string; size: number; user_id: string | null; created_at: string; /** a project room's file kept in the team folder: its team path (null: stored with the room) */ team_ref?: string | null }
+interface RoomFile { id: string; message_id: string | null; name: string; size: number; user_id: string | null; created_at: string; /** a project room's file kept in the team folder: its team path and inode as last followed (null: stored with the room) */ team_ref?: string | null; team_ino?: number | null; team_dev?: number | null }
 interface ChatRow { id: string; user_id: string; title: string; project_id: string | null; room_id: string | null; created_at: string; updated_at: string; active_leaf_id: string | null }
 interface ChatMsg { id: string; parent_id: string | null; role: 'user' | 'assistant'; content: string; attachments: string; created_at: string; author_id: string | null; status: string }
 
@@ -196,9 +196,27 @@ export async function* teamExportEntries(o: TeamExportZipInput): AsyncGenerator<
       const msgsOf = db.query(`SELECT id, seq, author_kind, author_id, asked_by, visibility, visible_to, body, created_at, edited_at, event, thread_root_id
         FROM room_messages WHERE room_id = ? AND deleted_at IS NULL ORDER BY seq`)
       // a project room's file kept in the team folder (room_file_refs, migration 430): its team path
-      const refCol = has(db, 'room_file_refs') ? '(SELECT rr.path FROM room_file_refs rr WHERE rr.room_file_id = f.id)' : 'NULL'
-      const filesOf = has(db, 'room_files') ? db.query(`SELECT f.id, f.message_id, f.name, f.size, f.user_id, f.created_at, ${refCol} AS team_ref FROM room_files f
+      const refCol = has(db, 'room_file_refs')
+        ? '(SELECT rr.path FROM room_file_refs rr WHERE rr.room_file_id = f.id) AS team_ref, (SELECT rr.ino FROM room_file_refs rr WHERE rr.room_file_id = f.id) AS team_ino, (SELECT rr.dev FROM room_file_refs rr WHERE rr.room_file_id = f.id) AS team_dev'
+        : 'NULL AS team_ref, NULL AS team_ino, NULL AS team_dev'
+      const filesOf = has(db, 'room_files') ? db.query(`SELECT f.id, f.message_id, f.name, f.size, f.user_id, f.created_at, ${refCol} FROM room_files f
         JOIN room_messages m ON m.id = f.message_id AND m.deleted_at IS NULL WHERE f.room_id = ? ORDER BY f.created_at, f.id`) : null
+      // where a project room's file is now: at its stored place when that is still the same file (inode), else found by
+      // its inode among the team files (moved or renamed since: the room follows it the same way, rooms/file-refs.ts)
+      let byInode: Map<string, string> | null = null
+      const inodeKey = (ino: number, dev: number) => `${dev}:${ino}`
+      const statOf = (rel: string) => { try { return fs.lstatSync(path.join(o.teamRoot, ...rel.split('/'))) } catch { return null } }
+      const zipNameOfRef = (f: RoomFile): string | null => {
+        const at = f.team_ref ? statOf(f.team_ref) : null
+        if (f.team_ref && zipped.has(f.team_ref) && (f.team_ino == null || (at && at.ino === f.team_ino && at.dev === f.team_dev))) return zipped.get(f.team_ref)!
+        if (f.team_ino == null || f.team_dev == null) return null
+        if (!byInode) {
+          byInode = new Map()
+          for (const rel of zipped.keys()) { const st = statOf(rel); if (st?.isFile()) byInode.set(inodeKey(st.ino, st.dev), rel) }
+        }
+        const rel = byInode.get(inodeKey(f.team_ino, f.team_dev))
+        return rel ? zipped.get(rel)! : null
+      }
       let madeChannels = false
       let madeDms = false
       for (const r of rooms) {
@@ -218,10 +236,10 @@ export async function* teamExportEntries(o: TeamExportZipInput): AsyncGenerator<
         const fileNames = new Map<string, string[]>()
         const fileEntries: ZipOutEntry[] = []
         // a file kept in the team folder is already under files/: the text names it there (nothing copied again); one
-        // no longer where it was (moved since, in the trash) is left unnamed
+        // that is gone (in the trash, deleted) is left unnamed
         for (const f of files) {
           if (f.team_ref === null || f.team_ref === undefined) continue
-          const z = zipped.get(f.team_ref)
+          const z = zipNameOfRef(f)
           if (z && f.message_id) fileNames.set(f.message_id, [...(fileNames.get(f.message_id) ?? []), z])
         }
         const stored = files.filter((f) => f.team_ref === null || f.team_ref === undefined)
