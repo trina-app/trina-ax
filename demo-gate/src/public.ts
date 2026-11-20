@@ -33,6 +33,7 @@ export const DENY_PATHS: RegExp[] = [
   /^\/\.well-known\/oauth/,
   /^\/mcp(\/|$)/,
   /^\/connector-uploads(\/|$)/,
+  /^\/connector-downloads(\/|$)/,
   // the web app's pages for the same flows
   /^\/invite(\/|$)/,
   /^\/join(\/|$)/,

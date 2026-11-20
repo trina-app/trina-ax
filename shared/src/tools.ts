@@ -51,6 +51,7 @@ export const ReadInput = z.strictObject({
   transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
   versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before". Long changes come in parts: the result says the offset to read on from.`),
   version: z.number().int().min(1).optional().describe('With or without versions: compare this earlier version (its number from the list) with the file now, instead of the version before the current one.'),
+  raw: z.boolean().optional().describe('Plain UTF-8 text files only: true returns the exact file text, without line numbers or notes, to save or rewrite it whole. Only for a file that fits one read (about 28,000 characters); otherwise refused.'),
 })
 export const WriteInput = z.strictObject({
   file_path: relPath,

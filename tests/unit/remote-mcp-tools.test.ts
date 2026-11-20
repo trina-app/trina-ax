@@ -26,7 +26,7 @@ async function setup(name: string, scope = 'mcp:read mcp:write offline_access', 
 test('only read scope tools are advertised; arbitrary tool families and writes are unavailable', async () => {
   // a member: an owner's or admin's connection also gets the group tools (remote-mcp-groups.test.ts)
   const f = await setup('scopes', 'mcp:read', 'member')
-  expect(f.tools.list(f.oauth.authenticate(f.token)).map(t => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'skills_list'])
+  expect(f.tools.list(f.oauth.authenticate(f.token)).map(t => t.name)).toEqual(['list', 'glob', 'grep', 'read', 'create_download_link', 'skills_list'])
   expect((await f.tools.call(f.token, 'write', { file_path: 'shared/new.txt', content: 'x' })).isError).toBe(true)
   expect((await f.tools.call(f.token, 'web_fetch', { url: 'https://outside.invalid' })).isError).toBe(true)
   expect(fs.existsSync(path.join(f.h.ctx.config.teamRoot, 'shared/new.txt'))).toBe(false)

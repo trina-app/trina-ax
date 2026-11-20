@@ -50,6 +50,15 @@ function fitEnd(s: string, from: number, chars: number, tokens: number): number 
 const isHighSurrogate = (c: number) => c >= 0xd800 && c <= 0xdbff
 const isLowSurrogate = (c: number) => c >= 0xdc00 && c <= 0xdfff
 function cost(s: string, from: number, to: number) { let t = 0; for (let i = from; i < to; i++) t += tokenCost(s.charCodeAt(i)); return t }
+/** Whether a whole text fits one read's budget (read with raw: true gives it whole or not at all). */
+export const fitsOneRead = (s: string) => s.length <= READ_TEXT_CHARS && cost(s, 0, s.length) <= READ_TEXT_TOKENS
+
+/** The text of bytes that are exactly UTF-8 text (a byte-order mark kept, no NUL), else null: what read with raw: true
+ * gives is these very bytes as text, so writing it back changes nothing. */
+export function exactText(bytes: Uint8Array): string | null {
+  if (bytes.includes(0)) return null
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes) } catch { return null }
+}
 
 const num = (n: number) => n.toLocaleString('en-US')
 

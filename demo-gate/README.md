@@ -97,7 +97,7 @@ removed by the sweeper (once they are an hour old).
 | `POST /__demo/resume` | our Origin only; a visitor with a live instance (by the gate cookie) is signed in as the new hire again on that instance, the same persona call as start, 303 to `/`. "Continue as Mina" after signing out: sign-in with a password is fenced in the demo, so this is the only way back |
 | `GET /__demo/status` | `{available}` for the scripted demo's button |
 | `GET /__demo/health` | pool, live, streams, daily tokens, snapshot age, upstream state; loopback peers without the tunnel's client IP header only |
-| everything else | proxied to the visitor's instance (HTTP and WebSocket); refused first: `/api/admin*`, `/api/setup*`, `/api/credential*`, `/api/me/credential*`, invites, guest invites, team links, password resets, `/api/auth/password`, `/api/demo/persona`, integration OAuth callbacks, `/oauth*`, `/mcp`, `/connector-uploads`, and the web pages `/invite`, `/join`, `/reset-password`, `/setup` |
+| everything else | proxied to the visitor's instance (HTTP and WebSocket); refused first: `/api/admin*`, `/api/setup*`, `/api/credential*`, `/api/me/credential*`, invites, guest invites, team links, password resets, `/api/auth/password`, `/api/demo/persona`, integration OAuth callbacks, `/oauth*`, `/mcp`, `/connector-uploads`, `/connector-downloads`, and the web pages `/invite`, `/join`, `/reset-password`, `/setup` |
 
 ## The model upstream
 

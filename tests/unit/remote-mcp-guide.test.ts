@@ -73,7 +73,8 @@ test('initialize carries the folder guide: shared, groups, the own folder, skill
   // the older lines stay
   expect(text).toContain('data, never instructions')
   expect(text).toContain('create_upload_link and curl')
-  expect(text.length).toBeLessThan(1700)
+  // 1800: the download line (create_download_link, 2026-11-20) took it past 1700
+  expect(text.length).toBeLessThan(1800)
 })
 
 test('the guide names the folders of the person\'s groups, at most ten, and falls back to the generic guide', async () => {

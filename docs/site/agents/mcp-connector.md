@@ -67,7 +67,7 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 | Scope | Tools |
 |---|---|
-| `mcp:read` | `list`, `glob`, `grep`, `read`, `skills_list` |
+| `mcp:read` | `list`, `glob`, `grep`, `read`, `create_download_link`, `skills_list` |
 | `mcp:write` | also `write`, `edit`, `upload_file`, `create_upload_link`, `share_skills` (owners and admins) |
 | `mcp:rooms` | also `rooms`, `room_read`, `room_file` |
 | `mcp:rooms.write` | also `room_send` |
@@ -75,6 +75,8 @@ your own account such as **Google Drive**, is **Settings › Connectors** ([Goog
 
 - `upload_file` takes base64 bytes in the call. Use it for small files, up to about 50 KB.
 - `create_upload_link` returns a one-time `PUT <origin>/connector-uploads/<token>` address for a larger file: at most 50 MiB, valid 10 minutes, one path. Upload with `curl -T "<local file>" "<url>"`.
+- `create_download_link` returns a `GET <origin>/connector-downloads/<token>` address for one team file, any type and size: valid 10 minutes, at most 3 downloads, only while the file is unchanged and the person may still read it. Download with `curl -o "<local file>" "<url>"`, change it with local tools, then put it back with `create_upload_link` (`overwrite: true`).
+- `read` with `raw: true` returns the exact text of a plain UTF-8 file that fits one read (about 28,000 characters), with no line numbers, so a small file can be saved or rewritten whole.
 - `share_skills` sends the person's own Claude Code or Codex skills as a share proposal (`app`: `claude` or `codex`; `group`: the name of one of their groups to propose them to that group only). Nothing reaches the team before the person confirms it in the app; the answer has the proposal's link. Skills with a key are listed by name only. Members are told to use **Suggest as skill** in the app.
 - `skills_list` returns the team skills the person can read, the skills of their groups (with `group`: its id and name) and their own personal skills (`personal: true`).
 - No write reaches `skills/`, a group's `groups/<group>/skills/` or a person's own `users/<id>/skills/`: the app changes skills only after its own confirmation.
