@@ -30422,3 +30422,6 @@ Follows "Guests never use Slack" (its open question).
   memory, per process: a restart starts it again (enough for typos, too few to probe).
 - **Left as is:** an owner or admin setting a guest's e-mail in Admin › Members (an admin is trusted, and an admin's
   change counts as no proof for 7 days anyway).
+
+## Hosted owner's forgotten password: a link from the sign-in page (feat/owner-recovery-login-link, 2026-11-21, QA TC-6060–6063)
+- **One line:** a hosted team's `GET /api/setup` sends `ownerRecoveryUrl` = the edition console (`HOSTED_BROKER_ORIGIN`, from `SERVICE_HOSTS.accountHost`, not the Drive broker setting) + `/recover`, the same for every team (never its host, slug or install id; null when not hosted); the sign-in page shows "If you're the team owner, you can reset it yourself…" with a plain new-tab link that adds `?team=<location.host>` itself, the console matches it only against the signed-in account's own teams (trina-cloud SUP-D4), and the removed-guest screen still shows no forgot line.

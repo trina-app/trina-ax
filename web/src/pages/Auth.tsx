@@ -361,6 +361,24 @@ function FixedTeam({ name, lang }: { name: string; lang: Locale | null }) {
   )
 }
 
+/** The forgot-password line under Sign in. A hosted team (GET /api/setup ownerRecoveryUrl): its owner also gets a link to
+ * the hosting console's recovery page, which matches `?team=` (this page's own host, added here: the server never sends
+ * it) against the signed-in account's own teams. A plain new-tab link: the desktop shell sends it to the system browser
+ * (setWindowOpenHandler), the phone app to its in-app browser (onOpenWindow); never lib/mobile openExternal, which
+ * opens only Google sign-in. */
+function ForgotLine({ url }: { url?: string }) {
+  const t = useT()
+  if (!url) return <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>
+  return (
+    <p className="text-center text-xs text-faint" data-testid="login-forgot-hosted">
+      {t('auth.forgotHosted')}{' '}
+      <a href={`${url}?team=${encodeURIComponent(location.host)}`} target="_blank" rel="noopener noreferrer" className="text-accent-text underline max-md:inline-flex max-md:min-h-11 max-md:items-center" data-testid="login-owner-recovery">
+        {t('auth.ownerRecovery')}
+      </a>
+    </p>
+  )
+}
+
 export function Login() {
   const t = useT()
   const signedIn = useSession((s) => s.signedIn)
@@ -428,7 +446,7 @@ export function Login() {
             {t('auth.signIn')}
           </Button>
         </SubmitBar>
-        {!removedTeam && <p className="text-center text-xs text-faint">{t('auth.forgot')}</p>}
+        {!removedTeam && <ForgotLine url={status.kind === 'signed-out' ? status.ownerRecoveryUrl : undefined} />}
       </form>
     </AuthFrame>
   )

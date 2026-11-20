@@ -299,6 +299,8 @@ export const ko = {
   'auth.passwordMismatch': '두 비밀번호가 서로 달라요.',
   'auth.name': '이름',
   'auth.forgot': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요. 게스트라면 초대한 분께 말해 주세요.',
+  'auth.forgotHosted': '비밀번호를 잊었다면 팀장이나 관리자에게 재설정을 요청하세요. 게스트라면 초대한 분께 말해 주세요. 팀장이라면 {product} 계정에서 직접 재설정할 수 있어요.',
+  'auth.ownerRecovery': '팀장 비밀번호 재설정하기',
   'auth.alreadyJoined': "이미 가입했다면 로그인하세요.",
   'auth.haveAccount': "이미 가입했어요?",
   'auth.openInApp': "앱에서 열기",

@@ -31,6 +31,7 @@ import { authOf } from './service'
 import { assertSeatFree, planManageUrl, seatLimit, seatsUsed } from '../system/limits'
 import { isValidTimeZone } from '../system/time-zone'
 import { isHosted } from '../system/deployment'
+import { HOSTED_BROKER_ORIGIN } from '../integrations/google-drive/broker'
 import { isManaged } from '../app-config'
 import { resolveLayout } from '../system/layout'
 import { deriveUserId, ensurePersonalFolder, existingGroups, getUser, getUserByUsername, insertUser, usernameTaken, userRef, type UserRow } from './users'
@@ -101,9 +102,18 @@ export const userCount = (db: Database) => (db.query('SELECT COUNT(*) AS n FROM 
 /** GET /api/setup, public. teamName is always null: no client reads it, and it told anonymous visitors (also through
  * the office internet address) the team's name and so that it is set up (security review round 4). The default
  * language stays: it is what the sign-in page shows. */
-export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null; defaultLocale: Locale } {
+export function setupStatus(ctx: AppContext): { needed: boolean; teamName: null; defaultLocale: Locale; ownerRecoveryUrl: string | null } {
   const needed = userCount(ctx.db) === 0
-  return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale }
+  return { needed, teamName: null, defaultLocale: getTeamSettings(ctx.db).defaultLocale, ownerRecoveryUrl: ownerRecoveryUrl(ctx.config) }
+}
+
+/** Where the owner of a hosted team resets a forgotten password: the edition's console (HOSTED_BROKER_ORIGIN, from
+ * SERVICE_HOSTS.accountHost; never MYCEL_GOOGLE_DRIVE_BROKER_URL, so turning Drive off keeps the link) + `/recover`.
+ * The same address for every hosted team: no host, slug or install id, so a signed-out visitor learns only that the
+ * team is hosted (its *.<team domain> address says so already). The sign-in page adds `?team=<its own host>` itself,
+ * and the console matches it only against the signed-in account's own teams. null: not hosted, or no hosted service. */
+export function ownerRecoveryUrl(cfg: AppContext['config'], origin: string | null = HOSTED_BROKER_ORIGIN): string | null {
+  return isHosted(cfg) && origin ? `${origin}/recover` : null
 }
 
 /**
