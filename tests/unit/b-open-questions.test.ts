@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7, type Message, type Step } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { answeredNote, answerText, labelsHidden, saveAnswered } from '../../server/src/chat/open-questions'
+import { answeredNote, answersToSave, answerText, cardAnswerOf, labelsHidden, saveAnswered } from '../../server/src/chat/open-questions'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { ASK_USER_LATER_NOTE } from '../../server/src/chat/tools'
 
@@ -261,6 +261,44 @@ describe('ask_user waits as long as it takes', () => {
     const q = (question: string, options?: { label: string; value: string }[]) => ({ kind: 'ask_user' as const, requestId: uuidv7(), question, ...(options ? { options } : {}) })
     expect(answerText([{ question: 'A?', answer: ['x', 'own words'] }], [q('A?', [{ label: 'Ex', value: 'x' }])], 'skipped')).toBe('Ex, own words')
     expect(answerText([{ question: 'A?', answer: null }, { question: 'B?', answer: 'b' }], [q('A?'), q('B?')], '(Skipped)')).toBe('A?\n(Skipped)\n\nB?\nb')
+    // only the cards' buttons: the questions stay in the text (what the AI reads of it in later turns)
+    expect(answerText([{ question: 'A?', answer: 'x' }, { question: 'B?', answer: null }], [q('A?', [{ label: 'Ex', value: 'x' }]), q('B?')], '(Skipped)')).toBe('A?\nEx\n\nB?\n(Skipped)')
+  })
+
+  test('a card answer is saved with its marks and reads as the cards\' choices (Message.cardAnswer); typed text stays the person\'s words', () => {
+    const chatId = (h.ctx.db.query('SELECT id FROM chats LIMIT 1').get() as { id: string }).id
+    const rule = { kind: 'ask_user' as const, requestId: uuidv7(), question: 'Save this as a project rule?', options: [{ label: 'Save as "hn-use-bright-data"', value: 'save' }, { label: 'Approve', value: 'a' }, { label: 'Reject', value: 'r' }] }
+    const other = { ...rule, requestId: uuidv7(), question: 'Anything else?' }
+    const saved = (answers: { question: string; answer: unknown }[], reqs = answers.map(() => rule), hide = false) => {
+      const id = uuidv7()
+      h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', '', 'done')").run(id, chatId)
+      saveAnswered(h.ctx.db, id, answersToSave(answers, reqs, 'en', hide))
+      return cardAnswerOf(h.ctx.db, id, () => 'en')
+    }
+    expect(saved([{ question: rule.question, answer: 'save' }])).toEqual({ choices: ['Save as "hn-use-bright-data"'] })
+    expect(saved([{ question: rule.question, answer: 'a' }, { question: other.question, answer: null }], [rule, other])).toEqual({ choices: ['Approve', null] })
+    // typed in the message box: the person's own words, a bubble, whatever they hold
+    expect(saved([{ question: rule.question, answer: 'Approve, but only after legal signs off' }])).toBeNull()
+    expect(saved([{ question: rule.question, answer: 'first\n\nsecond paragraph' }])).toBeNull()
+    // one picked, one typed: the person's message
+    expect(saved([{ question: rule.question, answer: 'a' }, { question: other.question, answer: 'my own words' }], [rule, other])).toBeNull()
+    // a shared chat: typing the options' words does not make the line
+    expect(saved([{ question: rule.question, answer: 'Approve, Reject' }])).toBeNull()
+    // labels hidden in a shared chat: only "answered"
+    expect(saved([{ question: rule.question, answer: 'a' }], [rule], true)).toEqual({ choices: [], hidden: true })
+    // a row saved before the marks: the AI's own question cannot be told from typed text (stays a message); a safety
+    // card's (its call kept) reads by its button
+    const old = (answers: unknown[]) => { const id = uuidv7(); h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', '', 'done')").run(id, chatId); saveAnswered(h.ctx.db, id, answers as never); return cardAnswerOf(h.ctx.db, id, () => 'ko') }
+    expect(old([{ question: rule.question, answer: 'save' }])).toBeNull()
+    const card = { kind: 'ask_user' as const, origin: 'server' as const, requestId: uuidv7(), question: 'Open this address?', options: [{ label: 'Open', value: 'allow' }, { label: "Don't open", value: 'deny' }] }
+    const site = { kind: 'browser_site' as const, requestId: uuidv7(), url: 'https://x.example', host: 'x.example' }
+    expect(old([{ question: 'Open?', answer: 'allow', call: { tool: 'web_fetch', args: {}, card, window: null } }, { question: 'Site?', answer: 'once', call: { tool: 'navigate', args: {}, card: site, window: null } }])).toEqual({ choices: ['Open', '이번만 허용'] })
+    expect(old([{ question: 'Open?', answer: 'allow', call: { tool: 'web_fetch', args: {}, card, window: null } }, { question: rule.question, answer: 'a' }])).toBeNull()
+    // the AI never reads the marks
+    const id = uuidv7(); h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', '', 'done')").run(id, chatId)
+    saveAnswered(h.ctx.db, id, answersToSave([{ question: rule.question, answer: 'save' }], [rule], 'en'))
+    expect(answeredNote(h.ctx.db, id)).toContain('"answer":"save"')
+    expect(answeredNote(h.ctx.db, id)).not.toContain('shown')
   })
 })
 
