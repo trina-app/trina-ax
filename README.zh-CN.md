@@ -16,7 +16,7 @@ Trina AX 把团队的文件、技能和工具集中在一台服务器上。每�
 
 </div>
 
-https://github.com/user-attachments/assets/dd90d4f8-bd9d-40be-8257-fc34201ce0b6
+https://github.com/user-attachments/assets/91eddc7b-a90d-4b3a-b95c-840f5faadf0c
 
 <p align="center"><sub>入职第一天，新员工的 AI 能做什么？80 秒短片。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>然后点页面顶部的 ☆ Star。点个 Star 能让更多团队发现 Trina AX。</sub></p>
 
