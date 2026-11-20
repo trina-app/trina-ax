@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 07:36
 - Branch: `fix/url-gate-camelcase-params`
-- Status: in progress
+- Status: done
 - Where: server/src/tools/url-gate.ts (+ card and settings wording). Why: the address card's rules live there (see docs/REPOSITORY-RULES.md)
 - Version impact: patch. A bug fix: public read-only addresses asked when the person's own "Allow all websites" or site allowance should have opened them; no API or data change
 
@@ -58,4 +58,8 @@ camelCase marks also means fewer echo windows in connection-urls; address-level 
 
 ## Result
 
-(filled in at the end)
+Built as planned. Finding: the owner's two addresses have queries of 173 and 132 characters (the 208 was the whole
+address), so the camelCase marks alone made both cards; the long-query change covers the next, longer search.
+Tests: tests/unit/url-gate-camelcase.test.ts (new); site-allow and web-allow-all updated (a long plain query is now
+covered by the site allowance / Allow all websites in a watched turn, the Allow-all line lost "a lot of text at the
+end"). 40 url-gate-related unit and security files: 746 pass, 0 fail.
