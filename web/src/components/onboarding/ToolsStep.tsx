@@ -81,7 +81,7 @@ export function ToolsStep({ busy, done, nextLabel, onDone, onSkip }: {
     <div className="space-y-5" data-testid="welcome-tools">
       <div className="space-y-1">
         <h2 className="text-display font-semibold text-ink">{t('welcome.tools.title')}</h2>
-        <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { ai: aiName(t), where: connectorsPlace(t) })}</p>
+        <p className="text-sm text-balance text-muted">{t('welcome.tools.desc', { where: connectorsPlace(t) })}</p>
       </div>
       <div className="space-y-4">
         <ul className="divide-y divide-line border-y border-line" data-testid="welcome-tools-cards">

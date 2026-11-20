@@ -65,8 +65,8 @@ test('도구 연결 with Drive: the step order (n/5); [연결]; Google\'s window
   await expect(bar.locator('[aria-current="step"]')).toContainText('4/5 도구 연결')
   const tools = page.getByTestId('welcome-tools')
   await expect(tools.getByRole('heading', { name: '자주 쓰는 도구를 연결해 둘까요?' })).toBeVisible()
-  await expect(tools).toContainText('지금 안 해도 나중에 설정 › 커넥터에서 할 수 있어요.')
-  await expect(page.getByTestId('welcome-tools-drive-line')).toHaveText('트리나가 내 드라이브를 읽어요(읽기만)')
+  await expect(tools).toContainText('내 계정으로 연결해요. 팀원은 각자 자기 계정으로 연결해요. 지금 안 해도 나중에 설정 › 커넥터에서 할 수 있어요.')
+  await expect(page.getByTestId('welcome-tools-drive-line')).toHaveText('트리나가 내 드라이브를 읽어요(읽기만) · 팀원도 각자 자기 드라이브를 연결할 수 있게 돼요')
   await expect(page.getByTestId('welcome-tools-mcp-add')).toHaveText('다른 도구 연결하기')
   // nothing connected: no primary, 나중에 하기 only; Higgsfield is not offered
   await expect(page.getByTestId('welcome-tools-next')).toHaveCount(0)
