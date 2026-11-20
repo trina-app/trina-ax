@@ -7,7 +7,7 @@ Hacemos **bolsitas de té para preparar en frío**: echas una en una botella de 
 
 ## Qué vendemos
 - **Steepling Cold Brew Tea**, 6 sabores: cebada, té verde, rooibos, hibisco, menta, Earl Grey (US$9.90 la caja de 10 bolsitas)
-- **Novedad de noviembre**: la mezcla de invierno **Yuzu y Jengibre** (sale el lunes 23 de noviembre, US$11.90 la caja de 10 bolsitas)
+- **Novedad de la temporada**: la mezcla de invierno **Yuzu y Jengibre** (sale el lunes, US$11.90 la caja de 10 bolsitas)
 - Dónde se vende: nuestra tienda online (60%), cafeterías y oficinas (40%)
 
 ## Personas (somos 12)
@@ -21,6 +21,6 @@ Hacemos **bolsitas de té para preparar en frío**: echas una en una botella de 
 
 ## Cómo trabajamos
 - Las noticias de la empresa van en **#Todos**; el trabajo de marketing, en **#Marketing**.
-- Los archivos de cada campaña están en un proyecto del equipo (por ejemplo, "Campaña de lanzamiento de noviembre").
+- Los archivos de cada campaña están en un proyecto del equipo (por ejemplo, "Campaña de lanzamiento de Yuzu y Jengibre").
 - Antes de diseñar nada, usa la habilidad del equipo **Guía de marca** (Trina la usa por ti).
 - Agencia de diseño: Chris Walker, de Fieldnote Studio (publica nuestros banners y anuncios).

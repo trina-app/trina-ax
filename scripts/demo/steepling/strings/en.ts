@@ -37,20 +37,20 @@ export const en = {
   /** more team files, so the other teams' folders are not empty */
   files: [
     {
-      path: 'groups/Operations/Holiday shipping.md',
-      text: '# Holiday shipping\n\nSample content for the demo.\n\n- Last order for delivery before the holidays: **December 18**\n- Cafés: weekly delivery on Tuesdays as usual\n- Questions from customers: answer within one working day\n',
+      path: 'groups/Operations/Shipping.md',
+      text: '# Shipping\n\nSample content for the demo.\n\n- Orders in by **2 pm** ship the same day\n- Cafés: weekly delivery on Tuesdays as usual\n- Questions from customers: answer within one working day\n',
     },
     {
       path: 'groups/Sales/Café accounts.md',
-      text: '# Café accounts\n\nSample content for the demo.\n\n| Café | City | Order | Next visit |\n|---|---|---|---|\n| Harbour Beans | Portside | 40 boxes / month | Nov 24 |\n| The Reading Room | Old Town | 25 boxes / month | Dec 2 |\n| Corner Kettle | Riverside | 15 boxes / month | Dec 9 |\n',
+      text: '# Café accounts\n\nSample content for the demo.\n\n| Café | City | Order | Next visit |\n|---|---|---|---|\n| Harbour Beans | Portside | 40 boxes / month | Tuesday |\n| The Reading Room | Old Town | 25 boxes / month | Next week |\n| Corner Kettle | Riverside | 15 boxes / month | In two weeks |\n',
     },
     {
       path: 'groups/Online shop/Shop calendar.md',
-      text: '# Shop calendar\n\nSample content for the demo.\n\n- Mon Nov 23, 7:00: launch banner up (Yuzu Ginger, 20% off)\n- Dec 6: launch offer ends\n- Dec 18: last order before the holidays\n',
+      text: '# Shop calendar\n\nSample content for the demo.\n\n- Launch Monday, 7:00: launch banner up (Yuzu Ginger, 20% off)\n- Sunday of week two: launch offer ends\n- Every day: orders in by 2 pm ship the same day\n',
     },
     {
       path: 'groups/Marketing/Competitor notes.md',
-      text: '# Competitor notes (November)\n\nSample content for the demo. Every brand here is made up.\n\n| Brand | News this month | Price |\n|---|---|---|\n| Coldleaf | Winter mint blend, 2 for 1 | $10.50 / 10 bags |\n| Brewbright | Office subscription, 15% off | $8.90 / 10 bags |\n| Teatime Co. | New glass bottle | $12.00 / 10 bags |\n',
+      text: '# Competitor notes\n\nSample content for the demo. Every brand here is made up.\n\n| Brand | News this month | Price |\n|---|---|---|\n| Coldleaf | Winter mint blend, 2 for 1 | $10.50 / 10 bags |\n| Brewbright | Office subscription, 15% off | $8.90 / 10 bags |\n| Teatime Co. | New glass bottle | $12.00 / 10 bags |\n',
     },
   ],
 
@@ -71,13 +71,13 @@ export const en = {
 
   /** before the story: the room had a life */
   everyoneBefore: [
-    { from: 'tom', minutesAgo: 7 * 1440 + 120, text: 'Heads up: the last order for delivery before the holidays is **December 18**. Details in our folder.' },
+    { from: 'tom', minutesAgo: 7 * 1440 + 120, text: 'Heads up: orders in by **2 pm** now ship the same day. Details in our folder.' },
     { from: 'omar', minutesAgo: 5 * 1440 + 300, text: 'The shop is down for 10 minutes tomorrow at 7:00 for an update.' },
     { from: 'daniel', minutesAgo: 3 * 1440 + 60, text: 'October was our best month online so far. Thank you all 🙏' },
-    { from: 'aiko', minutesAgo: 2 * 1440 + 200, text: 'Harbour Beans doubled their order for December ☕' },
+    { from: 'aiko', minutesAgo: 2 * 1440 + 200, text: 'Harbour Beans doubled their next order ☕' },
   ],
   marketingBefore: [
-    { from: 'sara', minutesAgo: 6 * 1440 + 30, text: 'Weekly: the November launch brief is in our group folder. Banner first draft from Leo by Wednesday, please.' },
+    { from: 'sara', minutesAgo: 6 * 1440 + 30, text: 'Weekly: the Yuzu Ginger launch brief is in our group folder. Banner first draft from Leo by Wednesday, please.' },
     { from: 'leo', minutesAgo: 6 * 1440 + 20, text: 'On it 👍' },
   ],
   /** Mina's post to #Marketing (her note above the answer she sends) */
@@ -103,21 +103,21 @@ export const en = {
     answer: [
       'Here\'s a first draft, following the **Press release draft** team skill.',
       '',
-      '**Steepling launches Yuzu Ginger, a winter cold brew, on November 23**',
+      '**Steepling launches Yuzu Ginger, a winter cold brew**',
       '',
       '*Bright yuzu and a warm kick of ginger, ready in cold water overnight.*',
       '',
-      'Steepling, the cold-brew tea company, launches its winter-only Yuzu Ginger blend on Monday, November 23. Drop one bag in a bottle of cold water and it\'s ready in a few hours.',
+      'Steepling, the cold-brew tea company, launches its winter-only Yuzu Ginger blend on [launch date]. Drop one bag in a bottle of cold water and it\'s ready in a few hours.',
       '',
       '"[quote]" said Daniel Okoye, CEO of Steepling.',
       '',
-      'Yuzu Ginger is $11.90 for 10 bags at the Steepling online shop and partner cafés, 20% off until December 6.',
+      'Yuzu Ginger is $11.90 for 10 bags at the Steepling online shop and partner cafés, 20% off for the first two weeks.',
       '',
       '**About Steepling**: Steepling makes cold-brew tea bags. 10 people, selling online and to cafés and offices.',
       '',
       '**Contact**: [name, email]',
       '',
-      'To check: the CEO quote.',
+      'To check: the CEO quote and the launch date.',
     ].join('\n'),
   },
 
@@ -128,8 +128,8 @@ export const en = {
       body: 'Hi Mina,\n\nWelcome aboard! Your accounts are ready. The launch project has everything for Monday, and I\'ll see you at 10 for coffee.\n\nSara',
     },
     specs: {
-      subject: 'Banner specs for the November launch',
-      body: 'Hi Leo,\n\nFor the November launch we\'ll run 1200×628 on the web and 1080×1080 on Instagram. Send the finals by Friday and we\'ll schedule them from Monday.\n\nBest,\nChris\nFieldnote Studio',
+      subject: 'Banner specs for the Yuzu Ginger launch',
+      body: 'Hi Leo,\n\nFor the Yuzu Ginger launch we\'ll run 1200×628 on the web and 1080×1080 on Instagram. Send the finals by Friday and we\'ll schedule them from Monday.\n\nBest,\nChris\nFieldnote Studio',
     },
     replyBody: 'Hi Mina,\n\nWelcome to the team! {reply}\n\nChris\nFieldnote Studio',
     /** Sara passes Chris's older mail on to Mina */
@@ -141,7 +141,7 @@ export const en = {
 
   /** the fake Google Drive (fakes/drive.json) */
   drive: [
-    { id: 'media-plan', name: 'Fieldnote media plan, November', mimeType: 'application/vnd.google-apps.spreadsheet', folder: 'Fieldnote', minutesAgo: 9 * 1440, text: 'Channel,Size,From,To,Budget\nWeb banner,1200×628,2026-11-23,2026-12-06,$1200\nInstagram,1080×1080,2026-11-23,2026-12-06,$800\nInstagram story,1080×1920,2026-11-23,2026-11-29,$400\n' },
+    { id: 'media-plan', name: 'Fieldnote media plan, Yuzu Ginger launch', mimeType: 'application/vnd.google-apps.spreadsheet', folder: 'Fieldnote', minutesAgo: 9 * 1440, text: 'Channel,Size,Start,Length,Budget\nWeb banner,1200×628,Launch Monday,2 weeks,$1200\nInstagram,1080×1080,Launch Monday,2 weeks,$800\nInstagram story,1080×1920,Launch Monday,1 week,$400\n' },
     { id: 'photo-ideas', name: 'Launch photo ideas', mimeType: 'application/vnd.google-apps.document', folder: '', minutesAgo: 4 * 1440, text: 'Launch photo ideas\n\n- Frosted window, morning light\n- The green pouch next to an iced glass\n- No text inside the photo\n' },
   ],
 

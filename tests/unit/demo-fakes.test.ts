@@ -189,7 +189,7 @@ describe('Drive', () => {
     expect(root.text).toContain('Marketing')
     expect(root.text).toContain('Team handbook')
     const inside = await call('drive_list', { folderId: 'launch' })
-    expect(inside.text).toContain('November launch brief')
+    expect(inside.text).toContain('Yuzu Ginger launch brief')
     const found = await call('drive_search', { query: 'yuzu' })
     expect(found.text).toContain('Tea recipes.md')
     const doc = await call('drive_read', { fileId: 'brief' })

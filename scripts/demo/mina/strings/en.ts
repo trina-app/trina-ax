@@ -19,7 +19,7 @@ export const en = {
     chris: { name: 'Chris Walker', title: 'Account director', org: 'Fieldnote' },
   },
   marketingGroup: 'Marketing',
-  project: { name: 'November launch campaign', description: 'Winter Yuzu Ginger launch, Monday Nov 23' },
+  project: { name: 'Yuzu Ginger launch campaign', description: 'Winter Yuzu Ginger launch, Monday' },
 
   /** the team skill the banner answer uses: its folder name (skills/<name>/SKILL.md; the step line shows it) */
   brandSkill: 'brand-guide',
@@ -27,7 +27,7 @@ export const en = {
   /** team file names (folders and names in the team drive) */
   paths: {
     companyIntro: 'shared/Company intro.md',
-    brief: 'November launch brief.md',
+    brief: 'Yuzu Ginger launch brief.md',
     leoBanner: 'launch-banner-leo-v1.png',
     // the launch set (the mail attaches the banner and the square)
     banner: 'launch-banner-new.jpg',
@@ -73,7 +73,7 @@ export const en = {
 
   leoChat: {
     title: 'Launch banner, first draft',
-    ask: 'Make a launch banner for the Yuzu Ginger blend. 20% off, 11/23 to 12/6',
+    ask: 'Make a launch banner for the Yuzu Ginger blend. 20% off for the first two weeks',
     answer: 'Here\'s a first draft of the banner.',
   },
 
@@ -112,7 +112,7 @@ export const en = {
     },
     /** the three captions that come with the set */
     captions: [
-      'New for winter: Yuzu Ginger 🍋 Drop a bag in cold water before bed, wake up to something bright. 20% off till Dec 6.',
+      'New for winter: Yuzu Ginger 🍋 Drop a bag in cold water before bed, wake up to something bright. 20% off for the first two weeks.',
       'yuzu + ginger. that\'s it. that\'s the post. (ok fine, it\'s also 20% off this week)',
       'Our team has been quietly drinking this since August. It\'s yours from Monday.',
     ],
@@ -144,20 +144,20 @@ export const en = {
         '',
         'I\'m Mina, I just joined Marketing at Steepling. I\'ll be your contact for banners from now on.',
         '',
-        'Attached: the final launch banner (1200×628) and the Instagram square. Daniel has signed off. Can you run them from Monday, Nov 23?',
+        'Attached: the final launch banner (1200×628) and the Instagram square. Daniel has signed off. Can you run them from Monday?',
         '',
         'Thanks!',
         'Mina',
       ],
     },
     formal: {
-      subject: 'Steepling launch campaign: final banner for Monday, November 23',
+      subject: 'Steepling launch campaign: final banner files',
       body: [
         'Dear Chris,',
         '',
         'I hope you\'re well. My name is Mina Lee, and I\'ve just joined the Marketing team at Steepling.',
         '',
-        'Please find attached the final launch banner (1200×628) and the Instagram square version. Both have been approved by our CEO. Could you please run them from Monday, November 23?',
+        'Please find attached the final launch banner (1200×628) and the Instagram square version. Both have been approved by our CEO. Could you please run them from Monday, our launch day?',
         '',
         'Thank you, and I look forward to working with you.',
         '',
