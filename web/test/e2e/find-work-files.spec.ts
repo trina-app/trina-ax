@@ -11,7 +11,7 @@ import { realErrors, reset, signIn, watchConsole } from './helpers'
 import { FILE_SHARE_EVERYONE } from '@mycel/shared/api'
 import { translate } from '../../src/i18n'
 
-import { answer, app, fakeApp, look, notNow, pickHolds, roots, type Meta } from './fake-work-files'
+import { answer, app, fakeApp, look, notNow, pickHolds, refuseAdds, roots, type Meta } from './fake-work-files'
 
 const BOB = { username: 'bob', password: 'bob password 1' }
 
@@ -487,6 +487,109 @@ test('TC-219: a list left open for over an hour looks again before Add, keeps th
   await page.getByTestId('find-work-add').click()
   await expect(page.getByTestId('find-work-run')).toBeVisible()
   expect((await app(page)).adds.map((a) => [...a].sort())).toEqual([['id0', 'id1']])
+})
+
+test('TC-219 review: a file from "Choose a folder…" that changed: Look again; Cancel in the app\'s window goes back to the result; the new look says to choose the folder again, and choosing it ticks the file', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page, { pickFolder: 'Projects', refuse: ['p100'] })
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  await look(page, [{ name: 'Quote template.xlsx' }])
+  await pickHolds(page, [{ name: 'Northwind plan.docx', root: 'folder', place: 'Projects' }])
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  await page.getByTestId('find-work-row').filter({ hasText: 'Quote template.xlsx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-choose-folder').click()
+  await page.getByTestId('find-work-found').getByTestId('find-work-row').filter({ hasText: 'Northwind plan.docx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'failed', { timeout: 15_000 })
+  await notNow(page)
+  await expect(page.getByTestId('find-work-failed')).toContainText(`Northwind plan.docx · ${ko('files.findWork.why.changed')}`)
+  // Look again, then Cancel in the app's window: back to the result, its Undo still there
+  await page.getByTestId('find-work-look-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'cancel')
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
+  await expect(page.getByTestId('find-work-undo')).toBeVisible()
+  // Look again, the look this time: it does not list the chosen folder's file; never "no longer on this computer"
+  await look(page, [{ name: 'Quote template.xlsx' }])
+  await page.getByTestId('find-work-look-again').click()
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work-not-listed')).toContainText(ko('files.findWork.notListed', { n: 1, names: 'Northwind plan.docx' }))
+  await expect(page.getByTestId('find-work-gone')).toHaveCount(0)
+  // choosing the folder again (a new id for the file now): it comes back ticked, with the change said
+  await pickHolds(page, [{ name: 'Northwind plan.docx', root: 'folder', place: 'Projects', size: 41_000 }], 200)
+  await expect(page.getByTestId('find-work-choose-again')).toHaveText(ko('files.findWork.chooseAgain', { folder: 'Projects' }))
+  await page.getByTestId('find-work-choose-again').click()
+  await expect(page.getByTestId('find-work-not-listed')).toHaveCount(0)
+  const plan = page.getByTestId('find-work-row').filter({ hasText: 'Northwind plan.docx' })
+  await expect(plan.getByTestId('find-work-check')).toBeChecked()
+  await expect(plan.getByTestId('find-work-row-changed')).toBeVisible()
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 1 }))
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-status', 'done', { timeout: 15_000 })
+})
+
+test('TC-219 review: the app turned Add down: Look again keeps the ticks, a personal-looking one in sight', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page)
+  await reset(page)
+  await signIn(page, BOB)
+  await openMine(page)
+  const list: Meta[] = [{ name: 'Quote template.xlsx' }, { name: 'payslip_oct.pdf', root: 'downloads' }]
+  await look(page, list)
+  await page.getByTestId('files-find-work-entry').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-row').filter({ hasText: 'Quote template.xlsx' }).getByTestId('find-work-check').check()
+  await page.getByTestId('find-work-personal-toggle').click()
+  await page.getByTestId('find-work-personal').getByTestId('find-work-row').filter({ hasText: 'payslip_oct.pdf' }).getByTestId('find-work-check').check()
+  await refuseAdds(page, 1)
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-add-refused')).toBeVisible()
+  await page.getByTestId('find-work-refused-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  expect((await app(page)).scans).toBe(2)
+  // both ticks kept; the personal one's group is open, so the tick is in sight
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 2 }))
+  await expect(page.getByTestId('find-work-personal').getByTestId('find-work-row').filter({ hasText: 'payslip_oct.pdf' }).getByTestId('find-work-check')).toBeChecked()
+  await page.getByTestId('find-work-add').click()
+  await expect(page.getByTestId('find-work-run')).toBeVisible()
+  expect((await app(page)).adds.at(-1)!.sort()).toEqual(['id0', 'id1'])
+})
+
+test('TC-219 review: the owner\'s setup step: files found on the computer that changed or went away: Look again starts a new look; Cancel goes back to the run', async ({ page }) => {
+  const ko = (key: Parameters<typeof translate>[1], params?: Record<string, string | number>) => translate('ko', key, params)
+  await fakeApp(page, { refuse: ['id0'], missing: ['id1'] })
+  await reset(page)
+  await signIn(page)
+  await page.goto('/welcome')
+  await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
+  await page.getByTestId('skills-later').click()
+  await look(page, [{ name: '2026 견적서 양식.xlsx', folder: 'Sales' }, { name: '회사 소개서.pdf' }])
+  await page.getByTestId('welcome-team-files-computer').click()
+  await answer(page, 'look')
+  await page.getByTestId('find-work-select-all').click()
+  await page.getByTestId('find-work-add').click()
+  const run = page.getByTestId('welcome-team-files-run')
+  await expect(run).toHaveAttribute('data-status', 'failed', { timeout: 15_000 })
+  await expect(run).toContainText(ko('files.findWork.why.changed'))
+  await expect(run).toContainText(ko('files.findWork.why.missing'))
+  await page.getByTestId('welcome-team-files-look-again').click()
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'asking')
+  await answer(page, 'cancel')
+  await expect(run).toBeVisible()
+  await page.getByTestId('welcome-team-files-look-again').click()
+  await look(page, [{ name: '회사 소개서.pdf' }, { name: '2026 견적서 양식.xlsx', folder: 'Sales', size: 45_000 }])
+  await answer(page, 'look')
+  await expect(page.getByTestId('find-work')).toHaveAttribute('data-screen', 'list')
+  // the changed one comes back ticked; the deleted one is named only because the app said it is gone, and is listed again
+  // here (put back): ticked too
+  await expect(page.getByTestId('find-work-add')).toHaveText(ko('files.findWork.add', { n: 2 }))
+  await expect(page.getByTestId('find-work-row').filter({ hasText: '2026 견적서 양식.xlsx' }).getByTestId('find-work-row-changed')).toBeVisible()
 })
 
 test('an older desktop app (another version) and a browser show no entry; the owner\'s setup step keeps the team home', async ({ page }) => {

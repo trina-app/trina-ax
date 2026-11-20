@@ -607,6 +607,22 @@ describe('reading a listed file afterwards', () => {
     expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'changed' })
   })
 
+  test('deleted between the check and the open (ENOENT), or a folder on its way now a file (ENOTDIR): missing (TC-219)', async () => {
+    const { f, sessions, id } = await looked()
+    const fs = (f.fs as WorkFs)
+    const open = fs.open
+    const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }
+    fs.open = async (p) => { delete docs.children['b.pdf']; return open(p) }
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'missing' })
+    fs.open = open
+    // the folder Clients is a file now: the way to a.pdf goes through a file
+    docs.children.Clients = file(3, 1)
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'missing' })
+    // any other error on the open stays unreadable
+    fs.open = async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }) }
+    expect(await sessions.read(TEAM, id('c.pdf'))).toEqual({ ok: false, reason: 'unreadable' })
+  })
+
   test('a sign-out or another person forgets the look', async () => {
     const { sessions, id } = await looked()
     sessions.person({ signedIn: true, userId: 'u-alex' })

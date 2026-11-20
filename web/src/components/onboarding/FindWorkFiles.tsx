@@ -28,7 +28,7 @@ import type { FolderPlan, FolderUpload } from '../../lib/folderUpload'
 import { taggedRun, useRuns, type Run } from '../../lib/folderRuns'
 import { formatSize, intlTag } from '../../lib/format'
 import { findAlready, findDocs, rankEntries, tick, type LocalDoc } from '../../lib/teamFiles'
-import { carried, carryOver, companyMatch, confirmAdd, isStale, lookAgainHelps, STALE_MS, workReadReason, type CarriedFile, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, lookWords, offersWide, overBytes, personalList, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
+import { carried, carryOver, pickUp, companyMatch, confirmAdd, isStale, lookAgainHelps, STALE_MS, workReadReason, type CarriedFile, docsFromScan, fullDiskLater, setFullDiskLater, FIND_WORK_FILES_GUIDE, forAiRecent, FROM_COMPUTER, lookWords, offersWide, overBytes, personalList, ROOT_FOLDER, rootNotes, runFolder, selectAll, touched, undoRun, WorkFileReadError, workFilesBridge, workList, type CompanyWordsLike, type RunMade, type WorkFilesBridge } from '../../lib/workFiles'
 import { takeResume } from '../../lib/workFilesResume'
 import { FullDiskAccess } from './FullDiskAccess'
 import { useFolderWords } from '../../lib/folderLabels'
@@ -110,8 +110,9 @@ export interface FindWorkFilesProps {
   audience: 'me' | string
   /** where they go, in words (for the list's line) */
   placeName: string
-  /** add the ticked files; the caller starts the run. `reasons`: the AI's reason for each of them it picked (by key) */
-  onAdd: (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>) => void
+  /** add the ticked files; the caller starts the run. `reasons`: the AI's reason for each of them it picked (by key);
+   * `chosen`: the folder the person chose for a file (by key), for a later Look again (rememberRunDocs) */
+  onAdd: (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>, chosen: ReadonlyMap<string, string>) => void
   /** leave (Cancel, nothing found, the app said no) */
   onClose: () => void
   phone?: boolean
@@ -135,7 +136,8 @@ export function FindWorkFiles(props: FindWorkFilesProps) {
   // whose "Not now" (none before sign-in: nothing remembered)
   const uid = useMe()?.user.id ?? ''
   const [round, setRound] = useState(0)
-  const [carry, setCarry] = useState<Carry | undefined>(props.carry)
+  // the carried ticks belong to the round they were made for (Look in more places starts a round without them)
+  const [carry, setCarry] = useState<{ round: number; c: Carry } | undefined>(() => (props.carry ? { round: 0, c: props.carry } : undefined))
   const wide = offersWide(props.bridge)
   const fd = wide ? props.bridge.fullDisk : undefined
   // "Not now" on that screen within 30 days (this team, this person): straight to the three folders, unless the app has
@@ -158,7 +160,7 @@ export function FindWorkFiles(props: FindWorkFilesProps) {
   }
   // the list's quiet "Look in more places (Full Disk Access)": the screen again, the "Not now" forgotten
   const morePlaces = fd && !mode.wide ? () => { if (uid) setFullDiskLater(uid, false); setLater(false); setMode(null); setRound((n) => n + 1) } : undefined
-  return <FindWorkFilesRound key={round} {...props} carry={carry} mode={mode} onAgain={(c) => { setCarry(c); setRound((n) => n + 1) }} onMorePlaces={morePlaces} />
+  return <FindWorkFilesRound key={round} {...props} carry={carry?.round === round ? carry.c : undefined} mode={mode} onAgain={(c) => { setCarry(c ? { round: round + 1, c } : undefined); setRound(round + 1) }} onMorePlaces={morePlaces} />
 }
 
 function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAdd, onClose, onAgain, onMorePlaces, mode, carry, phone = false }: FindWorkFilesProps & { onAgain: (carry?: Carry) => void; onMorePlaces?: () => void; mode: Mode }) {
@@ -185,10 +187,27 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
   const lookedAt = useRef(0)
   /** the list is old enough that Add looks again first (TC-219) */
   const [stale, setStale] = useState(false)
-  /** carried ticks (a new look): the ones changed since, and the names of the ones no longer on this computer */
+  /** carried ticks (a new look): the ones changed since, the names of the ones the app said are no longer on this
+   * computer, and the ones the new look does not list (a chosen folder, now too big or too old): ticked once a pick
+   * lists them */
   const [changedKeys, setChangedKeys] = useState<Set<string>>(() => new Set())
   const [gone, setGone] = useState<string[]>([])
-  const lookAgain = (why: Carry['why']) => onAgain({ files: carried(docs.filter((d) => ticks.has(d.key))), why })
+  const [pending, setPending] = useState<CarriedFile[]>([])
+  /** carried ticks left unticked by the per-upload limit */
+  const [overCap, setOverCap] = useState(0)
+  /** the folder the person chose for a file ("Choose a folder…", "Choose it yourself"): said again after a new look */
+  const chosenFrom = useRef(new Map<string, string>())
+  const lookAgain = (why: Carry['why']) => onAgain({ files: [...carried(docs.filter((d) => ticks.has(d.key)), { chosen: chosenFrom.current }), ...pending], why })
+  /** a picked folder's files joined the list: the carried ones among them are ticked again */
+  const pickedUp = (added: readonly LocalDoc[], label: string) => {
+    for (const d of added) chosenFrom.current.set(d.key, label)
+    if (!pending.length) return
+    const r = pickUp(pending, added, ticks)
+    setTicks(r.ticks)
+    setChangedKeys((prev) => new Set([...prev, ...r.changed]))
+    setPending(r.left)
+    if (r.capped) setOverCap((n) => n + r.capped)
+  }
   const addTicked = async () => {
     const picked = docs.filter((d) => ticks.has(d.key))
     // over an hour old: the files may have changed and the app would refuse them; a new look first, the ticks kept
@@ -196,7 +215,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
     setAdding(true)
     setRefused(false)
     const r = await confirmAdd(bridge, picked).finally(() => setAdding(false))
-    if (r === 'added') onAdd(picked, new Map(picked.flatMap((d) => { const why = picks?.get(d.key); return why ? [[d.key, why] as const] : [] })))
+    if (r === 'added') onAdd(picked, new Map(picked.flatMap((d) => { const why = picks?.get(d.key); return why ? [[d.key, why] as const] : [] })), new Map(chosenFrom.current))
     else if (r === 'refused') setRefused(true)
   }
   useEffect(() => {
@@ -246,7 +265,8 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       // the person said no in the app's own window (Not now, Esc, closing it: the app answers the same), or no app: the
       // page closes, and says it was cancelled and nothing was added (TC-3491; also true when a team switch stopped a look)
       if (r.state !== 'done') {
-        if (r.state === 'cancelled') toast({ level: 'info', text: t('files.findWork.cancelled') })
+        // (a Look again from a run's result goes back to it: what it added stays, so no "nothing was added")
+        if (r.state === 'cancelled' && carry?.why !== 'again') toast({ level: 'info', text: t('files.findWork.cancelled') })
         return onClose()
       }
       lookedAt.current = Date.now()
@@ -262,7 +282,11 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
         const c = carryOver(carry.files, all, found)
         setTicks(c.ticks)
         setChangedKeys(c.changed)
-        setGone(c.gone)
+        setGone(c.missing)
+        setPending(c.notListed)
+        setOverCap(c.capped)
+        // a carried tick on a personal-looking file shows (its group opens)
+        if (found.some((d) => d.personal && c.ticks.has(d.key))) setOpenPersonal(true)
       }
       setDocs(found)
       const w = await wordsP
@@ -387,6 +411,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       const added = all.filter((d) => !there.has(d.key))
       setDocs((prev) => { const keys = new Set(prev.map((d) => d.key)); return [...prev, ...added.filter((d) => !keys.has(d.key))] })
       setRoots((prev) => prev.map((x) => (x.id === id ? { ...x, ...(r.roots[0] ?? {}), id } : x)))
+      pickedUp(added, rootName({ id, oneDrive: r.roots[0]?.oneDrive ?? false, place: r.roots[0]?.place }))
       setPhase((x) => (x.s === 'none' ? { s: 'list' } : x))
     } catch { /* the window closed or the app could not look: the line stays */ } finally {
       if (live.current) setPicking(null)
@@ -409,6 +434,7 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       // the picked folder's own name (the app says it as the root's place, inside one of the three folders too)
       const top = r.roots[0]
       const label = top?.place || (top ? rootName(top) : '')
+      pickedUp(added, label)
       setQ('')
       // every file of the pick (one listed before under the same name is shown too; one already in the target is not)
       setChosen({ label, keys: new Set(all.map((d) => d.key)) })
@@ -434,6 +460,9 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       <a className={quietLink} href={FIND_WORK_FILES_GUIDE} target="_blank" rel="noreferrer" data-testid="find-work-guide">{t('files.findWork.how')}</a>
     </>
   )
+  const names = (list: readonly string[]) => list.slice(0, 3).join(', ') + (list.length > 3 ? ', …' : '')
+  /** the folders the not-listed files were chosen from, once each */
+  const chosenAgain = [...new Set(pending.flatMap((c) => (c.chosen ? [c.chosen] : [])))]
   // every folder kept out: the title says so, and the way to let the app in is said once
   const allBlocked = phase.s === 'none' && notes.blocked.length > 0
   const lines = (
@@ -449,7 +478,21 @@ function FindWorkFilesRound({ bridge, rank, alreadyIn, audience, placeName, onAd
       {notes.tooBig > 0 && <p className="text-label text-muted" data-testid="find-work-too-big">{t('welcome.teamFiles.tooBig', { n: notes.tooBig })}</p>}
       {already > 0 && <p className="text-label text-muted" data-testid="find-work-already">{t('files.findWork.already', { n: already, place: placeName })}</p>}
       {carry?.why === 'stale' && <p className="text-sm text-ink" role="status" data-testid="find-work-looked-again">{t('files.findWork.lookedAgain')}</p>}
-      {gone.length > 0 && <p className="text-sm text-warn" role="status" data-testid="find-work-gone">{t('files.findWork.gone', { n: gone.length, names: gone.slice(0, 3).join(', ') + (gone.length > 3 ? ', …' : '') })}</p>}
+      {gone.length > 0 && <p className="text-sm text-warn" role="status" data-testid="find-work-gone">{t('files.findWork.gone', { n: gone.length, names: names(gone) })}</p>}
+      {overCap > 0 && <p className="text-sm text-warn" role="status" data-testid="find-work-carry-capped">{t('files.findWork.carryCapped', { n: overCap, max: L.perUpload })}</p>}
+      {pending.length > 0 && (
+        <p className="text-sm text-ink" role="status" data-testid="find-work-not-listed">
+          {t('files.findWork.notListed', { n: pending.length, names: names(pending.map((c) => c.name)) })}
+          {bridge.pickFolder && (
+            <>
+              {' · '}
+              <button type="button" className={quietLink} disabled={!!picking} onClick={() => void chooseFolder()} data-testid="find-work-choose-again">
+                {chosenAgain.length ? t('files.findWork.chooseAgain', { folder: chosenAgain.join(', ') }) : t('files.findWork.chooseFolder')}
+              </button>
+            </>
+          )}
+        </p>
+      )}
     </div>
   )
 
@@ -583,9 +626,24 @@ async function alreadyThere(docs: readonly LocalDoc[], base: string): Promise<Se
 const made = new WeakMap<FolderUpload, RunMade>()
 /** the same runs: the AI's reason for each file it picked, by the path it was added at (the share step's hint) */
 const reasonsOf = new WeakMap<FolderUpload, Map<string, TeamFileReason>>()
-/** the same runs: the files they were given, by the path inside the run (a failed one goes to a new look, "Look again") */
-const docsOf = new WeakMap<FolderUpload, Map<string, LocalDoc>>()
 const runRel = (d: Pick<LocalDoc, 'pick' | 'rel'>) => `${FROM_COMPUTER}/${d.pick}/${d.rel}`
+
+/** A run's files found on this computer, by their path inside the run, and the folder the person chose for each: a file
+ * of it that failed changed or gone goes to a new look ("Look again", lookAgainOf). My files' runs and the setup step's. */
+const runDocs = new WeakMap<FolderUpload, { docs: Map<string, LocalDoc>; chosen: ReadonlyMap<string, string> }>()
+export function rememberRunDocs(run: FolderUpload, docs: readonly LocalDoc[], relOf: (d: LocalDoc) => string, chosen: ReadonlyMap<string, string>) {
+  runDocs.set(run, { docs: new Map(docs.map((d) => [relOf(d), d])), chosen })
+}
+/** The run's failed files a new look would help (changed or gone since the look, the look too old), to carry into it:
+ * the app's 'missing' said as such. Empty for a run not of found files. */
+export function lookAgainOf(run: FolderUpload): CarriedFile[] {
+  const given = runDocs.get(run)
+  if (!given) return []
+  const failed = run.rows().filter((r) => r.state === 'failed' && lookAgainHelps(r.error))
+  const docs = failed.flatMap((r) => { const d = given.docs.get(r.rel); return d ? [d] : [] })
+  const missing = new Set(failed.flatMap((r) => { const d = given.docs.get(r.rel); return d && r.error instanceof WorkFileReadError && r.error.reason === 'missing' ? [d.key] : [] }))
+  return carried(docs, { missing, chosen: given.chosen })
+}
 
 /**
  * The My files dialog of "Find work files on this computer": the steps above, the files to My files › From this computer
@@ -605,14 +663,22 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
   const [run, setRun] = useState<Run | null>(null)
   /** "Look again" on a run's result: its files that did not go, for the new look */
   const [carry, setCarry] = useState<Carry | undefined>(undefined)
+  /** the run whose result the Look again came from: leaving the new look (the app's window cancelled, Cancel) goes back
+   * to it, its result and Undo */
+  const [from, setFrom] = useState<Run | null>(null)
+  /** back on a run's result from a Look again: its share step is not asked again */
+  const [back, setBack] = useState(false)
   const available = !!bridge && !isGuestMe(me)
-  const close = () => { setOpen(false); setRun(null); setCarry(undefined); o.onChange?.() }
-  const lookAgain = (files: CarriedFile[]) => { setCarry({ files, why: 'again' }); setRun(null) }
+  const close = () => { setOpen(false); setRun(null); setCarry(undefined); setFrom(null); setBack(false); o.onChange?.() }
+  const lookAgain = (files: CarriedFile[]) => { setCarry({ files, why: 'again' }); setFrom(run); setRun(null) }
+  const backToRun = () => { setRun(from); setFrom(null); setCarry(undefined); setBack(true) }
   // a run of this screen still going (the dialog was closed while it uploaded): its progress, then its result and Undo
   const start = () => {
     const going = taggedRun(TAG)
     setRun(going && going.view.status === 'running' && made.has(going.run) ? going : null)
     setCarry(undefined)
+    setFrom(null)
+    setBack(false)
     setOpen(true)
   }
   // back from "Restart <product>" on the Full Disk Access screen (lib/workFiles.ts saveResume): the same dialog again,
@@ -622,7 +688,7 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     if (available && takeResume(me.user.id, 'own', location.pathname + location.search)) start()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [available, me.user.id, location.pathname, location.search])
-  const add = (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>) => {
+  const add = (docs: LocalDoc[], reasons: ReadonlyMap<string, TeamFileReason>, chosen: ReadonlyMap<string, string>) => {
     const record: RunMade = { files: [], folders: [] }
     const plan: FolderPlan = { files: docs.map((d) => ({ rel: runRel(d), size: d.size, open: d.open })), folders: [], unreadable: [], skipped: 0 }
     const why = new Map(docs.flatMap((d) => { const r = reasons.get(d.key); return r ? [[`${own}/${FROM_COMPUTER}/${d.pick}/${d.rel}`, r] as const] : [] }))
@@ -634,14 +700,16 @@ export function useMyWorkFiles(o: { onChange?: () => void; onLanded?: () => void
     })
     made.set(r.run, record)
     reasonsOf.set(r.run, why)
-    docsOf.set(r.run, new Map(docs.map((d) => [runRel(d), d])))
+    rememberRunDocs(r.run, docs, runRel, chosen)
     setCarry(undefined)
+    setFrom(null)
+    setBack(false)
     setRun(r)
   }
   const dialog = bridge && available ? (
     <Modal open={open} onClose={close} title={t('files.findWork.dialogTitle')} width={640}>
-      {run ? <RunResult run={run} onClose={close} onUndone={o.onChange} onLookAgain={lookAgain} phone={narrow} />
-        : <FindWorkFiles bridge={bridge} rank="own" audience="me" phone={narrow} carry={carry} placeName={t('files.findWork.myPlace')} alreadyIn={(docs) => alreadyThere(docs.map((d) => ({ ...d, pick: `${FROM_COMPUTER}/${d.pick}` })), own)} onAdd={add} onClose={close} />}
+      {run ? <RunResult run={run} onClose={close} onUndone={o.onChange} onLookAgain={lookAgain} skipShare={back} phone={narrow} />
+        : <FindWorkFiles bridge={bridge} rank="own" audience="me" phone={narrow} carry={carry} placeName={t('files.findWork.myPlace')} alreadyIn={(docs) => alreadyThere(docs.map((d) => ({ ...d, pick: `${FROM_COMPUTER}/${d.pick}` })), own)} onAdd={add} onClose={from ? backToRun : close} />}
     </Modal>
   ) : null
   return { available, narrow, open, start, dialog, own }
@@ -685,7 +753,7 @@ function useLandedPlace(base: string) {
 /** The run's progress, then the share step (docs/decisions/20261116-find-files-share-step.md: the files it
  * added, nothing ticked, Share or Not now; skipped when the person may not share), then "Added 6 files to My files › From
  * this computer" with Open and Undo, the share's line, and "Share with your team" back to the step. */
-function RunResult({ run: start, onClose, onUndone, onLookAgain, phone }: { run: Run; onClose: () => void; onUndone?: () => void; onLookAgain?: (files: CarriedFile[]) => void; phone: boolean }) {
+function RunResult({ run: start, onClose, onUndone, onLookAgain, skipShare = false, phone }: { run: Run; onClose: () => void; onUndone?: () => void; onLookAgain?: (files: CarriedFile[]) => void; skipShare?: boolean; phone: boolean }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -698,8 +766,7 @@ function RunResult({ run: start, onClose, onUndone, onLookAgain, phone }: { run:
   const folder = runFolder(start.view.base)
   const failed = run.run.rows().filter((r) => r.state === 'failed')
   // the files a new look would help (changed or gone since the look, the look too old): "Look again", them ticked again
-  const given = docsOf.get(start.run)
-  const again = carried(failed.flatMap((r) => { const d = lookAgainHelps(r.error) ? given?.get(r.rel) : undefined; return d ? [d] : [] }))
+  const again = lookAgainOf(start.run)
   // the share step: asked once the run is done (may this person share their files: the team's switch), then shown first
   const landed = made.get(start.run)?.files ?? []
   const [stage, setStage] = useState<'check' | 'share' | 'result'>('check')
@@ -711,7 +778,7 @@ function RunResult({ run: start, onClose, onUndone, onLookAgain, phone }: { run:
     if (!first) return setStage('result')
     let live = true
     api.call(API.fileShares, { query: { path: first } }).then(
-      (r) => { if (!live) return; setMayShare(r.canShare); setStage(r.canShare ? 'share' : 'result') },
+      (r) => { if (!live) return; setMayShare(r.canShare); setStage(r.canShare && !skipShare ? 'share' : 'result') },
       () => { if (live) setStage('result') },
     )
     return () => { live = false }

@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test'
 import { WORK_FILES_BRIDGE_VERSION, folderLabel, FROM_COMPUTER_DIR, type DesktopBridge, type WorkFileMeta, type WorkFileRead } from '@mycel/shared'
 import { FolderUpload, type FolderUploadCalls } from '../../src/lib/folderUpload'
 import { personalPath } from '../../src/lib/teamFiles'
-import { carried, carryOver, confirmAdd, docsFromScan, isStale, lookAgainHelps, STALE_MS, workReadReason, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
+import { carried, carryOver, pickUp, confirmAdd, docsFromScan, isStale, lookAgainHelps, STALE_MS, workReadReason, FULL_DISK_LATER_MS, fullDiskLater, setFullDiskLater, overBytes, rootNotes, selectAll, undoRun, WorkFileReadError, workFilesBridge } from '../../src/lib/workFiles'
 import { folderWords } from '../../src/lib/folderLabels'
 import { translate } from '../../src/i18n'
 
@@ -438,14 +438,42 @@ describe('a file changed or gone since the look (TC-219)', () => {
     expect(isStale(at, at + STALE_MS)).toBe(true)
     expect(isStale(at, at + 2 * 60 * 60_000)).toBe(true)
   })
-  test('a new look keeps the ticks: still there (changed ones said), gone ones named, one already added neither', () => {
-    const before = docsFromScan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf'), meta('d.pdf')], async () => ({ ok: false, reason: 'unknown' }))
-    const after = docsFromScan([meta('a.pdf'), meta('b.pdf', { size: 99 }), meta('d.pdf'), meta('e.pdf')], async () => ({ ok: false, reason: 'unknown' }))
+  test('a new look keeps the ticks: still there (changed ones said); "no longer on this computer" only when the app said missing; one already added neither', () => {
+    const scan = (m: WorkFileMeta[]) => docsFromScan(m, async () => ({ ok: false, reason: 'unknown' }))
+    const before = scan([meta('a.pdf'), meta('b.pdf'), meta('c.pdf'), meta('d.pdf'), meta('f.pdf')])
+    const after = scan([meta('a.pdf'), meta('b.pdf', { size: 99 }), meta('d.pdf'), meta('e.pdf')])
     // d.pdf is in the target by now (added): not offered, not gone
     const found = after.filter((d) => d.name !== 'd.pdf')
-    const r = carryOver(carried(before), after, found)
+    const r = carryOver(carried(before, { missing: new Set(['Documents/c.pdf']) }), after, found)
     expect([...r.ticks].sort()).toEqual(['Documents/a.pdf', 'Documents/b.pdf'])
     expect([...r.changed]).toEqual(['Documents/b.pdf'])
-    expect(r.gone).toEqual(['c.pdf'])
+    expect(r.missing).toEqual(['c.pdf'])
+    // f.pdf: not listed, the app never said it is gone (too old now, too big, a folder of its own): said, not "gone"
+    expect(r.notListed.map((c) => c.name)).toEqual(['f.pdf'])
+    expect(r.capped).toBe(0)
+  })
+  test('a file from a chosen folder is not in a new look: it waits with its folder\'s name, and is ticked when the folder is chosen again', () => {
+    const scan = (m: WorkFileMeta[]) => docsFromScan(m, async () => ({ ok: false, reason: 'unknown' }))
+    const first = scan([meta('a.pdf'), meta('plan.pdf', { root: 'folder', place: 'Projects' })])
+    const c = carried(first, { chosen: new Map([['Projects/plan.pdf', 'Projects']]) })
+    expect(c[1]).toMatchObject({ key: 'Projects/plan.pdf', chosen: 'Projects' })
+    const again = scan([meta('a.pdf')])
+    const r = carryOver(c, again, again)
+    expect([...r.ticks]).toEqual(['Documents/a.pdf'])
+    expect(r.missing).toEqual([])
+    expect(r.notListed).toEqual([c[1]!])
+    // chosen again: its file comes back ticked
+    const picked = scan([meta('plan.pdf', { root: 'folder', place: 'Projects' })])
+    const p = pickUp(r.notListed, picked, r.ticks)
+    expect([...p.ticks].sort()).toEqual(['Documents/a.pdf', 'Projects/plan.pdf'])
+    expect(p.left).toEqual([])
+  })
+  test('the per-upload limit: carried ticks over it are counted, never dropped silently', () => {
+    const scan = (m: WorkFileMeta[]) => docsFromScan(m, async () => ({ ok: false, reason: 'unknown' }))
+    const list = scan(Array.from({ length: 5 }, (_, i) => meta(`f${i}.pdf`)))
+    const r = carryOver(carried(list), list, list, 3)
+    expect(r.ticks.size).toBe(3)
+    expect(r.capped).toBe(2)
+    expect(r.notListed).toEqual([])
   })
 })

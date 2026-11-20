@@ -294,6 +294,7 @@ describe('keyboard and Esc in the consent window (TC-3490, TC-3491)', () => {
     expect(page).toMatch(/if \(e\.key === 'Tab' && buttons\.length\) \{\n\s*\/\/[^\n]*\n\s*e\.preventDefault\(\)/)
   })
   test('the page says the look was cancelled, whichever way the person said no (all are the app\'s "cancelled")', () => {
-    expect(web).toContain("if (r.state === 'cancelled') toast({ level: 'info', text: t('files.findWork.cancelled') })")
+    // (except a Look again from a run's result, which goes back to the result: what it added stays, TC-219)
+    expect(web).toContain("if (r.state === 'cancelled' && carry?.why !== 'again') toast({ level: 'info', text: t('files.findWork.cancelled') })")
   })
 })

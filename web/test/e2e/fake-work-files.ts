@@ -14,9 +14,9 @@ export type Root = { id: 'documents' | 'desktop' | 'downloads' | 'cloud' | 'fold
 /** Installed before the app's scripts: a desktop bridge whose workFiles answers like the app's main process. */
 export async function fakeApp(page: Page, o: { version?: number; refuse?: string[]; missing?: string[]; pick?: boolean; pickFolder?: string; wide?: boolean; fullDisk?: 'granted' | 'denied'; platform?: 'darwin' | 'win32' } = {}) {
   await page.addInitScript((opts) => {
-    type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; asks: unknown[]; reads: string[]; adds: string[][]; added: Set<string>; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string>; fullDisk: string; fdSettings: number; fdRelaunch: number; fdChecks: number }
+    type D = { picks: number; pickFiles: unknown[]; answer: 'look' | 'cancel' | null; scans: number; asks: unknown[]; reads: string[]; adds: string[][]; added: Set<string>; files: { id: string; name: string; root: string; folder: string; ext: string; size: number; modified: number }[]; roots: unknown[]; settings: number; latest: Set<string>; fullDisk: string; fdSettings: number; fdRelaunch: number; fdChecks: number; refuseAdds: number }
     const w = window as unknown as { mycelDesktop: unknown; __app: D; __look: (files: unknown[], roots: unknown[]) => void }
-    const d: D = { picks: 0, pickFiles: [], answer: null, scans: 0, asks: [], reads: [], adds: [], added: new Set(), files: [], roots: [], settings: 0, latest: new Set(), fullDisk: opts.fullDisk ?? 'denied', fdSettings: 0, fdRelaunch: 0, fdChecks: 0 }
+    const d: D = { picks: 0, pickFiles: [], answer: null, scans: 0, asks: [], reads: [], adds: [], added: new Set(), files: [], roots: [], settings: 0, latest: new Set(), fullDisk: opts.fullDisk ?? 'denied', fdSettings: 0, fdRelaunch: 0, fdChecks: 0, refuseAdds: 0 }
     w.__app = d
     w.__look = (files, roots) => { d.files = files as D['files']; d.roots = roots }
     ;(w as unknown as { __pick: (f: unknown[]) => void }).__pick = (f) => { d.pickFiles = f }
@@ -57,6 +57,8 @@ export async function fakeApp(page: Page, o: { version?: number; refuse?: string
         onProgress: (cb: (p: unknown) => void) => { progress.push(cb); return noop },
         ...((opts.version ?? 2) >= 2 ? { add: async (ids: string[]) => {
           d.adds.push([...ids])
+          // the press did not reach the app in time (refuseAdds(): the next n adds)
+          if (d.refuseAdds > 0) { d.refuseAdds--; return { state: 'refused' } }
           if (!ids.every((id) => d.latest.has(id))) return { state: 'refused' }
           for (const id of ids) d.added.add(id)
           return { state: 'added' }
@@ -107,3 +109,5 @@ export async function notNow(page: Page) {
   await page.getByTestId('find-work-share-skip').click()
   await expect(page.getByTestId('find-work-run')).toHaveAttribute('data-stage', 'result')
 }
+/** The app turns down the next `n` adds (the press did not reach it in time). */
+export const refuseAdds = (page: Page, n: number) => page.evaluate((x) => { (window as unknown as { __app: { refuseAdds: number } }).__app.refuseAdds = x }, n)

@@ -120,28 +120,42 @@ export const lookAgainHelps = (e: unknown) => e instanceof WorkFileReadError && 
 export const STALE_MS = WORK_FILES_LIMITS.sessionMs - 10 * 60_000
 export const isStale = (lookedAt: number, now = Date.now()) => lookedAt > 0 && now - lookedAt >= STALE_MS
 
-/** Files the person ticked, carried into a new look ("Look again", or Add on a list over an hour old). */
-export interface CarriedFile { key: string; name: string; size: number; modified: number }
-export const carried = (docs: readonly Pick<LocalDoc, 'key' | 'name' | 'size' | 'modified'>[]): CarriedFile[] => docs.map((d) => ({ key: d.key, name: d.name, size: d.size, modified: d.modified }))
+/** Files the person ticked, carried into a new look ("Look again", or Add on a list over an hour old). `missing`: the
+ * app said it is no longer on this computer (a read answered 'missing'); `chosen`: the folder the person chose for it
+ * ("Choose a folder…", "Choose it yourself"), which a new look does not list by itself. */
+export interface CarriedFile { key: string; name: string; size: number; modified: number; missing?: true; chosen?: string }
+export const carried = (docs: readonly Pick<LocalDoc, 'key' | 'name' | 'size' | 'modified'>[], o: { missing?: ReadonlySet<string>; chosen?: ReadonlyMap<string, string> } = {}): CarriedFile[] =>
+  docs.map((d) => ({ key: d.key, name: d.name, size: d.size, modified: d.modified, ...(o.missing?.has(d.key) ? { missing: true as const } : {}), ...(o.chosen?.has(d.key) ? { chosen: o.chosen.get(d.key)! } : {}) }))
 
-/** The carried files in the new look: those still there are ticked again (`changed`: another size or date now, the new
- * version is what goes), `gone` are no longer on this computer (by name). One the target has by now (`all` but not
- * `found`: it was added) is neither. */
-export function carryOver(carry: readonly CarriedFile[], all: readonly LocalDoc[], found: readonly LocalDoc[]): { ticks: Set<string>; changed: Set<string>; gone: string[] } {
-  const now = new Map(found.map((d) => [d.key, d]))
+/** The carried files in the new look (`found`: what it offers; `all`: what it listed, the files the target has by now
+ * too). Still there: ticked again (`changed`: another size or date now, the new version is what goes), up to `max`
+ * (`capped`: how many were left unticked by it). Not listed: `missing` (by name) only when the app said so; every other
+ * one is `notListed` (a folder the person chose, a file now too big or too old for the look): said, never dropped
+ * silently, and ticked once a pick lists it (pickUp). One the target has by now (`all` but not `found`) is neither. */
+export function carryOver(carry: readonly CarriedFile[], all: readonly LocalDoc[], found: readonly LocalDoc[], max: number = TEAM_FILES_LIMITS.perUpload): { ticks: Set<string>; changed: Set<string>; missing: string[]; notListed: CarriedFile[]; capped: number } {
   const seen = new Set(all.map((d) => d.key))
-  const ticks = new Set<string>()
+  const r = pickUp(carry.filter((c) => !c.missing || seen.has(c.key)), found, new Set(), max)
+  const missing = carry.filter((c) => c.missing && !seen.has(c.key)).map((c) => c.name)
+  return { ticks: r.ticks, changed: r.changed, missing, notListed: r.left.filter((c) => !seen.has(c.key)), capped: r.capped }
+}
+
+/** Carried files that `docs` list now (a new look, or a folder the person picked after it): ticked with `ticks`, up to
+ * `max`. `left`: the carried ones `docs` do not list. */
+export function pickUp(carry: readonly CarriedFile[], docs: readonly LocalDoc[], ticks: ReadonlySet<string>, max: number = TEAM_FILES_LIMITS.perUpload): { ticks: Set<string>; changed: Set<string>; left: CarriedFile[]; capped: number } {
+  const now = new Map(docs.map((d) => [d.key, d]))
+  const next = new Set(ticks)
   const changed = new Set<string>()
-  const gone: string[] = []
+  const left: CarriedFile[] = []
+  let capped = 0
   for (const c of carry) {
     const d = now.get(c.key)
-    if (d) {
-      if (ticks.size >= TEAM_FILES_LIMITS.perUpload) continue
-      ticks.add(d.key)
-      if (d.size !== c.size || d.modified !== c.modified) changed.add(d.key)
-    } else if (!seen.has(c.key)) gone.push(c.name)
+    if (!d) { left.push(c); continue }
+    if (next.has(d.key)) continue
+    if (next.size >= max) { capped++; continue }
+    next.add(d.key)
+    if (d.size !== c.size || d.modified !== c.modified) changed.add(d.key)
   }
-  return { ticks, changed, gone }
+  return { ticks: next, changed, left, capped }
 }
 
 /** A cloud's name as the person knows it ("the cloud" when the app could not tell which). */
