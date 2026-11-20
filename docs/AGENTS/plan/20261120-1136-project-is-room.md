@@ -3,7 +3,7 @@
 - Date (UTC): 2026-11-20 11:36
 - Branch: `plan/project-is-room` (build branches: `feat/project-room-server`, `feat/project-room-web`,
   `feat/room-files-list`)
-- Status: draft, revision 3 (an independent review, then the owner's answers of 2026-11-20)
+- Status: ready to build, revision 4 (two independent reviews, the owner's answers of 2026-11-20)
 - Where: Team AX core (`server/src/rooms/`, `server/src/chat/`, `server/src/uploads/`, `shared/src/api/`,
   `web/src/pages/Room.tsx`, `web/src/pages/Projects.tsx`, `web/src/components/rooms/*`, the six `web/src/i18n/*.ts`,
   `docs/site`). Why: rooms, projects, files and permissions are core.
@@ -168,35 +168,25 @@ file's viewer check is "a member of the room now **and** reads the path now".
 - **Who may open it.** Being a room member and the file's folder rules. Both are checked; they normally agree. A
   `Chat attachments` subfolder that someone narrowed shows the file as "unavailable" to the people it excludes, as a
   team reference does today.
-- **Deleting a message moves its file to the trash** (the owner, 2026-11-20: "as in Slack"). The confirm adds one line:
-  "Its file goes to the trash too. You can restore it from there." The file goes through the normal team trash
-  (`TeamFiles.remove`, `moveIntoTrash`), so it is restored in the usual way. The message stays deleted after a restore:
-  a deleted message is final (`deleted_at`), and the restored file is an ordinary project file in Chat attachments.
-  Bringing the chip back into a deleted message is not simple, so it is not done.
-  - **Slack, checked on 2026-11-20.** The help pages do not say that deleting a message deletes its file.
-    [Edit or delete messages](https://slack.com/help/articles/202395258-Edit-or-delete-messages) says only that
-    deleting is permanent, and that *unsending* returns "the content, including files" to the input.
+- **Deleting a message deletes only the message** (the owner, 2026-11-20: "ㄱㄱ", as in Slack). The file stays in
+  Chat attachments as an ordinary project file. People delete it from Files themselves, through the normal team trash.
+  - **The confirm** keeps its usual words, plus one useful line when the message has files: "The file stays in
+    {project} › Chat attachments." That line links to the folder.
+  - **Server:** `removeForMessage` (`rooms/files.ts:373-377`) today deletes a deleted message's bytes from disk. It
+    skips any `room_files` row with a `room_file_refs` row, so a message delete never touches a team file. Only the
+    room's own rows go; the project file and its history stay.
+  - **Slack, checked on 2026-11-20.**
     [Add files to Slack](https://slack.com/help/articles/201330736-Add-files-to-Slack) says "Files must be deleted
-    individually" and who may delete a file. The developer page
-    [Working with files](https://docs.slack.dev/messaging/working-with-files) shows a tombstone, "This file was
-    deleted", where a removed file was shown. So Slack's pages describe file deletion as its own step. The rule here is
-    the owner's choice, not a copy of a documented Slack rule, and the decision file says so.
-  - **When the file is only detached, not trashed** (the message goes; the file stays where it is; the confirm's line
-    reads "Its file stays in the project, because it is used elsewhere or was changed"). Any of these is enough:
-    - **Changed or moved:** its content hash is not the one sent, or it was renamed, or it was moved out of the project's
-      Chat attachments (`room_file_refs` path and sha256 against now). Someone edited or filed it, so it is their work now.
-    - **Not a room upload:** a team file attached from Files ("Add from team files", a phone's team pick) is never
-      trashed by a message delete. Only a file this room's upload created is.
-    - **Attached to another message:** another live message in any room has a `room_file_refs` row to the same file
-      (a forward, a quote with files, a second attach).
-    - **Referenced elsewhere:** an AI chat's team reference (`team_file_refs`), a share link (`file_shares`), or a
-      scheduled task's input names it.
-    - **The person deleting cannot write there:** they lost write, or an admin or manager deleting someone's message
-      lacks it in this project.
-  - **A file trashed in Files** shows "File deleted" in its message, and restoring it brings the chip back, because the
-    message is still there and `room_file_refs` follows the trash id.
-  - **Before sending:** the ✕ on an unsent chip trashes the uploader's unchanged file, as in the shared chat today
-    (`uploads/team-refs.ts:339-353`).
+    individually", and that a member deletes a file they uploaded from the file itself.
+    [Edit or delete messages](https://slack.com/help/articles/202395258-Edit-or-delete-messages) says nothing about a
+    deleted message's files. Only *unsending* returns "the content, including files" to the input. The developer page
+    [Working with files](https://docs.slack.dev/messaging/working-with-files) shows the tombstone "This file was
+    deleted" where a removed file was shown.
+- **A file trashed from Files** shows "File deleted" in its message. Restoring it from the trash brings the chip back,
+  because the message is still there and `room_file_refs` follows the trash id. A file moved or renamed in Files is
+  followed. A file moved where a member cannot read it shows "unavailable" to that member.
+- **Before sending:** the ✕ on an unsent chip trashes the uploader's unchanged file, as in the shared chat today
+  (`uploads/team-refs.ts:339-353`). It was never part of a message.
 - **Quota.** It counts under "Team files", not under the rooms line (`system/storage.ts:353-364`). Old room-stored
   files stay on the rooms line.
 - **Team export ZIP** (`system/team-export-zip.ts`). The files are already in `files/projects/...` (`:150`). The room's
@@ -296,8 +286,8 @@ The header's **Files** opens a side panel with name, sender, date and size, and 
    `Project.room`; lifecycle (trash: members kept, room refused; restore; delete for good: archived before the cascade); the guest checks leave project rooms out; the three #69
    endpoints answer 410; read-only can't attach; guest membership.
 2. **Server: files and AI** (~600 lines + tests). Project-room uploads into Chat attachments (one request and session),
-   `room_file_refs` and the shared reference helper, "Files you sent" without them, message delete trashes or detaches
-   the file (D3, every case), "File deleted" state, export ZIP naming, the scoped room tools (only what every audience member sees) in the
+   `room_file_refs` and the shared reference helper, "Files you sent" without them, message delete leaves the team
+   file alone (`removeForMessage` skips referenced rows), "File deleted" and restore, export ZIP naming, the scoped room tools (only what every audience member sees) in the
    project's shared chat, the prompt line.
 3. **Web: the project room** (~800 lines). Buttons both ways, room info, Manage people and Leave project, the composer
    note, the removals in the table above, Channels listing with the folder icon, 390 and dark, six languages.
@@ -307,7 +297,7 @@ The header's **Files** opens a side panel with name, sender, date and size, and 
    its `linkedProjectPlain` rule), `changes/project-is-room.md`, `docs/site/use/chats-and-projects.md` "A channel for a
    project" rewritten as "A project's chat room" in six languages, the generated API page (`docs:api`). Written with PR 3.
 
-Size: about 3,300 lines with tests (PR 2 grows by the shared reference helper and the delete cases), 4 PRs plus docs,
+Size: about 3,300 lines with tests (PR 2 grows by the shared reference helper), 4 PRs plus docs,
 about 3.5 builder days.
 
 **PRs 1 to 3 go to dev in one batch, one queue run.** Every dev merge installs on qa.trina.app, and a release can be cut
@@ -318,8 +308,8 @@ finding 11). PR 4 can go separately.
 
 - **Disclosure through history** (D2, D7): a person added to a project now sees the room's past. This is said in the
   members preview. A linked row converts only when the people are already the same, and keeps each member's start.
-- **Message delete trashes a file** (D3): only a room-made, unchanged, unreferenced file, by someone who may write
-  there, and it can be restored. Every other case only detaches.
+- **A deleted message's file stays readable** (D3) to everyone who can read Chat attachments. That is the project's
+  people, who already had it. The confirm says so, and anyone with write can trash it in Files.
 - **Permissions drift between room and folder:** both checks run on every file read (D3). The sync runs on the same
   hooks as the folder-button live pass (`groupFoldersChanged`), so a removed person loses the room in the same request.
 - **Large projects:** a project shared with "everyone" makes a big room. The fanout is like the everyone room's. The
@@ -344,10 +334,9 @@ finding 11). PR 4 can go separately.
     project in, guest of a group chat not; admin outside not; no 100 cap; name follows rename; history open for a later
     member; removal drops notices and replay.
   - `b-project-room-files.test.ts`: upload lands in Chat attachments with "(2)" names; read-only 403; guest 100 MB;
-    session upload over 50 MB; message delete trashes an unchanged room-made file, which can be restored while the
-    message stays deleted; it only detaches when the file was edited, renamed, moved out of Chat attachments, attached
-    from Files, attached to a second message, held by an AI chat reference or share link, or the deleter cannot write;
-    a file trashed in Files shows deleted and restore brings the chip back; a narrowed
+    session upload over 50 MB; message delete removes the message and its room rows but never the team file (bytes, history and
+    a second message showing the same file all stay); a file trashed in Files shows deleted and restore brings the
+    chip back; moved or renamed is followed; a narrowed
     subfolder shows unavailable; quota line; export names the team path.
   - `b-project-room-ai.test.ts`: the shared chat reads only its own room; no `rooms` tool; another room id refused as
     missing; only messages every audience member sees (a member with a later start, an old hidden answer); no card after
@@ -366,15 +355,17 @@ finding 11). PR 4 can go separately.
   - `POST /api/projects/:id/room` for a guest of another place, a non-member, an admin outside and a reader;
   - `GET /api/rooms/:id/files` and `?recent=1` for a former member, a member when the folder is narrowed, and a guest;
   - the shared chat's room tool for another room;
-  - deleting another person's message with a file, as a manager without write: detached, not trashed;
+  - after a message delete, the room file endpoint answers 404 for that message's file, and the team file is still
+    governed by its folder rules only;
   - the retired endpoints answer 410 without naming anything.
-- **Web unit:** the header buttons, room info and the delete confirm's line (trash and stays); the old event lines
+- **Web unit:** the header buttons, room info and the delete confirm's "stays in" line; the old event lines
   still render.
 - **Web e2e** `web/test/e2e/project-room.spec.ts`:
   - open Chat room from the project, post a file, see it in Files and back;
   - add a person on the project, who sees the room and its history live; remove them, and the room goes;
   - read-only cannot attach;
-  - delete a message with a file, find it in the trash, restore it;
+  - delete a message with a file; the file is still in Chat attachments; trash it in Files, then a still-live message
+    shows "File deleted", and restore brings it back;
   - 1440 and 390, light and dark.
 - **AI scenario** `ROOM-PRJ-01`: in the project's AI chat, "what did we decide in the chat room yesterday?" reads only that
   room, with no card.
@@ -393,10 +384,8 @@ finding 11). PR 4 can go separately.
 | Project shared with a whole group, then a member joins the group | They are in the room |
 | Guest invited to the project | In the room; cannot open other rooms |
 | Admin outside the project | Not in the room; can still manage people |
-| Delete a message with a file | Confirm says the file goes to the trash; message gone; file in the trash; restore puts it back in Chat attachments, message stays deleted |
-| Delete a message whose file someone edited or moved out of Chat attachments | Confirm says the file stays; only the message goes |
+| Delete a message with a file | Confirm says the file stays in {project} › Chat attachments; message gone; file still in Files |
 | Delete one of two messages that carry the same file | File stays; the other message still shows it |
-| Delete a message whose file was attached from Files | File stays |
 | Trash the file in Files | The room shows "File deleted"; restore brings it back |
 | Project AI chat: "summarise the chat room" | Reads only this room, no card |
 | Rename the project | Room name follows |
@@ -410,7 +399,7 @@ finding 11). PR 4 can go separately.
 ## Owner's answers (2026-11-20)
 
 1. Listing: Channels with a folder icon, after the first message (D5).
-2. Message delete: as in Slack, the file goes to the trash with the message, with the cases that only detach (D3).
+2. Message delete: deletes only the message; the file stays in Chat attachments (owner "ㄱㄱ", as in Slack) (D3).
 3. Linked channels: none in practice. No card; the start pass converts the same-people case and unlinks the rest (D7).
 
 ## Review (2026-11-20, an independent reviewer, fresh context)
