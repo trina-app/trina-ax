@@ -6521,6 +6521,142 @@ export class MockServer {
   roomCategories: { id: string; name: string; position: number }[] = []
   readonly roomCategoriesInstalled = this.installRoomCategories()
 
+  // ---------------- a team project's own chat room (server/src/rooms/project-room.ts, short) ----------------
+  // POST /api/projects/:id/room makes it the first time (named after the project); its members are the project's readers
+  // (sharedAudience), worked out on every read, so adding or removing someone on the project changes the room; each
+  // viewer's Room.project (canSave: write on the folder, not a guest) and Project.room. A file sent there lands in the
+  // project's Chat attachments folder (the uploads below, PR 2's rule: server/src/uploads/shared-chat.ts); deleting its
+  // message leaves the file there. Inside it Add people / Remove / Rename / Leave answer 403 project_room.
+  /** project id → its room's id */
+  projectRooms = new Map<string, string>()
+  /** a room file's team path in a project room (room file id → path) */
+  projectRoomFiles = new Map<string, string>()
+  readonly projectRoomsInstalled = this.installProjectRooms()
+  /** the project of a project room */
+  projectOfRoom(roomId: string): Project | null {
+    for (const [pid, rid] of this.projectRooms) if (rid === roomId) return this.projects.find((p) => p.id === pid) ?? null
+    return null
+  }
+  /** a project room as `u` sees it, or null when they are not one of its people (or its project is in the trash) */
+  projectRoomFor(base: Room, u: User): Room | null {
+    const p = this.projectOfRoom(base.id)
+    if (!p) return base
+    const people = this.sharedAudience(p)
+    if (!people.some((x) => x.id === u.id)) return null
+    return Room.parse({ ...base, name: p.name, canRename: false, managerId: null, memberCount: people.length, peers: people.filter((x) => x.id !== u.id).slice(0, 4).map((x) => ({ id: x.id, name: x.name })),
+      project: { id: p.id, name: p.name, folderPath: p.folderPath, canSave: u.role !== 'guest' && this.access(p.folderPath, u) === 'write', room: true } })
+  }
+  private installProjectRooms() {
+    const h = this.handlers
+    const over = (name: ApiName, fn: (c: Ctx, base: Handler) => unknown) => {
+      const base = h[name]!
+      h[name] = (c) => fn(c, base)
+    }
+    const baseReset = this.reset.bind(this)
+    this.reset = (o) => {
+      this.projectRooms = new Map()
+      this.projectRoomFiles = new Map()
+      return baseReset(o)
+    }
+    const roomOf = (c: Ctx) => {
+      const r = this.rooms.find((x) => x.id === c.params.id)
+      const mine = r && this.projectRoomFor(r, c.user)
+      return mine ?? fail('not_found', 404)
+    }
+    const inProjectRoom = (c: Ctx) => { if (this.projectOfRoom(c.params.id)) fail('forbidden', 403, undefined, undefined, { reason: 'project_room' }) }
+    h.openProjectRoom = (c) => {
+      const p = this.projects.find((x) => x.id === c.params.id && !x.inTrash)
+      if (!p || !this.projectSees(p, c.user)) fail('not_found', 404)
+      const segs = p!.folderPath.split('/')
+      if (segs.length !== 2 || segs[0] !== 'projects') fail('conflict', 409, undefined, undefined, { reason: 'project_not_linkable' })
+      let id = this.projectRooms.get(p!.id)
+      if (!id) {
+        id = uuidv7()
+        this.projectRooms.set(p!.id, id)
+        this.rooms.push(Room.parse({ id, kind: 'group', name: p!.name, canRename: false, managerId: null, groupId: null, memberCount: 0, peers: [], lastSeq: 0, unreadCount: 0, threadsUnread: 0, nextThreadId: null, mentioned: false, lastReadSeq: 0, lastMessage: null, muted: false, notify: { own: null, byDefault: 'mentions', level: 'mentions' }, createdAt: now(), activityAt: now() }))
+      }
+      return this.projectRoomFor(this.rooms.find((r) => r.id === id)!, c.user)
+    }
+    over('listRooms', (c, base) => {
+      const r = base(c) as { items: Room[] }
+      return { ...r, items: r.items.flatMap((x) => this.projectRoomFor(x, c.user) ?? []) }
+    })
+    over('getRoom', (c, base) => this.projectRoomFor(base(c) as Room, c.user) ?? fail('not_found', 404))
+    over('listRoomMembers', (c, base) => {
+      const p = this.projectOfRoom(c.params.id)
+      if (!p) return base(c)
+      const r = roomOf(c)
+      return { items: this.sharedAudience(p).map((u) => ({ user: { id: u.id, name: u.name }, joinedAt: r.createdAt })) }
+    })
+    over('listRoomMessages', (c, base) => { if (this.projectOfRoom(c.params.id)) roomOf(c); return base(c) })
+    over('getProject', (c, base) => {
+      const p = base(c) as Project
+      const id = this.projectRooms.get(p.id)
+      const r = id ? this.rooms.find((x) => x.id === id) : null
+      return r && p.member !== false && !p.inTrash ? { ...p, room: { id: r.id, unread: 0 } } : p
+    })
+    over('listProjects', (c, base) => {
+      const out = base(c) as { items: Project[] }
+      return { ...out, items: out.items.map((p) => { const id = this.projectRooms.get(p.id); return id && p.member !== false && !p.inTrash ? { ...p, room: { id, unread: 0 } } : p }) }
+    })
+    const sentFiles = new Map<string, RoomFile>()
+    // a file sent in a project room: into the project's Chat attachments folder (a read-only person: 403)
+    h.uploadRoomFile = async (c) => {
+      const r = roomOf(c)
+      const p = this.projectOfRoom(r.id)
+      const data = new Uint8Array(await c.file!.arrayBuffer())
+      const name = c.body.name ?? c.file!.name
+      const id = uuidv7()
+      if (p) {
+        const folder = `${p.folderPath}/${CHAT_FILES_FOLDER[this.settings.defaultLocale as Locale] ?? CHAT_FILES_FOLDER.en}`
+        if (this.access(folder, c.user) !== 'write') fail('forbidden', 403, undefined, undefined, { reason: 'shared_upload_read_only' })
+        if (!this.files.has(folder)) this.files.set(folder, { type: 'folder', mtime: now() })
+        const dot = name.lastIndexOf('.')
+        let path = `${folder}/${name}`
+        for (let n = 2; this.files.has(path); n++) path = `${folder}/${dot > 0 ? `${name.slice(0, dot)} (${n})${name.slice(dot)}` : `${name} (${n})`}`
+        this.putFile(path, data)
+        this.projectRoomFiles.set(id, path)
+      }
+      const mime = c.file!.type || mimeOf(name) || 'application/octet-stream'
+      const file: RoomFile = { id, name, size: data.byteLength, mime, kind: mime.startsWith('image/') ? 'image' : 'document', thumb: false }
+      sentFiles.set(id, file)
+      return { status: 201, body: file }
+    }
+    h.sendRoomMessage = (c) => {
+      const room = this.rooms.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      if (!this.projectRoomFor(room, c.user)) fail('not_found', 404)
+      const list = this.roomMessages.get(room.id) ?? []
+      const seq = Math.max(room.lastSeq, 0, ...list.map((x) => x.seq)) + 1
+      const files = (c.body.fileIds as string[]).map((id) => sentFiles.get(id) ?? fail('validation', 400))
+      const message = RoomMessage.parse({ id: uuidv7(), roomId: room.id, seq, authorKind: 'user', author: { id: c.user.id, name: c.user.name }, askedBy: null, visibility: 'room', body: c.body.body, replyTo: null, mentions: c.body.mentions ?? [], files, createdAt: now(), editedAt: null, deletedAt: null })
+      list.push(message)
+      this.roomMessages.set(room.id, list)
+      Object.assign(room, { lastSeq: seq, lastReadSeq: seq, activityAt: message.createdAt, lastMessage: { id: message.id, seq, author: message.author, excerpt: message.body.slice(0, 120), fileCount: files.length, deleted: false, createdAt: message.createdAt } })
+      this.publish({ type: 'room.message', data: { roomId: room.id, message } })
+      return { status: 201, body: message }
+    }
+    // the message goes for everyone; in a project room its files stay in Chat attachments (D3)
+    h.deleteRoomMessage = (c) => {
+      const room = this.rooms.find((x) => x.id === c.params.id) ?? fail('not_found', 404)
+      const list = this.roomMessages.get(room.id) ?? []
+      const m = list.find((x) => x.id === c.params.messageId && x.author?.id === c.user.id) ?? fail('not_found', 404)
+      const gone = RoomMessage.parse({ ...m, body: '', files: [], deletedAt: now() })
+      this.roomMessages.set(room.id, list.map((x) => (x.id === m.id ? gone : x)))
+      this.publish({ type: 'room.message', data: { roomId: room.id, message: gone } })
+      return { status: 204, body: null }
+    }
+    h.roomFile = (c) => {
+      const path = this.projectRoomFiles.get(c.params.fileId)
+      const n = path ? this.files.get(path) : undefined
+      if (!n || n.type !== 'file') fail('not_found', 404)
+      return new Response(n!.data! as unknown as BodyInit, { headers: { 'content-type': mimeOf(path!) ?? 'application/octet-stream' } })
+    }
+    for (const name of ['inviteRoomMembers', 'removeRoomMember', 'leaveRoom'] as const) {
+      const base = h[name]
+      h[name] = (c) => { inProjectRoom(c); return base ? base(c) : fail('not_found', 404) }
+    }
+  }
+
   // ---------------- chats shared with people and groups (server/src/chat/people-share.ts, short) ----------------
   // A chat outside projects its creator shares with chosen people and groups: it rides on the shared chats' layer above
   // (sharedChats with no project, so turns, authors and the 404 of everyone else work as there), with who it is shared

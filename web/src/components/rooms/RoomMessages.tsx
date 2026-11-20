@@ -35,11 +35,12 @@
 import clsx from 'clsx'
 import { Copy, Download, FileText, FolderCheck, FolderInput, Link2, MessageSquareText, Pencil, Trash2, X } from 'lucide-react'
 import { createContext, Fragment, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
-import { parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { DEFAULT_LOCALE, parseMessageLinks, ROOM_QUOTE_EXCERPT_MAX, type Room, type RoomFile, type RoomMessage, type RoomQuote, type UserRef } from '@mycel/shared/api'
+import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { errorText, roomFileUrl, startDownload } from '../../lib/api'
 import { formatDateTime, formatSize } from '../../lib/format'
 import { copiedMessages } from '../../lib/messageCopy'
-import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey } from '../../lib/rooms'
+import { ALL_MENTION_ID, allMentionNames, eventText, groupRuns, lineBreaks, localDayKey, projectEventKey, projectRoomOf } from '../../lib/rooms'
 import { aiName } from '../../lib/tabs'
 import { Markdown, PersonMarkdown } from '../LazyMarkdown'
 import { AppCardText } from './AppCard'
@@ -51,7 +52,7 @@ import { useMe } from '../../store/session'
 import { placeKey, useRooms, type PendingSend } from '../../store/rooms'
 import { toast } from '../../store/ui'
 import { TokenTextarea } from '../TokenTextarea'
-import { Button, confirmDialog, useCopy, useMediaQuery } from '../ui'
+import { Button, cancelDialog, confirmDialog, useCopy, useMediaQuery } from '../ui'
 import { useAutoGrow } from '../../lib/autoGrow'
 import { failedEdits, focusRoomBox, hasRoomBox, useRoomEdit } from '../../store/roomEdit'
 import { AiFaceInline, AiMark } from './AiFace'
@@ -80,9 +81,9 @@ import { copyLinkOf } from '../../lib/messageLinks'
 import { MessageLinkCard } from './MessageLinkCard'
 import { MessageLinkPreviews, useLinkHosts, usePlaceLabel } from './MessageLinkChip'
 import { navigateTo } from '../../lib/nav'
-import { folderOfPath, inProjectFolder } from '../../lib/roomSave'
+import { folderOfPath } from '../../lib/roomSave'
 import { useFolderWords } from '../../lib/folderLabels'
-import { saveToProject, useRoomSaves } from '../../store/roomSaves'
+import { useRoomSaves } from '../../store/roomSaves'
 import { capBlankLines } from '../../lib/blankLines'
 
 export const messageDomId = (id: string) => `room-msg-${id}`
@@ -268,24 +269,17 @@ const AskFile = createContext<((fileId: string, name: string) => void) | null>(n
  * 링크 복사 (its message), 내려받기, 트리나에게 묻기 where the list asks. */
 function useRoomFileMenu(f: RoomFile, item: ViewerItem, team?: RoomFileSave | null) {
   const ask = useContext(AskFile)
-  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, team: team ? { saved: !!team.saved, run: team.saved ? team.open : team.save, ...(team.project ? { project: { label: team.project.label, run: team.project.save } } : {}) } : null, ask: ask ? () => ask(f.id, f.name) : null })
+  return useFileMenu({ name: f.name, image: itemImage(item), link: itemLink(item), download: item.download, team: team ? { saved: !!team.saved, run: team.saved ? team.open : team.save } : null, ask: ask ? () => ask(f.id, f.name) : null })
 }
 
 /** "Save to team folder" of a file under a message (docs/decisions/20261117-room-file-save-btn.md): where it is in the
  * team folder for me (store/roomSaves.ts), opening it there, or the save sheet for the message's files. null for a guest
  * (no team folder to save to; the server refuses them too). */
-/** `project`: a private channel linked to a project I may write (Room.project.canSave; docs/decisions/
- * 20261119-channel-project-link.md D6): Save to <project> in one click (documents and media; anything else opens the
- * sheet with the project picked), and `save` is then "Save to another folder…". `inProject`: the saved place is in that
- * project's folder (the chip says "In project · <name>"). */
-type RoomFileSave = { saved: string | undefined; open: () => void; save: () => void; project?: { name: string; label: string; save: () => void }; inProject?: string }
+type RoomFileSave = { saved: string | undefined; open: () => void; save: () => void }
 function useRoomFileSave(roomId: string, f: RoomFile, siblings: readonly RoomFile[]): RoomFileSave | null {
-  const t = useT()
-  const locale = useLocale()
   // (a partial Me, as some tests give, counts as not a guest; the server decides anyway)
   const guest = useMe()?.user?.role === 'guest'
   const saved = useRoomSaves((s) => s.byRoom[roomId]?.[f.id])
-  const project = useRooms((s) => s.rooms.find((r) => r.id === roomId)?.project)
   useEffect(() => { if (!guest) useRoomSaves.getState().load(roomId) }, [guest, roomId])
   if (guest) return null
   // the tapped file first, then the message's other files (one sheet for all of them)
@@ -295,8 +289,6 @@ function useRoomFileSave(roomId: string, f: RoomFile, siblings: readonly RoomFil
     saved,
     open: () => { if (saved) openPath(saved) },
     save: () => useRoomSaves.getState().open(roomId, ids),
-    ...(project?.canSave ? { project: { name: project.name, label: t('rooms.save.toProject', { project: project.name }), save: () => void saveToProject(roomId, project, ids, { t: t as (k: string, p?: Record<string, string | number>) => string, locale, open: openPath }) } } : {}),
-    ...(project && saved && inProjectFolder(saved, project.folderPath) ? { inProject: project.name } : {}),
   }
 }
 
@@ -309,6 +301,27 @@ function useViewerWhere(roomId: string): string | null {
   if (!room) return null
   const name = title(room)
   return room.kind === 'dm' ? t('viewer.inDm', { name }) : room.kind === 'group' ? t('viewer.inGroup', { room: name }) : t('viewer.inRoom', { room: name })
+}
+
+/** The delete confirm's words in a project's chat room for a message with files: the message goes for everyone, and
+ * "The file stays in <project> › Chat attachments.", that place a link (it closes the confirm and opens the folder). */
+export function FileStaysLines({ project, n }: { project: Pick<NonNullable<Room['project']>, 'name' | 'folderPath'>; n: number }) {
+  const t = useT()
+  const team = useMe()?.team?.defaultLocale
+  const folder = CHAT_FILES_FOLDER[team ?? DEFAULT_LOCALE]
+  const href = `/files?path=${encodeURIComponent(`${project.folderPath}/${folder}`)}`
+  const parts = t('rooms.deleteFileStays', { n, place: '\u0000' }).split('\u0000')
+  const place = (
+    <a href={href} onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); cancelDialog(); navigateTo(href) }} className="font-medium text-ink underline underline-offset-2" data-testid="room-delete-file-place">
+      {project.name} › {folder}
+    </a>
+  )
+  return (
+    <span className="block space-y-2" data-testid="room-delete-file-stays">
+      <span className="block">{t('rooms.deleteBodyKeepsFiles')}</span>
+      <span className="block">{parts.length === 2 ? <>{parts[0]}{place}{parts[1]}</> : t('rooms.deleteFileStays', { n, place: `${project.name} › ${folder}` })}</span>
+    </span>
+  )
 }
 
 /** "가나님이 방 이름을 '주간 회의'로 바꿨어요": the names as the directory has them now, the room name as plain text. */
@@ -344,6 +357,7 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
   const me = useMe()
   const app = m.app ?? null
   const room = useRooms((s) => (app ? s.rooms.find((r) => r.id === roomId) ?? null : null))
+  const roomProject = useRooms((s) => projectRoomOf(s.rooms.find((r) => r.id === roomId) ?? {}))
   // an earlier AI answer: the person who asked puts it away; an owner or admin any answer they see; an app's message:
   // whoever manages the room's apps (the server's rooms/service.ts removable)
   const removable = mine || (ai && !!meId && (m.askedBy?.id === meId || me?.user.role === 'owner' || me?.user.role === 'admin')) || (!!app && mayManageApps(room, me))
@@ -402,7 +416,11 @@ function MessageRow({ roomId, m, mine, names, members, meId, editing, inBox = fa
     toast({ level: 'success', text: t('rooms.copied') })
   }
   const del = async () => {
-    const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body: t('rooms.deleteBody'), confirm: t('common.delete'), danger: true })
+    // a project's chat room: the message goes, its files stay in the project's Chat attachments folder (docs/decisions/
+    // 20261120-project-is-room.md D3), one line says where, a link to it
+    const keeps = roomProject && m.files.length > 0 && m.visibility === 'room' ? roomProject : null
+    const body = keeps ? <FileStaysLines project={keeps} n={m.files.length} /> : t('rooms.deleteBody')
+    const ok = await confirmDialog({ title: app ? t('roomApps.deleteTitle', { app: app.name }) : t('rooms.deleteTitle'), body, confirm: t('common.delete'), danger: true })
     if (!ok) return
     await useRooms
       .getState()
@@ -651,13 +669,13 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
         {opens && <span className="sr-only">{t('common.preview')}</span>}
       </button>
       {/* in the team folder where I can open it: a quiet link to it (its folder's name; the whole place in the tooltip) */}
-      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} project={team.inProject} />}
+      {team?.saved && <InTeamLink path={team.saved} onOpen={team.open} />}
       {/* not there yet: a small save icon beside the download, seen only on hover and keyboard focus with a mouse; its
           place is kept (a fixed 24px) so the chip never changes width and a row of chips never re-wraps; on a touch
           screen it is not there at all (the long-press menu has it) */}
       {team && !team.saved && (
-        <Tooltip label={team.project ? team.project.label : t('rooms.save.action')}>
-          <button type="button" onClick={team.project ? team.project.save : team.save} aria-label={team.project ? t('rooms.save.toProjectFor', { name: f.name, project: team.project.name }) : t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
+        <Tooltip label={t('rooms.save.action')}>
+          <button type="button" onClick={team.save} aria-label={t('rooms.save.actionFor', { name: f.name })} className="inline-flex w-6 shrink-0 items-center justify-center text-faint opacity-0 hover:bg-hover hover:text-ink focus-visible:opacity-100 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 pointer-coarse:hidden" data-testid="room-file-save">
             <FolderInput size={13} aria-hidden />
           </button>
         </Tooltip>
@@ -673,11 +691,11 @@ function FileChip({ roomId, f, siblings }: { roomId: string; f: RoomFile; siblin
 
 /** A room file in the team folder where I can open it: its folder's name, the whole place in the tooltip and the
  * accessible name ("In team folder · Company-wide › Acme › Quotes"); a tap opens the file. */
-function InTeamLink({ path, onOpen, project }: { path: string; onOpen: () => void; /** saved in the linked project's folder: its name */ project?: string }) {
+function InTeamLink({ path, onOpen }: { path: string; onOpen: () => void }) {
   const t = useT()
   const found = folderOfPath(path, useFolderWords())
-  const where = project ? { short: project, full: project } : found
-  const label = project ? t('rooms.save.inProject', { name: project }) : t('rooms.save.inTeam', { folder: where.full })
+  const where = found
+  const label = t('rooms.save.inTeam', { folder: where.full })
   return (
     <Tooltip label={label}>
       <button type="button" onClick={onOpen} aria-label={label} className="touch-hit inline-flex max-w-[140px] shrink-0 items-center gap-1 px-1.5 text-faint hover:bg-hover hover:text-ink" data-testid="room-file-in-team">

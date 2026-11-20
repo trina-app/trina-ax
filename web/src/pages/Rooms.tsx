@@ -27,7 +27,7 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import type { Room } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { listTime } from '../lib/format'
-import { plainLine, roomCounts } from '../lib/rooms'
+import { listedRoom, plainLine, roomCounts } from '../lib/rooms'
 import { CHATS_ACTIVITY } from '../lib/screens'
 import { useLocale, useT } from '../i18n'
 import { useRooms } from '../store/rooms'
@@ -108,7 +108,7 @@ export default function Rooms() {
         <ul>
           <ChatsActivityRow className={row} />
         </ul>
-        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, categories, admin)
+        {roomsByKind(everyRoom.filter((r) => !r.hidden && listedRoom(r)), titleOf, locale, categories, admin)
           .filter((s) => s.rooms.length > 0 || !!s.category)
           .map((s) => {
             const key = s.category ? `category-${s.category.id}` : s.key

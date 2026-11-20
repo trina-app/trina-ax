@@ -17,16 +17,20 @@
 // after the pin; a row of a list has none (it opens the room first).
 // The room header's "⋯" starts with 이 대화에서 검색 (`onSearch`; docs/decisions/20261120-search-shortcuts-slack.md):
 // search with "This conversation" on, as ⌘F there; the way to it on a phone and with a mouse.
+// A project's chat room (docs/decisions/20261120-project-is-room.md D5) ends with 프로젝트 나가기 in place of 대화방 나가기
+// and has no 초대하기: its people are the project's (the room's info has Manage people).
 import { Bell, Blocks, Eye, EyeOff, Link2, Lock, LogOut, Pencil, Pin, PinOff, Search, UserPlus } from 'lucide-react'
 import { useRef, useState, type RefObject } from 'react'
 import { ROOM_NAME_MAX, type Room } from '@mycel/shared/api'
-import { errorText } from '../../lib/api'
+import { api, API, errorText, isApiError } from '../../lib/api'
 import { useLocale, useT } from '../../i18n'
 import { useRooms } from '../../store/rooms'
 import { mayManageApps, useRoomApps } from '../../store/roomApps'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
-import { isPrivateChannel } from '../../lib/rooms'
+import { isPrivateChannel, projectRoomOf } from '../../lib/rooms'
+import { useLeaveProject } from '../LeaveProject'
+import { navigateTo } from '../../lib/nav'
 import { platform } from '../../lib/pwa'
 import { toast } from '../../store/ui'
 import { confirmDialog, promptDialog, useCopy } from '../ui'
@@ -37,12 +41,12 @@ import { useCategoryRowItems } from '../nav/RoomCategories'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
-export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'copyLink' | 'leave' | 'hide' | 'show'
+export type RoomMenuAction = 'pin' | 'unpin' | 'notify' | 'rename' | 'apps' | 'copyLink' | 'leave' | 'leaveProject' | 'hide' | 'show'
 /** `apps`: I manage the room's apps ("Add an app" / "Apps posting here", docs/DECISIONS.md "Apps posting in rooms"): in
  * a team room or the everyone room its owners and admins, in a 1:1 or a group chat its members (store/roomApps.ts) */
-export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt'>>, apps = false): RoomMenuAction[] {
+export function roomMenuActions(room: Pick<Room, 'kind'> & Partial<Pick<Room, 'hidden' | 'canRename' | 'pinnedAt' | 'project'>>, apps = false): RoomMenuAction[] {
   const hidden = room.kind !== 'group' && !!room.hidden
-  const last: RoomMenuAction = room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide'
+  const last: RoomMenuAction = projectRoomOf(room) ? 'leaveProject' : room.kind === 'group' ? 'leave' : hidden ? 'show' : 'hide'
   const pin: RoomMenuAction[] = hidden ? [] : [room.pinnedAt ? 'unpin' : 'pin']
   return [...pin, 'notify', ...(room.canRename ? (['rename'] as const) : []), ...(apps ? (['apps'] as const) : []), 'copyLink', last]
 }
@@ -89,6 +93,21 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       : { title: t('rooms.info.leaveTitle'), body: t(isGuestMe(me) ? 'rooms.info.leaveBodyGuest' : 'rooms.info.leaveBody'), confirm: t('rooms.info.leave'), danger: true })
     if (ok) await useRooms.getState().leave(room.id).catch(fail)
   }
+  // a project's chat room: leaving it is leaving the project (its confirm, components/LeaveProject.tsx); someone who sees
+  // the project through a group or the whole team cannot leave it, and is told to mute the room instead
+  const leaveProject = useLeaveProject()
+  const project = projectRoomOf(room)
+  const leaveTheProject = async () => {
+    if (!project) return
+    let p
+    try {
+      p = await api.call(API.getProject, { params: { id: project.id } })
+    } catch (e) {
+      return isApiError(e, 'not_found') ? toast({ level: 'info', text: t('projects.missing') }) : fail(e)
+    }
+    if (p.leave !== 'yes') return toast({ level: 'info', text: t(p.leave === 'last' ? 'projects.leaveLast' : 'rooms.project.cantLeave') })
+    if (await leaveProject(p)) navigateTo('/rooms', { replace: true })
+  }
   const fallbackOf = useNameFallback()
   const rename = async (typed?: string): Promise<void> => {
     // a group room: a group DM is turned into a private channel by naming it, and a private channel keeps a name (it
@@ -127,12 +146,13 @@ export function useRoomMenuItems(room: Room, onNotify: () => void, phone?: Phone
       case 'apps': return { label: appCount ? t('roomApps.menuList', { count: appCount }) : t('roomApps.menuAdd'), icon: <Blocks size={14} aria-hidden />, onSelect: () => useRoomApps.getState().open(room.id), testId: 'room-menu-apps' }
       case 'copyLink': return { label: t('rooms.menu.copyLink'), icon: <Link2 size={14} aria-hidden />, onSelect: () => void copyLink(), testId: 'room-menu-link' }
       case 'leave': return { label: t(locked ? 'rooms.info.leavePrivate' : 'rooms.info.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leave(), testId: 'room-menu-leave' }
+      case 'leaveProject': return { label: t('projects.leave'), icon: <LogOut size={14} aria-hidden />, danger: true, onSelect: () => void leaveTheProject(), testId: 'room-menu-leave-project' }
       case 'hide': return { label: t(room.kind === 'dm' ? 'rooms.menu.hideDm' : 'rooms.menu.hide'), icon: <EyeOff size={14} aria-hidden />, onSelect: () => void hide(), testId: 'room-menu-hide' }
       case 'show': return { label: t('rooms.menu.show'), icon: <Eye size={14} aria-hidden />, onSelect: show, testId: 'room-menu-show' }
     }
   })
   // 초대하기 after the pin (or first), for a group chat or a DM, never for a guest
-  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !room.gone && !isGuestMe(me)) {
+  if (onInvite && (room.kind === 'group' || room.kind === 'dm') && !project && !room.gone && !isGuestMe(me)) {
     const at = items[0]?.testId === 'room-menu-pin' || items[0]?.testId === 'room-menu-unpin' ? 1 : 0
     items.splice(at, 0, { label: t(locked ? 'rooms.info.invitePrivate' : 'rooms.info.addPeople'), icon: <UserPlus size={14} aria-hidden />, onSelect: onInvite, testId: 'room-menu-invite' })
   }
