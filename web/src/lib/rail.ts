@@ -23,7 +23,8 @@ export const RAIL_ROOT: Record<RailItem, string> = { ai: '/', chats: '/rooms', p
  * phase. test/unit/rail.test.ts keeps this in step with App.tsx. */
 const PAGES: Record<RailItem, readonly string[]> = {
   ai: ['/', '/new', '/c/:chatId', '/c/:chatId/t/:messageId', '/scheduled', '/scheduled/:id', '/skills', '/skills/share/:id', '/trash', '/connectors/authorize', '/welcome'],
-  chats: ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId', '/sent-files'],
+  // (…/m/<message>: a phone notification's tap at one message, which goes on to ?m=<message>)
+  chats: ['/rooms', '/rooms/:roomId', '/rooms/:roomId/t/:messageId', '/rooms/:roomId/m/:target', '/rooms/:roomId/t/:messageId/m/:target', '/sent-files'],
   projects: ['/projects', '/projects/:projectId', '/projects/:projectId/files'],
   // a file's link page (/f/<id>, QA TC-3093) is the file's: Files is lit
   files: ['/files', '/files/view', '/f/:id', '/f/batch/:id'],
