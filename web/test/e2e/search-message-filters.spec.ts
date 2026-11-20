@@ -3,8 +3,15 @@
 // as; the order is the best match first (정확도순) or the newest (최신순), chosen at the section's end and asked of the
 // server; nothing as typed shows near matches as such; a filter that names nobody says so. Enter still opens the room
 // at the message. The search answers through page.route, contract-shaped (the mock server lists no rooms).
+// And the Slack-style keys and chips (docs/decisions/20261120-search-shortcuts-slack.md, QA TC-5640 to TC-5650): ⌘K;
+// ⌘F in a room or a thread opens search with "This conversation" on (room=); ⌘F in an AI chat is the page's find (not
+// prevented); a second ⌘F focuses the box; "Sent by me" and "Mentions me" send from:me and mentions:me; Backspace in an
+// empty box turns the last chip off; the empty box lists unread conversations (mentions first, not muted or hidden);
+// the room's ⋯ at 390 px; Korean input (e.key 'ㄹ', e.code 'KeyF'). ⌘K is ControlOrMeta (either counts); ⌘F follows the
+// page's user agent (pressF).
 import { expect, test, type Page } from '@playwright/test'
 import { reset, signIn } from './helpers'
+import { routeRooms, type MockRoomSpec } from './rooms-mock'
 
 const id = (n: number) => `019a5f00-0000-7000-8000-${String(n).padStart(12, '0')}`
 const ROOM = id(9101)
@@ -78,4 +85,168 @@ test('nothing as typed: 비슷한 메시지, no order to choose; a filter that n
   await input(page).fill('from:nobody 견적')
   await expect(palette(page).getByTestId('search-filter-missing')).toHaveText('from:nobody에 맞는 사람이나 내 대화가 없어요.')
   await expect(messages(page)).toHaveCount(0)
+})
+
+// ---------------- the Slack-style keys and chips ----------------
+const R = (n: number) => `019a5f00-0000-7000-8000-00000000c0${String(n).padStart(2, '0')}`
+const BEN = { id: 'ben', name: 'Ben' }, CHO = { id: 'cho', name: 'Cho' }
+const SPECS: MockRoomSpec[] = [
+  { id: R(1), kind: 'group', name: '디자인 리뷰', peers: [BEN], unread: 2, ago: 1, last: 'new mockups' },
+  { id: R(2), kind: 'group', name: '예산', peers: [CHO], unread: 1, mentioned: true, ago: 50, last: '@Olga budget?' },
+  { id: R(3), kind: 'group', name: '조용한 방', peers: [BEN], unread: 9, muted: true, mentioned: true, ago: 2, last: 'lunch' },
+  { id: R(4), kind: 'dm', name: null, peers: [CHO], unread: 4, hidden: true, ago: 3, last: 'hidden one' },
+  { id: R(5), kind: 'group', name: '출시', peers: [BEN, CHO], unread: 3, ago: 5, last: 'ship it' },
+  { id: R(6), kind: 'group', name: '마감', peers: [BEN, CHO], unread: 1, ago: 6, last: 'due friday' },
+]
+
+/** the room messages and files asked for: their q and room= */
+async function routeAsked(page: Page) {
+  const asked: { path: string; q: string; room: string | null }[] = []
+  const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+  await page.route(/\/api\/room-(messages|files)\?/, (route) => {
+    const u = new URL(route.request().url())
+    asked.push({ path: u.pathname, q: u.searchParams.get('q') ?? '', room: u.searchParams.get('room') })
+    return route.fulfill(json({ items: [], rooms: [], nextCursor: null, filters: { from: [], in: [], missing: [] } }))
+  })
+  return asked
+}
+async function signedIn(page: Page) {
+  await reset(page)
+  const asked = await routeAsked(page)
+  await routeRooms(page, SPECS)
+  await signIn(page)
+  return asked
+}
+/** whether the page called preventDefault on the next keydown: read once the event is done (the app's own listener may
+ * be added again after this one when search opens and takes a history entry) */
+const watchKey = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { lastPrevented?: boolean | null }
+  w.lastPrevented = null
+  window.addEventListener('keydown', (e) => { if (!['Meta', 'Control'].includes(e.key)) setTimeout(() => { w.lastPrevented = e.defaultPrevented }) })
+})
+const lastPrevented = async (page: Page) => {
+  await page.waitForFunction(() => (window as unknown as { lastPrevented?: boolean | null }).lastPrevented !== null)
+  return page.evaluate(() => (window as unknown as { lastPrevented?: boolean | null }).lastPrevented)
+}
+const chip = (page: Page, c: 'here' | 'mine' | 'mentions') => palette(page).getByTestId(`search-chip-${c}`)
+/** ⌘F as the app reads it: ⌘ where the page's user agent is a Mac's, else Ctrl (Playwright's Desktop Chrome says
+ * Windows on every host, so ControlOrMeta would send ⌘ to a "Windows" page on a Mac) */
+const pressF = async (page: Page) => page.keyboard.press(`${(await page.evaluate(() => /Mac OS X|Macintosh/.test(navigator.userAgent))) ? 'Meta' : 'Control'}+f`)
+const lastAsked = (asked: { path: string; q: string; room: string | null }[], path: string) => asked.filter((a) => a.path === path).at(-1)
+
+test('⌘K opens search with no chip on; ⌘F in a room opens it on This conversation and asks with room=', async ({ page }) => {
+  const asked = await signedIn(page)
+  await page.keyboard.press('ControlOrMeta+k')
+  await expect(palette(page)).toBeVisible()
+  await expect(chip(page, 'here')).toHaveCount(0)
+  await expect(chip(page, 'mine')).toHaveAttribute('aria-pressed', 'false')
+  await expect(chip(page, 'mentions')).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Escape')
+  await page.goto(`/rooms/${R(1)}`)
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  await pressF(page)
+  await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+  // no text: a hint, no request
+  await expect(palette(page).getByTestId('search-none')).toHaveText('이 대화에서 찾을 내용을 입력해 주세요.')
+  expect(asked).toEqual([])
+  await input(page).fill('견적')
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')).toEqual({ path: '/api/room-messages', q: '견적', room: R(1) })
+  await expect.poll(() => lastAsked(asked, '/api/room-files')).toEqual({ path: '/api/room-files', q: '견적', room: R(1) })
+  // the chip off: every room again; no room id anywhere on screen
+  await chip(page, 'here').click()
+  await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')?.room).toBeNull()
+  await expect(palette(page)).not.toContainText(R(1))
+})
+
+test('⌘F in a thread: This conversation; in an AI chat: the page\'s own find (not prevented); elsewhere: as ⌘K', async ({ page }) => {
+  await signedIn(page)
+  await page.goto(`/rooms/${R(1)}/t/019a5f00-0000-7000-8000-000000000900`)
+  await expect(page.getByTestId('app-layout')).toBeVisible()
+  await pressF(page)
+  await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await page.goto('/c/019a5f00-0000-7000-8000-0000000000ff')
+  await expect(page.getByTestId('app-layout')).toBeVisible()
+  await watchKey(page)
+  await pressF(page)
+  expect(await lastPrevented(page)).toBe(false)
+  await expect(palette(page)).toHaveCount(0)
+  await page.goto('/activity')
+  await expect(page.getByTestId('app-layout')).toBeVisible()
+  await pressF(page)
+  await expect(palette(page)).toBeVisible()
+  await expect(chip(page, 'here')).toHaveCount(0)
+})
+
+test('a second ⌘F focuses the box and selects its text (prevented: no page find over the box)', async ({ page }) => {
+  await signedIn(page)
+  await page.goto(`/rooms/${R(1)}`)
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  await pressF(page)
+  await input(page).fill('budget')
+  await chip(page, 'mine').focus()
+  await watchKey(page)
+  await pressF(page)
+  expect(await lastPrevented(page)).toBe(true)
+  await expect(input(page)).toBeFocused()
+  expect(await input(page).evaluate((el: HTMLInputElement) => [el.selectionStart, el.selectionEnd])).toEqual([0, 6])
+})
+
+test('Sent by me and Mentions me send from:me and mentions:me; Backspace in an empty box turns the last chip off', async ({ page }) => {
+  const asked = await signedIn(page)
+  await page.keyboard.press('ControlOrMeta+k')
+  await chip(page, 'mine').click()
+  await expect(chip(page, 'mine')).toHaveAttribute('aria-pressed', 'true')
+  // a chip with no text asks already
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')?.q).toBe('from:me')
+  await chip(page, 'mentions').click()
+  await input(page).fill('견적')
+  await expect.poll(() => lastAsked(asked, '/api/room-messages')?.q).toBe('견적 from:me mentions:me')
+  // only the rooms' messages and files with a chip on: no chat records
+  await expect(palette(page).getByTestId('search-section-chats')).toHaveCount(0)
+  await input(page).fill('')
+  await input(page).press('Backspace')
+  await expect(chip(page, 'mentions')).toHaveAttribute('aria-pressed', 'false')
+  await expect(chip(page, 'mine')).toHaveAttribute('aria-pressed', 'true')
+  await input(page).press('Backspace')
+  await expect(chip(page, 'mine')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('the empty box: up to 3 unread conversations, mentions first, not muted or hidden ones', async ({ page }) => {
+  await signedIn(page)
+  await page.keyboard.press('ControlOrMeta+k')
+  const attention = palette(page).getByTestId('search-section-attention')
+  await expect(attention.getByRole('option')).toHaveCount(3)
+  await expect(attention.getByTestId('search-row-name')).toHaveText([/^예산/, /^디자인 리뷰/, /^출시/])
+  await expect(attention).not.toContainText('조용한 방')
+  await expect(attention).not.toContainText('Cho')
+  await attention.getByRole('option').first().click()
+  await expect(page).toHaveURL(new RegExp(`/rooms/${R(2)}$`))
+})
+
+test('Korean input: ⌘ with e.key ㄹ (e.code KeyF) still opens This conversation; nothing while composing', async ({ page }) => {
+  await signedIn(page)
+  await page.goto(`/rooms/${R(1)}`)
+  await expect(page.getByTestId('room-message').first()).toBeVisible()
+  const mac = await page.evaluate(() => /Mac OS X|Macintosh/.test(navigator.userAgent))
+  const fire = (composing: boolean) => page.evaluate(([m, c]) => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ㄹ', code: 'KeyF', metaKey: m, ctrlKey: !m, isComposing: c, bubbles: true, cancelable: true })) }, [mac, composing] as const)
+  await fire(true)
+  await expect(palette(page)).toHaveCount(0)
+  await fire(false)
+  await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+})
+
+test.describe('a phone (390 px)', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true })
+  test('the room ⋯ › Search in this conversation opens search on it; the chips are 44 px tall', async ({ page }) => {
+    await signedIn(page)
+    await page.goto(`/rooms/${R(1)}`)
+    await expect(page.getByTestId('room-message').first()).toBeVisible()
+    await page.getByTestId('room-menu').click()
+    await page.getByTestId('room-menu-search').click()
+    await expect(chip(page, 'here')).toHaveAttribute('aria-pressed', 'true')
+    for (const c of ['here', 'mine', 'mentions'] as const) expect((await chip(page, c).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
 })

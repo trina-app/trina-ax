@@ -31,12 +31,18 @@
 // Files sent in rooms (전체 and 파일 tabs, after the team files' names, 4 file rows in all on 전체): searched on the server
 // by name (GET /api/room-files), only those of messages I see; a row is the name, then who sent it, where and when;
 // it opens its message in the room, as a message found does.
+// Chips (docs/decisions/20261120-search-shortcuts-slack.md), between the box and the types on 전체, 대화 and 파일: "This
+// conversation" (only when search was opened in a room, a DM or a thread: ⌘F there, or the room menu's Search in this
+// conversation; store/ui.ts searchHere) sends room= and searches that room's messages and files only, and with no text
+// asks nothing (a one-line hint); "Sent by me" and "Mentions me" add from:me and mentions:me to the text sent, so the
+// chip and the typed words are one search. Backspace in an empty box turns the last chip off. With no text, "Needs
+// attention" also lists up to 3 conversations with unread messages (mentions first; not muted or hidden ones).
 // Every word of the text counts, in any order (room messages, chat records, room files). A result from the server is
 // kept with the words it answered and used only while they are the words in the box, so nothing from an older text is
 // shown or opened: a fast Enter opens the top row shown at that moment. The highlighted row is kept by its key, so
 // results arriving above it do not move it.
 import clsx from 'clsx'
-import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
+import { Bell, BookMarked, Paperclip, Cable, CalendarClock, CalendarPlus, Check, ChevronDown, CornerDownLeft, File as FileIcon, FileSearch, Folder, FolderKanban, FolderOpen, FolderPlus, Gauge, Image as ImageIcon, Link2, MessageSquare, MoreHorizontal, Pencil, Plus, Shield, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
 import { nameMatch, parseSearch, searchWords } from '@mycel/shared'
@@ -86,6 +92,7 @@ import { awayFromComputer } from '../lib/integrations'
 export default function SearchDialog() {
   const open = useUi((s) => s.searchOpen)
   const scope = useUi((s) => s.searchScope)
+  const here = useUi((s) => s.searchHere)
   const setOpen = useUi((s) => s.setSearchOpen)
   // phones: Back closes search and stays on the page; a result opened takes its history entry (lib/backCloses.ts)
   useOverlayEntry(open, () => setOpen(false))
@@ -93,7 +100,7 @@ export default function SearchDialog() {
   const [dmWith, setDmWith] = useState<string | null>(null)
   return (
     <>
-      {open && <SearchBox scope={scope} onClose={() => setOpen(false)} onPerson={setDmWith} />}
+      {open && <SearchBox scope={scope} here={here} onClose={() => setOpen(false)} onPerson={setDmWith} />}
       <PeoplePicker open={!!dmWith} onClose={() => setDmWith(null)} mode={{ kind: 'new', preselect: dmWith ? [dmWith] : [] }} />
     </>
   )
@@ -284,7 +291,23 @@ const MARKER_TEXT: Record<MarkerKind, string> = { ask: 'text-warn', new: 'text-a
  *  and never shown, so it is not searched. */
 const scheduleText = (s: Schedule) => (s.templateId ? '' : s.prompt)
 
-function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClose: () => void; onPerson: (userId: string) => void }) {
+/** The types the chips apply on (the ones that show room messages or room files) */
+const CHIP_TYPES: readonly SearchType[] = ['all', 'rooms', 'files']
+type Chip = 'here' | 'mine' | 'mentions'
+const CHIP_LABEL: Record<Chip, MessageKey> = { here: 'search.chip.here', mine: 'search.chip.mine', mentions: 'search.chip.mentions' }
+/** What the chips add to the text sent to the server: the typed filters themselves (shared/src/search-text.ts) */
+const CHIP_TEXT: Record<Exclude<Chip, 'here'>, string> = { mine: 'from:me', mentions: 'mentions:me' }
+/** Unread conversations in the empty search's "Needs attention", at most */
+export const UNREAD_FEW = 3
+/** The conversations with unread messages that empty search lists: not muted (끄기) or hidden ones, those that mention
+ * me first, then the latest. */
+export function unreadRooms<R extends Pick<Room, 'id' | 'unreadCount' | 'mentioned' | 'muted' | 'activityAt'> & Partial<Pick<Room, 'hidden'>>>(rooms: readonly R[], few = UNREAD_FEW): R[] {
+  return rooms.filter((r) => r.unreadCount > 0 && !r.muted && !r.hidden)
+    .sort((a, b) => Number(b.mentioned) - Number(a.mentioned) || b.activityAt.localeCompare(a.activityAt))
+    .slice(0, few)
+}
+
+function SearchBox({ scope, here, onClose, onPerson }: { scope: 'rooms' | null; here: string | null; onClose: () => void; onPerson: (userId: string) => void }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -295,6 +318,13 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const inputRef = useRef<HTMLInputElement>(null)
   const [q, setQ] = useState('')
   const [tab, setTabState] = useState<SearchType>(scope ?? 'all')
+  // the chips that are on, in the order they were turned on (Backspace in an empty box turns off the last); "This
+  // conversation" is on when search opened in a room
+  const [chips, setChips] = useState<Chip[]>(here ? ['here'] : [])
+  const toggleChip = (c: Chip) => {
+    setChips((xs) => (xs.includes(c) ? xs.filter((x) => x !== c) : [...xs, c]))
+    setSel({ key: null, index: 0 })
+  }
   // the highlighted row: by its key once arrows or the mouse chose one (results arriving above it do not move it), else
   // the row at `index` (the first; after 메시지 더 보기, where that row was, so the keys go on to the first new message)
   const [sel, setSel] = useState<{ key: string | null; index: number }>({ key: null, index: 0 })
@@ -386,17 +416,25 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
 
   const query = norm(q.trim())
   const words = useMemo(() => searchWords(query), [query])
-  // the room messages' and room files' own reading of the text (shared/src/search-text.ts parseSearch): from: and in:,
-  // "quoted phrases", each word by its part without a Korean particle or an English ending (what is marked in their rows)
-  const parts = useMemo(() => parseSearch(query), [query])
+  // the chips, where they apply: the text sent for room messages and files (the typed text and each chip's filter), and
+  // the room of "This conversation"
+  const chipsShown = CHIP_TYPES.includes(tab)
+  const chipsOn = chipsShown ? chips : []
+  const room = here && chipsOn.includes('here') ? here : undefined
+  const sent = [q.trim(), ...chipsOn.filter((c): c is Exclude<Chip, 'here'> => c !== 'here').map((c) => CHIP_TEXT[c])].filter(Boolean).join(' ')
+  // the room messages' and room files' own reading of the text (shared/src/search-text.ts parseSearch): from:, in: and
+  // mentions:, "quoted phrases", each word by its part without a Korean particle or an English ending (what is marked
+  // in their rows)
+  const parts = useMemo(() => parseSearch(norm(sent)), [sent])
   const terms = parts.terms
-  // from: or in: in the text: only the rooms' messages and files are searched (nothing else has a sender or a room)
-  const filtered = parts.from.length > 0 || parts.in.length > 0
+  // from:, in:, mentions: in the text or a chip on: only the rooms' messages and files are searched (nothing else has a
+  // sender or a room)
+  const filtered = parts.from.length > 0 || parts.in.length > 0 || parts.mentions.length > 0 || !!room
   // What the server's answers are kept by: the words as the server reads them (searchWords), with only the letters it
   // takes in any case folded, so a space more or such a letter in another case asks nothing again and shows what is
   // there, and nothing else is taken for the same search. Chats, room messages and room files: LIKE, A–Z only ("Été" and
   // "été" are two searches). Team file names: every letter (team-files/find.ts).
-  const key = useMemo(() => searchWords(q.trim()).map(foldAZ).join(' '), [q])
+  const key = useMemo(() => `${searchWords(sent).map(foldAZ).join(' ')}${room ? ` room=${room}` : ''}`, [sent, room])
   const namesKey = useMemo(() => searchWords(q.trim()).map((w) => w.toLowerCase()).join(' '), [q])
   // the server's answers to the text in the box now (null: none yet)
   const foundNow = found?.q === key ? found.items : null
@@ -429,7 +467,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, filtered])
   // files by name, on the server, only where file rows are shown: the team's files and the files sent in my rooms
-  const wantNames = !!query && (tab === 'all' || tab === 'files')
+  const wantNames = !!sent && (tab === 'all' || tab === 'files')
   useEffect(() => {
     if (!wantNames || filtered) return
     let live = true
@@ -454,7 +492,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const ctrl = new AbortController()
     const asked = key
     const timer = setTimeout(() => {
-      api.call(API.searchRoomFiles, { query: { q: q.trim(), limit: ROOM_FILES_PAGE }, signal: ctrl.signal }).then(
+      api.call(API.searchRoomFiles, { query: { q: sent, limit: ROOM_FILES_PAGE, ...(room ? { room } : {}) }, signal: ctrl.signal }).then(
         (r) => live && setRoomFiles({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), failed: false, filters: r.filters }),
         () => live && !ctrl.signal.aborted && setRoomFiles({ q: asked, items: [], rooms: new Map(), failed: true }),
       )
@@ -468,7 +506,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   }, [key, wantNames])
 
   // room messages, on the server, only on the 전체 and 대화 tabs
-  const wantMessages = !!query && (tab === 'all' || tab === 'rooms')
+  const wantMessages = !!sent && (tab === 'all' || tab === 'rooms')
   useEffect(() => {
     setHitsShown(MESSAGES_FEW)
     setHitsMore(false)
@@ -477,7 +515,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const ctrl = new AbortController()
     const asked = hitsKey
     const timer = setTimeout(() => {
-      api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, sort }, signal: ctrl.signal }).then(
+      api.call(API.searchRoomMessages, { query: { q: sent, limit: MESSAGES_PAGE, sort, ...(room ? { room } : {}) }, signal: ctrl.signal }).then(
         (r) => live && setHits({ q: asked, items: r.items, rooms: new Map(r.rooms.map((x) => [x.id, x])), next: r.nextCursor, failed: false, near: r.near, filters: r.filters }),
         () => live && !ctrl.signal.aborted && setHits({ q: asked, items: [], rooms: new Map(), next: null, failed: true }),
       )
@@ -497,7 +535,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (want <= hitsNow.items.length || !hitsNow.next || hitsMore) return
     setHitsMore(true)
     const asked = hitsKey
-    api.call(API.searchRoomMessages, { query: { q: q.trim(), limit: MESSAGES_PAGE, cursor: hitsNow.next, sort } }).then(
+    api.call(API.searchRoomMessages, { query: { q: sent, limit: MESSAGES_PAGE, cursor: hitsNow.next, sort, ...(room ? { room } : {}) } }).then(
       (r) => {
         setHits((h) => (h?.q === asked ? { ...h, items: [...h.items, ...r.items.filter((x) => !h.items.some((y) => y.id === x.id))], rooms: new Map([...h.rooms, ...r.rooms.map((x) => [x.id, x] as const)]), next: r.nextCursor } : h))
         setHitsMore(false)
@@ -617,19 +655,26 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     const pushMessages = () => {
       if (!hitsNow) return
       const f = hitsNow.filters
+      // what a chip that is on says already is not said again (only what was typed)
+      const fromMeOnly = chipsOn.includes('mine') && parts.from.length === 1
       const label = hitsNow.near ? t('search.messagesNear') : [
         t('search.messages'),
-        ...(f?.from.length ? [t('search.fromWho', { name: f.from.map((p) => p.name).join(', ') })] : []),
+        ...(f?.from.length && !fromMeOnly ? [t('search.fromWho', { name: f.from.map((p) => p.name).join(', ') })] : []),
         ...(f?.in.length ? [t('search.inWhere', { room: f.in.map((r) => where(r, undefined)).join(', ') })] : []),
+        ...(f?.mentions && !chipsOn.includes('mentions') ? [t('search.mentionsYou')] : []),
       ].join(' · ')
       push('messages', label, [...hitsNow.items.slice(0, hitsShown).map(messageRow), ...(hitsShown < hitsNow.items.length || hitsNow.next ? [moreMessagesRow()] : [])])
     }
     const typeLabel = (x: SearchType) => t(TAB_LABEL[x])
 
-    if (!query) {
+    if (!sent) {
+      // "This conversation" with no text: nothing is asked (a hint says to type)
+      if (room) return out
       if (tab === 'all') {
         const attention: Row[] = [
           ...markedChats(listLoaded ? listed : chats, { here: onScreen, cards: cardChats(requests) }).map((x) => markedRow(x.chat, x.marker)),
+          // conversations with unread messages, as the 대화 list marks them (mentions first)
+          ...unreadRooms(myRooms).map((r) => ({ ...roomRow(r, roomTitle(r)), key: `unread:${r.id}`, match: false, attention: true, sub: t('rooms.unread', { n: r.unreadCount }) })),
           ...allSchedules.filter((s) => s.needsReview).map((s) => scheduleRow(s, t('search.attn.review'))),
           // an app on a computer checked from elsewhere is not a fault (lib/integrations.ts awayFromComputer)
           ...allMcp.filter((i) => i.status !== 'connected' && !awayFromComputer(i)).map((i) => mcpRow(i, t(i.status === 'needs_auth' ? 'search.attn.signIn' : 'search.attn.error'))),
@@ -696,7 +741,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
     if (tab === 'all') push('actions', t('search.actions'), actions.filter((a) => has(query, a.title, a.terms)))
     return out
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam])
+  }, [query, sent, room, chips, chipsShown, parts, tab, recent, projects, skills, schedules, mcp, foundNow, namesNow, hitsNow, roomFilesNow, hitsShown, hitsMore, actions, locale, myRooms, people, meId, roomTitle, listed, listLoaded, requests, onScreen, projectFirst, guestFolder, guest, filtered, where, freeRoam])
 
   const rows = useMemo(() => sections.flatMap((s) => s.rows), [sections])
   const chosen = sel.key === null ? -1 : rows.findIndex((r) => r.key === sel.key)
@@ -755,6 +800,8 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   // at the ends of the text choose another)
   const tabRow = useRef<HTMLDivElement>(null)
   useEdgeFade(tabRow)
+  const chipRow = useRef<HTMLDivElement>(null)
+  useEdgeFade(chipRow)
   useEffect(() => {
     const row = tabRow.current
     if (!row || row.scrollWidth <= row.clientWidth) return
@@ -766,7 +813,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
   const moveTab = (d: 1 | -1) => setTab((x) => types[(Math.max(0, types.indexOf(x)) + d + types.length) % types.length]!)
   // a from:/in: that named nobody or none of my conversations (the messages' answer, or the room files' on 파일)
   const missingFilters = (wantMessages ? hitsNow?.filters : wantNames ? roomFilesNow?.filters : undefined)?.missing
-  const loading = (tab === 'all' && !!query && (((foundNow === null && !errorNow) && !filtered) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow && !filtered : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && ((namesNow === null && !filtered) || roomFilesNow === null))
+  const loading = (tab === 'all' && !!sent && (((foundNow === null && !errorNow) && !filtered) || (wantMessages && hitsNow === null))) || (tab === 'rooms' && wantMessages && hitsNow === null) || (tab === 'chats' && (query ? foundNow === null && !errorNow && !filtered : recent === null || projectFirst === null)) || (tab === 'projects' && projects === null) || (tab === 'skills' && skills === null) || (tab === 'scheduled' && schedules === null) || (tab === 'mcp' && mcp === null) || (tab === 'files' && wantNames && ((namesNow === null && !filtered) || roomFilesNow === null))
   const failed = (tab === 'projects' && projects === 'error') || (tab === 'skills' && skills === 'error') || (tab === 'scheduled' && schedules === 'error') || (tab === 'mcp' && mcp === 'error') || (tab === 'chats' && !query && recent === 'error')
 
   // the first match of every word, marked (a room message or file: of each term, parseSearch)
@@ -806,6 +853,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             aria-controls="search-results"
             aria-activedescendant={active ? optId(active) : undefined}
             aria-label={t('search.title')}
+            aria-describedby={chipsShown ? 'search-chips' : undefined}
             className="h-10 min-w-0 flex-1 bg-transparent text-lg outline-none placeholder:text-faint"
             placeholder={tab === 'rooms' ? t('search.placeholderRooms') : t('search.placeholder')}
             value={q}
@@ -817,7 +865,11 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return
               const input = e.currentTarget
-              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              if (e.key === 'Backspace' && !input.value && chipsOn.length) {
+                // an empty box: the last chip turned on goes off, as in Slack
+                e.preventDefault()
+                toggleChip(chipsOn.at(-1)!)
+              } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
                 setMenu(null)
                 if (rows.length) choose(e.key === 'ArrowDown' ? Math.min(rows.length - 1, activeIndex + 1) : Math.max(0, activeIndex - 1))
@@ -845,6 +897,30 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             </button>
           </Tooltip>
         </div>
+        {/* the chips: toggle buttons (aria-pressed), never part of the results' listbox; one row that scrolls sideways */}
+        {chipsShown && (
+          <div ref={chipRow} id="search-chips" role="group" aria-label={t('search.chips')} className="scroll-thin edge-fade flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2" data-testid="search-chips">
+            {(['here', 'mine', 'mentions'] as const).filter((c) => c !== 'here' || here).map((c) => {
+              const on = chips.includes(c)
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={on}
+                  data-testid={`search-chip-${c}`}
+                  onClick={() => {
+                    toggleChip(c)
+                    inputRef.current?.focus()
+                  }}
+                  className={clsx('inline-flex shrink-0 items-center gap-1 rounded-full border px-3 text-xs max-md:h-11 md:h-7', on ? 'border-accent bg-accent/10 font-medium text-accent-text' : 'border-line text-muted hover:bg-hover hover:text-text')}
+                >
+                  {on && <Check size={13} aria-hidden />}
+                  {t(CHIP_LABEL[c])}
+                </button>
+              )
+            })}
+          </div>
+        )}
         {/* the line under the tabs sits outside the row, so the row's edge fade does not fade it too */}
         <div className="shrink-0 border-b border-line">
           {phone ? (
@@ -894,6 +970,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
           {failed && <p className="px-3 py-2 text-sm text-danger">{t('search.loadFailed')}</p>}
           {(namesNow?.failed || roomFilesNow?.failed) && wantNames && <p className="px-3 py-2 text-sm text-danger" data-testid="search-names-failed">{t('search.fileNamesFailed')}</p>}
           {hitsNow?.failed && wantMessages && <p className="px-3 py-2 text-sm text-danger" data-testid="search-messages-failed">{t('search.messagesFailed')}</p>}
+          {(wantMessages ? hitsNow?.filters : wantNames ? roomFilesNow?.filters : undefined)?.roomGone && <p className="px-3 py-2 text-sm text-muted" data-testid="search-here-gone">{t('search.hereGone')}</p>}
           {!!missingFilters?.length && <p className="px-3 py-2 text-sm text-muted" data-testid="search-filter-missing">{t('search.filterMissing', { filters: missingFilters.join(', ') })}</p>}
           {sections.map((s) => (
             <div key={s.id} role="group" aria-labelledby={`sh-${s.id}`} data-testid={`search-section-${s.id}`} className="pb-1">
@@ -1006,7 +1083,7 @@ function SearchBox({ scope, onClose, onPerson }: { scope: 'rooms' | null; onClos
             </div>
           ))}
           {!sections.length && !loading && !failed && !errorNow && (
-            <p className="px-3 py-8 text-center text-sm text-faint" data-testid="search-none">{tab === 'files' && !query ? t(guestFolder ? 'search.filesHintGuest' : 'search.filesHint') : t('search.none')}</p>
+            <p className="px-3 py-8 text-center text-sm text-faint" data-testid="search-none">{room && !sent ? t('search.hereHint') : tab === 'files' && !sent ? t(guestFolder ? 'search.filesHintGuest' : 'search.filesHint') : t('search.none')}</p>
           )}
           {!sections.length && loading && <p className="px-3 py-8 text-center text-sm text-faint">…</p>}
         </div>

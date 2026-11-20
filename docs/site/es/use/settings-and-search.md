@@ -111,5 +111,14 @@ Pulse **⌘K** (Ctrl+K en Windows), o elija **Buscar** bajo **Preguntar a Trina*
 - **Los archivos enviados en conversaciones** se encuentran por su nombre en las pestañas Todo y Archivos, después de los archivos de su equipo: el archivo, quién lo envió, dónde y cuándo. Solo se encuentran los archivos de mensajes que usted puede ver. Elija uno para abrir la conversación en el mensaje con el que se envió.
 - **Cuenta cada palabra**, en cualquier orden: "견적서 보내" encuentra "견적서를 보내드렸어요" en mensajes, chats y nombres de archivo.
 - **Teclas:** ↑ y ↓ mueven, Intro abre, ← y → cambian de pestaña, Esc cierra.
+- Los **filtros** bajo el cuadro acotan los mensajes y archivos encontrados: **Esta conversación** (cuando abrió la búsqueda en una conversación), **Enviados por mí** y **Me mencionan**. Escribir `from:me` o `mentions:me` hace lo mismo.
+
+| Teclas | Qué hacen |
+| --- | --- |
+| **⌘K** (Ctrl+K) | Abre la búsqueda desde cualquier lugar. |
+| **⌘F** (Ctrl+F) en un canal, mensaje directo, chat de grupo o hilo | Abre la búsqueda con **Esta conversación** activada. El menú **⋯** de la conversación también tiene **Buscar en esta conversación**. |
+| **⌘F** (Ctrl+F) en un chat con la IA, el visor de archivos, o con un archivo o artefacto abierto al lado | Busca en la página, como antes. |
+| **⌘F** (Ctrl+F) en cualquier otro lugar | Lo mismo que ⌘K. |
+| **⌘F** otra vez con la búsqueda abierta | Vuelve al cuadro de búsqueda, con su texto seleccionado. Para buscar en la página, use **Editar › Buscar…** en la aplicación de escritorio. |
 
 ![La búsqueda encuentra una palabra en un mensaje de una sala: quién lo escribió, en qué sala y cuándo](../../images/search/messages.webp "La búsqueda también encuentra mensajes")
