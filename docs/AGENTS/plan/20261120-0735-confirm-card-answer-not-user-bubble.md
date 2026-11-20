@@ -50,12 +50,13 @@ Shared chats with hidden labels keep "(AI의 질문에 답함)". Phone app is th
 
 ## Result
 
-Built as planned. The one path where a card's answer becomes a message is chat/open-questions.ts (the AI's ask_user
-and the safety cards that wait after the answer: website, save_url, delete, share, stop sharing, browser site); every
-other card waits inside its tool call and its answer stays on the step, never a message. That path now saves each
-answer's words (`shown`), the message text drops the cards' questions when nothing was typed, and Message.cardAnswer
-marks it; the web draws one quiet line (Messages.tsx CardAnswerLine) in the personal chat, the shared chat (with the
-name), the room side chat, the desktop app and the phone. Older answers are recognised from their saved answers
-(safety cards always; AI questions when the shown words are not the saved value). Old messages keep their stored text
-in search.
-
+The one path where a card's answer becomes a message is chat/open-questions.ts (the AI's ask_user and the safety cards
+that wait after the answer: website, save_url, delete, share, stop sharing, browser site); every other card waits inside
+its tool call and its answer stays on the step, never a message. Each new answer row is now marked (answersToSave:
+`typed`, or `shown` words with `hidden` for a shared chat's hidden labels); Message.cardAnswer comes from those marks
+(cardAnswerOf) and the web draws one quiet line (Messages.tsx CardAnswerLine): the same choice on several cards once
+with its count ("2개 모두 열기 선택함"), "답함" where labels are hidden, wrapped at phone width. The message text keeps
+the cards' questions (what the AI reads in later turns) and answeredNote never passes the marks to the AI. Rows saved
+before the marks are read only for safety cards (their call: buttons only); an older answer to the AI's own question
+cannot be told from typed text and stays a message. Review (MUST FIX) changed the plan's "text drops the questions"
+step for that reason.

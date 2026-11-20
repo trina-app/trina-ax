@@ -200,7 +200,7 @@ describe('a website card', () => {
 })
 
 describe('the answer is the cards\' choices, not the person\'s words', () => {
-  test('two website cards answered "Open": one user message of the buttons\' words only (no card text), marked as a card answer, also on reload', async () => {
+  test('two website cards answered "Open": the user message is marked as the cards\' choices, also on reload', async () => {
     const chatId = await newChat()
     const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'web_fetch', args: { url: 'https://card-two-a.example/doc' } }, { tool: 'web_fetch', args: { url: 'https://card-two-b.example/doc' } }), clientMessageId: cm(), attachmentIds: [] } })
     const c1 = (await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)).data.request as TurnRequest
@@ -211,8 +211,8 @@ describe('the answer is the cards\' choices, not the person\'s words', () => {
     await post('alice', r.turnId, { kind: 'ask_user', requestId: c2.requestId, answer: 'allow' })
     const next = await nextTurn(chatId, r.assistantMessage.id)
     const open = (c1 as Extract<TurnRequest, { kind: 'ask_user' }>).options!.find((o) => o.value === 'allow')!.label
-    expect(next.user.content).toBe(`${open}\n${open}`)
-    expect(next.user.content).not.toContain('card-two-a.example')
+    // the text keeps the cards' questions (what the AI reads of it in later turns); the apps draw the line instead
+    expect(next.user.content).toContain(`\n${open}\n\n`)
     expect(next.user.cardAnswer).toEqual({ choices: [open, open] })
     // a reload: the history says the same
     const page = await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })
@@ -221,7 +221,7 @@ describe('the answer is the cards\' choices, not the person\'s words', () => {
     expect(looked('card-two-a.example') + looked('card-two-b.example')).toBe(2)
   })
 
-  test('an older chat\'s answer (saved before the words were kept, the cards\' text in the message) reads as the cards\' choices too', async () => {
+  test('an older chat\'s safety-card answer (saved before the marks) reads as the cards\' choices too, by their buttons', async () => {
     const { chatId, turnId, answerId, card } = await askAndWait(fake({ tool: 'web_fetch', args: { url: 'https://card-old.example/doc' } }))
     await post('alice', turnId, { kind: 'ask_user', requestId: card.requestId, answer: 'deny' })
     const next = await nextTurn(chatId, answerId)
@@ -230,8 +230,8 @@ describe('the answer is the cards\' choices, not the person\'s words', () => {
     // as an older build saved it: no words with the answer, the question's text before them
     const row = h.ctx.db.query('SELECT questions FROM answered_questions WHERE message_id = ?').get(next.user.id) as { questions: string }
     const old = (JSON.parse(row.questions) as { shown?: unknown }[]).map(({ shown: _s, ...a }) => a)
+    expect(old[0]).not.toHaveProperty('typed')
     h.ctx.db.query('UPDATE answered_questions SET questions = ? WHERE message_id = ?').run(JSON.stringify([...old, { ...old[0], question: 'Second card?' }]), next.user.id)
-    h.ctx.db.query('UPDATE messages SET content = ? WHERE id = ?').run(`${q.question}\n${deny}\n\nSecond card?\n${deny}`, next.user.id)
     const page = await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })
     expect(page.items.find((m: Message) => m.id === next.user.id)!.cardAnswer).toEqual({ choices: [deny, deny] })
   })

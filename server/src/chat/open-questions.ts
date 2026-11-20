@@ -29,10 +29,14 @@ export interface WaitingCall { tool: string; args: unknown; card: TurnRequest; w
 /** one answered question (or safety card, with its call), as the next turn's engine message names it */
 export interface AnsweredQuestion {
   question: string; answer: unknown; call?: WaitingCall
-  /** the words its user message shows for this answer (answerText: a button's or option's words, null for Skip), saved
-   * when no answer of the message was typed: the message is then a card's answer, not the person's words
-   * (Message.cardAnswer, cardAnswerOf). Absent: typed, or saved before 2026-11-20 */
+  /** saved with the message since 2026-11-20 (answersToSave), never sent to the AI (answeredNote): the words its card
+   * shows for this answer (a button's or option's words, null for Skip) when no answer of the message was typed; the
+   * message is then the cards' choices, not the person's words (Message.cardAnswer, cardAnswerOf) */
   shown?: string | null
+  /** saved since 2026-11-20: some answer of this message was typed (the message is the person's own words) */
+  typed?: true
+  /** saved since 2026-11-20: the labels are hidden in this shared chat (labelsHidden): the line says only "answered" */
+  hidden?: true
 }
 
 /** Tools whose safety cards (delete, share, a website, a browser site) wait after the answer ends: the call raises
@@ -157,15 +161,15 @@ function answerLabels(answers: AnsweredQuestion[], requests: readonly TurnReques
 }
 
 /** What the answer's user message says on screen: the picked options by their labels, typed text as typed, `skipped`
- * for a question the person skipped (Skip on the card: the AI goes on without that answer). With several questions:
- * one line each; a question's words come before its answer only when some answer was typed (the person's own text
- * needs its question to be read). A message of the cards' choices alone never repeats the cards' text: it is not the
- * person's words (the web shows it as one quiet line, Message.cardAnswer). */
+ * for a question the person skipped (Skip on the card: the AI goes on without that answer); with several questions,
+ * one line each after its question. This is also what the AI reads of the answer in later turns (a history rebuilt for
+ * a new session or another engine), so the questions stay; the apps show a message of the cards' choices alone as one
+ * quiet line (Message.cardAnswer), never this text. */
 export function answerText(answers: AnsweredQuestion[], requests: readonly TurnRequest[], skipped: string, decisions: Partial<Record<string, string>> = {}, picked?: string): string {
-  const { labels, typed } = answerLabels(answers, requests, skipped, decisions, picked)
+  const { labels } = answerLabels(answers, requests, skipped, decisions, picked)
   if (answers.length === 1) return labels[0]!
   // the questions are the AI's words too: with the labels hidden (`picked`), so are they (one line per answer)
-  if (picked !== undefined || !typed) return labels.join('\n')
+  if (picked !== undefined) return labels.join('\n')
   return answers.map((a, i) => `${a.question}\n${labels[i]}`).join('\n\n')
 }
 
@@ -175,11 +179,13 @@ const decisionWords = (L: Locale) => ({ once: tr('siteOnce', L), always: tr('sit
 export const answerWords = (answers: AnsweredQuestion[], requests: readonly TurnRequest[], L: Locale, hideLabels = false): string =>
   answerText(answers, requests, tr('questionSkipped', L), decisionWords(L), hideLabels ? tr('questionAnswered', L) : undefined)
 
-/** The answers as they are saved with the message (saveAnswered): each with the words it shows (`shown`, null for
- * Skip) when no answer was typed, so the message reads as the cards' choices (cardAnswerOf). */
+/** The answers as they are saved with the message (saveAnswered), each marked: typed (some answer was the person's own
+ * text: their message), or the words its card shows (`shown`, null for Skip), with `hidden` when the labels are hidden
+ * in a shared chat. cardAnswerOf reads these marks; only rows saved before them go by the older rules. */
 export function answersToSave(answers: AnsweredQuestion[], requests: readonly TurnRequest[], L: Locale, hideLabels = false): AnsweredQuestion[] {
-  const { labels, skips, typed } = answerLabels(answers, requests, tr('questionSkipped', L), decisionWords(L), hideLabels ? tr('questionAnswered', L) : undefined)
-  return typed ? answers : answers.map((a, i) => ({ ...a, shown: skips[i] ? null : labels[i]! }))
+  const { labels, skips, typed } = answerLabels(answers, requests, tr('questionSkipped', L), decisionWords(L))
+  if (typed) return answers.map((a) => ({ ...a, typed: true as const }))
+  return answers.map((a, i) => ({ ...a, shown: skips[i] ? null : labels[i]!, ...(hideLabels && !skips[i] ? { hidden: true as const } : {}) }))
 }
 
 /** A safety card is decided by its own buttons only (as when it waited inside its call, TurnExec.answer): a typed
@@ -216,6 +222,8 @@ export function answeredNote(db: Database, messageId: string): string {
   if (!Array.isArray(list)) return ''
   // the safety cards' calls run again at the turn's start (chat/turn.ts replayCalls): they say what happened themselves
   list = list.filter((a) => !a.call)
+  // the apps' marks (answersToSave) are not the AI's business
+  list = list.map(({ shown: _s, typed: _t, hidden: _h, ...a }) => a)
   if (!list.length) return ''
   // a skipped question reads as it did when the card closed without an answer ({"skipped": true})
   list = list.map((a) => (a.answer === null || a.answer === undefined ? { question: a.question, skipped: true } as unknown as AnsweredQuestion : a))
@@ -224,44 +232,44 @@ export function answeredNote(db: Database, messageId: string): string {
   return `<answered_questions>\nThis message is the user's answer to the question${list.length > 1 ? 's' : ''} you asked with ask_user in your previous answer (the card waited until they answered). Each answer as the card gave it: ${json}\nContinue the work from there.\n</answered_questions>`
 }
 
-/** An answer saved before `shown` (2026-11-20) in the words its message shows: the whole message for one answer, else
- * the line after its question ("question\nwords", blocks split by a blank line, answerText's older form). */
-function oldWords(content: string, a: AnsweredQuestion, single: boolean): string | null {
-  if (single) return content
-  const at = a.question ? content.indexOf(`${a.question}\n`) : -1
-  if (at < 0) return null
-  const rest = content.slice(at + a.question.length + 1)
-  const end = rest.indexOf('\n\n')
-  return end < 0 ? rest : rest.slice(0, end)
+/** A safety card's button value in words (a row saved before the marks: its card is kept with its call) */
+function buttonWords(card: TurnRequest | undefined, v: unknown, decisions: Partial<Record<string, string>>): string | null {
+  const one = Array.isArray(v) && v.length === 1 ? v[0] : v
+  if (!card || typeof one !== 'string') return null
+  if (card.kind === 'ask_user') return card.options?.find((o) => o.value === one)?.label ?? null
+  return decisions[one] ?? null
 }
 
+/** What a message of the cards' choices shows (Message.cardAnswer): each card's words (null for Skip), or `hidden`
+ * when the labels are hidden in a shared chat (the line says only "answered"). */
+export interface CardAnswer { choices: (string | null)[]; hidden?: true }
+
 /**
- * The cards' choices this user message is (Message.cardAnswer): each answer's words, null for Skip; null when the
- * message is not only cards' choices (some answer was typed, or it answers no card). `content`: the message's text.
- * Answers saved before `shown` (2026-11-20), read from the text: a safety card's (kept with its call: buttons only)
- * always; an AI question's when the words are not its saved value (an option's label stood in for it; a typed answer
- * reads as typed). An option whose label is its value cannot be told from typed text: that message stays as it was.
+ * The cards' choices this user message is (Message.cardAnswer), or null: the message is the person's own words (some
+ * answer was typed) or answers no card. Rows saved since 2026-11-20 carry their marks (answersToSave). A row saved
+ * before them is read only when every answer is a safety card's (kept with its call: its own buttons only, never typed
+ * text), by the card's button; an older answer to the AI's own question cannot be told from typed text, so that
+ * message stays as it was.
  */
-export function cardAnswerOf(db: Database, messageId: string, content: string): (string | null)[] | null {
+export function cardAnswerOf(db: Database, messageId: string, L: () => Locale): CardAnswer | null {
   const r = db.query('SELECT questions FROM answered_questions WHERE message_id = ?').get(messageId) as { questions: string } | null
   if (!r) return null
   let list: AnsweredQuestion[]
   try { list = JSON.parse(r.questions) } catch { return null }
-  if (!Array.isArray(list) || !list.length) return null
-  const out: (string | null)[] = []
+  if (!Array.isArray(list) || !list.length || list.some((a) => !a || typeof a !== 'object')) return null
+  if (list.some((a) => a.typed)) return null
+  const choices: (string | null)[] = []
+  let hidden = false
   for (const a of list) {
-    if (!a || typeof a !== 'object') return null
-    if (a.shown === null || typeof a.shown === 'string') { out.push(a.shown); continue }
-    if (a.answer === null || a.answer === undefined) { out.push(null); continue }
-    const words = oldWords(content, a, list.length === 1)
+    if (a.shown === null || typeof a.shown === 'string') { choices.push(a.shown); if (a.hidden) hidden = true; continue }
+    // a row saved before the marks: a safety card's only
+    if (!a.call) return null
+    if (a.answer === null || a.answer === undefined) { choices.push(null); continue }
+    const words = buttonWords(a.call.card, a.answer, decisionWords(L()))
     if (words === null) return null
-    if (!a.call) {
-      const vals = (Array.isArray(a.answer) ? a.answer : [a.answer]).map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
-      if (words.split(', ').some((w) => vals.includes(w))) return null
-    }
-    out.push(words)
+    choices.push(words)
   }
-  return out
+  return hidden ? { choices: [], hidden: true } : { choices }
 }
 
 /**

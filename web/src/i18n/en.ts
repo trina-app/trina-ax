@@ -627,6 +627,8 @@ export const en: Record<MessageKey, string> = {
   // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
   "chat.cardAnswer": "Chose {choices}",
   "chat.cardSkipped": "Skipped",
+  "chat.cardAnswerAll": "Chose {choice} for all {count}",
+  "chat.cardAnswered": "Answered",
   'chat.inTrash': 'This chat is deleted and will be removed for good on {date}. Restore it to keep chatting.',
   "chat.footer": "AI can make mistakes. Check important information. Only you can see new chats.",
   "chat.toBottom": "Jump to the latest",

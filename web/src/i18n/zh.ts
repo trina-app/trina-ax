@@ -611,6 +611,8 @@ export const zh: Record<MessageKey, string> = {
   // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
   "chat.cardAnswer": "已选择{choices}",
   "chat.cardSkipped": "已跳过",
+  "chat.cardAnswerAll": "{count}项均选择{choice}",
+  "chat.cardAnswered": "已回答",
   "chat.inTrash": "此对话已删除，将于{date}永久删除。恢复后即可继续对话。",
   "chat.footer": "AI 可能会出错。请核实重要信息。新对话只有你能看到。",
   "chat.toBottom": "跳到最新消息",

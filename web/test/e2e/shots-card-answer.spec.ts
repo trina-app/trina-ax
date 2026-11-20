@@ -25,14 +25,14 @@ for (const width of [1440, 390] as const) {
       const [q, a] = body.items
       const at = (s: number) => new Date(Date.parse(a.createdAt) + s * 1000).toISOString()
       const asking = { ...a, content: '두 주소를 열어 볼게요.', steps: [] }
-      const answer = { ...q, id: ids.answer, parentId: a.id, content: '열기\n열기', attachments: [], createdAt: at(5), cardAnswer: { choices: ['열기', '열기'] }, branch: { index: 0, count: 1, siblingIds: [ids.answer] } }
+      const answer = { ...q, id: ids.answer, parentId: a.id, content: '이 대화에 없던 주소를 열려고 해요\n열기\n\n이 대화에 없던 주소를 열려고 해요\n열기', attachments: [], createdAt: at(5), cardAnswer: { choices: ['열기', '열기'] }, branch: { index: 0, count: 1, siblingIds: [ids.answer] } }
       const step = (n: number, url: string) => ({ id: `s${n}`, kind: 'tool', tool: 'web_fetch', label: `웹 페이지 가져오기 · ${url}`, status: 'ok', startedAt: at(6), endedAt: at(7) })
       const next = { ...a, id: ids.next, parentId: ids.answer, createdAt: at(8), content: 'HN에서 Bright Data를 다룬 글을 두 개 찾았어요. 하나는 스크래핑 비용 비교, 하나는 프록시 품질 후기예요.',
         steps: [step(1, 'https://hn.algolia.com/api/v1/search?query=bright+data'), step(2, 'https://news.ycombinator.com/item?id=4100000')], branch: { index: 0, count: 1, siblingIds: [ids.next] } }
       await route.fulfill({ response, json: { ...body, items: [q, asking, answer, next] } })
     })
     await page.reload()
-    await expect(page.getByTestId('card-answer')).toHaveText('열기 · 열기 선택함')
+    await expect(page.getByTestId('card-answer')).toHaveText('2개 모두 열기 선택함')
     await expect(page.getByTestId('user-message')).toHaveCount(1)
     await page.mouse.move(2, 2)
     for (const scheme of ['light', 'dark'] as const) {

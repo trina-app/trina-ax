@@ -13,20 +13,22 @@ beforeAll(() => { installDom(); useLocaleStore.setState({ locale: 'ko' }) })
 afterAll(() => { useLocaleStore.setState({ locale }); removeDom() })
 
 const DION = { id: 'dion', name: 'dion' }
-const answer = (content: string, choices: (string | null)[] | null) => ({ ...msg({ role: 'user', content, author: DION }), ...(choices ? { cardAnswer: { choices } } : {}), local: undefined }) as never
+const answer = (content: string, choices: (string | null)[] | null, hidden = false) => ({ ...msg({ role: 'user', content, author: DION }), ...(choices ? { cardAnswer: { choices, ...(hidden ? { hidden: true } : {}) } } : {}), local: undefined }) as never
 
-test('two website cards answered 열기: one quiet line "열기 · 열기 선택함", no bubble, no card text, no edit', async () => {
+test('two website cards answered 열기: one quiet line "2개 모두 열기 선택함", no bubble, no card text, no edit', async () => {
   const page = await mount(
     <MemoryRouter>
       <div data-testid="solo"><UserMessage m={answer('AI가 이 대화에 없던 주소를 열려고 해요\n열기\n\nAI가 이 대화에 없던 주소를 열려고 해요\n열기', ['열기', '열기'])} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></div>
       <div data-testid="shared"><UserMessage m={answer('열기', ['열기', null])} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} showAuthor canEdit={false} /></div>
+      <div data-testid="hidden"><UserMessage m={answer('(AI의 질문에 답함)', [], true)} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} showAuthor canEdit={false} /></div>
+      <div data-testid="mixed"><UserMessage m={answer('x', ['열기', '열지 않기', '열기'])} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></div>
       <div data-testid="typed"><UserMessage m={answer('이 프로젝트에서만', null)} chatId={CHAT} busy={false} onEdit={() => {}} onSelectBranch={() => {}} /></div>
     </MemoryRouter>,
   )
   try {
     const solo = page.get('solo')
     const line = solo.querySelector('[data-testid="card-answer"]')!
-    expect(line.textContent).toBe('열기 · 열기 선택함')
+    expect(line.textContent).toBe('2개 모두 열기 선택함')
     expect(solo.textContent).not.toContain('AI가')
     expect(solo.querySelector('[data-testid="user-text"]')).toBeNull()
     expect(solo.querySelector('[data-testid="edit-message"]')).toBeNull()
@@ -34,6 +36,10 @@ test('two website cards answered 열기: one quiet line "열기 · 열기 선택
     // a shared chat: who chose, in the line; a skipped card says so
     const shared = page.get('shared').querySelector('[data-testid="card-answer"]')!
     expect(shared.textContent).toBe('dion · 열기 선택함 · 건너뜀')
+    // a shared chat's hidden labels: only that they answered
+    expect(page.get('hidden').querySelector('[data-testid="card-answer"]')!.textContent).toBe('dion · 답함')
+    // different choices: each once, the repeated one with its count
+    expect(page.get('mixed').querySelector('[data-testid="card-answer"]')!.textContent).toBe('열기 (2) · 열지 않기 선택함')
     // typed text: the person's own words, a bubble as before
     expect(page.get('typed').querySelector('[data-testid="card-answer"]')).toBeNull()
     expect(page.get('typed').querySelector('[data-testid="user-text"]')!.textContent).toContain('이 프로젝트에서만')
