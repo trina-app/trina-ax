@@ -100,6 +100,7 @@ https://github.com/user-attachments/assets/a918709d-019d-4743-8e31-f05dd1b4e2ca
 
 ## 开始使用
 
+- **在浏览器里试用：** 无需安装，用虚构团队体验，AI 关闭。[打开演示](https://ax.trina.app/demo/zh/)
 - **Trina 托管：** 不用自己运维服务器。14 天免费试用，之后按月订阅。[套餐](https://ax.trina.app/pricing)
 - **应用：** [Mac、Windows、Linux、iPhone、Android](https://ax.trina.app/download)，或任何浏览器。
 - **自托管：** 你们自己的 Linux 服务器、Docker 或办公室 Mac。免费。[Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [办公室 Mac](docs/OFFICE.en.md) · [用 AI 助手安装](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)

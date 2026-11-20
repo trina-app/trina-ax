@@ -100,6 +100,7 @@ https://github.com/user-attachments/assets/a918709d-019d-4743-8e31-f05dd1b4e2ca
 
 ## 시작하기
 
+- **브라우저에서 써 보기:** 설치 없이 가상 팀으로 써 봐요. AI는 꺼져 있어요. [데모 열기](https://ax.trina.app/demo/ko/)
 - **트리나 호스팅:** 서버를 따로 운영할 필요가 없어요. 14일 무료 체험 뒤 월 요금제예요. [요금제](https://ax.trina.app/pricing)
 - **앱:** [맥, Windows, Linux, 아이폰, 안드로이드](https://ax.trina.app/download), 또는 어떤 브라우저에서든 써요.
 - **직접 설치:** 회사 리눅스 서버, Docker, 사무실 맥에 설치해요. 무료예요. [리눅스](docs/INSTALL-LINUX.md) · [Docker](docs/INSTALL-DOCKER.md) · [사무실 맥](docs/OFFICE.md) · [AI 에이전트로 설치](docs/INSTALL-LINUX.md#ai-에이전트로-설치하기)
