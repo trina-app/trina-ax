@@ -30,17 +30,18 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
-import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
+import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isBuiltIn, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
 import { connectionRowStatus, splitByScope } from '../lib/integrations'
 import { useLocale, useT } from '../i18n'
 import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/listCache'
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { useFreeRoam } from '../store/demo'
-import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Skeleton, Switch, inputCls } from '../components/ui'
+import { useRecommendedTools } from '../lib/teamTools'
 import { ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
@@ -275,7 +276,11 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
-  const cards = freeRoam ? [] : [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
+  // "팀 추천" (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
+  // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  const recommended = list.data?.recommendedTools
+  const tag = (c: Card): Card => (isRecommended(recommended, c.id) ? { ...c, line: `${t('connectors.recommendedTag')} · ${c.line}` } : c)
+  const cards = freeRoam ? [] : recommendedFirst([...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable].map(tag), recommended)
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -394,6 +399,35 @@ function ConnectorsHome() {
 /** /settings/connectors/:id: a built-in card's page, or a listed service's. */
 function ConnectorPage() {
   const { id = '' } = useParams()
+  const { admin } = useConnectors()
+  const page = <ConnectorPageBody id={id} />
+  // an owner or admin: "팀 추천", under the page (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  return admin && (isBuiltIn(id) || CONNECTORS.some((c) => c.id === id) || !!localAppById(id)) ? <>{page}<RecommendRow id={id} /></> : page
+}
+
+/** "팀 추천": an owner or admin recommends this tool to the team (TeamSettings.recommendedTools), as in the welcome
+ * steps' 팀이 쓸 도구: it comes first in everyone's list. Each person still connects their own account. */
+function RecommendRow({ id }: { id: string }) {
+  const t = useT()
+  const m = useRecommendedTools()
+  const { list } = useConnectors()
+  if (m.tools === undefined) return null
+  const error = m.error?.id === id ? m.error.text : null
+  return (
+    <section className="w-full max-w-3xl border-t border-line pt-5 pb-10" data-testid="team-recommend">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-0.5">
+          <label htmlFor="team-recommend-switch" className="text-sm font-medium text-ink">{t('connectors.recommend')}</label>
+          <p className={`text-sm ${error ? 'text-warn' : 'text-muted'}`} role={error ? 'alert' : undefined} data-testid="team-recommend-line">{error ?? t('connectors.recommendHint')}</p>
+        </div>
+        <Switch id="team-recommend-switch" external checked={m.on(id)} disabled={m.saving !== null} label={t('connectors.recommend')}
+          onChange={(v) => { void m.set(id, v).then(() => void list.reload()) }} testId="team-recommend-switch" />
+      </div>
+    </section>
+  )
+}
+
+function ConnectorPageBody({ id }: { id: string }) {
   const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {

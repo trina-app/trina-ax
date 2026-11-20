@@ -28,6 +28,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   personalIntegrations: true,
   /** apps on a member's own computer as connectors (integrations/connections/local.ts): on unless an admin turns it off */
   localApps: true,
+  /** "팀 추천" (shared/src/api/team-tools.ts): none until an owner or admin recommends a tool */
+  recommendedTools: [],
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */

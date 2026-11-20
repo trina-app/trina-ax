@@ -1,0 +1,31 @@
+// "팀 추천" (docs/decisions/20261120-team-vs-personal-onboarding.md): the tools an owner or admin recommends to the team,
+// for tools each person connects with their own account (Google Drive, Gmail, a listed service, an app on the
+// computer). Recommended tools come first in each person's Settings › Connectors; nothing is gated by it, anyone may
+// still connect anything. Stored as TeamSettings.recommendedTools (changed with PATCH /api/admin/settings) and read by
+// everyone with their connections: GET /api/integrations `recommendedTools`.
+import { z } from 'zod'
+
+/** a tool's id: 'google-drive', a Google app's id ('gmail', 'calendar', 'docs', 'sheets'), a listed service's id
+ * (shared/src/service-catalog.ts), a listed app on the computer (web/src/lib/localApps.ts) */
+export const TeamToolId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+export type TeamToolId = z.infer<typeof TeamToolId>
+export const RECOMMENDED_TOOLS_MAX = 50
+/** in the order they were recommended; empty (and absent: every team before it, an older server): none, the usual order */
+export const RecommendedTools = z.array(TeamToolId).max(RECOMMENDED_TOOLS_MAX)
+export type RecommendedTools = z.infer<typeof RecommendedTools>
+
+/** Whether the tool `id` is recommended to the team (absent: none). */
+export const isRecommended = (recommended: readonly string[] | null | undefined, id: string) => !!recommended?.includes(id)
+
+/** `items` with the recommended ones first, in the order they were recommended; the rest keep their order. */
+export function recommendedFirst<T extends { id: string }>(items: readonly T[], recommended: readonly string[] | null | undefined): T[] {
+  if (!recommended?.length) return [...items]
+  const rank = (id: string) => { const i = recommended.indexOf(id); return i < 0 ? Infinity : i }
+  return items.map((x, i) => ({ x, i })).sort((a, b) => rank(a.x.id) - rank(b.x.id) || a.i - b.i).map((v) => v.x)
+}
+
+/** The list after recommending `id` (on) or taking it back (off). */
+export function withRecommended(recommended: readonly string[] | null | undefined, id: string, on: boolean): string[] {
+  const rest = (recommended ?? []).filter((x) => x !== id)
+  return on ? [...rest, id] : rest
+}

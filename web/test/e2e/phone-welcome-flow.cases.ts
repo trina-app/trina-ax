@@ -235,11 +235,11 @@ export function welcomeFlowCases() {
     await expect(page.getByTestId('welcome')).toHaveCount(0)
   })
 
-  test('the end screen\'s skill: Back from its form goes to where the steps were opened from (Home), never through the steps', async ({ page }) => {
+  test('the end screen\'s 내 설정 시작: Home, and Back from there never walks through the steps', async ({ page }) => {
     await newOwner(page)
     await page.getByTestId('welcome-profile').getByRole('button', { name: '나중에 하기' }).click()
     await stepIs(page, 'skills')
-    // one kept skill in, so the end screen offers a first result with it
+    // one kept skill in (the end screen sums it up)
     await page.getByTestId('skill-packs').locator('[data-testid="skill-pack-row"][data-name="humanizer"]').getByTestId('skill-pack-check').check()
     await page.getByTestId('skills-primary').click()
     await stepIs(page, 'files')
@@ -247,24 +247,14 @@ export function welcomeFlowCases() {
     await stepIs(page, 'invite')
     await page.getByTestId('invite-step-done').click()
     await stepIs(page, 'done')
-    const patches = () => page.evaluate(() => performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/api/onboarding/welcome')).length)
-    const make = page.getByTestId('welcome-done-make')
-    await expect(make).toHaveAttribute('data-skill', 'skills/work/humanizer/SKILL.md')
-    await make.click()
-    await expect(page).toHaveURL(/\/skills\?run=/)
-    await expect(page.getByTestId('skill-form')).toBeVisible()
-    // the steps' entries are gone: Back closes the form (its own layer, TC-245), the next Back is Home; no step showed
-    // (or was recorded) on the way
-    const before = await patches()
-    await back(page)
-    await expect(page.getByTestId('skill-form')).toHaveCount(0)
-    await expect(page).toHaveURL(/\/skills$/)
-    await expect(page.getByTestId('welcome')).toHaveCount(0)
-    await back(page)
+    // no first result any more (docs/decisions/20261120-team-vs-personal-onboarding.md): 내 설정 시작 goes Home
+    await expect(page.getByTestId('welcome-done-make')).toHaveCount(0)
+    await page.getByTestId('welcome-done-home').click()
     await expect(page).toHaveURL(/\/$/)
     await expect(tabBar(page)).toBeVisible()
+    // the steps' entries are gone: Back never shows a step
+    await back(page)
     await expect(page.getByTestId('welcome')).toHaveCount(0)
-    expect(await patches()).toBe(before)
   })
 
   test('Back while a step is being saved: the step gone back to stays, the next one is not pushed over it', async ({ page }) => {
