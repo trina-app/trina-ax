@@ -31,6 +31,8 @@
 //   @fake {"diskFull": true}                 exit 1 with Node's "ENOSPC: no space left on device" on stderr (every time)
 //   @fake {"startFail": true}                exit 1 without output and bwrap's "Can't find source path …: Permission
 //                                            denied" on stderr, every time (the sandbox could not start the engine)
+//   @fake {"sessionNow": true}               write the session file now with the message and no answer (Claude Code's
+//                                            file when a run is stopped mid-answer)
 //   @fake {"loseSession": true}              on --resume: answer "No conversation found" (the stash went bad)
 //   @fake {"echo": "system" | "message" | "tools" | "toolDescriptions" | "model" | "history" | "resume"}
 //   @fake {"model": "prompt"}               call the model like Claude Code in subscription mode: the per-turn token
@@ -528,7 +530,12 @@ for (const d of directives) {
   cliAuthText = d.cliAuthText === true
   if (stopped) break
   if (d.say !== undefined) await say(String(d.say))
-  else if (d.tool) {
+  else if (d.sessionNow) {
+    // like Claude Code, which writes the person's message into its session file at once and the answer only when a
+    // message ends: a run stopped after this keeps a session without the text it was writing (QA AP-030)
+    fs.mkdirSync(path.dirname(sessionFile), { recursive: true })
+    fs.writeFileSync(sessionFile, [...history, { role: 'user', text: message }].map((l) => JSON.stringify(l)).join('\n') + '\n')
+  } else if (d.tool) {
     const r = await tool(d.tool, d.args ?? {}, !!d.expectImage, !!d.inspectImages)
     if (d.sayResult) await say(r)
     // an AI that follows an instruction it found in a tool's result (prompt injection): "@fake {...}" anywhere in a line
