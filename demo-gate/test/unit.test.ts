@@ -12,7 +12,7 @@ import {
 } from '../src/model.ts'
 import { localeOf, renderPage } from '../src/pages.ts'
 import { asInstanceUser, groupsBelow, ownsGroup, runMode, sudoStartArgv } from '../src/pool.ts'
-import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress } from '../src/public.ts'
+import { cookiesForInstance, pathVerdict, secureCookie, visitorAddress, withNoTransform } from '../src/public.ts'
 import { GateState } from '../src/state.ts'
 // the instance's own reading of upstream answers: the gate's answers must never mark its AI connection
 import { accountRefusal } from '../../server/src/proxy/anthropic-refusal.ts'
@@ -298,5 +298,16 @@ describe('log', () => {
     const o = JSON.parse(lines[0]!)
     expect(o).toMatchObject({ ev: 'x', instance: 'abcd1234', status: 503 })
     for (const k of ['ip', 'authorization', 'prompt', 'body']) expect(o[k]).toBeUndefined()
+  })
+})
+
+describe('Cache-Control no-transform', () => {
+  test('added, merged with what is there, never doubled', () => {
+    expect(withNoTransform(undefined)).toBe('no-transform')
+    expect(withNoTransform('')).toBe('no-transform')
+    expect(withNoTransform('no-store')).toBe('no-store, no-transform')
+    expect(withNoTransform('private,max-age=60')).toBe('private, max-age=60, no-transform')
+    expect(withNoTransform(['no-cache', 'must-revalidate'])).toBe('no-cache, must-revalidate, no-transform')
+    expect(withNoTransform('No-Transform, max-age=5')).toBe('No-Transform, max-age=5')
   })
 })

@@ -38,6 +38,8 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': ['seen=1; Path=/; Domain=example.com'] })
     return res.end(JSON.stringify({ path: req.url, method: req.method, headers: req.headers, dir: process.cwd(), config, env: process.env }))
   }
+  // HTML with its own Cache-Control (the gate adds no-transform to it, keeping the rest)
+  if (url.pathname === '/cached') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'private, max-age=60' }); return res.end('<p>cached</p>') }
   res.writeHead(200, { 'content-type': 'text/html' })
   res.end(`<p>instance ${process.cwd()}</p>`)
 })
