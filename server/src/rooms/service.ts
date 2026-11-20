@@ -312,8 +312,7 @@ export class Rooms {
       for (const u of [userId, ...others]) add.run(id, u, now)
       this.eventLine(id, userId, { type: 'created', userIds: others }, now)
       // not audited: the audit log is the admins' to read, and they must not learn who talks to whom
-      // (a channel made from a project: its link in this same write; a throw rolls back the room, its members and a
-      // guest's claim: createProjectChannel)
+      // (a caller's own step in this same write: a throw rolls back the room, its members and a guest's claim)
       inTx?.(id)
     }).immediate()
     this.roomEvent(id, 'added')
@@ -611,13 +610,15 @@ export class Rooms {
    * it), for someone who reads the project (else 404 like a missing project). A 0.5.21 link of the project is settled
    * first. When made, every member gets it; when it was there, the caller is put in it if the sync had not yet. */
   openProjectRoom(userId: string, projectId: string, locale: Locale = DEFAULT_LOCALE): Room {
-    const r = this.db.transaction(() => {
-      try { return openInTx(this.db, userId, projectId, locale) } catch (e) {
-        // the same project's room made at the same moment by another process (the unique index): theirs is the one
-        if (/UNIQUE constraint failed/.test(String((e as Error)?.message ?? e))) return { roomId: '', created: false, settled: null }
-        throw e
-      }
-    }).immediate()
+    let r: ReturnType<typeof openInTx>
+    try {
+      r = this.db.transaction(() => openInTx(this.db, userId, projectId, locale)).immediate()
+    } catch (e) {
+      // the same project's room made at the same moment by another process (the unique index): the write rolled back,
+      // theirs is the one
+      if (!/UNIQUE constraint failed/.test(String((e as Error)?.message ?? e))) throw e
+      r = { roomId: '', created: false, settled: null }
+    }
     const roomId = r.roomId || (this.db.query("SELECT room_id FROM room_project_links WHERE project_id = ? AND mode = 'room'").get(projectId) as { room_id: string } | null)?.room_id
     if (!roomId) return fail('not_found')
     if (r.settled) this.afterSettled([r.settled])

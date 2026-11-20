@@ -204,7 +204,8 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     let roomMessages = 0, threads = 0, replies = 0, reactions = 0, oldestDays = Infinity
     for (const x of mine) {
       const others = roomMembers(c, x).filter((u) => u.toLowerCase() !== hire.username.toLowerCase()).map(nameOf).sort()
-      const room = rooms.find((r) => r.kind === x.kind && (x.kind === 'all' || (x.name ? r.name === x.name : x.kind === 'team' ? r.groupId !== null && r.name === x.group : !r.name && r.memberCount === others.length + 1
+      // (a project's own chat room can carry a content room's name: the content's rooms are never project rooms)
+      const room = rooms.find((r) => r.kind === x.kind && !r.project?.room && (x.kind === 'all' || (x.name ? r.name === x.name : x.kind === 'team' ? r.groupId !== null && r.name === x.group : !r.name && r.memberCount === others.length + 1
         && (others.length > 4 || JSON.stringify(r.peers.map((p) => p.name).sort()) === JSON.stringify(others)))))
       if (!room) throw new Error(`${hire.username} has no room ${x.slug}`)
       const items = (await api.call(API.listRoomMessages, { params: { id: room.id }, query: { limit: 200 } })).items.filter((m) => !m.event)
