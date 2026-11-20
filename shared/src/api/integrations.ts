@@ -5,6 +5,7 @@
 // write-only here: no response ever carries them (only `hasSecret`).
 // Not the "connectors" of remote-mcp.ts: those are the other direction (claude.ai using this server's files).
 import { z } from 'zod'
+import { RecommendedTools } from './team-tools'
 import { IsoTime } from './common'
 import { endpoint, empty } from './endpoint'
 import { LocalAppSpec, LocalIntegrationInput, LocalIntegrationPatch } from './local-apps'
@@ -209,6 +210,9 @@ export const IntegrationList = z.object({
   /** the team lets members add apps on their own computer (TeamSettings.localApps, and personalAllowed). Older servers
    * omit it. */
   localAllowed: z.boolean().optional(),
+  /** the tools the team recommends, first in Settings › Connectors (TeamSettings.recommendedTools, shared/src/api/
+   * team-tools.ts); nothing is gated by it. Older servers omit it (none). */
+  recommendedTools: RecommendedTools.optional(),
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 

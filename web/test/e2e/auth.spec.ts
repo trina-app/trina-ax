@@ -47,7 +47,7 @@ test.describe('first-run setup in an English browser', () => {
     // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
     // start when it is left); no setup row on the steps themselves
     await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 팀 도구')
     await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
     await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
     await expect(page.getByTestId('setup-row')).toHaveCount(0)
