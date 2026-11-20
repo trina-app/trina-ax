@@ -5,7 +5,7 @@
 <h1>Trina AX</h1>
 
 <b>A IA que toda a sua equipe compartilha.</b><br>
-O Trina AX reúne os arquivos, as skills e as ferramentas da sua equipe em um só servidor. A IA de todos já começa com eles,<br>e cada arquivo que ela abre é verificado com as permissões de quem pediu.
+O Trina AX reúne os arquivos, as skills e as ferramentas da sua equipe em um só servidor. A IA de todos já vem com tudo isso,<br>e cada arquivo que ela abre é verificado com as permissões de quem pediu.
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-pt-BR.png" height="40" alt="Baixar para Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-pt-BR.png" height="40" alt="Baixar para Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Baixar na App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Disponível no Google Play"></a><br>
 <sub>Linux: .deb e AppImage (x64, arm64) na <a href="https://ax.trina.app/download">página de downloads</a></sub>
@@ -16,7 +16,7 @@ O Trina AX reúne os arquivos, as skills e as ferramentas da sua equipe em um s�
 
 </div>
 
-https://github.com/user-attachments/assets/fb2e1a9d-c188-4484-a869-4cc3eeaed5c7
+https://github.com/user-attachments/assets/f294e29d-ab5b-4135-b737-5252baffa758
 
 <p align="center"><sub>O que a IA de um recém-contratado consegue fazer no primeiro dia. A história em 80 segundos.</sub><br>Open source (AGPL-3.0) · Hospedagem própria grátis, sem limite de usuários<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-pt-BR.png" height="44" alt="Dê uma estrela no GitHub"></a><br><sub>Depois, clique em ☆ Star no topo da página. Uma estrela ajuda mais equipes a encontrar o Trina AX.</sub></p>
 
@@ -26,9 +26,9 @@ https://github.com/user-attachments/assets/fb2e1a9d-c188-4484-a869-4cc3eeaed5c7
 
 ## Configure uma vez. Vale para toda a equipe.
 
-**Uma conta de IA para toda a equipe.** Conecte uma chave de API do Claude ou da OpenAI, ou um plano cujos termos permitam isso, e todos usam essa conta para perguntar, com limites de tokens por pessoa, grupo ou equipe.
+**Uma conta de IA para toda a equipe.** Conecte uma chave de API do Claude ou da OpenAI, ou um plano cujos termos permitam isso. Todos usam essa conta para perguntar, com limites de tokens por pessoa, grupo ou equipe.
 
-Uma pessoa configura tudo no servidor da equipe. A IA de todos já tem tudo isso desde a primeira pergunta, no navegador ou nos apps. Ninguém mais instala o Claude Code nem copia skills; no máximo, cada um faz login nas próprias contas.
+Uma pessoa configura tudo no servidor da equipe. Desde a primeira pergunta, a IA de todos já conta com isso, no navegador ou nos apps. Ninguém mais precisa instalar o Claude Code nem copiar skills. No máximo, cada um faz login nas próprias contas.
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/v4/set-up-once-pt-BR-dark.webp"><img src="docs/images/readme/v4/set-up-once-pt-BR-light.webp" width="100%" alt="Uma pessoa configura uma vez no servidor Trina a conta de IA, o Google, os apps, a API da empresa, o Slack, as skills e os arquivos da equipe, e Alex no Mac, Mina no iPhone, Sam no Windows, Leo no navegador e Jordan no Android recebem tudo isso na IA deles."></picture>
 
@@ -38,9 +38,9 @@ Uma pessoa configura tudo no servidor da equipe. A IA de todos já tem tudo isso
 | **Google.** Compartilhe pastas do Drive com a equipe ou conecte uma conta da equipe (uma caixa de e-mail ou agenda compartilhada) para Gmail, Calendar, Docs e Sheets. | As pessoas que você escolher usam esses serviços nos chats. Cada pessoa também pode conectar a própria conta Google. |
 | **Apps.** Higgsfield, Notion, Linear, Figma e outros da lista de apps, ou qualquer servidor MCP pelo endereço, como o Bright Data. | As ferramentas do app nos chats de todos: um login da equipe, ou cada pessoa entra com a própria conta. |
 | **A API da sua empresa.** Um endereço, uma chave e algumas observações. | A IA chama o seu próprio sistema, só dentro desse endereço. |
-| **Slack.** O proprietário ou um admin adiciona uma vez. | Pergunte à Trina por mensagem direta ou em qualquer canal para o qual ela foi convidada, com o seu próprio acesso. |
+| **Slack.** O proprietário ou um admin adiciona uma vez. | Pergunte à Trina por mensagem direta ou em qualquer canal em que ela esteja, com o seu próprio acesso. |
 | **Skills.** Escreva um `SKILL.md` ou traga as skills da sua pasta `.claude` ou `.codex`. | A IA de todos segue os mesmos passos. Digite `/` para usar uma. |
-| **Arquivos da equipe.** Um só drive: toda a empresa, grupos, projetos, skills da equipe e pastas pessoais. | A IA de todos começa com os arquivos da equipe e abre só o que cada pessoa pode abrir. |
+| **Arquivos da equipe.** Um só drive: toda a empresa, grupos, projetos, skills da equipe e pastas pessoais. | A IA de todos já trabalha com os arquivos da equipe e só abre o que cada pessoa pode abrir. |
 
 <table>
 <tr>
@@ -58,7 +58,7 @@ Uma pessoa configura tudo no servidor da equipe. A IA de todos já tem tudo isso
 
 ## O que todo mundo faz com ele
 
-**Pergunte ao lado de qualquer conversa e envie com um clique.** Um chat lateral que só você vê; com um clique, a resposta da Trina vai para a conversa.
+**Pergunte sem sair da conversa e envie com um clique.** Um chat lateral que só você vê. Com um clique, a resposta da Trina vai para a conversa.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Na conversa Expo booth crew, Mina pede à Trina, em um chat lateral que só ela vê, para transformar as regras para expositores em um checklist, e depois envia para a conversa.">
 
@@ -66,31 +66,31 @@ Uma pessoa configura tudo no servidor da equipe. A IA de todos já tem tudo isso
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Um admin muda quem pode abrir a pasta Sales e depois confere o que a Mina pode abrir: Finance não está na lista dela.">
 
-**Retome a sessão de um colega em um projeto da equipe.** As sessões de um projeto da equipe são compartilhadas com os membros dele: abra a de um colega e continue, com o seu próprio acesso. Qualquer outra sessão você pode compartilhar com pessoas ou grupos, como um arquivo no Google Drive.
+**Retome a sessão de um colega em um projeto da equipe.** As sessões de um projeto da equipe são compartilhadas com os membros dele: abra a de um colega e continue de onde ele parou, com o seu próprio acesso. Qualquer outra sessão você pode compartilhar com pessoas ou grupos, como um arquivo no Google Drive.
 
 <img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina abre a sessão de projeto do Sam e continua editando os cards; o que ela pede roda com o acesso dela.">
 
-**Arquivos encontrados pelo que são.** Toda noite, a IA da equipe lê os arquivos novos e alterados nas pastas compartilhadas, de grupo e de projeto, e guarda uma linha por arquivo dizendo o que ele é. Assim, um documento escaneado chamado `temp.pdf` ou uma foto chamada `IMG_2031.jpg` são encontrados pelo conteúdo. Ela usa a conta de IA da equipe e nunca lê pastas pessoais. Em um teste com 2.238 arquivos fictícios, o Claude Code encontrou o arquivo certo em 181 de 184 perguntas com essas linhas, e em 172 sem elas.
+**Arquivos encontrados pelo conteúdo, não pelo nome.** Toda noite, a IA da equipe lê os arquivos novos e alterados nas pastas compartilhadas, de grupo e de projeto, e guarda uma linha por arquivo dizendo o que ele é. Assim, até um documento escaneado chamado `temp.pdf` ou uma foto chamada `IMG_2031.jpg` é encontrado. Ela usa a conta de IA da equipe e nunca lê pastas pessoais. Em um teste com 2.238 arquivos fictícios, o Claude Code encontrou o arquivo certo em 181 de 184 perguntas com essas linhas, e em 172 sem elas.
 
 <table>
 <tr>
-<td width="50%"><b>Tarefas agendadas.</b> Peça uma vez; a Trina repete no horário que você definir, no fuso horário da sua equipe.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="O resumo semanal escrito por uma tarefa agendada: o que encontrou, decisões e pendências, salvo como arquivo"></td>
+<td width="50%"><b>Tarefas agendadas.</b> Peça uma vez e a Trina repete no horário que você definir, no fuso horário da sua equipe.<br><br><img src="docs/images/readme/v4/scheduled-run.webp" alt="O resumo semanal escrito por uma tarefa agendada: o que encontrou, decisões e pendências, salvo como arquivo"></td>
 <td width="50%"><b>Convidados.</b> Convide pessoas de fora da empresa para um chat em grupo ou um projeto e escolha se elas podem usar a IA.<br><br><img src="docs/images/readme/v4/guest-room.webp" alt="O chat em grupo Launch email com Morgan Reyes, convidado de uma agência: opções de assunto, uma menção e a resposta da Trina"></td>
 </tr>
 <tr>
-<td width="50%"><b>Uso e limites.</b> Respostas, tokens e custo estimado por pessoa; limites de tokens por pessoa, grupo ou equipe.<br><br><img src="docs/images/readme/v4/usage.webp" alt="A página de uso do admin: tokens, respostas e custo estimado por pessoa"></td>
+<td width="50%"><b>Uso e limites.</b> Veja respostas, tokens e custo estimado por pessoa e defina limites de tokens por pessoa, grupo ou equipe.<br><br><img src="docs/images/readme/v4/usage.webp" alt="A página de uso do admin: tokens, respostas e custo estimado por pessoa"></td>
 <td width="50%"><b>Busque em tudo.</b> ⌘K em chats, histórico, projetos, arquivos, skills e tarefas agendadas.<br><br><img src="docs/site/images/search/palette.webp" alt="A busca ⌘K em chats, histórico, projetos, arquivos, skills e tarefas agendadas"></td>
 </tr>
 <tr>
-<td colspan="2"><b>Chat de equipe como o Slack, mas com a Trina AI.</b> Canais para todos e para cada grupo, canais privados, mensagens diretas, chats em grupo, threads e @menções, na web, no desktop e no celular. Pergunte à Trina ao lado de qualquer um deles, em um chat lateral que só você vê.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="O canal Marketing no chat da equipe: canais e mensagens diretas à esquerda, reações e @menções, uma resposta enviada ao canal e uma thread aberta à direita"></td>
+<td colspan="2"><b>Chat de equipe como o Slack, só que com a IA da Trina.</b> Canais para todos e para cada grupo, canais privados, mensagens diretas, chats em grupo, threads e @menções, na web, no desktop e no celular. Em qualquer um deles, pergunte à Trina em um chat lateral que só você vê.<br><br><img src="docs/images/readme/v4/team-chat.webp" alt="O canal Marketing no chat da equipe: canais e mensagens diretas à esquerda, reações e @menções, uma resposta enviada ao canal e uma thread aberta à direita"></td>
 </tr>
 </table>
 
-- **Toda mudança fica guardada.** Feita por uma pessoa ou pela IA dela; recupere qualquer versão.
-- **Navegador integrado.** No app para desktop, a Trina abre sites em um painel ao lado do chat, lê as páginas, clica e preenche formulários enquanto você acompanha; o botão Stop encerra. Ela pergunta antes de abrir um site novo, a menos que você permita todos os sites.
+- **Toda mudança fica guardada.** Seja de uma pessoa ou da IA dela, você pode voltar a qualquer versão.
+- **Navegador integrado.** No app para desktop, a Trina abre sites em um painel ao lado do chat, lê as páginas, clica e preenche formulários enquanto você acompanha. Para parar, é só clicar em Stop. Ela pergunta antes de abrir um site novo, a menos que você permita todos os sites.
 - **Apps postam nas conversas.** Atualizações do Sentry, GitHub, Stripe, Jira e HubSpot chegam como cards.
 - **Encontre arquivos de trabalho.** O app para desktop encontra arquivos de trabalho recentes no seu computador e adiciona os que você escolher.
-- **Documentos.** Lê o texto de documentos Hangul (HWP/HWPX); mostra prévias de PDF e PowerPoint.
+- **Documentos.** Lê o texto de documentos Hangul (HWP/HWPX) e mostra prévias de PDF e PowerPoint.
 - **Todos os dispositivos.** Mac, Windows, Linux, iPhone, Android e qualquer navegador, em seis idiomas.
 
 <br>
@@ -99,8 +99,8 @@ Uma pessoa configura tudo no servidor da equipe. A IA de todos já tem tudo isso
 
 ## Comece agora
 
-- **Experimente no navegador:** nada para instalar; uma equipe fictícia com a IA desligada. [Abrir a demo](https://ax.trina.app/demo/)
-- **Hospedagem pela Trina:** nenhum servidor para manter. Teste grátis de 14 dias, depois um plano mensal. [Preços](https://ax.trina.app/pricing)
+- **Experimente no navegador:** sem instalar nada, com uma equipe fictícia e a IA desligada. [Abrir a demo](https://ax.trina.app/demo/)
+- **Hospedagem pela Trina:** sem servidor para manter. Teste grátis de 14 dias, depois um plano mensal. [Preços](https://ax.trina.app/pricing)
 - **Apps:** [Mac, Windows, Linux, iPhone, Android](https://ax.trina.app/download) ou qualquer navegador.
 - **Hospedagem própria:** no seu próprio servidor Linux, com Docker ou em um Mac do escritório. Grátis. [Linux](docs/INSTALL-LINUX.en.md) · [Docker](docs/INSTALL-DOCKER.md) · [Mac do escritório](docs/OFFICE.en.md) · [Instalar com o seu agente de IA](docs/INSTALL-LINUX.en.md#install-with-your-ai-agent)
 
@@ -112,7 +112,7 @@ cp env.example .env && docker compose up -d --build
 docker compose exec trina-ax trina-ax-setup-link   # abra o link e crie a conta do proprietário
 ```
 
-É mais novo e menos testado que a instalação em Linux; um servidor Ubuntu 24.04 precisa primeiro de um ajuste no host. [Guia do Docker](docs/INSTALL-DOCKER.md)
+É mais novo e menos testado que a instalação em Linux. Em um servidor Ubuntu 24.04, é preciso antes fazer um ajuste no host. [Guia do Docker](docs/INSTALL-DOCKER.md)
 
 <b>Experimente no seu computador em 10 minutos</b> (equipe fictícia, IA desligada)
 
@@ -169,4 +169,4 @@ O app está disponível em inglês, coreano, indonésio, japonês, espanhol e ch
 
 Uso gratuito, inclusive comercial, sob a licença [AGPL-3.0-only](LICENSE). Se você oferecer uma versão modificada pela rede, disponibilize o código-fonte para esses usuários. O protocolo de nuvem é MIT ([licença](shared/src/cloud-protocol/LICENSE)). [Avisos](NOTICE) · [Avisos de terceiros](docs/THIRD-PARTY-NOTICES.md)
 
-O Claude Code e o Codex têm os próprios termos; este projeto não é endossado pela Anthropic nem pela OpenAI. Claude é uma marca registrada da Anthropic.
+O Claude Code e o Codex têm os próprios termos. Este projeto não é endossado pela Anthropic nem pela OpenAI. Claude é uma marca registrada da Anthropic.
