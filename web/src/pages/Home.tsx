@@ -46,7 +46,8 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useRealNavigationType } from '../lib/realPath'
 import { PRODUCT_NAMED_AFTER_AI, type Project } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
-import { useT } from '../i18n'
+import { useLocale, useT } from '../i18n'
+import { greetName } from '../lib/greetName'
 import { useMediaQuery } from '../components/ui'
 import { useAiAccess } from '../store/aiAccess'
 import { useChats } from '../store/chats'
@@ -92,6 +93,7 @@ export default function Home() {
 
 function HomePage() {
   const t = useT()
+  const locale = useLocale()
   const me = useMeStrict()
   const navigationType = useRealNavigationType()
   const [params] = useSearchParams()
@@ -217,7 +219,7 @@ function HomePage() {
                 readers, so the card and the box fit. "You're all set" greets nobody, so the greeting stays then */}
             {/* a free-roam demo: the bar at the top already says who the visitor is (FreeRoam.tsx), so Home greets them
                 as Home does; the persona's intro as the heading read as a second, odd intro (QA TC-5622) */}
-            {demo && !projectId && demo.info.kind !== 'freeRoam' ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: me.user.name })}</h1>}
+            {demo && !projectId && demo.info.kind !== 'freeRoam' ? <DemoIntro persona={demo.persona} /> : <h1 className={clsx('mb-6 text-center text-hero font-semibold tracking-tight text-balance max-md:mb-0', phone && welcomeCard && !welcome?.allSet && 'sr-only')}>{t('home.greeting', { name: greetName(me.user.name, locale) })}</h1>}
             {extras && notes && !projectId && <NotesLine notes={notes} />}
             {noAiLine}
           </div>

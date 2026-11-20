@@ -11,7 +11,8 @@ import type { MemberWelcome } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Home from '../../src/pages/Home'
 import { joinTitle } from '../../src/pages/Auth'
-import { firstName, roomList } from '../../src/components/onboarding/MemberWelcome'
+import { roomList } from '../../src/components/onboarding/MemberWelcome'
+import { greetName } from '../../src/lib/greetName'
 import { RoomAskHint, useRoomAskHint } from '../../src/components/rooms/RoomAskHint'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
@@ -124,7 +125,8 @@ describe('the card on Home', () => {
       expect(text(m, 'member-welcome-tools')).toContain('Connect your tools')
       expect(m.get('member-welcome-tools').getAttribute('data-optional')).toBeNull()
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBeNull()
-      expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina")
+      // posted to the everyone room: the whole display name, not the greeting's first name
+      expect(text(m, 'member-welcome-hi-button')).toBe("👋 Hi, I'm Mina Park")
       expect(m.get('member-welcome-photo').getAttribute('data-optional')).toBe('true')
       expect(text(m, 'member-welcome-ask')).toContain('Ask Trina what you can do here')
       // no second list of skills, no no-AI card
@@ -182,7 +184,7 @@ describe('the card on Home', () => {
       await m.until(() => m.find('member-welcome-hi-button'), 'the button')
       await m.click('member-welcome-hi-button')
       await m.until(() => m.find('member-welcome-hi-open'), 'done')
-      expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina"])
+      expect(called(`POST /api/rooms/${EVERYONE}/messages`).map((c) => c.body.body)).toEqual(["👋 Hi, I'm Mina Park"])
       expect(m.get('member-welcome-hi').getAttribute('data-done')).toBe('true')
       expect(text(m, 'member-welcome-progress')).toBe('Get started · 1 of 3')
       expect(m.get('member-welcome-hi-open').getAttribute('href')).toBe(`/rooms/${EVERYONE}`)
@@ -540,7 +542,9 @@ describe('no AI for the person', () => {
     try {
       await m.until(() => m.find('member-welcome-tell'), 'the row')
       expect(text(m, 'member-welcome-ask')).toContain("Trina isn't ready for you yet")
-      expect(text(m, 'member-welcome-tell')).toBe('Tell Olga')
+      // a third person: the owner's whole display name, on the button and in the hint
+      expect(text(m, 'member-welcome-tell')).toBe('Tell Olga Berg')
+      expect(text(m, 'member-welcome-ask')).toContain('You can start as soon as Olga Berg connects an AI for the team')
       expect(m.find('no-ai-card')).toBeNull()
       expect(m.find('member-welcome-ask-button')).toBeNull()
       await m.click('member-welcome-tell')
@@ -582,11 +586,47 @@ describe('no AI for the person', () => {
 })
 
 describe('the words', () => {
-  test('first names, the rooms, the join page', () => {
-    expect(firstName('Mina Park')).toBe('Mina')
-    expect(firstName('김민지')).toBe('김민지')
-    expect(firstName('김 민지')).toBe('김 민지')
-    expect(firstName('  QA  ')).toBe('QA')
+  test('the name to greet by (lib/greetName): the whole name in Korean, Japanese and Chinese, the first name otherwise', () => {
+    // Korean: the whole display name with 님 ("QA Member님", QA: it said "QA님"); a Korean name stays whole (the convention)
+    expect(greetName('QA Member', 'ko')).toBe('QA Member')
+    expect(greetName('Mina Park', 'ko')).toBe('Mina Park')
+    expect(greetName('홍길동', 'ko')).toBe('홍길동')
+    expect(greetName('김민지', 'en')).toBe('김민지')
+    expect(greetName('김 민지', 'en')).toBe('김 민지')
+    expect(greetName('QA Member', 'ja')).toBe('QA Member')
+    expect(greetName('QA Member', 'zh-CN')).toBe('QA Member')
+    // English and the other languages: the first name
+    expect(greetName('Mina Park', 'en')).toBe('Mina')
+    expect(greetName('QA Member', 'en-US')).toBe('QA')
+    expect(greetName('María José García', 'es')).toBe('María')
+    expect(greetName('Budi Santoso', 'id')).toBe('Budi')
+    // one word
+    expect(greetName('  QA  ', 'en')).toBe('QA')
+    expect(greetName('QA', 'ko')).toBe('QA')
+    expect(greetName('Raka', 'en')).toBe('Raka')
+    // emoji: left out of the name; a name of emoji only stays as it is
+    expect(greetName('🦊 Mina Park', 'en')).toBe('Mina')
+    expect(greetName('Mina Park 🦊', 'ko')).toBe('Mina Park')
+    expect(greetName('홍길동 🌸', 'ko')).toBe('홍길동')
+    expect(greetName('Mina🦊 Park', 'en')).toBe('Mina🦊')
+    expect(greetName('🦊', 'ko')).toBe('🦊')
+    expect(greetName('🦊 🌸', 'en')).toBe('🦊 🌸')
+    expect(greetName('', 'en')).toBe('')
+    // titles, initials, tags and one-letter words (the review of #163)
+    expect(greetName('Dr. Kim', 'en')).toBe('Kim')
+    expect(greetName('Dr. Kim', 'ko')).toBe('Dr. Kim')
+    expect(greetName('J. R. R. Tolkien', 'en')).toBe('Tolkien')
+    expect(greetName('A Park', 'en')).toBe('A Park')
+    expect(greetName('A', 'en')).toBe('A')
+    expect(greetName('(QA) Mina', 'en')).toBe('Mina')
+    expect(greetName('(QA) Mina', 'ko')).toBe('(QA) Mina')
+    // whole-name mode keeps the name as written, punctuation too; only emoji words go
+    expect(greetName('QA · Member', 'ko')).toBe('QA · Member')
+    expect(greetName('QA · Member 🌸', 'ko')).toBe('QA · Member')
+    expect(greetName('Kim Minsu', 'en')).toBe('Kim')
+  })
+
+  test('the rooms, the join page', () => {
     expect(roomList([{ id: EVERYONE, kind: 'all', name: null }], 'Everyone', 'en')).toBe('Everyone')
     expect(roomList([{ id: EVERYONE, kind: 'all', name: null }, { id: SALES, kind: 'team', name: 'Sales' }, { id: EVERYONE, kind: 'team', name: 'Ops' }], 'Everyone', 'en')).toBe('Everyone, # Sales, and # Ops')
     const t = ((k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => en(k, p)) as never
