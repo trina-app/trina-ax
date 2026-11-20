@@ -63,3 +63,22 @@ test('the team rules and company profile every prompt carries count as "can\'t s
     expect(withSkillReads(hh.ctx.db, use, [nora.id, otto.id], carried).files).toEqual([])
   } finally { await hh.close() }
 })
+
+test("a project channel's linked folder: left out while every member opens it, counted for a guest who cannot (QA, send to room)", async () => {
+  h = await harness('a-guests-answer-share-project')
+  const owner = await withOwner(h)
+  const mia = await addMember(h, owner, { username: 'mia' })
+  const nora = await addMember(h, owner, { username: 'nora' })
+  const project = await mia.client.call('POST', '/api/projects', { name: 'Lumanesis', participants: [{ subjectType: 'user', subjectId: nora.id }] })
+  const folder = (h.ctx.db.query('SELECT folder_path FROM projects WHERE id = ?').get(project.id) as { folder_path: string }).folder_path
+  const room = await groupChat(mia.client, [nora.id], 'Lumanesis talk')
+  const g = await addGuest(h, mia.client, { username: 'gus', place: { kind: 'room', id: room } })
+  const rel = `${folder}/warranty.md`
+  fs.mkdirSync(path.join(h.ctx.config.teamRoot, folder), { recursive: true })
+  fs.writeFileSync(path.join(h.ctx.config.teamRoot, rel), 'warranty: 3 years')
+  const use: BranchUse = { answers: ['m-p'], files: [{ path: rel, sha256: null }], other: [], known: true, roomsUnseen: false }
+  const missing = async (audience: string[]) => [...(await provenanceChecker(h.ctx, mia.id, audience, use.answers).of([use], new Set())).missing].sort()
+  // nora is in the project: nothing is at stake; the guest, invited to the channel only, cannot open the folder
+  expect(await missing([nora.id])).toEqual([])
+  expect(await missing([nora.id, g.id])).toEqual([g.id])
+})

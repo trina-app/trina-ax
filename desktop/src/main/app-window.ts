@@ -11,8 +11,8 @@ import { COMPUTER_REPORT_PATH, ComputerReporter, readSystemActivity, SYSTEM_ACTI
 import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
-import { CSRF_HEADER, Health, Me } from '@mycel/shared/api'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { API, CSRF_HEADER, Health, Me } from '@mycel/shared/api'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isShownTeamStart, isSignInPath, signInCode, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -439,6 +439,23 @@ export class AppWindow {
     }
   }
 
+  /** POST the Drive sign-in code to the team on screen with this app's own session (server google-drive/app-return.ts);
+   * the server finishes only a flow this session started. Nothing else is sent, nothing is kept. */
+  private async claimSignIn(code: string) {
+    const app = this.app, origin = this.team?.origin
+    if (!app || app.webContents.isDestroyed() || !origin) return
+    try {
+      await app.webContents.session.fetch(origin + API.claimDriveFlow.path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [CSRF_HEADER]: '1' },
+        body: JSON.stringify({ code }),
+        signal: AbortSignal.timeout(10_000),
+      })
+    } catch (e) {
+      console.warn('[desktop] sign-in code', (e as Error).message)
+    }
+  }
+
   /**
    * A link from outside (`trina-ax://open?url=…`, main.ts: open-url, a second instance's or this one's command line):
    * screen ④ asks "{host}에 연결할까요?" first. Nothing is fetched or loaded until the person's yes (answerLink); a
@@ -449,6 +466,12 @@ export class AppWindow {
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
     const p = readDesktopLink(raw)
+    // a Google Drive sign-in's one-time code for the team on screen: this app's own session finishes it (the page's
+    // wait then shows the account to confirm); the window comes forward (main.ts onLink)
+    const code = this.app && this.mode !== 'offline' ? signInCode(raw, this.team?.origin) : null
+    if (code) return void this.claimSignIn(code)
+    // the team on screen, its start: only the window comes forward (main.ts onLink), the page stays as it is
+    if (this.app && this.mode !== 'offline' && isShownTeamStart(raw, this.team?.origin)) return
     if (p?.ok) {
       this.linkGate.put(p)
       this.linkError = null

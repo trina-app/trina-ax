@@ -132,3 +132,9 @@ export async function shareGeneral(page: Page, to: 'read' | 'write' | 'restricte
     await expect(panel).toHaveCount(0)
   }
 }
+
+/** The mock team's Slack not added (the mock's default is a connected Slack): the welcome steps' 팀이 쓸 도구 counts a
+ * connected Slack as the step done, so a walk that puts the step off starts here. After reset (which brings it back). */
+export async function noSlack(page: Page) {
+  expect((await page.request.post('/__test/slack', { data: { admin: { tokens: false, enabled: false, state: 'off', workspace: null, botName: null, lastError: null } } })).ok()).toBeTruthy()
+}

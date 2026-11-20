@@ -104,7 +104,7 @@ export function countedSteps(p: WelcomeProgress | null, aiReady = true, computer
 
 /** A counted step is done: 회사 소개 saved and answered (profileAnswered), the others (the AI step too) recorded done.
  * Put off is not done. */
-const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
+export const stepDone = (p: WelcomeProgress, s: WelcomeStep) => (s === 'profile' ? p.steps.profile === 'done' && profileAnswered(p) : stepState(p, s) === 'done')
 
 /** The counted steps done (the AI step once AI answered). A step put off is not counted: with
  * steps put off the row read "5/5" while something was left (the recheck of onboarding v5). A phone counts its own. */
