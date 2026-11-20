@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 06:23
 - Branch: `ap033-thinking-display`
-- Status: in progress
+- Status: done
 - Where: server (Claude engine launch). Why: the engine never asks the model for readable thinking text.
 - Version impact: patch. A fix to AP-033 (#101): the Thinking step showed no text with Claude Opus 5.5.
 
@@ -43,4 +43,5 @@ Out: effort, budget, a per-message toggle (owner decision, unchanged). Codex (it
 
 ## Result
 
-Filled in at the end.
+Built as planned. The probe also closes its input and treats a program that did not start as "ask again". Checked
+by hand against the real Claude Code 2.1.305 binary.
