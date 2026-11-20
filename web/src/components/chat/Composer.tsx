@@ -14,8 +14,8 @@
 // as a token that carries its id (RoomRefMenu, docs/DECISIONS.md "내 AI 채팅에서 대화방 읽기").
 // The box is one frame, as AI apps have it (QA TC-1400): the text on top and one row under it inside the frame
 // (ComposerToolbar: + · the box's choices … the engine picker · mic · send). Nothing of it sits under the frame but the
-// computer's note. The engine picker is for people who may choose one, and only when two or more engines are switched on
-// (EngineMenu showsEnginePicker). Below 768px a box with nothing more than + and send (no picker, no choices, not Home's
+// computer's note. The engine picker is for people who may choose one, when two or more engines are switched on or the
+// one engine has two or more models (EngineMenu showsEnginePicker, AP-032). Below 768px a box with nothing more than + and send (no picker, no choices, not Home's
 // `card`, QA TC-391) is a room's box in one line (rooms/RoomComposer.tsx): + on the left, the mic and a round send on the
 // right.
 // Voice input (lib/useVoiceInput.ts, components/VoiceBar.tsx): the mic in the box right before send (as in ChatGPT's
@@ -57,7 +57,7 @@ import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
 import { ComposerFileList, SharedUploadLine, useComposerFiles, useFileDrop } from './ComposerFiles'
 import { useDropTarget } from '../FileDropZone'
-import { ENGINE_LABEL, EngineOptions, showsEnginePicker } from './EngineMenu'
+import { ENGINE_LABEL, EngineOptions, onlyModels, showsEnginePicker } from './EngineMenu'
 import { Button, IconButton, useMediaQuery } from '../ui'
 import { CalmNotice, useSaysConnection } from '../LoadError'
 import { useSkillMenu } from './SkillMenu'
@@ -441,8 +441,10 @@ export default function Composer({
 
   // the API engine has one model (the owner's): its name shows even when none was picked
   const shownModel = engine.engine && (engine.model ? models?.[engine.engine]?.find((m) => m.id === engine.model)?.label ?? engine.model : engine.engine === 'api' ? models?.api?.[0]?.label : undefined)
-  // the picker: for people who may choose, and only with two or more engines (one engine: none, whatever its models)
-  const pick = onEngine && showsEnginePicker(engines ?? []) ? onEngine : undefined
+  // the picker: for people who may choose, with two or more engines or one engine with two or more models (AP-032);
+  // with one engine it lists that engine's models only
+  const pick = onEngine && showsEnginePicker(engines ?? [], models) ? onEngine : undefined
+  const modelsOnly = onlyModels(engines ?? [])
   const engineLabel = engine.engine ? ENGINE_LABEL[engine.engine] + (shownModel ? ` · ${shownModel}` : '') : t('composer.defaultEngine')
   // the text on top and one row under it inside the box (ComposerToolbar: + and the box's choices on the left, the
   // engine, the mic and send on the right), as in the AI apps' boxes (QA TC-1400): every computer, and a phone whenever the box has more
@@ -639,7 +641,7 @@ export default function Composer({
   // the engine picker in the box's row: on a phone the choices as a sheet (a tap outside, Escape or Back closes it),
   // named for what it does and what is chosen ("AI 고르기, 지금: 기본 AI"); on a computer the small list
   const enginePicker = pick && (phone ? (
-    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" />
+    <EngineSheet engines={engines ?? []} models={models} current={engine} onPick={pick} label={engineLabel} name={t('composer.engineNow', { engine: engineLabel })} title={t('composer.engine')} testId="engine-picker" look="pill" modelsOnly={modelsOnly} />
   ) : (
     <div className="relative">
       <button ref={engineButtonRef} type="button" aria-haspopup="listbox" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} className="touch-hit flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-hover hover:text-ink" data-testid="engine-picker">
@@ -651,6 +653,7 @@ export default function Composer({
             engines={engines ?? []}
             models={models}
             current={engine}
+            modelsOnly={modelsOnly}
             onPick={(p) => {
               setEngineMenu(false)
               pick(p)
