@@ -16,7 +16,8 @@
 //     streams (the partial file is deleted).
 //   - The type comes from the bytes, never from the site (tools/sniff.ts): PNG, JPEG, GIF, WebP, PDF, MP4, MOV,
 //     WebM, MP3, WAV, M4A, AAC, FLAC, Ogg (Vorbis, Opus), and (docs/decisions/20261118-office-zip-from-the-web.md) Word,
-//     Excel, PowerPoint, Hangul, OpenDocument, Outlook .msg, CSV / TSV and ZIP; a zip or compound file is settled on the
+//     Excel, PowerPoint, Hangul, OpenDocument, Outlook .msg, CSV / TSV and ZIP, and
+//     (docs/decisions/20261120-team-scripts-in-previews.md) JavaScript files for HTML pages; a zip or compound file is settled on the
 //     whole file after the download (settleKind: an app package or an installer is refused, the file deleted); the
 //     extension is corrected to match. Images up to VISION_INPUT_MAX are also decoded by the isolated
 //     normalizer (files/vision.ts) as a check; the original bytes are saved. A zip is stored, never opened here.
@@ -332,7 +333,9 @@ export async function saveUrl(ctx: AppContext, a: Input, t: ToolCtx, o: SaveUrlO
     if (made.conflictCopyOf) notes.push(`${made.conflictCopyOf} already existed and was not read in this turn, so this was saved as a copy next to it; the original is unchanged.`)
     const what = [k.label, dims ? `${dims.width}×${dims.height}` : '', humanBytes(size)].filter(Boolean).join(', ')
     const rel = made.path
-    const pageHint = k.image || k.media === 'video' || k.media === 'audio'
+    const pageHint = k.name === 'js'
+      ? ` To run it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: <script src="${rel.split('/').slice(-2).join('/')}">, or import it from a <script type="module">); previews put team script files into the page, never web addresses.`
+      : k.image || k.media === 'video' || k.media === 'audio'
       ? ` To show it in an HTML page, reference it by a path relative to the page (for a page in ${rel.split('/').slice(0, -2).join('/') || 'the team root'}: "${rel.split('/').slice(-2).join('/')}"); previews show only team files.`
       : k.media === 'archive' ? ' It was saved as it is (not unzipped); unzip_file opens it when the user wants the files inside.'
         : k.media === 'document' || k.media === 'data' ? ' Read it with read to see its contents.' : ''
@@ -354,11 +357,12 @@ function judge(first: Buffer, declared: string, hint: string): FileKind {
 }
 
 export const SAVE_URL_DESCRIPTION =
-  'Download a file into the team folder, like `curl -o`: an image, PDF, video, audio, Office (Word, Excel, PowerPoint, Hangul, OpenDocument), CSV or ZIP file at an http(s) address, or a file a connected service returned ' +
+  'Download a file into the team folder, like `curl -o`: an image, PDF, video, audio, Office (Word, Excel, PowerPoint, Hangul, OpenDocument), CSV, ZIP or JavaScript file at an http(s) address, or a file a connected service returned ' +
   'inline (the mcp-file:<id> handle in its answer). Use it right away for what an image or video service generated (its result links expire), and to put ' +
   'images into HTML: save the image next to the page (save_as "landing/images/hero.png") and reference it by a relative path (<img src="images/hero.png"> in ' +
   'landing/index.html). Previews show only team files: web addresses in a page stay blocked. Takes PNG, JPEG, GIF and WebP images, PDF, MP4, MOV and WebM video, MP3, ' +
-  'WAV, M4A, AAC, FLAC and Ogg / Opus audio, Word, Excel, PowerPoint, Hangul and OpenDocument files, Outlook .msg emails, CSV / TSV tables and ZIP archives (saved as they are, not unzipped), ' +
+  'WAV, M4A, AAC, FLAC and Ogg / Opus audio, Word, Excel, PowerPoint, Hangul and OpenDocument files, Outlook .msg emails, CSV / TSV tables, ZIP archives (saved as they are, not unzipped) ' +
+  'and JavaScript files (a library an HTML page runs: save it next to the page, save_as "warehouse/lib/three.module.js", and reference it by a relative path), ' +
   'judged by the file\'s bytes (the extension is corrected); not SVG, HTML, other archives, installers or programs. Read a saved document with read. The address rules are web_fetch\'s: ' +
   'addresses from this conversation (typed by the user, search results, links of fetched pages, answers of connected services) open without asking within ' +
   'a budget, others are shown to the user first. Files over 1 GB ask the user first.'

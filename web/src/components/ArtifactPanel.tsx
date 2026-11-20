@@ -27,7 +27,7 @@ import { TYPE_LABEL } from './artifactLabels'
 import FolderPicker from './FolderPicker'
 import { CodeBlock, Markdown, MermaidBlock } from './Markdown'
 import SandboxFrame, { StaticFrame } from './SandboxFrame'
-import ExternalImagesNote from './ExternalImagesNote'
+import ExternalImagesNote, { FrameNotes, hasFrameNotes } from './ExternalImagesNote'
 import { useFrameFiles } from '../lib/useFrameFiles'
 import type { FrameFiles } from '../lib/frame-files'
 import { Button, CopyButton, IconButton, PreviewLoading, Spinner } from './ui'
@@ -74,9 +74,10 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
   const title = (writing ? live!.title : summary?.title ?? live?.title) || artifactKey
 
   // an HTML or SVG artifact's team images and clips as data: URLs (lib/frame-files.ts; an artifact has no folder: paths
-  // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked).
+  // are from the team root). A React artifact makes its images while it runs: not covered (they stay blocked). In a
+  // frame that runs scripts, its team script files too (lib/frame-scripts.ts).
   const inlines = !writing && !!artifact && (artifact.type === 'html' || artifact.type === 'svg')
-  const files = useFrameFiles(inlines ? artifact!.content : null, { folder: '' })
+  const files = useFrameFiles(inlines ? artifact!.content : null, { folder: '', scripts: scripts === true })
   const [frameDoc, setFrameDoc] = useState<FrameDoc | null>(null)
   useEffect(() => {
     let alive = true
@@ -252,9 +253,9 @@ export default function ArtifactPanel({ chatId, artifactKey, versionId, onClose 
           <p className="p-6 text-sm text-muted">{t('artifact.buildFailed')}</p>
         ) : scripts === false && artifact && type && (!inlines || files) ? (
           <StaticArtifact key={artifact.id} type={type} content={artifact.content} title={title} files={inlines ? files : null} />
-        ) : frameDoc && scripts && files?.external ? (
+        ) : frameDoc && scripts && files && hasFrameNotes(files) ? (
           <div className="flex h-full min-h-0 flex-col">
-            <ExternalImagesNote count={files.external} />
+            <FrameNotes files={files} />
             <SandboxFrame key={artifact?.id} html={frameDoc.html} title={title} onError={setRuntimeError} className="min-h-0 w-full flex-1 border-0 bg-white" />
           </div>
         ) : frameDoc && scripts ? (

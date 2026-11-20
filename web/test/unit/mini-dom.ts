@@ -1,7 +1,7 @@
 // A very small HTML document for unit tests that need DOMParser (bun has none): elements, attributes, text, raw-text
 // elements (script, style, textarea, title), void elements and the SVG namespace, with the few DOM calls that
-// lib/frame-files.ts and lib/artifacts.ts cleanStatic use. Test inputs only; the browser's own parser is covered by the
-// e2e specs.
+// lib/frame-files.ts, lib/frame-scripts.ts and lib/artifacts.ts cleanStatic use. Test inputs only; the browser's own
+// parser is covered by the e2e specs.
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr'])
 const RAW = new Set(['script', 'style', 'textarea', 'title'])
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -30,6 +30,7 @@ export class MiniElement {
   setAttribute(n: string, v: string) { const a = this.attrs.find((x) => x.name === n); if (a) a.value = v; else this.attrs.push(new MiniAttr(n, v, this)) }
   removeAttributeNode(a: MiniAttr) { this.attrs = this.attrs.filter((x) => x !== a) }
   remove() { if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this); this.parent = null }
+  prepend(el: MiniElement) { el.remove(); el.parent = this; this.children.unshift(el) }
   get textContent(): string { return this.children.map((c) => (c instanceof MiniElement ? c.textContent : c.text)).join('') }
   set textContent(v: string) { this.children = [{ text: v, parent: this }] }
   get outerHTML(): string {
@@ -43,6 +44,8 @@ export class MiniElement {
 
 export class MiniDocument {
   constructor(public documentElement: MiniElement) {}
+  get head(): MiniElement | null { return this.documentElement.all().find((e) => e.localName === 'head') ?? null }
+  createElement(name: string) { return new MiniElement(name.toLowerCase(), HTML_NS) }
   querySelectorAll(sel: string): MiniElement[] {
     const all = [this.documentElement, ...this.documentElement.all()]
     if (sel.trim() === '*') return all

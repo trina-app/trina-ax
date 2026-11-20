@@ -988,6 +988,8 @@ export const en: Record<MessageKey, string> = {
   'preview.unsupported': "This format can't be previewed. Download it to open it.",
   'preview.truncated': 'Only the beginning of the file is shown.',
   'preview.externalImages': '{n, plural, one {# image from the web is blocked in the preview — ask the AI to save it as a file} other {# images from the web are blocked in the preview — ask the AI to save them as files}}',
+  'preview.webScripts': '{n, plural, one {# script from the web does not run in the preview — ask the AI to save the library as a team file next to the page} other {# scripts from the web do not run in the preview — ask the AI to save the libraries as team files next to the page}}',
+  'preview.missingScripts': '{n, plural, one {# team script could not be put into the page (missing, not allowed, not a .js file or over 5 MB): {list}} other {# team scripts could not be put into the page (missing, not allowed, not .js files or over 5 MB): {list}}}',
   'preview.photoBusy': 'Many photo previews are being made now. Try again in a moment.',
   'preview.photoUnavailable': "This photo can't be previewed here. Download it to open it.",
   'preview.unsupportedShort': 'No preview for this format',

@@ -35,6 +35,7 @@ const DOC = cfb({ WordDocument: 'word 97 body', '1Table': 'table' })
 const DOC_MACROS = cfb({ WordDocument: 'word 97 body', 'Macros/VBA/dir': 'vba' })
 const MSI = cfb({ '䡀㼿䕷': 'installer table' })
 const CSV = Buffer.from('name,city,amount\nKim,Seoul,1200\nLee,Busan,800\n')
+const JS = Buffer.from('/* three.js r181 */ (function (g) { g.THREE = { REVISION: "181" } })(this);\n')
 
 let A: CApp
 let site: ReturnType<typeof Bun.serve>
@@ -56,6 +57,10 @@ beforeAll(async () => {
         '/setup.bin': [MSI, OCTET], '/sales.csv': [CSV, { 'content-type': 'application/vnd.ms-excel' }], '/export': [CSV, { 'content-type': 'text/csv; charset=utf-8' }],
         '/table.csv': [Buffer.from('<!doctype html><html><body>sign in</body></html>'), { 'content-type': 'text/csv' }],
         '/big.docx': [Buffer.concat([DOCX, Buffer.alloc(6 * 1024 * 1024)]), OCTET],
+        // JavaScript libraries for HTML pages (docs/decisions/20261120-team-scripts-in-previews.md)
+        '/npm/three/build/three.min.js': [JS, { 'content-type': 'application/javascript; charset=utf-8' }], '/lib.mjs': [JS, { 'content-type': 'text/plain' }],
+        '/three': [JS, { 'content-type': 'text/javascript' }], '/fake.js': [Buffer.from('<!doctype html><html>blocked</html>'), { 'content-type': 'text/javascript' }],
+        '/bin.js': [Buffer.concat([JS, Buffer.alloc(16)]), { 'content-type': 'text/javascript' }], '/cli.js': [Buffer.from('#!/usr/bin/env node\nconsole.log(1)'), OCTET],
       }
       // a download link that redirects to the file under its real name (Microsoft's fwlink, a CDN)
       if (p === '/fwlink/') return Response.redirect(at('/files/Financial%20Sample.xlsx'), 302)
@@ -116,6 +121,21 @@ describe('save_url: Office, CSV and ZIP files (QA TC-4922)', () => {
     expect(bytes('groups/marketing/data/sales.csv').equals(CSV)).toBe(true)
     expect((await s.run('/export', 'groups/marketing/data/')).structured.path).toBe('groups/marketing/data/export.csv')
     expect(await failure(s.run('/table.csv', 'groups/marketing/data/'))).toMatch(/an HTML page/)
+  })
+  test('a JavaScript library by its type or its .js / .mjs name, saved next to the page; pages, binaries and #! programs are refused', async () => {
+    const s = setup()
+    const a = await s.run('/npm/three/build/three.min.js', 'warehouse/lib/')
+    expect(a.structured).toMatchObject({ path: 'warehouse/lib/three.min.js', type: 'text/javascript' })
+    expect(bytes('warehouse/lib/three.min.js').equals(JS)).toBe(true)
+    expect(a.text).toContain('<script src="lib/three.min.js">')
+    // a CDN that sends text/plain: the .mjs name decides; a name without one: the type decides (and the name gets .js)
+    expect((await s.run('/lib.mjs', 'warehouse/lib/')).structured.path).toBe('warehouse/lib/lib.mjs')
+    expect((await s.run('/three', 'warehouse/lib/')).structured.path).toBe('warehouse/lib/three.js')
+    expect(await failure(s.run('/fake.js', 'warehouse/lib/'))).toMatch(/an HTML page/)
+    expect(await failure(s.run('/bin.js', 'warehouse/lib/'))).toMatch(/a binary file, not a JavaScript file/)
+    expect(await failure(s.run('/cli.js', 'warehouse/lib/'))).toMatch(/a script/)
+    expect(sniffDownload(JS.subarray(0, 64), 'text/javascript', 'x')?.name).toBe('js')
+    expect(sniffDownload(JS.subarray(0, 64), 'application/octet-stream', 'x')).toBeNull()
   })
   test('a ZIP is saved as it is (not unzipped); app packages and damaged zips are refused', async () => {
     const s = setup()

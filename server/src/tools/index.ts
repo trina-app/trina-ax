@@ -298,7 +298,9 @@ export function registerCTools(ctx: AppContext, o: { fetch?: FetchOptions; saveU
     description: 'Create or change an artifact shown next to the chat (html, react, svg, mermaid, markdown, code). ' +
       '"create" or "rewrite" with full `content`; "update" with `edits` [{ old, new }] (each `old` must appear exactly once in the latest version). ' +
       '`key` names the artifact within this chat; every change is a new version. ' +
-      'The preview shows only team files, never web addresses: save an image into the team folder first (save_url) and reference it by its team path (<img src="landing/images/hero.png">).',
+      'The preview shows only team files, never web addresses: save an image into the team folder first (save_url) and reference it by its team path (<img src="landing/images/hero.png">). ' +
+      'The same for a JavaScript library (Three.js, Chart.js, D3): never a CDN address, which does not run here; save the library file with save_url next to the page and reference it by its team path ' +
+      '(<script src="warehouse/lib/three.min.js">, or <script type="module"> with import ... from "./warehouse/lib/three.module.js" and relative imports between the files). Paths in an artifact start at the team root; in an HTML file they are relative to its folder.',
     input: ArtifactInput,
     describe: (a) => `artifact ${a.action} ${a.key}`,
     run(a, t) {

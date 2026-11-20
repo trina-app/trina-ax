@@ -988,6 +988,8 @@ export const id: Record<MessageKey, string> = {
   'preview.unsupported': 'Format ini tidak bisa dipratinjau. Unduh untuk membukanya.',
   'preview.truncated': 'Hanya bagian awal file yang ditampilkan.',
   'preview.externalImages': '{n} gambar dari web diblokir di pratinjau — minta AI menyimpannya sebagai berkas',
+  'preview.webScripts': '{n} skrip dari web tidak berjalan di pratinjau — minta AI menyimpan pustaka sebagai berkas tim di sebelah halaman',
+  'preview.missingScripts': '{n} skrip tim tidak bisa dimasukkan ke halaman (tidak ada, tidak diizinkan, bukan berkas .js, atau lebih dari 5 MB): {list}',
   'preview.photoBusy': 'Banyak pratinjau foto sedang dibuat. Coba lagi sebentar lagi.',
   'preview.photoUnavailable': 'Foto ini tidak bisa dipratinjau di sini. Unduh untuk membukanya.',
   'preview.unsupportedShort': 'Format ini tidak bisa dipratinjau',
