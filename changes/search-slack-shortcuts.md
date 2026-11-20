@@ -1,1 +1,0 @@
-- Search works more like Slack: ⌘F in a conversation searches just that conversation, and "Sent by me" and "Mentions me" chips narrow any search. In an AI chat or a file, ⌘F still finds on the page. The empty search box also lists up to 3 conversations with unread messages, and a conversation's ⋯ menu has "Search in this conversation".

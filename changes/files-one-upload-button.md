@@ -1,1 +1,0 @@
-- Files on a computer: **Upload** and **Upload folder** are one button now. **Upload** opens a small menu with **Upload files** and **Upload folder**. Where the browser can't pick folders (and on an iPad), it opens the file window at once, as before.
