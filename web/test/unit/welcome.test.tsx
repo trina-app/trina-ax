@@ -1496,6 +1496,34 @@ describe('the later steps and the end', () => {
     } finally { await m.unmount() }
   })
 
+  test('a phone\'s end screen never ticks 팀 도구, even when the server settled it done (a team connection made before the setup)', async () => {
+    signIn('owner')
+    phoneWidth()
+    progress = ran({ steps: { profile: 'done', result: null, skills: 'done', files: 'done', tools: 'skipped', invite: null } })
+    withGroup()
+    // server/src/onboarding/welcome.ts settlePutOff: once finished, a put-off 도구 연결 reads done when any connection works
+    const patch = routes['PATCH /api/onboarding/welcome']!
+    routes['PATCH /api/onboarding/welcome'] = (b) => {
+      const p = apply(b)
+      if (p.finishedAt && p.steps.tools === 'skipped') progress = { ...p, steps: { ...p.steps, tools: 'done' } }
+      return json(200, { progress })
+    }
+    const m = await app()
+    const row = (s: string) => m.container.querySelector(`[data-testid="welcome-done-row"][data-step="${s}"]`)!
+    try {
+      await m.click(await m.until(() => m.find('invite-step-done'), 'the invite'))
+      await m.until(() => m.find('welcome-done-summary'), 'the end screen')
+      expect(progress!.steps.tools).toBe('done')
+      expect(row('tools').getAttribute('data-state')).toBe('elsewhere')
+      expect(row('tools').textContent).toContain('컴퓨터에서 할 수 있어요')
+      expect(row('tools').querySelector('svg')).toBeNull()
+      expect(row('files').getAttribute('data-state')).toBe('done')
+    } finally {
+      routes['PATCH /api/onboarding/welcome'] = patch
+      await m.unmount()
+    }
+  })
+
   test('the end screen shows once: 내 스킬 finished later on a computer (after the phone\'s end) goes Home with "시작 설정을 마쳤어요"', async () => {
     signIn('owner')
     // a computer's browser (the folder window)

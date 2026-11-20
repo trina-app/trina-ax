@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 13:24
 - Branch: `fix/onboarding-finish-phone-and-greeting`
-- Status: in progress
+- Status: done
 - Where: web/src (Welcome end screen, Home member card). Why: two QA findings on qa.trina.app build
   0.5.22-dev.20261120121357, both screen-only (see docs/REPOSITORY-RULES.md)
 - Version impact: patch, two wording/state fixes on existing screens, no API or data change
@@ -44,4 +44,8 @@ Out: the server's settlePutOff rule (it keeps stopping the setup row's nag); a g
 
 ## Result
 
-(filled in at the end)
+- `web/src/lib/greetName.ts`: one helper for the member and owner Home card titles, the hi button, the owner's name on
+  the no-AI row and Home's greeting. "QA Member" → "QA Member님" (ko), "QA" (en); Korean names stay whole.
+- End screen: `elsewhere` is any step this device does not offer; a phone's row for 팀 도구 is always neutral.
+- Tests: web/test/unit/member-welcome.test.tsx (the helper), web/test/unit/welcome.test.tsx (a phone's end screen
+  with 도구 연결 settled done). Screenshots at 390 and 1440 in ko and en on the mock.

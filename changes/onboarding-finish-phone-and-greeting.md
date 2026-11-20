@@ -1,0 +1,2 @@
+- **Team setup on a phone**: the end screen no longer ticks **Team tools**, a step a phone skips. It says **You can do this on a computer**, whatever the team had connected before.
+- **Greetings by name** read naturally: in Korean, Japanese and Chinese the whole name ("QA Member님", not "QA님"); in English and the other languages the first name ("Welcome to Acme, Mina"). Emoji in a name are left out of the greeting.

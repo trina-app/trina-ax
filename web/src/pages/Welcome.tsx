@@ -861,9 +861,11 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
       <StepHead title={t('welcome.done.title')} />
       <ul className="divide-y divide-line rounded-xl border border-line" data-testid="welcome-done-summary">
         {SUMMED.map((s) => {
-          const later = !stepDone(progress, s)
           // a step this device does not do (a phone walks past 팀이 쓸 도구): "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요"
-          const elsewhere = later && !offeredHere(s, computer)
+          // and never a ✓, whatever is stored: the server records a put-off 도구 연결 done once the team has any working
+          // connection (welcome.ts settlePutOff), which this setup did not make (QA: a phone's 4 steps ended on "✓ 팀 도구")
+          const elsewhere = !offeredHere(s, computer)
+          const later = elsewhere || !stepDone(progress, s)
           return (
             <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : 'done'}>
               {later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}

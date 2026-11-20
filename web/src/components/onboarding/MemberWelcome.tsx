@@ -52,14 +52,7 @@ import { OPEN_APP_PATH, openAppLineShown, pageOrigin } from '../../lib/open-app'
 import { platform } from '../../lib/pwa'
 import { CardHide } from './CardHide'
 import { MyToolsList } from './MyToolsRow'
-
-/** The name to greet: the first word of a name with spaces in a script that writes given names first ("Mina Park" →
- * "Mina"); a name without spaces, or in Korean, Japanese or Chinese (family name first), stays whole. */
-export function firstName(name: string): string {
-  const s = name.trim()
-  if (!s || !/\s/.test(s) || /[\p{Script=Hangul}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(s)) return s
-  return s.split(/\s+/)[0]!
-}
+import { greetName } from '../../lib/greetName'
 
 /** "Everyone and # Sales" in the person's language (Intl.ListFormat), team rooms with their #. */
 export function roomList(rooms: Welcome['rooms'], everyone: string, locale: string): string {
@@ -89,7 +82,7 @@ export function MemberWelcomeCard({ welcome }: { welcome: Welcome }) {
   const me = useMeStrict()
   const hide = useMemberWelcome((s) => s.hide)
   const drop = useMemberWelcome((s) => s.drop)
-  const name = firstName(me.user.name)
+  const name = greetName(me.user.name, locale)
   const owner = welcome.kind === 'owner'
   const people = t('memberWelcome.people', { n: welcome.people })
   const frame = 'md:rounded-2xl md:border md:border-line md:p-5'
@@ -314,7 +307,7 @@ function AskRow({ welcome }: { welcome: Welcome }) {
   const noAi = ai.loaded && !ai.usable
   if (noAi && !welcome.steps.asked) {
     if (ai.action === 'ask_owner') {
-      const owner = welcome.owner ? firstName(welcome.owner.name) : null
+      const owner = welcome.owner ? greetName(welcome.owner.name, locale) : null
       return (
         <Row id="ask" done={false} title={t('memberWelcome.noAiAsk', { ai: name })} hint={owner ? t('memberWelcome.noAiAskHint', { owner }) : t('aiConnect.member')}>
           {ai.requested ? (

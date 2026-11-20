@@ -11,7 +11,8 @@ import type { MemberWelcome } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import Home from '../../src/pages/Home'
 import { joinTitle } from '../../src/pages/Auth'
-import { firstName, roomList } from '../../src/components/onboarding/MemberWelcome'
+import { roomList } from '../../src/components/onboarding/MemberWelcome'
+import { greetName } from '../../src/lib/greetName'
 import { RoomAskHint, useRoomAskHint } from '../../src/components/rooms/RoomAskHint'
 import { useAiAccess } from '../../src/store/aiAccess'
 import { useChats } from '../../src/store/chats'
@@ -582,11 +583,35 @@ describe('no AI for the person', () => {
 })
 
 describe('the words', () => {
-  test('first names, the rooms, the join page', () => {
-    expect(firstName('Mina Park')).toBe('Mina')
-    expect(firstName('김민지')).toBe('김민지')
-    expect(firstName('김 민지')).toBe('김 민지')
-    expect(firstName('  QA  ')).toBe('QA')
+  test('the name to greet by (lib/greetName): the whole name in Korean, Japanese and Chinese, the first name otherwise', () => {
+    // Korean: the whole display name with 님 ("QA Member님", QA: it said "QA님"); a Korean name stays whole (the convention)
+    expect(greetName('QA Member', 'ko')).toBe('QA Member')
+    expect(greetName('Mina Park', 'ko')).toBe('Mina Park')
+    expect(greetName('홍길동', 'ko')).toBe('홍길동')
+    expect(greetName('김민지', 'en')).toBe('김민지')
+    expect(greetName('김 민지', 'en')).toBe('김 민지')
+    expect(greetName('QA Member', 'ja')).toBe('QA Member')
+    expect(greetName('QA Member', 'zh-CN')).toBe('QA Member')
+    // English and the other languages: the first name
+    expect(greetName('Mina Park', 'en')).toBe('Mina')
+    expect(greetName('QA Member', 'en-US')).toBe('QA')
+    expect(greetName('María José García', 'es')).toBe('María')
+    expect(greetName('Budi Santoso', 'id')).toBe('Budi')
+    // one word
+    expect(greetName('  QA  ', 'en')).toBe('QA')
+    expect(greetName('QA', 'ko')).toBe('QA')
+    expect(greetName('Raka', 'en')).toBe('Raka')
+    // emoji: left out of the name; a name of emoji only stays as it is
+    expect(greetName('🦊 Mina Park', 'en')).toBe('Mina')
+    expect(greetName('Mina Park 🦊', 'ko')).toBe('Mina Park')
+    expect(greetName('홍길동 🌸', 'ko')).toBe('홍길동')
+    expect(greetName('Mina🦊 Park', 'en')).toBe('Mina🦊')
+    expect(greetName('🦊', 'ko')).toBe('🦊')
+    expect(greetName('🦊 🌸', 'en')).toBe('🦊 🌸')
+    expect(greetName('', 'en')).toBe('')
+  })
+
+  test('the rooms, the join page', () => {
     expect(roomList([{ id: EVERYONE, kind: 'all', name: null }], 'Everyone', 'en')).toBe('Everyone')
     expect(roomList([{ id: EVERYONE, kind: 'all', name: null }, { id: SALES, kind: 'team', name: 'Sales' }, { id: EVERYONE, kind: 'team', name: 'Ops' }], 'Everyone', 'en')).toBe('Everyone, # Sales, and # Ops')
     const t = ((k: Parameters<typeof translate>[1], p?: Parameters<typeof translate>[2]) => en(k, p)) as never
