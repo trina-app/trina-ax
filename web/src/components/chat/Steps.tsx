@@ -228,6 +228,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   const place = stepPlace(step, words.label, locale)
   const [open, setOpen] = useState(false)
   const subtask = step.tool === 'agent'
+  // the AI's thinking text (QA AP-033): closed until the person opens it, like claude.ai
+  const thinking = step.kind === 'thinking'
   // a read of a video or an audio file ("Watch video · …") shows a film / sound icon
   const media = step.kind === 'tool' ? mediaStepKind(step) : null
   const Icon = subtask ? Workflow : media === 'video' ? Film : media === 'audio' ? AudioLines : step.kind === 'tool' && step.tool && FILE_TOOLS.has(step.tool) ? FileSearch : ICON[step.kind] ?? Wrench
@@ -292,7 +294,8 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
   return (
     <li className="text-label text-muted" {...(subtask ? { 'data-testid': 'subtask', 'data-step-id': step.id } : {})}>
       {expandable ? (
-        <button type="button" aria-expanded={open} aria-label={subtask ? `${words.label}${cut ? ` · ${cut}` : ''}${markWords ? ` · ${markWords}` : ''} · ${t('steps.subtaskShow')}` : undefined} onClick={() => setOpen((v) => !v)} className={rowClass}>
+        <button type="button" aria-expanded={open} aria-label={subtask ? `${words.label}${cut ? ` · ${cut}` : ''}${markWords ? ` · ${markWords}` : ''} · ${t('steps.subtaskShow')}` : thinking ? `${words.label}${cut ? ` · ${cut}` : ''} · ${t('steps.thinkingShow')}` : undefined}
+          onClick={() => setOpen((v) => !v)} className={rowClass} {...(thinking ? { 'data-testid': 'step-thinking' } : {})}>
           {head}
         </button>
       ) : (
@@ -312,7 +315,7 @@ function StepRow({ step, live, marks, kids = [] }: { step: Step; live: boolean; 
       )}
       {open && !subtask && (
         <div className="mt-1 mb-2 ml-6 space-y-1.5 border-l border-line pl-3">
-          {detail && <p className="text-xs whitespace-pre-wrap text-muted">{detail}</p>}
+          {detail && <p className="text-xs whitespace-pre-wrap text-muted" {...(thinking ? { 'data-testid': 'step-thinking-text' } : {})}>{detail}</p>}
           {step.sources && (
             <ul className="space-y-1" data-testid="search-sources">
               {step.sources.map((s, i) => (

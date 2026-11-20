@@ -2214,6 +2214,18 @@ cases:
     good: Says where the apps are (Settings › Apps) and where the version is (About); no invented version.
     checks: []
 
+- id: SET-03
+  title: Export my own chats
+  features: [settings.export]
+  lang: en
+  context: personal
+  as: daniel
+  prompt: Can I download all my chats with you as files?
+  expect:
+    outcome: explain
+    good: Points to Settings › Export (a ZIP of his own chats, Markdown and JSON, for 24 hours); says other people's chats are not in it; does not send him to an admin.
+    checks: []
+
 # ================================================================ admin (explains; member vs admin)
 - id: ADM-01
   title: Change someone's role
@@ -2376,7 +2388,7 @@ cases:
   variants:
     - key: member
       as: daniel
-      expect: { outcome: explain, good: Admin tasks; he should ask an admin; plain words., checks: [] }
+      expect: { outcome: explain, good: Admin tasks; he should ask an admin; his own chats he can export himself in Settings › Export; plain words., checks: [] }
 
 - id: SYS-03
   title: The AI's file access on this computer

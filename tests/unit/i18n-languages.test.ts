@@ -164,6 +164,7 @@ const KOREAN_ALLOWED: Record<string, { why: string; also?: RegExp }> = {
   'server/src/relay-client/index.ts': { why: 'relay notices (ko next to en/id/ja/es)' },
   'server/src/routes/system.ts': { why: 'system screen texts (ko next to en/id/ja/es)' },
   'server/src/system/export.ts': { why: 'export headings (ko next to en/id/ja/es)' },
+  'server/src/system/my-export.ts': { why: 'the file line of the Settings export (ko next to en/id/ja/es/zh)' },
   'server/src/system/prune.ts': { why: 'the kept-versions line in diagnostics (ko next to en/id/ja/es)' },
   'server/src/system/windows-app.ts': { why: 'the Windows app line in diagnostics (ko next to en/id/ja/es)' },
   'shared/src/tools.ts': { why: 'a Korean example project name in a tool description the AI reads (not screen text)', also: /e\.g\. "견적"/ },

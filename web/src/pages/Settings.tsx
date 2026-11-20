@@ -61,6 +61,7 @@ import { AccountDeletion, deletionRowText, useMyDeletionRequest } from '../compo
 import { InstallGuide } from '../components/settings/InstallGuide'
 import { ComputerApps, PhoneApps, downloadsSourceOf } from '../components/settings/AppList'
 import { MemoryForm } from '../components/settings/MemoryForm'
+import { MyExport } from '../components/settings/MyExport'
 import AiApps from './AiApps'
 import { PhoneListGroup, PhoneListRow } from '../components/phone/PhoneList'
 import { PhoneChecks } from '../components/phone/PhoneChecks'
@@ -94,6 +95,7 @@ export default function SettingsPane({ tab, fold }: { tab: string; fold?: Settin
       {/* the dialog decides whether the section is there (it stays after its switch is turned off) */}
       {tab === 'browser' && browserTabShown(Boolean(browser), me.team.webAllowAll, true) && <BrowserSettings bridge={browser} />}
       {tab === 'memory' && <Memories />}
+      {tab === 'export' && !isGuestMe(me) && <MyExportSection />}
       {tab === 'allowances' && <AiAllowances key={`${me.user.id}:${me.session.id}`} folded={!!fold} />}
       {/* a phone: the sites the AI may open are parts of this page (Settings' list has no rows of their own for them) */}
       {tab === 'allowances' && fold?.browser && <BrowserSettings bridge={browser} part />}
@@ -988,6 +990,15 @@ export function Memories() {
 }
 
 /** Version, license and where the source code is (AGPL-3.0 §13). */
+function MyExportSection() {
+  const t = useT()
+  return (
+    <Section title={t('settings.export')} desc={t('myExport.desc')} page>
+      <MyExport />
+    </Section>
+  )
+}
+
 function About() {
   const t = useT()
   const info = useServerSource()

@@ -1,6 +1,7 @@
-// The composer's AI picker shows only with two or more engines (components/chat/EngineMenu.tsx showsEnginePicker, owner
-// 2026-11-12, QA TC-182): one engine has no picker however many models it has (Claude with 3 models showed 4 rows);
-// the model is still chosen in Settings › "AI for new chats" and Admin › Team settings › AI defaults.
+// The composer's AI picker (components/chat/EngineMenu.tsx showsEnginePicker, AI parity QA AP-032, 2026-11-20): it shows
+// with two or more engines, or with one engine that has two or more models. With one engine it lists that engine's
+// models only (no engine row, no "Default model" row). This supersedes the owner's 2026-11-12 rule (QA TC-182: one
+// engine, no picker however many models).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import type { Attachment, EngineId } from '@mycel/shared/api'
 import { useLocaleStore } from '../../src/i18n'
@@ -27,6 +28,7 @@ afterAll(() => {
 
 const m = (id: string) => ({ id, label: id })
 const ONE_MODEL = { 'claude-code': [m('sonnet')] }
+const TWO_MODELS = { 'claude-code': [m('opus'), m('sonnet')] }
 const THREE_MODELS = { 'claude-code': [m('opus'), m('sonnet'), m('haiku')] }
 
 /** the number of rows in the picker (null: no picker) in the composer of someone who may pick the engine (onEngine given), with these engines and models */
@@ -47,10 +49,15 @@ const pickerRows = async (engines: EngineId[], models: Partial<Record<EngineId, 
 }
 
 describe('showsEnginePicker', () => {
-  test('no engine or one engine (whatever its models): no picker', () => {
+  test('no engine, or one engine with one model or none: no picker', () => {
     expect(showsEnginePicker([])).toBe(false)
     expect(showsEnginePicker(['claude-code'])).toBe(false)
-    expect(showsEnginePicker(['api'])).toBe(false)
+    expect(showsEnginePicker(['claude-code'], ONE_MODEL)).toBe(false)
+    expect(showsEnginePicker(['api'], { api: [m('claude-sonnet-4-5')] })).toBe(false)
+  })
+  test('one engine with two or more models: the picker (AP-032)', () => {
+    expect(showsEnginePicker(['claude-code'], TWO_MODELS)).toBe(true)
+    expect(showsEnginePicker(['claude-code'], THREE_MODELS)).toBe(true)
   })
   test('two or more engines: the picker', () => {
     expect(showsEnginePicker(['claude-code', 'codex'])).toBe(true)
@@ -60,6 +67,6 @@ describe('showsEnginePicker', () => {
 
 describe('the composer (a computer)', () => {
   test('one engine with one model: no picker', async () => expect(await pickerRows(['claude-code'], ONE_MODEL)).toBeNull())
-  test('one engine with three models: no picker (was 4 rows before)', async () => expect(await pickerRows(['claude-code'], THREE_MODELS)).toBeNull())
+  test('one engine with three models: the picker with the 3 models only (no engine row)', async () => expect(await pickerRows(['claude-code'], THREE_MODELS)).toBe(3))
   test('two engines: the picker, Claude default + 3 models + ChatGPT default', async () => expect(await pickerRows(['claude-code', 'codex'], THREE_MODELS)).toBe(5))
 })

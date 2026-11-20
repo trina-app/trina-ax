@@ -5,7 +5,7 @@
 // 있는데" — the keyboard never comes up by itself, so the tab bar stays until the person taps the box.
 // The row's steps, at 390×844 and 360×780 (touch):
 // 1–2. Open the app (트리나 tab) and look without touching: the mark and the greeting in the middle third of the free
-//      space; the card above the tab bar holds + · the engine picker (two or more engines; TC-182: none with one) · mic
+//      space; the card above the tab bar holds + · the engine picker (two or more engines, or one with two or more models: AP-032) · mic
 //      · send, each taking taps from 44 px; no "기본 AI" line outside the card; nothing focused; the tab bar shows.
 // 3.   Tap the box: it has the focus; the keyboard up (the iPhone app's WebView and Android shrink the window, iOS
 //      Safari only visualViewport: lib/viewport.ts), the card sits right on it and the tab bar goes; the keyboard put
@@ -399,13 +399,13 @@ export function homeCenteredCases() {
         await cardOnTabs(page)
       })
 
-      test('TC-182 with the card: one engine on, no picker in it; + · mic · send stay', async ({ page }) => {
+      test('AP-032 with the card: one engine on with two models, the picker stays in it with + · mic · send', async ({ page }) => {
         await reset(page)
         await signIn(page)
         await call(page, 'PATCH', '/api/admin/engines', { enabled: { codex: false } })
         await page.goto('/')
         await expect(page.getByTestId('composer-tools')).toBeVisible()
-        await oneCard(page, false)
+        await oneCard(page, true)
         await cardOnTabs(page)
       })
 

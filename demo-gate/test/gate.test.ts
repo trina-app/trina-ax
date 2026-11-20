@@ -78,11 +78,15 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     expect(gate).toMatch(/Secure/)
     expect(gate).toMatch(/SameSite=Lax/)
     expect(gate).toMatch(/Path=\//)
-    const sid = set.find((c) => c.startsWith('mycel-dev-sid='))!
+    const sid = set.find((c) => c.startsWith('__Host-sid='))!
     expect(sid).toMatch(/; Secure$/)
+    // a __Host- cookie the browser keeps (review finding 2 on #105): Secure once, Path=/, no Domain
+    expect(sid.split('; ').filter((x) => x === 'Secure')).toHaveLength(1)
+    expect(sid).toContain('; Path=/;')
+    expect(sid).not.toMatch(/domain=/i)
     // routed by the cookie to a ko instance; the instance never sees the gate cookie or the edge headers
     const e = await (await get(g, v, '/echo')).json() as { headers: Record<string, string>; dir: string; config: any; env: Record<string, string> }
-    expect(e.headers.cookie).toStartWith('mycel-dev-sid=')
+    expect(e.headers.cookie).toStartWith('__Host-sid=')
     expect(e.headers.cookie).not.toContain('__Host-tdg')
     expect(e.headers['cf-connecting-ip']).toBeUndefined()
     expect(e.headers.host).toBe(`127.0.0.1:${e.config.listen.port}`)
@@ -93,16 +97,16 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     const v = visitor()
     await warm(g)
     expect((await startVisit(g, v)).status).toBe(303)
-    const first = v.cookies.get('mycel-dev-sid')!
+    const first = v.cookies.get('__Host-sid')!
     const dir = ((await (await get(g, v, '/echo')).json()) as { dir: string }).dir
     // signed out on the instance: the session cookie is gone, the gate cookie stays
-    v.cookies.delete('mycel-dev-sid')
+    v.cookies.delete('__Host-sid')
     const r = await get(g, v, '/__demo/resume', { method: 'POST', headers: { origin: 'https://demo.trina.app' } })
     expect(r.status).toBe(303)
     expect(r.headers.get('location')).toBe('/')
-    const sid = r.headers.getSetCookie().find((c) => c.startsWith('mycel-dev-sid='))!
+    const sid = r.headers.getSetCookie().find((c) => c.startsWith('__Host-sid='))!
     expect(sid).toMatch(/; Secure$/)
-    expect(v.cookies.get('mycel-dev-sid')).not.toBe(first)
+    expect(v.cookies.get('__Host-sid')).not.toBe(first)
     expect(((await (await get(g, v, '/echo')).json()) as { dir: string }).dir).toBe(dir)
     // another site cannot sign the visitor in again; a GET does nothing; a stranger without the gate cookie gets no session
     expect((await get(g, v, '/__demo/resume', { method: 'POST', headers: { origin: 'https://evil.example' } })).status).toBe(403)
@@ -170,7 +174,7 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
     const payload = Buffer.from([0x81, 0x85, 1, 2, 3, 4, 0x69, 0x67, 0x6f, 0x68, 0x6e])
     const r = await wsEcho(port, '/ws/events', cookie, payload)
     expect(r.head).toStartWith('HTTP/1.1 101')
-    expect(r.head).toContain('X-Seen-Cookie: mycel-dev-sid=')
+    expect(r.head).toContain('X-Seen-Cookie: __Host-sid=')
     expect(r.head).not.toContain('__Host-tdg')
     expect(r.echo.equals(payload)).toBe(true)
     // without a session: no upgrade
@@ -204,7 +208,7 @@ describe.skipIf(skip)('gate: pages, start, routing', () => {
   test('the log holds no credential, cookie or path secret', async () => {
     const log = g.log()
     expect(log).not.toContain(FAKE_CREDENTIAL)
-    expect(log).not.toContain('mycel-dev-sid')
+    expect(log).not.toContain('__Host-sid')
     expect(log).not.toContain('203.0.113.')
     for (const d of fs.readdirSync(g.instancesDir)) {
       const secret = instanceUpstream(g, d).split('.').pop()!

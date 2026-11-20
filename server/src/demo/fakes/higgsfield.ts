@@ -7,6 +7,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import zlib from 'node:zlib'
+import type { RemoteTool } from '../../integrations/connections/mcp'
 import type { NetRequest } from '../../integrations/connections/net'
 import type { FakeState, Generation } from './state'
 import { answerMcp, str, text, type FakeTool, type McpResult } from './mcp'
@@ -84,6 +85,27 @@ export function builtInPicture(): Buffer {
   return builtIn
 }
 
+/** The fake's tool list (what tools/list answers). Also what the snapshot's Higgsfield connection keeps as its saved
+ * tools (routes/demo-builder.ts, integrations.tools_json): with none saved the AI had no image tool (QA TC-5559). */
+export const HIGGSFIELD_TOOLS = [
+  { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. Returns the finished job with the picture.',
+    inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] } },
+  { name: 'generate_video', title: 'Generate video', readOnly: false, description: 'Generate a video from a text prompt.',
+    inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, duration: { type: 'integer' } }, required: ['prompt'] } },
+  { name: 'job_display', title: 'Get job', readOnly: true, description: 'Show one generation job by its id: status and results.',
+    inputSchema: { type: 'object', properties: { job_id: { type: 'string' } }, required: ['job_id'] } },
+  { name: 'show_generations', title: 'List generations', readOnly: true, description: 'List your recent generations, newest first.',
+    inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } } } },
+  { name: 'balance', title: 'Balance', readOnly: true, description: 'Your credit balance.',
+    inputSchema: { type: 'object', properties: {} } },
+] as const satisfies readonly Omit<FakeTool, 'call'>[]
+type HiggsfieldToolName = (typeof HIGGSFIELD_TOOLS)[number]['name']
+
+/** The fake's tools as a connection saves them (connections/mcp.ts RemoteTool, the shape of integrations.tools_json). */
+export function higgsfieldSavedTools(): RemoteTool[] {
+  return HIGGSFIELD_TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, readOnly: t.readOnly, inputSchema: structuredClone(t.inputSchema) as Record<string, unknown> }))
+}
+
 const extOf = (mime: string) => (mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg')
 
 export class FakeHiggsfield {
@@ -119,23 +141,14 @@ export class FakeHiggsfield {
     return { content: [{ type: 'text', text: JSON.stringify(this.view(g)) }, ...(b.bytes.length <= INLINE_MAX ? [{ type: 'image' as const, data: b.bytes.toString('base64'), mimeType: b.mime }] : [])] }
   }
 
-  readonly tools: FakeTool[] = [
-    { name: 'generate_image', title: 'Generate image', readOnly: false, description: 'Generate an image from a text prompt. Returns the finished job with the picture.',
-      inputSchema: { type: 'object', properties: { prompt: { type: 'string', description: 'what the picture shows' }, aspect_ratio: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4'] }, model: { type: 'string' }, count: { type: 'integer', minimum: 1, maximum: 4 } }, required: ['prompt'] },
-      call: (a) => this.generate(a) },
-    { name: 'generate_video', title: 'Generate video', readOnly: false, description: 'Generate a video from a text prompt.',
-      inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, duration: { type: 'integer' } }, required: ['prompt'] },
-      call: () => text(`${VIDEO_REFUSED}. Pictures work: use generate_image.`, true) },
-    { name: 'job_display', title: 'Get job', readOnly: true, description: 'Show one generation job by its id: status and results.',
-      inputSchema: { type: 'object', properties: { job_id: { type: 'string' } }, required: ['job_id'] },
-      call: (a) => { const g = this.state.get().generations.find((x) => x.id === str(a.job_id, 64)); return g ? text(JSON.stringify(this.view(g))) : text(`No job ${str(a.job_id, 64)}.`, true) } },
-    { name: 'show_generations', title: 'List generations', readOnly: true, description: 'List your recent generations, newest first.',
-      inputSchema: { type: 'object', properties: { limit: { type: 'integer', minimum: 1, maximum: 50 } } },
-      call: (a) => { const n = Math.max(1, Math.min(50, Number(a.limit) || 10)); return text(JSON.stringify({ generations: [...this.state.get().generations].reverse().slice(0, n).map((g) => this.view(g)) })) } },
-    { name: 'balance', title: 'Balance', readOnly: true, description: 'Your credit balance.',
-      inputSchema: { type: 'object', properties: {} },
-      call: () => text(JSON.stringify({ credits: 1000, plan: 'demo', note: 'Generations in the demo use no credits.' })) },
-  ]
+  private readonly calls: Record<HiggsfieldToolName, FakeTool['call']> = {
+    generate_image: (a) => this.generate(a),
+    generate_video: () => text(`${VIDEO_REFUSED}. Pictures work: use generate_image.`, true),
+    job_display: (a) => { const g = this.state.get().generations.find((x) => x.id === str(a.job_id, 64)); return g ? text(JSON.stringify(this.view(g))) : text(`No job ${str(a.job_id, 64)}.`, true) },
+    show_generations: (a) => { const n = Math.max(1, Math.min(50, Number(a.limit) || 10)); return text(JSON.stringify({ generations: [...this.state.get().generations].reverse().slice(0, n).map((g) => this.view(g)) })) },
+    balance: () => text(JSON.stringify({ credits: 1000, plan: 'demo', note: 'Generations in the demo use no credits.' })),
+  }
+  readonly tools: FakeTool[] = HIGGSFIELD_TOOLS.map((t) => ({ ...t, call: this.calls[t.name] }))
 
   /** one request to a Higgsfield address: the MCP endpoint, a token refresh, anything else 404 */
   async answer(url: URL, r: NetRequest): Promise<{ status: number; headers?: Record<string, string>; body?: string | Buffer }> {

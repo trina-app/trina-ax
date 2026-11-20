@@ -130,6 +130,10 @@ export function hygieneProblems(base: string): string[] {
     // the demo limit counts every turn the model proxy recorded on the instance: a snapshot starts at zero
     const proxied = db.query("SELECT count(*) n, COALESCE(SUM(input_tokens + output_tokens), 0) t FROM turns WHERE usage_source = 'proxy' OR input_tokens > 0 OR output_tokens > 0").get() as { n: number; t: number }
     if (proxied.n) problems.push(`${proxied.n} turns with recorded AI use (${proxied.t} tokens)`)
+    // a connection's turn tools come from its saved list: the team's Higgsfield with none gave the AI no image tool
+    // (QA TC-5559; a Google app's list is read by its own check, google-apps/service.ts)
+    const empty = db.query("SELECT slug FROM integrations WHERE status = 'connected' AND google_app IS NULL AND (tools_json IS NULL OR tools_json = '[]')").all() as { slug: string }[]
+    for (const r of empty) problems.push(`the ${r.slug} connection has no saved tools`)
   } finally { db.close() }
   const demo = JSON.parse(fs.readFileSync(L.demo, 'utf8')) as { builder?: boolean; kind?: string; personas?: unknown[] }
   if (demo.builder) problems.push('demo.json still turns the builder on')
