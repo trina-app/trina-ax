@@ -8,11 +8,13 @@
 // still there with the same bytes, and the viewer able to open it). The fixture team: alice and erin in marketing, bob in
 // finance, carol admin, dana owner.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { API, uuidv7, type Room, type RoomMessage, type RoomSavePlan, type RoomSaveResult } from '@mycel/shared/api'
 import { startHarness, type Harness } from '../lib/b-harness'
 import { roomsOf } from '../../server/src/rooms/service'
+import { roomFilesOf } from '../../server/src/rooms/files'
 import { looksSensitive } from '../../server/src/rooms/save-to-team'
 import { recordRoomFileSave } from '../../server/src/rooms/file-saves'
 
@@ -367,6 +369,18 @@ describe('QA 11-17', () => {
 // room's project folder; anything else is 409 needs_sheet and nothing is saved. Its Undo is retired (save-undo: 410) and
 // a save gives no Undo token any more.
 describe('oneClick (Save to project)', () => {
+  // a project room's new files are project files already (rooms/files.ts createInProject); oneClick stays for the room
+  // copies kept from before, as a converted channel has them: made here as room-stored files
+  const storedUpload = async (user: string, roomId: string, name: string, bytes: string) => {
+    const src = path.join(h.dataDir, `upload-${crypto.randomUUID()}`)
+    fs.writeFileSync(src, bytes)
+    return (await roomFilesOf(h.ctx).create(user, roomId, name, src, createHash('sha256').update(bytes).digest('hex'), { roomStorage: true })).id
+  }
+  const storedFile = async (user: string, roomId: string, name: string, bytes: string) => {
+    const fileId = await storedUpload(user, roomId, name, bytes)
+    await h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds: [fileId] } })
+    return { fileId }
+  }
   test('documents and media go to the project root in one click; code, config, dotfiles and other folders need the sheet', async () => {
     const project = await h.api('alice').call(API.createProject, { body: { name: 'Launch', participants: [{ subjectType: 'user', subjectId: 'erin' }], instructions: '' } })
     const channel = await h.api('alice').call(API.openProjectRoom, { params: { id: project.id } }) as Room
@@ -375,7 +389,7 @@ describe('oneClick (Save to project)', () => {
     const reason = async (res: Response) => ((await res.json()) as { error: { params?: { reason?: string } } }).error.params?.reason
     // a PDF (upper case), a Hangul file, a full-width extension that NFKC folds: one click, into the root
     for (const name of ['Quote-V2.PDF', '회의록.hwpx', 'photo.ｐｎｇ']) {
-      const { fileId } = await sendFile('alice', channel.id, name, `bytes of ${name}`)
+      const { fileId } = await storedFile('alice', channel.id, name, `bytes of ${name}`)
       const res = await one([fileId])
       expect(res.status).toBe(200)
       const out = (await res.json()) as RoomSaveResult
@@ -386,21 +400,21 @@ describe('oneClick (Save to project)', () => {
     }
     // code, config, a double extension, a dotfile, an instruction name: the sheet
     for (const name of ['deploy.sh', 'package.json', 'Makefile', 'conftest.py', 'x.pdf.sh', '.env', 'CLAUDE.md']) {
-      const { fileId } = await sendFile('alice', channel.id, name, `bytes of ${name}`)
+      const { fileId } = await storedFile('alice', channel.id, name, `bytes of ${name}`)
       const res = await one([fileId])
       expect(res.status).toBe(409)
       expect(await reason(res)).toBe('needs_sheet')
       expect(fs.existsSync(team(`${root}/${name}`))).toBe(false)
     }
     // a message whose files are not all one-click files: none saved
-    const a = await upload('alice', channel.id, 'notes.md', 'notes')
-    const b = await upload('alice', channel.id, 'run.sh', 'echo')
+    const a = await storedUpload('alice', channel.id, 'notes.md', 'notes')
+    const b = await storedUpload('alice', channel.id, 'run.sh', 'echo')
     await h.api('alice').call(API.sendRoomMessage, { params: { id: channel.id }, body: { body: '', clientMessageId: cm(), mentions: [], fileIds: [a, b] } })
     const mixed = await one([a, b])
     expect(mixed.status).toBe(409)
     expect(fs.existsSync(team(`${root}/notes.md`))).toBe(false)
     // another folder than the project's root: the sheet (the same files through the sheet still save there)
-    const { fileId: pdf } = await sendFile('alice', channel.id, 'brief.pdf', 'brief')
+    const { fileId: pdf } = await storedFile('alice', channel.id, 'brief.pdf', 'brief')
     fs.mkdirSync(team(`${root}/sub`), { recursive: true })
     expect(await reason(await one([pdf], `${root}/sub`))).toBe('needs_sheet')
     expect(await reason(await one([pdf], 'shared'))).toBe('needs_sheet')
