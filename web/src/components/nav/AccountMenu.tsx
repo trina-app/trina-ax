@@ -8,6 +8,7 @@ import { errorText } from '../../lib/api'
 import { useLogout } from '../../lib/logout'
 import { useLocale, useT } from '../../i18n'
 import { useMeStrict, useSession } from '../../store/session'
+import { useFreeRoam } from '../../store/demo'
 import { toast } from '../../store/ui'
 import { PresenceDot, PresenceFace, PresenceText } from '../Presence'
 import { openStatusDialog, StatusEmoji, useMyStatusWords } from '../StatusMessage'
@@ -59,6 +60,7 @@ export function AccountMenu() {
     else if (e.key === 'End') go(-1)
   }
   const logout = useLogout()
+  const freeRoam = useFreeRoam()
   const locale = useLocale()
   const away = !!me.user.prefs.away
   const status = useMyStatusWords()
@@ -112,10 +114,16 @@ export function AccountMenu() {
           >
             <Settings size={16} className="text-muted" aria-hidden /> {t('sidebar.settings')}
           </button>
-          <div role="separator" className="mx-1 my-1.5 border-t border-line" />
-          <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
-            <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
-          </button>
+          {/* a free-roam demo: no sign-out (QA TC-5623). The visitor never signed in, and signing out of the demo's one
+              person would leave them on a sign-in page they have no password for */}
+          {!freeRoam && (
+            <>
+              <div role="separator" className="mx-1 my-1.5 border-t border-line" />
+              <button role="menuitem" type="button" onClick={logout} className={item} data-testid="logout">
+                <LogOut size={16} className="text-muted" aria-hidden /> {t('auth.logout')}
+              </button>
+            </>
+          )}
         </div>
       )}
       <button

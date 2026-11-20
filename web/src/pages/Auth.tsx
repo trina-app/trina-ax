@@ -34,6 +34,8 @@ import { browserTimeZone } from '../lib/time-zones'
 import { signedOutLine } from '../lib/signedOut'
 import { DemoStart, useDemoInfo } from '../components/demo/Demo'
 import { FreeRoamStart } from '../components/demo/FreeRoam'
+import { FREE_ROAM_LOCALES } from '../lib/freeRoam'
+import { useFreeRoam } from '../store/demo'
 
 /** The password rule's minimum (server: server/src/auth/passwords.ts, the same 8 everywhere). */
 export const PASSWORD_MIN = 8
@@ -83,10 +85,12 @@ export function LanguageSwitcher() {
   const t = useT()
   const locale = useLocale()
   const pick = useSession((s) => s.pickLocale)
+  // a free-roam demo: only the languages its company is written in (lib/freeRoam.ts FREE_ROAM_LOCALES)
+  const freeRoam = useFreeRoam()
   return (
     <label className="mt-6 flex items-center justify-center gap-2 text-xs text-faint">
       {t('settings.language')}
-      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} />
+      <LanguageSelect compact value={locale} testId="auth-locale" onChange={(l) => pick(l)} only={freeRoam ? FREE_ROAM_LOCALES : undefined} />
     </label>
   )
 }
