@@ -135,7 +135,7 @@ test('⌘K "Needs attention" shows the sidebar\'s marks and words: "?" for the c
   await expect(row(done)).toHaveCount(0)
 })
 
-test('rooms: "@" over the count; the one count holds DMs and mentions once each, not plain team unread', async ({ page }) => {
+test('rooms: "@" over the count; the one count holds a DM\'s messages and each mention room once, not plain team unread', async ({ page }) => {
   await reset(page)
   await signIn(page)
   const now = new Date().toISOString()
@@ -157,9 +157,10 @@ test('rooms: "@" over the count; the one count holds DMs and mentions once each,
   await expect(badge('마케팅팀')).toHaveCount(0)
   await expect(badge('영업팀')).toContainText('@')
   await expect(badge('전체')).toContainText('@')
-  // the one count: the DM and the two mentions (each room once); the team room's 12 only make it bold
+  // the one count: the DM's 3 unread messages (each message counts, as on Slack's and KakaoTalk's icons:
+  // docs/decisions/20261120-push-every-message.md) and the two mention rooms once each; the team room's 12 only make it bold
   await hide(page, true)
-  await expect(page).toHaveTitle(/^\(3\) /)
+  await expect(page).toHaveTitle(/^\(5\) /)
   await hide(page, false)
   // the phone: the 대화 tab's pill is the rail's number, the conversations that count (3: the DM and the two mentions,
   // not 18 messages, and not 마케팅팀's plain ones);

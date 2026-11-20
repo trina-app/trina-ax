@@ -64,22 +64,23 @@ describe('the icon of an installed web app', () => {
     const c = chat({ unseen: true })
     useChats.setState({ chats: [c, chat({ waiting: true, runState: 'running' })] })
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 }), room({ kind: 'team', unreadCount: 5 }), room({ kind: 'dm', unreadCount: 4, hidden: true })] })
-    expect(currentCount().n).toBe(3)
+    // two chats and the DM's two unread messages (each message counts: docs/decisions/20261120-push-every-message.md)
+    expect(currentCount().n).toBe(4)
     // a burst: nothing yet, then one call with the settled n
     expect(calls).toEqual(['clear'])
     await settle()
-    expect(calls).toEqual(['clear', 3])
+    expect(calls).toEqual(['clear', 4])
     // the same n again: no call
     useRooms.setState({ rooms: [...useRooms.getState().rooms] })
     await settle()
-    expect(calls).toEqual(['clear', 3])
+    expect(calls).toEqual(['clear', 4])
     useSessionMarkers.getState().setOnScreen(c.id)
     await settle()
-    expect(calls).toEqual(['clear', 3, 2])
+    expect(calls).toEqual(['clear', 4, 3])
     useChats.setState({ chats: [] })
     useRooms.setState({ rooms: [] })
     await settle()
-    expect(calls).toEqual(['clear', 3, 2, 'clear'])
+    expect(calls).toEqual(['clear', 4, 3, 'clear'])
   })
 
   test('n 0 with a plain team-room message unread: the browser\'s dot (no number); a muted room or reading it clears it', async () => {
@@ -108,9 +109,9 @@ describe('the icon of an installed web app', () => {
     stub('navigator', badging())
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 })] })
     startSessionMarkers()
-    expect(calls).toEqual([1])
+    expect(calls).toEqual([2])
     stopSessionMarkers()
-    expect(calls).toEqual([1, 'clear'])
+    expect(calls).toEqual([2, 'clear'])
   })
 
   test('a browser with setAppBadge only: 0 is setAppBadge(0)', async () => {
@@ -134,7 +135,7 @@ describe('the icon of an installed web app', () => {
       answer = async () => {}
       useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 }), room({ kind: 'dm', unreadCount: 1 }), room({ kind: 'dm', unreadCount: 1 })] })
       await settle()
-      expect(calls).toEqual([1, 2, 3])
+      expect(calls).toEqual([2, 3, 4])
       expect(unhandled).toEqual([])
     } finally { process.off('unhandledRejection', onUnhandled) }
   })
@@ -146,7 +147,7 @@ describe('the icon of an installed web app', () => {
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 })] })
     startSessionMarkers()
     stopSessionMarkers()
-    expect(dock).toEqual([1, 0])
+    expect(dock).toEqual([2, 0])
     expect(calls).toEqual([])
   })
 
@@ -159,16 +160,16 @@ describe('the icon of an installed web app', () => {
     stub('navigator', badging())
     startSessionMarkers()
     useSessionMarkers.setState({ visible: true, onScreen: null })
-    // a DM and a team room at its default: n is 1 (the team room's plain message wants nobody)
+    // a DM and a team room at its default: n is 2, the DM's two messages (the team room's plain message wants nobody)
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 2 }), room({ kind: 'team', unreadCount: 5 })] })
     await settle()
     const badges = () => sent.filter((m) => m.type === 'badge').map((m) => m.count)
-    expect(badges()).toEqual([0, 1])
+    expect(badges()).toEqual([0, 2])
     // no web badge inside the app
     expect(calls).toEqual([])
     stopSessionMarkers()
     await settle()
-    expect(badges()).toEqual([0, 1, 0])
+    expect(badges()).toEqual([0, 2, 0])
   })
 
   test('the phone app\'s bridge comes after the markers started (an iPhone WebView with the Badging API): the app icon still gets n', async () => {
@@ -184,7 +185,7 @@ describe('the icon of an installed web app', () => {
     win.mycelMobile = { ...config }
     useRooms.setState({ rooms: [room({ kind: 'dm', unreadCount: 1 }), room({ kind: 'group', unreadCount: 3 })] })
     await settle()
-    expect(sent.filter((m) => m.type === 'badge').map((m) => m.count).at(-1)).toBe(2)
+    expect(sent.filter((m) => m.type === 'badge').map((m) => m.count).at(-1)).toBe(4)
   })
 
   test('inside the phone app: no web badge (the app has its own)', () => {

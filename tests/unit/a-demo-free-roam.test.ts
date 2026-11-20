@@ -499,7 +499,7 @@ describe('the snapshot builder dates a room\'s notices and thread follows with i
     const room = await sara.client.call('POST', '/api/rooms', { kind: 'group', userIds: [mina.id], name: 'Story room' })
     const send = (c: Client, body: string, more: object = {}) => c.call('POST', `/api/rooms/${room.id}/messages`, { body, mentions: body.includes('@MINA') ? [mina.id] : [], fileIds: [], clientMessageId: crypto.randomUUID(), ...more })
     const first = await send(sara.client, '@MINA first mention')
-    const second = await send(sara.client, '@MINA second mention, the same unread run')
+    const second = await send(sara.client, '@MINA second mention, while the first is unread')
     const root = await send(sara.client, 'a thread root')
     const reply1 = await send(mina.client, 'my reply', { threadRootId: root.id })
     const reply2 = await send(sara.client, 'a reply Mina follows', { threadRootId: root.id })
@@ -511,11 +511,11 @@ describe('the snapshot builder dates a room\'s notices and thread follows with i
     const timeOf = new Map(times.map((t) => [t.messageId, t.at]))
     const notices = h.ctx.db.query("SELECT event_type, source_id, created_at, last_seq, last_at FROM room_notices WHERE user_id = ? AND room_id = ? ORDER BY created_at").all(mina.id, room.id) as { event_type: string; source_id: string; created_at: string; last_seq: number | null; last_at: string | null }[]
     for (const n of notices) expect(n.created_at, n.source_id).toBe(timeOf.get(n.source_id)!)
-    // the two mentions are one run (one notice, held back up to the second); the thread reply its own notice
+    // each mention is a notice of its own (docs/decisions/20261120-push-every-message.md), each at its message's time;
+    // the thread reply its own notice too
     const mentions = notices.filter((n) => n.event_type === 'room.mention')
-    expect(mentions.map((n) => n.source_id)).toEqual([first.id])
-    expect(mentions[0]!.last_seq).toBe(second.seq)
-    expect(mentions[0]!.last_at).toBe(at(9))
+    expect(mentions.map((n) => n.source_id)).toEqual([first.id, second.id])
+    expect(mentions.map((n) => n.created_at)).toEqual([at(10), at(9)])
     expect(notices.some((n) => n.source_id === reply2.id)).toBe(true)
     const follows = h.ctx.db.query('SELECT user_id, created_at FROM room_thread_follows WHERE root_id = ? ORDER BY user_id').all(root.id) as { user_id: string; created_at: string }[]
     expect(follows.length).toBeGreaterThanOrEqual(2)
