@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 15:22
 - Branch: `fix/others-text-timing`
-- Status: in progress
+- Status: done
 - Where: `tests/unit/others-text.test.ts`. Why: QA TC-5938. The TC-4970 test took 205 ms against its 200 ms limit on
   the CI runner and removed batch #162 from the merge queue once (2026-11-20 14:02Z).
 - Version impact: none. Test only; no product code changes.

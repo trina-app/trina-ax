@@ -49,15 +49,22 @@ test('a 64 KB run of form characters in 7-character pieces stays cheap: each pie
   const o = new OthersText(() => r)
   let text = 'Start. '
   o.of(text)
+  // Count the work instead of timing it (QA TC-5938: a 200 ms wall-clock limit failed on a slow CI runner): every
+  // character scanned is one lookup in the form-character set. The set is built on the first call and only rebuilt
+  // when the redactor or earlier text changes, which this test does not do.
+  let lookups = 0
+  const chars = (o as unknown as { chars: ReadonlySet<string> }).chars
+  ;(o as unknown as { chars: ReadonlySet<string> }).chars = { has: (c: string) => { lookups++; return chars.has(c) } } as ReadonlySet<string>
   const piece = 'aB3%&#;'
-  const t0 = performance.now()
   while (text.length < 7 + OTHERS_HOLD_MAX - piece.length) {
     text += piece
     expect(o.of(text)).toBe('Start. ')
   }
-  const ms = performance.now() - t0
-  // before: the whole held run scanned again for every piece, about 770 ms for these ~9,400 pieces
-  expect(ms).toBeLessThan(200)
+  const added = text.length - 7
+  // linear: each new character looked up once. Before TC-4970 the whole held run was scanned again for every piece,
+  // about 4,700 times as many lookups for these ~9,400 pieces (about 770 ms of CPU)
+  expect(lookups).toBeGreaterThanOrEqual(added)
+  expect(lookups).toBeLessThanOrEqual(2 * added)
   // the run still ends where a character no form is made of comes, and is then hidden as a whole
   expect(o.of(text + ' end.')).toBe(`Start. ${text.slice(7)} end.`)
 })
