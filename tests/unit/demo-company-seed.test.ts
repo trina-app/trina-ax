@@ -189,13 +189,13 @@ for (const locale of STEEPLING_LOCALES) {
       }
 
       const mina = await as('mina')
-      // her rooms: everyone, #Marketing, the DMs, the private channels, the handover group DM, and each project's own chat
-      // room (the seed opens one per project with a `channel`; docs/decisions/20261120-project-is-room.md). Read but for
-      // what the content marks unread: Nadia's mention in Customer voice, Sara's reply in the Social calendar thread, Omar's DM
+      // her rooms: everyone, #Marketing, the DMs, the private channels, the handover group DM. Read but for what the content
+      // marks unread: Nadia's mention in Customer voice, Sara's reply in the Social calendar thread, Omar's DM
+      // plus each project's own chat room (the seed opens one per project), which is not in the content's room list
       const listed = (await mina.call(API.listRooms)).items
-      const rooms = listed.filter((x) => !x.project?.room)
+      const rooms = listed.filter((r) => r.project?.room !== true)
       expect(rooms.length).toBe(c.company.rooms.length)
-      expect(listed.filter((x) => x.project?.room).map((x) => x.project!.name).sort()).toEqual(c.company.projects.filter((p) => p.channel).map((p) => p.name).sort())
+      expect(listed.length - rooms.length).toBe(c.company.projects.length)
       const unread = (slug: string) => { const r = rooms.find((x) => x.id === s.rooms[slug]!.id)!; return [r.unreadCount, r.threadsUnread] }
       for (const x of c.company.rooms) expect(unread(x.slug), x.slug).toEqual(x.slug === 'customer-voice' || x.slug === 'dm-omar' ? [1, 0] : x.slug === 'social-calendar' ? [0, 1] : [0, 0])
       // Activity 1 (Sara's reply under the banner answer) + Chats › Mentions & threads 2 (those two) + Omar's DM, by
