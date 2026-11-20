@@ -50,7 +50,9 @@ export const EDIT_PDF_DESCRIPTION = 'Change an existing PDF and save the result 
   'operations, applied in order: remove_pages, keep_pages (extract pages), reorder_pages, rotate_pages, insert_pdf (pages of another PDF at a position), ' +
   'stamp_image (a seal, signature or logo; PNG transparency kept), add_text (one line, e.g. a date at a spot), watermark (e.g. "DRAFT" across the page), page_numbers, ' +
   'and replace_text (change words inside the PDF: every match of find on the pages becomes replace; the old words are removed from the page text, not covered, ' +
-  'and the new ones are written in their place in the same size and colour, in the PDF\'s own font when it has the letters; "" removes them). ' +
+  'and the new ones are written in their place in the same size and colour, in the PDF\'s own font when it has the letters; "" removes them), ' +
+  'and fill_form (a fill-in form: sets its form fields by name; a read of the PDF lists the fields, so read it first. Fill a form only this way, never with add_text: ' +
+  'the fields are drawn on top of the page and hide text written under them; flatten: true only when the user asks for a form that can no longer be changed). ' +
   'Pages are written like "1,3-5,last", "2-last" or "all"; each operation sees the pages as they are after the ones before it. ' +
   'Positions are a preset or { x_mm, y_mm } from the top-left of the page as it is shown. Works on scanned PDFs too. ' +
   'Words that are part of a picture (a scanned page) and the PDF\'s pictures cannot be changed. A PDF locked with a password cannot be changed. ' +
@@ -155,7 +157,7 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     })
     await inputs.load()
     // text that is not Latin needs the Pretendard font, sent with the request (the worker reads no files)
-    const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : 'replace_text' in op ? [op.replace_text.replace] : []))
+    const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : 'replace_text' in op ? [op.replace_text.replace] : 'fill_form' in op ? Object.values(op.fill_form.fields).filter((v): v is string => typeof v === 'string') : []))
     let font: number | null = null
     if (texts.some((t) => /[^\x20-\x7e\xa0-\xff]/.test(t))) {
       const f = textFontFile()
