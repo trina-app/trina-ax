@@ -34,6 +34,7 @@ import { slackRoutes } from './slack'
 import { appLinksRoutes } from './app-links'
 import { oftenAskedRoutes } from './often-asked'
 import { navFoldersRoutes } from './nav-folders'
+import { roomCategoriesRoutes } from './room-categories'
 import { linkNamesRoutes } from './link-names'
 
 export type { RouteModule } from './module'
@@ -48,6 +49,7 @@ export const ROUTE_MODULES: readonly RouteModule[] = [
   memoriesRoutes, // B
   roomsRoutes, // B (team chat rooms, docs/DECISIONS.md "대화방 v1")
   roomAppsRoutes, // B (apps posting in rooms and their public /in/ address, docs/DECISIONS.md "Apps posting in rooms")
+  roomCategoriesRoutes, // B (team-wide conversation categories, shared/src/api/room-categories.ts); after rooms
   navFoldersRoutes, // B (a person's own list folders, docs/DECISIONS.md "List folders"); after chats and rooms
   wsRoutes, // B
   browserRoutes, // B

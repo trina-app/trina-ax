@@ -289,6 +289,9 @@ export const ServerEvent = z.discriminatedUnion('type', [
    * (GET /api/nav-folders). Only to me, never to anyone else (docs/DECISIONS.md "List folders"). An older page ignores
    * it (an unknown event). */
   ev('navFolders.changed', z.object({ kind: z.enum(['chats', 'rooms']) })),
+  /** the team's conversation categories changed (made, renamed, reordered, deleted): read them again
+   * (GET /api/room-categories). To everyone; a channel moved between categories comes as its room.updated. */
+  ev('roomCategories.changed', z.object({})),
   /** only paths this person can read (file screen refresh) */
   ev('files.changed', z.object({ changes: z.array(FileChange) })),
   /** someone's save met a newer version: theirs became `copyPath` next to `path` (sent to the saver and to whoever

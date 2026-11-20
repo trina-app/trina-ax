@@ -13,7 +13,7 @@ import { RoomIcon, RoomName, useRoomTitle } from '../rooms/RoomIcon'
 import { RoomMenu, useRowMenu } from '../rooms/RoomMenu'
 import { CountPill } from '../CountPill'
 import { PresenceText } from '../Presence'
-import { dragRow, SectionAddButton } from './NavFolders'
+import { SectionAddButton } from './NavFolders'
 import { PeoplePicker } from '../rooms/PeoplePicker'
 import { useMe } from '../../store/session'
 import { isGuestMe } from '../../lib/guests'
@@ -44,7 +44,7 @@ export function RoomSectionAction({ section }: { section: RoomSection }) {
   )
 }
 
-/** The rooms not pinned or in a folder (`rest`, by latest activity, as the store has them), by kind
+/** The rooms not pinned or in a category (`rest`, by latest activity, as the store has them), by kind
  * (docs/DECISIONS.md "Conversations by kind under Show more"): in each section any pins first (the
  * most recently pinned first), then channels with 전체 first and the others (private channels among them) by the name their row shows (`titleOf`,
  * compared in the app's language, numbers by their value), direct messages (1:1s and unnamed group rooms mixed) by latest
@@ -98,14 +98,13 @@ export const ROW_MENU_SHOWN = 'pointer-fine:group-hover:opacity-0 group-has-[:fo
 export const ROW_MENU_BUTTON = 'opacity-0 pointer-coarse:hidden group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 aria-expanded:opacity-100 focus-visible:opacity-100'
 
 /** `section`: the section of the 대화 list it is in */
-export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' }) {
+export function RoomRow({ room, onNavigate, section }: { room: Room; onNavigate: () => void; section?: RoomSection | 'pinned' | 'folder' | 'category' }) {
   const t = useT()
   const title = useRoomTitle()(room)
   const { bold } = roomCounts(room)
   const menu = useRowMenu()
-  // a room may go in one of my folders (its "⋯", or dragged onto the folder with a mouse)
   return (
-    <li className="group relative" {...menu.row} {...dragRow('rooms', room.id, !room.hidden)} data-testid="sidebar-room-row" data-section={section}>
+    <li className="group relative" {...menu.row} data-testid="sidebar-room-row" data-section={section}>
       <NavLink
         to={`/rooms/${room.id}`}
         onClick={(e) => {

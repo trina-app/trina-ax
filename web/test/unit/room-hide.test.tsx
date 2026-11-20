@@ -277,9 +277,10 @@ describe('hidden rooms count nowhere', () => {
       const e = new FakeEvent('contextmenu', { bubbles: true, cancelable: true })
       await m.settle(0)
       row.querySelector('[data-testid="sidebar-room"]')!.dispatchEvent(e)
-      await m.until(() => menuItems(m).length === 5, 'the menu')
+      await m.until(() => menuItems(m).length === 4, 'the menu')
       expect(e.defaultPrevented).toBe(true)
-      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('navFolders.moveTo'), ko('rooms.menu.hide')])
+      // a member: no category items (only admins move channels into the team's categories); no personal folders any more
+      expect(menuItems(m)).toEqual([ko('chat.pin'), ko('rooms.menu.notify'), ko('rooms.menu.copyLink'), ko('rooms.menu.hide')])
     } finally {
       await m.unmount()
     }

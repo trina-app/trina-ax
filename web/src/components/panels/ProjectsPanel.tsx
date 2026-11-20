@@ -7,15 +7,24 @@
 // is one plain row: its name and, small and grey under it, who sees it ("멤버 4명", "나만"), when my latest chat there
 // was active and how many chats of my list it holds ("2시간 전 · 대화 5개"; "대화 없음" for none); the most
 // recently active first, the ones without a chat of mine after them, newest first. Each row has the Projects page cards'
-// "···" (ProjectRow below: rename, members, copy link, leave, delete), also on a right-click and a long press. No chats in this list (a tree in a narrow column is a developer's pattern): a project's row opens its page
-// on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's projects do.
+// "···" (ProjectRow below: rename, members, copy link, leave, delete), also on a right-click and a long press. A project's
+// row opens its page on the right, which lists its chats, its instructions and its files, as ChatGPT's and Claude's
+// projects do; its ▸ on the left opens its newest chats under it in place (docs/decisions/20261120-project-chat-accordion.md,
+// folded at first, kept per person as the sections' folds are), and a round count on the project and on a chat says how
+// many unread mentions of me wait there, with who mentioned me on hover (store/chatMentions.ts).
 // The counts are the server's (GET /api/chats/groups projectActivity), never what this window happens to have loaded.
 import { isGuestMe } from '../../lib/guests'
 import clsx from 'clsx'
-import { FolderLock, Lock, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronRight, FolderLock, Lock, MessageSquare, Plus, SquareKanban, Trash2, Users } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { matchPath, useLocation, useNavigate } from 'react-router-dom'
-import type { Project } from '@mycel/shared/api'
+import type { Chat, Project } from '@mycel/shared/api'
+import { api, API } from '../../lib/api'
+import { CountPill } from '../CountPill'
+import { Tooltip } from '../Tooltip'
+import { useMentions, type ChatMention } from '../../store/chatMentions'
+import { chatChanged } from '../../store/live'
+import { useFolds } from './folds'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
 import { useRailHere } from '../../lib/rail'
@@ -103,6 +112,9 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
   const navigate = useNavigate()
   // the members dialog of a row's ⋯ 멤버
   const [members, setMembers] = useState<Project | null>(null)
+  // the projects whose chats are open under their row (folded at first), and my unread mentions by project and chat
+  const { folds, set: setFold } = useFolds()
+  const { byChat, byProject } = useMentions()
 
   if (!listed) return <div className="mx-auto mt-4 size-4 animate-spin rounded-full border-2 border-line border-t-faint" role="status" aria-label={t('common.loading')} />
   if (!projects.length) return <p className="px-3 py-2 text-sm text-faint" data-testid="projects-panel-empty">{t('projects.empty')}</p>
@@ -120,7 +132,22 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
         // a guest with no AI has no chats here (no Chats tab): no count of the team's chats either
         const meta = p.inTrash || noAiGuest ? who : [who, ...(a ? [formatRelative(a.lastActivityAt, locale), t('projectsPanel.chats', { n: a.count })] : [t('projectsPanel.noChats')])].filter(Boolean).join(' · ')
         const on = lit === p.id
-        return <ProjectRow key={p.id} project={p} selected={on} meta={meta} onMembers={() => setMembers(p)} onGone={() => on && navigate('/projects')} />
+        // no chats to open in a trashed project, nor for a guest with no AI
+        const foldable = !p.inTrash && !noAiGuest && p.member !== false
+        const open = foldable && folds[`project:${p.id}`] === 'open'
+        return (
+          <ProjectRow
+            key={p.id}
+            project={p}
+            selected={on}
+            meta={meta}
+            onMembers={() => setMembers(p)}
+            onGone={() => on && navigate('/projects')}
+            fold={foldable ? { open, toggle: () => setFold(`project:${p.id}`, open ? 'folded' : 'open') } : undefined}
+            mention={foldable ? byProject.get(p.id) : undefined}
+            chats={open ? <ProjectChats project={p} byChat={byChat} mentioned={byProject.get(p.id)?.chatIds} /> : null}
+          />
+        )
       })}
     </ul>
   )
@@ -150,7 +177,7 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
  * touch screen): the Projects page cards' menu (projectActions.tsx useProjectMenuItems: 이름 바꾸기, 멤버, 링크 복사,
  * 나가기, 삭제 by the same rules), so a project is renamed where people look for it. `onGone`: it left the list (deleted,
  * or I left it) */
-function ProjectRow({ project: p, selected, meta, onMembers, onGone }: { project: Project; selected: boolean; meta?: string; onMembers: () => void; onGone: () => void }) {
+function ProjectRow({ project: p, selected, meta, onMembers, onGone, fold, mention, chats }: { project: Project; selected: boolean; meta?: string; onMembers: () => void; onGone: () => void; fold?: { open: boolean; toggle: () => void }; mention?: ChatMention; chats?: ReactNode }) {
   const t = useT()
   const more = useRef<HTMLButtonElement>(null)
   // the keyboard waits on "···" after an item (a dialog it opens gives it back there)
@@ -160,6 +187,7 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone }: { project
   }
   const items = useProjectMenuItems(p, { testId: 'projects-panel', select, onMembers, onDeleted: (d) => d === 'gone' && onGone() })
   return (
+    <>
     <ListRow
       to={`/projects/${p.id}`}
       selected={selected}
@@ -171,7 +199,153 @@ function ProjectRow({ project: p, selected, meta, onMembers, onGone }: { project
       testId="projects-panel-row"
       nameTestId="projects-panel-name"
       metaTestId="projects-panel-meta"
+      // the ▸ sits in the section's indent, left of the icon (a phone: the row makes room for it)
+      rowClass={fold ? 'max-md:!pl-12' : undefined}
+      end={mention ? <MentionPill mention={mention} testId="projects-panel-mentions" /> : undefined}
+      menu={
+        fold && (
+          <Tooltip label={t(fold.open ? 'projectsPanel.fold.close' : 'projectsPanel.fold.open', { name: p.name })}>
+          <button
+            type="button"
+            onClick={fold.toggle}
+            aria-expanded={fold.open}
+            aria-label={t(fold.open ? 'projectsPanel.fold.close' : 'projectsPanel.fold.open', { name: p.name })}
+            className="absolute top-1 left-1 flex size-6 items-center justify-center rounded-md text-faint hover:bg-surface hover:text-ink max-md:top-1/2 max-md:left-1 max-md:size-10 max-md:-translate-y-1/2"
+            data-testid="projects-panel-fold"
+          >
+            <ChevronRight size={14} className={clsx('transition-transform motion-reduce:transition-none', fold.open && 'rotate-90')} aria-hidden />
+          </button>
+          </Tooltip>
+        )
+      }
     />
+    {chats}
+    </>
+  )
+}
+
+/** A round count of unread mentions of me ("1", "2"), who mentioned me on hover and for a screen reader */
+function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: string }) {
+  const t = useT()
+  const by = m.names.length ? t('projectsPanel.fold.by', { names: m.names.slice(0, 3).join(', ') }) : ''
+  const label = [t('projectsPanel.fold.mentions', { n: m.count }), by].filter(Boolean).join('. ')
+  return (
+    <span className="flex shrink-0 items-center self-center" title={label}>
+      <CountPill text={m.count > 99 ? '99+' : String(m.count)} label={label} className="min-w-5 text-center tabular-nums" testId={testId} />
+    </span>
+  )
+}
+
+/** How many of a project's chats open under its row; the rest are on its page ("대화 전체 보기") */
+const CHATS_SHOWN = 8
+const NONE: readonly string[] = []
+/** how long an open list waits after a change of its chats before it reads again (a running answer sends several) */
+const REREAD_MS = 500
+
+/** An open project's chats under its row: the ones I can open there (the page's own GET /api/chats?projectId), newest
+ * first, each with its unread mentions of me. A chat with a mention of me is always there and first, also an older one
+ * past the newest few (read by itself). Read again when one of its chats changes, the server asks, or access changes. */
+function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Project; byChat: ReadonlyMap<string, ChatMention>; mentioned?: readonly string[] }) {
+  const t = useT()
+  const locale = useLocale()
+  const { pathname } = useLocation()
+  const [list, setList] = useState<{ items: Chat[]; more: boolean } | null>(null)
+  const [failed, setFailed] = useState(false)
+  // a change of one of this project's chats (made, renamed, moved, deleted), a reload or a change of access: read again
+  const [again, setAgain] = useState(0)
+  // the chats listed now (a chat moved out of this project: its event names the other project)
+  const listed = useRef<ReadonlySet<string>>(new Set())
+  // a mentioned chat past the first page, as read by itself (read again only on a reload or an access change)
+  const olderRead = useRef(new Map<string, Chat | null>())
+  useEffect(() => {
+    // a running answer sends a few changes a second: one read after they settle
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setAgain((n) => n + 1), REREAD_MS)
+    }
+    const fresh = () => {
+      olderRead.current.clear()
+      bump()
+    }
+    const offs = [chatChanged.on((d) => {
+      // a cached older chat that changed (renamed, moved, deleted) is read again, not taken from the cache
+      olderRead.current.delete(d.chatId)
+      if (d.chat?.projectId === p.id || listed.current.has(d.chatId)) bump()
+    }), reloadAsked.on(fresh), accessChanged.on(fresh)]
+    return () => {
+      if (timer) clearTimeout(timer)
+      offs.forEach((off) => off())
+    }
+  }, [p.id])
+  // only this project's mentions read it again (a new mention may be in a chat the list has not got)
+  const mentionKey = [...mentioned].sort().join(',')
+  useEffect(() => {
+    let live = true
+    const ids = mentionKey ? mentionKey.split(',') : []
+    void (async () => {
+      const r = await api.call(API.listChats, { query: { projectId: p.id, limit: CHATS_SHOWN + 1 } })
+      const all = r.items.filter((c) => !c.deletedAt)
+      // the newest few, and every mentioned chat the page holds past them (pinned chats lead a page)
+      const items = all.filter((c, i) => i < CHATS_SHOWN || ids.includes(c.id))
+      const have = new Set(all.map((c) => c.id))
+      // a mentioned chat past the newest few: read by itself (one that cannot be read is left out)
+      const read = olderRead.current
+      const older = await Promise.all(
+        ids.filter((id) => !have.has(id)).map(async (id) => {
+          if (!read.has(id)) read.set(id, await api.call(API.getChat, { params: { id } }).catch(() => null))
+          return read.get(id) ?? null
+        }),
+      )
+      const extra = older.filter((c): c is Chat => !!c && !c.deletedAt && c.projectId === p.id)
+      return { items: [...items, ...extra], more: all.length > items.length || !!r.nextCursor }
+    })().then(
+      (v) => {
+        if (!live) return
+        listed.current = new Set(v.items.map((c) => c.id))
+        setList(v)
+        setFailed(false)
+      },
+      () => { if (live) setFailed(true) },
+    )
+    return () => { live = false }
+  }, [p.id, mentionKey, again])
+  const items = useMemo(() => {
+    if (!list) return []
+    // a chat with a mention of me first, then the newest
+    return [...list.items].sort((a, b) => (byChat.get(b.id)?.count ?? 0) - (byChat.get(a.id)?.count ?? 0) || b.updatedAt.localeCompare(a.updatedAt))
+  }, [list, byChat])
+  const sub = 'pl-[3.25rem] max-md:pl-16'
+  return (
+    <li data-testid="projects-panel-chats">
+      <ul>
+        {!list && !failed && <li className={clsx(sub, 'py-1 text-meta text-faint')}>{t('projectsPanel.fold.loading')}</li>}
+        {failed && !list && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-failed">{t('projectsPanel.fold.failed')}</li>}
+        {list && !items.length && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-empty">{t('projectsPanel.fold.none')}</li>}
+        {items.map((c) => {
+          const m = byChat.get(c.id)
+          return (
+            <ListRow
+              key={c.id}
+              to={`/c/${c.id}`}
+              selected={pathname.startsWith(`/c/${c.id}`)}
+              icon={<MessageSquare />}
+              name={c.title || t('chat.untitled')}
+              nameTitle={c.title}
+              unread={!!m}
+              tag={m ? undefined : formatRelative(c.updatedAt, locale)}
+              end={m ? <MentionPill mention={m} testId="projects-panel-chat-mentions" /> : undefined}
+              rowClass={sub}
+              testId="projects-panel-chat"
+              link={{ 'data-chat-id': c.id }}
+            />
+          )
+        })}
+        {list?.more && (
+          <ListRow to={`/projects/${p.id}`} name={<span className="text-meta text-muted">{t('projectsPanel.fold.more')}</span>} rowClass={sub} testId="projects-panel-chats-more" />
+        )}
+      </ul>
+    </li>
   )
 }
 

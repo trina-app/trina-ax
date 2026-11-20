@@ -263,7 +263,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
   const more: MenuItem[] = [
     ...(showEdit && phone && phoneCanEdit(file.name) && !editing && !error ? [{ label: t('preview.edit'), icon: <Pencil size={15} className="shrink-0" aria-hidden />, onSelect: () => { if (!loadingEdit) void startEdit() }, testId: 'file-more-edit' }] : []),
     ...(canPdf ? [{ label: pdfBusy ? t('preview.savingPdf') : t('preview.savePdf'), icon: pdfBusy ? <Loader2 size={15} className="shrink-0 animate-spin" aria-hidden /> : <FileDown size={15} className="shrink-0" aria-hidden />, onSelect: () => void savePdf(), testId: 'file-more-save-pdf' }] : []),
-    ...(addToChat ? [{ label: t('files.addToChatNamed', { title: addToChat.title }), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
+    ...(addToChat ? [{ label: addToChat.title ? t('files.addToChatNamed', { title: addToChat.title }) : t('files.addToCurrentChat'), icon: <Paperclip size={15} className="shrink-0" aria-hidden />, onSelect: addToChat.add, testId: 'file-more-add-to-chat' }] : []),
     ...(filesHref ? [{ label: t('preview.openInFiles'), icon: <FolderOpen size={15} className="shrink-0" aria-hidden />, onSelect: openInFiles, testId: 'file-more-open-in-files' }] : []),
     // a team file shared with chosen people (QA TC-3093; components/FileShareDialog.tsx)
     ...(file.source === 'team' && !isGuestMe(me) ? [{ label: t('folderAccess.menu'), icon: <UserPlus size={15} className="shrink-0" aria-hidden />, onSelect: () => openFileShare(file.path), testId: 'file-more-share' }] : []),
@@ -307,7 +307,7 @@ export default function FilePanel({ file, onClose }: { file: PreviewFile; onClos
             </Tooltip>
           )}
           {addToChat && (
-            <IconButton label={t('files.addToChatNamed', { title: addToChat.title })} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
+            <IconButton label={addToChat.title ? t('files.addToChatNamed', { title: addToChat.title }) : t('files.addToCurrentChat')} className="max-md:hidden" onClick={addToChat.add} data-testid="file-add-to-chat">
               <Paperclip size={16} />
             </IconButton>
           )}

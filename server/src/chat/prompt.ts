@@ -1095,9 +1095,10 @@ export function teamNameLine(teamName: string | null | undefined): string {
  * server refuses those tools and endpoints whatever the AI says (demo/guard.ts); this keeps the answer honest. */
 export function demoRule(company: string): string {
   // QA TC-5572: asked how to delete the account or see usage, the AI pointed to "Profile › Delete account" and
-  // "Settings › Usage", pages this demo does not have
+  // "Settings › Usage", pages this demo does not have; QA TC-5745: asked to change the name, it sent them to Settings ›
+  // Profile, whose name and e-mail the demo keeps (demo/guard.ts freeRoamBody)
   return `This is a public demo of a fictional company (${company}). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can. ` +
-    'Changing or deleting the account, changing the email address or password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).'
+    'Changing or deleting the account, changing their name or email address on their profile, changing the password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either: when asked about any of them, say in one sentence that it is not available in the demo, and never point to a page or setting for it (there is no such page here).'
 }
 
 /** The dev environment is on but broken (QA TC-4924: box_shell was offered, failed every call, and the AI said "try

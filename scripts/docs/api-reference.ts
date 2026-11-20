@@ -53,6 +53,7 @@ const GROUP_TITLES: Record<keyof typeof API_GROUPS, string> = {
   SERVICE_REQUESTS: 'Asking an admin to add an app',
   MEMBER_WELCOME: 'The welcome card for invited people (Home)',
   NAV_FOLDERS: 'List folders (my own folders for chats and conversations)',
+  ROOM_CATEGORIES: 'Conversation categories (the team\'s own, made by admins)',
   ROOM_APPS: 'Apps posting in rooms',
   FILE_SHARES: 'Files shared one by one (links, Ask for access)',
   ACCESS_REQUESTS: 'Ask for access to a chat or project',
