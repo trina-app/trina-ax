@@ -256,6 +256,12 @@ export const EditPdfOperation = z.union([
     pages: pdfPages.optional().describe('Default "all"'),
     match_case: z.boolean().optional().describe('Default true; false also finds "ACME" for "Acme"'),
   }) }),
+  z.strictObject({ fill_form: z.strictObject({
+    fields: z.record(z.string().min(1).max(500), z.union([z.string().max(5000), z.boolean()]))
+      .refine((v) => Object.keys(v).length <= 1000, { message: 'at most 1000 fields in one fill_form' })
+      .describe('The form fields by the names a read of the PDF lists, e.g. { "company_name": "Acme Ltd", "organic": true }: text as text, a checkbox as true or false, a choice as one of its options'),
+    flatten: z.boolean().optional().describe('true only when the user asks for a form that can no longer be changed: the values are drawn into the pages and the fields removed (default false: the fields stay editable)'),
+  }) }),
 ])
 export const EditPdfInput = z.strictObject({
   file_path: relPath.describe('The PDF to change'),
