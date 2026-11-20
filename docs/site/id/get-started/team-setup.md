@@ -24,14 +24,14 @@ Skill yang disiapkan Trina AX, masing-masing dengan **Contoh**: Company slide de
 #### File tim
 **Pilih folder** berisi dokumen perusahaan. AI menyarankan file yang bisa dipakai tim hanya dari nama file, folder, dan tanggalnya, lalu Anda mencentang apa yang diunggah. Tidak ada yang diunggah sebelum Anda menekan tombolnya. Setelah itu AI bisa membacanya dan menawarkan folder untuk merapikannya (**Rapikan seperti ini?**). Satu baris menyebutkan siapa yang akan melihat file tersebut.
 
-#### Hubungkan alat
-**Hubungkan alat yang sering dipakai?** menawarkan Google Drive (jika server Anda menyediakannya) dan Notion, serta **Hubungkan alat lain** untuk daftar lengkapnya. Di ponsel, langkah ini dilewati.
+#### Alat tim
+**Alat untuk tim Anda** adalah satu daftar. Hubungkan sekali alat untuk seluruh tim (**Hubungkan untuk tim**: Notion, atau Slack di halamannya sendiri; seluruh tim memakai koneksi itu bersama), atau tandai alat yang dihubungkan tiap orang dengan akunnya sendiri (Google Drive, Gmail) sebagai **Rekomendasi tim**. Rekomendasi tim tampil paling atas di daftar konektor semua orang dan tidak membatasi apa pun. **Alat lainnya** membuka daftar lengkap, dan halaman tiap alat punya sakelar yang sama. Di langkah ini tidak ada yang masuk dengan akunnya sendiri. Di ponsel, langkah ini dilewati.
 
 #### Undang
 Salin pesan yang sudah disiapkan. Pesan itu menyebut satu skill. Orang yang bergabung masuk ke Beranda, tempat kartu sambutan menyebutkan siapa yang mengundang mereka dan apa yang dilakukan lebih dulu; skill itu ada di **Skill tim**. Jika setiap orang masuk ke AI mereka sendiri, pesan itu menyebutkannya. Halaman undangan menawarkan bahasa browser orang tersebut. Jika orang lain sudah masuk di komputer itu, halaman menampilkan "Anda sudah ada di <nama tim>" dan menawarkan **Keluar untuk bergabung**, yang mengeluarkan akun tersebut lalu membuka tautan yang sama.
 :::
 
-Di akhir, **Semua siap** menawarkan untuk membuat hasil pertama dengan salah satu skill tim, misalnya **Buat kartu promosi**. Ini hanya tampil satu kali.
+Di akhir, **Semua siap** merangkum penyiapan: tiap langkah dengan apa yang dilakukan, atau yang ditunda dengan **Kerjakan sekarang**. Berikutnya pengaturan Anda sendiri (alat Anda, foto, dan aplikasi): **Mulai pengaturan saya** membuka Beranda. Ini hanya tampil satu kali.
 
 ## Kembali lagi
 

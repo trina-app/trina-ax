@@ -1,7 +1,7 @@
 // Team settings (tab 1 `settings`: key -> JSON value). One key per TeamSettings field; internal keys use a dot
 // prefix ("engines.enabled"). Other components read settings through getTeamSettings() (read-only for them).
 import type { Database } from 'bun:sqlite'
-import { GUEST_FILE_DEFAULT, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
+import { cleanRecommended, GUEST_FILE_DEFAULT, DEFAULT_ANSWER_STEP_LIMIT, DEFAULT_LOCALE, DEFAULT_SPEECH_MODEL, Locale, TeamSettings, type EngineId, type TeamSettings as TeamSettingsT, DEFAULT_DECK_TIER } from '@mycel/shared/api'
 import { PRODUCT } from '@mycel/shared'
 import { defaultTimeZone, isValidTimeZone } from '../system/time-zone'
 
@@ -28,6 +28,8 @@ export const DEFAULT_SETTINGS: TeamSettingsT = {
   personalIntegrations: true,
   /** apps on a member's own computer as connectors (integrations/connections/local.ts): on unless an admin turns it off */
   localApps: true,
+  /** "팀 추천" (shared/src/api/team-tools.ts): none until an owner or admin recommends a tool */
+  recommendedTools: [],
   /** AI reads send images and PDF pages as images (files/vision.ts) */
   aiVision: true,
   /** the AI may split work into sub-tasks (Claude Code's Agent tool; chat/subagents.ts) */
@@ -118,6 +120,8 @@ export function updateTeamSettings(db: Database, patch: Partial<TeamSettingsT>):
   // (the admin agreed to sound going to this server, not to OpenRouter)
   if (patch.speechProvider !== undefined && patch.aiMediaTranscripts === undefined && patch.speechProvider !== getTeamSettings(db).speechProvider)
     patch = { ...patch, aiMediaTranscripts: null }
+  // team picks: known ids only, each once (shared/src/api/team-tools.ts)
+  if (patch.recommendedTools) patch = { ...patch, recommendedTools: cleanRecommended(patch.recommendedTools) }
   db.transaction(() => {
     for (const [k, v] of Object.entries(patch)) if (v !== undefined && (FIELDS as string[]).includes(k)) setSetting(db, k, v)
     if (patch.defaultLocale !== undefined) syncFollowingLocales(db)

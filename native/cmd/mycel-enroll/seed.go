@@ -16,10 +16,13 @@ import (
 // install": with the marker there the next try copies again (cp -a over the half tree).
 const seedMarker = ".seed-incomplete"
 
-// defaultSeedReaders: how many files the read-ahead reads at once. On EC2 the seed is on the root volume, which EBS
-// fills from the AMI snapshot in S3 on the first read of each block; one reader at a time waits on S3 for every block
-// (about 6 MB/s), many readers keep many block fetches in flight. 32 stays under the gp3 baseline of 3000 IOPS.
-const defaultSeedReaders = 32
+// defaultSeedReaders: how many files the read-ahead reads at once; 0 = no read-ahead (AX_ENROLL_SEED_READERS=1..256
+// turns it on). On EC2 the seed is on the root volume, which EBS fills from the AMI snapshot in S3 on the first read of
+// each block. The idea was that many readers keep many block fetches in flight, but a cold-read test on 2026-11-20
+// (t3a.medium, Seoul, the teamax-0.5.21 root snapshot, 1.29 GB seed) found the opposite: plain cp -a 144.5 s, 32
+// parallel readers then cp -a 168.7 s. The lazy load caps throughput per volume, so more readers do not add speed. What
+// did help is the EBS initialization rate on the root volume (35 s at 300 MiB/s), which the host sets at launch.
+const defaultSeedReaders = 0
 
 // readAheadChunk: a file bigger than two chunks is read as chunks by several readers (the app's bun and node
 // binaries are tens of MB; one reader would make them the tail of the read-ahead).

@@ -77,7 +77,7 @@ test('propose → change a row → remove a row → rename a new folder → [이
   await expect(page.getByTestId('organize-project-question')).toHaveText("이 2개는 'A사 리뉴얼' 프로젝트로 묶을까요?")
   await page.getByTestId('organize-project-later').click()
   await expect(page.getByTestId('organize-project')).toHaveCount(0)
-  await expect(page.getByTestId('organize-next')).toHaveText('다음: 도구 연결')
+  await expect(page.getByTestId('organize-next')).toHaveText('다음: 팀이 쓸 도구')
   await page.getByTestId('organize-next').click()
   await expect(page.getByTestId('welcome-tools')).toBeVisible()
   // apply is bound to a plan of the caller: an unknown one is not found (the same plan twice: the unit tests)

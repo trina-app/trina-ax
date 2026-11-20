@@ -581,7 +581,7 @@ describe('reading a listed file afterwards', () => {
     expect(f.calls.filter((c) => c.startsWith('open'))).toEqual([])
   })
 
-  test('another size, date or file in its place is refused; a deleted one is unreadable', async () => {
+  test('another size, date or file in its place is refused; a deleted one is missing (TC-219)', async () => {
     const { f, sessions, id } = await looked()
     const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }
     ;(docs.children['b.pdf'] as { size: number }).size = 21
@@ -592,7 +592,10 @@ describe('reading a listed file afterwards', () => {
     clients.children['a.pdf'] = file(10, (clients.children['a.pdf'] as { mtimeMs: number }).mtimeMs)
     expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'changed' })
     delete clients.children['a.pdf']
-    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'unreadable' })
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'missing' })
+    // its whole folder gone: missing too
+    delete docs.children.Clients
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'missing' })
   })
 
   test('a link that takes the file\'s place between the check and the open (ELOOP) is refused', async () => {
@@ -602,6 +605,22 @@ describe('reading a listed file afterwards', () => {
     const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }
     fs.open = async (p) => { docs.children['b.pdf'] = link('/Users/alex/Documents/c.pdf'); return open(p) }
     expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'changed' })
+  })
+
+  test('deleted between the check and the open (ENOENT), or a folder on its way now a file (ENOTDIR): missing (TC-219)', async () => {
+    const { f, sessions, id } = await looked()
+    const fs = (f.fs as WorkFs)
+    const open = fs.open
+    const docs = f.at('/Users/alex/Documents', true) as { children: Record<string, Node> }
+    fs.open = async (p) => { delete docs.children['b.pdf']; return open(p) }
+    expect(await sessions.read(TEAM, id('b.pdf'))).toEqual({ ok: false, reason: 'missing' })
+    fs.open = open
+    // the folder Clients is a file now: the way to a.pdf goes through a file
+    docs.children.Clients = file(3, 1)
+    expect(await sessions.read(TEAM, id('a.pdf'))).toEqual({ ok: false, reason: 'missing' })
+    // any other error on the open stays unreadable
+    fs.open = async () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }) }
+    expect(await sessions.read(TEAM, id('c.pdf'))).toEqual({ ok: false, reason: 'unreadable' })
   })
 
   test('a sign-out or another person forgets the look', async () => {

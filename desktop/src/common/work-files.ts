@@ -918,6 +918,9 @@ export function pickTarget(picked: string, roots: readonly (string | null)[], pl
 
 // ---------------------------------------------------------------- what the page may read afterwards
 
+/** The file (or a folder on its way) is not there any more: deleted or moved away. */
+const gone = (e: unknown) => { const c = (e as { code?: string } | null)?.code; return c === 'ENOENT' || c === 'ENOTDIR' }
+
 interface Session {
   origin: string
   at: number
@@ -1065,8 +1068,9 @@ export class WorkFileSessions {
       if (sameKey(real, p) !== sameKey(path, p) || !insideKey(sameKey(real, p), sameKey(f.root, p), p)) return { ok: false, reason: 'changed' }
       before = await this.fs.lstat(path)
       if (!sameFile(before, f, p)) return { ok: false, reason: 'changed' }
-    } catch {
-      return { ok: false, reason: 'unreadable' }
+    } catch (e) {
+      // deleted, or moved away, since the look (the page says "No longer on this computer")
+      return { ok: false, reason: gone(e) ? 'missing' : 'unreadable' }
     }
     // online only: the open or the read makes the provider download it, which can take a while
     const provider = cloudProviderOf(path, p)
@@ -1077,8 +1081,9 @@ export class WorkFileSessions {
     try {
       h = await this.fs.open(path)
     } catch (e) {
-      // O_NOFOLLOW on a link that took the file's place: ELOOP
-      return { ok: false, reason: (e as { code?: string } | null)?.code === 'ELOOP' ? 'changed' : 'unreadable' }
+      // O_NOFOLLOW on a link that took the file's place: ELOOP; deleted between the check and the open: ENOENT
+      const code = (e as { code?: string } | null)?.code
+      return { ok: false, reason: code === 'ELOOP' ? 'changed' : gone(e) ? 'missing' : 'unreadable' }
     }
     try {
       // the file that was opened: the same one, the same size and date (a late one: the one lstat'ed just before)

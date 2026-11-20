@@ -12,11 +12,11 @@ Trina AX reúne los archivos, las skills y las herramientas de tu equipo en un s
 
 [Sitio web](https://ax.trina.app) · [Documentación](docs/README.md) · [Planes](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md)
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · Español · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
-https://github.com/user-attachments/assets/daabbe94-61ca-4b79-a32d-19b39ddf680f
+https://github.com/user-attachments/assets/9511e013-c497-4113-9862-e50f061beae8
 
 <p align="center"><sub>Lo que puede hacer la IA de un nuevo empleado el primer día. La historia en 80 segundos.</sub><br>Código abierto (AGPL-3.0) · Autoalojamiento gratis, sin límite de personas<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-es.png" height="44" alt="Danos una estrella en GitHub"></a><br><sub>Después pulsa ☆ Star arriba de la página. Una estrella ayuda a que más equipos encuentren Trina AX.</sub></p>
 

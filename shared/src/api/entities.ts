@@ -1,6 +1,7 @@
 // What the API returns for the tables of design tab 1. These are API views (camelCase, no secrets, no hashes),
 // not raw rows. Server code maps rows -> these shapes; clients only ever see these.
 import { z } from 'zod'
+import { RecommendedTools } from './team-tools'
 import { UserId, Uuid7 } from '../ids'
 import { StepShared } from './share-card'
 import { Access, ApiErrorBody, ClientKind, EngineId, IsoTime, Locale, GuestDetail, GuestPlace, RelPath, Role, TeamRole, TextSize, Theme, UserStatus } from './common'
@@ -940,6 +941,9 @@ export const ANSWER_STEP_LIMIT_MAX = 2000
 
 /** settings (team-level, key/value json in the DB). */
 export const TeamSettings = z.object({
+  /** 1-100 characters on a self-installed server. A hosted server takes only a name the hosting service takes
+   * (cloud-protocol/team-name.ts teamNameProblem: 1-60 characters, no hidden characters), checked by the server when
+   * the name changes (system/cloud-team-name.ts hostedTeamName); a name kept from before stays readable here. */
   teamName: z.string().min(1).max(100),
   defaultLocale: Locale,
   defaultEngine: EngineId,
@@ -973,6 +977,10 @@ export const TeamSettings = z.object({
    * and the ones there are left out of chats. Needs personalIntegrations too (they are personal connections). Older
    * servers omit it. */
   localApps: z.boolean().optional(),
+  /** "팀 추천" (docs/decisions/20261120-team-vs-personal-onboarding.md, shared/src/api/team-tools.ts): the tools an owner
+   * or admin recommends, first in each person's Settings › Connectors. Gates nothing. Absent (every team before it, an
+   * older server) or empty: none. */
+  recommendedTools: RecommendedTools.optional(),
   /** "Send images, PDF pages and video frames to the AI" (default on): an AI read of a photo, screenshot, scanned PDF
    * page or video gives the model the image (like Claude Code). Off: no pixels go to the provider; a Mac server reads
    * the text with Apple Vision instead, a Linux server says the image is not shown. */
