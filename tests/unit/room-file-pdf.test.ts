@@ -16,7 +16,7 @@ import { makeHandler } from '../../server/src/mcp/protocol'
 import { send, flush } from '../../server/src/mcp/socket'
 import { nativeBinDir, ocrBin, which } from '../../server/src/config'
 import { isolation } from '../../server/src/tools/isolate'
-import { imageTokens, READ_OUTPUT_TOKENS, textTokens, VISION_SIDE_MAX, VISION_TURN_IMAGES, visionTools } from '../../server/src/files/vision'
+import { imageTokens, READ_OUTPUT_TOKENS, WHOLE_PDF_RULE, textTokens, VISION_SIDE_MAX, VISION_TURN_IMAGES, visionTools } from '../../server/src/files/vision'
 import { TurnFiles } from '../../server/src/files/service'
 import { roomFilesOf } from '../../server/src/rooms/files'
 import { readRoomFileFor, ROOM_TOOL_DESCRIPTIONS, type RoomFileArgs, type RoomFileReader } from '../../server/src/chat/room-tools'
@@ -182,6 +182,7 @@ describe.skipIf(!layers)('a PDF sent in a room, as a read gives it', () => {
       const all = await read(r, { file: long, as_images: true })
       expect(all.isError).toBe(true)
       expect(texts(all)).toContain('This PDF has 12 pages: read it in parts with pages')
+      expect(texts(all)).toContain(WHOLE_PDF_RULE)
       const eight = await read(r, { file: long, pages: '7-8' })
       expect(eight.content.map((c) => c.type)).toEqual(['text', 'image', 'text'])
       expect(texts(eight)).toContain('Chapter 7:')
