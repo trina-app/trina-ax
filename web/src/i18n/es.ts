@@ -609,6 +609,9 @@ export const es: Record<MessageKey, string> = {
   'chat.branchConfirmBody': "Los cambios que la IA ya hizo en archivos de las carpetas del equipo no se desharán. Puede restaurarlos desde el historial de versiones en la pantalla Archivos.",
   'chat.engineSwitched': "Se cambió a {engine}. Continúa con la conversación hasta ahora.",
   "chat.answeredBy": "Respondió {ai}",
+  // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
+  "chat.cardAnswer": "Eligió {choices}",
+  "chat.cardSkipped": "Omitida",
   'chat.inTrash': "Este chat está eliminado y se borrará definitivamente el {date}. Restáurelo para seguir conversando.",
   "chat.footer": "La IA puede cometer errores. Verifique la información importante. Solo usted puede ver los chats nuevos.",
   "chat.toBottom": "Ir al mensaje más reciente",

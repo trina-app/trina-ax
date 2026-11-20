@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from '
 import { API, uuidv7, type Message, type Step } from '@mycel/shared/api'
 import { ask, startHarness, type Harness, type TestSocket } from '../lib/b-harness'
 import { waitFor } from '../lib/wait'
-import { answeredNote, answerText, labelsHidden, saveAnswered } from '../../server/src/chat/open-questions'
+import { answeredNote, answersToSave, answerText, cardAnswerOf, labelsHidden, saveAnswered } from '../../server/src/chat/open-questions'
 import { setAnswerReads } from '../../server/src/chat/shared-answers'
 import { ASK_USER_LATER_NOTE } from '../../server/src/chat/tools'
 
@@ -261,6 +261,28 @@ describe('ask_user waits as long as it takes', () => {
     const q = (question: string, options?: { label: string; value: string }[]) => ({ kind: 'ask_user' as const, requestId: uuidv7(), question, ...(options ? { options } : {}) })
     expect(answerText([{ question: 'A?', answer: ['x', 'own words'] }], [q('A?', [{ label: 'Ex', value: 'x' }])], 'skipped')).toBe('Ex, own words')
     expect(answerText([{ question: 'A?', answer: null }, { question: 'B?', answer: 'b' }], [q('A?'), q('B?')], '(Skipped)')).toBe('A?\n(Skipped)\n\nB?\nb')
+    // only the cards' buttons: their words, one per line, never the cards' text (the person did not write it)
+    expect(answerText([{ question: 'A?', answer: 'x' }, { question: 'B?', answer: null }], [q('A?', [{ label: 'Ex', value: 'x' }]), q('B?')], '(Skipped)')).toBe('Ex\n(Skipped)')
+  })
+
+  test('a card answer is saved with its words and reads as the cards\' choices (Message.cardAnswer); typed text stays the person\'s words', () => {
+    const chatId = (h.ctx.db.query('SELECT id FROM chats LIMIT 1').get() as { id: string }).id
+    const rule = { kind: 'ask_user' as const, requestId: uuidv7(), question: 'Save this as a project rule?', options: [{ label: 'Save as "hn-use-bright-data"', value: 'save' }, { label: 'Not now', value: 'no' }] }
+    const msg = (content: string) => { const id = uuidv7(); h.ctx.db.query("INSERT INTO messages (id, chat_id, role, content, status) VALUES (?, ?, 'user', ?, 'done')").run(id, chatId, content); return id }
+    const picked = answersToSave([{ question: rule.question, answer: 'save' }], [rule], 'en')
+    const a = msg('Save as "hn-use-bright-data"'); saveAnswered(h.ctx.db, a, picked)
+    expect(cardAnswerOf(h.ctx.db, a, 'Save as "hn-use-bright-data"')).toEqual(['Save as "hn-use-bright-data"'])
+    // typed in the message box: the person's own words, a bubble as before
+    const typed = answersToSave([{ question: rule.question, answer: 'only for this project' }], [rule], 'en')
+    const b = msg('only for this project'); saveAnswered(h.ctx.db, b, typed)
+    expect(cardAnswerOf(h.ctx.db, b, 'only for this project')).toBeNull()
+    // saved by an older build (no words kept): a label that is not the value was a pick; text equal to the value is not told apart
+    const c = msg('Save as "hn-use-bright-data"'); saveAnswered(h.ctx.db, c, [{ question: rule.question, answer: 'save' }])
+    expect(cardAnswerOf(h.ctx.db, c, 'Save as "hn-use-bright-data"')).toEqual(['Save as "hn-use-bright-data"'])
+    const d = msg('only for this project'); saveAnswered(h.ctx.db, d, [{ question: rule.question, answer: 'only for this project' }])
+    expect(cardAnswerOf(h.ctx.db, d, 'only for this project')).toBeNull()
+    // a message that answers no card
+    expect(cardAnswerOf(h.ctx.db, msg('hello'), 'hello')).toBeNull()
   })
 })
 

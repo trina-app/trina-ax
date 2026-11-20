@@ -5,6 +5,7 @@ import type { Database } from 'bun:sqlite'
 import type { ApiErrorBody, Attachment, Chat, ChatRunState, EngineId, FileChangeSummary, Locale, Memory, Message, MessageStatus, Project, Step, TurnStopReason, Usage, UserRef } from '@mycel/shared/api'
 import { knownStepTool, STEP_TEXT, stepWords } from '@mycel/shared'
 import { newId } from '../db'
+import { cardAnswerOf } from './open-questions'
 import { storedRunOutcome } from './schedule-outcome'
 import { isConfidentialChat } from '../safe-ops/confidential'
 import { isInternalChat } from './internal-chats'
@@ -373,6 +374,8 @@ export class ChatStore {
       ...(() => { const n = r.role === 'assistant' && r.status !== 'streaming' && !live ? sourceCount(this.db, r.id) : 0; return n ? { sourceCount: n } : {} })(),
       // a finished answer that ran a team skill: "팀 스킬 '할 일 정리' · 팀 파일 2개" (docs/DECISIONS.md "M — One meeting note")
       ...(r.role === 'assistant' && r.status !== 'streaming' && !live && r.turn_id ? this.receiptFor(r, view) : {}),
+      // the person's answer on the AI's cards: one quiet line, not their words (chat/open-questions.ts cardAnswerOf)
+      ...(() => { const c = r.role === 'user' ? cardAnswerOf(this.db, r.id, r.content) : null; return c ? { cardAnswer: { choices: c } } : {} })(),
     }
   }
   /** The receipt as `view` may see it: none when the viewer cannot read the skill it names. */

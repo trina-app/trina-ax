@@ -16,7 +16,7 @@
 // there (Message.withheld: it used something I cannot open, and I did not see the chat then) is one faint line in its
 // place, the rooms' words ("볼 수 없는 자료를 참고한 답이라 가려졌어요"), with only its branch switch.
 import clsx from 'clsx'
-import { AlertTriangle, BookmarkPlus, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
+import { AlertTriangle, BookmarkPlus, Check, ChevronDown, ChevronLeft, ChevronRight, CirclePause, Copy, History, Info, Loader2, MessageSquareReply, MessageSquareShare, MessagesSquare, Paperclip, Pencil, Play, RotateCcw, Shapes, Square } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { DECK_ARTIFACT_KEY, PROMO_ARTIFACT_KEY, chatErrorReason, ERROR_MESSAGES, hideThreadRef, isDefaultErrorMessage, sideQuoteOf, skillLabel, type Attachment, type EngineId, type SideQuote, type Step, type UserRef } from '@mycel/shared/api'
@@ -362,9 +362,37 @@ export function MessageAuthor({ author }: { author: UserRef | null }) {
   )
 }
 
+/** A message that only answers the AI's cards (Message.cardAnswer: their buttons, not typed): one quiet line under the
+ * answer that asked, in the AI's column, never a bubble of the person's words. The cards' text is not repeated; a shared
+ * chat names who chose (their name as it is, as MessageAuthor). No edit or copy: there is nothing they wrote. */
+function CardAnswerLine({ m, showAuthor, busy, onSelectBranch }: { m: ViewMessage & { cardAnswer: NonNullable<ViewMessage['cardAnswer']> }; showAuthor: boolean; busy: boolean; onSelectBranch: (id: string) => void }) {
+  const t = useT()
+  const nameOf = useNameOf()
+  const picked = m.cardAnswer.choices.filter((c): c is string => c !== null)
+  const skipped = picked.length < m.cardAnswer.choices.length
+  const words = [picked.length ? t('chat.cardAnswer', { choices: picked.join(' · ') }) : '', skipped ? t('chat.cardSkipped') : ''].filter(Boolean).join(' · ')
+  const who = showAuthor ? (m.author ? nameOf(m.author) ?? m.author.name : t('rooms.goneUser')) : null
+  return (
+    <div className="-mt-3 flex min-w-0 items-center gap-1.5 text-xs text-muted" data-testid="card-answer" data-message-id={m.id}>
+      <Check size={13} className="shrink-0 text-faint" aria-hidden />
+      <span className="min-w-0 truncate">
+        {who && <span className="font-medium" data-testid="card-answer-author">{who} · </span>}
+        {words}
+      </span>
+      {m.branch.count > 1 && <BranchNav m={m} onSelect={onSelectBranch} disabled={busy} />}
+    </div>
+  )
+}
+
 /** `showAuthor`: a shared chat, every question shows who asked (MessageAuthor); `canEdit` false: not mine to edit (a
  * shared chat); `sideChat`: a room's side chat, whose questions may quote a room message or file (UserText) */
-export function UserMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
+export function UserMessage(props: { m: ViewMessage; chatId: string; busy: boolean; onEdit: (m: ViewMessage, text: string) => void; onSelectBranch: (id: string) => void; showAuthor?: boolean; canEdit?: boolean; sideChat?: boolean; /** a room's side chat panel: a phone's long press opens the actions (usePhonePress) */ pressMenu?: boolean }) {
+  const { m } = props
+  if (m.cardAnswer && !m.local) return <CardAnswerLine m={m as ViewMessage & { cardAnswer: NonNullable<ViewMessage['cardAnswer']> }} showAuthor={!!props.showAuthor} busy={props.busy} onSelectBranch={props.onSelectBranch} />
+  return <WrittenMessage {...props} />
+}
+
+function WrittenMessage({ m, chatId, busy, onEdit, onSelectBranch, showAuthor = false, canEdit = true, sideChat = false, pressMenu = false }: Parameters<typeof UserMessage>[0]) {
   const t = useT()
   const [editing, setEditing] = useState(false)
   // the box shows a "#" room token as "#<title>"; what is sent again keeps its room (lib/roomRefs.ts); a side chat's

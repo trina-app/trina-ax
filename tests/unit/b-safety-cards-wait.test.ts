@@ -199,6 +199,44 @@ describe('a website card', () => {
   })
 })
 
+describe('the answer is the cards\' choices, not the person\'s words', () => {
+  test('two website cards answered "Open": one user message of the buttons\' words only (no card text), marked as a card answer, also on reload', async () => {
+    const chatId = await newChat()
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chatId }, body: { content: fake({ tool: 'web_fetch', args: { url: 'https://card-two-a.example/doc' } }, { tool: 'web_fetch', args: { url: 'https://card-two-b.example/doc' } }), clientMessageId: cm(), attachmentIds: [] } })
+    const c1 = (await alice.next('turn.request', (f) => f.data.turnId === r.turnId, 20_000)).data.request as TurnRequest
+    const c2 = (await alice.next('turn.request', (f) => f.data.turnId === r.turnId && f.data.request.requestId !== c1.requestId, 20_000)).data.request as TurnRequest
+    await doneOf(r.assistantMessage.id)
+    expect(await waitFor(() => h.rt().runState(chatId) === 'idle', { timeoutMs: 10_000 })).toBe(true)
+    expect((await post('alice', r.turnId, { kind: 'ask_user', requestId: c1.requestId, answer: 'allow' })).status).toBeLessThan(300)
+    await post('alice', r.turnId, { kind: 'ask_user', requestId: c2.requestId, answer: 'allow' })
+    const next = await nextTurn(chatId, r.assistantMessage.id)
+    const open = (c1 as Extract<TurnRequest, { kind: 'ask_user' }>).options!.find((o) => o.value === 'allow')!.label
+    expect(next.user.content).toBe(`${open}\n${open}`)
+    expect(next.user.content).not.toContain('card-two-a.example')
+    expect(next.user.cardAnswer).toEqual({ choices: [open, open] })
+    // a reload: the history says the same
+    const page = await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })
+    const u = page.items.find((m: Message) => m.id === next.user.id)!
+    expect(u.cardAnswer).toEqual({ choices: [open, open] })
+    expect(looked('card-two-a.example') + looked('card-two-b.example')).toBe(2)
+  })
+
+  test('an older chat\'s answer (saved before the words were kept, the cards\' text in the message) reads as the cards\' choices too', async () => {
+    const { chatId, turnId, answerId, card } = await askAndWait(fake({ tool: 'web_fetch', args: { url: 'https://card-old.example/doc' } }))
+    await post('alice', turnId, { kind: 'ask_user', requestId: card.requestId, answer: 'deny' })
+    const next = await nextTurn(chatId, answerId)
+    const q = (card as Extract<TurnRequest, { kind: 'ask_user' }>)
+    const deny = q.options!.find((o) => o.value === 'deny')!.label
+    // as an older build saved it: no words with the answer, the question's text before them
+    const row = h.ctx.db.query('SELECT questions FROM answered_questions WHERE message_id = ?').get(next.user.id) as { questions: string }
+    const old = (JSON.parse(row.questions) as { shown?: unknown }[]).map(({ shown: _s, ...a }) => a)
+    h.ctx.db.query('UPDATE answered_questions SET questions = ? WHERE message_id = ?').run(JSON.stringify([...old, { ...old[0], question: 'Second card?' }]), next.user.id)
+    h.ctx.db.query('UPDATE messages SET content = ? WHERE id = ?').run(`${q.question}\n${deny}\n\nSecond card?\n${deny}`, next.user.id)
+    const page = await h.api('alice').call(API.listMessages, { params: { id: chatId }, query: {} })
+    expect(page.items.find((m: Message) => m.id === next.user.id)!.cardAnswer).toEqual({ choices: [deny, deny] })
+  })
+})
+
 describe('the same card or another one', () => {
   test('only the card the person answered takes the answer: the Always allow choice and the time limit do not count, what it says does', () => {
     const base: TurnRequest = { kind: 'ask_user', origin: 'server', requestId: 'a', question: 'Move 1 file to the trash?', options: [{ label: 'Move', value: 'trash' }, { label: 'No', value: 'skip' }], details: [{ label: 'File', text: 'old.txt' }] }

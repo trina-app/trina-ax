@@ -624,6 +624,9 @@ export const en: Record<MessageKey, string> = {
   'chat.branchConfirmBody': "Team-folder files the AI already changed won't be undone. You can restore them from the version history on the Files screen.",
   'chat.engineSwitched': "Switched to {engine}. It carries on from the conversation so far.",
   "chat.answeredBy": "Answered by {ai}",
+  // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
+  "chat.cardAnswer": "Chose {choices}",
+  "chat.cardSkipped": "Skipped",
   'chat.inTrash': 'This chat is deleted and will be removed for good on {date}. Restore it to keep chatting.',
   "chat.footer": "AI can make mistakes. Check important information. Only you can see new chats.",
   "chat.toBottom": "Jump to the latest",

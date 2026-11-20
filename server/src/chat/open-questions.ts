@@ -27,7 +27,13 @@ interface Row { request_id: string; chat_id: string; message_id: string; turn_id
 /** a tool call that raised a safety card and runs again with its answer (chat/turn.ts replayCalls) */
 export interface WaitingCall { tool: string; args: unknown; card: TurnRequest; window: string | null }
 /** one answered question (or safety card, with its call), as the next turn's engine message names it */
-export interface AnsweredQuestion { question: string; answer: unknown; call?: WaitingCall }
+export interface AnsweredQuestion {
+  question: string; answer: unknown; call?: WaitingCall
+  /** the words its user message shows for this answer (answerText: a button's or option's words, null for Skip), saved
+   * when no answer of the message was typed: the message is then a card's answer, not the person's words
+   * (Message.cardAnswer, cardAnswerOf). Absent: typed, or saved before 2026-11-20 */
+  shown?: string | null
+}
 
 /** Tools whose safety cards (delete, share, a website, a browser site) wait after the answer ends: the call raises
  * its card before it changes anything, so it can end and run again with the answer (chat/turn.ts cardLater) */
@@ -127,29 +133,54 @@ export function closeChatQuestions(db: Database, chatId: string): { requestId: s
   return rows.map((r) => ({ requestId: r.request_id, turnId: r.turn_id, userId: r.user_id, answered: r.answer !== null }))
 }
 
-/** What the answer's user message says on screen: the picked options by their labels, typed text as typed, `skipped`
- * for a question the person skipped (Skip on the card: the AI goes on without that answer); with several questions,
- * one line each after its question. */
-export function answerText(answers: AnsweredQuestion[], requests: readonly TurnRequest[], skipped: string, decisions: Partial<Record<string, string>> = {}, picked?: string): string {
+/** Each answer in words: the picked options by their labels (`picked`: as these words instead), a site card's choice in
+ * the person's words (`decisions`), `skipped` for Skip, typed text as typed (`typed` true: some answer was the person's
+ * own text, not a card's choice). */
+function answerLabels(answers: AnsweredQuestion[], requests: readonly TurnRequest[], skipped: string, decisions: Partial<Record<string, string>>, picked?: string): { labels: string[]; skips: boolean[]; typed: boolean } {
+  let typed = false
   const label = (i: number, v: unknown): string => {
     if (v === null || v === undefined) return skipped
     const r = requests[i]
     // a browser or dev-environment site card answers once / always / deny: in the person's words
     if (r && r.kind !== 'ask_user' && typeof v === 'string' && decisions[v]) return decisions[v]!
     const opts = r?.kind === 'ask_user' ? r.options ?? [] : []
-    // `picked`: a picked option shows as these words, not its label (labelsHidden)
-    const one = (x: unknown) => { const s = typeof x === 'string' ? x : JSON.stringify(x); const o = opts.find((y) => y.value === s); return o ? picked ?? o.label : s }
+    const one = (x: unknown) => {
+      const s = typeof x === 'string' ? x : JSON.stringify(x)
+      const o = opts.find((y) => y.value === s)
+      if (!o) typed = true
+      return o ? picked ?? o.label : s
+    }
     return Array.isArray(v) ? v.map(one).join(', ') : one(v)
   }
-  if (answers.length === 1) return label(0, answers[0]!.answer)
-  // the questions are the AI's words too: with the labels hidden (`picked`), so are they (one line per answer)
-  if (picked !== undefined) return answers.map((a, i) => label(i, a.answer)).join('\n')
-  return answers.map((a, i) => `${a.question}\n${label(i, a.answer)}`).join('\n\n')
+  const labels = answers.map((a, i) => label(i, a.answer))
+  return { labels, skips: answers.map((a) => a.answer === null || a.answer === undefined), typed }
 }
+
+/** What the answer's user message says on screen: the picked options by their labels, typed text as typed, `skipped`
+ * for a question the person skipped (Skip on the card: the AI goes on without that answer). With several questions:
+ * one line each; a question's words come before its answer only when some answer was typed (the person's own text
+ * needs its question to be read). A message of the cards' choices alone never repeats the cards' text: it is not the
+ * person's words (the web shows it as one quiet line, Message.cardAnswer). */
+export function answerText(answers: AnsweredQuestion[], requests: readonly TurnRequest[], skipped: string, decisions: Partial<Record<string, string>> = {}, picked?: string): string {
+  const { labels, typed } = answerLabels(answers, requests, skipped, decisions, picked)
+  if (answers.length === 1) return labels[0]!
+  // the questions are the AI's words too: with the labels hidden (`picked`), so are they (one line per answer)
+  if (picked !== undefined || !typed) return labels.join('\n')
+  return answers.map((a, i) => `${a.question}\n${labels[i]}`).join('\n\n')
+}
+
+const decisionWords = (L: Locale) => ({ once: tr('siteOnce', L), always: tr('siteAlways', L), deny: tr('siteDeny', L) })
 
 /** The visible message of an answer (answerText) in the person's words: Skip, and a site card's choices */
 export const answerWords = (answers: AnsweredQuestion[], requests: readonly TurnRequest[], L: Locale, hideLabels = false): string =>
-  answerText(answers, requests, tr('questionSkipped', L), { once: tr('siteOnce', L), always: tr('siteAlways', L), deny: tr('siteDeny', L) }, hideLabels ? tr('questionAnswered', L) : undefined)
+  answerText(answers, requests, tr('questionSkipped', L), decisionWords(L), hideLabels ? tr('questionAnswered', L) : undefined)
+
+/** The answers as they are saved with the message (saveAnswered): each with the words it shows (`shown`, null for
+ * Skip) when no answer was typed, so the message reads as the cards' choices (cardAnswerOf). */
+export function answersToSave(answers: AnsweredQuestion[], requests: readonly TurnRequest[], L: Locale, hideLabels = false): AnsweredQuestion[] {
+  const { labels, skips, typed } = answerLabels(answers, requests, tr('questionSkipped', L), decisionWords(L), hideLabels ? tr('questionAnswered', L) : undefined)
+  return typed ? answers : answers.map((a, i) => ({ ...a, shown: skips[i] ? null : labels[i]! }))
+}
 
 /** A safety card is decided by its own buttons only (as when it waited inside its call, TurnExec.answer): a typed
  * answer is not one of them. True: this answer may go to it. */
@@ -191,6 +222,46 @@ export function answeredNote(db: Database, messageId: string): string {
   // (the questions and answers inside the block, never a tag of their own: < and > as JSON escapes, the same text)
   const json = JSON.stringify(list).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
   return `<answered_questions>\nThis message is the user's answer to the question${list.length > 1 ? 's' : ''} you asked with ask_user in your previous answer (the card waited until they answered). Each answer as the card gave it: ${json}\nContinue the work from there.\n</answered_questions>`
+}
+
+/** An answer saved before `shown` (2026-11-20) in the words its message shows: the whole message for one answer, else
+ * the line after its question ("question\nwords", blocks split by a blank line, answerText's older form). */
+function oldWords(content: string, a: AnsweredQuestion, single: boolean): string | null {
+  if (single) return content
+  const at = a.question ? content.indexOf(`${a.question}\n`) : -1
+  if (at < 0) return null
+  const rest = content.slice(at + a.question.length + 1)
+  const end = rest.indexOf('\n\n')
+  return end < 0 ? rest : rest.slice(0, end)
+}
+
+/**
+ * The cards' choices this user message is (Message.cardAnswer): each answer's words, null for Skip; null when the
+ * message is not only cards' choices (some answer was typed, or it answers no card). `content`: the message's text.
+ * Answers saved before `shown` (2026-11-20), read from the text: a safety card's (kept with its call: buttons only)
+ * always; an AI question's when the words are not its saved value (an option's label stood in for it; a typed answer
+ * reads as typed). An option whose label is its value cannot be told from typed text: that message stays as it was.
+ */
+export function cardAnswerOf(db: Database, messageId: string, content: string): (string | null)[] | null {
+  const r = db.query('SELECT questions FROM answered_questions WHERE message_id = ?').get(messageId) as { questions: string } | null
+  if (!r) return null
+  let list: AnsweredQuestion[]
+  try { list = JSON.parse(r.questions) } catch { return null }
+  if (!Array.isArray(list) || !list.length) return null
+  const out: (string | null)[] = []
+  for (const a of list) {
+    if (!a || typeof a !== 'object') return null
+    if (a.shown === null || typeof a.shown === 'string') { out.push(a.shown); continue }
+    if (a.answer === null || a.answer === undefined) { out.push(null); continue }
+    const words = oldWords(content, a, list.length === 1)
+    if (words === null) return null
+    if (!a.call) {
+      const vals = (Array.isArray(a.answer) ? a.answer : [a.answer]).map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))
+      if (words.split(', ').some((w) => vals.includes(w))) return null
+    }
+    out.push(words)
+  }
+  return out
 }
 
 /**

@@ -623,6 +623,9 @@ export const ko = {
   'chat.branchConfirmBody': 'AI가 이미 바꾼 팀 폴더 파일은 되돌아가지 않아요. 필요하면 파일 화면의 버전 기록에서 되돌릴 수 있어요.',
   'chat.engineSwitched': "{engine}로 바뀌었어요. 지금까지의 대화를 이어서 답해요.",
   "chat.answeredBy": "답한 AI: {ai}",
+  // a message that only answers the AI's cards (Messages.tsx CardAnswerLine): one quiet line, not a bubble
+  "chat.cardAnswer": "{choices} 선택함",
+  "chat.cardSkipped": "건너뜀",
   'chat.inTrash': '삭제한 기록이에요. {date}에 완전히 지워져요. 이어서 대화하려면 먼저 되돌려 주세요.',
   "chat.footer": "AI는 실수할 수 있어요. 중요한 내용은 확인해 주세요. 새 채팅은 나만 볼 수 있어요.",
   "chat.toBottom": "최신 메시지로 이동",
