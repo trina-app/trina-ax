@@ -8,6 +8,9 @@ import { endpoint } from './endpoint'
 import { SKILL_SHARE } from './onboarding-skill'
 import { PRODUCT } from '../product'
 
+/** Where the profile lives, from the team folder's root (server/src/onboarding/profile.ts; the demo's story times). */
+export const COMPANY_PROFILE_PATH = 'skills/company-profile.json'
+
 /** The fields of a profile that reach the AI (website besides). Skill inputs read them as `company.<field>`. `name`
  * (the company's name) is optional: profiles saved before it have none, and an empty one reads as the team's name. */
 export const PROFILE_FIELDS = ['name', 'oneLine', 'products', 'audience', 'tone', 'avoid'] as const

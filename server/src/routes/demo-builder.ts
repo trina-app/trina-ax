@@ -26,6 +26,7 @@ import { googleDriveOf } from '../integrations/google-drive/oauth'
 import { hiddenAnswersCutover, setHiddenAnswersCutover } from '../chat/shared-answers'
 import { higgsfieldSavedTools } from '../demo/fakes/higgsfield'
 import { demoOf } from './demo'
+import { PROFILE_PATH } from '../onboarding/profile'
 
 /** the made-up secrets start with this, so a scan of a snapshot can tell them from a real one */
 export const FAKE_SECRET_PREFIX = 'demo-fake-'
@@ -202,12 +203,21 @@ export function registerDemoBuilder(kit: RouteKit, ctx: AppContext) {
     for (const t of times) {
       const abs = inside(t.path)
       const at = new Date(t.at)
+      // the company profile says when it was saved in its own updatedAt, which the API prefers to the file's time: the
+      // story's too (QA TC-5935). Builder only, so the rewrite skips versions (a later save takes its base from the file)
+      let rewritten: Buffer | null = null
+      if (t.path === PROFILE_PATH) {
+        try {
+          rewritten = Buffer.from(JSON.stringify({ ...JSON.parse(fs.readFileSync(abs, 'utf8')), updatedAt: at.toISOString() }, null, 2) + '\n', 'utf8')
+          fs.writeFileSync(abs, rewritten)
+        } catch { rewritten = null /* not there or not JSON: the time below is enough */ }
+      }
       try { fs.utimesSync(abs, at, at) } catch { continue }
       db.transaction(() => {
         const last = db.query("SELECT user_id, size, sha256, detail FROM file_events WHERE path = ? AND action IN ('create', 'update', 'upload', 'restore') ORDER BY id DESC LIMIT 1").get(t.path) as { user_id: string; size: number | null; sha256: string | null; detail: string | null } | null
         if (!last) return
         db.query("DELETE FROM file_events WHERE path = ? AND action IN ('create', 'update', 'upload', 'restore')").run(t.path)
-        db.query("INSERT INTO file_events (user_id, path, action, size, sha256, detail, at) VALUES (?, ?, 'upload', ?, ?, ?, ?)").run(last.user_id, t.path, last.size, last.sha256, last.detail, at.toISOString())
+        db.query("INSERT INTO file_events (user_id, path, action, size, sha256, detail, at) VALUES (?, ?, 'upload', ?, ?, ?, ?)").run(last.user_id, t.path, rewritten?.length ?? last.size, rewritten ? crypto.createHash('sha256').update(rewritten).digest('hex') : last.sha256, last.detail, at.toISOString())
         updated++
       })()
     }
