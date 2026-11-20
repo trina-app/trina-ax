@@ -216,6 +216,7 @@ export class RemoteOAuth {
   private housekeep() {
     this.db.query('DELETE FROM remote_mcp_requests WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_upload_links WHERE expires_at <= ?').run(this.now())
+    this.db.query('DELETE FROM remote_mcp_download_links WHERE expires_at <= ?').run(this.now())
     this.db.query('DELETE FROM remote_mcp_grants WHERE expires_at <= ?').run(this.now())
     pruneScopes(this.db, this.now())
     // At most every HOUSEKEEP_MS: these two are scans (no index on the limits' bucket; the idle-app subqueries).

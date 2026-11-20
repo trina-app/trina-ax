@@ -21,7 +21,7 @@ function hasRoomApps(ctx: AppContext): boolean {
 export function loggablePath(p: string): string {
   // an app's address may carry a token in its query too (a service that adds ?token=…): /in/ never logs a query
   if (/^\/in(\/|\?|$)/.test(p)) p = p.replace(/\?.*$/s, '')
-  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads|in)\/)[^/]+/, '$1***')
+  return p.replace(/^(\/(?:api\/(?:invites|password-resets)|invite|reset-password|api\/connectors\/remote\/requests|connector-uploads|connector-downloads|in)\/)[^/]+/, '$1***')
 }
 
 /** An app's room address (rooms/apps/inbound.ts): POST /in/<a well-formed token>. */

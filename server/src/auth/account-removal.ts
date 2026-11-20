@@ -134,7 +134,7 @@ export function registerAccountsCleanup(ctx: AppContext): void {
   registerAccountCleanup(ctx, {
     name: 'accounts',
     rows: [
-      'remote_mcp_grants.user_id', 'remote_mcp_requests.user_id', 'remote_mcp_upload_links.user_id',
+      'remote_mcp_grants.user_id', 'remote_mcp_requests.user_id', 'remote_mcp_upload_links.user_id', 'remote_mcp_download_links.user_id',
       'sessions.user_id', 'app_signin_codes.user_id', 'login_nets.user_id', 'card_always_allow.user_id', 'user_web_access.user_id',
       'member_welcome.user_id', 'group_member_since.user_id',
       'account_deletion_notices.user_id', 'account_deletion_due_notices.user_id', 'reset_link_notices.user_id', 'handover_notices.user_id',
