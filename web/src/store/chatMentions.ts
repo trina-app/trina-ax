@@ -8,14 +8,16 @@ import { create } from 'zustand'
 import type { InboxNotification } from '@mycel/shared/api'
 import { api, API } from '../lib/api'
 import { useChats } from './chats'
-import { accessChanged, notificationsChanged, reloadAsked } from './live'
+import { accessChanged, chatChanged, notificationsChanged, reloadAsked } from './live'
 
 /** One chat's unread mentions of me: how many (threads) and who, the newest first, each name once. */
 export interface ChatMention { chatId: string; count: number; names: string[] }
 
-/** How many notices are read: the Inbox's first page at its largest (a person with more unread mentions than this sees
- * the newest ones counted). */
+/** The Inbox's notices are read in pages of this many, without the conversation rows (`only: 'notices'`: DMs and room
+ * mentions are never chat-thread mentions), at most MENTIONS_PAGES pages: the Inbox keeps 30 days, so this reaches
+ * every unread mention of all but the busiest people, and the newest ones always. */
 export const MENTIONS_READ = 100
+export const MENTIONS_PAGES = 5
 
 /** The unread mentions of me among `items`, by chat, the newest notice first (the list's own order). */
 export function mentionsByChat(items: readonly InboxNotification[]): Map<string, ChatMention> {
@@ -34,14 +36,16 @@ export function mentionsByChat(items: readonly InboxNotification[]): Map<string,
 }
 
 /** The mentions by project: each chat's count added to its project's (a chat whose project is not known is left out). */
-export function mentionsByProject(byChat: ReadonlyMap<string, ChatMention>, projectOf: (chatId: string) => string | null | undefined): Map<string, ChatMention & { chats: number }> {
-  const out = new Map<string, ChatMention & { chats: number }>()
+export type ProjectMention = ChatMention & { chats: number; chatIds: string[] }
+export function mentionsByProject(byChat: ReadonlyMap<string, ChatMention>, projectOf: (chatId: string) => string | null | undefined): Map<string, ProjectMention> {
+  const out = new Map<string, ProjectMention>()
   for (const m of byChat.values()) {
     const p = projectOf(m.chatId)
     if (!p) continue
-    const t = out.get(p) ?? { chatId: m.chatId, count: 0, names: [], chats: 0 }
+    const t = out.get(p) ?? { chatId: m.chatId, count: 0, names: [], chats: 0, chatIds: [] }
     t.count += m.count
     t.chats++
+    t.chatIds.push(m.chatId)
     for (const n of m.names) if (!t.names.includes(n)) t.names.push(n)
     out.set(p, t)
   }
@@ -59,12 +63,25 @@ let watchers = 0
 let stop: (() => void) | null = null
 let asked = 0
 
+async function readNotices(n: number): Promise<InboxNotification[] | null> {
+  const items: InboxNotification[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < MENTIONS_PAGES; page++) {
+    const r = await api.call(API.listNotifications, { query: { limit: MENTIONS_READ, only: 'notices', ...(cursor ? { cursor } : {}) } })
+    if (n !== asked) return null
+    items.push(...r.items)
+    if (!r.nextCursor) break
+    cursor = r.nextCursor
+  }
+  return items
+}
+
 function load() {
   const n = ++asked
-  api.call(API.listNotifications, { query: { limit: MENTIONS_READ } }).then(
-    (r) => {
-      if (n !== asked) return
-      const byChat = mentionsByChat(r.items)
+  readNotices(n).then(
+    (all) => {
+      if (!all || n !== asked) return
+      const byChat = mentionsByChat(all)
       useChatMentions.setState({ byChat })
       // the project of a mentioned chat this window does not hold yet: read once
       const st = useChats.getState()
@@ -73,7 +90,7 @@ function load() {
         if (id in known || st.chats.some((c) => c.id === id) || st.others[id]) continue
         useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: null } }))
         api.call(API.getChat, { params: { id } }).then(
-          (c) => useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: c.projectId } })),
+          (c) => n === asked && useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: c.projectId } })),
           () => {},
         )
       }
@@ -85,7 +102,12 @@ function load() {
 function watch(): () => void {
   if (watchers++ === 0) {
     load()
-    const offs = [notificationsChanged.on(load), reloadAsked.on(load), accessChanged.on(load)]
+    // a chat moved to another project: its count follows it (a chat the chats store holds follows by itself)
+    const moved = chatChanged.on((d) => {
+      const known = useChatMentions.getState().projectOf
+      if (d.chat && d.chatId in known && known[d.chatId] !== d.chat.projectId) useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [d.chatId]: d.chat!.projectId } }))
+    })
+    const offs = [notificationsChanged.on(load), reloadAsked.on(load), accessChanged.on(load), moved]
     stop = () => offs.forEach((off) => off())
   }
   return () => {

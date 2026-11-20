@@ -5966,6 +5966,7 @@ export const ja: Record<MessageKey, string> = {
   "projectsPanel.fold.by": "{names}さんがメンションしました",
   "projectsPanel.fold.loading": "履歴を読み込み中…",
   "projectsPanel.fold.none": "履歴はまだありません",
+  "projectsPanel.fold.failed": "履歴を読み込めませんでした。プロジェクトを開いてもう一度お試しください。",
   "projectsPanel.team": "チームのプロジェクト",
   "projectsPanel.mine": "自分のプロジェクト",
   "projects.meta.me": "自分だけ",

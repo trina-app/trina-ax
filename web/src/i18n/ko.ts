@@ -6010,6 +6010,7 @@ export const ko = {
   "projectsPanel.fold.by": "{names} 님이 멘션했어요",
   "projectsPanel.fold.loading": "대화를 불러오는 중…",
   "projectsPanel.fold.none": "아직 대화가 없어요",
+  "projectsPanel.fold.failed": "대화를 불러오지 못했어요. 프로젝트를 열어 다시 시도해 주세요.",
   "projectsPanel.team": "팀 프로젝트",
   "projectsPanel.mine": "내 프로젝트",
   "projects.meta.me": "나만",

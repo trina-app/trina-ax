@@ -23,6 +23,7 @@ import { api, API } from '../../lib/api'
 import { CountPill } from '../CountPill'
 import { Tooltip } from '../Tooltip'
 import { useMentions, type ChatMention } from '../../store/chatMentions'
+import { chatChanged } from '../../store/live'
 import { useFolds } from './folds'
 import { useLocale, useT } from '../../i18n'
 import { formatRelative } from '../../lib/format'
@@ -144,7 +145,7 @@ export function ProjectsList(_: { phone?: boolean } = {}) {
             onGone={() => on && navigate('/projects')}
             fold={foldable ? { open, toggle: () => setFold(`project:${p.id}`, open ? 'folded' : 'open') } : undefined}
             mention={foldable ? byProject.get(p.id) : undefined}
-            chats={open ? <ProjectChats project={p} byChat={byChat} /> : null}
+            chats={open ? <ProjectChats project={p} byChat={byChat} mentioned={byProject.get(p.id)?.chatIds} /> : null}
           />
         )
       })}
@@ -237,25 +238,45 @@ function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: str
 
 /** How many of a project's chats open under its row; the rest are on its page ("대화 전체 보기") */
 const CHATS_SHOWN = 8
+const NONE: readonly string[] = []
 
 /** An open project's chats under its row: the ones I can open there (the page's own GET /api/chats?projectId), newest
- * first, each with its unread mentions of me */
-function ProjectChats({ project: p, byChat }: { project: Project; byChat: ReadonlyMap<string, ChatMention> }) {
+ * first, each with its unread mentions of me. A chat with a mention of me is always there and first, also an older one
+ * past the newest few (read by itself). Read again when one of its chats changes, the server asks, or access changes. */
+function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Project; byChat: ReadonlyMap<string, ChatMention>; mentioned?: readonly string[] }) {
   const t = useT()
   const locale = useLocale()
   const { pathname } = useLocation()
   const [list, setList] = useState<{ items: Chat[]; more: boolean } | null>(null)
   const [failed, setFailed] = useState(false)
-  // a new mention or a read one: the list again too (a new chat may be where it is)
-  const mentionKey = [...byChat.keys()].join(',')
+  // a change of one of this project's chats (made, renamed, moved, deleted), a reload or a change of access: read again
+  const [again, setAgain] = useState(0)
+  useEffect(() => {
+    const bump = () => setAgain((n) => n + 1)
+    const offs = [chatChanged.on((d) => { if (d.chat?.projectId === p.id || d.change === 'deleted' || d.change === 'purged') bump() }), reloadAsked.on(bump), accessChanged.on(bump)]
+    return () => offs.forEach((off) => off())
+  }, [p.id])
+  // only this project's mentions read it again (a new mention may be in a chat the list has not got)
+  const mentionKey = [...mentioned].sort().join(',')
   useEffect(() => {
     let live = true
-    api.call(API.listChats, { query: { projectId: p.id, limit: CHATS_SHOWN + 1 } }).then(
-      (r) => live && setList({ items: r.items.filter((c) => !c.deletedAt).slice(0, CHATS_SHOWN), more: r.items.length > CHATS_SHOWN || !!r.nextCursor }),
-      () => live && setFailed(true),
+    const ids = mentionKey ? mentionKey.split(',') : []
+    void (async () => {
+      const r = await api.call(API.listChats, { query: { projectId: p.id, limit: CHATS_SHOWN + 1 } })
+      const all = r.items.filter((c) => !c.deletedAt)
+      // the newest few, and every mentioned chat the page holds past them (pinned chats lead a page)
+      const items = all.filter((c, i) => i < CHATS_SHOWN || ids.includes(c.id))
+      const have = new Set(all.map((c) => c.id))
+      // a mentioned chat past the newest few: read by itself (one that cannot be read is left out)
+      const older = await Promise.all(ids.filter((id) => !have.has(id)).map((id) => api.call(API.getChat, { params: { id } }).catch(() => null)))
+      const extra = older.filter((c): c is Chat => !!c && !c.deletedAt && c.projectId === p.id)
+      return { items: [...items, ...extra], more: all.length > CHATS_SHOWN || !!r.nextCursor }
+    })().then(
+      (v) => { if (live) { setList(v); setFailed(false) } },
+      () => { if (live) setFailed(true) },
     )
     return () => { live = false }
-  }, [p.id, mentionKey])
+  }, [p.id, mentionKey, again])
   const items = useMemo(() => {
     if (!list) return []
     // a chat with a mention of me first, then the newest
@@ -266,7 +287,8 @@ function ProjectChats({ project: p, byChat }: { project: Project; byChat: Readon
     <li data-testid="projects-panel-chats">
       <ul>
         {!list && !failed && <li className={clsx(sub, 'py-1 text-meta text-faint')}>{t('projectsPanel.fold.loading')}</li>}
-        {(failed || (list && !items.length)) && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-empty">{t('projectsPanel.fold.none')}</li>}
+        {failed && !list && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-failed">{t('projectsPanel.fold.failed')}</li>}
+        {list && !items.length && <li className={clsx(sub, 'py-1 text-meta text-faint')} data-testid="projects-panel-chats-empty">{t('projectsPanel.fold.none')}</li>}
         {items.map((c) => {
           const m = byChat.get(c.id)
           return (

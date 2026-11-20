@@ -30,7 +30,7 @@ describe('mentionsByProject', () => {
   test('adds each chat to its project; a chat of no known project is left out', () => {
     const byChat = mentionsByChat([n('1', 'a'), n('2', 'a'), n('3', 'b', { name: 'Dana' }), n('4', 'c'), n('5', 'd')])
     const p = mentionsByProject(byChat, (id) => ({ a: 'P', b: 'P', c: 'Q' })[id])
-    expect(p.get('P')).toMatchObject({ count: 3, chats: 2, names: ['Bob', 'Dana'] })
+    expect(p.get('P')).toMatchObject({ count: 3, chats: 2, names: ['Bob', 'Dana'], chatIds: ['a', 'b'] })
     expect(p.get('Q')).toMatchObject({ count: 1, chats: 1 })
     expect(p.size).toBe(2)
   })

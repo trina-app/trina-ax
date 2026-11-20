@@ -6010,6 +6010,7 @@ export const id: Record<MessageKey, string> = {
   "projectsPanel.fold.by": "Disebut oleh {names}",
   "projectsPanel.fold.loading": "Memuat obrolan…",
   "projectsPanel.fold.none": "Belum ada obrolan",
+  "projectsPanel.fold.failed": "Obrolan tidak dapat dimuat. Buka proyeknya untuk mencoba lagi.",
   "projectsPanel.team": "Proyek tim",
   "projectsPanel.mine": "Proyek saya",
   "projects.meta.me": "Hanya saya",

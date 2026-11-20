@@ -5937,6 +5937,7 @@ export const zh: Record<MessageKey, string> = {
   "projectsPanel.fold.by": "{names} 提到了你",
   "projectsPanel.fold.loading": "正在加载对话…",
   "projectsPanel.fold.none": "还没有对话",
+  "projectsPanel.fold.failed": "无法加载对话。请打开项目重试。",
   "projectsPanel.team": "团队项目",
   "projectsPanel.mine": "我的项目",
   "projects.meta.me": "仅自己",

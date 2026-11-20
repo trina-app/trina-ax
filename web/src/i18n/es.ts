@@ -5966,6 +5966,7 @@ export const es: Record<MessageKey, string> = {
   "projectsPanel.fold.by": "Te mencionó {names}",
   "projectsPanel.fold.loading": "Cargando chats…",
   "projectsPanel.fold.none": "Aún no hay chats",
+  "projectsPanel.fold.failed": "No se pudieron cargar los chats. Abre el proyecto para volver a intentarlo.",
   "projectsPanel.team": "Proyectos del equipo",
   "projectsPanel.mine": "Mis proyectos",
   "projects.meta.me": "Solo yo",

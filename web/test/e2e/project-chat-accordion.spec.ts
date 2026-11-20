@@ -142,3 +142,26 @@ test.describe('a touch phone', () => {
     await expect(page.getByTestId('projects-panel-chat')).toHaveCount(2)
   })
 })
+
+test('a mentioned chat older than the newest few is still listed, first, with its count', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await reset(page, { teamLocale: 'en', usersFollowTeam: true })
+  await signIn(page)
+  const hn = await project(page, 'Hacker News automation')
+  const old = await chat(page, hn, 'Old scraper notes')
+  for (let i = 1; i <= 10; i++) await chat(page, hn, `Newer chat ${i}`)
+  await page.route('**/api/notifications?*', async (route) => {
+    const r = await route.fetch()
+    const body = (await r.json()) as { items: unknown[] }
+    await route.fulfill({ response: r, json: { ...body, items: [mention('n1', old, 'Bob', 'Old scraper notes'), ...body.items] } })
+  })
+  await page.reload()
+  await openRail(page, 'projects')
+  const panel = page.getByTestId('projects-panel')
+  await panel.getByTestId('projects-panel-fold').click()
+  const rows = panel.getByTestId('projects-panel-chat')
+  await expect(rows).toHaveCount(9)
+  await expect(rows.first()).toContainText('Old scraper notes')
+  await expect(panel.getByTestId('projects-panel-chat-mentions')).toHaveText([/^1/])
+  await expect(panel.getByTestId('projects-panel-chats-more')).toBeVisible()
+})
