@@ -1332,6 +1332,33 @@ export class FileShares {
     return !!this.db.query("SELECT 1 FROM users WHERE id = ? AND status = 'active' AND deleted_at IS NULL").get(a.requester)
   }
 
+  /** A "shared with you" notice whose file no longer opens for its reader (docs/decisions/20261120-file-share-gone-notice.md):
+   * who shared it while their account is there, and why when the server recorded it: `stopped` (the reader was taken
+   * off, by name, with a group or the whole team, after this share), `deleted` (the file is in the trash), `moved` (a
+   * move put it where the reader cannot open it, or ended the folder share). Anything else (the owner lost edit access,
+   * the file changed or went outside the app, a folder's access was narrowed) has no reason. Never the file's name or
+   * link. Reads only. */
+  private goneShare(row: { user_id: string; created_at: string }, s: ShareRow | null): NonNullable<InboxNotification['fileShare']> {
+    const out = { by: null as string | null, name: null, linkId: null, gone: true as const }
+    if (!s) return out
+    const name = (id: string | null) => id ? (this.db.query('SELECT name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { name: string } | null)?.name ?? null : null
+    const me = this.principal(row.user_id)
+    const reach = me && me.role !== 'guest' ? this.reachSql(me, 'g', false) : null
+    // who shared it with me: the grant that still reaches me, else the share press (or folder add) that made this notice
+    const g = reach ? this.db.query(`SELECT g.granted_by FROM file_share_grants g WHERE g.share_id = ? AND ${reach.sql} ORDER BY g.granted_at LIMIT 1`).get(s.id, ...reach.args) as { granted_by: string } | null : null
+    const a = g ? null : this.db.query("SELECT actor_id FROM audit_log WHERE target = ? AND action IN ('file.share', 'folder_share.add') AND at <= ? ORDER BY id DESC LIMIT 1").get(this.auditTarget(s), row.created_at) as { actor_id: string | null } | null
+    const by = name(g?.granted_by ?? a?.actor_id ?? null)
+    const folder = s.kind === 'folder' ? { folder: 'shared' as const } : {}
+    let why: 'stopped' | 'deleted' | 'moved' | null = null
+    if (s.state === 'trashed') why = 'deleted'
+    else if (s.state === 'live' && reach && !g) {
+      if (this.db.query(`SELECT 1 FROM file_share_stops g WHERE g.share_id = ? AND ${reach.sql} AND g.stopped_at >= ? LIMIT 1`).get(s.id, ...reach.args, row.created_at)) why = 'stopped'
+      else if (this.db.query(`SELECT 1 FROM audit_log WHERE target = ? AND at >= ? AND ((action = 'file.unshare' AND json_extract(detail, '$.reason') = 'moved_narrower')
+          OR (action = 'folder_share.ended' AND json_extract(detail, '$.reason') IN ('moved_excluded', 'left_personal', 'project'))) LIMIT 1`).get(this.auditTarget(s), row.created_at)) why = 'moved'
+    }
+    return { ...out, by, ...folder, ...(why ? { why } : {}) }
+  }
+
   /** An Activity row's details for its viewer (notifications/service.ts out). Names read now; nothing about the file
    * once it is gone or the viewer may no longer see it. */
   noticeOut(row: { id: string; user_id: string; event_type: string; source_id: string; created_at: string; read_at: string | null }): InboxNotification {
@@ -1343,7 +1370,8 @@ export class FileShares {
       // several files in one press: how many of them open for me now, and who pressed (one file left: that file's row)
       let b: ReturnType<FileShares['batchFiles']>
       try { b = this.batchFiles(row.user_id, row.source_id.slice(2)) } catch { return gone }
-      if (!b.files.length) return gone
+      // none opens now: who pressed, while their account is there (never a file's name)
+      if (!b.files.length) return { ...gone, fileShare: { ...gone.fileShare, by: b.by } }
       if (b.files.length === 1) return { ...base, link: 'file', fileShare: { by: b.by, name: plainLabel(b.files[0]!.name, 120), linkId: b.files[0]!.share.id } }
       return { ...base, link: 'file', fileShare: { by: b.by, name: null, linkId: null, count: b.files.length, batchId: row.source_id.slice(2) } }
     }
@@ -1354,7 +1382,7 @@ export class FileShares {
         const g = this.db.query(`SELECT g.granted_by FROM file_share_grants g WHERE g.share_id = ? AND ${REACHES('g')} ORDER BY g.granted_at LIMIT 1`).get(o.via, row.user_id, row.user_id, row.user_id) as { granted_by: string } | null
         return { ...base, link: 'file', fileShare: { by: name(g?.granted_by ?? null), name: plainLabel(o.name, 120), linkId: s.id, folder: 'shared' } }
       }
-      if (!s || o?.kind !== 'open') return gone
+      if (!s || o?.kind !== 'open') return { ...gone, fileShare: this.goneShare(row, s) }
       // who gave THIS person access: their own grant, or the one of a group they are in (the earliest)
       const g = this.db.query(`SELECT g.granted_by FROM file_share_grants g WHERE g.share_id = ? AND ${REACHES('g')} ORDER BY g.granted_at LIMIT 1`).get(s.id, row.user_id, row.user_id, row.user_id) as { granted_by: string } | null
       return { ...base, link: 'file', fileShare: { by: name(g?.granted_by ?? null), name: plainLabel(o.name, 120), linkId: s.id } }
