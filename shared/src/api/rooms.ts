@@ -287,6 +287,16 @@ export const RoomFile = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   thumb: z.boolean(),
+  /** a file kept in the team folder, not in the room (a project room's file: sent from the computer into the project's
+   * Chat attachments folder, or a team file attached from Files): deleting its message leaves the file where it is.
+   * Its name and size are the file's now, as this viewer may see it (docs/decisions/20261120-project-is-room.md D3) */
+  teamFile: z.literal(true).optional(),
+  /** with teamFile: where the file is now in the team folder, for a viewer who may open it there */
+  teamPath: z.string().optional(),
+  /** with teamFile, in place of the file (its name, path and size blanked): 'deleted' the file was put in the trash or
+   * deleted in Files ("File deleted"; a restore brings it back), 'unavailable' this viewer cannot open it now (moved
+   * where they cannot read it, a narrowed folder, access taken away) */
+  state: z.enum(['deleted', 'unavailable']).optional(),
 })
 export type RoomFile = z.infer<typeof RoomFile>
 

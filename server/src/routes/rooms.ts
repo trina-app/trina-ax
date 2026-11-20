@@ -96,7 +96,8 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.deleteAiAllowance, ({ auth, params }) => { if (!(params.id.startsWith('card:') ? dropAlways(ctx.db, auth.user.id, params.id) : deleteGrant(ctx.db, auth.user.id, params.id))) fail('not_found') })
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
-    // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder
+    // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder (a
+    // project's chat room: into the project's Chat attachments folder, rooms/files.ts createInProject)
     kit.handle(API.uploadRoomFile, async ({ c, auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })
@@ -135,8 +136,9 @@ export const roomsRoutes: RouteModule = {
       if (f.quarantined && (query.thumb || !query.download || (dest && dest !== 'document' && dest !== 'empty'))) fail('unavailable', SAFE_OPS_TEXT.quarantined[c.get('locale')], { params: { reason: 'quarantined' } })
       // a room file's id always means the same bytes: its thumbnail (only ever an <img> in the app) is kept by this
       // browser for this sign-in when the address carries the session's own media key (auth/media-key.ts); all checks
-      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list
-      const cache = query.thumb && !query.download && !f.quarantined ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
+      // above ran first. Anything else (an inline read, a download) is never kept, nor a file on the download-only list,
+      // nor a project room's file kept in the team folder (its bytes are the team file's now, and may change)
+      const cache = query.thumb && !query.download && !f.quarantined && !f.teamFile ? keptMediaCache(ctx.db, auth.session, query.k) ?? undefined : undefined
       return streamFile({ abs: f.abs, name: f.name, req: c.req.raw, disposition: query.download ? 'attachment' : 'inline', via: c.get('info')?.via, cache })
     })
     // a Hangul file's pages from the HWP Preview plugin (files/hwp-preview.ts: the team file preview's renderer, limits,

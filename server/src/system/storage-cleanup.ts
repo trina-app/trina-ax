@@ -23,7 +23,7 @@ export const CLEANUP_OVER = ROOM_FILE_MAX
 export const CLEANUP_OVER_FALLBACK = 100 * 1024 * 1024
 
 /** The people whose own files in conversations take more than `over` bytes together (see the header): the files
- * "Files you sent" lists them (rooms/search.ts listMyRoomFiles): a message of theirs they still see (SEE_MEMBER_SQL), in
+ * "Files you sent" lists them (rooms/search.ts listMyRoomFiles; never a project room's file, kept in the team folder): a message of theirs they still see (SEE_MEMBER_SQL), in
  * a conversation they are a member of now, not archived, and not a DM closed to a guest (dmPairOk). */
 export function peopleOver(db: Database, over: number): string[] {
   const rows = db.query(`SELECT f.user_id AS id, r.kind AS kind, r.dm_key AS dm_key, SUM(f.size) AS n FROM room_files f
@@ -31,7 +31,8 @@ export function peopleOver(db: Database, over: number): string[] {
       JOIN rooms r ON r.id = f.room_id AND r.archived_at IS NULL
       JOIN room_members mm ON mm.room_id = f.room_id AND mm.user_id = f.user_id
       JOIN users u ON u.id = f.user_id AND u.status = 'active' AND u.deleted_at IS NULL
-    WHERE f.message_id IS NOT NULL AND ${SEE_MEMBER_SQL} GROUP BY f.user_id, f.room_id`).all() as { id: string; kind: string; dm_key: string | null; n: number }[]
+    WHERE f.message_id IS NOT NULL AND ${SEE_MEMBER_SQL}
+      AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) GROUP BY f.user_id, f.room_id`).all() as { id: string; kind: string; dm_key: string | null; n: number }[]
   const sum = new Map<string, number>()
   for (const r of rows) if (dmPairOk(db, r.kind, r.dm_key)) sum.set(r.id, (sum.get(r.id) ?? 0) + r.n)
   return [...sum].filter(([, n]) => n > over).map(([id]) => id)
