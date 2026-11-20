@@ -8,7 +8,7 @@ import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
 import type { AppContextC } from '../http/env'
-import { googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
+import { GOOGLE_RETURN_CSP, googleReturnOf, googleReturnPage, type CallbackOutcome } from '../integrations/google-drive/callback-page'
 import { isAppId } from '../integrations/google-apps/catalog'
 import { CALLBACK_PATH } from '../integrations/google-apps/config'
 import { googleAppsOf, GoogleAppError } from '../integrations/google-apps/service'
@@ -83,7 +83,7 @@ export function registerGoogleAppsRoutes(kit: RouteKit, ctx: AppContext) {
     const auth = cc.get('auth')
     try { r = await svc().callbackOutcome({ state: c.req.query('state'), code: c.req.query('code'), error: c.req.query('error'), handoff: c.req.query('handoff') }, auth ? { userId: auth.user.id, sessionId: auth.session.id } : undefined) } catch {}
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer')
-    c.header('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+    c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
     // in the person's language, with why it did not work (google-drive/callback-page.ts); static words and a same-origin
     // link only: never carry code or state into a link or a native deep link
     const page = googleReturnPage(googleReturnOf(r, !!auth), cc.get('locale'))

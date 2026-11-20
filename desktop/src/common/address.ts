@@ -90,6 +90,22 @@ export function desktopPagePath(raw: string): { origin: string; path: string } |
 }
 
 /**
+ * A link to the start of the team the window shows (`trina-ax://open?url=https://acme.trina.app/`, exact origin): the
+ * "Back to the app" button of a Google sign-in's last page in the system browser (server google-drive/callback-page.ts).
+ * The app only comes forward (main.ts onLink); screen ④ does not ask to connect a team it shows already.
+ */
+export function isShownTeamStart(raw: string, shownOrigin: string | null | undefined): boolean {
+  const p = readDesktopLink(raw)
+  if (!shownOrigin || !p?.ok || p.entryPath !== '/' || p.origin !== shownOrigin) return false
+  try {
+    const inner = new URL(new URL(raw).searchParams.get('url') ?? '')
+    return inner.pathname === '/' && !inner.search && !inner.hash
+  } catch {
+    return false
+  }
+}
+
+/**
  * A link that started the app (the app was closed): when it is a chat, room or project page of a team the app already
  * has (exact origin, desktopPagePath), the team and the page to open at the first load. null: the app starts as usual
  * and the link goes to screen ④ (AppWindow.offerLink).

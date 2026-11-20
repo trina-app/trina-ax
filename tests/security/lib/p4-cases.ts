@@ -77,4 +77,7 @@ export const P4_SPECS: Record<string, Spec> = {
   stopDriveShare: { build: c => c.del('/api/admin/google-drive/shares/00000000-0000-7000-8000-000000000000'), scope: 'byLevel' },
 }
 // Callback state/session binding is exercised by c-drive-oauth and p4-route-access (static HTML never reflects input).
-export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH']
+// OPEN_PATH (the desktop app's one-time address, google-drive/app-browser.ts) takes no session: its ticket is the proof.
+// c-drive-app-browser covers it: once, within TICKET_MS, a waiting flow only, no cookie otherwise, another flow's or
+// another person's cookie refused.
+export const P4_RAW_COVERED = ['RAW GET CALLBACK_PATH', 'RAW GET OPEN_PATH']

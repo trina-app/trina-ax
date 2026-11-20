@@ -5727,7 +5727,7 @@ export const id: Record<MessageKey, string> = {
   "gapps.cancelled": "Login Google dibatalkan, jadi tidak ada yang terhubung. Tekan Hubungkan untuk mencoba lagi.",
   "gapps.deniedService": "Google tidak mengizinkan login ini. Mungkin Anda menekan Batal, atau untuk saat ini Google hanya mengizinkan sebagian akun. Tekan Hubungkan untuk mencoba lagi; jika terjadi lagi, beri tahu admin Anda.",
   "gapps.tooManySignIns": "Terlalu banyak login yang dimulai. Coba lagi sekitar satu jam lagi.",
-  "google.unverifiedHint": "Google mungkin menampilkan “Google belum memverifikasi aplikasi ini”. Tekan Lanjutan, lalu “Buka {product}”.",
+  "google.unverifiedHint": "Google mungkin menampilkan “Google belum memverifikasi aplikasi ini”. Tekan Lanjutan, lalu “Buka {product} (tidak aman)”.",
   "gapps.serviceDown": "{name} sedang tidak bisa dijangkau. Layanan akan pulih sendiri; koneksi Anda baik-baik saja.",
   "gapps.setUpLink": "Siapkan {name}",
   "gapps.settingsTitle": "Pengaturan {name}",

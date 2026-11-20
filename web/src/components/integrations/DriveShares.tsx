@@ -12,7 +12,7 @@ import { useEffect, useRef, useState } from 'react'
 import { API, type DriveAdminStatus, type DriveFlow, type DriveShare, type DriveShareFolder, type IntegrationAccess } from '@mycel/shared/api'
 import { api, ApiError } from '../../lib/api'
 import { openExternal } from '../../lib/mobile'
-import { driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
+import { desktopOpenUrl, driveSignInUrl, openSignInWindow, reserveSignInWindow, signInPlace } from '../../lib/driveSignIn'
 import { isEmptyAccess } from '../../lib/integrations'
 import { useT } from '../../i18n'
 import { useMeStrict } from '../../store/session'
@@ -68,7 +68,7 @@ function useShareFlow() {
       setUrl(href)
       setFlow({ flowId: r.flowId, state: 'pending', account: null, expiresAt: r.expiresAt, reason: null })
       if (place === 'phone') await openExternal(href, { purpose: 'google-oauth' })
-      else openSignInWindow(place, popup.current, href)
+      else openSignInWindow(place, popup.current, (place === 'desktop' && desktopOpenUrl(r, location.origin)) || href)
     } catch { if (g === generation.current) { setError(true); popup.current?.close() } }
     finally { if (g === generation.current) setBusy(false) }
   }

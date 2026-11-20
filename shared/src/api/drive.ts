@@ -60,8 +60,11 @@ export const UpdateDriveShareBody = z.object({
  * 2026-11-12 (docs/DECISIONS.md "No members' switch for connectors"). */
 export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
 /** `connectUrl`: on a hosted team that signs in through the hosting service, its own start page for this sign-in
- * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google. */
-const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), expiresAt: z.string() })
+ * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google.
+ * `openPath`: only for a sign-in started in the desktop app, a one-time path on this server (OPEN_PATH with a ticket)
+ * that the app opens in the system browser instead: it lets that browser finish the sign-in without being signed in,
+ * then goes on to the sign-in page (server/src/integrations/google-drive/app-browser.ts). */
+const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), openPath: z.string().max(512).optional(), expiresAt: z.string() })
 /** The Google OAuth web client: the JSON file Google Cloud downloads (`file`), or its client ID and secret. */
 export const SetDriveClientBody = z.object({
   file: z.string().min(1).max(16_384).optional(), clientId: z.string().min(1).max(512).optional(), clientSecret: z.string().min(1).max(4096).optional(),

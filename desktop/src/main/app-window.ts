@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { applyMePolicy } from '../common/me-policy'
 import { PRODUCT, WEB_ALLOW_ALL_RISK, type DesktopConnection, type DesktopPaneState } from '@mycel/shared'
 import { CSRF_HEADER, Health, Me } from '@mycel/shared/api'
-import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
+import { answersAgain, asksOutside, certTrouble, checkTeam, desktopPagePath, firstRunLinks, hostLineNow, hostOf, isShownTeamStart, isSignInPath, officeCertPage, offlineRetryDelay, onThisComputer, originOf, parseTeamAddress, readDesktopLink, retypablePath, startupLinkTarget, teamLabel, type AddressError, type CertTrouble, type HealthAnswer } from '../common/address'
 import { LinkGate, type WakeAnswer } from '@mycel/shared/team-link'
 import { t, type UiKey, type UiLocale } from '../common/i18n'
 import { teamHostnames } from '../common/browser-block'
@@ -448,6 +448,8 @@ export class AppWindow {
    */
   offerLink(raw: string) {
     if (this.openLinkedPage(raw)) return
+    // the team on screen, its start: only the window comes forward (main.ts onLink), the page stays as it is
+    if (this.app && this.mode !== 'offline' && isShownTeamStart(raw, this.team?.origin)) return
     const p = readDesktopLink(raw)
     if (p?.ok) {
       this.linkGate.put(p)
