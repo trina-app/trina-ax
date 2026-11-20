@@ -101,6 +101,63 @@ export class WorkFileReadError extends Error {
   }
 }
 
+/** Why a file of a run did not go, in words, when the desktop app said why (null: not the app's read). An app before
+ * 'missing' says 'unreadable' for a deleted file: "Look again to add this file". */
+export function workReadReason(e: unknown, t: (key: 'files.findWork.why.changed' | 'files.findWork.why.missing' | 'files.findWork.why.limit' | 'files.findWork.why.cloudTimeout' | 'files.findWork.why.lookAgain' | 'files.findWork.cloudGeneric', params?: Record<string, string | number>) => string): string | null {
+  if (!(e instanceof WorkFileReadError)) return null
+  if (e.reason === 'changed') return t('files.findWork.why.changed')
+  if (e.reason === 'missing') return t('files.findWork.why.missing')
+  if (e.reason === 'limit') return t('files.findWork.why.limit')
+  if (e.reason === 'cloudTimeout') return t('files.findWork.why.cloudTimeout', { provider: cloudName(e.cloud ?? 'cloud', t) })
+  return t('files.findWork.why.lookAgain')
+}
+
+/** A new look would help this file (changed, gone, the look too old or replaced): not a limit or a slow cloud. */
+export const lookAgainHelps = (e: unknown) => e instanceof WorkFileReadError && e.reason !== 'limit' && e.reason !== 'cloudTimeout'
+
+/** A list this old looks again before Add (TC-219): the app reads a look's files for an hour after it (sessionMs), and
+ * the reads take a while too. */
+export const STALE_MS = WORK_FILES_LIMITS.sessionMs - 10 * 60_000
+export const isStale = (lookedAt: number, now = Date.now()) => lookedAt > 0 && now - lookedAt >= STALE_MS
+
+/** Files the person ticked, carried into a new look ("Look again", or Add on a list over an hour old). `missing`: the
+ * app said it is no longer on this computer (a read answered 'missing'); `chosen`: the folder the person chose for it
+ * ("Choose a folder…", "Choose it yourself"), which a new look does not list by itself. */
+export interface CarriedFile { key: string; name: string; size: number; modified: number; missing?: true; chosen?: string }
+export const carried = (docs: readonly Pick<LocalDoc, 'key' | 'name' | 'size' | 'modified'>[], o: { missing?: ReadonlySet<string>; chosen?: ReadonlyMap<string, string> } = {}): CarriedFile[] =>
+  docs.map((d) => ({ key: d.key, name: d.name, size: d.size, modified: d.modified, ...(o.missing?.has(d.key) ? { missing: true as const } : {}), ...(o.chosen?.has(d.key) ? { chosen: o.chosen.get(d.key)! } : {}) }))
+
+/** The carried files in the new look (`found`: what it offers; `all`: what it listed, the files the target has by now
+ * too). Still there: ticked again (`changed`: another size or date now, the new version is what goes), up to `max`
+ * (`capped`: how many were left unticked by it). Not listed: `missing` (by name) only when the app said so; every other
+ * one is `notListed` (a folder the person chose, a file now too big or too old for the look): said, never dropped
+ * silently, and ticked once a pick lists it (pickUp). One the target has by now (`all` but not `found`) is neither. */
+export function carryOver(carry: readonly CarriedFile[], all: readonly LocalDoc[], found: readonly LocalDoc[], max: number = TEAM_FILES_LIMITS.perUpload): { ticks: Set<string>; changed: Set<string>; missing: string[]; notListed: CarriedFile[]; capped: number } {
+  const seen = new Set(all.map((d) => d.key))
+  const r = pickUp(carry.filter((c) => !c.missing || seen.has(c.key)), found, new Set(), max)
+  const missing = carry.filter((c) => c.missing && !seen.has(c.key)).map((c) => c.name)
+  return { ticks: r.ticks, changed: r.changed, missing, notListed: r.left.filter((c) => !seen.has(c.key)), capped: r.capped }
+}
+
+/** Carried files that `docs` list now (a new look, or a folder the person picked after it): ticked with `ticks`, up to
+ * `max`. `left`: the carried ones `docs` do not list. */
+export function pickUp(carry: readonly CarriedFile[], docs: readonly LocalDoc[], ticks: ReadonlySet<string>, max: number = TEAM_FILES_LIMITS.perUpload): { ticks: Set<string>; changed: Set<string>; left: CarriedFile[]; capped: number } {
+  const now = new Map(docs.map((d) => [d.key, d]))
+  const next = new Set(ticks)
+  const changed = new Set<string>()
+  const left: CarriedFile[] = []
+  let capped = 0
+  for (const c of carry) {
+    const d = now.get(c.key)
+    if (!d) { left.push(c); continue }
+    if (next.has(d.key)) continue
+    if (next.size >= max) { capped++; continue }
+    next.add(d.key)
+    if (d.size !== c.size || d.modified !== c.modified) changed.add(d.key)
+  }
+  return { ticks: next, changed, left, capped }
+}
+
 /** A cloud's name as the person knows it ("the cloud" when the app could not tell which). */
 export const CLOUD_NAMES: Record<Exclude<WorkCloudProvider, 'cloud'>, string> = { icloud: 'iCloud', onedrive: 'OneDrive', googleDrive: 'Google Drive', dropbox: 'Dropbox', box: 'Box' }
 export const cloudName = (c: WorkCloudProvider, t: (key: 'files.findWork.cloudGeneric') => string) => (c === 'cloud' ? t('files.findWork.cloudGeneric') : CLOUD_NAMES[c])

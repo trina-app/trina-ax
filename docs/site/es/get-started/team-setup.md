@@ -24,14 +24,14 @@ Las habilidades que preparó Trina AX, cada una con **Ejemplo**: Company slide d
 #### Archivos del equipo
 **Elegir carpeta** con documentos de la empresa. La IA sugiere los que el equipo puede usar solo a partir de los nombres de archivo, las carpetas y las fechas, y usted marca lo que se sube. No se sube nada hasta que pulse el botón. Después, la IA puede leerlos y proponer carpetas en las que ordenarlos (**¿Los ordenamos así?**). Una línea indica quién verá los archivos.
 
-#### Conectar herramientas
-**¿Conectar las herramientas que usa a menudo?** ofrece Google Drive (si su servidor lo tiene) y Notion, y **Conectar otra herramienta** para la lista completa. En un teléfono este paso se omite.
+#### Herramientas del equipo
+**Herramientas para su equipo** es una sola lista. Conecte una vez una herramienta para todo el equipo (**Conectar para el equipo**: Notion, o Slack en su propia página; todo el equipo comparte esa conexión), o marque como **Recomendada** una herramienta que cada persona conecta con su propia cuenta (Google Drive, Gmail). Las recomendadas aparecen primero en la lista de conectores de todos y no bloquean nada. **Otras herramientas** abre la lista completa, donde la página de cada herramienta tiene el mismo interruptor. En este paso nadie inicia sesión con su propia cuenta. En un teléfono este paso se omite.
 
 #### Invitación
 Copie el mensaje ya preparado. Menciona una habilidad. Quienes se unen llegan a Inicio, donde una tarjeta de bienvenida dice quién les invitó y qué hacer primero; la habilidad está en **Habilidades del equipo**. Si cada persona inicia sesión en su propia IA, el mensaje lo dice. La página de invitación se ofrece en el idioma del navegador de la persona. Si otra persona ya tiene la sesión iniciada en ese ordenador, la página dice "Ya está en <nombre del equipo>" y ofrece **Cerrar sesión para unirse**, que cierra la sesión y abre el mismo enlace.
 :::
 
-Al final, **Todo listo** le ofrece crear un primer resultado con una de las habilidades del equipo, por ejemplo **Crear tarjetas promocionales**. Se muestra una sola vez.
+Al final, **Todo listo** resume la configuración: cada paso con lo que hizo, o pendiente con **Hacerlo ahora**. Después viene su propia configuración (sus herramientas, su foto y sus apps): **Empezar mi configuración** lleva a Inicio. Se muestra una sola vez.
 
 ## Volver a la configuración
 
