@@ -195,8 +195,11 @@ for (const locale of STEEPLING_LOCALES) {
       expect(rooms.length).toBe(c.company.rooms.length)
       const unread = (slug: string) => { const r = rooms.find((x) => x.id === s.rooms[slug]!.id)!; return [r.unreadCount, r.threadsUnread] }
       for (const x of c.company.rooms) expect(unread(x.slug), x.slug).toEqual(x.slug === 'customer-voice' || x.slug === 'dm-omar' ? [1, 0] : x.slug === 'social-calendar' ? [0, 1] : [0, 0])
-      // Activity: those two and Sara's reply under the banner answer; nothing at the build's time
+      // Activity 1 (Sara's reply under the banner answer) + Chats › Mentions & threads 2 (those two) + Omar's DM, by
+      // design: the room rows are not in Activity (QA TC-5700); nothing at the build's time
       const inbox = await mina.call(API.listNotifications, { query: { limit: 100 } })
+      expect(inbox.noticeUnreadCount).toBe(1)
+      expect(inbox.roomUnreadCount).toBe(2)
       expect(inbox.unreadCount).toBe(3)
       expect(inbox.items.every((n) => Date.parse(n.createdAt) < Date.now() - 10 * 60_000)).toBe(true)
       // the thread replies are in their threads
@@ -408,7 +411,11 @@ describe('the format refuses a content folder that does not hold together', () =
   })
 
   test('files only at team paths the seed can upload to; pack skills that exist', () => {
-    expect(problems(variant(() => {}, { files: { 'users/alex/x.md': 'x' } }))).toContain('files/users/alex/x.md: sample files go under')
+    expect(problems(variant(() => {}, { files: { 'other/x.md': 'x' } }))).toContain('files/other/x.md: sample files go under')
+    // a person's own files: under users/<an account>/ only (QA TC-5886)
+    expect(problems(variant(() => {}, { files: { 'users/alex/x.md': 'x' } }))).toBe('')
+    expect(problems(variant(() => {}, { files: { 'users/nobody/x.md': 'x' } }))).toContain('files/users/nobody/x.md: no account "nobody"')
+    expect(problems(variant(() => {}, { files: { 'users/x.md': 'x' } }))).toContain('files/users/x.md: sample files go under')
     expect(problems(variant(() => {}, { files: { 'groups/Finance/x.md': 'x' } }))).toContain('no group "Finance"')
     expect(problems(variant((j) => { j.packSkills[0].skills.push('no-such-skill') }))).toContain('resources/skill-packs/work/en/no-such-skill/SKILL.md is not in this repository')
     expect(problems(variant((j) => { j.settings.answerStepLimit = 3 }))).toMatch(/settings/)

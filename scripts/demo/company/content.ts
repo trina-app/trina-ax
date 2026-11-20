@@ -4,7 +4,7 @@
 //   <content>/company.json   the company: owner account, people, groups, folder rules, who uploads which file, team
 //                            settings, memories, the company profile, the three demo people with their lines and
 //                            questions, the scenarios to record, and what each person can open (checks)
-//   <content>/files/         the sample files at their team paths (shared/…, groups/<group>/…, skills/…)
+//   <content>/files/         the sample files at their team paths (shared/…, groups/<group>/…, skills/…, users/<username>/…)
 //   <content>/recordings/    recorded real answers, <scenario slug>.json (record.ts writes them; optional)
 //   <content>/assets/        optional: what the files are made from (generators, source pictures, their notes); the demo
 //                            never reads it
@@ -126,7 +126,9 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
     if (!files.length) problems.push('files/ is empty')
     for (const f of files) {
       const [top, second] = f.split('/')
-      if (!['shared', 'groups', 'skills', 'projects'].includes(top!) || f.split('/').length < 2) problems.push(`files/${f}: sample files go under shared/, groups/<group>/, projects/<project>/ or skills/`)
+      if (!['shared', 'groups', 'skills', 'projects', 'users'].includes(top!) || f.split('/').length < (top === 'users' ? 3 : 2)) problems.push(`files/${f}: sample files go under shared/, groups/<group>/, projects/<project>/, skills/ or users/<username>/`)
+      // a person's own files (Files › Personal), uploaded by that person (QA TC-5886)
+      else if (top === 'users' && !account(second!)) problems.push(`files/${f}: no account "${second}"`)
       else if (top === 'groups' && !groupNames.includes(second!)) problems.push(`files/${f}: no group "${second}"`)
       else if (top === 'projects' && !c.projects.some((p) => nfc(p.name) === second)) problems.push(`files/${f}: no project "${second}" in company.json projects`)
     }
@@ -176,7 +178,7 @@ export function loadContent(dirIn: string, o: { repoRoot?: string } = {}): DemoC
     groups: c.groups,
     rules: c.rules.map((r) => ({ path: r.path, rules: r.rules, ...(r.limited ? { limited: true } : {}), why: r.why ?? [...(r.limited ? ['limited'] : []), ...r.rules.map((x) => `${'group' in x ? x.group : 'user' in x ? x.user : 'everyone'}: ${x.access}`)].join(', ') })),
     filesDir,
-    uploaderOf: (rel) => c.uploaders.find((u) => under(nfc(rel), nfc(u.path)))?.username ?? c.defaultUploader ?? ownerName,
+    uploaderOf: (rel) => (rel.startsWith('users/') ? rel.split('/')[1]! : undefined) ?? c.uploaders.find((u) => under(nfc(rel), nfc(u.path)))?.username ?? c.defaultUploader ?? ownerName,
     extraFiles: packFiles,
     ...(c.profile ? { profile: c.profile } : {}),
     ...(c.settings ? { settings: c.settings } : {}),

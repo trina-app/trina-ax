@@ -50,7 +50,7 @@ export type RoomSlug = 'everyone' | 'marketing' | 'launch-day' | 'dm-sara' | 'dm
 export const LAUNCH_DAY_ADD: readonly Who[] = ['daniel']
 
 /** the new files: where each goes (a group folder, `shared`, the company-wide templates folder shared/<Templates in
- * the team's language>, or a project) and when it was last changed. Mina opens all of them (none is in another team's
+ * the team's language>, a project, or Mina's own folder) and when it was last changed. Mina opens all of them (none is in another team's
  * folder) */
 export const FILES = {
   directory: { in: 'shared', ago: ago(4) },
@@ -65,11 +65,16 @@ export const FILES = {
   'p5.calendar': { in: 'p5', ago: ago(2) },
   'p5.past': { in: 'p5', ago: ago(13) },
   'p5.rules': { in: 'p5', ago: ago(20) },
+  // the one page the social posts skill reads for next week's posts (QA TC-5713: one read, not six)
+  'p5.next': { in: 'p5', ago: ago(2) },
   // Company-wide › Templates was empty (QA TC-5746)
   'tpl.post': { in: 'templates', ago: ago(30) },
   'tpl.meeting': { in: 'templates', ago: ago(34) },
   'tpl.visit': { in: 'templates', ago: ago(26) },
-} as const satisfies Record<string, { in: 'shared' | 'templates' | 'marketing' | ProjectId; ago: number }>
+  // Mina's own (Files › Personal › My files was empty, QA TC-5886): started this morning
+  'mina.notes': { in: 'mina', ago: ago(0, 3, 20) },
+  'mina.setup': { in: 'mina', ago: ago(0, 3, 40) },
+} as const satisfies Record<string, { in: 'shared' | 'templates' | 'marketing' | 'mina' | ProjectId; ago: number }>
 export type FileId = keyof typeof FILES
 
 type Reactions = Readonly<Partial<Record<string, readonly Who[]>>>
@@ -160,7 +165,7 @@ export const MESSAGES = {
   'cv.sampler': { room: 'customer-voice', from: 'nadia', ago: ago(23, 4), react: { '💡': ['sara', 'omar'] } },
   'cv.sampler.r1': { room: 'customer-voice', from: 'omar', ago: ago(23, 3), thread: 'cv.sampler' },
   'cv.sampler.r2': { room: 'customer-voice', from: 'sara', ago: ago(23, 2), thread: 'cv.sampler' },
-  'cv.october': { room: 'customer-voice', from: 'nadia', ago: ago(19, 5) },
+  'cv.october': { room: 'customer-voice', from: 'nadia', ago: ago(19, 5), files: ['p3.summary'] },
   'cv.quote-ask': { room: 'customer-voice', from: 'sara', ago: ago(19, 4) },
   'cv.quote-ok': { room: 'customer-voice', from: 'nadia', ago: ago(18, 3) },
   'cv.courier': { room: 'customer-voice', from: 'omar', ago: ago(16, 2) },

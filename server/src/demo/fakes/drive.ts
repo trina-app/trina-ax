@@ -1,12 +1,13 @@
 // The demo's Google (demo/fakes/index.ts): Google's token, revoke and userinfo addresses and the Drive v3 calls this
-// server makes (google-drive/read.ts: about, files list and search, a file's metadata, its bytes, a Google document's
-// text export), answered in this process. It stands in for every GoogleTransport while the fakes are on
+// server makes (google-drive/read.ts: about, files list and search, a file's metadata, its bytes, the export of a
+// Google document (text) or sheet (xlsx, as the real reader asks; or CSV)), answered in this process. It stands in for every GoogleTransport while the fakes are on
 // (google-drive/client.ts setDemoGoogleFetch), so a Drive or Gmail sign-in, its refresh and its revoke never leave.
 // The tokens it hands out live a year (tokens never run out during a demo). The file tree and its text come from
 // drive.json in the demo's content folder, or the built-in one below.
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import * as XLSX from 'xlsx'
 import { z } from 'zod'
 import { GOOGLE_APP_BROKER_SCOPES } from '@mycel/shared/cloud-protocol'
 import { DRIVE_API, GOOGLE_REVOKE, GOOGLE_TOKEN, GOOGLE_USERINFO, type DriveFetch } from '../../integrations/google-drive/client'
@@ -17,12 +18,25 @@ export const DRIVE_FILE = 'drive.json'
 export const DEMO_TOKEN_LIFE_S = 31_536_000
 export const FOLDER = 'application/vnd.google-apps.folder'
 export const GOOGLE_DOC = 'application/vnd.google-apps.document'
+export const GOOGLE_SHEET = 'application/vnd.google-apps.spreadsheet'
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+/** A Google sheet's export: its seeded text is CSV; xlsx (what google-drive/read.ts asks for) is built from it, one
+ * sheet, every cell kept as the text it was written with. */
+function sheetExport(csv: string, mime: string | null): Response | null {
+  if (mime === 'text/csv') return new Response(csv, { headers: { 'content-type': 'text/csv; charset=utf-8' } })
+  if (mime !== XLSX_MIME) return null
+  const wb = XLSX.read(csv, { type: 'string', raw: true })
+  const bytes = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+  return new Response(new Uint8Array(bytes), { headers: { 'content-type': XLSX_MIME } })
+}
 
 const Id = z.string().regex(/^[A-Za-z0-9_-]{1,256}$/)
 const SeedFile = z.object({
   id: Id,
   name: z.string().min(1).max(300),
-  /** default: text/plain (a folder: application/vnd.google-apps.folder; a Google document: application/vnd.google-apps.document) */
+  /** default: text/plain (a folder: application/vnd.google-apps.folder; a Google document: application/vnd.google-apps.document;
+   * a Google sheet: application/vnd.google-apps.spreadsheet, its text CSV) */
   mimeType: z.string().max(256).optional(),
   /** the folder it is in; default: "root" (My Drive) */
   parent: Id.optional(),
@@ -46,6 +60,8 @@ export const DEFAULT_DRIVE: DriveContent = {
       text: 'November launch brief\n\nProduct: Winter Yuzu Ginger tea.\nLaunch: Monday, November 23.\nChannels: display banners (1200×628) through Fieldnote, Instagram square and story.\nTone: warm, simple, a little playful.\nOwner: Sara Jensen.' },
     { id: 'media-plan', name: 'Winter media plan.csv', mimeType: 'text/csv', parent: 'launch',
       text: 'channel,start,end,budget\nDisplay (Fieldnote),2026-11-23,2026-12-13,4000\nInstagram,2026-11-25,2026-12-20,2500\nNewsletter,2026-11-23,2026-11-23,0' },
+    { id: 'price-sheet', name: 'Tea price tracker', mimeType: GOOGLE_SHEET, parent: 'marketing',
+      text: 'tea,our price,shop average\nWinter Yuzu Ginger,£6.50,£7.20\nEarl Grey,£5.00,£5.40' },
     { id: 'brand-notes', name: 'Brand notes.md', mimeType: 'text/markdown', parent: 'marketing',
       text: '# Brand notes\n\n- Colours: deep green, warm cream, a touch of yuzu yellow.\n- Type: one sans serif, bold headlines.\n- Photos: natural light, real cups, no stock smiles.' },
     { id: 'contacts', name: 'Agency contacts', mimeType: GOOGLE_DOC, parent: 'marketing',
@@ -94,7 +110,7 @@ export class FakeGoogleDrive {
   }
   private item(f: File) {
     const folder = f.mimeType === FOLDER
-    return { id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime, ...(folder || f.mimeType === GOOGLE_DOC ? {} : { size: String(Buffer.byteLength(f.text)) }),
+    return { id: f.id, name: f.name, mimeType: f.mimeType, modifiedTime: f.modifiedTime, ...(folder || f.mimeType.startsWith('application/vnd.google-apps.') ? {} : { size: String(Buffer.byteLength(f.text)) }),
       capabilities: { canDownload: !folder }, parents: [f.parent] }
   }
 
@@ -143,8 +159,10 @@ export class FakeGoogleDrive {
     const f = m ? this.files.get(m[1]!) : undefined
     if (!m || !f) return Response.json({ error: { code: 404, message: 'File not found' } }, { status: 404 })
     if (m[2]) {
-      if (f.mimeType !== GOOGLE_DOC || q.get('mimeType') !== 'text/plain') return Response.json({ error: { code: 403, message: 'Export not available in the demo' } }, { status: 403 })
-      return new Response(f.text, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+      const want = q.get('mimeType')
+      if (f.mimeType === GOOGLE_DOC && want === 'text/plain') return new Response(f.text, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+      const sheet = f.mimeType === GOOGLE_SHEET ? sheetExport(f.text, want) : null
+      return sheet ?? Response.json({ error: { code: 403, message: 'Export not available in the demo' } }, { status: 403 })
     }
     if (q.get('alt') === 'media') {
       if (f.mimeType === FOLDER || f.mimeType.startsWith('application/vnd.google-apps.')) return Response.json({ error: { code: 403 } }, { status: 403 })

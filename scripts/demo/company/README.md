@@ -28,7 +28,8 @@ content is a folder"). It is the same for every content folder: a content folder
 ```
 <content>/
   company.json     the company (below)
-  files/           sample files at their team paths: shared/…, groups/<group>/…, skills/…
+  files/           sample files at their team paths: shared/…, groups/<group>/…, skills/…, users/<username>/… (that
+                   person's own files, uploaded by them)
   recordings/      recorded real answers, <scenario slug>.json (optional; record.ts writes them)
   assets/          optional: what the files are made from (generators, source pictures, their licences); never read
   README.md        what the company is, that every person and file is fictional, where its pictures come from
@@ -58,9 +59,9 @@ with a list of every problem instead of a half-seeded team.
 
 What is checked on load: the JSON against the schema (unknown fields are refused), every person, group and account a
 rule, uploader, memory, persona, scenario or check names; that the personas are members (never the owner); unique
-names and slugs; at most six suggestions per persona; sample files only under `shared/`, `groups/<a group>/` or
-`skills/`; pack skills that exist; and every recording is a `DemoRecording` of one scenario, by its person, with its
-prompt.
+names and slugs; at most six suggestions per persona; sample files only under `shared/`, `groups/<a group>/`,
+`projects/<a project>/`, `skills/` or `users/<an account>/`; pack skills that exist; and every recording is a
+`DemoRecording` of one scenario, by its person, with its prompt.
 
 ## Recording real answers
 

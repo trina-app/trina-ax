@@ -83,14 +83,15 @@ export function steepling(locale: SteeplingLocale): Steepling {
   const fileAt = (id: FileId): string => {
     if (id === 'intro') return s.paths.companyIntro
     const f = FILES[id]
-    const folder = f.in === 'shared' ? 'shared' : f.in === 'templates' ? `shared/${TEMPLATES_FOLDER[locale]}` : f.in === 'marketing' ? `groups/${MKT}` : `projects/${projectName(f.in)}`
+    const folder = f.in === 'mina' ? 'users/mina' : f.in === 'shared' ? 'shared' : f.in === 'templates' ? `shared/${TEMPLATES_FOLDER[locale]}` : f.in === 'marketing' ? `groups/${MKT}` : `projects/${projectName(f.in)}`
     return `${folder}/${w[`${id}.name`]}`
   }
   if (path.basename(s.paths.companyIntro) !== w['intro.name']) throw new Error(`steepling ${locale}: intro.name is not the story's company intro (${s.paths.companyIntro})`)
   /** `@{id}`, `{file:<id>}`, `{project:<id>}` of rich.ts made into the content format's words */
   const words = (text: string) => text
     .replace(/@\{(\w+)\}/g, (_m, id: string) => { if (!EVERYONE.includes(id as Who)) throw new Error(`steepling ${locale}: no person "${id}"`); return `@${nameOf(id as Who)}` })
-    .replace(/\{file:([\w.-]+)\}/g, (_m, id: string) => { if (!(id in FILES)) throw new Error(`steepling ${locale}: no file "${id}"`); return `{file:${fileAt(id as FileId)}}` })
+    // a file is a link with its name: the content format's bare `{file:<path>}` is only the address (QA TC-5884)
+    .replace(/\{file:([\w.-]+)\}/g, (_m, id: string) => { if (!(id in FILES)) throw new Error(`steepling ${locale}: no file "${id}"`); const at = fileAt(id as FileId); return `[${path.basename(at)}]({file:${at}})` })
     .replace(/\{project:(\w+)\}/g, (_m, id: string) => { if (!(id in PROJECTS)) throw new Error(`steepling ${locale}: no project "${id}"`); return `{project:${projectName(id as ProjectId)}}` })
 
   // ---- the files: the story's, the launch set Mina's AI made, the other teams', the CEO's folder, the richer team's

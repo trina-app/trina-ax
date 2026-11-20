@@ -198,6 +198,20 @@ describe('Drive', () => {
     const csv = await call('drive_read', { fileId: 'media-plan' })
     expect(csv.text).toContain('Fieldnote')
     expect(fakes.google.calls.some((c) => c.includes('/drive/v3/files/brief/export'))).toBe(true)
+    // a Google sheet (TC-5885): the reader's xlsx export is built from the seeded CSV and read as a sheet
+    const sheet = await call('drive_read', { fileId: 'price-sheet' })
+    expect(sheet.isError).not.toBe(true)
+    expect(sheet.text).toContain('Winter Yuzu Ginger')
+    expect(sheet.text).toContain('£6.50')
+    expect(fakes.google.calls.some((c) => c.includes('/drive/v3/files/price-sheet/export'))).toBe(true)
+    // asked for CSV (Google answers a sheet as CSV too), the text as it was seeded; a sheet has no size, like Drive's own
+    const auth = { headers: { authorization: 'Bearer demo-access-x' } }
+    const asCsv = await fakes.google.fetch('https://www.googleapis.com/drive/v3/files/price-sheet/export?mimeType=text%2Fcsv', auth)
+    expect(asCsv.status).toBe(200)
+    expect(await asCsv.text()).toContain('Earl Grey,£5.00,£5.40')
+    expect((await (await fakes.google.fetch('https://www.googleapis.com/drive/v3/files/price-sheet', auth)).json()).size).toBeUndefined()
+    // a sheet's raw bytes stay refused, like Drive (only an export reads it)
+    expect((await fakes.google.fetch('https://www.googleapis.com/drive/v3/files/price-sheet?alt=media', auth)).status).toBe(403)
     expect(reached).toEqual([])
   })
 })
