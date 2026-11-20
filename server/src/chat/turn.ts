@@ -972,7 +972,9 @@ export class TurnExec {
     const appMap = guestTurn || spec.clientKind === 'schedule' || this.templateScope ? null
       : { view: appMapView(this.principal.role, !!this.shared), managed: isManaged(rt.ctx.config), devEnv: devEnvFlag(), office: !!rt.ctx.config.office,
           // whether this person may pick their own AI and model (not said in a shared chat: nothing about the asker)
-          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }) }
+          ...(this.shared ? {} : { pickModel: canChooseEngine(rt.ctx, { id: spec.userId, role: this.principal.role }) }),
+          // a free-roam demo: no page the demo fences or hides (QA TC-5570)
+          ...(freeRoam ? { freeRoam: true } : {}) }
     const runKind = runKindOf(rt.ctx.config)
     // the read tools open a file shared with the person one by one (FileService.readAuth), and shared_with_me lists them
     // when the AI asks (chat/shared-with-me-tool.ts: no list in every turn): only in the person's own chat
