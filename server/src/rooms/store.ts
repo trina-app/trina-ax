@@ -598,6 +598,8 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
   const pinned = pinOf(db, room.id, viewer)
   // and the viewer's own list folder (chat/nav-folders.ts): none while hidden, and only one filed during this membership
   const folder = folderOf(db, room.id, viewer)
+  // the team-wide category it is in (rooms/categories.ts): the same for every member
+  const category = (db.query('SELECT category_id FROM rooms WHERE id = ?').get(room.id) as { category_id: string | null } | null)?.category_id ?? null
   const groupFolder = groupFolderFor(db, room, viewer.user_id, rules)
   // a private channel linked to a team project (rooms/project-link.ts): the project for a viewer who can open it, and
   // whether they may link one
@@ -613,6 +615,7 @@ export function roomOut(db: Database, room: RoomRow, viewer: MemberRow, prefs: P
     ...(viewer.hidden_at ? { hidden: true as const } : {}),
     ...(pinned ? { pinnedAt: pinned } : {}),
     ...(folder ? { folderId: folder } : {}),
+    ...(category ? { categoryId: category } : {}),
     ...(dmPeerGone(db, room) ? { gone: true as const } : {}),
     ...(groupFolder ? { groupFolder } : {}),
     ...(project ? { project } : {}),

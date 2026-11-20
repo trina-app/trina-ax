@@ -30,7 +30,7 @@ import { confirmDialog, promptDialog, useCopy } from '../ui'
 import { useNameFallback } from './RoomIcon'
 import { MenuButton, type MenuItem } from './MenuButton'
 import { RoomNotifyMenu, roomNotify } from './RoomNotifyMenu'
-import { useFolderRowItems } from '../nav/NavFolders'
+import { useCategoryRowItems } from '../nav/RoomCategories'
 
 /** What a room's "⋯" holds for me, in order (a pure list of what each kind offers; the words and actions are the
  * component's). */
@@ -151,9 +151,9 @@ export function RoomMenu({ room, onNotify, onInvite, openSignal, openRequest, la
   const own = useRef<HTMLButtonElement>(null)
   const more = buttonRef ?? own
   const base = useRoomMenuItems(room, onNotify ?? (() => setNotify((n) => n + 1)), phone, onInvite)
-  // a row of the 대화 list (`folders`): 폴더로 옮기기 / 폴더에서 빼기 before the last item (나가기 or
-  // 숨기기); a hidden room has none (it is shown again first, as a pin)
-  const folder = useFolderRowItems({ on: folders && !room.hidden, kind: 'rooms', id: room.id, folderId: room.folderId, more })
+  // a channel's row of the 대화 list (`folders`), for an admin: 카테고리로 옮기기 / 카테고리에서 빼기 before the last
+  // item (나가기 or 숨기기); a hidden room has none
+  const folder = useCategoryRowItems({ on: folders && !room.hidden, room, more })
   const items = folder.items.length ? [...base.slice(0, -1), ...folder.items, ...base.slice(-1)] : base
   return (
     <>
