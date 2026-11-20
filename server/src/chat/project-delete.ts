@@ -43,7 +43,8 @@ export function deleteProjectForGood(ctx: AppContext, rt: ChatRuntime, r: Projec
   if (item) mapErrors(locale, () => componentC(ctx).files.purgeTrash(item.id, actorId, { manager: true }), 'params.id')
   for (const x of shared) rt.stopChat(x.id)
   // its own chat room (rooms/project-room.ts) is archived in its own write before the project row goes: the link cascades
-  // with the project, which would leave a plain channel that keeps everyone. Its members lose it now
+  // with the project, which would leave a plain channel that keeps everyone. Its members lose it now. If the write below
+  // then fails, the project stays without that room (archived, its link gone): nothing leaks, and Chat room makes a new one
   const archived = archiveRoomsOf(ctx.db, r.id)
   for (const a of archived) for (const uid of a.members) {
     ctx.services.realtime.forgetReplay(uid)
