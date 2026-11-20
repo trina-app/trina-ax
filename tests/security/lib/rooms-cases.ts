@@ -1,7 +1,7 @@
 import { CSRF_HEADER } from '@mycel/shared/api'
 import type { Spec } from './cases'
 import { leaks } from './matrix'
-import { C, PNG } from './world'
+import { C, PNG, type World } from './world'
 
 // Team chat rooms (docs/DECISIONS.md "대화방 v1"). The world has a DM of alice (memberIn) and erin (other) with a
 // message and an image only they may see (C.dmMsg, C.dmFileName): every room route aimed at it is 'room-dm', so the
@@ -9,6 +9,12 @@ import { C, PNG } from './world'
 // deleting are alice's own message only ('own-alice': erin, a member, is refused too). A body naming an author is
 // refused for everyone (the schema is strict), checked on the allowed send. Threads and reactions are 'room-dm' too.
 const cm = () => 'cm-' + crypto.randomUUID()
+/** A retired endpoint (docs/decisions/20261120-project-is-room.md): 410 gone for a signed-in caller, naming nothing. */
+const goneCheck = (r: { status: number; text: string; json: any }, w: World, who: string) => {
+  if (who === 'anon' || who === 'pwchange') return
+  if (r.status !== 410 || r.json?.error?.code !== 'gone') throw new Error(`${who}: a retired endpoint answered ${r.status} ${r.text.slice(0, 200)}`)
+  for (const x of ['Team plan', C.groupName, w.ids.projTeam, w.ids.groupRoom, w.ids.dmRoom]) if (x && r.text.includes(x)) throw new Error(`${who}: a retired endpoint names something: ${r.text.slice(0, 200)}`)
+}
 const form = () => { const f = new FormData(); f.set('file', new File([PNG], 'room.png', { type: 'image/png' })); return f }
 export const ROOM_SPECS: Record<string, Spec> = {
   listRooms: { build: (c) => c.get('/api/rooms'), scope: 'self' },
@@ -264,39 +270,25 @@ export const ROOM_SPECS: Record<string, Spec> = {
       if (status === 503 && r.json?.error?.params?.reason !== 'unsupported') throw new Error(`${who}: expected unsupported, got ${r.text.slice(0, 200)}`)
     },
   },
-  // a private channel linked to a team project (docs/decisions/20261119-channel-project-link.md): the group chat (a
-  // private channel of alice, erin and frank) and Team plan (alice and erin write). Its two members who read and write
-  // the project link and unlink; the owner and the admin (outside both), bob (outside both) and frank are refused, and a
-  // refused body never names the project or the channel
-  linkRoomProject: {
-    build: (c, w) => c.req('PUT', `/api/rooms/${w.ids.groupRoom}/project`, { projectId: w.ids.projTeam }), scope: 'room-group',
+  // a team project's own chat room (docs/decisions/20261120-project-is-room.md): Team plan's readers alice and erin get it
+  // (made the first time, the same room after); the owner and the admin outside it, bob (outside it) and frank get the
+  // missing project's 404, which never names it
+  openProjectRoom: {
+    build: (c, w) => c.post(`/api/projects/${w.ids.projTeam}/room`), scope: 'team-chat',
     check: (r, _w, who) => {
-      if (r.status === 200) { if (r.json?.project?.name !== 'Team plan') throw new Error(`${who}: linked without the project: ${r.text.slice(0, 200)}`); return }
-      // (Team plan may have its own channel already: createProjectChannel)
-      if (r.status === 409 && r.json?.error?.params?.reason === 'project_has_channel') return
-      if (who === 'memberIn' || who === 'other') throw new Error(`${who}: linkRoomProject answered ${r.status} ${r.text.slice(0, 200)}`)
-      if (r.text.includes('Team plan') || r.text.includes(C.groupName)) throw new Error(`${who}: a refusal names the project or the channel: ${r.text.slice(0, 200)}`)
-    },
-  },
-  unlinkRoomProject: {
-    build: (c, w) => c.del(`/api/rooms/${w.ids.groupRoom}/project`), scope: 'room-group',
-    check: (r, _w, who) => {
-      if (r.status >= 400 && (r.text.includes('Team plan') || r.text.includes(C.groupName))) throw new Error(`${who}: a refusal names the project or the channel: ${r.text.slice(0, 200)}`)
-    },
-  },
-  // Save to project's Undo: a token nobody was given is the same 404 for everyone past the room checks (nothing moved)
-  undoRoomSave: {
-    build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-undo`, { token: 'never-given-token-0000000000' }), scope: 'room-dm',
-    check: (r, _w, who) => { if ((who === 'memberIn' || who === 'other') && r.status !== 404) throw new Error(`${who}: save-undo with an unknown token answered ${r.status}`) },
-  },
-  // a channel made from Team plan: its members pass the checks (201, or 409 project_has_channel once it has one);
-  // everyone else is refused without the project's name
-  createProjectChannel: {
-    build: (c, w) => c.post(`/api/projects/${w.ids.projTeam}/channel`, { name: 'Plan talk', userIds: ['erin', 'alice'] }), scope: 'team-chat',
-    check: (r, _w, who) => {
-      if (r.status === 201 || (r.status === 409 && r.json?.error?.params?.reason === 'project_has_channel')) return
-      if (who === 'memberIn' || who === 'other') throw new Error(`${who}: createProjectChannel answered ${r.status} ${r.text.slice(0, 200)}`)
+      if (r.status === 200) {
+        if (r.json?.project?.room !== true || r.json?.project?.id === undefined) throw new Error(`${who}: not the project's room: ${r.text.slice(0, 200)}`)
+        return
+      }
+      if (who === 'memberIn' || who === 'other') throw new Error(`${who}: openProjectRoom answered ${r.status} ${r.text.slice(0, 200)}`)
+      if ((who === 'owner' || who === 'admin' || who === 'memberOut') && r.status !== 404) throw new Error(`${who}: openProjectRoom answered ${r.status}, not 404`)
       if (r.text.includes('Team plan')) throw new Error(`${who}: a refusal names the project: ${r.text.slice(0, 200)}`)
     },
   },
+  // the 0.5.21 project link's endpoints are retired: 410 gone for everyone who passes the auth level, before any check,
+  // naming nothing (not the channel, not the project, no id)
+  linkRoomProject: { build: (c, w) => c.req('PUT', `/api/rooms/${w.ids.groupRoom}/project`, { projectId: w.ids.projTeam }), scope: 'nobody', check: (r, w, who) => goneCheck(r, w, who) },
+  unlinkRoomProject: { build: (c, w) => c.del(`/api/rooms/${w.ids.groupRoom}/project`), scope: 'nobody', check: (r, w, who) => goneCheck(r, w, who) },
+  undoRoomSave: { build: (c, w) => c.post(`/api/rooms/${w.ids.dmRoom}/save-undo`, { token: 'never-given-token-0000000000' }), scope: 'nobody', check: (r, w, who) => goneCheck(r, w, who) },
+  createProjectChannel: { build: (c, w) => c.post(`/api/projects/${w.ids.projTeam}/channel`, { name: 'Plan talk', userIds: ['erin', 'alice'] }), scope: 'nobody', check: (r, w, who) => goneCheck(r, w, who) },
 }

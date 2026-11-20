@@ -234,9 +234,7 @@ export async function verifySnapshot(base: string, content: DemoContent, log: (s
     checked.push(`job titles and ${hire.username}'s e-mail`)
     const projectList = (await api.call(API.listProjects)).items
     for (const p of c.projects.filter((x) => x.channel)) {
-      const room = c.rooms.find((r) => r.slug === p.channel)
-      const got = projectList.find((x) => x.name === p.name)?.channel?.name
-      if (got !== room?.name) throw new Error(`project ${p.name}'s channel is ${got ?? 'none'}, not ${room?.name}`)
+      if (!projectList.find((x) => x.name === p.name)?.room) throw new Error(`project ${p.name} has no chat room`)
     }
     const threaded = c.chats.filter((x) => x.thread?.some((r) => r.text.includes(`@${hireAccount?.name ?? hire.username}`)))
     if (threaded.length) {

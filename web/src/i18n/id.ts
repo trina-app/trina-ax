@@ -7120,6 +7120,8 @@ export const id: Record<MessageKey, string> = {
   "rooms.event.projectLinkedNamed": "{actor} menautkan saluran ini ke proyek {name}",
   "rooms.event.projectUnlinked": "{actor} melepas tautan saluran ini dari sebuah proyek",
   "rooms.event.projectUnlinkedNamed": "{actor} melepas tautan saluran ini dari proyek {name}",
+  "rooms.event.projectRoom": "Saluran ini sekarang ruang obrolan proyek",
+  "rooms.event.projectRoomNamed": "Saluran ini sekarang ruang obrolan proyek {name}",
   "rooms.projectFilesTip": "Buka folder proyek {name}",
   "rooms.info.project": "Proyek",
   "rooms.info.projectNone": "Belum ditautkan",

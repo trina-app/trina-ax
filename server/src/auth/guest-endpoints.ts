@@ -88,6 +88,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.listProjects,
   API.getProject,
   API.getProjectPeople,
+  // their project's own chat room (rooms/project-room.ts): they are one of its people (404 for any other project)
+  API.openProjectRoom,
   // Files (the folder policy: their project and their own users/<id>/)
   API.tree,
   API.content,

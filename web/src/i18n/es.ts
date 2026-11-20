@@ -7076,6 +7076,8 @@ export const es: Record<MessageKey, string> = {
   "rooms.event.projectLinkedNamed": "{actor} vinculó este canal al proyecto {name}",
   "rooms.event.projectUnlinked": "{actor} desvinculó este canal de un proyecto",
   "rooms.event.projectUnlinkedNamed": "{actor} desvinculó este canal del proyecto {name}",
+  "rooms.event.projectRoom": "Este canal es ahora la sala de chat del proyecto",
+  "rooms.event.projectRoomNamed": "Este canal es ahora la sala de chat del proyecto {name}",
   "rooms.projectFilesTip": "Abrir la carpeta del proyecto {name}",
   "rooms.info.project": "Proyecto",
   "rooms.info.projectNone": "Sin vincular",

@@ -35,7 +35,7 @@ export function roomTitle(room: Pick<Room, 'kind' | 'name' | 'peers'> & Partial<
 /** The words of an event line (lib, not React: the component passes t). `person` puts a language's honorific after a
  * name ("{name}님"), `quote` puts a room name in the language's quotes. */
 export interface EventWords {
-  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
+  t: (key: 'rooms.event.invited' | 'rooms.event.invitedMore' | 'rooms.event.renamed' | 'rooms.event.renamedBack' | 'rooms.event.left' | 'rooms.event.joined' | 'rooms.event.removed' | 'rooms.event.unknown' | 'rooms.event.projectLinked' | 'rooms.event.projectLinkedNamed' | 'rooms.event.projectUnlinked' | 'rooms.event.projectUnlinkedNamed' | 'rooms.event.projectRoom' | 'rooms.event.projectRoomNamed' | 'rooms.event.person' | 'rooms.event.quoted' | 'rooms.nameSep', params?: Record<string, string | number>) => string
   nameOf: (u: UserRef | null) => string
 }
 /** "가나님이 다라님, 마바님을 초대했어요": every name but the last gets the language's honorific here, the last one the
@@ -66,6 +66,10 @@ export function eventText(e: RoomEventLine, author: UserRef | null, w: EventWord
       const k = projectEventKey(e)
       return e.project ? w.t(k, { actor, name: e.project.name }) : w.t(k, { actor })
     }
+    // a linked channel that became the project's chat room at the upgrade (docs/decisions/20261120-project-is-room.md):
+    // written by the server, so no actor
+    case 'project_room':
+      return e.project ? w.t('rooms.event.projectRoomNamed', { name: e.project.name }) : w.t('rooms.event.projectRoom')
     case 'unknown':
       return w.t('rooms.event.unknown')
   }

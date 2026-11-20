@@ -16,8 +16,8 @@ export function ownLevel(m: { muted: number; notify_level?: string | null }): Ro
   return m.notify_level === 'all' || m.notify_level === 'mentions' ? m.notify_level : null
 }
 /** What the app is told about one room (Room.notify). */
-export function roomNotifyOut(kind: string, m: { muted: number; notify_level?: string | null }, prefs: Preferences): NonNullable<Room['notify']> {
-  const own = ownLevel(m), byDefault = roomLevel(kind, null, prefs.roomLevel)
+export function roomNotifyOut(kind: string, m: { muted: number; notify_level?: string | null }, prefs: Preferences, projectRoom = false): NonNullable<Room['notify']> {
+  const own = ownLevel(m), byDefault = roomLevel(kind, null, prefs.roomLevel, projectRoom)
   return { own, byDefault, level: own ?? byDefault }
 }
 /** What the app needs besides the levels to decide its sound (GET /api/rooms `alerts`). */
@@ -36,14 +36,14 @@ export function setOwnLevel(db: Database, roomId: string, userId: string, level:
  * The push service asks before it sends and again after (a change in Settings or on the room's bell stops a push that
  * waits or retries). Notices made inside quiet hours never get here (they are never queued). */
 export function noticeWanted(db: Database, noticeId: string, now = Date.now()): boolean {
-  const r = db.query(`SELECT n.user_id, n.event_type, r.kind, m.muted, m.notify_level, m.hidden_at, s.thread_root_id,
+  const r = db.query(`SELECT n.user_id, n.event_type, r.kind, EXISTS (SELECT 1 FROM room_project_links l WHERE l.room_id = r.id AND l.mode = 'room') project_room, m.muted, m.notify_level, m.hidden_at, s.thread_root_id,
     EXISTS(SELECT 1 FROM room_thread_follows f WHERE f.root_id = s.thread_root_id AND f.user_id = n.user_id) following FROM room_notices n
     JOIN room_members m ON m.room_id = n.room_id AND m.user_id = n.user_id JOIN rooms r ON r.id = n.room_id AND r.archived_at IS NULL
-    LEFT JOIN room_messages s ON s.id = n.source_id WHERE n.id = ?`).get(noticeId) as { user_id: string; event_type: string; kind: string; muted: number; notify_level: string | null; thread_root_id: string | null; following: number; hidden_at: string | null } | null
+    LEFT JOIN room_messages s ON s.id = n.source_id WHERE n.id = ?`).get(noticeId) as { user_id: string; event_type: string; kind: string; project_room: number; muted: number; notify_level: string | null; thread_root_id: string | null; following: number; hidden_at: string | null } | null
   if (!r || r.hidden_at) return false
   const prefs = getPreferences(db, r.user_id)
   if (inQuietHours(prefs.quietHours, teamTimeZone(db), now)) return false
-  const level = roomLevel(r.kind, ownLevel(r), prefs.roomLevel)
+  const level = roomLevel(r.kind, ownLevel(r), prefs.roomLevel, !!r.project_room)
   if (level === 'off') return false
   if (r.event_type === 'room.mention' || level === 'all') return true
   return !!r.thread_root_id && !!r.following && prefs.roomThreadReplies

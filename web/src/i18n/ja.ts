@@ -7076,6 +7076,8 @@ export const ja: Record<MessageKey, string> = {
   "rooms.event.projectLinkedNamed": "{actor}さんがこのチャンネルをプロジェクト「{name}」に連携しました",
   "rooms.event.projectUnlinked": "{actor}さんがこのチャンネルとプロジェクトの連携を解除しました",
   "rooms.event.projectUnlinkedNamed": "{actor}さんがこのチャンネルとプロジェクト「{name}」の連携を解除しました",
+  "rooms.event.projectRoom": "このチャンネルはプロジェクトのチャットルームになりました",
+  "rooms.event.projectRoomNamed": "このチャンネルはプロジェクト「{name}」のチャットルームになりました",
   "rooms.projectFilesTip": "プロジェクト「{name}」のフォルダを開く",
   "rooms.info.project": "プロジェクト",
   "rooms.info.projectNone": "未連携",

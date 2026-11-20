@@ -17,7 +17,8 @@ import { roomFilesOf } from '../rooms/files'
 import { deleteGrant, listGrants } from '../rooms/ai-grants'
 import { keptMediaCache } from '../auth/media-key'
 import { mapErrors } from '../team-files/errors'
-import { savedFiles, savePlan, saveToTeam, undoSave } from '../rooms/save-to-team'
+import { savedFiles, savePlan, saveToTeam } from '../rooms/save-to-team'
+import { assertRoomUpload } from '../rooms/project-room'
 
 export const roomsRoutes: RouteModule = {
   name: 'rooms',
@@ -26,7 +27,8 @@ export const roomsRoutes: RouteModule = {
     const rooms = roomsOf(ctx)
     // existing groups get their team rooms and everyone gets the everyone room at the first start with rooms; after
     // that groups and accounts are followed at once (admin/folders.ts afterAccessChange) and on this tick
-    try { rooms.sync() } catch (e) { ctx.log.error('room sync failed', { err: e }) }
+    // and every project's chat room, the 0.5.21 linked channels settled first (rooms/project-room.ts)
+    try { rooms.sync({ projects: 'all' }) } catch (e) { ctx.log.error('room sync failed', { err: e }) }
     // after a restore the database and the team folder can be from different moments: rows and files are matched
     try { roomFilesOf(ctx).reconcile() } catch (e) { ctx.log.error('room file reconcile failed', { err: e }) }
     // once, a minute after start: the JPEG thumbnails of transparent pictures sent before become PNG ones (rooms/files.ts
@@ -37,7 +39,7 @@ export const roomsRoutes: RouteModule = {
       ;(later as { unref?: () => void }).unref?.()
       ctx.onClose(() => { clearTimeout(later); stop.abort() })
     }
-    const tick = setInterval(() => { rooms.syncSoon(); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
+    const tick = setInterval(() => { rooms.syncNow('all'); try { roomFilesOf(ctx).sweep() } catch (e) { ctx.log.warn('room file sweep failed', { err: e }) } }, 60_000)
     ;(tick as { unref?: () => void }).unref?.()
     ctx.onClose(() => clearInterval(tick))
   },
@@ -72,14 +74,17 @@ export const roomsRoutes: RouteModule = {
     kit.handle(API.listRoomMembers, ({ c, auth, params }) => { c.header('Cache-Control', 'no-store'); return { items: rooms.members(auth.user.id, params.id) } })
     // group chats (docs/DECISIONS.md "그룹 대화와 방 이름"): any member invites or leaves; the manager, or an owner or
     // admin in it, takes someone out
-    // a private channel linked to a team project (rooms/project-link.ts; docs/decisions/20261119-channel-project-link.md)
-    kit.handle(API.undoRoomSave, ({ c, auth, params, body }) => mapErrors(c.get('locale'), () => undoSave(ctx, auth.user.id, params.id, body.token), 'body.token'))
-    kit.handle(API.linkRoomProject, ({ c, auth, params, body }) => rooms.linkProject(auth.user.id, params.id, body.projectId, body.via ?? 'channel', c.get('locale')))
-    kit.handle(API.unlinkRoomProject, ({ c, auth, params, query }) => rooms.unlinkProject(auth.user.id, params.id, query.via ?? 'channel', c.get('locale')))
-    kit.handle(API.createProjectChannel, ({ c, auth, params, body }) => rooms.createProjectChannel(auth.user.id, params.id, body.name, body.userIds, c.get('locale')))
+    // a team project's own chat room (rooms/project-room.ts; docs/decisions/20261120-project-is-room.md): made the first
+    // time it is opened, for someone who reads the project
+    kit.handle(API.openProjectRoom, ({ c, auth, params }) => rooms.openProjectRoom(auth.user.id, params.id, c.get('locale')))
+    // the 0.5.21 project link's endpoints are retired (one release): 410 for everyone, before any check, naming nothing
+    kit.handle(API.undoRoomSave, () => fail('gone'))
+    kit.handle(API.linkRoomProject, () => fail('gone'))
+    kit.handle(API.unlinkRoomProject, () => fail('gone'))
+    kit.handle(API.createProjectChannel, () => fail('gone'))
     kit.handle(API.inviteRoomMembers, ({ c, auth, params, body }) => rooms.invite(auth.user.id, params.id, body.userIds, c.get('locale')))
-    kit.handle(API.removeRoomMember, ({ auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId))
-    kit.handle(API.leaveRoom, ({ auth, params }) => rooms.leave(auth.user.id, params.id))
+    kit.handle(API.removeRoomMember, ({ c, auth, params }) => rooms.removeMember(auth.user.id, params.id, params.userId, c.get('locale')))
+    kit.handle(API.leaveRoom, ({ c, auth, params }) => rooms.leave(auth.user.id, params.id, c.get('locale')))
     // hiding a DM, a team room or the everyone room from my own lists (docs/DECISIONS.md "대화 숨기기"): mine only
     kit.handle(API.setRoomHidden, ({ auth, params, body }) => rooms.setHidden(auth.user.id, params.id, body.hidden))
     // "상단에 고정" / "고정 해제" (docs/DECISIONS.md "Pinned conversations"): mine only; only my own windows hear it
@@ -92,11 +97,13 @@ export const roomsRoutes: RouteModule = {
 
     // a small file in one request (larger ones: an upload session with target room, uploads/sessions.ts). The body was
     // streamed to a temp file and hashed on the way (http/multipart.ts); create() moves it into the room's folder
-    kit.handle(API.uploadRoomFile, async ({ auth, params, body }) => {
+    kit.handle(API.uploadRoomFile, async ({ c, auth, params, body }) => {
       // the same checks as a chat attachment: the whole part arrived, there is room on the disk
       if (body.fields.size !== undefined && body.fields.size !== body.file.size) fail('validation', undefined, { fields: { 'body.file': `expected ${body.fields.size} bytes, got ${body.file.size}` } })
       assertStorageRoom(body.file.size)
       rooms.get(auth.user.id, params.id)
+      // a project's room: only someone who may add files to the project (403 shared_upload_read_only)
+      assertRoomUpload(ctx, auth.user.id, params.id, c.get('locale'))
       return await files.create(auth.user.id, params.id, body.fields.name ?? (body.file.name || 'file'), body.file.path, body.file.sha256)
     })
     // "팀 파일" in a room's box (a phone's attach sheet): the copy "대화방에 보내기" makes of a linked file (rooms/files.ts

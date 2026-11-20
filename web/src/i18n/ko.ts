@@ -7120,6 +7120,8 @@ export const ko = {
   "rooms.event.projectLinkedNamed": "{actor}님이 이 채널을 {name} 프로젝트에 연결했어요",
   "rooms.event.projectUnlinked": "{actor}님이 이 채널의 프로젝트 연결을 해제했어요",
   "rooms.event.projectUnlinkedNamed": "{actor}님이 이 채널과 {name} 프로젝트의 연결을 해제했어요",
+  "rooms.event.projectRoom": "이 채널이 이제 프로젝트의 채팅방이에요",
+  "rooms.event.projectRoomNamed": "이 채널이 이제 {name} 프로젝트의 채팅방이에요",
   "rooms.projectFilesTip": "{name} 프로젝트 폴더 열기",
   "rooms.info.project": "프로젝트",
   "rooms.info.projectNone": "연결 안 됨",

@@ -54,6 +54,11 @@ import { getRow, usersOf } from '../integrations/connections/store'
 import { shareRow, shareUsers } from '../integrations/google-drive/shares'
 import { isPeopleRow, peopleAudience } from './chat-audience'
 import { readersAt, shareAbove, shareSourceReaders } from '../files/share-readers'
+import { PROJECT_ROOM_SQL } from '../rooms/project-room'
+
+/** SQL: rooms/history.ts HISTORY_ROOM_SQL (a team room, the everyone room, a project's room), here without importing
+ * history.ts (which imports this module). */
+const HISTORY_ROOM_SQL = (r: string): string => `(${r}.kind IN ('team', 'all') OR (${r}.kind = 'group' AND ${PROJECT_ROOM_SQL(r)}))`
 
 export type ReadSource = { type: 'folder'; id: string } | { type: 'user'; id: string; via?: 'browser' | 'connection'; share?: string } | { type: 'root' } | { type: 'integration'; id: string } | { type: 'drive_share'; id: string } | { type: 'room'; id: string; fromSeq?: number } | { type: 'name'; path: string }
   | { type: 'chat'; id: string }
@@ -241,9 +246,9 @@ export function roomViewers(db: Database, roomId: string, people?: Principal[], 
  * sending to people who cannot read a source, never past those (chat/answer-share.ts). */
 export function viewersByHistory(db: Database, roomId: string, people?: Principal[], fromSeq?: number, reader?: string | null): { see: Set<string>; hiddenFrom: Set<string> } {
   const rows = db.query(`SELECT m.user_id, (m.user_id <> ?4 AND EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.see_seq >= ?3)) hid,
-      (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
+      (${HISTORY_ROOM_SQL('r')} AND m.history_from_seq IS NULL AND m.visible_from_seq >= ?2) waits
     FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.room_id = ?1 AND r.archived_at IS NULL
-      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (r.kind IN ('team', 'all') AND m.history_from_seq IS NULL))`)
+      AND (COALESCE(m.history_from_seq, m.visible_from_seq) < ?2 OR (${HISTORY_ROOM_SQL('r')} AND m.history_from_seq IS NULL))`)
     .all(roomId, fromSeq ?? Number.MAX_SAFE_INTEGER, fromSeq ?? 0, reader ?? '') as { user_id: string; hid: number; waits: number }[]
   const active = new Set((people ?? activePeople(db)).map((p) => p.id))
   const see = new Set<string>(), hiddenFrom = new Set<string>()
@@ -314,7 +319,7 @@ export function roomWidening(db: Database, roomId: string, sources: ReadSource[]
   // who will see it: everyone in the room; for a thread reply those who see its first message: in a team room or the
   // everyone room every member to whom it is not hidden (one whose history is not open yet too: it opens to them, and
   // then they see the thread), elsewhere who was in the room before it (the same audience)
-  const history = !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind IN ('team', 'all')").get(roomId)
+  const history = !!db.query(`SELECT 1 FROM rooms r WHERE r.id = ? AND ${HISTORY_ROOM_SQL('r')}`).get(roomId)
   const target = (db.query(`SELECT m.user_id FROM room_members m WHERE m.room_id = ?1 AND (?3 OR COALESCE(m.history_from_seq, m.visible_from_seq) < ?2)
       AND NOT EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id AND h.message_id = ?4)`)
     .all(roomId, root?.seq ?? Number.MAX_SAFE_INTEGER, history || !root ? 1 : 0, root?.id ?? '') as { user_id: string }[]).map((r) => r.user_id)

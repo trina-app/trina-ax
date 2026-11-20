@@ -7123,6 +7123,8 @@ export const en: Record<MessageKey, string> = {
   "rooms.event.projectLinkedNamed": "{actor} linked this channel to the project {name}",
   "rooms.event.projectUnlinked": "{actor} unlinked this channel from a project",
   "rooms.event.projectUnlinkedNamed": "{actor} unlinked this channel from the project {name}",
+  "rooms.event.projectRoom": "This channel is now the project's chat room",
+  "rooms.event.projectRoomNamed": "This channel is now the chat room of the project {name}",
   "rooms.projectFilesTip": "Open the {name} project folder",
   "rooms.info.project": "Project",
   "rooms.info.projectNone": "Not linked",

@@ -71,7 +71,7 @@ import { redactorFor } from '../integrations/connections/redact'
 import { findPeople, findRoom, localTime, PERSON_REF, titleOf, type Teammate } from '../rooms/reader'
 import { roomsOf } from '../rooms/service'
 import { groupName, isOwnerOrAdmin, roomRow, type MemberRow, type RoomRow } from '../rooms/store'
-import { historyKinds } from '../rooms/history'
+import { historyRoom } from '../rooms/history'
 import { keyRoomOf, keyRoomOfPair, preparePendingDm, prepareShare, sendShare, shareChoice, type PendingShare, type PreparedShare } from './answer-share'
 import { scopeWithListing, sourceKey, sourceOf } from './read-scope'
 import { tr } from './i18n'
@@ -467,8 +467,8 @@ export function postToRoomTool(exec: TurnExec): Tool {
         const ask = root
           ? quote ? tr('postRoomAskThread', L, { room: title, n: String(people), quote }) : tr('postRoomAskThreadNoQuote', L, { room: title, n: String(people) })
           : pendingTo ? tr('postRoomAskNewDm', L, { name: oneLine(pendingTo.name, 40) }) : tr('postRoomAsk', L, { room: title, n: String(people) })
-        // a team room or the everyone room: a later member sees its history, this message included (rooms/history.ts)
-        const later = !pendingTo && historyKinds(roomRow(db, roomId)?.kind ?? 'dm')
+        // a team room, the everyone room or a project's room: a later member sees its history, this message included (rooms/history.ts)
+        const later = !pendingTo && historyRoom(db, roomRow(db, roomId))
         const sharedFile = grantOnly(exec)
         // a file the sender has only through a share, linked as /f/<id>: who in the room cannot open it, in plain words
         // (the room's check reads only team-path links; chat/share-next-steps.ts grantedLinksCant)

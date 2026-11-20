@@ -20,6 +20,7 @@
 // gave (`seen`; a list of rooms gives none) to its read scope.
 import { dmPairOk } from './guest-reach'
 import type { Database } from 'bun:sqlite'
+import { NOT_HELD_SQL } from './project-room'
 import { reachFilter } from '../auth/guests'
 import { isStatusEmoji } from '@mycel/shared'
 import { isUuid7, ROOM_MENTIONS_MAX, ROOM_REF_RE, type Room, type RoomKind, type RoomMessage } from '@mycel/shared/api'
@@ -104,12 +105,13 @@ function wordWhere(w: string, types = true): { sql: string; args: string[] } {
 /** A message that came with at least one file */
 const HAS_FILE_SQL = 'EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id)'
 
-/** The rooms I am in now (not archived), the most recent activity first. */
+/** The rooms I am in now (not archived, not a project's room held while the project is in the trash), the most recent
+ * activity first. */
 export function myRooms(db: Database, userId: string): Mine[] {
   const rows = db.query(`SELECT r.id, r.kind, r.group_id, r.dm_key, r.created_by, r.created_at, r.last_seq, r.activity_at, r.archived_at, r.name,
       m.room_id, m.user_id, m.joined_at, m.last_read_seq, m.visible_from_seq, m.history_from_seq, m.muted, m.hidden_at,
       EXISTS (SELECT 1 FROM room_hidden_answers h WHERE h.room_id = m.room_id AND h.user_id = m.user_id) has_hidden
-    FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
+    FROM rooms r JOIN room_members m ON m.room_id = r.id WHERE m.user_id = ? AND r.archived_at IS NULL AND ${NOT_HELD_SQL('r')} ORDER BY r.activity_at DESC, r.id`).all(userId) as (RoomRow & MemberRow)[]
   // a DM whose two no longer share a guest's place is closed to both (docs/DECISIONS.md "Guests: only what they were
   // invited to"; rooms/guest-reach.ts dmPairOk): not listed, not searched, not read
   return rows.filter((r) => dmPairOk(db, r.kind, r.dm_key)).map((r) => ({

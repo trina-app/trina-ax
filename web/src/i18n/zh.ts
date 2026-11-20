@@ -7048,6 +7048,8 @@ export const zh: Record<MessageKey, string> = {
   "rooms.event.projectLinkedNamed": "{actor} 将此频道关联到了项目「{name}」",
   "rooms.event.projectUnlinked": "{actor} 取消了此频道与一个项目的关联",
   "rooms.event.projectUnlinkedNamed": "{actor} 取消了此频道与项目「{name}」的关联",
+  "rooms.event.projectRoom": "此频道现在是项目的聊天室",
+  "rooms.event.projectRoomNamed": "此频道现在是项目「{name}」的聊天室",
   "rooms.projectFilesTip": "打开项目「{name}」的文件夹",
   "rooms.info.project": "项目",
   "rooms.info.projectNone": "未关联",

@@ -79,7 +79,10 @@ export function projectFolder(db: Database, projectId: string): string | null {
   const r = db.query('SELECT folder_path, trashed_with FROM projects WHERE id = ?').get(projectId) as { folder_path: string; trashed_with: string | null } | null
   return r && !r.trashed_with ? r.folder_path : null
 }
-const liveGroupRoom = (db: Database, roomId: string): boolean => !!db.query("SELECT 1 FROM rooms WHERE id = ? AND kind = 'group' AND archived_at IS NULL").get(roomId)
+/** A project's chat room (rooms/project-room.ts) is a group room, but never a guest's group chat: it is part of their
+ * project (they are in it as one of the project's people), so the group chat checks below leave it out. */
+const NOT_PROJECT_ROOM = "NOT EXISTS (SELECT 1 FROM room_project_links pl WHERE pl.room_id = r.id AND pl.mode = 'room')"
+const liveGroupRoom = (db: Database, roomId: string): boolean => !!db.query(`SELECT 1 FROM rooms r WHERE r.id = ? AND r.kind = 'group' AND r.archived_at IS NULL AND ${NOT_PROJECT_ROOM}`).get(roomId)
 
 const activePrincipals = (db: Database): Principal[] => {
   const groups = new Map<string, string[]>()
@@ -129,7 +132,7 @@ export function placePeople(db: Database, guestId: string, rules?: RuleSet): Set
  * member of the group chat, or a person of the project's folder? */
 function inSlotEvenIfOff(db: Database, guestId: string, place: GuestPlace, rules?: RuleSet): boolean {
   if (place.kind === 'room') {
-    return !!db.query("SELECT 1 FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.id = ? AND r.kind = 'group' AND r.archived_at IS NULL").get(guestId, place.id)
+    return !!db.query(`SELECT 1 FROM rooms r JOIN room_members m ON m.room_id = r.id AND m.user_id = ? WHERE r.id = ? AND r.kind = 'group' AND r.archived_at IS NULL AND ${NOT_PROJECT_ROOM}`).get(guestId, place.id)
   }
   const folder = projectFolder(db, place.id)
   if (!folder) return false
@@ -271,7 +274,7 @@ export function claimGuestRoom(db: Database, userId: string, roomId: string, loc
   if (!isGuest(db, userId)) return
   if (!guestRow(db, userId)) failOnePlace(locale)
   fillOlderSlots(db, userId)
-  const other = db.query("SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.id <> ? AND r.kind = 'group' AND r.archived_at IS NULL LIMIT 1").get(userId, roomId)
+  const other = db.query(`SELECT 1 FROM room_members m JOIN rooms r ON r.id = m.room_id WHERE m.user_id = ? AND r.id <> ? AND r.kind = 'group' AND r.archived_at IS NULL AND ${NOT_PROJECT_ROOM} LIMIT 1`).get(userId, roomId)
   if (other) failOnePlace(locale)
   db.query('UPDATE guests SET room_id = ? WHERE user_id = ?').run(roomId, userId)
 }

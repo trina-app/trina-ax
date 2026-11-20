@@ -63,9 +63,9 @@ describe('the snapshot of Steepling (en)', () => {
       expect(notice?.read_at).toBeNull()
       expect(notice?.mention_id).not.toBeNull()
       expect(Date.parse(notice!.created_at)).toBeLessThan(Date.parse(manifest.createdAt) - 60 * 60_000)
-      // job titles and .example e-mails (QA TC-5619); the launch project's channel (QA TC-5620)
+      // job titles and .example e-mails (QA TC-5619); the launch project's own chat room (QA TC-5620, now the project room)
       for (const u of db.query('SELECT u.username, u.email FROM users u').all() as { username: string; email: string | null }[]) expect(u.email ?? '', u.username).toMatch(/@[a-z]+\.example$/)
-      expect(db.query("SELECT r.name FROM room_project_links l JOIN rooms r ON r.id = l.room_id").all()).toEqual([{ name: 'Launch day' }])
+      expect(db.query("SELECT l.mode, r.name = p.name same FROM room_project_links l JOIN rooms r ON r.id = l.room_id JOIN projects p ON p.id = l.project_id").all()).toEqual([{ mode: 'room', same: 1 }])
       // Files › Recent: the story's times, newest first; the seed's skills and company profile left out (QA TC-5618)
       const events = db.query("SELECT path, at FROM file_events WHERE action IN ('create', 'update', 'upload', 'restore') ORDER BY id").all() as { path: string; at: string }[]
       expect(events.filter((e) => e.path.startsWith('skills/'))).toEqual([])
