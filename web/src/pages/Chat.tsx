@@ -32,7 +32,7 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { chatErrorReason, uuidv7, type Attachment, type Chat, type EngineId, type Project } from '@mycel/shared/api'
 import { api, API, errorText, isApiError } from '../lib/api'
-import { isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
+import { chatOpeners, isPeopleShared, noLongerMemberOf, noLongerSharedWith, privateInTeamProject, refusalKey, refusalReason, shareKindOf, sharedRights } from '../lib/sharedChat'
 import { answerTooLong, BoxAnswers, choiceWaiting, composerAnswer, composerQuestion, picksOf } from '../lib/askAnswer'
 import { desktop, isDesktop, usePaneState } from '../lib/desktop'
 import { rememberChat } from '../lib/teamAttach'
@@ -214,7 +214,10 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   // who sees it, beside Share (a computer; a phone's line under the box says it): a shared project chat by its project's
   // faces (they open the members, read only for whoever cannot change them), else in words
   const projectPeople = useProjectPeople(projectChat && project ? project : null)
-  const faces = projectChat && projectPeople && projectPeople.people.length > 1 ? projectPeople.people : null
+  // only who can open this chat: a guest of the project sees no one's chat there but their own (Audiences.ofChat), so
+  // their face shows only on a chat they started
+  const openers = projectChat && projectPeople ? chatOpeners(projectPeople.people, shared!.by.id) : null
+  const faces = openers && openers.length > 1 ? openers : null
   const whoWords = !chat ? null : !shared ? t('chat.whoMe') : shared.audienceHidden ? t('chat.sharedLabel') : t('projects.visibilityPeople', { n: shared.audience })
   const headerWho = faces ? <PeopleStack people={faces} onOpen={() => setMembers(true)} testId="chat-header" />
     : whoWords ? <WhoSeesWords words={whoWords} onOpen={people && rights.creator && !chat?.deletedAt ? () => openChatShare(chat!) : projectChat && project ? () => setMembers(true) : undefined} testId="chat-who-sees" /> : null

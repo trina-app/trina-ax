@@ -88,6 +88,14 @@ export function whoSees(shared: { audience?: number; alone?: boolean } | null | 
   return shared.alone ? { kind: 'admins' } : { kind: 'people', n }
 }
 
+/** Who can open a chat I start in this project (Project.chatAudience: its people without its guests, who see only
+ * their own chats there; an older server's `audience` otherwise), with `alone` for the words of WhoSees.tsx. */
+export const chatWho = (p: Pick<Project, 'audience' | 'chatAudience' | 'alone'>): { audience?: number; alone?: boolean } => ({ audience: p.chatAudience ?? p.audience, alone: p.alone })
+
+/** The project's people who can open its shared chat by `creator` (its header's faces): a guest only on their own chat,
+ * as the server's Audiences.ofChat counts Chat.shared.audience. */
+export const chatOpeners = <P extends { id: string; guest?: true }>(people: readonly P[], creator: string): P[] => people.filter((x) => !x.guest || x.id === creator)
+
 /** How many people in the project see a chat once it is shared, counted as the line under its box and the copy-link
  * toast count them (Chat.shared.audience: everyone who sees the project, me included). The share check's `audience`
  * (ShareChatResult) is the others, so the share dialog adds me (QA TC-070: the dialog said 2 where the line and the

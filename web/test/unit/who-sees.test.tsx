@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test
 import { MemoryRouter } from 'react-router-dom'
 import type { Me, Project } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
-import { whoSees } from '../../src/lib/sharedChat'
+import { chatOpeners, chatWho, whoSees } from '../../src/lib/sharedChat'
 import { WhoSeesLine } from '../../src/components/chat/WhoSees'
 import { NewChatComposer } from '../../src/components/chat/NewChatComposer'
 import { ProjectShareRow } from '../../src/pages/Projects'
@@ -88,6 +88,16 @@ describe('the words', () => {
   })
 })
 
+describe('a project with a guest: who can open its chats', () => {
+  test('chatWho: chatAudience when the server sends it, else audience; chatOpeners: a guest only on their own chat (the header faces)', () => {
+    expect(chatWho(project({ audience: 4, chatAudience: 3 }))).toEqual({ audience: 3, alone: undefined })
+    expect(chatWho(project({ audience: 4 }))).toEqual({ audience: 4, alone: undefined })
+    const people = [{ id: 'mia', name: 'Mia' }, { id: 'jun', name: 'Jun' }, { id: 'gwen', name: 'Gwen', guest: true as const }]
+    expect(chatOpeners(people, 'mia').map((x) => x.id)).toEqual(['mia', 'jun'])
+    expect(chatOpeners(people, 'gwen').map((x) => x.id)).toEqual(['mia', 'jun', 'gwen'])
+  })
+})
+
 describe('the project box', () => {
   const box = async (p: Project, role: 'owner' | 'admin' | 'member', o: { confidential?: boolean } = {}) => {
     useSession.setState({ status: { kind: 'signed-in', me: meAs(role, o.confidential) } } as never)
@@ -119,6 +129,15 @@ describe('the project box', () => {
     expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
     // an admin on a member's project: someone else sees it by a rule (the member), so the count
     expect(await box(project({ audience: 3, createdBy: { id: 'jun', name: 'Jun' } }), 'admin')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 3명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
+  })
+
+  test('a project with a guest: the chip counts who can open the new chat (chatAudience), not who reads its files (audience)', async () => {
+    // 4 read its folder, one of them a guest, who never opens another member's chat there
+    expect(await box(project({ audience: 4, chatAudience: 3 }), 'member')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 3명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
+    // a member with only the guest besides them: only me
+    expect(await box(project({ audience: 2, chatAudience: 1 }), 'member')).toEqual({ text: '새 채팅은 나만 볼 수 있어요.', where: 'tools', toggle: true, opened: 0 })
+    // an older server without the field: its audience, as before
+    expect(await box(project({ audience: 4 }), 'member')).toEqual({ text: '지금 시작하는 채팅은 이 프로젝트의 4명이 보고 이어 쓸 수 있어요.', where: 'tools', toggle: true, opened: 0 })
   })
 
   test('a switch only while the new chat can be shared; the members dialog opens from a personal box\'s line only when shared', async () => {

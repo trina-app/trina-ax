@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom'
 import type { Attachment, Project } from '@mycel/shared/api'
 import { api, API } from '../../lib/api'
 import { RAIL_STATE_KEY, useRailHere } from '../../lib/rail'
-import { isTeamProject, sharesNewChats, whoSees } from '../../lib/sharedChat'
+import { chatWho, isTeamProject, sharesNewChats, whoSees } from '../../lib/sharedChat'
 import { useT } from '../../i18n'
 import { draftChat, draftChatIfAny, draftChatShared, dropDraft, forgetDraftChat, isDraftChat, rememberChat, rememberDraftShared } from '../../lib/teamAttach'
 import { useChats } from '../../store/chats'
@@ -169,7 +169,7 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
       focusKey={focusKey}
       placeholder={placeholder}
       who={who}
-      sharedUploads={shared ? { audience: project!.audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
+      sharedUploads={shared ? { audience: chatWho(project!).audience ?? 0, allowed: project!.chatUploads !== false } : undefined}
       // a project's box (Home's ?project=) sends only once the project is known: before, nothing says who will see the
       // chat, and a team project would share it (security review S3)
       hold={projectId && !known ? t('common.loading') : undefined}
@@ -204,9 +204,10 @@ export function NewChatComposer({ projectId, folderId = null, project, onMembers
 function ChatVisibilityChip({ project, shares, safeOps, onlyMe, locked, onToggle, t }: { project: Project; shares: boolean; safeOps: boolean; onlyMe: boolean; locked: boolean; onToggle: () => void; t: ReturnType<typeof useT> }) {
   const whyId = useId()
   const mine = safeOps || onlyMe || !shares
-  // shared: how many members (alone, or with only the owner and admins: the box's words as before, WhoSees.tsx)
-  const who = whoSees(project)
-  const sentence = safeOps ? t('projects.newChatSafeOps') : !shares ? t('projects.newChatMe') : onlyMe ? t('projects.onlyMeOn') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, project, 'new')
+  // shared: how many members can open it (alone, or with only the owner and admins: the box's words as before,
+  // WhoSees.tsx); the project's guests do not count, they never open another member's chat (chatWho)
+  const who = whoSees(chatWho(project))
+  const sentence = safeOps ? t('projects.newChatSafeOps') : !shares ? t('projects.newChatMe') : onlyMe ? t('projects.onlyMeOn') : who.kind === 'people' ? t('projects.newChatShared', { n: who.n }) : whoSeesText(t, chatWho(project), 'new')
   const Icon = mine || who.kind === 'me' ? Lock : Users
   const label = mine ? (
     t('projects.onlyMe')

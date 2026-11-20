@@ -491,7 +491,7 @@ export function messageFor(rt: ChatRuntime, chat: Pick<ChatRow, 'id' | 'shared_a
 }
 
 /** Project.shareChats / audience / sharedChats as the caller sees them. */
-export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; sharedChats: number; chatUploads?: boolean } {
+export function projectShare(db: Database, files: FileService, p: ProjectRow, aud?: Audiences, viewer?: string): { shareChats: boolean; audience: number; chatAudience: number; sharedChats: number; chatUploads?: boolean } {
   const a = aud ?? new Audiences(db, files)
   // a guest counts only their own shared chats (the others' are never theirs to know of)
   const mine = !!viewer && a.isGuest(viewer)
@@ -499,7 +499,12 @@ export function projectShare(db: Database, files: FileService, p: ProjectRow, au
   // every team project (docs/DECISIONS.md "Team project chats shared by default")
   const shareChats = projectCanShare(p)
   // `viewer`: whether their computer files can go into its shared chats (Project.chatUploads), while it shares them
-  return { shareChats, audience: a.of(p).length, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
+  const audience = a.of(p)
+  // who can open a chat the viewer starts there (Project.chatAudience): a guest of the project sees only their own chats
+  // (Audiences.ofChat), so the new-chat box's "N people" chip and a chat's header faces leave them out; `audience` stays
+  // who reads its files (QA AP-056 follow-up)
+  const chatAudience = audience.filter((id) => id === viewer || !a.isGuest(id)).length
+  return { shareChats, audience: audience.length, chatAudience, sharedChats: n, ...(viewer && shareChats ? { chatUploads: a.mayUpload(viewer, p) } : {}) }
 }
 
 /**
