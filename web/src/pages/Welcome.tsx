@@ -135,6 +135,17 @@ function WelcomeSteps() {
   const leaving = useRef(false)
   // the steps were finished when they opened (a put-off step asked back by the setup row): ending it says nothing new
   const finishedBefore = useRef(false)
+  // the steps this device does not offer that were put off while the setup was unfinished (a phone's walk past 도구
+  // 연결: phoneSkips, now or in an earlier visit): the end screen says "컴퓨터에서 할 수 있어요" for them even when the
+  // finishing save came back with one done (the server settles a put-off 도구 연결 done once any connection works:
+  // welcome.ts settlePutOff); one really done (on a computer, before) keeps its ✓
+  const putOffHere = useRef(new Set<WelcomeStep>())
+  // every save (or read): the row as it was before it, unfinished, so not settled yet
+  useEffect(() => useWelcome.subscribe((now, before) => {
+    const p = before.progress
+    if (!p || p.finishedAt || now.progress === p) return
+    for (const id of WELCOME_COUNTED) if (!offeredHere(id, !phoneNow()) && p.steps[id] === 'skipped') putOffHere.current.add(id)
+  }), [])
 
   /** Show a step: on a phone also its own history entry (a push). A step already under this one in the history is gone
    * back to instead (lib/screenHistory.ts). */
@@ -205,7 +216,10 @@ function WelcomeSteps() {
         : askedBack && (!p.finishedAt || putOffSteps(p, useAiAccess.getState().usable, here).includes(askedBack)) && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
           : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
-      for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
+      for (const id of phoneSkips(p, null, here)) {
+        putOffHere.current.add(id)
+        p = await w.update({ step: { id, state: 'skipped' } })
+      }
       // gone elsewhere meanwhile: nothing to open
       if (where.current.pathname !== '/welcome') return
       // nothing left here (finished, or what is left waits for a computer): Home, whatever step the address names (a
@@ -267,7 +281,10 @@ function WelcomeSteps() {
    * 연결 and records it as put off (docs/DECISIONS.md "W6"). False when a phone went to another step while this one was
    * saved (Back meanwhile): it stays there, and the next step is not pushed over it. */
   const go = async (p: WelcomeProgress, from: WelcomeStep): Promise<boolean> => {
-    for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
+    for (const id of phoneSkips(p, from, computer)) {
+      putOffHere.current.add(id)
+      p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
+    }
     const at = atNow()
     if (at && at !== from) { fromDone.current = false; return false }
     setBrandNote(false)
@@ -364,7 +381,7 @@ function WelcomeSteps() {
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); show(s) }} />}
-        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); show(s) }} onExit={exit} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} putOffHere={putOffHere.current} onStep={(s) => { fromDone.current = true; setError(null); show(s) }} onExit={exit} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
@@ -790,7 +807,7 @@ async function countFiles(root: string, skip: ReadonlySet<string>): Promise<numb
 
 /** One short fact per step done, read for the end screen; a fact that cannot be read is left out (the row shows
  * without it), never a count that could mislead. */
-function useDoneFacts(progress: WelcomeProgress): Partial<Record<WelcomeStep, string>> {
+function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeStep>): Partial<Record<WelcomeStep, string>> {
   const t = useT()
   const words = useFolderWords()
   const [facts, setFacts] = useState<Partial<Record<WelcomeStep, string>>>({})
@@ -798,7 +815,8 @@ function useDoneFacts(progress: WelcomeProgress): Partial<Record<WelcomeStep, st
     let live = true
     const put = (s: WelcomeStep, v: string | null) => { if (live && v) setFacts((f) => ({ ...f, [s]: v })) }
     const g = progress.teamGroup
-    const done = (s: WelcomeStep) => stepDone(progress, s)
+    // a row without its fact (put off elsewhere: "컴퓨터에서 할 수 있어요") asks nothing
+    const done = (s: WelcomeStep) => stepDone(progress, s) && !unshown.has(s)
     const home = g ? teamHome(g) : null
     // 회사 소개: where it was saved, as the sidebar names it ("전사 공유 › 브랜드", "Acme › 브랜드")
     if (done('profile') && g?.brandFolder && home) {
@@ -847,9 +865,13 @@ const toolName = (id: string) => APP_CONNECTORS.find((a) => a.id === id)?.name ?
  * photo, apps) and one primary: "내 설정 시작" (Home, where the personal settings card is), or "AI 연결하기" while no AI
  * answers, with "홈으로" as a quiet link.
  */
-function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
+function DoneStep({ progress, aiReady, computer, putOffHere, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; putOffHere: ReadonlySet<WelcomeStep>; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
   const t = useT()
-  const facts = useDoneFacts(progress)
+  // a step this device does not do (a phone walks past 팀이 쓸 도구) and did not get done: put off now, or put off here
+  // before the finishing save came back with it done (welcome.ts settlePutOff: any working connection, made before the
+  // setup). Done for real (on a computer, before): its ✓ and fact.
+  const elsewhereOf = (s: WelcomeStep) => !offeredHere(s, computer) && (!stepDone(progress, s) || putOffHere.has(s))
+  const facts = useDoneFacts(progress, new Set(SUMMED.filter(elsewhereOf)))
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -861,9 +883,10 @@ function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: W
       <StepHead title={t('welcome.done.title')} />
       <ul className="divide-y divide-line rounded-xl border border-line" data-testid="welcome-done-summary">
         {SUMMED.map((s) => {
-          const later = !stepDone(progress, s)
-          // a step this device does not do (a phone walks past 팀이 쓸 도구): "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요"
-          const elsewhere = later && !offeredHere(s, computer)
+          // "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요", and never a ✓ the setup did not earn (QA: a phone's 4
+          // steps ended on "✓ 팀 도구" from a Slack connected before)
+          const elsewhere = elsewhereOf(s)
+          const later = elsewhere || !stepDone(progress, s)
           return (
             <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : 'done'}>
               {later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}
