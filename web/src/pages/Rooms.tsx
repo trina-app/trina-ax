@@ -37,8 +37,8 @@ import { useMe } from '../store/session'
 import { PeoplePicker } from '../components/rooms/PeoplePicker'
 import { RoomIcon, RoomName, useRoomTitle } from '../components/rooms/RoomIcon'
 import { ROW_MENU_BUTTON, ROW_MENU_SHOWN, RoomPinIcon, RoomSectionAction, RoomUploadMark, SECTION_WORD, UnreadBadge } from '../components/nav/RoomsList'
-import { useFolders } from '../components/nav/NavFolders'
-import { foldedLook, roomsByKind } from '../components/panels/RoomsByKind'
+import { CategoryMenu, useCategories, useManagesCategories } from '../components/nav/RoomCategories'
+import { foldedLook, roomsByKind, sectionFoldKey } from '../components/panels/RoomsByKind'
 import { RoomMenu, useRowMenu } from '../components/rooms/RoomMenu'
 import { Button, Skeleton, useMediaQuery } from '../components/ui'
 import { LoadError } from '../components/LoadError'
@@ -84,7 +84,8 @@ export default function Rooms() {
   const computer = useMediaQuery('(min-width: 768px)')
   const titleOf = useRoomTitle()
   const locale = useLocale()
-  const folders = useFolders('rooms', !computer)
+  const categories = useCategories()
+  const admin = useManagesCategories()
   if (resuming) return <div className="h-full" />
   const hidden = everyRoom.filter((r) => r.hidden)
   if (noChats && guestHome) return <Navigate to={guestHome} replace />
@@ -107,21 +108,20 @@ export default function Rooms() {
         <ul>
           <ChatsActivityRow className={row} />
         </ul>
-        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, folders)
-          .filter((s) => s.rooms.length > 0)
+        {roomsByKind(everyRoom.filter((r) => !r.hidden), titleOf, locale, categories, admin)
+          .filter((s) => s.rooms.length > 0 || !!s.category)
           .map((s) => {
-            const key = s.folder ? `folder-${s.folder.id}` : s.key
+            const key = s.category ? `category-${s.category.id}` : s.key
             return (
               <ListSection
                 key={key}
                 id={`rooms-section-${key}`}
                 as="h2"
                 // the 대화 panel's keys: one fold for this tab and the computer's panel
-                foldKey={`chats:${s.key}`}
-                foldId={s.folder ? `room-folder:${s.folder.id}` : undefined}
-                label={s.folder ? s.folder.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
+                foldKey={sectionFoldKey(s)}
+                label={s.category ? s.category.name : s.key === 'pinned' ? t('chat.pinned') : t(SECTION_WORD[s.key])}
                 {...foldedLook(s.rooms, 'rooms-section-pill')}
-                action={s.folder || s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
+                action={s.category ? <CategoryMenu category={s.category} /> : s.key === 'pinned' ? undefined : <RoomSectionAction section={s.key} />}
                 // 10 px on a phone, not 8: the ⊕ (24 px) takes taps from a 44 px box (touch-hit), 10 px past its
                 // edge; any less and that box sticks out of the list, which then drags sideways (QA TC-4833)
                 headClassName="pr-2.5 pl-2 sm:pr-4 sm:pl-4"

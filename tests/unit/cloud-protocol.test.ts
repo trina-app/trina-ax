@@ -8,15 +8,16 @@ import {
   checkTeamName, keyRotationString as relayRotate, registerSigningString as relayRegister, verifyB64,
 } from '@mycel/shared/relay-protocol'
 import {
-  EnrollFile, EnrollRequest, EnrollResponse, NoticesFile, OPS_SCOPES, OpsClaimRequestSchema, OpsCreateTeamRequestSchema,
+  EnrollFile, EnrollRequest, EnrollResponse, ErrorReportsResult, NoticesFile, OPS_SCOPES, OpsClaimRequestSchema, OpsCreateTeamRequestSchema,
   OpsHoldRequestSchema, OpsKeyRequestSchema, OpsMaintenanceRequestSchema, OpsNoticeRequestSchema, OpsRenameRequestSchema,
   OpsSuspendRequestSchema, PlanFile, PlanResources, CredentialKind, CLOUD_DEFAULT_CREDENTIAL_KINDS, ReleaseFeed, RelayRegistrationFile, TENANT_COMMANDS, TeamSlug, TenantOnboarding, TenantStatus, EnrollStatus,
   canonicalJson, enrollResponseProblem, keyRotationString, onlySnapshotRollback, opsScopeFor, parseClaimRequest,
   parseCreateTeamRequest, parseHoldRequest, parseKeyRequest, parseMaintenanceRequest, parseNoticeRequest,
-  parseOpsAuthorizationHeader, parseRenameRequest, parseSuspendRequest, registerSigningString, tenantCommandArgv,
+  parseOpsAuthorizationHeader, parseRenameRequest, parseSuspendRequest, registerSigningString, SentryDsn, tenantCommandArgv,
   tenantCommandProblem, tenantCommandTimeoutSec, type EnrollResponseInput, type TenantCommandName,
 } from '@mycel/shared/cloud-protocol'
 import { CredentialKind as ApiCredentialKind, Username as ApiUsername } from '@mycel/shared/api'
+import { parseDsn } from '@mycel/shared/sentry-report'
 import { buildVectors } from '../../shared/src/cloud-protocol/vectors.ts'
 import { VECTORS_FILE, vectorsText } from '../../scripts/cloud-protocol-vectors.ts'
 
@@ -72,12 +73,24 @@ describe('cloud-protocol: tenant commands', () => {
     expect(tenantCommandProblem('idle-wait', { max: { $gt: 1 } }, null)).not.toBeNull()
     expect(tenantCommandProblem('reset-link', { owner: true, username: 'kim' }, null)).not.toBeNull()
   })
-  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech key, the owner recovery claim and the data disk grow', () => {
+  test('the fifteen commands of control-plane 3.5.3, the hosting service\'s speech and error report keys, the owner recovery claim and the data disk grow', () => {
     expect(Object.keys(TENANT_COMMANDS).sort()).toEqual([
-      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'export', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
+      'apply-plan', 'backup-prepare', 'backup-upload', 'credentials-escrow-out', 'data-grow', 'error-reports-set', 'export', 'hosted-speech-key-set', 'idle-wait', 'notices-set',
       'owner-recovery-claimed', 'prepare-stop', 'relay-key-proof', 'relay-registration-set', 'reset-link', 'set-server-config', 'setup-token-rotate',
       'status', 'update',
     ])
+  })
+  test('error-reports-set: every key the gate lets through is one parseDsn reads; the answer shape', () => {
+    const urls = V.tenantCommands.allowed.filter((c) => c.command === 'error-reports-set').map((c) => (c.stdin as { url: string | null }).url)
+    expect(urls).toContain(null)
+    for (const u of urls) if (u !== null) expect(parseDsn(u)).not.toBeNull()
+    for (const u of ['https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1 ', 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1=2', "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1'", 'https://0000000000000000aaaaaaaaaaaaaaaa:pw@errors.example.invalid/1', 'https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/../1']) {
+      expect(SentryDsn.safeParse(u).success).toBe(false)
+    }
+    expect(ErrorReportsResult.safeParse({ ok: true, changed: false, restarted: false }).success).toBe(true)
+    expect(ErrorReportsResult.safeParse({ ok: true, changed: true }).success).toBe(false)
+    expect(tenantCommandArgv('error-reports-set', {})).toEqual(['error-reports-set', '--json'])
+    expect(tenantCommandTimeoutSec('error-reports-set', {})).toBe(120)
   })
   test('argv and timeouts', () => {
     for (const a of V.tenantCommandArgv) expect(tenantCommandArgv(a.command as TenantCommandName, a.args as never)).toEqual(a.argv)

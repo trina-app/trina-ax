@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { API, DEMO_LIMIT_DEFAULT, DEV_SESSION_COOKIE, SESSION_COOKIE, type DemoFile, type Endpoint } from '../../shared/src/api'
-import { cookieFor, FREE_ROAM_SESSION_COOKIE } from '../../server/src/auth/service'
+import { cookieFor, FREE_ROAM_SESSION_COOKIE, readToken, sessionCookie } from '../../server/src/auth/service'
 import { ConfigError, loadAppConfig } from '../../server/src/app-config'
 import { featuresOf } from '../../server/src/system/deployment'
 import { demoLimitState, demoUsed, setDemoLimit } from '../../server/src/admin/budgets'
@@ -121,12 +121,29 @@ describe('a free-roam demo server', () => {
     // what demo-gate checks before an instance is warm (demo-gate/src/pool.ts checkFenced): freeRoam, no builder
     expect(info.builder).toBeUndefined()
     expect(JSON.stringify(info)).not.toContain(PW)
-    // QA TC-5578: the session cookie has the free-roam name, never the plain-http "mycel-dev-sid"
-    expect(mina.cookie).toMatch(/^sid=[A-Za-z0-9_-]{20,}$/)
+    // QA TC-5578 / review finding 2 on #105: the session cookie is __Host-sid on the instance's plain http too, never
+    // the plain-http "mycel-dev-sid" nor a bare "sid"; it was read back (me above) over that http
+    expect(FREE_ROAM_SESSION_COOKIE).toBe(SESSION_COOKIE)
+    expect(mina.cookie).toMatch(/^__Host-sid=[A-Za-z0-9_-]{20,}$/)
+    // what the browser needs for a __Host- cookie: Secure, Path=/ and no Domain (the gate keeps all three)
+    const set = sessionCookie('http://127.0.0.1:4000/api/demo/persona', 'x'.repeat(32), 60, true)
+    expect(set).toBe(`__Host-sid=${'x'.repeat(32)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure`)
+    expect(set).not.toMatch(/domain=/i)
     // every other server keeps its names: the plain-http one and __Host-sid on https (free roam too)
     expect(cookieFor('http://127.0.0.1:4000/api/auth/login')).toEqual({ name: DEV_SESSION_COOKIE, secure: false })
-    expect(cookieFor('http://127.0.0.1:4000/api/auth/login', true)).toEqual({ name: FREE_ROAM_SESSION_COOKIE, secure: false })
+    expect(cookieFor('https://team.example/api/auth/login')).toEqual({ name: SESSION_COOKIE, secure: true })
+    expect(cookieFor('http://127.0.0.1:4000/api/auth/login', true)).toEqual({ name: SESSION_COOKIE, secure: true })
     expect(cookieFor('https://team.example/api/auth/login', true)).toEqual({ name: SESSION_COOKIE, secure: true })
+    expect(sessionCookie('http://127.0.0.1:4000/api/auth/login', 'x'.repeat(32), 60)).toBe(`mycel-dev-sid=${'x'.repeat(32)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=60`)
+    // on that plain http the instance reads only its own name: the dev name or a bare "sid" is no session there
+    const req = (cookie: string) => new Request('http://127.0.0.1:4000/api/me', { headers: { cookie } })
+    const tok = 'y'.repeat(32)
+    expect(readToken(req(`__Host-sid=${tok}`), true)).toEqual({ token: tok, via: 'cookie' })
+    expect(readToken(req(`mycel-dev-sid=${tok}`), true)).toBeNull()
+    expect(readToken(req(`sid=${tok}`), true)).toBeNull()
+    // a normal plain-http server: the dev name only, as before
+    expect(readToken(req(`mycel-dev-sid=${tok}`))).toEqual({ token: tok, via: 'cookie' })
+    expect(readToken(req(`__Host-sid=${tok}`))).toBeNull()
   })
 
   test('usage, cost, engine and model reads are refused in the visitor\'s words (QA TC-5578)', async () => {
@@ -165,7 +182,9 @@ describe('a free-roam demo server', () => {
       'createScheduleFromTemplate', 'runScheduleNow', 'registerPushDevice', 'subscribePush', 'connectInfo', 'installPlugin',
       'devEnv', 'myDevEnvRuns', 'transcribe', 'renderPromoVideo', 'pollLocalCalls', 'diagnostics', 'startUpdate',
       // QA TC-5578: the real AI account's engine, model and cost
-      'myUsage', 'chatEngines']) {
+      'myUsage', 'chatEngines',
+      // the free-roam audit (QA TC-5613): "Bring my skills"
+      'contributeSkills', 'createSkillShare']) {
       expect(names.has(n)).toBe(true)
     }
     // what a visitor uses stays
@@ -342,7 +361,7 @@ describe('a free-roam turn: its tools, no web search or sub-agents, the demo lin
     const system = (await ask(h, alice, 'alice', await chat(), fake({ echo: 'system' }))).done.content
     expect(system).toContain("This is a public demo of a fictional company (Steepling). The dev environment, scheduled tasks, connecting new services and inviting people aren't available in the demo: say so in one sentence and do what you can.")
     // QA TC-5572: account, email, usage and billing, AI providers: not in the demo, and no page named for them
-    expect(system).toContain('Changing or deleting the account, changing the email address or password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either')
+    expect(system).toContain('Changing or deleting the account, changing their name or email address on their profile, changing the password, usage, costs and billing, and the AI providers (which AI answers, its account or plan) are not available in the demo either')
     expect(system).toContain('never point to a page or setting for it')
   })
 })
@@ -462,5 +481,55 @@ describe('the model proxy on a free-roam demo', () => {
     expect(r.status).toBe(403)
     expect((await r.json()).error.message).toBe('budget_exceeded')
     expect(events.map((e) => e.ev.type)).toContain('budget')
+  })
+})
+
+// The snapshot builder's room-times (server/src/routes/demo-builder.ts): a room's messages get the story's times, and so
+// do the notices they made and the threads' follows, or Activity sorts the story's mentions at the build's time (and a
+// notice older than 30 days drops out by its real age)
+describe('the snapshot builder dates a room\'s notices and thread follows with its messages', () => {
+  let h: Harness
+  let owner: Client
+  beforeAll(async () => { h = await harness('demo-room-times', { mode: 'dev', demo: { ...SCRIPTED, builder: true } }); owner = await withOwner(h) })
+  afterAll(async () => { await h.close() })
+
+  test('a mention, a run of mentions and a thread reply: each notice at its message\'s time, a follow at the first reply\'s', async () => {
+    const mina = await addMember(h, owner, { username: 'mina', password: PW })
+    const sara = await addMember(h, owner, { username: 'sara' })
+    const room = await sara.client.call('POST', '/api/rooms', { kind: 'group', userIds: [mina.id], name: 'Story room' })
+    const send = (c: Client, body: string, more: object = {}) => c.call('POST', `/api/rooms/${room.id}/messages`, { body, mentions: body.includes('@MINA') ? [mina.id] : [], fileIds: [], clientMessageId: crypto.randomUUID(), ...more })
+    const first = await send(sara.client, '@MINA first mention')
+    const second = await send(sara.client, '@MINA second mention, the same unread run')
+    const root = await send(sara.client, 'a thread root')
+    const reply1 = await send(mina.client, 'my reply', { threadRootId: root.id })
+    const reply2 = await send(sara.client, 'a reply Mina follows', { threadRootId: root.id })
+    const day = 86_400_000, now = Date.now()
+    const at = (days: number) => new Date(now - days * day).toISOString()
+    const times = [[first, 10], [second, 9], [root, 8], [reply1, 7], [reply2, 6]].map(([m, d]) => ({ messageId: (m as { id: string }).id, at: at(d as number) }))
+    const r = await owner.call('POST', '/api/demo/builder/room-times', { roomId: room.id, times })
+    expect(r.updated).toBe(5)
+    const timeOf = new Map(times.map((t) => [t.messageId, t.at]))
+    const notices = h.ctx.db.query("SELECT event_type, source_id, created_at, last_seq, last_at FROM room_notices WHERE user_id = ? AND room_id = ? ORDER BY created_at").all(mina.id, room.id) as { event_type: string; source_id: string; created_at: string; last_seq: number | null; last_at: string | null }[]
+    for (const n of notices) expect(n.created_at, n.source_id).toBe(timeOf.get(n.source_id)!)
+    // the two mentions are one run (one notice, held back up to the second); the thread reply its own notice
+    const mentions = notices.filter((n) => n.event_type === 'room.mention')
+    expect(mentions.map((n) => n.source_id)).toEqual([first.id])
+    expect(mentions[0]!.last_seq).toBe(second.seq)
+    expect(mentions[0]!.last_at).toBe(at(9))
+    expect(notices.some((n) => n.source_id === reply2.id)).toBe(true)
+    const follows = h.ctx.db.query('SELECT user_id, created_at FROM room_thread_follows WHERE root_id = ? ORDER BY user_id').all(root.id) as { user_id: string; created_at: string }[]
+    expect(follows.length).toBeGreaterThanOrEqual(2)
+    for (const f of follows) expect(f.created_at).toBe(at(7))
+    // nothing of the room keeps the build's time
+    expect((h.ctx.db.query('SELECT count(*) n FROM room_notices WHERE room_id = ? AND created_at > ?').get(room.id, at(5)) as { n: number }).n).toBe(0)
+  })
+
+  test('a member is refused; without the demo file\'s builder: true the route is not there', async () => {
+    const member = (await addMember(h, owner, { username: 'tom' })).client
+    expect((await member.raw('POST', '/api/demo/builder/room-times', { roomId: '01a1f758-2656-7058-84d5-497e9999f691', times: [] })).status).toBeGreaterThanOrEqual(403)
+    ;(h.ctx.config as { demo?: DemoFile }).demo = SCRIPTED
+    try {
+      expect((await owner.raw('POST', '/api/demo/builder/room-times', { roomId: '01a1f758-2656-7058-84d5-497e9999f691', times: [] })).status).toBe(404)
+    } finally { (h.ctx.config as { demo?: DemoFile }).demo = { ...SCRIPTED, builder: true } }
   })
 })

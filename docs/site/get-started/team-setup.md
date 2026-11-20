@@ -24,14 +24,14 @@ The skills Trina AX prepared, each with **Example**: Company slide deck, Promo c
 #### Team files
 **Choose a folder** with company documents. The AI suggests the ones the team can use from the file names, folders and dates only, and you tick what goes up. Nothing is uploaded until you press the button. Afterwards the AI can read them and offer folders to sort them into (**Sort them like this?**). One line says who will see the files.
 
-#### Connect tools
-**Connect the tools you use often?** offers Google Drive (where your server has it) and Notion, and **Connect another tool** for the full list. On a phone this step is skipped.
+#### Team tools
+**Tools for your team** is one list. Connect a tool once for the whole team (**Connect for the team**: Notion, or Slack on its own page; the whole team shares that connection), or mark a tool each person connects with their own account (Google Drive, Gmail) as a **Team pick**. Team picks come first in everyone's connector list and gate nothing. **Other tools** opens the full list, where each tool's page has the same team-pick switch. Nobody signs in with their own account on this step. On a phone this step is skipped.
 
 #### Invite
 Copy the ready-made message. It names one skill. People who join land on Home, where a welcome card says who invited them and what to do first; the skill is in **Team skills**. When each person signs in to their own AI, the message says so. The invite page offers the language of the person's browser. If someone else is already signed in on that computer, the page says "You're already in <team name>" and offers **Sign out to join**, which signs out and opens the same link.
 :::
 
-At the end, **You're all set** offers to make a first result with one of the team's skills, for example **Make promo cards**. It shows once.
+At the end, **You're all set** sums up the setup: each step with what it did, or put off with **Do it now**. Next come your own settings (your tools, photo and apps): **Start my settings** goes Home. It shows once.
 
 ## Coming back
 

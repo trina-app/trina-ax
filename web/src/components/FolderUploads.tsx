@@ -8,6 +8,7 @@ import { api, API, errorText } from '../lib/api'
 import { FolderUpload, type FolderFailure, type FolderPlan, type FolderUploadCalls } from '../lib/folderUpload'
 import { useRuns, type Run } from '../lib/folderRuns'
 import { formatSize } from '../lib/format'
+import { workReadReason } from '../lib/workFiles'
 import { useFolderWords } from '../lib/folderLabels'
 import { baseName } from '../lib/paths'
 import { cancelUpload, uploadFile, uploadLabel } from '../lib/upload'
@@ -127,6 +128,9 @@ function FolderRow({ item, here }: { item: Run; here: string }) {
   // the row says the end and each failure aloud (a refusal has its own alert below)
   const said = running ? (v.failed ? `${title}: ${failed}` : '') : `${title}: ${t('files.folderUpload.ended', { done: v.done, total: v.total })}${v.failed ? ` ${failed}` : ''}`
   const reason = (f: FolderFailure) => {
+    // a file of Find work files: the desktop app's reason (changed or gone since the look …), not the browser's (TC-219)
+    const why = workReadReason(f.error, t)
+    if (why) return why
     if (f.local === 'unreadable') return t('files.folderUpload.unreadable')
     if (f.local === 'tooLarge') return t('files.folderUpload.tooLarge', { size: formatSize(fileMax(), locale) })
     if (f.local) return t(`files.name.${f.local}`)

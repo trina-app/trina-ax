@@ -82,6 +82,8 @@ import type { ChatRow, MessageRow } from './store'
 import { WROTE_IT_SQL } from './shared-actions'
 import { ownPaste } from './own-paste'
 import { roomMessagesSeen } from './read-rooms'
+import { alwaysOn } from './always-allow'
+import { fileSharesOf } from '../files/shares'
 
 /** Every this many linked files past the first take one more send from the budget (a row per file is a count per file). */
 export const LINKS_PER_TOKEN = 10
@@ -310,7 +312,7 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
     const audienceSet = new Set(audience)
     let hidden = candidates.some((s) => s.type === 'room' && [...viewersByHistory(db, s.id, undefined, s.fromSeq, userId).hiddenFrom].some((id) => audienceSet.has(id)))
     const missing = new Set<string>()
-    const places = new Map<string, AnswerSharePlace>()
+    const places = new Map<string, { place: AnswerSharePlace; files: number; all: boolean }>()
     const keys: string[] = []
     let otherPlaces = false
     const counted: CountedSource[] = []
@@ -329,20 +331,26 @@ export function provenanceChecker(ctx: AppContext, userId: string, audience: rea
       for (const id of m.missing) missing.add(id)
       keys.push(`${k}=${m.missing.join(',')}`)
       const p = placeOf(m.source)
-      if (p) places.set(JSON.stringify(p), p)
-      else otherPlaces = true
+      if (p) {
+        // how many files read there count, in plain words on the card ("내 폴더의 파일 2개"): only when the answers' own
+        // lists hold all of it (a place the scope has too, a search hit without a passage: no number)
+        const k2 = JSON.stringify(p)
+        const at = places.get(k2) ?? places.set(k2, { place: p, files: 0, all: true }).get(k2)!
+        if (fromScope || !files) at.all = false
+        else at.files += uncovered.size
+      } else otherPlaces = true
     }
     let unknown = false, roomsUnseen = false
     for (const u of uses) {
       if (!u.known) unknown = true
-      if (u.roomsUnseen) { roomsUnseen = true; for (const id of audience) missing.add(id); places.set('{"kind":"conversation"}', { kind: 'conversation' }); keys.push('rooms_seen') }
+      if (u.roomsUnseen) { roomsUnseen = true; for (const id of audience) missing.add(id); places.set('{"kind":"conversation"}', { place: { kind: 'conversation' }, files: 0, all: false }); keys.push('rooms_seen') }
     }
     if (unknown) { for (const id of audience) missing.add(id); otherPlaces = true; keys.push('unknown') }
     // a chat that read rooms without saying which (this answer's, or the one that made an attached file): any room may be
     // in it, so a member with old answers hidden from them anywhere, or whose history is not worked out yet, is never
     // shown it either (a confirm would carry it past them)
     if (!hidden && roomsUnseen) hidden = audience.some((id) => hiddenAnywhere(db, id))
-    return { missing, places: [...places.values()], otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates, counted }
+    return { missing, places: [...places.values()].map((x) => (x.all && x.files > 0 && (x.place.kind === 'folder' || x.place.kind === 'mine') ? { ...x.place, files: x.files } : x.place)), otherPlaces, unknown, roomsUnseen, keys: keys.sort(), hidden, candidates, counted }
   }
 
   return { me, rules, people, reads, myFile, hashNow, placeOf, of }
@@ -514,6 +522,19 @@ export async function shareAnswerToRoom(ctx: AppContext, userId: string, chat: C
       const choice = await shareChoice(ctx, userId, p, auto)
       if (choice.people === 0) return await sendShare(ctx, userId, p, { ...b, confirmKey: choice.key, attach: [...auto] }, locale)
     }
+    // the person's own "Always allow" for room posts (Rule A, docs/decisions/20261116-always-allow-final-rule-a.md;
+    // docs/decisions/20261120-send-to-room-who-can-see.md): their press is their own ask, so it goes at once, as the AI's
+    // post_to_room does under the same choice. Links stay links; with "Always allow" for posts with their files
+    // (post_files) the linked files the person may share go as copies (post_to_room's rule: a teammate's file never
+    // does). The hard stops above stay (a confidential chat, an answer hidden from some member)
+    const always = alwaysOn(ctx.db, userId, 'post_files') ? 'post_files' : alwaysOn(ctx.db, userId, 'post_to_room') ? 'post_to_room' : null
+    if (always) {
+      const shares = fileSharesOf(ctx)
+      const mayShare = (rel: string) => { try { return shares.view(userId, rel, locale).canShare } catch { return false } }
+      const copies = new Set(always === 'post_files' ? [...p.offered].filter(mayShare) : [])
+      const choice = await shareChoice(ctx, userId, p, copies)
+      return await sendShare(ctx, userId, p, { ...b, confirmKey: choice.key, attach: [...copies] }, locale, { always: true })
+    }
   }
   return await sendShare(ctx, userId, p, b, locale)
 }
@@ -653,7 +674,7 @@ export async function shareChoice(ctx: AppContext, userId: string, p: PreparedSh
  * `confirmed`: the person said yes on a card that showed it (post_to_room's), confirmed even when nothing applied.
  * `mentions` / `mentionsAll`: only with `via: 'ai'` (the people the card named; Rooms.send keeps only room members).
  */
-export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean; mentions?: readonly string[]; mentionsAll?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
+export async function sendShare(ctx: AppContext, userId: string, p: PreparedShare, b: Pick<ShareAnswerInput, 'confirm' | 'confirmKey' | 'attach' | 'threadRootId' | 'clientMessageId'>, locale: Locale, o: { via?: 'ai'; confirmed?: boolean; openedDm?: boolean; mentions?: readonly string[]; mentionsAll?: boolean; always?: boolean } = {}): Promise<ShareAnswerToRoomResult> {
   const rooms = roomsOf(ctx)
   const { room, check: c, shown, key, body, at, cut } = p
   let attach: string[] = []
@@ -698,7 +719,7 @@ export async function sendShare(ctx: AppContext, userId: string, p: PreparedShar
     }
     // audited with the message (Rooms.send: room.answer_share); the copies and the links they stand for are kept with it
     const kept: AnswerScopeKept = { ...(await c.provenance(new Set(attach))).kept, ...(copies.length ? { attached: copies } : {}) }
-    const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}) })
+    const m = rooms.send(userId, room.id, { body, mentions: o.via === 'ai' ? [...(o.mentions ?? [])] : [], ...(o.via === 'ai' && o.mentionsAll ? { mentionsAll: true } : {}), fileIds, clientMessageId: b.clientMessageId, threadRootId: b.threadRootId ?? null }, { locale }, { at, cut, people, confirmed: confirmed || o.confirmed === true, scope: JSON.stringify(kept), ...(o.via ? { via: o.via } : {}), ...(p.plain ? { plain: true } : {}), ...(o.openedDm ? { openedDm: true } : {}), ...(o.always ? { always: true } : {}) })
     return { status: 'sent', message: m, cut }
   } finally {
     // copies that did not go (a failure, or the same request sent twice at once): not left behind

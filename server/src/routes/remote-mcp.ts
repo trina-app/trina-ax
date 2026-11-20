@@ -6,6 +6,7 @@ import { OAuthError } from '../connectors/remote-mcp/policy'
 import { json, mcpRequest, noStore, oauthBody, oauthError, uniqueParams } from '../connectors/remote-mcp/transport'
 import { fail } from '../http/errors'
 import { linkUpload } from '../connectors/remote-mcp/upload-link'
+import { linkDownload } from '../connectors/remote-mcp/download-link'
 import type { AppContextC } from '../http/env'
 
 const EXPIRED_LINK_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Link expired</title></head>'
@@ -69,5 +70,7 @@ export const remoteMcpRoutes: RouteModule = {
     kit.raw('DELETE', '/mcp', c => mcpRequest(ctx, c.req.raw, ip(c)))
     // One-time upload links from create_upload_link (outside /api: the token is the auth, no cookie or CSRF header).
     kit.raw('PUT', '/connector-uploads/:token', c => linkUpload(ctx, c.req.raw, c.req.param('token') ?? '', ip(c)))
+    // Short-lived download links from create_download_link (the same: the token is the auth).
+    kit.raw('GET', '/connector-downloads/:token', c => linkDownload(ctx, c.req.raw, c.req.param('token') ?? '', ip(c), { via: (c as unknown as AppContextC).get('info')?.via }))
   },
 }

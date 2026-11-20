@@ -16,6 +16,7 @@ import { REMOTE_MCP_SPECS } from './remote-mcp-cases'
 import { PLUGIN_SPECS } from './plugin-cases'
 import { ROOM_SPECS } from './rooms-cases'
 import { ROOM_APP_SPECS } from './room-apps-cases'
+import { ROOM_CATEGORY_SPECS } from './room-categories-cases'
 import { SLACK_SPECS } from './slack-cases'
 import { PROMO_VIDEO_SPECS } from './promo-video-cases'
 import { INTRO_DECK_SPECS } from './intro-deck-cases'
@@ -131,6 +132,7 @@ export const SPECS: Record<string, Spec> = {
   ...PLUGIN_SPECS,
   ...ROOM_SPECS,
   ...ROOM_APP_SPECS,
+  ...ROOM_CATEGORY_SPECS,
   ...SLACK_SPECS,
   ...PROMO_VIDEO_SPECS,
   ...INTRO_DECK_SPECS,

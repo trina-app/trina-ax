@@ -55,7 +55,7 @@ export function demoGuard(ctx: AppContext, ep: Endpoint, i: { params: Record<str
 // ---------------- free roam (docs/decisions/20261119-demo-free-roam-a.md) ----------------
 
 /** what a free-roam fence is about: the words the visitor gets, and params.area for a screen that words it itself */
-export type FenceArea = 'account' | 'invite' | 'admin' | 'connect' | 'background' | 'heavy' | 'usage'
+export type FenceArea = 'account' | 'invite' | 'admin' | 'connect' | 'background' | 'heavy' | 'usage' | 'skills'
 const FENCE_TEXT: Record<FenceArea, Record<Locale, string>> = {
   account: { ko: '데모에서는 계정과 로그인을 바꿀 수 없어요.', en: "Not in the demo: accounts and sign-in can't be changed.", id: 'Tidak tersedia di demo: akun dan cara masuk tidak bisa diubah.', ja: 'デモでは、アカウントとログインは変更できません。', es: 'No en la demostración: las cuentas y el inicio de sesión no se pueden cambiar.', zh: '演示中不可用：不能更改账号和登录。' },
   invite: { ko: '데모에서는 사람을 초대할 수 없어요.', en: "Not in the demo: inviting people isn't available.", id: 'Tidak tersedia di demo: mengundang orang tidak bisa dilakukan.', ja: 'デモでは、人を招待することはできません。', es: 'No en la demostración: no se puede invitar a personas.', zh: '演示中不可用：不能邀请他人。' },
@@ -63,6 +63,7 @@ const FENCE_TEXT: Record<FenceArea, Record<Locale, string>> = {
   connect: { ko: '데모에서는 새 서비스를 연결할 수 없어요.', en: "Not in the demo: connecting new services isn't available.", id: 'Tidak tersedia di demo: menghubungkan layanan baru tidak bisa dilakukan.', ja: 'デモでは、新しいサービスは接続できません。', es: 'No en la demostración: no se pueden conectar servicios nuevos.', zh: '演示中不可用：不能连接新服务。' },
   background: { ko: '데모에서는 예약 작업과 휴대폰·기기 연결을 쓸 수 없어요.', en: "Not in the demo: scheduled tasks, phones and devices aren't available.", id: 'Tidak tersedia di demo: tugas terjadwal, ponsel, dan perangkat tidak bisa dipakai.', ja: 'デモでは、予約タスクとスマートフォン・デバイスの接続は使えません。', es: 'No en la demostración: las tareas programadas, los teléfonos y los dispositivos no están disponibles.', zh: '演示中不可用：定时任务、手机和设备连接。' },
   usage: { ko: '데모에서는 사용량과 AI 엔진·모델을 볼 수 없어요.', en: "Not in the demo: usage and the AI's engine and model aren't shown.", id: 'Tidak tersedia di demo: pemakaian serta mesin dan model AI tidak ditampilkan.', ja: 'デモでは、使用量とAIのエンジン・モデルは表示されません。', es: 'No en la demostración: el uso y el motor y el modelo de la IA no se muestran.', zh: '演示中不可用：不显示用量以及AI的引擎和模型。' },
+  skills: { ko: '데모에서는 이 컴퓨터의 스킬을 팀에 가져올 수 없어요.', en: "Not in the demo: bringing skills from this computer isn't available.", id: 'Tidak tersedia di demo: membawa skill dari komputer ini tidak bisa dilakukan.', ja: 'デモでは、このコンピューターのスキルをチームに持ち込むことはできません。', es: 'No en la demostración: no se pueden traer habilidades desde este equipo.', zh: '演示中不可用：不能从这台电脑带入技能。' },
   heavy: { ko: '데모에서는 개발 환경, 음성 입력, 큰 작업을 쓸 수 없어요.', en: "Not in the demo: the dev environment, voice input and heavy work aren't available.", id: 'Tidak tersedia di demo: lingkungan pengembangan, input suara, dan pekerjaan berat tidak bisa dipakai.', ja: 'デモでは、開発環境・音声入力・重い処理は使えません。', es: 'No en la demostración: el entorno de desarrollo, la entrada de voz y los trabajos pesados no están disponibles.', zh: '演示中不可用：开发环境、语音输入和大型任务。' },
 }
 const UPLOAD_TEXT: Record<Locale, (each: string, all: string) => string> = {
@@ -85,7 +86,7 @@ const NAMED: Record<FenceArea, readonly (keyof typeof API)[]> = {
   connect: [
     'requestAiAccess', 'tellAiNotReady', 'sealingKey', 'myCredentials', 'createMyCredential', 'deleteMyCredential', 'startMyCredentialLogin',
     'getMyCredentialLogin', 'myCredentialLoginSlot', 'cancelMyCredentialLogin', 'submitMyCredentialLoginCode',
-    'authorizeDrive', 'driveFlow', 'completeDriveFlow', 'cancelDriveFlow', 'disconnectDrive',
+    'authorizeDrive', 'driveFlow', 'completeDriveFlow', 'claimDriveFlow', 'cancelDriveFlow', 'disconnectDrive',
     'authorizeGoogleApp', 'googleAppFlow', 'completeGoogleAppFlow', 'cancelGoogleAppFlow', 'updateGoogleApp', 'disconnectGoogleApp',
     'createIntegration', 'updateIntegration', 'deleteIntegration', 'createLocalIntegration', 'updateLocalIntegration', 'refreshIntegration',
     'authorizeIntegration', 'setIntegrationTool', 'integrationFlow', 'cancelIntegrationFlow', 'completeIntegrationRequest',
@@ -98,6 +99,9 @@ const NAMED: Record<FenceArea, readonly (keyof typeof API)[]> = {
   // QA TC-5578: GET /api/me/usage answered the engine, the model and the cost in US dollars of the real AI account
   // behind the demo; GET /api/engines names the engine and model too (the composer shows no picker without it)
   usage: ['myUsage', 'chatEngines'],
+  // the free-roam audit (QA TC-5613): "Bring my skills" reads a folder of the visitor's own computer into the team
+  // (members suggest them; owners' and admins' createSkillShare is fenced as an admin endpoint)
+  skills: ['contributeSkills'],
 }
 /** whole groups of the contract (API_GROUPS) a free-roam demo refuses, but for the reads named in FENCE_KEEP */
 const FENCED_GROUPS: Partial<Record<keyof typeof API_GROUPS, FenceArea>> = {

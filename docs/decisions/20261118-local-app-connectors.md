@@ -60,8 +60,10 @@
   2. **No shell.** The desktop app starts the program from an argument list, never through a shell. The AI's values
      stay separate arguments or stdin.
   3. **Personal only.** Refused for team connections, templates, requests and the skills share. `store.ts mayUse` lets
-     only its owner use it, in that owner's own turn; a shared chat, a room, a scheduled run or a sub-agent never gets
-     it.
+     only its owner use it, in that owner's own turn, sent from their own connected desktop window. In a shared or
+     project chat that holds too (owner 2026-11-20): the owner's turn from their desktop gets it, behind the shared
+     chat's card to the asker before its answer is shown to the others; another member's turn never does. A
+     scheduled run or a sub-agent never gets it.
   4. **A one-time confirm on the computer,** in the desktop app's own window, never on the team page: "Connect this
      program? `<command>`". It asks again only when the command itself changes.
   5. **Setting values stay on the computer,** sealed with Electron's safeStorage. The desktop app hides them in results
@@ -126,6 +128,28 @@
   app. Press Connect there." (not "The service didn't answer in time"). The window stays open; a Connect pressed later is
   kept and the page checks the connector again by itself (`DesktopBridge.localApps.onConfirmed`). A turn's first call
   waits up to 5 minutes for the confirm (was 3).
+
+## Every Aside profile, in every Aside account (2026-11-20)
+
+- **The owner hit it:** Aside has 13 profiles on their Mac and Claude Code moves between all of them, but in Trina the AI
+  said Aside has one profile. Aside's profiles belong to its accounts (`aside account list`), and one `aside mcp` reaches
+  only the profiles of the account it started with: `browser_profiles` lists those, and a `profile_id` of another
+  account is refused ("Browser profile … is not available for account u0", Aside CLI 1.26). The Aside CLI reaches every
+  profile with `--account uN`.
+- **For the listed Aside command only** (exactly `aside mcp`), the desktop app now:
+  - answers `browser_profiles` with the main process's profiles plus every other account's, from `aside host profiles
+    --account uN --json` (an older Aside without it: the profile ids `aside account list --json` binds to that
+    account, with no label), each with its `account`. tools/list describes `browser_profiles` as listing every account.
+  - runs `repl` or `exec` with a `profile_id` of another account (and an `exec` `session_id` started there, and a later
+    `repl` without `profile_id`) in an `aside mcp --account uN` of its own, started on first use and kept beside the
+    main one. Stop and quitting end all of them.
+- Nothing else changes: Aside's own tools, the one-time confirm for the same command, the normal ask card and Always
+  allow. With one account, Aside's own list goes through as it is and no other program starts.
+- **Review on #149:** a plain `aside mcp` keeps the account it took at its first call, so the main process's account is
+  the current one the first time it is read, kept on the process (`pinned`), not re-read: an `aside account use` later
+  does not mislabel its profiles or route its calls elsewhere. A main process started again with a new command, or
+  moved to an account, stops the `--account` ones beside it that are no longer needed. A `profile_id` no account has
+  is looked for once a minute at most.
 
 ## Open questions
 

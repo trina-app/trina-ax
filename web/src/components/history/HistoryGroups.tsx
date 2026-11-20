@@ -30,7 +30,7 @@ import { useMeStrict } from '../../store/session'
 import { cardChats, reasonText, useSessionMarkers } from '../../store/sessionMarkers'
 import { SessionMarker } from '../chat/ChatState'
 import { Tooltip } from '../Tooltip'
-import { headBox, rowBox } from '../list/List'
+import { headBox, historyRowBox, historyRowsGap } from '../list/List'
 
 /** how long a window coming back to the front waits before the project list is read again */
 const REFOCUS_READ_MS = 60_000
@@ -184,7 +184,7 @@ export function HistoryGroups({ state, row, pool, onNavigate, menuSpace }: { sta
 function MoreRow({ label, mark, onClick, testId, markTestId }: { label: string; mark: ReturnType<typeof strongestMark>; onClick: () => void; testId: string; markTestId: string }) {
   const t = useT()
   return (
-    <button type="button" onClick={onClick} className={clsx(rowBox, 'flex w-full items-center gap-2 rounded-lg px-3 text-meta text-muted hover:bg-hover')} data-testid={testId}>
+    <button type="button" onClick={onClick} className={clsx(historyRowBox, 'flex w-full items-center gap-2 rounded-lg px-3 text-meta text-muted hover:bg-hover')} data-testid={testId}>
       <span className="truncate">{label}</span>
       {mark && (
         <span className="ml-auto flex shrink-0 items-center" data-testid={markTestId}>
@@ -269,7 +269,7 @@ function Group({ group, state, row, pool, onNavigate, menuSpace }: { group: Show
           </Tooltip>
         )}
       </div>
-      <ul id={listId} hidden={folded} data-testid="history-group-rows">
+      <ul id={listId} hidden={folded} className={historyRowsGap} data-testid="history-group-rows">
         {!folded && foldRuns(group.rows, row, { pool, menuSpace })}
         {!folded && group.hidden.length > 0 && (
           <li>

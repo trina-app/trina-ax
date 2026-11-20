@@ -47,32 +47,33 @@ test.describe('first-run setup in an English browser', () => {
     // five steps (도구 연결 and the invite counted), and nothing above the first (no team question: every team gets its
     // start when it is left); no setup row on the steps themselves
     await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 도구 연결')
+    await expect(page.getByTestId('welcome-progress')).toContainText('4/5 팀 도구')
     await expect(page.getByTestId('welcome-progress')).toContainText('5/5 팀원 초대')
     await expect(page.getByTestId('welcome-pack-line')).toHaveCount(0)
     await expect(page.getByTestId('setup-row')).toHaveCount(0)
     await page.goto('/')
     await expect(page.getByRole('heading', { name: /Kim Owner님/ })).toBeVisible()
-    // a computer: the sidebar's row stands for the steps (Home has no row of its own there)
-    await expect(page.getByTestId('setup-row-link')).toContainText('설정 이어서 하기')
+    // Home's top row stands for the steps, on a computer too (docs/decisions/20261120-my-setup-card.md); the sidebar's
+    // row hides on Home then
+    await expect(page.getByTestId('welcome-resume-text')).toContainText('설정 이어서 하기')
     // the step it opens, the bar's "1/5 회사 소개" (one number on both)
-    await expect(page.getByTestId('setup-row-count')).toHaveText('· 1/5')
-    await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
+    await expect(page.getByTestId('welcome-resume-text')).toContainText('· 1/5')
+    await expect(page.getByTestId('setup-row')).toHaveCount(0)
     // the steps are the owner's checklist while unfinished: Admin › Home's own checklist hides
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await page.goto('/admin')
     await expect(page.getByTestId('owner-checklist')).toHaveCount(0)
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
-    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back. The row is on the list
-    // panels: Admin draws none beside the rail, so the ✕ is pressed on Home and the row looked for there again
+    // ✕ hides the row (undo in its toast); Admin › Home's "시작 설정 다시 보기" brings it back. On Home the ✕ is the top
+    // row's; the list panels' row is the same record (another page shows it again)
     await page.goto('/')
-    await page.getByTestId('setup-row-hide').click()
-    await expect(page.getByTestId('setup-row')).toHaveCount(0)
+    await page.getByTestId('welcome-resume-hide').click()
+    await expect(page.getByTestId('welcome-resume')).toHaveCount(0)
     await page.goto('/admin')
     await page.getByTestId('owner-setup-show').click()
     await expect(page.getByTestId('owner-setup')).toHaveCount(0)
     await page.goto('/')
-    await expect(page.getByTestId('setup-row-link')).toBeVisible()
+    await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
     // the owner has no language of their own: "team default (한국어)" is the chosen one
     await page.goto('/settings/profile')
     await expect(page.getByTestId('profile-locale')).toHaveValue('team')
@@ -117,11 +118,11 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await expect(page).toHaveURL(/\/welcome$/)
   // the first visit starts the progress on the server
   await expect(page.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-  // the same tab: Home stays Home (the steps were on screen here), the sidebar's setup row leads back
+  // the same tab: Home stays Home (the steps were on screen here), Home's top row leads back
   await page.goto('/')
-  await expect(page.getByTestId('setup-row-link')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
   await page.reload()
-  await expect(page.getByTestId('setup-row-link')).toBeVisible()
+  await expect(page.getByTestId('welcome-resume-link')).toBeVisible()
   await expect(page).not.toHaveURL(/\/welcome/)
   const signInAs = async (p: typeof page, path = '/') => {
     await p.goto(path)
@@ -135,12 +136,12 @@ test('the owner who left the steps lands on them when signing in again (a phone 
   await signInAs(p2)
   await expect(p2).toHaveURL(/\/welcome$/)
   await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
-  // opening Home again in that tab: Home, with the setup row
+  // opening Home again in that tab: Home, with the setup's row at the top
   await p2.goto('/')
-  await expect(p2.getByTestId('setup-row-link')).toBeVisible()
+  await expect(p2.getByTestId('welcome-resume-link')).toBeVisible()
   await expect(p2).not.toHaveURL(/\/welcome/)
   // the row leads back to the step
-  await p2.getByTestId('setup-row-link').click()
+  await p2.getByTestId('welcome-resume-link').click()
   await expect(p2).toHaveURL(/\/welcome$/)
   await expect(p2.getByTestId('welcome-progress')).toContainText('1/5 회사 소개')
   await desk.close()

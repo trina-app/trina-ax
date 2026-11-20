@@ -2,7 +2,8 @@
 // member-welcome.ts, shared/src/api/member-welcome.ts): every way of joining (team link, single-use invite, "Add
 // directly") gets dev's "{name} joined the team" line in the everyone room and the team.joined notice (docs/DECISIONS.md
 // "A new member is told to the team"; "Add directly" is the case this branch adds); the join pages name the inviter; no
-// connection template notice at join; the welcome card's state, for the caller only.
+// connection template notice at join; the welcome card's state, for the caller only; the owner's own card ("My
+// setup", docs/decisions/20261120-my-setup-card.md), made when the team setup ends.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -28,6 +29,12 @@ const lines = async (c: Client) => {
 }
 const joinedNotices = async (c: Client) => ((await c.call('GET', '/api/notifications')).items as any[]).filter((x) => x.code === 'team.joined')
 const welcome = async (c: Client) => (await c.call('GET', '/api/me/welcome')).welcome
+/** the person's own Google Drive, connected (the tools row: a connection of their own) */
+const connectDrive = (userId: string) => {
+  const at = new Date().toISOString()
+  h.ctx.db.query(`INSERT INTO drive_connections (id, user_id, config_key, account, scopes, secret_enc, key_version, status, expires_at, created_at, updated_at)
+    VALUES (?, ?, 'k', '{}', '[]', 'x', 1, 'connected', ?, ?, ?)`).run(crypto.randomUUID(), userId, at, at, at)
+}
 
 beforeAll(async () => {
   h = await harness('member-welcome')
@@ -62,7 +69,7 @@ describe('every way of joining', () => {
     expect(await joinedNotices(c)).toEqual([])
     // the card
     const w = await welcome(c)
-    expect(w).toMatchObject({ team: 'Acme', inviter: { id: adamId, name: 'ADAM' }, steps: { rooms: true, hi: false, photo: false, asked: false }, allSet: false })
+    expect(w).toMatchObject({ kind: 'member', team: 'Acme', inviter: { id: adamId, name: 'ADAM' }, steps: { rooms: true, hi: false, photo: false, asked: false, tools: false }, allSet: false })
     expect(w.people).toBe(3)
     expect(w.rooms[0]).toMatchObject({ kind: 'all' })
     expect(w.owner).toMatchObject({ name: expect.any(String) })
@@ -234,28 +241,32 @@ describe('the join pages name the inviter', () => {
 })
 
 describe('the card', () => {
-  test('the team\'s creator gets none; neither does someone who joined before it existed', async () => {
+  test('the team\'s creator gets none before the setup ends; neither does someone who joined before it existed', async () => {
     expect(await welcome(owner)).toBeNull()
     h.ctx.db.query('DELETE FROM member_welcome WHERE user_id = ?').run(adamId)
     expect(await welcome(adam)).toBeNull()
   })
 
-  test('rows: hi after any room message, photo, asked; all set for a while, then gone for good', async () => {
+  test('rows: hi after any room message, photo, asked, tools; all set for a while, then gone for good', async () => {
     const m = await addMember(h, owner, { username: 'rhea' })
     const room = await everyone(m.client)
     await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: '👋 Hi, I\'m Rhea', clientMessageId: cm() })
-    expect((await welcome(m.client)).steps).toMatchObject({ hi: true, photo: false, asked: false })
+    expect((await welcome(m.client)).steps).toMatchObject({ hi: true, photo: false, asked: false, tools: false })
     h.ctx.db.query('INSERT INTO user_profiles (user_id, avatar_version) VALUES (?, 1) ON CONFLICT(user_id) DO UPDATE SET avatar_version = 1').run(m.id)
     expect((await welcome(m.client)).steps.photo).toBe(true)
-    const done = (await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome
-    expect(done).toMatchObject({ steps: { hi: true, asked: true }, allSet: true })
+    // hi and asked, but no tool of their own yet: not all set
+    expect((await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { hi: true, asked: true, tools: false }, allSet: false })
+    connectDrive(m.id)
+    const done = await welcome(m.client)
+    expect(done).toMatchObject({ steps: { hi: true, asked: true, tools: true }, allSet: true })
     expect((await welcome(m.client)).allSet).toBe(true)
     h.ctx.db.query('UPDATE member_welcome SET done_at = ? WHERE user_id = ?').run(new Date(Date.now() - ALL_SET_MS - 1000).toISOString(), m.id)
     expect(await welcome(m.client)).toBeNull()
   })
 
-  test('the photo is optional: hi and asked are enough', async () => {
+  test('the photo is optional: hi, asked and tools are enough', async () => {
     const m = await addMember(h, owner, { username: 'otto' })
+    connectDrive(m.id)
     const room = await everyone(m.client)
     await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: 'hello', clientMessageId: cm() })
     expect((await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { photo: false }, allSet: true })
@@ -284,6 +295,7 @@ describe('the card', () => {
     expect((await welcome(m.client)).steps.files).toBe(false)
     fs.rmSync(base)
     // all set without it
+    connectDrive(m.id)
     const room = await everyone(m.client)
     await m.client.call('POST', `/api/rooms/${room.id}/messages`, { body: 'hello', clientMessageId: cm() })
     expect((await m.client.call('PATCH', '/api/me/welcome', { asked: true })).welcome).toMatchObject({ steps: { files: false }, allSet: true })
@@ -292,8 +304,11 @@ describe('the card', () => {
   test('Hide is for good; the days run out; only the caller\'s own card', async () => {
     const a = await addMember(h, owner, { username: 'hana' })
     const b = await addMember(h, owner, { username: 'hugo' })
-    expect((await a.client.call('PATCH', '/api/me/welcome', { hide: true })).welcome).toBeNull()
+    expect(await a.client.call('PATCH', '/api/me/welcome', { hide: true })).toEqual({ welcome: null, hidden: true })
     expect(await welcome(a.client)).toBeNull()
+    // Settings › Profile shows it again while its days last
+    expect((await a.client.call('PATCH', '/api/me/welcome', { show: true })).welcome).toMatchObject({ kind: 'member' })
+    expect(await a.client.call('PATCH', '/api/me/welcome', { hide: true })).toEqual({ welcome: null, hidden: true })
     // the other person's card is untouched, and the body cannot name anyone
     expect(await welcome(b.client)).not.toBeNull()
     expect((await a.client.try('PATCH', '/api/me/welcome', { hide: true, userId: b.id })).status).toBe(400)
@@ -302,11 +317,50 @@ describe('the card', () => {
     expect((await h.client().try('GET', '/api/me/welcome')).status).toBe(401)
     h.ctx.db.query("UPDATE member_welcome SET joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(b.id)
     expect(await welcome(b.client)).toBeNull()
+    // a hidden card whose days are over is not offered again
+    h.ctx.db.query("UPDATE member_welcome SET joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(a.id)
+    expect(await a.client.call('GET', '/api/me/welcome')).toEqual({ welcome: null })
+  })
+
+  test('a team where nobody may connect their own: the tools row holds nothing back', async () => {
+    const m = await addMember(h, owner, { username: 'pia' })
+    expect((await welcome(m.client)).steps.tools).toBe(false)
+    await owner.call('PATCH', '/api/admin/settings', { personalIntegrations: false })
+    try { expect((await welcome(m.client)).steps.tools).toBe(true) } finally { await owner.call('PATCH', '/api/admin/settings', { personalIntegrations: true }) }
+  })
+})
+
+describe('the owner\'s own card ("My setup")', () => {
+  test('made when the team setup ends: its own rows, only tools counts, 14 days from the end, Hide and show again', async () => {
+    // the setup unfinished: none
+    expect(await welcome(owner)).toBeNull()
+    await owner.call('PATCH', '/api/onboarding/welcome', {})
+    expect(await welcome(owner)).toBeNull()
+    // the end screen ("자료 없이 해 볼게요" ends the steps too)
+    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
+    const w = await welcome(owner)
+    expect(w).toMatchObject({ kind: 'owner', inviter: null, steps: { tools: false }, allSet: false })
+    const row = h.ctx.db.query('SELECT setup, via, invited_by, joined_at FROM member_welcome WHERE user_id = (SELECT id FROM users WHERE role = \'owner\' LIMIT 1)').get() as { setup: number; via: string; invited_by: string | null; joined_at: string }
+    expect(row).toMatchObject({ setup: 1, via: 'invite', invited_by: null })
+    expect(Date.now() - Date.parse(row.joined_at)).toBeLessThan(60_000)
+    const ownerId = (h.ctx.db.query("SELECT id FROM users WHERE role = 'owner' LIMIT 1").get() as { id: string }).id
+    // a second end keeps the row as it is
+    await owner.call('PATCH', '/api/onboarding/welcome', { finish: true })
+    expect((h.ctx.db.query('SELECT joined_at FROM member_welcome WHERE user_id = ?').get(ownerId) as { joined_at: string }).joined_at).toBe(row.joined_at)
+    // Hide and show again
+    expect(await owner.call('PATCH', '/api/me/welcome', { hide: true })).toMatchObject({ welcome: null, hidden: true })
+    expect((await owner.call('PATCH', '/api/me/welcome', { show: true })).welcome).toMatchObject({ kind: 'owner' })
+    // tools done: all set (hi and asked are a member's rows, never holding the owner's card back)
+    connectDrive(ownerId)
+    expect(await welcome(owner)).toMatchObject({ kind: 'owner', steps: { tools: true }, allSet: true })
+    // the days count from the setup's end
+    h.ctx.db.query("UPDATE member_welcome SET done_at = NULL, joined_at = '2000-01-01T00:00:00.000Z' WHERE user_id = ?").run(ownerId)
+    expect(await welcome(owner)).toBeNull()
   })
 })
 
 describe('a new owner', () => {
-  test('an invited person handed the team: no welcome card any more, the row is hidden for good', async () => {
+  test('an invited person handed the team: their member card is over (the row hidden at the handover); with the team setup ended lately, the owner\'s card instead', async () => {
     const inv = await owner.call('POST', '/api/admin/invites', {})
     const c = guest()
     const r = await c.call('POST', `/api/invites/${inv.token}/accept`, { username: 'leah', name: 'Leah Lead', password: PW })
@@ -314,10 +368,13 @@ describe('a new owner', () => {
     expect(await welcome(c)).not.toBeNull()
     await c.call('GET', '/api/me')
     await owner.call('POST', '/api/admin/transfer-ownership', { userId: id, password: OWNER_PW })
-    expect(await welcome(c)).toBeNull()
     expect((h.ctx.db.query('SELECT hidden_at FROM member_welcome WHERE user_id = ?').get(id) as { hidden_at: string | null }).hidden_at).not.toBeNull()
-    // an owner never gets the card, even with a row that is not hidden
-    h.ctx.db.query('UPDATE member_welcome SET hidden_at = NULL WHERE user_id = ?').run(id)
+    // the team setup ended in this file's owner test, within 14 days: the new owner's next Home read is the owner's
+    // card (my-setup.ts, docs/decisions/20261120-my-setup-card.md), never the member's
+    expect(await welcome(c)).toMatchObject({ kind: 'owner', inviter: null })
+    // an owner never gets a member's card, even with a row that is not hidden (only the setup's own card, setup = 1)
+    h.ctx.db.query('UPDATE member_welcome SET setup = 0, hidden_at = NULL WHERE user_id = ?').run(id)
+    h.ctx.db.query("UPDATE settings SET value = json_set(value, '$.finishedAt', '2000-01-01T00:00:00.000Z') WHERE key = 'onboarding.welcome'").run()
     expect(await welcome(c)).toBeNull()
   })
 })

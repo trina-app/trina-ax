@@ -29,6 +29,7 @@ import { ChatItem, type ChatPeek } from '../nav/ChatItem'
 import { foldRuns } from '../nav/TaskRunsRow'
 import { aiName } from '../../lib/tabs'
 import { PanelSection, panelRow, panelRowBox } from './PanelFrame'
+import { historyRowsGap } from '../list/List'
 
 export { useFolds } from './folds'
 
@@ -121,7 +122,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
 
       {groups.pinned.length > 0 && (
         <PanelSection id="trina-pinned" foldKey="trina:pinned" label={t('chat.pinned')} icon={<Pin size={14} className="text-muted" aria-hidden />} count={groups.pinned.length} labelTestId="trina-label" data-testid="trina-pinned">
-          <ul>{groups.pinned.map(row)}</ul>
+          <ul className={historyRowsGap}>{groups.pinned.map(row)}</ul>
         </PanelSection>
       )}
 
@@ -131,7 +132,7 @@ export function TrinaList({ peek }: { peek: ChatPeek }) {
         <PanelSection id="trina-recent" foldKey="trina:recent" label={t('sidebar.aiChats', { name: aiName(t) })} action={<RecentMenu />} labelTestId="trina-label" data-testid="trina-other">
           {/* nothing yet: said under the section's heading, not above it */}
           {empty && <p className="px-3 py-2 text-sm text-faint" data-testid="trina-empty">{t('sidebar.noChats')}</p>}
-          <ul>
+          <ul className={historyRowsGap}>
             {/* the runs of one scheduled task: one row that opens the task (nav/TaskRunsRow.tsx) */}
             {foldRuns(recent, (c) => <ChatItem chat={c} onNavigate={noop} peek={peek} onMove={setMoving} projectTag />, { projectTag: true, menuSpace: true })}
           </ul>

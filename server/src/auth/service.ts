@@ -87,16 +87,19 @@ export function readToken(req: Request, freeRoam = false): { token: string; via:
   return null
 }
 
-/** A free-roam demo's session cookie (plain http behind demo-gate, which passes it on as it is): the visitor's browser
- * showed the plain-http name "mycel-dev-sid", the product's code name and "dev" (QA TC-5578). Every other plain-http
- * server keeps DEV_SESSION_COOKIE (the desktop app and older clients look for it). */
-export const FREE_ROAM_SESSION_COOKIE = 'sid'
+/** A free-roam demo's session cookie, on the instance's plain http too: the visitor is on https behind demo-gate
+ * (demo-gate/src/public.ts secureCookie: host-only, Secure), so the browser keeps the https name, never the plain-http
+ * "mycel-dev-sid" (the product's code name and "dev", QA TC-5578) nor a bare "sid" another *.trina.app site could plant
+ * (review finding 2 on #105). The browser takes a __Host- cookie only with Secure, Path=/ and no Domain: the instance
+ * says Secure itself, so the cookie is valid whether or not the gate adds it, and reads the same name back on its
+ * loopback http. Every other plain-http server keeps DEV_SESSION_COOKIE (the desktop app and older clients look for it). */
+export const FREE_ROAM_SESSION_COOKIE = SESSION_COOKIE
 
-/** __Host-sid on https; the dev cookie name on plain http (browsers refuse __Host- without Secure), a free-roam demo's
- * own there. */
+/** __Host-sid on https; the dev cookie name on plain http (browsers refuse __Host- without Secure), except a free-roam
+ * demo's, which is __Host-sid with Secure there too (its visitors are on https in front of the gate). */
 export function cookieFor(reqUrl: string, freeRoam = false): { name: string; secure: boolean } {
   const https = new URL(reqUrl).protocol === 'https:'
-  return https ? { name: SESSION_COOKIE, secure: true } : { name: freeRoam ? FREE_ROAM_SESSION_COOKIE : DEV_SESSION_COOKIE, secure: false }
+  return https || freeRoam ? { name: SESSION_COOKIE, secure: true } : { name: DEV_SESSION_COOKIE, secure: false }
 }
 
 export function sessionCookie(reqUrl: string, token: string, maxAgeSec: number, freeRoam = false): string {

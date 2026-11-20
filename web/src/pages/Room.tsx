@@ -32,11 +32,11 @@
 import { ArrowDown, BellOff, ChevronLeft, Folder, Loader2, MessagesSquare } from 'lucide-react'
 import clsx from 'clsx'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate, useNavigationType, useParams, type NavigationType } from 'react-router-dom'
 import { isUuid7, type RoomMember, type RoomMessage } from '@mycel/shared/api'
 import { isApiError } from '../lib/api'
 import { lookingAt, onWindowFocus } from '../lib/attention'
-import { isPrivateChannel, readUpTo, roomEmptyKey, threadClosing, threadOpening } from '../lib/rooms'
+import { isPrivateChannel, readUpTo, roomEmptyKey, threadClosing, threadOpening, timelineTarget, pushedMessagePath } from '../lib/rooms'
 import { roomColumns, useElementWidth } from '../lib/roomColumns'
 import { getSidePanel } from '../lib/sidePanel'
 import { PANEL_ALWAYS_BOTH_PX } from '../components/rail/railPanel'
@@ -48,6 +48,7 @@ import { useT } from '../i18n'
 import { usePeople, usePeopleList, useReadPeopleFor } from '../store/people'
 import { findMessage, keptFor, keptPlace, placeKey, useRooms, type PendingSend, type RoomPlace } from '../store/rooms'
 import { useMe } from '../store/session'
+import { useUi } from '../store/ui'
 import { sideChatOf, useSideChats } from '../store/sideChats'
 import { MembersDialog } from '../components/rooms/MembersDialog'
 import { PeoplePicker, type PickerMode } from '../components/rooms/PeoplePicker'
@@ -103,8 +104,11 @@ const PAIR_THREAD = 'absolute inset-y-0 left-0 z-20 w-1/2 border-l-0!'
 const PAIR_SIDE = 'absolute inset-y-0 right-0 z-20 w-1/2'
 
 export default function RoomPage() {
-  const { roomId = '', messageId } = useParams()
+  const { roomId = '', messageId, target } = useParams()
   if (!isUuid7(roomId)) return <RoomNotFound />
+  // …/m/<message>: a phone notification's tap (its path names no query: server/src/notifications/push-events.ts roomPath)
+  // is the same place as ?m=<message>, in place of this address
+  if (target !== undefined) return <Navigate replace to={pushedMessagePath(roomId, messageId ?? null, target)} />
   // the same view with or without a thread: opening one keeps the room as it is (its scroll, its box)
   return <RoomView key={roomId} roomId={roomId} threadId={messageId && isUuid7(messageId) ? messageId : null} badThread={!!messageId && !isUuid7(messageId)} />
 }
@@ -247,6 +251,15 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // ?m=<message>: the message a link points at (an Inbox row: components/settings/RoomNoticeRow.tsx), picked out in the
   // thread when one is open, else in the timeline
   const target = useMemo(() => { const m = new URLSearchParams(location.search).get('m'); return m && isUuid7(m) ? m : null }, [location.search])
+  // what the room's own timeline goes to and picks out: that message with no thread open; a thread opened from a link, a
+  // notice or a push, its first message (the room shows what the thread is under, as Slack does); none for a thread opened
+  // by a click in this room (lib/rooms.ts timelineTarget)
+  const openedHere = !!(location.state as { here?: boolean } | null)?.here
+  const roomTarget = timelineTarget({ threadId, target, openedHere })
+  // a phone: the thread is over the room (the room is hidden), so the room goes to that message once the thread closes
+  const [behind, setBehind] = useState<string | null>(null)
+  useEffect(() => { if (threadId) setBehind(!wide && roomTarget === threadId ? threadId : null) }, [threadId, roomTarget, wide])
+  const litInRoom = !wide && threadId ? null : (roomTarget ?? behind)
   // the room's apps (docs/DECISIONS.md "Apps posting in rooms"), for those who manage them: the ⋯ says how many post
   // here; ?apps=<app id> (the paused notice's "Open settings") opens that app's settings, ?apps=add:<service>
   // (Connectors' "Add to a conversation") that service's Add an app guide, once
@@ -269,7 +282,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
     // folds for a moment in between)
     if (!threadId && useRooms.getState().side[roomId] === 'trina' && !fitsThree()) setSideOpen(false)
     const to = threadOpening(roomId, id, { threadId, fromRoom })
-    navigate(to.path, { replace: to.replace, state: to.state })
+    navigate(to.path, { replace: to.replace, state: { ...to.state, here: true } })
   }, [navigate, roomId, threadId, fromRoom, fitsThree, setSideOpen])
   const closeThread = useCallback(() => {
     const to = threadClosing(roomId, fromRoom)
@@ -396,11 +409,11 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // the message a link or a search result points at but not in the newest page: the page around it, once for each
   const aroundFor = useRef<string | null>(null)
   useEffect(() => {
-    if (!target || threadId || !timeline || timeline.loading || timeline.error || aroundFor.current === target) return
-    if (timeline.messages.some((m) => m.id === target)) return
-    aroundFor.current = target
-    void useRooms.getState().loadAround(roomId, target)
-  }, [target, threadId, timeline, roomId])
+    if (!roomTarget || !timeline || timeline.loading || timeline.error || aroundFor.current === roomTarget) return
+    if (timeline.messages.some((m) => m.id === roomTarget)) return
+    aroundFor.current = roomTarget
+    void useRooms.getState().loadAround(roomId, roomTarget)
+  }, [roomTarget, timeline, roomId])
   const notFound = missing || badThread || (!!timeline?.error && (isApiError(timeline.error, 'not_found') || isApiError(timeline.error, 'forbidden')))
 
   const messages = timeline?.messages ?? NO_MESSAGES
@@ -452,7 +465,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
   // back in a room left a moment ago with the reader part way up: the same message in the same place (at the bottom
   // when it was there, or when something came since: the newest, as on any open; not for a link to a message, which
   // goes to it). After the follow above, before the first frame shows
-  const [place] = useState(() => (target ? null : keptPlace(keptFor(useRooms.getState(), roomId))))
+  const [place] = useState(() => (roomTarget ? null : keptPlace(keptFor(useRooms.getState(), roomId))))
   useLayoutEffect(() => {
     const el = scroller.current
     // (its own row: a thread beside it shows its root too; out of sight, a phone's thread over it, it opens at the bottom)
@@ -627,6 +640,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
             room={room}
             onNotify={() => setNotifyRequest((n) => n + 1)}
             onInvite={invitePeople}
+            onSearch={() => useUi.getState().setSearchOpen(true, undefined, room.id)}
             className="shrink-0"
             buttonClassName="touch-hit"
             buttonRef={moreRef}
@@ -650,7 +664,7 @@ function RoomView({ roomId, threadId, badThread }: { roomId: string; threadId: s
           {timeline && !timeline.loading && !timeline.error && !messages.length && !pending.length && <p className="py-12 text-center text-sm text-muted">{t(roomEmptyKey(room))}</p>}
           {/* the timeline's pictures: ← → in the image viewer walks through these (the thread panel has its own) */}
           <ImageGroup>
-            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={threadId ? null : target} />
+            <RoomMessages roomId={roomId} messages={messages} pending={pending} meId={meId} members={members} onThread={openThread} onAskTrina={askTrina} highlight={litInRoom} highlightKey={location.key} />
           </ImageGroup>
           {detached && timeline?.loading && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
         </div>

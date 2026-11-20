@@ -1,4 +1,5 @@
 // Account flows: first-owner setup, sign-in, password change, invites, one-time reset links.
+import { hostedTeamName, reportTeamName } from '../system/cloud-team-name'
 import fs from 'node:fs'
 import { projectJoinsOfNewAccount } from '../chat/project-joins'
 import path from 'node:path'
@@ -140,6 +141,9 @@ export interface OwnerInput { username: string; name: string; password: string; 
  * concurrent setups cannot both win). Used by POST /api/setup and the server CLI.
  */
 export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<string> {
+  // a hosted team's name must be one the hosting service takes (system/cloud-team-name.ts)
+  const named = hostedTeamName(ctx, o.teamName)
+  o = { ...o, teamName: 'name' in named ? named.name : fail('validation', msg('teamNameInvalid', o.locale), { fields: { 'body.teamName': named.problem } }) }
   const passwordHash = await hashPassword(o.password)
   const id = deriveUserId(ctx.db, o.username, ctx.files.fx.root)
   const created = ctx.db.transaction(() => {
@@ -155,6 +159,8 @@ export async function bootstrapOwner(ctx: AppContext, o: OwnerInput): Promise<st
     return true
   }).immediate()
   if (!created) fail('conflict', msg('setupDone', o.locale))
+  // a hosted team: the name the owner just gave goes to the hosting service too (system/cloud-team-name.ts)
+  void reportTeamName(ctx, o.teamName)
   ensurePersonalFolder(ctx.files.fx.root, id)
   // the one-time token is spent: the server's copy and the installer's copy for the administrator (<base>/setup/code,
   // `sudo cat` on Linux and the Mac; QA TC-211: it stayed on disk after setup)

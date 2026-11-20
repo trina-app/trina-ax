@@ -30,7 +30,7 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRequestableService, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList, type MyIntegrationTemplate } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
@@ -40,7 +40,8 @@ import { putCached, readIntegrations, SHARED, useCachedRead } from '../store/lis
 import { integrationsChanged, notificationsChanged, reloadAsked } from '../store/live'
 import { isAdmin, useMe } from '../store/session'
 import { useFreeRoam } from '../store/demo'
-import { Button, EmptyState, ErrorNote, Skeleton, inputCls } from '../components/ui'
+import { Button, EmptyState, ErrorNote, Skeleton, Switch, inputCls } from '../components/ui'
+import { useRecommendedTools } from '../lib/teamTools'
 import { ConnectorRow, DiscoverCard, DISCOVER_FIRST, type DiscoverItem } from '../components/integrations/ConnectorsView'
 import { DriveTeamShares, useDriveParts } from '../components/integrations/DriveConnector'
 import { AppDetail } from '../components/integrations/AppDetail'
@@ -55,7 +56,7 @@ import { ConnectionPage, ListedServicePage } from '../components/integrations/Co
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
-import { useFromTeam } from '../components/integrations/TemplatesView'
+import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
 import { setupReturnState, setupReturnStep } from '../lib/welcome'
 
@@ -243,9 +244,13 @@ function ConnectorsHome() {
   // and a template the team set up for them, connected or not, is in Your connectors, never in Discover as well: QA
   // TC-179)
   const urls = [...(list.data?.items ?? []).map((i) => i.url), ...fromTeam.urls]
+  // GitHub signs in through the server's GitHub App: without one (an older server says nothing: as before) it cannot be
+  // connected yet, so its card says so like a Google card the team has not set up (docs/INTEGRATIONS.md "GitHub")
+  const notSetUp = (c: Connector) => c.id === 'github' && list.data?.github?.ready === false
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
-    state: isConnected(c, urls) ? 'added' as const : 'available' as const,
+    state: isConnected(c, urls) ? 'added' as const : notSetUp(c) ? 'off' as const : 'available' as const,
+    ...(notSetUp(c) ? { setUp: true } : {}),
     onOpen: () => navigate(connectorHref(c.id)), onAdd: () => setDialog({ connector: c }),
   })) : []
   // the team turned own connections off: a member who searches still finds a listed service, with "Ask admin to add it"
@@ -275,7 +280,11 @@ function ConnectorsHome() {
     ...(desk ? {} : { offLine: t('localApps.status.desktopOnly') }),
     onOpen: () => navigate(connectorHref(a.id)), onAdd: () => { navigate(connectorHref(a.id)); local.connect(a) },
   })) : []
-  const cards = freeRoam ? [] : [...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable]
+  // "팀 추천" (shared/src/api/team-tools.ts): the tools the team recommends come first, with the words on their line;
+  // nothing is hidden or gated (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  const recommended = list.data?.recommendedTools
+  const tag = (c: Card): Card => (isRecommended(recommended, c.id) ? { ...c, line: `${t('connectors.recommendedTag')} · ${c.line}` } : c)
+  const cards = freeRoam ? [] : recommendedFirst([...builtIns.map((c) => { const offLine = offLineOf(c); return offLine ? { ...c, offLine } : c }), ...localCards, ...listed, ...askable].map(tag), recommended)
     .filter((c) => c.state === 'available' || (c.state === 'off' && (c.setUp || !!c.offLine)))
     .filter((c) => fits(q, c.name, c.line))
   const shownCards = q || all ? cards : cards.slice(0, POPULAR_FIRST)
@@ -394,6 +403,36 @@ function ConnectorsHome() {
 /** /settings/connectors/:id: a built-in card's page, or a listed service's. */
 function ConnectorPage() {
   const { id = '' } = useParams()
+  const { admin } = useConnectors()
+  const page = <ConnectorPageBody id={id} />
+  // an owner or admin: "팀 추천", under the page of a tool each person connects (never Notion's or Slack's, connected
+  // for the team in the welcome steps) (docs/decisions/20261120-team-vs-personal-onboarding.md)
+  return admin && isRecommendable(id) ? <>{page}<RecommendRow id={id} /></> : page
+}
+
+/** "팀 추천": an owner or admin recommends this tool to the team (TeamSettings.recommendedTools), as in the welcome
+ * steps' 팀이 쓸 도구: it comes first in everyone's list. Each person still connects their own account. */
+function RecommendRow({ id }: { id: string }) {
+  const t = useT()
+  const m = useRecommendedTools()
+  const { list } = useConnectors()
+  if (m.tools === undefined) return null
+  const error = m.error?.id === id ? m.error.text : null
+  return (
+    <section className="w-full max-w-3xl border-t border-line pt-5 pb-10" data-testid="team-recommend">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 space-y-0.5">
+          <label htmlFor="team-recommend-switch" className="text-sm font-medium text-ink">{t('connectors.recommend')}</label>
+          <p className={`text-sm ${error ? 'text-warn' : 'text-muted'}`} role={error ? 'alert' : undefined} data-testid="team-recommend-line">{error ?? t('connectors.recommendHint')}</p>
+        </div>
+        <Switch id="team-recommend-switch" external checked={m.on(id)} disabled={m.saving !== null} label={t('connectors.recommend')}
+          onChange={(v) => { void m.set(id, v).then(() => void list.reload()) }} testId="team-recommend-switch" />
+      </div>
+    </section>
+  )
+}
+
+function ConnectorPageBody({ id }: { id: string }) {
   const { google, asks, admin } = useConnectors()
   if (id === 'google-drive') return <DrivePage />
   if (isGoogleApp(id)) {
@@ -472,8 +511,15 @@ function ListedPage({ c }: { c: Connector }) {
   // connected yet does not end it: QA final)
   const teamWorks = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url) && i.status === 'connected')
   const asked = isRequestableService(c.id) && asks.stateOf(c.id) !== 'none'
-  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) ? c.id : null
-  const own = !!list.data?.personalAllowed
+  // GitHub without the server's GitHub App: no Connect (it would fail at sign-in); a member asks an admin, an owner or
+  // admin reads where it is set up (docs/INTEGRATIONS.md "GitHub"). A team template with the company's own GitHub App
+  // is the team's setup: the page sends the person to it (its row under Your connectors connects it)
+  const noServerApp = c.id === 'github' && list.data?.github?.ready === false
+  const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
+  const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
+  const notSetUp = noServerApp && !viaTemplate
+  const own = !!list.data?.personalAllowed && !noServerApp
+  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) && !viaTemplate ? c.id : null
   // connected: the connection's page (with two connections to it, the first; the other is its own row in the list)
   if (have.length) return <McpShell><MinePage i={have[0]} about={t('connectors.mcp.about', { name: c.name })} /></McpShell>
   return (
@@ -481,7 +527,9 @@ function ListedPage({ c }: { c: Connector }) {
       <ListedServicePage inSettings c={c} state={askFor ? 'ask' : 'available'}
         actions={own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
-        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} /> : undefined}
+        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
+          : viaTemplate ? <Note testId="connector-github-template">{t('connectors.github.viaTemplate')}</Note>
+          : notSetUp && admin ? <Note testId="connector-github-not-set-up">{t('connectors.github.notSetUpAdmin')}</Note> : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>
   )

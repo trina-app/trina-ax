@@ -20,6 +20,9 @@ type fakeTenant struct {
 	adminOut   map[string]string // first admin.js argument -> stdout
 	adminErr   error
 	restarts   int
+	// the server's start (error-reports-set compares it with the defaults file); known only when a test sets startKnown
+	started    time.Time
+	startKnown bool
 	hups       int
 	turns      []int
 }
@@ -34,7 +37,8 @@ func (f *fakeTenant) install(t *testing.T) {
 			}
 			return []byte(f.adminOut[args[0]]), nil
 		}
-		tn.restart = func() (bool, error) { f.restarts++; return true, nil }
+		tn.restart = func() (bool, error) { f.restarts++; f.started = time.Now(); return true, nil }
+		tn.serverStarted = func() (time.Time, bool) { return f.started, f.startKnown }
 		tn.hup = func() { f.hups++ }
 		tn.liveTurns = func() (int, error) {
 			if len(f.turns) == 0 {
@@ -286,6 +290,231 @@ func TestTenantHostedSpeechKeySet(t *testing.T) {
 	f.adminOut["hosted-speech-key"] = `{"ok":true}`
 	if code, out, _ := tb.tctl(`{"key":null}`, "hosted-speech-key-set", "--json"); code == 0 || out != "" {
 		t.Fatalf("an answer without set got through: %d %q", code, out)
+	}
+}
+
+// error-reports-set: one MYCEL_ERROR_REPORT_URL line in /etc/default/<id>, every other line kept, idempotent, a restart
+// only on a change and only when idle, a strict key shape, and the key never printed. Fake keys only.
+func TestTenantErrorReportsSet(t *testing.T) {
+	tb := newTestBase(t, "0.3.0")
+	f := &fakeTenant{}
+	f.install(t)
+	defaultsDir = t.TempDir()
+	t.Cleanup(func() { defaultsDir = "/etc/default" })
+	p := filepath.Join(defaultsDir, "mycel")
+	enroll := "# written by mycel-enroll\nMYCEL_TEAM_TZ=Asia/Seoul\nMYCEL_INSTALL_ID=01JC8Z5V3Q1X2Y3Z4A5B6C7D8E\nMYCEL_SAFE_OPS_1A=1\n"
+	must(t, os.WriteFile(p, []byte(enroll), 0o644))
+	// the server has run since before the file was written
+	f.started, f.startKnown = time.Now().Add(-time.Hour), true
+	keyA := "https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"
+	keyB := "https://1111111111111111bbbbbbbbbbbbbbbb@o0.ingest.example.invalid:8443/prefix/42"
+	set := func(stdin string) (map[string]any, string) {
+		t.Helper()
+		code, out, errs := tb.tctl(stdin, "error-reports-set", "--json")
+		if code != 0 {
+			t.Fatalf("%s: %d %q %s", stdin, code, out, errs)
+		}
+		for _, k := range []string{keyA, keyB, "0000000000000000aaaa", "1111111111111111bbbb"} {
+			if strings.Contains(out, k) || strings.Contains(errs, k) {
+				t.Fatalf("the key was printed: out %q err %q", out, errs)
+			}
+		}
+		return jsonOf(t, out), errs
+	}
+	file := func() string { b, _ := os.ReadFile(p); return string(b) }
+
+	// set: the other lines stay as they were, one line is added
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["ok"] != true || m["changed"] != true || m["restarted"] != true || f.restarts != 1 {
+		t.Fatalf("set: %v, %d restarts", m, f.restarts)
+	}
+	if got := file(); got != enroll+"MYCEL_ERROR_REPORT_URL="+keyA+"\n" {
+		t.Fatalf("set: %q", got)
+	}
+	st, _ := os.Stat(p)
+	if st.Mode().Perm() != 0o644 {
+		t.Fatalf("mode %v", st.Mode())
+	}
+	// the same key again: nothing changes, no restart
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["changed"] != false || m["restarted"] != false || f.restarts != 1 {
+		t.Fatalf("same key: %v, %d restarts", m, f.restarts)
+	}
+	// replace: in place, still one line
+	if m, _ := set(`{"url":"` + keyB + `"}`); m["changed"] != true || m["restarted"] != true || f.restarts != 2 {
+		t.Fatalf("replace: %v, %d restarts", m, f.restarts)
+	}
+	if got := file(); got != enroll+"MYCEL_ERROR_REPORT_URL="+keyB+"\n" {
+		t.Fatalf("replace: %q", got)
+	}
+	// a line someone added after ours stays after it; a second copy of ours goes
+	must(t, os.WriteFile(p, []byte(enroll+"MYCEL_ERROR_REPORT_URL="+keyB+"\nMYCEL_REMOTE_MCP_ORIGIN=https://mcp.example.invalid\nMYCEL_ERROR_REPORT_URL="+keyB+"\n"), 0o644))
+	if m, _ := set(`{"url":"` + keyB + `"}`); m["changed"] != true {
+		t.Fatalf("duplicate line: %v", m)
+	}
+	if got := file(); got != enroll+"MYCEL_ERROR_REPORT_URL="+keyB+"\nMYCEL_REMOTE_MCP_ORIGIN=https://mcp.example.invalid\n" {
+		t.Fatalf("duplicate line: %q", got)
+	}
+	// busy: the line changes, the server is not restarted while an answer runs
+	// (file times are coarse: the write must come visibly after the last restart)
+	time.Sleep(20 * time.Millisecond)
+	f.turns = []int{1}
+	prevWait := errorReportsIdleWait
+	errorReportsIdleWait = 0
+	t.Cleanup(func() { errorReportsIdleWait = prevWait })
+	restarts := f.restarts
+	if m, errs := set(`{"url":"` + keyA + `"}`); m["changed"] != true || m["restarted"] != false || f.restarts != restarts || !strings.Contains(errs, "next start") {
+		t.Fatalf("busy: %v %q, %d restarts", m, errs, f.restarts)
+	}
+	// the resend once idle: unchanged, but the server still runs with the old value, so it is restarted now
+	f.turns = nil
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["changed"] != false || m["restarted"] != true || f.restarts != restarts+1 {
+		t.Fatalf("resend after busy: %v, %d restarts", m, f.restarts-restarts)
+	}
+	// already current (the server started after the file's last change): no restart
+	restarts = f.restarts
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["changed"] != false || m["restarted"] != false || f.restarts != restarts {
+		t.Fatalf("already current: %v, %d restarts", m, f.restarts-restarts)
+	}
+	// no start time known (no systemd, no running server): no restart for an unchanged value
+	f.startKnown = false
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["restarted"] != false || f.restarts != restarts {
+		t.Fatalf("unknown start: %v", m)
+	}
+	f.startKnown = true
+	// null while busy, then the resend: the server is restarted without the key
+	time.Sleep(20 * time.Millisecond)
+	f.turns = []int{1}
+	if m, _ := set(`{"url":null}`); m["changed"] != true || m["restarted"] != false || f.restarts != restarts {
+		t.Fatalf("null busy: %v", m)
+	}
+	if got := file(); got != enroll+"MYCEL_REMOTE_MCP_ORIGIN=https://mcp.example.invalid\n" {
+		t.Fatalf("null: %q", got)
+	}
+	f.turns = nil
+	if m, _ := set(`{"url":null}`); m["changed"] != false || m["restarted"] != true || f.restarts != restarts+1 {
+		t.Fatalf("null resend after busy: %v", m)
+	}
+	restarts = f.restarts
+	if m, _ := set(`{"url":null}`); m["changed"] != false || m["restarted"] != false || f.restarts != restarts {
+		t.Fatalf("null again: %v", m)
+	}
+	// no file yet: set makes it, null takes the file away again
+	must(t, os.Remove(p))
+	if m, _ := set(`{"url":"` + keyA + `"}`); m["changed"] != true || file() != "MYCEL_ERROR_REPORT_URL="+keyA+"\n" {
+		t.Fatalf("new file: %v %q", m, file())
+	}
+	// null on our line alone while busy removes the file; the resend still restarts (the folder's time)
+	time.Sleep(20 * time.Millisecond)
+	f.turns = []int{1}
+	if m, _ := set(`{"url":null}`); m["changed"] != true || m["restarted"] != false {
+		t.Fatalf("null on our line alone: %v", m)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Fatal("an empty defaults file was left behind")
+	}
+	f.turns = nil
+	restarts = f.restarts
+	if m, _ := set(`{"url":null}`); m["changed"] != false || m["restarted"] != true || f.restarts != restarts+1 {
+		t.Fatalf("null resend, file gone: %v", m)
+	}
+	if m, _ := set(`{"url":null}`); m["restarted"] != false {
+		t.Fatalf("null, file gone, current: %v", m)
+	}
+	// longer than the contract's 1000 characters: refused even when the shape matches
+	long := "https://" + strings.Repeat("0", 128) + "@" + strings.Repeat("a", 63) + strings.Repeat("."+strings.Repeat("b", 63), 9) + ":8443" + strings.Repeat("/"+strings.Repeat("c", 64), 4) + "/" + strings.Repeat("1", 20)
+	if len(long) <= 1000 || !sentryDsnRE.MatchString(long) {
+		t.Fatalf("the long test key: %d characters, shape %v", len(long), sentryDsnRE.MatchString(long))
+	}
+	restarts = f.restarts
+	if code, out, errs := tb.tctl(`{"url":"`+long+`"}`, "error-reports-set", "--json"); code == 0 || out != "" || strings.Contains(errs, long) {
+		t.Fatalf("a key over 1000 characters: %d %q %s", code, out, errs)
+	}
+	if _, err := os.Stat(p); err == nil || f.restarts != restarts {
+		t.Fatal("a key over 1000 characters was written")
+	}
+
+	// refused before anything is written: injection (newline, quote, backslash, space, =), other shapes, other stdin
+	must(t, os.WriteFile(p, []byte(enroll), 0o644))
+	restarts = f.restarts
+	for _, bad := range []string{
+		`{"url":"` + keyA + `\nNODE_OPTIONS=--require=/tmp/x.js"}`,
+		`{"url":"` + keyA + `\r\nLD_PRELOAD=/tmp/x.so"}`,
+		`{"url":"` + keyA + `\""}`,
+		`{"url":"` + keyA + `'"}`,
+		`{"url":"` + keyA + `\\"}`,
+		`{"url":"` + keyA + ` x"}`,
+		`{"url":"https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1=2"}`,
+		`{"url":"http://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/1"}`,
+		`{"url":"https://errors.example.invalid/1"}`,
+		`{"url":"https://0000000000000000aaaaaaaaaaaaaaaa:secret@errors.example.invalid/1"}`,
+		`{"url":"https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/"}`,
+		`{"url":"https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/abc"}`,
+		`{"url":"https://0000000000000000aaaaaaaaaaaaaaaa@errors.example.invalid/../1"}`,
+		`{"url":""}`, `{"url":1}`, `{"url":"` + keyA + `","x":1}`, `{}`, `{"key":null}`, ``, `[1]`, `not json`,
+	} {
+		code, out, errs := tb.tctl(bad, "error-reports-set", "--json")
+		if code == 0 || out != "" || strings.Contains(errs, "0000000000000000aaaa") {
+			t.Fatalf("accepted or printed %q: %d %q %s", bad, code, out, errs)
+		}
+	}
+	if file() != enroll || f.restarts != restarts {
+		t.Fatalf("a refused value changed the file or restarted: %q, %d restarts", file(), f.restarts-restarts)
+	}
+	// the same pattern as the contract's SentryDsn
+	src, err := os.ReadFile("../../../shared/src/cloud-protocol/tenant-commands.ts")
+	must(t, err)
+	if !strings.Contains(strings.ReplaceAll(string(src), `\/`, `/`), "regex(/"+sentryDsnRE.String()+"/)") {
+		t.Fatal("sentryDsnRE and the contract's SentryDsn differ")
+	}
+}
+
+// Writers of /etc/default/<id> at the same time keep each other's lines (the flock in setDefaultsLine).
+func TestDefaultsLineLock(t *testing.T) {
+	rootUID = os.Getuid()
+	t.Cleanup(func() { rootUID = 0 })
+	defaultsDir = t.TempDir()
+	t.Cleanup(func() { defaultsDir = "/etc/default" })
+	must(t, os.WriteFile(filepath.Join(defaultsDir, "mycel"), []byte("MYCEL_TEAM_TZ=Asia/Seoul\n"), 0o644))
+	const n = 40
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			v := fmt.Sprint(i)
+			_, err := setDefaultsLine("mycel", fmt.Sprintf("MYCEL_T%02d", i), &v)
+			errs <- err
+		}(i)
+	}
+	for i := 0; i < n; i++ {
+		must(t, <-errs)
+	}
+	b, _ := os.ReadFile(filepath.Join(defaultsDir, "mycel"))
+	for i := 0; i < n; i++ {
+		if !strings.Contains(string(b), fmt.Sprintf("MYCEL_T%02d=%d\n", i, i)) {
+			t.Fatalf("line %d lost:\n%s", i, b)
+		}
+	}
+	if !strings.HasPrefix(string(b), "MYCEL_TEAM_TZ=Asia/Seoul\n") {
+		t.Fatalf("first line lost:\n%s", b)
+	}
+	st, err := os.Stat(filepath.Join(defaultsDir, ".mycel.lock"))
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("lock file: %v %v", st, err)
+	}
+}
+
+// The server's start time from a /proc: field 22 of <pid>/stat in ticks of 10 ms after btime; a comm with ") " in it
+// does not shift the fields.
+func TestProcStartTime(t *testing.T) {
+	proc := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(proc, "4242"), 0o755))
+	must(t, os.WriteFile(filepath.Join(proc, "stat"), []byte("cpu  1 2 3\nbtime 1763600000\nprocesses 9\n"), 0o644))
+	fields := []string{"S", "1", "4242", "4242", "0", "-1", "4194560", "100", "0", "0", "0", "5", "3", "0", "0", "20", "0", "8", "0", "123456"}
+	must(t, os.WriteFile(filepath.Join(proc, "4242", "stat"), []byte("4242 (bun ) x) "+strings.Join(fields, " ")+" 1000 2000\n"), 0o644))
+	got, ok := procStartTime(proc, 4242)
+	if want := time.Unix(1763600000, 0).Add(1234560 * time.Millisecond); !ok || !got.Equal(want) {
+		t.Fatalf("got %v %v, want %v", got, ok, want)
+	}
+	if _, ok := procStartTime(proc, 1); ok {
+		t.Fatal("a missing process has a start time")
 	}
 }
 

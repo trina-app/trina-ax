@@ -1,0 +1,1 @@
+- In Projects, the arrow beside a project opens its chats right in the list. A round number on the project and on a chat shows how many unread mentions of you wait there, and who mentioned you.

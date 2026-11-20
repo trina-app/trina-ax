@@ -62,6 +62,7 @@ export function ChatItem({ chat, onNavigate, peek, onMove, projectTag = false }:
   return (
     <ListRow
       to={`/c/${chat.id}`}
+      scale="history"
       rowRef={link}
       selected={selected}
       unread={needsMe(marker)}

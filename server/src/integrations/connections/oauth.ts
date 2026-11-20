@@ -21,12 +21,18 @@ export interface OAuthClient { clientId: string; clientSecret: string | null; au
 export interface OAuthTokens { accessToken: string; refreshToken: string | null; expiresAt: number | null }
 /** what a connection keeps (encrypted) once signed in. resource: the MCP server's resource indicator (RFC 8707); null
  * for an HTTP API, which has none. */
-export interface OAuthSecret { type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens }
+export interface OAuthSecret {
+  type: 'oauth'; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null; tokens: OAuthTokens
+  /** signed in through the server's GitHub App (service.ts serverApp): refreshed with that app as it is now */
+  serverApp?: 'github'
+}
 /** your own app at the service, as stored (docs/INTEGRATIONS.md "Your own app"). foundTokenUrl: the token address the
  * first sign-in that worked found from the server, where its secret may go (service.ts pinFound). clientSecret: null
  * also when the stored one was entered for another address of the connection (store.ts secretHere) */
 export interface OwnClient {
   clientId: string; clientSecret: string | null; authorizationUrl: string | null; tokenUrl: string | null; scope: string | null; foundTokenUrl: string | null
+  /** not an app anyone set on the connection but the server's GitHub App (service.ts serverApp) */
+  serverApp?: 'github'
   /** the stored values it was read from (pinFound writes only onto these), and the version of the row that holds them
    * (a template's: a sign-in through it finishes only on the template as it was when it started) */
   stored: { json: string; enc: string | null; version: number }
@@ -328,8 +334,11 @@ function withClient(client: OAuthClient, fields: Record<string, string>): { head
 export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient }, fields: Record<string, string>, net: NetOptions, now: number, previous?: OAuthTokens): Promise<OAuthTokens> {
   const r = await jsonRequest(s.server.tokenEndpoint, { method: 'POST', ...withClient(s.client, fields) }, net)
   const j = r.json
-  if (r.status !== 200 || !j) {
-    if (j?.error === 'invalid_grant' || j?.error === 'invalid_client' || j?.error === 'unauthorized_client') throw new GrantError(String(j.error))
+  // GitHub answers a refused code or refresh token with HTTP 200 and its own error names (docs.github.com "Refreshing
+  // user access tokens", "Troubleshooting OAuth app access token request errors"): read as the standard ones
+  const error = typeof j?.error === 'string' ? GITHUB_GRANT_ERRORS[j.error] ?? j.error : null
+  if (r.status !== 200 || !j || error) {
+    if (error === 'invalid_grant' || error === 'invalid_client' || error === 'unauthorized_client') throw new GrantError(error)
     throw new NetError('oauth_failed')
   }
   const access = j.access_token, refresh = typeof j.refresh_token === 'string' ? j.refresh_token : previous?.refreshToken ?? null
@@ -339,6 +348,11 @@ export async function tokenRequest(s: { server: OAuthServer; client: OAuthClient
   const life = typeof j.expires_in === 'string' && /^\d{1,9}$/.test(j.expires_in) ? Number(j.expires_in) : j.expires_in
   const exp = typeof life === 'number' && Number.isFinite(life) && life > 0 ? Math.min(life, 31_536_000) : null
   return { accessToken: access, refreshToken: refresh, expiresAt: exp ? now + exp * 1000 : null }
+}
+
+/** GitHub's token-address errors and the standard name each stands for (RFC 6749 5.2) */
+const GITHUB_GRANT_ERRORS: Record<string, string> = {
+  bad_verification_code: 'invalid_grant', bad_refresh_token: 'invalid_grant', incorrect_client_credentials: 'invalid_client',
 }
 
 /** RFC 7009, best effort: true when the server said 200. A client secret goes only to the token address's own server:

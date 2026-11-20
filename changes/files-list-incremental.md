@@ -1,0 +1,1 @@
+- Files you upload, rename or move now show in the AI's file list (`_FILES.md`) within about a minute, so the AI finds them right away. Until the nightly pass describes them, they show with their name, type, size and date. Before, new files only appeared the next morning.

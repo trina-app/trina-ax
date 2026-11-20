@@ -88,7 +88,7 @@ export interface SendInput { body: string; replyToId?: string | null; threadRoot
 /** `via`: 'ai' when the AI's post_to_room sent it after the person's yes on its card (chat/post-to-room.ts); absent: the
  * button under an answer. `plain`: post_to_room's own_words, the person's own message with no AI-answer quote (no
  * answer_at; checked and audited as a share). `openedDm`: the post made the 1:1 chat (audited as a flag, nobody named). */
-export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean }
+export interface SharedAnswerMark { at: number; cut: boolean; people: number; confirmed?: boolean; scope: string; via?: 'ai'; plain?: boolean; openedDm?: boolean; /** sent at once under the person's own "Always allow" for room posts (the button: chat/answer-share.ts) */ always?: boolean }
 /** Nobody: what everyone who sees a message without being in it or following anything sees (one copy for most members). */
 const NOBODY: MemberRow = { room_id: '', user_id: '', joined_at: '', last_read_seq: 0, visible_from_seq: 0, history_from_seq: 0, muted: 0, notify_level: null, hidden_at: null }
 
@@ -798,7 +798,7 @@ export class Rooms {
         b.mentionsAll && mayMention ? 1 : 0, answer && !answer.plain ? answer.at : null, answer?.cut && !answer.plain ? 1 : 0, answer ? answer.scope : carried ?? null, writeStored({ snapshots }))
       // an answer of my own AI chat: audited without its content or anyone's name; a DM's or group chat's id would let
       // admins see who talks to whom, so only its kind (store.ts roomAuditRef)
-      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}), ...(mentions.length ? { mentions: mentions.length } : {}), ...(b.mentionsAll && aiPost ? { mentionsAll: true } : {}) } })
+      if (answer) audit(this.db, { actor: userId, action: 'room.answer_share', target: id, detail: { ...roomAuditRef(room), people: answer.people, confirmed: answer.confirmed ?? answer.people > 0, cut: answer.cut, files: fileIds.length, ...(answer.via ? { via: answer.via } : {}), ...(answer.plain ? { ownWords: true } : {}), ...(answer.openedDm ? { openedDm: true } : {}), ...(answer.always ? { always: true } : {}), ...(mentions.length ? { mentions: mentions.length } : {}), ...(b.mentionsAll && aiPost ? { mentionsAll: true } : {}) } })
       if (fileIds.length) this.db.query(`UPDATE room_files SET message_id = ? WHERE id IN (${fileIds.map(() => '?').join(',')})`).run(id, ...fileIds)
       // sending in the room means I have seen the room up to here (KakaoTalk): my read position moves to my message;
       // a reply moves my place in its thread instead (the room may be out of sight, on a phone it is)

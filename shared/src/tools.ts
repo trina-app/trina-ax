@@ -51,6 +51,7 @@ export const ReadInput = z.strictObject({
   transcript: z.boolean().optional().describe('Video and audio only: false skips the transcript of the sound.'),
   versions: z.union([z.boolean(), z.number().int().min(1).max(VERSIONS_SHOWN_MAX)]).optional().describe(`Instead of the text: the file's earlier versions (when, who saved them, size; true = the last ${VERSIONS_SHOWN_DEFAULT}, or how many, up to ${VERSIONS_SHOWN_MAX}) and the changes between the version before the current one and the file now. Use it for "what changed", "who changed it", "what did it say before". Long changes come in parts: the result says the offset to read on from.`),
   version: z.number().int().min(1).optional().describe('With or without versions: compare this earlier version (its number from the list) with the file now, instead of the version before the current one.'),
+  raw: z.boolean().optional().describe('Plain UTF-8 text files only: true returns the exact file text, without line numbers or notes, to save or rewrite it whole. Only for a file that fits one read (about 28,000 characters); otherwise refused.'),
 })
 export const WriteInput = z.strictObject({
   file_path: relPath,
@@ -255,6 +256,12 @@ export const EditPdfOperation = z.union([
     replace: z.string().max(1000).describe('The new words, one line ("" removes the old ones)'),
     pages: pdfPages.optional().describe('Default "all"'),
     match_case: z.boolean().optional().describe('Default true; false also finds "ACME" for "Acme"'),
+  }) }),
+  z.strictObject({ fill_form: z.strictObject({
+    fields: z.record(z.string().min(1).max(500), z.union([z.string().max(5000), z.boolean()]))
+      .refine((v) => Object.keys(v).length <= 1000, { message: 'at most 1000 fields in one fill_form' })
+      .describe('The form fields by the names a read of the PDF lists, e.g. { "company_name": "Acme Ltd", "organic": true }: text as text, a checkbox as true or false, a choice as one of its options'),
+    flatten: z.boolean().optional().describe('true only when the user asks for a form that can no longer be changed: the values are drawn into the pages and the fields removed (default false: the fields stay editable)'),
   }) }),
 ])
 export const EditPdfInput = z.strictObject({

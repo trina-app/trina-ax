@@ -23,9 +23,12 @@ import { writeLimitText } from '../policy/refusal'
 import { badSegment, hiddenEntry } from '../policy/names'
 import { isRunPlaceholder } from '../devenv/srt/placeholders'
 import { detectCaseInsensitive } from '../policy/resolve'
-import { ext, extractText, isOffice, utf16Kind, utf16Text } from './extract'
+import { ext, extractText, isOffice, officeWorkerWrite, utf16Kind, utf16Text } from './extract'
+import { decodePagesResult, encodePagesRequest, PDF_PAGES_MODE } from './pdf-pages'
+import { formFieldsText } from './pdf-form'
+import { PDF_GATE } from './big-inputs'
 import { globFiles, grepFiles, OfficeCache } from './search'
-import { memoLines, numberedLines, prettyAllowed, prettyJsonView, ReadViews } from './read-lines'
+import { exactText, fitsOneRead, memoLines, numberedLines, prettyAllowed, prettyJsonView, READ_TEXT_CHARS, ReadViews } from './read-lines'
 import type { VirtualFile, VirtualFiles } from './virtual'
 import { SOURCE_LOCS_MAX, SourceLog } from './sources'
 import { locsOfRange } from './locations'
@@ -699,6 +702,7 @@ export class FileService {
       // its folder joins the read scope (same access as the list; the list itself is not on disk)
       ctx.files.readPaths.add(vp.segs.slice(0, -1).join('/'))
       if (wantsVersions) return { text: NO_VERSIONS(vp.rel), summary: `read ${vp.rel} versions -> none (file list)` }
+      if (a.raw && fitsOneRead(vp.file.text)) return { text: vp.file.text, summary: `read ${vp.rel} raw (file list)` }
       return numberedLines(vp.rel, vp.file.text, a)
     }
     // a file inside a folder shared with the person, by its link (/f/<id>/<path inside>; files/shared-folder-reads.ts):
@@ -731,6 +735,7 @@ export class FileService {
     if (wantsVersions) return this.readVersions(ctx, a)
     const e = ext(a.file_path)
     const kind = mediaKind(a.file_path)
+    if (a.raw) return this.readRaw(ctx, a, !!kind || isVisionImage(a.file_path) || e === 'pdf' || isOffice(a.file_path) || SHEET_EXT.has(e) || e === 'hwp' || e === 'hwpx')
     if ((a.pages !== undefined || a.as_images) && e !== 'pdf') throw new ToolError('pages and as_images are only for PDF files', 'bad_pages')
     if ((a.sheet !== undefined || a.range !== undefined) && !SHEET_EXT.has(e)) throw new ToolError('sheet and range are only for spreadsheets (.xlsx, .xls, .ods)', 'bad_range')
     if (a.pretty !== undefined && !prettyAllowed(a.file_path)) throw new ToolError('pretty is only for .json and .jsonl files', 'bad_pretty')
@@ -821,6 +826,35 @@ export class FileService {
     }
     ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent })
     return { text: lines.join('\n'), summary: `read ${r.rel} versions -> ${items.length} kept, compared v${base.version}` }
+  }
+
+  /**
+   * read with raw: true: the exact text of a plain UTF-8 file that fits one read, nothing added (no line numbers, no
+   * notes), so a client can save it or rewrite it whole. The checks of a text read (readAuth, the checked descriptor,
+   * quarantine); a converted type, other bytes than UTF-8 text or a longer file are refused with the way on.
+   */
+  private async readRaw(ctx: ToolCtx, a: ReadArgs, converted: boolean): Promise<ToolOutput> {
+    const other = (['offset', 'limit', 'char_offset', 'pretty', 'pages', 'as_images', 'sheet', 'range', 'time', 'frames', 'transcript'] as const).filter((k) => a[k] !== undefined)
+    if (other.length) throw new ToolError(`raw gives the whole file: leave out ${other.join(', ')}`, 'bad_raw')
+    const r = this.readAuth(ctx, ctx.user, a.file_path)
+    if (r.st!.isDirectory()) throw new ToolError(`'${r.rel}' is a folder; use list`, 'is_folder')
+    const away = 'read it without raw (or download it with create_download_link, where the tool is offered)'
+    if (converted) throw new ToolError(`raw is for plain text files; '${r.rel}' is converted to text: ${away}`, 'bad_raw')
+    // UTF-8 takes at most 4 bytes a character: a bigger file cannot fit, and is not read for nothing
+    if (r.st!.size > READ_TEXT_CHARS * 4) throw new ToolError(`'${r.rel}' is too long for raw (at most one read, about ${READ_TEXT_CHARS.toLocaleString('en-US')} characters): ${away}`, 'bad_raw')
+    const { bytes, st } = readRegular(r.abs, readMaxBytes(), r.st)
+    if (ctx.sharedChild?.rel === r.rel && identity(st) !== identity(r.st!)) throw new Denied(safeText(this.db, ctx.user.id, 'changed'))
+    this.quarantine.assertBytes(bytes)
+    const text = exactText(bytes)
+    if (text === null) throw new ToolError(`'${r.rel}' is not plain UTF-8 text: ${away}`, 'bad_raw')
+    if (!fitsOneRead(text)) throw new ToolError(`'${r.rel}' is too long for raw (${text.length.toLocaleString('en-US')} characters; at most one read, about ${READ_TEXT_CHARS.toLocaleString('en-US')}): ${away}`, 'bad_raw')
+    const hash = sha256(bytes)
+    // the whole text: a write or an edit may follow, as after a plain read
+    ctx.files.readHashes.set(r.rel, hash)
+    ctx.files.readPaths.add(r.rel)
+    ctx.files.prettyReads.delete(r.rel)
+    ctx.files.sources.note(r.rel, 'read', { agent: ctx.files.agent, sha256: hash })
+    return { text, summary: `read ${r.rel} raw -> ${text.length} chars` }
   }
 
   /** Text of a file (Office files converted), numbered lines. */
@@ -935,6 +969,8 @@ export class FileService {
       const out = numberedLines(src.rel, lines, a)
       const scanned = this.scannedNote(ctx, layers)
       if (scanned) out.text += `\n\n${scanned.text}`
+      const form = await pdfFormNote(src.bytes, ctx.signal)
+      if (form) out.text += `\n\n${form}`
       return out
     }
 
@@ -945,6 +981,9 @@ export class FileService {
 
     const { content, notes, images } = await this.pdfPagesForModel(ctx, { label: src.rel, bytes: src.bytes, layers }, pages, { asImages: a.as_images })
     for (const t of notes) appendText(content, t)
+    // a fill-in form: its fields' names, so the AI fills them rather than writing under them (TC-5513)
+    const form = await pdfFormNote(src.bytes, ctx.signal)
+    if (form) appendText(content, form)
     const beforeDelivery = images ? () => this.recheckSource(ctx, src) : undefined
     beforeDelivery?.()
     // the pages of a read by pages; a read of the whole (short) file is the file
@@ -2087,7 +2126,7 @@ export class FileService {
 
 /** formats that take read's `sheet` and `range` */
 const SHEET_EXT = new Set(['xlsx', 'xls', 'ods'])
-type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number }
+type ReadArgs = { file_path: string; offset?: number; limit?: number; char_offset?: number; pretty?: boolean; pages?: string; as_images?: boolean; sheet?: string; range?: string; time?: string; frames?: number; transcript?: boolean; versions?: boolean | number; version?: number; raw?: boolean }
 export interface BoundSource { rel: string; bytes: Buffer; hash: string; identity: string }
 /** a provider's answer for a piece; `languageP`: how sure whisper.cpp was of the language it heard (not from
  * OpenRouter); OpenRouter's: how sure whisper was of its words, its generation id and provider (openrouter-stt.ts) */
@@ -2190,4 +2229,27 @@ export function withCsvHeaders(text: string, paths: string[], header: (path: str
   }
   const rest = more ? `\n(${more} more CSV file${more === 1 ? '' : 's'}: read line 1 for the column names)` : ''
   return add.length ? `${text}\n(Line 1 of ${add.length === 1 ? 'this CSV file: its column names' : 'these CSV files: their column names'})\n${add.join('\n')}${rest}` : text
+}
+
+/** PDFs at most this large get their form fields listed when read (the office worker parses the whole file) */
+const PDF_FORM_READ_MAX = 20 * 1024 * 1024
+const latin1Has = (b: Uint8Array, t: string) => Buffer.from(b.buffer, b.byteOffset, b.byteLength).includes(t, 0, 'latin1')
+
+/**
+ * What a read of a PDF says about its fill-in form fields (files/pdf-form.ts formFieldsText), or '' when it has none.
+ * Only a PDF whose bytes name /AcroForm (or hide its objects in compressed object streams, where the name cannot be
+ * seen) goes to the office worker, which parses it; a failure there leaves the note out, the read itself stands.
+ */
+export async function pdfFormNote(bytes: Uint8Array, signal?: AbortSignal): Promise<string> {
+  if (bytes.length > PDF_FORM_READ_MAX || !(latin1Has(bytes, '/AcroForm') || latin1Has(bytes, '/ObjStm'))) return ''
+  let release: (() => void) | null = null
+  try {
+    release = await PDF_GATE.enter(bytes.length, signal)
+    const answer = await officeWorkerWrite(PDF_PAGES_MODE, encodePagesRequest({ kind: 'fields' }, [{ name: 'the PDF', bytes }]), signal)
+    const form = decodePagesResult(answer).report.form
+    return form ? formFieldsText(form) : ''
+  } catch {
+    signal?.throwIfAborted()
+    return ''
+  } finally { release?.() }
 }

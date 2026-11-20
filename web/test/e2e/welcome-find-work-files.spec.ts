@@ -1,7 +1,7 @@
 // The invited person's welcome card on Home, its optional desktop-app row "Bring work files from this computer"
 // (components/onboarding/MemberWelcome.tsx FilesRow; docs/DECISIONS.md "The welcome card brings work files from this
-// computer"), in a real browser against the mock with the stand-in desktop bridge of find-work-files.spec.ts. Checked: no
-// row in a browser or with an older app, "1 of 3" either way; the row opens My files' dialog; every way out comes back to
+// computer"), in a real browser against the mock with the stand-in desktop bridge of find-work-files.spec.ts. Checked: in
+// a browser the row opens the desktop app instead, no row with an older app, "1 of 3" either way; the row opens My files' dialog; every way out comes back to
 // the card (Cancel in the app's window, the dialog's ✕, Not now on the Full Disk Access screen then Cancel, Undo then
 // Close); a file added turns the row done, Undo turns it back; it never holds back "You're all set".
 import { expect, test, type Page } from '@playwright/test'
@@ -41,12 +41,15 @@ const backOnCard = async (page: Page) => {
   await expect(page.getByTestId('member-welcome-files-button')).toBeVisible()
 }
 
-test('a browser: no files row, and the card counts 1 of 3', async ({ page }) => {
+test('a browser: the row opens the desktop app instead (a Mac or Windows browser), and the card counts 1 of 3', async ({ page }) => {
   await reset(page)
   await welcomeCard(page)
   await home(page)
   await expect(page.getByTestId('member-welcome-ask')).toBeVisible()
-  await expect(row(page)).toHaveCount(0)
+  // Playwright's Desktop Chrome says Windows: "Open the desktop app" (docs/decisions/20261120-my-setup-card.md)
+  await expect(row(page)).toContainText('데스크톱 앱 열기')
+  await expect(page.getByTestId('member-welcome-files-button')).toHaveCount(0)
+  await expect(page.getByTestId('member-welcome-open-app')).toHaveAttribute('href', '/open-app')
   await expect(page.getByTestId('member-welcome-progress')).toContainText('1')
   await expect(page.getByTestId('member-welcome-progress')).toContainText('3')
 })

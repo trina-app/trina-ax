@@ -18,6 +18,9 @@
 // A guest gets none (none of the team's screens are theirs; the guest section says what they can do).
 // Install facts: guest AI only where the AI runs on the team's connections (managed); the dev environment only where
 // the server has it (MYCEL_DEV_ENV, devenv/setting.ts devEnvFlag); otherwise one line says it is not on this install.
+// A free-roam demo (`freeRoam`, QA TC-5570) gets a map without the places the demo fences (demo/guard.ts) or hides (web
+// lib/freeRoam.ts FREE_ROAM_HIDDEN_SETTINGS / FREE_ROAM_HIDDEN_PAGES): no Admin page, no Settings › Security, Apps, AI
+// apps, Connectors or own AI and model, no room apps, no Open the app; one line says Admin is not in the demo.
 import { ownFolderLabel, PRODUCT } from '@mycel/shared'
 import { PRODUCT_NAMED_AFTER_AI, type Locale } from '@mycel/shared/api'
 import { APP_MAP_LABELS } from './app-map-labels'
@@ -47,6 +50,8 @@ export interface AppMapInput {
   /** this person may pick their own AI and model for new chats (admin/engine-choice.ts canChooseEngine; an owner or
    * admin always may); not known (a shared chat, whose map says nothing about the asker): "if allowed" */
   pickModel?: boolean
+  /** a free-roam demo instance (app-config.ts isFreeRoam): the map names no page the demo fences or hides; absent: not one */
+  freeRoam?: boolean
 }
 
 /** What the dev environment does, in everyday words: "server" and "programs" came back in answers to members (AI
@@ -90,15 +95,29 @@ export function appMapSection(o: AppMapInput, L: Locale): string {
       // the AI there reads a thread when someone asks (docs/decisions/20261117-ai-reads-answer-comments.md)
       : `- Shared chat (a project's or shared with people), under a finished answer: ${q('rooms.replyInThread')}: people's talk; the AI there reads it when someone asks. Asker and repliers are told; not in a private chat.`,
     `- ${tr('cardAlways', L)} on a card: not asked again; undo in ${set(PRODUCT_NAMED_AFTER_AI ? 'settings.allowances' : 'settings.allowancesAi')}.`,
-    `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
+    // a free-roam demo fences adding room apps (demo/guard.ts ROOM_APPS)
+    o.freeRoam
+      ? `- Room ⋯: ${q('chat.pin')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`
+      : `- Room ⋯: ${q('chat.pin')}, ${q('roomApps.menuAdd')} (${q('roomApps.menuList')} once it has some): Google Forms or any service posts into the room by its ${q('roomApps.address')}. A group chat's also ${q('rooms.info.rename')}, ${q('rooms.info.addPeople')}; a team room: people follow its group, owners and admins rename.`,
     `- Room bell or ⋯ › ${q('rooms.menu.notify')}: ${q('rooms.notify.mentions')} / ${q('rooms.notify.off')}. ${q('notifications.quiet')}: ${set('notifications.title')}. Message hover: ${q('rooms.react')}. Mentions, thread replies: ${q('inbox.title')}.`,
     // the person's own AI and model only for someone who may pick one: a member read "if allowed" and told the asker
     // Profile might let them (CON-07.member, dev f394c9258 rerun 2026-11-17)
-    `- ${q('settings.title')}: ${q('settings.profile')} (photo, name${o.pickModel === undefined ? '; own AI and model, if allowed' : o.pickModel ? '; own AI and model for new chats' : ''}), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
+    // a free-roam demo hides Security, Apps, AI apps (FREE_ROAM_HIDDEN_SETTINGS), fences connecting services and the
+    // engine and model (demo/guard.ts connect, usage)
+    o.freeRoam
+      ? `- ${q('settings.title')}: ${q('settings.profile')} (photo, name), ${q('settings.about')} (version). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`
+      : `- ${q('settings.title')}: ${q('settings.profile')} (photo, name${o.pickModel === undefined ? '; own AI and model, if allowed' : o.pickModel ? '; own AI and model for new chats' : ''}), ${q('settings.security')} (${q('auth.changePassword')}; ${q('settings.devices')}: sign one out), ${q('integrations.title')} (own Slack, Google…), ${q('settings.apps')} (phone, computer apps), ${q('settings.about')} (version), ${q('aiApps.title')} (team files from Claude or another AI app). Own photo menu: ${q('status.set')}, ${q('presence.setAway')}.`,
     `- ${q('projects.title')} › ${q('projects.new')}: anyone (the team may keep team projects to owners and admins). ${q('sidebar.skills')}: ${q('skills.catalog.more')} (ready-made; owners and admins see it while some are missing); ${q('skills.catalog.bring')} (on a computer; a member's are reviewed).`,
     `- ${q('sidebar.files')} › ${q('filesPanel.shared')}: files and folders shared with them, newest first. In ${ownFolderLabel(L)}, a folder's ⋯ › ${q('folderAccess.menu')}: view only, later files too; take people off or ${q('fileShare.stop')} anytime, ${q('common.undo')} right after; the team can turn members' sharing off. Team folders: owners and admins share.`,
     `- ${q('sidebar.files')} › ${ownFolderLabel(L)}, desktop app (not the Mac App Store one): ${q('files.findWork.entryButton')}; in a Mac or Windows browser ${q('openApp.lineLink')} › ${q('openApp.mac')} (or Windows) opens the desktop app signed in, no password (not opened: ${q('openApp.download')}, press again, a new one-time sign-in; not from a phone).`,
   ]
+  if (o.freeRoam) {
+    // the desktop app signs in through a one-time app sign-in, fenced in the demo (demo/guard.ts account: appSignIn)
+    lines.pop()
+    // every Admin page is fenced (demo/guard.ts admin): one line for every role, no page named
+    lines.push(`- ${q('admin.title')} and every page in it are not in the demo: never send anyone there, whatever they ask about.`)
+    return lines.join('\n')
+  }
   if (o.view === 'member') {
     // situation.ts's member line already names folders, groups, connected apps, plugins, AI accounts and team settings
     lines.push(`- Also the owner's or an admin's, in ${q('admin.title')}: invites, roles (admins: the owner only), a forgotten password (they make a reset link), guests, handover, usage and limits, activity log, time zone, voice input, ${o.pickModel === false ? 'who may pick their own AI model, ' : ''}system (storage, updates, backups, team address), ${q('devEnv.title')} (${DEV_ENV_WORDS}${o.devEnv ? '' : `; not on ${here}, so nobody can turn it on`}).`)

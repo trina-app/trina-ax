@@ -1,1 +1,0 @@
-- A new hosted server is ready sooner after it is made: its first start copies the app onto the data disk several times faster.

@@ -11,8 +11,7 @@
 // has, with no reply count and no box. `closeX`: the ✕ at every width, never the phone's ‹ (the file viewer's sheet on a
 // phone, which closes back to the file). `covered`: under the side chat (pages/Room.tsx, where one panel fits): nothing
 // in it is marked read.
-import clsx from 'clsx'
-import { ChevronLeft, Loader2, X } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import type { RoomMessage, UserRef } from '@mycel/shared/api'
 import { ApiError, errorText, isApiError } from '../../lib/api'
@@ -21,7 +20,8 @@ import { newestSeq, TARGET_PAGES } from '../../lib/rooms'
 import { holdPlace, ROOM_ROW, useStickToBottom } from '../../lib/stickToBottom'
 import { useLocale, useT } from '../../i18n'
 import { findMessage, placeKey, useRooms, type PendingSend } from '../../store/rooms'
-import { ErrorNote, IconButton, Skeleton } from '../ui'
+import { ErrorNote, Skeleton } from '../ui'
+import { ThreadCountLine, ThreadHead } from './ThreadParts'
 import { RoomComposer } from './RoomComposer'
 import { RoomMessages } from './RoomMessages'
 import { RoomSideColumn } from './RoomSideColumn'
@@ -126,21 +126,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
   const body = (
     // a file dropped anywhere on the thread goes into its reply box (none: the overlay says nothing can be attached)
     <FileDropZone className="flex min-h-0 flex-1 flex-col" data-testid="thread-drop">
-      {/* the ✕ keeps the same 16 px from the right edge as the replies and the reply box */}
-      <div className={clsx('flex h-12 shrink-0 items-center gap-1 border-b border-line', closeX ? 'pr-2 pl-4 md:px-4' : 'px-2 max-md:pl-0.5 md:px-4')}>
-        {!closeX && (
-          <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className="touch-hit p-3 md:hidden" data-testid="thread-back">
-            <ChevronLeft size={20} aria-hidden />
-          </IconButton>
-        )}
-        <h2 className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="shrink-0 text-title-sm font-semibold text-ink">{t('rooms.thread')}</span>
-          <span className="truncate text-xs text-faint" data-testid="thread-room">{roomTitle}</span>
-        </h2>
-        <IconButton tip label={t('rooms.closeThread')} onClick={onClose} className={clsx('touch-hit', !closeX && 'max-md:hidden')} data-testid="thread-close">
-          <X size={16} aria-hidden />
-        </IconButton>
-      </div>
+      <ThreadHead where={roomTitle} onClose={onClose} closeX={closeX} testIds="thread" whereTestId="thread-room" />
       <div ref={scroller} onScroll={onScroll} className="scroll-thin min-h-0 flex-1 overflow-y-auto" data-testid="thread-scroller">
         <div ref={content} className="px-4 pt-3 pb-6">
           {notFound ? (
@@ -161,10 +147,7 @@ export function ThreadPanel({ roomId, rootId, roomTitle, members, meId, onClose,
                 </button>
               )}
               {root && !alone && (
-                <div role="separator" className="flex items-center gap-3 pt-3 pb-1 text-xs text-faint" data-testid="thread-count">
-                  {count > 0 ? t('rooms.threadReplies', { n: count }) : t('rooms.threadNone')}
-                  <span className="h-px flex-1 bg-line" aria-hidden />
-                </div>
+                <ThreadCountLine count={count} testId="thread-count" />
               )}
               {view?.loading && root && !replies.length && <Loader2 size={16} className="mx-auto my-2 animate-spin text-faint" aria-label={t('common.loading')} />}
               <RoomMessages roomId={roomId} messages={replies} pending={pending} meId={meId} members={members} variant="reply" onAskTrina={onAskTrina} onAskFile={onAskFile} dayBefore={root?.createdAt ?? null} highlight={highlight} />

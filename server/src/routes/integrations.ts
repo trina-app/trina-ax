@@ -9,6 +9,7 @@ import { linkBase } from '../auth/accounts'
 import { integrationsOf, MAX_PERSONAL, type CallbackResult, type FlowFailure } from '../integrations/connections/service'
 import { requestsOf } from '../integrations/connections/requests'
 import { templatesOf } from '../integrations/connections/templates'
+import { githubAppView } from '../integrations/github/app'
 import { afterTeamConnection } from '../integrations/service-requests'
 import { templatesSeen } from '../onboarding/member-welcome'
 import type { AuthInfo } from '../services'
@@ -51,7 +52,7 @@ export function registerIntegrationRoutes(kit: RouteKit, ctx: AppContext) {
     { client: auth.session.client, loopbackPort: auth.session.client === 'desktop' ? body.loopbackPort ?? null : null }))
   kit.handle(API.integrationFlow, ({ auth, params }) => svc().flow(auth.user.id, auth.session.id, params.id))
   kit.handle(API.cancelIntegrationFlow, ({ auth, params }) => { svc().cancelFlow(auth.user.id, auth.session.id, params.id) })
-  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')) }))
+  kit.handle(API.listTeamIntegrations, ({ c, auth }) => ({ items: svc().listTeam(viewer(auth), c.get('locale')), github: githubAppView(ctx) }))
   kit.handle(API.createTeamIntegration, async ({ c, auth, body }) => { const i = await svc().create(viewer(auth), body, 'team', c.get('locale')); afterTeamConnection(ctx, i.url); return i })
   // an admin asks a member to connect a service as their own connection (integrations/connections/requests.ts)
   const reqs = () => requestsOf(ctx)

@@ -572,6 +572,8 @@ const RECORDED: Recorded[] = JSON.parse(fs.readFileSync(path.join(import.meta.di
 const EXPECTED: Record<string, 'registered' | 'metadata' | 'approved_only' | 'no_registration'> = {
   canva: 'metadata', indeed: 'metadata', railway: 'metadata', vercel: 'metadata',
   figma: 'approved_only', intercom: 'approved_only', square: 'approved_only',
+  // registers no apps: it signs in through the server's GitHub App (c-integrations-github.test.ts)
+  github: 'no_registration',
 }
 /** the second probe of an address (Canva's documented api.canva.com, Atlassian's v1) */
 const expectedFor = (r: Recorded) => (r.mcpUrl === 'https://api.canva.com/connect/v1/mcp' ? 'no_registration' : EXPECTED[r.id] ?? 'registered')

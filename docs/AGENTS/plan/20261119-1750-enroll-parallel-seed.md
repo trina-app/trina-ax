@@ -65,3 +65,12 @@ Out: replacing `cp -a` with a Go copier (see Decisions), Fast Snapshot Restore (
   event does nothing. Not yet measured on EC2: check the seed log lines and `journalctl -b -u ax-axdata-resize` on the
   next new hosted server.
 - Independent review: approve with nits; O_NOATIME, the one-device-name check and the README note were taken.
+
+## Follow-up 2026-11-20: read-ahead off by default
+
+A cold-read test on EC2 (t3a.medium, Seoul, volumes made from the teamax-0.5.21 root snapshot, 1.29 GB seed in 3,545
+files) found the read-ahead slower, not faster: plain `cp -a` took 144.5 s; 32 parallel readers and then `cp -a` took
+168.7 s. The lazy load from the snapshot caps throughput per volume, so more readers do not add speed. The default is
+now `0` (off), and `AX_ENROLL_SEED_READERS=1..256` turns it on. The `.seed-incomplete` marker and the axdata-resize
+guard stay. What helps is the EBS initialization rate on the root volume, which the host sets at launch (trina-cloud
+#133): 35.3 s at 300 MiB/s, 62.9 s at 200 MiB/s.

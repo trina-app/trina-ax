@@ -67,12 +67,16 @@ export const reconnectPushPath: PushPath = (ctx, id) => {
 }
 pushPaths.set('connection.reconnect', reconnectPushPath)
 // a room notice opens its room (the same page a Web Push click opens, web/pwa/sw.js), only while the person is still in
-// that room and it is not archived; a reply in a thread opens that thread (/rooms/<room>/t/<root>, ids only). The room
-// page checks membership and the thread's root again
+// that room and it is not archived; a reply in a thread opens that thread (/rooms/<room>/t/<root>, ids only). The
+// message itself is the last part (/m/<message>: a phone's path names no query; the web app reads it as ?m=, goes to it
+// and picks it out, the thread's root in the room beside it: web/src/App.tsx). The room page checks membership, the
+// thread's root and what the person may see of the message again
 const roomPath: PushPath = (ctx, id) => {
-  const r = ctx.db.query(`SELECT n.room_id, s.thread_root_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
-    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL LEFT JOIN room_messages s ON s.id=n.source_id WHERE n.id=?`).get(id) as { room_id: string; thread_root_id: string | null } | null
-  return r ? (r.thread_root_id ? `/rooms/${r.room_id}/t/${r.thread_root_id}` : `/rooms/${r.room_id}`) : null
+  const r = ctx.db.query(`SELECT n.room_id, s.id AS message_id, s.thread_root_id FROM room_notices n JOIN room_members m ON m.room_id=n.room_id AND m.user_id=n.user_id
+    JOIN rooms r ON r.id=n.room_id AND r.archived_at IS NULL LEFT JOIN room_messages s ON s.id=n.source_id WHERE n.id=?`).get(id) as { room_id: string; message_id: string | null; thread_root_id: string | null } | null
+  if (!r) return null
+  const at = r.message_id ? `/m/${r.message_id}` : ''
+  return r.thread_root_id ? `/rooms/${r.room_id}/t/${r.thread_root_id}${at}` : `/rooms/${r.room_id}${at}`
 }
 for (const code of ROOM_PUSH_EVENTS) pushPaths.set(code, roomPath)
 // a lead join opens Home, where the owner's handover card is (the card checks again that it still holds)

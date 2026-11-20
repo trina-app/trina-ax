@@ -5,7 +5,7 @@
 // folder (POST /api/onboarding/welcome/brand, no AI), and nothing starts by itself: no deck, no chat, no skill (one line
 // under the button says what goes where). 회사 소개 needs AI, so without it the AI step opens in its place, never in
 // front of the later steps; "나중에 하기" there leaves the steps (Home shows its connect card, the setup row
-// says "AI 연결하기"). 도구 연결 (components/onboarding/ToolsStep.tsx) is on every team; a phone walks past it and records
+// says "AI 연결하기"). 팀이 쓸 도구 (components/onboarding/ToolsStep.tsx) is on every team; a phone walks past it and records
 // it as put off. Every step can be put off; the progress is kept on the server (store/welcome.ts), so the steps resume
 // where they stopped, on any device, from the setup row at the top of the lists (components/onboarding/SetupRow.tsx) or a
 // landing (W4). The end screen shows once, with one press to make a first result with a skill the team has.
@@ -24,7 +24,7 @@ import clsx from 'clsx'
 import { ArrowLeft, Check, CircleAlert, ExternalLink, Loader2, Paperclip } from 'lucide-react'
 import { useEffect, useRef, useState, type DragEvent, type ReactNode, type RefObject } from 'react'
 import { Navigate, parsePath, useLocation, useNavigate } from 'react-router-dom'
-import { WELCOME_BRAND_FILES_MAX, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
+import { WELCOME_BRAND_FILES_MAX, SLACK, teamHome, WELCOME_COUNTED, skillLabel, uuidv7, type CompanyProfile, type WelcomeProgress, type WelcomeStep, type WelcomeStepState } from '@mycel/shared/api'
 import { api, API, errorText } from '../lib/api'
 import { useGoBack } from '../lib/back'
 import { markBusy } from '../lib/busy'
@@ -32,10 +32,10 @@ import { joinPath } from '../lib/paths'
 import { stackNow, type Scr } from '../lib/screenHistory'
 import { sameScreen, useScreenName } from '../lib/screens'
 import { setupSite } from '../lib/setupLink'
-import { skillRunLink } from '../lib/skillForm'
 import { uploadFile, type UploadProgress } from '../lib/upload'
-import { aiName } from '../lib/tabs'
-import { countedSteps, firstResultSkill, historyName, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepPosition, wantsTeam } from '../lib/welcome'
+import { APP_CONNECTORS, CONNECTORS } from '../lib/connectors'
+import { useFolderWords } from '../lib/folderLabels'
+import { countedSteps, inviteSkill, markStepsSeen, needsAi, nextStep, offeredHere, phoneSkips, prevStep, putOffSteps, resumeStep, setupReturnStep, skillNameOf, stepDone, stepPosition, wantsTeam } from '../lib/welcome'
 import { useLocale, useT, type MessageKey } from '../i18n'
 import { useAiAccess } from '../store/aiAccess'
 import { isOwner, useMeStrict } from '../store/session'
@@ -135,6 +135,17 @@ function WelcomeSteps() {
   const leaving = useRef(false)
   // the steps were finished when they opened (a put-off step asked back by the setup row): ending it says nothing new
   const finishedBefore = useRef(false)
+  // the steps this device does not offer that were put off while the setup was unfinished (a phone's walk past 도구
+  // 연결: phoneSkips, now or in an earlier visit): the end screen says "컴퓨터에서 할 수 있어요" for them even when the
+  // finishing save came back with one done (the server settles a put-off 도구 연결 done once any connection works:
+  // welcome.ts settlePutOff); one really done (on a computer, before) keeps its ✓
+  const putOffHere = useRef(new Set<WelcomeStep>())
+  // every save (or read): the row as it was before it, unfinished, so not settled yet
+  useEffect(() => useWelcome.subscribe((now, before) => {
+    const p = before.progress
+    if (!p || p.finishedAt || now.progress === p) return
+    for (const id of WELCOME_COUNTED) if (!offeredHere(id, !phoneNow()) && p.steps[id] === 'skipped') putOffHere.current.add(id)
+  }), [])
 
   /** Show a step: on a phone also its own history entry (a push). A step already under this one in the history is gone
    * back to instead (lib/screenHistory.ts). */
@@ -205,7 +216,10 @@ function WelcomeSteps() {
         : askedBack && (!p.finishedAt || putOffSteps(p, useAiAccess.getState().usable, here).includes(askedBack)) && offeredHere(askedBack, here) && !(needsAi(askedBack) && !useAiAccess.getState().usable) ? askedBack
           : resumeStep(p, useAiAccess.getState().usable, here)
       // a phone resuming past 도구 연결: put off there (docs/DECISIONS.md "W6"), so the setup can end on the phone
-      for (const id of phoneSkips(p, null, here)) p = await w.update({ step: { id, state: 'skipped' } })
+      for (const id of phoneSkips(p, null, here)) {
+        putOffHere.current.add(id)
+        p = await w.update({ step: { id, state: 'skipped' } })
+      }
       // gone elsewhere meanwhile: nothing to open
       if (where.current.pathname !== '/welcome') return
       // nothing left here (finished, or what is left waits for a computer): Home, whatever step the address names (a
@@ -267,7 +281,10 @@ function WelcomeSteps() {
    * 연결 and records it as put off (docs/DECISIONS.md "W6"). False when a phone went to another step while this one was
    * saved (Back meanwhile): it stays there, and the next step is not pushed over it. */
   const go = async (p: WelcomeProgress, from: WelcomeStep): Promise<boolean> => {
-    for (const id of phoneSkips(p, from, computer)) p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
+    for (const id of phoneSkips(p, from, computer)) {
+      putOffHere.current.add(id)
+      p = await useWelcome.getState().update({ step: { id, state: 'skipped' } })
+    }
     const at = atNow()
     if (at && at !== from) { fromDone.current = false; return false }
     setBrandNote(false)
@@ -364,7 +381,7 @@ function WelcomeSteps() {
         {!gate && step === 'files' && <TeamFilesStep progress={progress} busy={busy} nextLabel={nextLabel('files')} onDone={(n) => void mark('files', n > 0 ? 'done' : 'skipped')} onSkip={() => void mark('files', 'skipped')} />}
         {!gate && step === 'tools' && <ToolsStep busy={busy} done={progress.steps.tools === 'done'} nextLabel={nextLabel('tools')} onDone={() => void mark('tools', 'done')} onSkip={() => void mark('tools', 'skipped')} />}
         {!gate && step === 'invite' && <InviteWizardStep progress={progress} onDone={() => void mark('invite', 'done')} onSkip={() => void mark('invite', 'skipped')} onStep={(s) => { setError(null); show(s) }} />}
-        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} onStep={(s) => { fromDone.current = true; setError(null); show(s) }} onExit={exit} />}
+        {step === 'done' && <DoneStep progress={progress} aiReady={aiReady} computer={computer} putOffHere={putOffHere.current} onStep={(s) => { fromDone.current = true; setError(null); show(s) }} onExit={exit} />}
       </div>
       {error && <div className="mt-4"><ErrorNote>{error}</ErrorNote></div>}
     </Page>
@@ -764,97 +781,136 @@ function InviteWizardStep({ progress, onDone, onSkip, onStep }: { progress: Welc
   return <InviteStep skillPath={skillPath} retarget={!!skillPath} shared={shared} prepare onDone={onDone} onSkip={onSkip} steps={{ skills: () => onStep('skills'), files: () => onStep('files') }} />
 }
 
-/** The end screen's deck line, for a row whose deck started on an earlier version (docs/DECISIONS.md "W6": nothing starts
- * one now): the server's fact that a deck really started (`deckStarted`: the deck's chat holds the "/intro-deck"
- * message, or a deck build exists), never a recorded chat alone (a first result of a row from before is no deck). An
- * older server without the fact: the recorded chat, as before. */
-const deckLine = (p: WelcomeProgress) => p.deckStarted ?? !!p.resultChatId
+/** The five steps the end screen sums up, in their order (the AI step is not one of them: the primary says it). */
+const SUMMED: WelcomeStep[] = ['profile', 'skills', 'files', 'tools', 'invite']
+
+/** At most this many folders are read to count the team's files; a bigger tree shows the row without the number. */
+const FACT_FOLDERS_MAX = 25
+
+/** The files under `root` (every level), leaving out `skip` folders; null when it cannot be read whole (a page more, or
+ * more than FACT_FOLDERS_MAX folders). */
+async function countFiles(root: string, skip: ReadonlySet<string>): Promise<number | null> {
+  let files = 0
+  let reads = 0
+  const queue = [root]
+  while (queue.length) {
+    if (++reads > FACT_FOLDERS_MAX) return null
+    const r = await api.call(API.tree, { query: { path: queue.shift()! } })
+    if (r.nextCursor) return null
+    for (const e of r.entries) {
+      if (e.type === 'file') files++
+      else if (!skip.has(e.path)) queue.push(e.path)
+    }
+  }
+  return files
+}
+
+/** One short fact per step done, read for the end screen; a fact that cannot be read is left out (the row shows
+ * without it), never a count that could mislead. */
+function useDoneFacts(progress: WelcomeProgress, unshown: ReadonlySet<WelcomeStep>): Partial<Record<WelcomeStep, string>> {
+  const t = useT()
+  const words = useFolderWords()
+  const [facts, setFacts] = useState<Partial<Record<WelcomeStep, string>>>({})
+  useEffect(() => {
+    let live = true
+    const put = (s: WelcomeStep, v: string | null) => { if (live && v) setFacts((f) => ({ ...f, [s]: v })) }
+    const g = progress.teamGroup
+    // a row without its fact (put off elsewhere: "컴퓨터에서 할 수 있어요") asks nothing
+    const done = (s: WelcomeStep) => stepDone(progress, s) && !unshown.has(s)
+    const home = g ? teamHome(g) : null
+    // 회사 소개: where it was saved, as the sidebar names it ("전사 공유 › 브랜드", "Acme › 브랜드")
+    if (done('profile') && g?.brandFolder && home) {
+      const inside = g.brandFolder.startsWith(`${home}/`) ? g.brandFolder.slice(home.length + 1).split('/') : [g.brandFolder.slice(g.brandFolder.lastIndexOf('/') + 1)]
+      put('profile', t('welcome.done.fact.profile', { place: [words.name(home, home.slice(home.lastIndexOf('/') + 1)), ...inside].join(' › ') }))
+    }
+    // 스킬: the names the owner shared, the first three (never a raw folder name)
+    const names = (progress.shared?.skills ?? []).map((x) => skillLabel({ name: skillNameOf(x.path), title: x.title }))
+    if (done('skills') && names.length) put('skills', names.length > 3 ? t('welcome.done.fact.skillsMore', { names: names.slice(0, 3).join(', '), n: names.length - 3 }) : names.join(', '))
+    // 팀 파일: the files in the team's home (teamHome: shared/ since "Team folder basics"), every level, without its
+    // notes and brand folders (the setup's own)
+    if (done('files') && g && home) {
+      countFiles(home, new Set([g.notesFolder, g.brandFolder].filter((x): x is string => !!x)))
+        .then((n) => put('files', n ? t('welcome.done.fact.files', { files: n }) : null), () => {})
+    }
+    // 팀이 쓸 도구: the team's connections that work (Slack too), and the tools recommended
+    if (done('tools')) {
+      void Promise.all([
+        api.call(API.listTeamIntegrations).then((r) => r.items.filter((i) => i.status === 'connected').map((i) => i.name), () => null),
+        api.call(SLACK.slackAdmin).then((x) => (x.state === 'connected' ? ['Slack'] : []), () => []),
+        api.call(API.settings).then((r) => (r.recommendedTools ?? []).map(toolName), () => null),
+      ]).then(([team, slack, rec]) => {
+        const on = [...(team ?? []), ...slack]
+        const parts = [on.length ? t('welcome.done.fact.toolsTeam', { names: on.join(', ') }) : null, rec?.length ? t('welcome.done.fact.toolsRecommended', { names: rec.join(', ') }) : null].filter(Boolean)
+        put('tools', parts.join(' · '))
+      })
+    }
+    // 팀원 초대: the team link (what the step makes), and how many came in with it
+    if (done('invite')) {
+      api.call(API.getTeamLink).then((r) => put('invite', !r.link ? null : r.link.uses > 0 ? `${t('welcome.done.fact.teamLink')} · ${t('welcome.done.fact.joined', { n: r.link.uses })}` : t('welcome.done.fact.teamLink')), () => {})
+    }
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  return facts
+}
+
+/** a recommended tool's name (Google Drive, Gmail …, a listed service), else its id */
+const toolName = (id: string) => APP_CONNECTORS.find((a) => a.id === id)?.name ?? CONNECTORS.find((c) => c.id === id)?.name ?? id
 
 /**
- * 준비 끝났어요 (docs/DECISIONS.md "W6"), once (`doneShownAt`). One primary, chosen in this order:
- * - no AI that answers the owner: "AI 연결하기";
- * - a skill of the owner's own is what everything points at (inviteSkill): "'{skill}' 먼저 써 보기";
- * - a kept skill is in the team (lib/welcome.ts firstResultSkill: 카드뉴스 → 회사 소개서 → 홍보 영상 → 자연스러운 글):
- *   "'{skill}' 만들어 보기" ("'자연스러운 글' 써 보기");
- * - nothing: "홈으로" alone.
- * A press opens that skill's form on 팀 스킬 only (`/skills?run=`, the form members land on; its defaults read the
- * company intro and the brand folder): nothing runs until its own 실행, and closing it stays on 팀 스킬. This screen never
- * waits on a result. A row whose deck started earlier keeps its one line about where the deck is.
- * Under it, the steps put off (QA TC-206), each with 지금 하기: the step opens here and, answered, comes back to this
- * screen. Put off still counts as answered (the setup is finished), as W6 decided.
+ * 준비 끝났어요 (docs/decisions/20261120-team-vs-personal-onboarding.md), once (`doneShownAt`): what the team setup did,
+ * one row per step: ✓ and a short fact (where the company intro went, the skills, the team files, the team's tools,
+ * the invites), or "나중에 하기로 했어요" with 지금 하기 (the step opens here and, answered, comes back to this screen;
+ * still counted as answered, as W6 decided). Then the line on what comes next (each person's own settings: their tools,
+ * photo, apps) and one primary: "내 설정 시작" (Home, where the personal settings card is), or "AI 연결하기" while no AI
+ * answers, with "홈으로" as a quiet link.
  */
-function DoneStep({ progress, aiReady, computer, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
+function DoneStep({ progress, aiReady, computer, putOffHere, onStep, onExit }: { progress: WelcomeProgress; aiReady: boolean; computer: boolean; putOffHere: ReadonlySet<WelcomeStep>; onStep: (s: WelcomeStep) => void; onExit: (to: string, state?: unknown) => void }) {
   const t = useT()
-  const phone = useMediaQuery(PHONE_QUERY)
-  const own = inviteSkill(progress)
-  // never a raw folder name ("quote-maker"): the title, else the name as words (skillLabel)
-  const named = (title?: string | null) => (own ? skillLabel({ name: skillNameOf(own), title }) : null)
-  const [title, setTitle] = useState<string | null>(() => { const x = progress.shared?.skills.find((s) => s.path === own)?.title; return x ? named(x) : null })
-  // the kept skill to make a first result with, from the team's skills (undefined: being read)
-  const [kept, setKept] = useState<{ path: string; title: string; verb: MessageKey | null } | null | undefined>(own ? null : undefined)
+  // a step this device does not do (a phone walks past 팀이 쓸 도구) and did not get done: put off now, or put off here
+  // before the finishing save came back with it done (welcome.ts settlePutOff: any working connection, made before the
+  // setup). Done for real (on a computer, before): its ✓ and fact.
+  const elsewhereOf = (s: WelcomeStep) => !offeredHere(s, computer) && (!stepDone(progress, s) || putOffHere.has(s))
+  const facts = useDoneFacts(progress, new Set(SUMMED.filter(elsewhereOf)))
   useEffect(() => {
     if (!progress.doneShownAt) void useWelcome.getState().update({ doneShown: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  useEffect(() => {
-    if (own && title) return
-    let live = true
-    api.call(API.listSkills).then((r) => {
-      if (!live) return
-      if (own) { const s = r.items.find((x) => x.path === own); setTitle(s ? skillLabel(s) : named()); return }
-      const k = firstResultSkill(r.items.filter((x) => !x.personal && !x.group))
-      setKept(k ? { path: k.skill.path, title: skillLabel(k.skill), verb: k.verb } : null)
-    }, () => { if (!live) return; if (own) setTitle(named()); else setKept(null) })
-    return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [own, title])
   // out of the steps (on a phone their entries go: Back from where this leads never walks them again)
   const home = () => onExit('/')
-  // a skill's form from here closes back to Home (Skills.tsx closeRun reads `state.back`, PR #909), never stranding the
-  // owner on Team skills; the end screen shows once, so Home is where they would go next. Computers only: on a phone
-  // `exit` already leaves Home right under the form, so Back walks there, and a `state.back` there made the form's
-  // closing on Back a second step back on top of the Back itself (out of the app, to the page before Home)
-  const runSkill = (path: string) => onExit(skillRunLink(path), phoneNow() ? undefined : { back: '/' })
-  // the steps put off (still counted as answered, docs/DECISIONS.md "W6"): named, each with a way back now (QA TC-206)
-  const later = countedSteps(progress, aiReady).filter((s) => s !== 'ai' && progress.steps[s] === 'skipped' && offeredHere(s, computer))
-  const tryOwn = aiReady && !!own
-  const make = aiReady && !own && !!kept
   return (
     <div className="space-y-6" data-testid="welcome-done">
-      <StepHead title={t('welcome.done.title')} desc={deckLine(progress) ? (phone ? t('welcome.done.deckPhone', { name: aiName(t) }) : t('welcome.done.deck', { name: historyName(t) })) : undefined} />
+      <StepHead title={t('welcome.done.title')} />
+      <ul className="divide-y divide-line rounded-xl border border-line" data-testid="welcome-done-summary">
+        {SUMMED.map((s) => {
+          // "컴퓨터에서 할 수 있어요", never "나중에 하기로 했어요", and never a ✓ the setup did not earn (QA: a phone's 4
+          // steps ended on "✓ 팀 도구" from a Slack connected before)
+          const elsewhere = elsewhereOf(s)
+          const later = elsewhere || !stepDone(progress, s)
+          return (
+            <li key={s} className="flex items-center gap-3 px-4 py-2.5 text-sm" data-testid="welcome-done-row" data-step={s} data-state={elsewhere ? 'elsewhere' : later ? 'later' : 'done'}>
+              {later ? <span aria-hidden className="size-4 shrink-0 rounded-full border border-line-strong" /> : <Check size={16} className="shrink-0 text-ok" aria-hidden />}
+              <span className="min-w-0 flex-1">
+                <span className="font-medium text-ink">{t(STEP_LABEL[s]!)}</span>
+                {later ? <span className="text-muted"> · {t(elsewhere ? 'welcome.done.onComputer' : 'welcome.done.laterRow')}</span>
+                  : facts[s] ? <span className="text-muted" data-testid="welcome-done-fact"> · {facts[s]}</span> : null}
+              </span>
+              {later && !elsewhere && <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>}
+            </li>
+          )
+        })}
+      </ul>
+      <p className="text-sm text-muted" data-testid="welcome-done-next">{t('welcome.done.next')}</p>
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-        {!aiReady ? (
-          <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
-        ) : tryOwn ? (
-          <Button variant="primary" className="max-sm:w-full" disabled={!title} onClick={() => runSkill(own)} data-testid="welcome-done-try">
-            {t('welcome.done.try', { skill: title ?? '' })}
-          </Button>
-        ) : make ? (
-          <Button variant="primary" className="max-sm:w-full" onClick={() => runSkill(kept.path)} data-testid="welcome-done-make" data-skill={kept.path}>
-            {kept.verb ? t(kept.verb) : t('welcome.done.write', { skill: kept.title })}
-          </Button>
-        ) : kept === undefined ? (
-          <Skeleton lines={1} />
+        {aiReady ? (
+          <Button variant="primary" className="max-sm:w-full" onClick={home} data-testid="welcome-done-home">{t('welcome.done.start')}</Button>
         ) : (
-          <Button variant="primary" className="max-sm:w-full" onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</Button>
-        )}
-        {(tryOwn || make || !aiReady) && (
-          <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full max-md:min-h-11')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
+          <>
+            <ConnectAiButton size="md" panel data-testid="welcome-done-ai" />
+            <button type="button" className={clsx(quietLink, 'text-sm max-sm:w-full max-md:min-h-11')} onClick={home} data-testid="welcome-done-home">{t('welcome.done.home')}</button>
+          </>
         )}
       </div>
-      {later.length > 0 && (
-        <div data-testid="welcome-done-later">
-          <p className="text-sm text-muted">{t('welcome.done.later')}</p>
-          <ul className="mt-2 divide-y divide-line rounded-xl border border-line">
-            {later.map((s) => (
-              <li key={s} className="flex items-center gap-3 px-4 py-2 text-sm" data-testid="welcome-done-later-step" data-step={s}>
-                <span className="min-w-0 flex-1">{t(STEP_LABEL[s]!)}</span>
-                <Button size="sm" onClick={() => onStep(s)} data-testid="welcome-done-later-open">{t('welcome.done.laterOpen')}</Button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }

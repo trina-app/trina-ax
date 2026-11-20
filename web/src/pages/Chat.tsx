@@ -42,6 +42,7 @@ import { useBackLink } from '../lib/back'
 import { aiName } from '../lib/tabs'
 import { formatDate } from '../lib/format'
 import { chatPurgeAt, chatTrashDays } from '../lib/chat-trash'
+import { linkedAnswer, linkedStep } from '../lib/linkedAnswer'
 import { CHAT_ROW, farFromBottom, holdPlace, listPlace, restorePlace, useStickToBottom } from '../lib/stickToBottom'
 import { useWaitingMerge } from '../lib/mergeStart'
 import { useLocale, useT } from '../i18n'
@@ -531,8 +532,50 @@ function ChatView({ chatId, threadRoot }: { chatId: string; threadRoot: string |
   const openThread = (id: string, focus: boolean) => {
     opener.current = { id, button: focus }
     closeSidePanel()
-    navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus } })
+    navigate(`/c/${chatId}/t/${id}`, { replace: !!threadRoot, state: { fromChat: threadRoot ? fromChat : true, focus, here: true } })
   }
+  // a thread opened from outside this chat (an Activity row, a push tap, a link): the chat goes to the answer it is under
+  // and lights it for a moment, reading older pages to find it (lib/linkedAnswer.ts); one opened here leaves it as it was
+  const lightAnswer = (id: string) => {
+    const el = scroller.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+    if (!el) return
+    // at once, not in the next frame: a scroll event of the list's own jump to its bottom, still on its way, would make it
+    // follow the bottom again first (onListScroll near the bottom), and the answer would be pushed out of sight. Then the
+    // browser's scroll anchoring on again, so what grows later (a picture, the chat narrowing beside the thread) keeps it
+    // in place
+    el.scrollIntoView({ block: 'center' })
+    stick.current = false
+    list.reanchor()
+    el.setAttribute('data-focused', '')
+    setTimeout(() => el.removeAttribute('data-focused'), 2400)
+  }
+  const openedHere = !!(location.state as { here?: boolean } | null)?.here
+  const linked = linkedAnswer(threadRoot, openedHere)
+  const linkedAt = useRef<{ id: string | null; tries: number; done: boolean }>({ id: null, tries: 0, done: false })
+  useEffect(() => {
+    if (linkedAt.current.id !== linked) linkedAt.current = { id: linked, tries: 0, done: false }
+    const now = linkedAt.current
+    if (!linked || now.done || loading || loadError || olderBusy) return
+    const step = linkedStep({ id: linked, ids: messages.map((m) => m.id), hasOlder: !!thread.nextCursor, tries: now.tries })
+    if (step === 'older') {
+      now.tries += 1
+      setOlderBusy(true)
+      void loadOlder(chatId).catch(() => { now.done = true }).finally(() => setOlderBusy(false))
+      return
+    }
+    now.done = true
+    if (step === 'show') lightAnswer(linked)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked, loading, loadError, olderBusy, messages.length, thread.nextCursor])
+  // a phone: the thread was over the chat, so the chat goes to that answer (lit) when the thread closes
+  const lastLinked = useRef<string | null>(null)
+  useEffect(() => {
+    const was = lastLinked.current
+    lastLinked.current = linked
+    if (linked || !was || !phone) return
+    requestAnimationFrame(() => lightAnswer(was))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linked])
   const closeThread = useCallback(() => {
     if (fromChat) navigate(-1)
     else navigate(`/c/${chatId}`, { replace: true })

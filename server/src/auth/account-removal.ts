@@ -109,6 +109,7 @@ export const KEPT_WITH_ACCOUNT: Record<string, string> = {
   'room_reactions.user_id': 'reactions in shared rooms, as messages',
   'room_ai_turns.user_id': 'usage of the room AI, as turns',
   'rooms.created_by': 'SET NULL; the room stays for its members',
+  'room_categories.created_by': 'who made a team category: never shown or sent; SET NULL when the user row goes, and the category stays for the team (rooms/categories.ts)',
   'room_project_links.linked_by': 'who linked a channel to a project: never shown or sent; SET NULL when the user row goes, and the row goes with the channel or the project (rooms/project-link.ts)',
   'room_apps.created_by': 'SET NULL; an app belongs to its room and goes on ("Set up by someone who left")',
   'room_app_viewers.user_id': 'ids kept on purpose so people who left stay flagged as knowing an app\'s address until it gets a new one (goes with the app, or at "Get a new address")',
@@ -133,7 +134,7 @@ export function registerAccountsCleanup(ctx: AppContext): void {
   registerAccountCleanup(ctx, {
     name: 'accounts',
     rows: [
-      'remote_mcp_grants.user_id', 'remote_mcp_requests.user_id', 'remote_mcp_upload_links.user_id',
+      'remote_mcp_grants.user_id', 'remote_mcp_requests.user_id', 'remote_mcp_upload_links.user_id', 'remote_mcp_download_links.user_id',
       'sessions.user_id', 'app_signin_codes.user_id', 'login_nets.user_id', 'card_always_allow.user_id', 'user_web_access.user_id',
       'member_welcome.user_id', 'group_member_since.user_id',
       'account_deletion_notices.user_id', 'account_deletion_due_notices.user_id', 'reset_link_notices.user_id', 'handover_notices.user_id',

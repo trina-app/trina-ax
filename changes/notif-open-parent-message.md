@@ -1,0 +1,2 @@
+- Opening a notice for a reply in a thread now opens the thread and also scrolls the conversation or chat to the message the thread is under, which lights up for a moment, as in Slack. This works in rooms, project chats and chats shared with Share. Before, the middle stayed where it was.
+- Tapping a push for a mention or a reply opens the conversation at that message.

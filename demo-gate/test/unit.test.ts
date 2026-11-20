@@ -108,7 +108,7 @@ describe('deny list', () => {
     '/api/admin/credentials', '/api/admin', '/api/setup', '/api/credentials/sealing-key', '/api/me/credentials/1', '/api/me/credential-logins',
     '/api/invites/abc/accept', '/api/guest-invites', '/api/team-link/join', '/api/password-resets/tok', '/api/auth/password',
     '/api/demo/persona', '/api/integrations/oauth/callback', '/api/integrations/google-drive/callback', '/api/integrations/slack/oauth/callback',
-    '/oauth/authorize', '/mcp', '/connector-uploads/x', '/invite/abc', '/join', '/reset-password/x', '/setup',
+    '/oauth/authorize', '/mcp', '/connector-uploads/x', '/connector-downloads/x', '/invite/abc', '/join', '/reset-password/x', '/setup',
     '/API/Admin/x', '/api%2Fadmin', '//api/admin', '/api//admin/x', '/mcp?x=1',
   ])('%s is refused', (p) => expect(pathVerdict(p)).toBe('deny'))
   test.each(['/api/../api/admin', '/a/./b', '/x\\y', '/%2e%2e/api/admin', '/x%00'])('%s is a bad path', (p) => expect(pathVerdict(p)).toBe('bad'))
@@ -122,6 +122,13 @@ describe('cookies', () => {
   test('instance cookies are host-only and Secure', () => {
     expect(secureCookie('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax')).toBe('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax; Secure')
     expect(secureCookie('a=b; Domain=example.com; Secure')).toBe('a=b; Secure')
+  })
+  test('the instance\'s __Host-sid stays a cookie the browser keeps: Secure once, Path=/, no Domain', () => {
+    expect(secureCookie('__Host-sid=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure')).toBe('__Host-sid=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure')
+    expect(secureCookie('__Host-sid=abc; Path=/; Domain=127.0.0.1; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(secureCookie('__Host-sid=abc; Path=/api; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(secureCookie('__Host-sid=abc; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(cookiesForInstance('__Host-tdg=x; __Host-sid=y')).toBe('__Host-sid=y')
   })
   test('the gate cookie never reaches an instance', () => {
     expect(cookiesForInstance('__Host-tdg=x; mycel-dev-sid=y')).toBe('mycel-dev-sid=y')
