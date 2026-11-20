@@ -157,7 +157,7 @@ export async function editPdfFile(ctx: AppContext, files: TeamFiles, c: ToolCtx,
     })
     await inputs.load()
     // text that is not Latin needs the Pretendard font, sent with the request (the worker reads no files)
-    const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : 'replace_text' in op ? [op.replace_text.replace] : 'fill_form' in op ? Object.values(op.fill_form.fields).filter((v): v is string => typeof v === 'string') : []))
+    const texts = a.operations.flatMap((op) => ('add_text' in op ? [op.add_text.text] : 'watermark' in op ? [op.watermark.text] : 'page_numbers' in op ? [op.page_numbers.format ?? ''] : 'replace_text' in op ? [op.replace_text.replace] : 'fill_form' in op ? Object.values(op.fill_form.fields).filter((v): v is string => typeof v === 'string').map((v) => v.replace(/[\r\n]+/g, ' ')) : []))
     let font: number | null = null
     if (texts.some((t) => /[^\x20-\x7e\xa0-\xff]/.test(t))) {
       const f = textFontFile()

@@ -16,7 +16,9 @@
     with Helvetica for Latin text and the server's Pretendard otherwise, so every viewer shows it without relying on
     `NeedAppearances`. pdf-lib's own appearance pass at save is off (it writes Helvetica, which cannot hold Hangul).
     `flatten: true`, only when the user asks for a form that can no longer be changed, draws the fields into the pages
-    and removes them. XFA data is dropped (pdf-lib does not write it; Acrobat would show it instead of the fields).
+    and removes them. XFA data is dropped by fill_form only (pdf-lib does not write it; Acrobat would show it instead of the fields);
+    the read and add_text's field check leave it in place. A value's line breaks do not count as letters when the font
+    is chosen (a two-line English address stays in Helvetica).
   - A name matches exactly, then ignoring case, then by its last part ("form1[0].Name[0]" → "Name") or its tooltip when
     that is unique. An unknown name, a wrong kind of value, a read-only field, a too-long text or a choice that is not an
     option is refused with nothing saved; an unknown name lists every field. The result lists the fields set and the

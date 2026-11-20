@@ -35,16 +35,25 @@ function acroFormOf(doc: PDFDocument): PDFDict | undefined {
   try { return doc.catalog.lookupMaybe(PDFName.of('AcroForm'), PDFDict) } catch { return undefined }
 }
 
-/** the form, or null when the PDF has no form fields. XFA data (which pdf-lib does not write) is dropped first, so a
- * filled form shows its fields in Acrobat too and pdf-lib does not write a warning into the worker's output. */
-function formOf(doc: PDFDocument) {
+/** the form, or null when the PDF has no form fields. With `dropXfa` (fill_form) XFA data (which pdf-lib does not
+ * write) is dropped first, so a filled form shows its fields in Acrobat too and pdf-lib does not write a warning into
+ * the worker's output. Without it (add_text's check, the read) the XFA data is put back after pdf-lib's getForm, which
+ * deletes it: only looking at the fields must not change the form (review finding 2 on #94: add_text on an XFA form
+ * dropped its XFA, and a dynamic XFA form kept only its "please wait" page). */
+function formOf(doc: PDFDocument, dropXfa = false) {
   const af = acroFormOf(doc)
   if (!af) return null
-  const xfa = af.has(PDFName.of('XFA'))
-  if (xfa) af.delete(PDFName.of('XFA'))
-  let fields: PDFField[]
-  try { fields = doc.getForm().getFields() } catch { throw new ToolError('the form fields of this PDF cannot be read (the form may be damaged)', 'pdf_form_invalid') }
-  return { form: doc.getForm(), fields, xfa }
+  const XFA = PDFName.of('XFA')
+  const xfaValue = af.get(XFA)
+  const xfa = xfaValue !== undefined
+  if (xfa) af.delete(XFA)
+  try {
+    let fields: PDFField[]
+    try { fields = doc.getForm().getFields() } catch { throw new ToolError('the form fields of this PDF cannot be read (the form may be damaged)', 'pdf_form_invalid') }
+    return { form: doc.getForm(), fields, xfa }
+  } finally {
+    if (xfa && !dropXfa) af.set(XFA, xfaValue)
+  }
 }
 
 const typeOf = (f: PDFField): FormFieldType => f instanceof PDFTextField ? 'text' : f instanceof PDFCheckBox ? 'checkbox' : f instanceof PDFRadioGroup ? 'radio'
@@ -200,7 +209,10 @@ export interface FillOutcome { set: string[]; empty: string[]; flattened: boolea
  * drawing in q … Q before flatten draws on it.
  */
 export async function fillForm(doc: PDFDocument, values: Record<string, string | boolean>, flatten: boolean, fontFor: (text: string) => Promise<PDFFont>, wrap: (page: PDFPage) => void): Promise<FillOutcome> {
-  const f = formOf(doc)
+  const f = formOf(doc, true)
+  // the font for a value: its line breaks are not letters (review finding 1 on #94: a two-line English address took
+  // the 1.2 MB server font, and was refused on a server without it)
+  const fontOf = (text: string) => fontFor(text.replace(/[\r\n]+/g, ' ') || 'a')
   if (!f || !f.fields.length) throw new ToolError(`this PDF has no fill-in form fields${f?.xfa ? ' that can be filled here (it is an XFA form, which only Adobe software fills)' : ''}; to write on it, look at the page (read with as_images) and use add_text at the empty places`, 'pdf_no_form')
   const names = Object.keys(values)
   if (!names.length && !flatten) throw new ToolError(`give the values in fields, by field name. This PDF's fields: ${listNames(f.fields)}`)
@@ -219,8 +231,7 @@ export async function fillForm(doc: PDFDocument, values: Record<string, string |
       const max = field.getMaxLength()
       if (max !== undefined && [...text].length > max) throw new ToolError(`the field "${fname}" takes at most ${max} characters; "${text}" has ${[...text].length}`)
       field.setText(text || undefined)
-      if (text) field.updateAppearances(await fontFor(text))
-      else field.updateAppearances(await fontFor('a'))
+      field.updateAppearances(await fontOf(text))
     } else if (field instanceof PDFCheckBox) {
       const on = typeof v === 'boolean' ? v : YES.has(norm(v)) ? true : NO.has(norm(v)) ? false : null
       if (on === null) throw new ToolError(`the field "${fname}" is a checkbox; give true to tick it or false to leave it empty`)
@@ -246,7 +257,7 @@ export async function fillForm(doc: PDFDocument, values: Record<string, string |
         if (bad.length) throw new ToolError(`the field "${fname}" is a choice of ${options.slice(0, 50).map((x) => `"${x}"`).join(', ')}; "${bad[0]}" is not one of them`)
         field.select(chosen as string[])
       }
-      field.updateAppearances(await fontFor(wanted.join(' ') || 'a'))
+      field.updateAppearances(await fontOf(wanted.join(' ')))
     } else throw new ToolError(`the field "${fname}" is ${field instanceof PDFSignature ? 'a signature field (use stamp_image for a signature picture)' : 'a button'}, not a field to fill`)
   }
   const set = [...done.keys()].map((x) => x.getName())
@@ -254,7 +265,7 @@ export async function fillForm(doc: PDFDocument, values: Record<string, string |
   if (flatten) {
     // every field needs an appearance to be drawn into the page: the ones nobody set and that have none get one now
     for (const x of f.fields) {
-      try { if (x.needsAppearancesUpdate()) x.defaultUpdateAppearances(await fontFor(String(valueOf(x)) || 'a')) } catch {}
+      try { if (x.needsAppearancesUpdate()) x.defaultUpdateAppearances(await fontOf(String(valueOf(x)))) } catch {}
     }
     const pages = annotPages(doc)
     for (const x of f.fields) for (const b of boxesOf(doc, x, pages)) wrap(doc.getPage(b.page))
