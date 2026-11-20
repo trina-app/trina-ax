@@ -12,11 +12,11 @@ Trina AX 把团队的文件、技能和工具放在一台服务器上。每个�
 
 [官网](https://ax.trina.app) · [文档](docs/README.md) · [套餐](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文 · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
-https://github.com/user-attachments/assets/796fabe5-0b57-4474-8d3a-06eee05153c8
+https://github.com/user-attachments/assets/1120d9d0-020e-4b55-a5ea-7b8229cf1bff
 
 <p align="center"><sub>新员工的 AI 第一天能做什么。80 秒的故事。</sub><br>开源（AGPL-3.0）· 自托管免费，不限人数<br><br><a href="https://github.com/trina-app/trina-ax?tab=readme-ov-file"><img src="docs/images/readme/v4/star-zh.png" height="44" alt="在 GitHub 上为 Trina AX 点 Star"></a><br><sub>然后点页面顶部的 ☆ Star。点个 Star 能让更多团队发现 Trina AX。</sub></p>
 
