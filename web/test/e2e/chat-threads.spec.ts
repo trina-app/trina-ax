@@ -67,6 +67,63 @@ test('1440: Reply in thread opens the thread beside the chat; a reply shows unde
   await expect(page).toHaveURL(new RegExp(`/c/${chatId}$`))
 })
 
+/** a shared chat with `turns` questions and answers, each question long enough that the first answer is far up */
+async function longSharedChat(page: Page, turns: number) {
+  const chat = (await (await page.request.post('/api/chats', { headers: H, data: {} })).json()) as { id: string }
+  for (let i = 0; i < turns; i++) {
+    const content = `Question ${i + 1}: ` + Array.from({ length: 12 }, (_, l) => `line ${l + 1} of the brief for the Hanbit quote.`).join('\n')
+    expect((await page.request.post(`/api/chats/${chat.id}/messages`, { headers: H, data: { content, clientMessageId: uuidv7() } })).status()).toBe(202)
+    await expect.poll(async () => ((await (await page.request.get(`/api/chats/${chat.id}`)).json()) as { runState: string }).runState).toBe('idle')
+  }
+  expect((await page.request.post('/__test/people-chat', { data: { chatId: chat.id, by: 'olga', audience: 3 } })).ok()).toBeTruthy()
+  const msgs = (await (await page.request.get(`/api/chats/${chat.id}/messages`)).json()) as { items: { id: string; role: string }[] }
+  const answers = msgs.items.filter((m) => m.role === 'assistant').map((m) => m.id)
+  return { chatId: chat.id, first: answers[0]!, middle: answers[3]!, last: answers.at(-1)! }
+}
+
+// a notice, a push tap or a link opens a thread from outside the chat: the chat goes to the answer the thread is under
+// and lights it (docs/decisions/20261120-notif-open-parent-message.md); a thread opened in the chat leaves it as it was
+for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+  test(`${size.width}: a thread opened from outside the chat shows its answer in the chat, lit; one opened in the chat does not move it`, async ({ page }) => {
+    await page.setViewportSize(size)
+    await signIn(page)
+    const { chatId, first, middle, last } = await longSharedChat(page, 6)
+    // the address alone (a push tap's path, a link): the chat at the first answer, lit, not at the bottom
+    await page.goto(`/c/${chatId}/t/${first}`)
+    await expect(page.getByTestId('chat-thread')).toBeVisible()
+    // a phone: the thread over the chat; its ‹ shows the chat at that answer
+    if (size.width < 768) await page.getByTestId('chat-thread-back').click()
+    const answer = page.locator(`[data-message-id="${first}"]`)
+    await expect(answer).toHaveAttribute('data-focused', '')
+    await expect(answer).toBeInViewport()
+    await expect(page.locator(`[data-message-id="${last}"]`)).not.toBeInViewport()
+    // the chat open at its newest, then a phone's tap (the app's mycel:open: the router, no reload): the same
+    await page.goto(`/c/${chatId}`)
+    await expect(page.locator(`[data-message-id="${last}"]`)).toBeInViewport()
+    await page.evaluate((path) => window.dispatchEvent(new CustomEvent('mycel:open', { detail: { path }, cancelable: true })), `/c/${chatId}/t/${first}`)
+    await expect(page).toHaveURL(new RegExp(`/c/${chatId}/t/${first}$`))
+    if (size.width >= 768) {
+      await expect(answer).toHaveAttribute('data-focused', '')
+      await expect(answer).toBeInViewport()
+      // Reply in thread on another answer part way up: the thread changes, the chat stays put and lights nothing
+      const other = page.locator(`[data-message-id="${middle}"]`)
+      await expect(answer).not.toHaveAttribute('data-focused', '', { timeout: 5000 })
+      // (its button first in sight: Playwright scrolls to what it clicks)
+      await other.getByTestId('reply-in-thread').scrollIntoViewIfNeeded()
+      await other.hover()
+      await page.waitForTimeout(300)
+      const before = (await other.boundingBox())!.y
+      await other.getByTestId('reply-in-thread').click()
+      await expect(page).toHaveURL(new RegExp(`/c/${chatId}/t/${middle}$`))
+      await page.waitForTimeout(300)
+      // the answer stays where it is on the screen (the browser's anchoring may change the list's scrollTop as rows above
+      // settle; what the reader sees does not move)
+      expect(Math.abs((await other.boundingBox())!.y - before)).toBeLessThan(4)
+      await expect(page.locator('[data-message-id][data-focused]')).toHaveCount(0)
+    }
+  })
+}
+
 test('a private chat\'s answer has no Reply in thread, and its thread address is not found', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await signIn(page)

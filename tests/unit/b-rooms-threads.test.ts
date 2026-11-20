@@ -321,7 +321,8 @@ test('a thread notice opens its thread (push path and the notice), names who wro
   const r = await reply(mia.client, dm.id, root.id, 'LOCK SCREEN MUST NOT SHOW THIS reply')
   const [notice] = unreadNotices(nora.id)
   expect(notice).toMatchObject({ event_type: 'room.dm', source_id: r.id })
-  expect(pushPathOf(h.ctx, 'room.dm', notice!.id)).toBe(`/rooms/${dm.id}/t/${root.id}`)
+  // (the reply itself last: a phone's path names no query; the web app reads /m/<id> as ?m=)
+  expect(pushPathOf(h.ctx, 'room.dm', notice!.id)).toBe(`/rooms/${dm.id}/t/${root.id}/m/${r.id}`)
   // the single notice a push opens names who and where, and the first line only while the message preview is on
   expect(n.get(nora.id, notice!.id).room?.preview).toBe('LOCK SCREEN MUST NOT SHOW THIS reply')
   savePreferences(h.ctx.db, nora.id, { messagePreview: false })
@@ -332,7 +333,7 @@ test('a thread notice opens its thread (push path and the notice), names who wro
   // a timeline message's notice still opens the room
   await send(mia.client, dm.id, 'in the room')
   const roomNotice = unreadNotices(nora.id).find((x) => x.source_id !== r.id)!
-  expect(pushPathOf(h.ctx, 'room.dm', roomNotice.id)).toBe(`/rooms/${dm.id}`)
+  expect(pushPathOf(h.ctx, 'room.dm', roomNotice.id)).toBe(`/rooms/${dm.id}/m/${roomNotice.source_id}`)
   expect(n.get(nora.id, roomNotice.id).room).toMatchObject({ id: dm.id, from: 'MIA', reason: 'message' })
   expect(n.get(nora.id, roomNotice.id).room?.thread).toBeUndefined()
   // the reply deleted: its notice goes with it

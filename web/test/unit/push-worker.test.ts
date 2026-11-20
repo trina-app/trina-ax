@@ -410,6 +410,29 @@ test('a room notice opens its room; the room id comes from the signed-in notice,
   await badThread.clickShown()
   expect(badThread.navigated).toEqual([`https://team.example/rooms/${roomId}`])
 
+  // the message itself (a mention, a reply; from the signed-in notice, never the payload): the room or the thread at it
+  // (?m=: the room goes to it, a thread's room to its first message), so the tap lands where the Activity row does
+  const messageId = '0190f5a0-0000-7000-8000-000000000003'
+  const mention = worker()
+  mention.configure({ messages: messages as any })
+  mention.item({ id: 'event-1', code: 'room.mention', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', message: messageId } })
+  await mention.push({ ...payload, code: 'room.mention', messageId: 'evil' })
+  expect(mention.shown[0]!.options.data).toEqual({ notificationId: 'event-1', roomId, messageId })
+  await mention.clickShown()
+  expect(mention.navigated).toEqual([`https://team.example/rooms/${roomId}?m=${messageId}`])
+  const inThread = worker()
+  inThread.configure({ messages: messages as any })
+  inThread.item({ id: 'event-1', code: 'room.dm', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', thread: rootId, message: messageId } })
+  await inThread.push({ ...payload, code: 'room.dm' })
+  await inThread.clickShown()
+  expect(inThread.navigated).toEqual([`https://team.example/rooms/${roomId}/t/${rootId}?m=${messageId}`])
+  const oddMessage = worker()
+  oddMessage.configure({ messages: messages as any })
+  oddMessage.item({ id: 'event-1', code: 'room.mention', readAt: null, link: 'room', room: { id: roomId, from: 'Ben', message: '../x' } })
+  await oddMessage.push({ ...payload, code: 'room.mention' })
+  await oddMessage.clickShown()
+  expect(oddMessage.navigated).toEqual([`https://team.example/rooms/${roomId}`])
+
   // the default 받지 않음 (the older switch roomMessages false): a room at its own level still alerts, and the server sent
   // this push only because that level asks for it (docs/DECISIONS.md "대화방 알림 설정"): it shows
   const own = worker()

@@ -209,7 +209,9 @@ export function RoomMessages({ roomId, messages, pending, meId, members, onThrea
   const [lit, setLit] = useState<string | null>(null)
   const shown = useRef<string | null>(null)
   useEffect(() => {
-    if (!highlight || shown.current === highlight || !loaded.has(highlight)) return
+    // (none now: the same message is picked out again the next time a link points at it, a notice clicked again)
+    if (!highlight) { shown.current = null; return }
+    if (shown.current === highlight || !loaded.has(highlight)) return
     shown.current = highlight
     list.current?.querySelector<HTMLElement>(`[id="${messageDomId(highlight)}"]`)?.scrollIntoView({ block: 'center' })
     setLit(highlight)
