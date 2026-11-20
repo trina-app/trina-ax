@@ -140,7 +140,7 @@ test('the code: another session of the same person cannot use it, a late one end
   // late
   fake.now += CLAIM_MS + 1
   const late = await claim(desk1, code)
-  expect(late.status).toBe(400); expect(late.body.error.message).toBe('drive_expired')
+  expect(late.status).toBe(400); expect(late.body.error.message).toContain('이 로그인 링크는 만료됐거나'); expect(late.body.error.message).not.toContain('drive_')
   expect((await desk1.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('failed')
   // the same person signed in in that browser: ready at once, no code
   f = await desk1.call('POST', base + '/authorize', {})
@@ -170,7 +170,13 @@ test('a browser\'s or the phone app\'s sign-in: no code, no page before Google; 
   const desk = await session('olga', OWNER_PW, 'desktop')
   const f = await desk.call('POST', base + '/authorize', {})
   await desk.call('DELETE', `${base}/flows/${f.flowId}`)
-  expect((await bare(f.openPath)).status).toBe(400)
+  const gone = await bare(f.openPath)
+  expect(gone.status).toBe(400)
+  expect(await gone.text()).toContain('취소') // a cancel says so; a wrong key or a late flow says "expired or already used"
+  expect(await (await bare(`${GO_PATH}?flow=nope&k=${'A'.repeat(43)}`)).text()).toContain('시간이 지났거나 이미 사용됐어요')
+  // the claim of an unknown code says it in words, never the raw code
+  const bad = await claim(desk, 'Z'.repeat(43))
+  expect(bad.status).toBe(400); expect(bad.body.error.message).not.toContain('drive_')
 })
 
 test('the pieces: tokens by hash, the app link, the desktop link checks', () => {

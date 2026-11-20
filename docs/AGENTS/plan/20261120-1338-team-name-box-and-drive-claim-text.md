@@ -2,7 +2,7 @@
 
 - Date (UTC): 2026-11-20 13:38
 - Branch: `fix/team-name-box-and-drive-claim-text`
-- Status: in progress
+- Status: done
 - Where: `web/src/pages/admin/TeamSettings.tsx`, `server/src/auth/messages.ts`, `server/src/routes/drive.ts`,
   `server/src/integrations/google-drive/oauth.ts`. Why: three QA findings (TC-5921, TC-5920, Drive claim error).
 - Version impact: patch. Wording and one input limit; no API, protocol or data change.

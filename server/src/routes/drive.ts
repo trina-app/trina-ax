@@ -1,4 +1,5 @@
-import { API } from '@mycel/shared/api'
+import { API, type Locale } from '@mycel/shared/api'
+import { msg } from '../auth/messages'
 import type { AppContext } from '../context'
 import type { RouteKit } from '../http/route'
 import { HttpError } from '../http/errors'
@@ -13,8 +14,10 @@ import { shareView } from '../integrations/google-drive/shares'
 import { DriveError } from '../integrations/google-drive/store'
 import { afterServiceSetup } from '../integrations/service-requests'
 
-async function safe<T>(fn: () => T | Promise<T>): Promise<T> {
+async function safe<T>(fn: () => T | Promise<T>, locale?: Locale): Promise<T> {
   try { return await fn() } catch (e) {
+    // the claim's refusals say it in words, not as the code (QA: "drive_invalid_code" on screen)
+    if (e instanceof DriveError && locale && (e.reason === 'invalid_code' || e.reason === 'expired')) throw new HttpError('bad_request', msg('driveClaimGone', locale), { status: e.status })
     if (e instanceof DriveError) throw new HttpError(e.status === 404 ? 'not_found' : e.status === 401 ? 'unauthorized' : e.status === 403 ? 'forbidden' : 'bad_request', e.message, { status: e.status })
     throw new HttpError('internal')
   }
@@ -27,7 +30,7 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
   kit.handle(API.driveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).flow(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.completeDriveFlow, ({ auth, params, body }) => safe(() => googleDriveOf(ctx).complete(auth.user.id, auth.session.id, params.id)))
   // the desktop app's one-time code for a sign-in Google answered in a browser without a session: this session's flow only
-  kit.handle(API.claimDriveFlow, ({ auth, body }) => safe(() => googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code)))
+  kit.handle(API.claimDriveFlow, ({ c, auth, body }) => safe(() => googleDriveOf(ctx).claim(auth.user.id, auth.session.id, body.code), c.get('locale')))
   kit.handle(API.cancelDriveFlow, ({ auth, params }) => safe(() => googleDriveOf(ctx).cancel(auth.user.id, auth.session.id, params.id)))
   kit.handle(API.disconnectDrive, ({ auth }) => safe(() => googleDriveOf(ctx).disconnect(auth.user.id)))
   // Admin › App connectors: set up Google Drive here instead of in the installer (integrations/google-drive/admin-setup.ts)
@@ -49,9 +52,10 @@ export function registerDriveRoutes(kit: RouteKit, ctx: AppContext) {
     const cc = c as unknown as AppContextC
     let go: ReturnType<ReturnType<typeof googleDriveOf>['goPage']> = null
     try { go = googleDriveOf(ctx).goPage(c.req.query('flow'), c.req.query('k')) } catch {}
+    const gone = go ? ('expired' as const) : googleDriveOf(ctx).goGone(c.req.query('flow'))
     c.header('Cache-Control', 'no-store'); c.header('Referrer-Policy', 'no-referrer'); c.header('Content-Security-Policy', GOOGLE_RETURN_CSP)
     if (!go) {
-      const page = googleReturnPage('expired', cc.get('locale'), { app: 'desktop', origin: new URL(c.req.url).origin })
+      const page = googleReturnPage(gone, cc.get('locale'), { app: 'desktop', origin: new URL(c.req.url).origin })
       return c.html(page.html, 400)
     }
     return c.html(drivePreGooglePage(cc.get('locale'), go), 200)

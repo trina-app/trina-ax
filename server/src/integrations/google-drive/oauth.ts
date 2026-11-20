@@ -239,6 +239,12 @@ export class GoogleDrive {
     const u = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
     return u ? { url: s.go.url, name: u.name, username: u.username } : null
   }
+  /** Why GO_PATH has no page for a flow: the person cancelled it ('cancelled'), else 'expired' (late, used, unknown or a
+   * wrong key). Reads only the flow's own recorded reason; the key cannot be checked (a cancel erases the secret). */
+  goGone(flowId: string | undefined): 'cancelled' | 'expired' {
+    if (!flowId || !/^[A-Za-z0-9_-]{1,64}$/.test(flowId)) return 'expired'
+    try { return this.store.flow(flowId)?.reason === 'cancelled' ? 'cancelled' : 'expired' } catch { return 'expired' }
+  }
   /** The kind of app whose session started a flow ('web', 'desktop', 'mobile'), or null */
   private clientOf(sessionId: string): string | null {
     return (this.ctx.db.query('SELECT client FROM sessions WHERE id=?').get(sessionId) as { client: string } | null)?.client ?? null
