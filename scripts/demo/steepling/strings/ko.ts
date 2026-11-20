@@ -77,6 +77,7 @@ export const ko: FreeRoamStrings = {
   ],
   shareNote: '월요일 런칭 배너, 정사각, 스토리 새로 만들었어요 👇',
   leoDm: '미나님 환영해요! 예전 배너 파일은 런칭 프로젝트에 있어요. 모르는 거 있으면 편하게 물어보세요 🙂',
+  bannerThread: '@이미나 성에 낀 창문 느낌 좋네요. 정사각 버전은 오마르님한테도 보내서 쇼핑몰 페이지에 쓰게 해 주세요.',
   launchDay: {
     name: '런칭 당일',
     messages: [

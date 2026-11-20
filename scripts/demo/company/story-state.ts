@@ -8,6 +8,11 @@
 //                as plain finished messages: no AI runs
 //   connections  a person's Gmail or Google Drive, the team's Higgsfield, with made-up secrets (the demo's fakes answer)
 //   welcome      who invited a person (their welcome card on Home)
+//   people       each person's job title and e-mail on their profile (set by them)
+//   projects     a project's channel (a private channel of the rooms, linked by the project's maker)
+//   threads      replies under a shared chat's last answer, with @mentions (the answer's asker gets the notice)
+//   fileTimes    when the files were changed in the story (on disk and in Files › Recent); recentHidden: the seed's
+//                own changes kept out of Recent (team skills, company profile)
 //
 // Everything a person can do goes through the public REST API as that person. What nobody can do in the product
 // (a message sent yesterday, an inviter, a connection without signing in, a finished answer without the AI) goes
@@ -26,7 +31,8 @@ const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
 
 /** the people of the content: the owner first */
 function accountsOf(c: ContentCompany) {
-  return [{ username: c.owner.username, name: c.owner.name, group: c.owner.group ?? null }, ...c.people.map((p) => ({ username: p.username, name: p.name, group: p.group }))]
+  return [{ username: c.owner.username, name: c.owner.name, group: c.owner.group ?? null, title: c.owner.title, email: c.owner.email },
+    ...c.people.map((p) => ({ username: p.username, name: p.name, group: p.group, title: p.title, email: p.email }))]
 }
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
@@ -74,6 +80,15 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
     }
   }
 
+  for (const p of c.projects.filter((x) => x.channel)) {
+    const r = c.rooms.find((y) => y.slug === p.channel)
+    // only a private channel links to a project (rooms/project-link.ts isPrivateChannelRow); its maker must be in it
+    if (!r) problems.push(`project ${p.name}: no room "${p.channel}"`)
+    else if (r.kind !== 'group' || !r.name) problems.push(`project ${p.name}: its channel ${r.slug} is not a private channel (a group chat with a name)`)
+    else if (!roomMembers(c, r).some((u) => same(u, p.by ?? c.owner.username))) problems.push(`project ${p.name}: ${p.by ?? c.owner.username} is not in its channel ${r.slug}`)
+  }
+  for (const [i, path] of (c.fileTimes ?? []).entries()) if (!hasFile(path.path) && !files.some((f) => f.startsWith(nfc(path.path) + '/'))) problems.push(`fileTimes ${i + 1}: no file or folder ${path.path} in files/`)
+
   unique('room', c.rooms.map((r) => r.slug))
   if (c.rooms.filter((r) => r.kind === 'all').length > 1) problems.push('rooms: one everyone room (kind "all") at most')
   for (const r of c.rooms) {
@@ -120,6 +135,15 @@ export function storyProblems(c: ContentCompany, files: string[], fakes: Fakes):
     }
     oldestFirst(where, x.turns.map((t) => t.minutesAgo))
     for (const [i, t] of x.turns.entries()) placeholders(`${where} turn ${i + 1}`, t.answer)
+    const thread = x.thread ?? []
+    if (thread.length) {
+      // a thread is under an answer of a shared chat: a project's (chat/threads.ts), seen by its members
+      const p = x.project && !x.private ? c.projects.find((y) => nfc(y.name) === nfc(x.project!)) : undefined
+      if (!p) problems.push(`${where}: a thread needs a shared project chat`)
+      else for (const [i, r] of thread.entries()) if (!projectMembers(c, p).some((u) => same(u, r.from))) problems.push(`${where} thread reply ${i + 1}: ${r.from} is not in project ${p.name}`)
+      oldestFirst(`${where} thread`, thread.map((r) => r.minutesAgo))
+      if (thread[0]!.minutesAgo > x.turns.at(-1)!.minutesAgo) problems.push(`${where}: the thread starts before the answer`)
+    }
   }
 
   const conn = new Set<string>()
@@ -210,6 +234,12 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       await (await as(a.username)).call(API.putMyAvatar, { query: { type: a.type }, body: new Uint8Array(fs.readFileSync(a.file)) })
     }
 
+    // 0b. job titles and e-mails, each set by its person (the free-roam audit, QA TC-5619)
+    for (const a of accountsOf(c)) {
+      if (a.title) await (await as(a.username)).call(API.updateMyProfile, { body: { title: a.title } })
+      if (a.email) await (await as(a.username)).call(API.updateMe, { body: { email: a.email } })
+    }
+
     // 1. who invited whom, and the connections (the fakes answer them)
     for (const w of c.welcome) {
       await owner.call(API.demoBuilderWelcome, { body: { userId: idOf(w.username), inviterId: idOf(w.inviter) } })
@@ -236,6 +266,12 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       if (!room) throw new Error(`room ${r.slug}: not on the server`)
       rooms.set(r.slug, room)
     }
+    // a project's channel, linked by the project's maker from the project (before the messages: the link's line in the
+    // channel then dates to just before its first message)
+    for (const p of c.projects.filter((x) => x.channel)) {
+      await (await as(p.by ?? c.owner.username)).call(API.linkRoomProject, { params: { id: rooms.get(p.channel!)!.id }, body: { projectId: projects.get(nfc(p.name))!, via: 'project' } })
+      log(`project ${p.name}: channel ${p.channel}`)
+    }
 
     // 3. the past AI chats: made by their person, answered by the builder (plain finished messages, at their times)
     for (const x of c.chats) {
@@ -246,6 +282,17 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       const r = await owner.call(API.demoBuilderChatTurns, { body: { chatId: chat.id, turns: x.turns.map((t) => ({ ask: t.ask, answer: resolve(t.answer), at: atOf(t.minutesAgo) })) } })
       result.chats[x.slug] = { id: chat.id, answers: r.turns.map((t) => t.answerId) }
       log(`chat "${x.title}" of ${x.username}`)
+      if (x.thread?.length) {
+        const p = c.projects.find((y) => nfc(y.name) === nfc(x.project!))!
+        const root = r.turns.at(-1)!.answerId
+        const times: { replyId: string; at: string }[] = []
+        for (const t of x.thread) {
+          const reply = await (await as(t.from)).call(API.sendChatThreadReply, { params: { id: chat.id, messageId: root }, body: { text: t.text, clientId: crypto.randomUUID(), mentions: mentionsIn(t.text, projectMembers(c, p)) } })
+          times.push({ replyId: reply.id, at: atOf(t.minutesAgo) })
+        }
+        await owner.call(API.demoBuilderThreadTimes, { body: { chatId: chat.id, times } })
+        log(`chat "${x.title}": ${times.length} thread replies`)
+      }
     }
 
     // 4. the messages, oldest first in each room, as their people; then their times and the reactions
@@ -291,6 +338,18 @@ export async function seedStoryState(o: { baseUrl: string; content: DemoContent;
       const dated = await owner.call(API.demoBuilderRoomTimes, { body: { roomId: room.id, times, dropJoinLines: r.kind === 'all' } })
       result.rooms[r.slug] = { id: room.id, messages: sent.length }
       log(`room ${r.slug}: ${sent.length} messages (${dated.updated} dated${dated.dropped ? `, ${dated.dropped} join lines dropped` : ''})`)
+    }
+
+    // 4b. the files' times in the story, and the seed's own changes out of Files › Recent (the free-roam audit, QA TC-5618)
+    if (c.fileTimes?.length || c.recentHidden?.length) {
+      const files = o.content.files
+      const times: { path: string; at: string }[] = []
+      for (const f of files) {
+        const hit = (c.fileTimes ?? []).find((t) => nfc(f) === nfc(t.path) || nfc(f).startsWith(nfc(t.path) + '/'))
+        if (hit) times.push({ path: f, at: atOf(hit.minutesAgo) })
+      }
+      const r = await owner.call(API.demoBuilderFileTimes, { body: { times, hideFromRecent: c.recentHidden ?? [] } })
+      log(`files: ${r.updated} dated, ${r.hidden} seed changes out of Recent`)
     }
 
     // 5. everyone has read what was there when the visitor arrives; the welcome rows asked for are done

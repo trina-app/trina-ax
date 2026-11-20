@@ -4,7 +4,7 @@
 // limit (dialog once, the message boxes stop), the neutral words, the hidden AI-account sections, the sign-in page.
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
 import { MemoryRouter } from 'react-router-dom'
-import type { DemoInfo, Me } from '@mycel/shared/api'
+import type { DemoInfo, Locale, Me } from '@mycel/shared/api'
 import { translate, useLocaleStore } from '../../src/i18n'
 import { DemoBar, useDemoInfo } from '../../src/components/demo/Demo'
 import { DemoLimitDialog, DemoLimitNotice, FreeRoamStart } from '../../src/components/demo/FreeRoam'
@@ -15,6 +15,12 @@ import { settingsTabs } from '../../src/pages/settingsTabs'
 import { demoAnswerEnded, freeRoamNow, useDemo } from '../../src/store/demo'
 import { canChooseEngine, useSession } from '../../src/store/session'
 import { installDom, mount, removeDom } from './dom-host'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { AvailableSkillsList } from '../../src/components/AvailableSkills'
+import { AccountMenu } from '../../src/components/nav/AccountMenu'
+import { LanguageSelect } from '../../src/components/LanguageSelect'
+import { FREE_ROAM_LOCALES } from '../../src/lib/freeRoam'
+import { useTeamSwitchWay } from '../../src/lib/teamSwitch'
 
 const INFO: DemoInfo = {
   company: 'Steepling', sameQuestion: null, current: 'newHire', network: false, kind: 'freeRoam', used: 1_000, cap: 300_000, signupUrl: 'https://example.com/pricing',
@@ -342,5 +348,59 @@ describe('words and hidden surfaces', () => {
     await resumeFreeRoam({ fetch: answer(json(502, { error: { code: 'internal' } })), go: (to) => went.push(to) })
     await resumeFreeRoam({ fetch: answer(new TypeError('Failed to fetch')), go: (to) => went.push(to) })
     expect(went).toEqual(['/', '/__demo/start', '/__demo/start'])
+  })
+})
+
+// the empty-chats audit of the live demo (2026-11-20): what a visitor cannot use is not offered at all
+describe('what a free-roam visitor is not offered', () => {
+  beforeEach(() => useSession.setState({ status: { kind: 'signed-in', me: me({ features: FEATURES_OFF }) } } as never))
+  const asFreeRoam = (on: boolean) => useDemo.setState({ loaded: true, info: on ? INFO : null })
+
+  function SwitchProbe() {
+    return <p data-testid="switch-way">{useTeamSwitchWay() ?? 'none'}</p>
+  }
+  test('no "Switch team" (QA TC-5612): a plain browser has its dialog, a free-roam demo none', async () => {
+    for (const [on, way] of [[false, 'browser'], [true, 'none']] as const) {
+      asFreeRoam(on)
+      const m = await mount(<SwitchProbe />)
+      try {
+        expect(m.get('switch-way').textContent).toBe(way)
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('Team skills: no "Bring my skills" (QA TC-5613) and no "Move" in a skill\'s menu (QA TC-5616); a normal server keeps both', async () => {
+    const items = [{ path: 'skills/brand-guide/SKILL.md', name: 'brand-guide', description: 'Our brand guide' }]
+    for (const on of [false, true]) {
+      asFreeRoam(on)
+      const m = await mount(<MemoryRouter><AvailableSkillsList items={items} /></MemoryRouter>)
+      try {
+        expect(!!(m.find('skill-bring') ?? m.find('skill-bring-phone'))).toBe(!on)
+        await m.click('skill-more')
+        expect(m.find('skill-file')).not.toBeNull()
+        expect(!!m.find('skill-move-open')).toBe(!on)
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('no sign-out in the account menu (QA TC-5623); a normal server keeps it', async () => {
+    for (const on of [false, true]) {
+      asFreeRoam(on)
+      const m = await mount(<MemoryRouter><AccountMenu /></MemoryRouter>)
+      try {
+        await m.click('account-menu')
+        expect(m.find('account-settings')).not.toBeNull()
+        expect(!!m.find('logout')).toBe(!on)
+      } finally { await m.unmount() }
+    }
+  })
+
+  test('the sign-in page\'s languages: only the demo\'s own (QA TC-5621), the current one kept; every one elsewhere', () => {
+    const langs = (only?: readonly Locale[], value: Locale = 'en') =>
+      [...renderToStaticMarkup(<LanguageSelect value={value} onChange={() => {}} only={only} />).matchAll(/<option value="([a-z]+)"/g)].map((x) => x[1])
+    expect(FREE_ROAM_LOCALES).toEqual(['en', 'ko'])
+    expect(langs(FREE_ROAM_LOCALES)).toEqual(['en', 'ko'])
+    expect(langs(FREE_ROAM_LOCALES, 'ja').sort()).toEqual(['en', 'ja', 'ko'])
+    expect(langs().length).toBeGreaterThan(2)
   })
 })

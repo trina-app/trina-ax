@@ -84,6 +84,8 @@ export const en = {
   shareNote: 'New launch banner, square and story for Monday 👇',
   /** Leo's DM to Mina, before Sara's */
   leoDm: 'Welcome Mina! My old banner files are in the launch project. Ping me if anything is unclear 🙂',
+  /** Sara's reply in the thread under Mina's banner answer (the launch project's chat): Mina's notice in Activity */
+  bannerThread: '@Mina Lee Love the frosted window. Could you send the square one to Omar for the shop page too?',
   /** a group chat about launch day */
   launchDay: {
     name: 'Launch day',

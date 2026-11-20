@@ -53,6 +53,25 @@ describe('the snapshot of Steepling (en)', () => {
       // the screens show Steepling and Mina (never a fixture's names)
       expect(setting('teamName')).toBe('Steepling')
       expect((db.query("SELECT name FROM users WHERE lower(username) = 'mina'").get() as { name: string }).name).toMatch(/^Mina\b/)
+      // the free-roam audit (empty chats, QA TC-5610): every seeded chat shows its branch, ending at its last answer
+      const chats = db.query('SELECT c.id, c.active_leaf_id, m.role, m.chat_id FROM chats c LEFT JOIN messages m ON m.id = c.active_leaf_id').all() as { id: string; active_leaf_id: string | null; role: string | null; chat_id: string | null }[]
+      expect(chats.length).toBe(5)
+      for (const c of chats) expect({ role: c.role, same: c.chat_id === c.id }).toEqual({ role: 'assistant', same: true })
+      for (const c of chats) expect(db.query('SELECT 1 FROM messages WHERE parent_id = ?').get(c.active_leaf_id!)).toBeNull()
+      // Mina's notice of Sara's reply under her answer, at the story's time, unread (QA TC-5614)
+      const notice = db.query("SELECT n.created_at, n.read_at, n.mention_id FROM chat_thread_notices n JOIN users u ON u.id = n.user_id WHERE u.username = 'mina'").get() as { created_at: string; read_at: string | null; mention_id: string | null } | null
+      expect(notice?.read_at).toBeNull()
+      expect(notice?.mention_id).not.toBeNull()
+      expect(Date.parse(notice!.created_at)).toBeLessThan(Date.parse(manifest.createdAt) - 60 * 60_000)
+      // job titles and .example e-mails (QA TC-5619); the launch project's channel (QA TC-5620)
+      for (const u of db.query('SELECT u.username, u.email FROM users u').all() as { username: string; email: string | null }[]) expect(u.email ?? '', u.username).toMatch(/@[a-z]+\.example$/)
+      expect(db.query("SELECT r.name FROM room_project_links l JOIN rooms r ON r.id = l.room_id").all()).toEqual([{ name: 'Launch day' }])
+      // Files › Recent: the story's times, newest first; the seed's skills and company profile left out (QA TC-5618)
+      const events = db.query("SELECT path, at FROM file_events WHERE action IN ('create', 'update', 'upload', 'restore') ORDER BY id").all() as { path: string; at: string }[]
+      expect(events.filter((e) => e.path.startsWith('skills/'))).toEqual([])
+      expect(events.map((e) => e.at)).toEqual(events.map((e) => e.at).sort())
+      expect(Date.parse(events[0]!.at)).toBeLessThan(Date.parse(manifest.createdAt) - 7 * 1440 * 60_000 + 60_000)
+      expect(Math.abs(fs.statSync(path.join(L.team, events.at(-1)!.path)).mtimeMs - Date.parse(events.at(-1)!.at))).toBeLessThan(1000)
     } finally { db.close() }
     expect(JSON.parse(fs.readFileSync(L.demo, 'utf8')).builder).toBeUndefined()
     const gmail = JSON.parse(fs.readFileSync(path.join(L.fakes, 'gmail.json'), 'utf8'))
@@ -96,6 +115,8 @@ describe('the snapshot of Steepling (en)', () => {
       const cookie = r.headers.getSetCookie().map((x) => x.split(';')[0]).join('; ')
       const api = new ApiClient({ baseUrl: inst.url, fetch: ((u: string | URL | Request, init?: RequestInit) => fetch(u, { ...init, headers: { ...(init?.headers as Record<string, string>), cookie } })) as typeof fetch })
       expect((await api.call(API.me)).user.username).toBe('mina')
+      // the demo's Gmail (made by the builder, answered by the fake) shows as connected in Settings › Connectors (QA TC-5611)
+      expect((await api.call(API.myGoogleApps)).apps.find((x) => x.id === 'gmail')).toMatchObject({ status: 'connected', account: { email: 'mina.lee@steepling.example' } })
       // the data and the team folder are the clone's own, from its server.json
       expect(fs.existsSync(path.join(clone, 'data', 'app.db'))).toBe(true)
     } finally { await inst.stop() }

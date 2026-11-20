@@ -33,6 +33,7 @@ const T = {
   everyoneWelcome: 240, homeChat: 205, leoDm: 200, saraDm: 195, bannerChat: 150, share: 140, ceoShip: 138, leoHow: 136, gmailHint: 133,
   mailAsk: 125, mailSend: 123, chrisReply: 110, chrisRelayed: 105, shoutout: 100, saraWelcome: 98, launchDay: 90,
   leoChat: 2 * 1440 + 90, leoPost: 2 * 1440 + 80, saraThanks: 2 * 1440 + 60, pressRelease: 1440 + 120, specs: 21 * 1440,
+  bannerThread: 137, brief: 3 * 1440, teamFiles: 7 * 1440, leadership: 10 * 1440, skills: 30 * 1440,
 }
 
 export interface Steepling { company: DemoContentCompany; files: Record<string, string | { asset: string }>; gmail: FakeGmail; drive: FakeDrive; avatars: Record<string, string>; pictures: Record<string, string> }
@@ -97,14 +98,14 @@ export function steepling(locale: SteeplingLocale): Steepling {
     id: locale === 'en' ? 'steepling' : `steepling-${locale}`,
     teamName: s.company,
     locale,
-    owner: { username: 'daniel', name: pp.daniel.name, group: MKT },
+    owner: { username: 'daniel', name: pp.daniel.name, group: MKT, title: pp.daniel.title, email: email('daniel') },
     people: [
-      { username: 'mina', name: pp.mina.name, group: MKT, note: 'the visitor: new marketing hire, first day' },
-      { username: 'sara', name: pp.sara.name, group: MKT, note: 'Marketing lead, invited Mina' },
-      { username: 'leo', name: pp.leo.name, group: MKT, note: 'made the first banner, moving to Sales' },
-      { username: 'tom', name: pp.tom.name, group: x.groups.operations.name, note: 'Operations lead' },
-      { username: 'aiko', name: pp.aiko.name, group: x.groups.sales.name },
-      { username: 'omar', name: pp.omar.name, group: x.groups.shop.name },
+      { username: 'mina', name: pp.mina.name, group: MKT, note: 'the visitor: new marketing hire, first day', title: pp.mina.title, email: email('mina') },
+      { username: 'sara', name: pp.sara.name, group: MKT, note: 'Marketing lead, invited Mina', title: pp.sara.title, email: email('sara') },
+      { username: 'leo', name: pp.leo.name, group: MKT, note: 'made the first banner, moving to Sales', title: pp.leo.title, email: email('leo') },
+      { username: 'tom', name: pp.tom.name, group: x.groups.operations.name, note: 'Operations lead', title: pp.tom.title, email: email('tom') },
+      { username: 'aiko', name: pp.aiko.name, group: x.groups.sales.name, title: pp.aiko.title, email: email('aiko') },
+      { username: 'omar', name: pp.omar.name, group: x.groups.shop.name, title: pp.omar.title, email: email('omar') },
     ],
     groups: [
       { name: MKT, description: x.groups.marketing },
@@ -145,7 +146,8 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { username: 'tom', opens: [s.paths.companyIntro, x.files[0]!.path], closed: [banner, brief, `${x.leadership.folder}/${x.leadership.files[0]!.name}`] },
       { username: 'daniel', opens: [`${x.leadership.folder}/${x.leadership.files[0]!.name}`, banner, x.files[1]!.path], closed: [] },
     ],
-    projects: [{ name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }] }],
+    // the launch day group chat is the project's channel (only a private channel links to a project)
+    projects: [{ name: P, instructions: s.project.description, by: 'sara', members: [{ group: MKT }], channel: 'launch-day' }],
     rooms: [
       {
         slug: 'everyone', kind: 'all', messages: [
@@ -179,7 +181,9 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { slug: 'company', username: 'mina', title: a.company.prompt, turns: [{ ask: a.company.prompt, answer: company, minutesAgo: T.homeChat }] },
       { slug: 'leo-banner', username: 'leo', project: P, title: s.leoChat.title, turns: [{ ask: s.leoChat.ask, answer: `${s.leoChat.answer}\n\n${img(s.leoChat.title, leoBanner)}`, minutesAgo: T.leoChat }] },
       { slug: 'press-release', username: 'sara', project: P, title: x.pressRelease.title, turns: [{ ask: x.pressRelease.ask, answer: x.pressRelease.answer, minutesAgo: T.pressRelease }] },
-      { slug: 'banner', username: 'mina', project: P, title: a.banner.prompt, turns: [{ ask: a.banner.prompt, answer: bannerAnswer, minutesAgo: T.bannerChat }] },
+      { slug: 'banner', username: 'mina', project: P, title: a.banner.prompt, turns: [{ ask: a.banner.prompt, answer: bannerAnswer, minutesAgo: T.bannerChat }],
+        // Sara answers in its thread, naming Mina: her notice in Activity (the free-roam audit, QA TC-5614)
+        thread: [{ from: 'sara', text: x.bannerThread, minutesAgo: T.bannerThread }] },
       {
         slug: 'mail-chris', username: 'mina', sideRoom: 'marketing', title: a.mail.prompt, turns: [
           { ask: a.mail.prompt, answer: `${a.mail.intro}\n\n${draft}`, minutesAgo: T.mailAsk },
@@ -193,6 +197,19 @@ export function steepling(locale: SteeplingLocale): Steepling {
       { service: 'higgsfield', account: { name: s.company, email: 'team@steepling.example' } },
     ],
     welcome: [{ username: 'mina', inviter: 'sara', asked: true }],
+    // the files' times in the story, not the build's (the free-roam audit, QA TC-5618): the launch set this morning,
+    // Leo's banner two days ago, the rest older; the first entry that matches a file wins
+    fileTimes: [
+      { path: leoBanner, minutesAgo: T.leoChat },
+      { path: `projects/${P}`, minutesAgo: T.bannerChat },
+      { path: brief, minutesAgo: T.brief },
+      { path: x.leadership.folder, minutesAgo: T.leadership },
+      { path: 'groups', minutesAgo: T.teamFiles },
+      { path: 'shared', minutesAgo: T.specs },
+      { path: 'skills', minutesAgo: T.skills },
+    ],
+    // the team skills and the company profile were set up with the team, not changed lately
+    recentHidden: ['skills'],
     // the scripted demo's own sign-up address (scripts/demo/mina/story.ts end.signup)
     freeRoam: { suggestions: x.suggestions, signupUrl: 'https://ax.trina.app/pricing' },
   }
