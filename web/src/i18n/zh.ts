@@ -6868,7 +6868,6 @@ export const zh: Record<MessageKey, string> = {
   "chat.thread.notShared": "这个对话已不再共享，所以不能再回复。",
   "chat.thread.full": "这个话题的回复已满。请在对话中继续。",
   "chat.thread.peopleOnly": "只有这个对话里的人能看到回复。只有有人向{name}问起回复时，{name}才会读取。",
-  "chat.thread.answerAt": "{name}的回答 · {time}",
   "chat.thread.showMore": "显示更多",
   "chat.thread.showLess": "收起",
   "chat.thread.deleteTitle": "删除这条回复？",

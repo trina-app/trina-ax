@@ -6896,7 +6896,6 @@ export const ja: Record<MessageKey, string> = {
   "chat.thread.notShared": "このチャットは共有されなくなったため、返信できません。",
   "chat.thread.full": "このスレッドは返信がいっぱいです。チャットで続けてください。",
   "chat.thread.peopleOnly": "返信はこのチャットのメンバーだけが見られます。{name}が読むのは、誰かが{name}に返信のことを尋ねたときだけです。",
-  "chat.thread.answerAt": "{name}の回答 · {time}",
   "chat.thread.showMore": "もっと見る",
   "chat.thread.showLess": "閉じる",
   "chat.thread.deleteTitle": "この返信を削除しますか?",

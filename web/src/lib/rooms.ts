@@ -87,21 +87,32 @@ export function localDayKey(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export interface MessageRun {
+/** What runs are cut by: a room message, or a reply in the thread under a shared chat's AI answer
+ * (components/chat/ChatThreadPanel.tsx), which has no AI author and no event lines. */
+export interface RunItem {
+  id: string
+  createdAt: string
+  author: { id: string } | null
+  authorKind?: RoomMessage['authorKind']
+  askedBy?: { id: string } | null
+  event?: unknown
+}
+
+export interface MessageRun<M extends RunItem = RoomMessage> {
   /** the first message's id */
   key: string
-  messages: RoomMessage[]
+  messages: M[]
   /** the first run of its day (the list shows the date above it) */
   newDay: boolean
 }
 
-const authorKey = (m: RoomMessage) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
+const authorKey = (m: RunItem) => (m.authorKind === 'ai' ? `ai:${m.askedBy?.id ?? ''}` : `user:${m.author?.id ?? ''}`)
 
 /** Cut the messages (oldest first) into runs of one author. An event line is a run of its own and ends the one before
  * it (the next message starts a new run with its name and time). */
-export function groupRuns(messages: RoomMessage[], dayOf: (iso: string) => string = localDayKey): MessageRun[] {
-  const runs: MessageRun[] = []
-  let prev: RoomMessage | null = null
+export function groupRuns<M extends RunItem>(messages: readonly M[], dayOf: (iso: string) => string = localDayKey): MessageRun<M>[] {
+  const runs: MessageRun<M>[] = []
+  let prev: M | null = null
   let prevDay: string | null = null
   for (const m of messages) {
     const day = dayOf(m.createdAt)

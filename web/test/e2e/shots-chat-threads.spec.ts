@@ -96,7 +96,7 @@ for (const loc of ['en', 'ko'] as const) {
         // the owner's extras: the reply's menu with Delete, the answer's row, an
         // empty thread, and the read-only line under safe operations
         await panel.getByTestId('chat-thread-reply').first().hover()
-        await panel.getByTestId('chat-thread-reply-menu').first().click()
+        await panel.getByTestId('message-more').first().click()
         await expect(page.getByTestId('chat-thread-delete')).toBeVisible()
         await shot('02-reply-menu')
         await page.keyboard.press('Escape')
