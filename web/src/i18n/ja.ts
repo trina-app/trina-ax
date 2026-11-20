@@ -611,6 +611,7 @@ export const ja: Record<MessageKey, string> = {
   "chat.answeredBy": "回答したAI: {ai}",
   'chat.inTrash': "このチャットは削除されており、{date}に完全に削除されます。続けるには復元してください。",
   "chat.footer": "AIは誤ることがあります。重要な情報は確認してください。新しいチャットは自分だけが見られます。",
+  "chat.toBottom": "最新のメッセージへ移動",
   'chat.reply': '返信',
   "outbox.label": "送信待ちのメッセージ",
   "outbox.placeholder": "回答後に送るメッセージ",
