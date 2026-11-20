@@ -11,9 +11,11 @@ import { PRODUCT } from '@mycel/shared'
 import { useOverlayEntry } from '../lib/backCloses'
 import { mayReloadNow } from '../lib/reload-guard'
 import { setNavigator } from '../lib/nav'
-import { closeSidePanel, escapeAction, expandable, keepsFilePanel, openArtifact, panelExpandedNow, panelGuarded, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, usePanelRefusals, useSidePanel } from '../lib/sidePanel'
+import { closeSidePanel, escapeAction, expandable, getSidePanel, keepsFilePanel, openArtifact, panelExpandedNow, panelGuarded, setPanelExpanded, setSidePanel, typingOnPhone, usePanelExpanded, usePanelRefusals, useSidePanel } from '../lib/sidePanel'
 import { useImageViewer } from '../lib/imageViewer'
 import { newChatPath } from '../lib/newChat'
+import { searchShortcut } from '../lib/searchKeys'
+import { platform } from '../lib/pwa'
 import { useT } from '../i18n'
 import { useChats } from '../store/chats'
 import { useMe } from '../store/session'
@@ -63,13 +65,31 @@ export default function Layout() {
     return () => setNavigator(null)
   }, [navigate])
 
-  // keyboard: ⌘/Ctrl+K search, ⌘/Ctrl+Shift+O new chat, Esc: a big side panel back side by side, then closed
+  // keyboard: ⌘/Ctrl+K and ⌘/Ctrl+F search (lib/searchKeys.ts), ⌘/Ctrl+Shift+O new chat, Esc: a big side panel back
+  // side by side, then closed
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
-      if (mod && e.key.toLowerCase() === 'k') {
+      const ui = useUi.getState()
+      const box = document.querySelector<HTMLElement>('[data-testid="search-palette"]')
+      const panelNow = getSidePanel()
+      const key = searchShortcut(e, {
+        open: ui.searchOpen,
+        // another dialog (the image and file viewer is one too): ⌘F is left alone. Not a room's thread or side chat drawn
+        // as a sheet in a narrow window (pages/Room.tsx data-sheet): that is the conversation itself
+        dialog: !!document.querySelector('[role="dialog"]:not([data-testid="search-palette"]):not([data-sheet])'),
+        path: window.location.pathname,
+        reading: panelNow?.kind === 'file' || panelNow?.kind === 'artifact',
+        mac: platform() === 'mac' || platform() === 'ios',
+      })
+      if (key.do === 'open') {
         e.preventDefault()
-        setSearchOpen(true)
+        setSearchOpen(true, undefined, key.here)
+      } else if (key.do === 'focus') {
+        e.preventDefault()
+        const input = box?.querySelector<HTMLInputElement>('input[role="combobox"]')
+        input?.focus()
+        input?.select()
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'o') {
         e.preventDefault()
         navigate(newChatPath())

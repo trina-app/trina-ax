@@ -103,6 +103,9 @@ team page or the app's own screen. It is a separate small view, so the text type
 searches. The menu's accelerator only gets a key the page did not take: Chromium gives a key to the page first and
 hands it to the window's menu only when the page did not call preventDefault (macOS: performKeyEquivalent from the
 unhandled-key path; Windows and Linux: the unhandled keyboard event handler). A site with its own Cmd+F (a document
-editor in the in-app browser) keeps it; the team web app has no Cmd/Ctrl+F or Cmd/Ctrl+G of its own. In a plain
-browser the web app does nothing here, so the browser's own find stays. The bar closes when its view leaves the window
+editor in the in-app browser) keeps it. The team web app takes Cmd/Ctrl+F only where it opens its own search
+(web/src/lib/searchKeys.ts, docs/decisions/20261120-search-shortcuts-slack.md): in a room, a DM, a group chat or a
+thread, and on pages with no text of their own to find; in an AI chat, the file viewer and with a file or artifact
+panel open it leaves the key alone, so the find bar opens there as before, and Edit › Find… always opens it. The web
+app never takes Cmd/Ctrl+G (Find Next). The bar closes when its view leaves the window
 (the team list, the browser closed, another tab). Tests: `tests/unit/e-find-bar.test.ts`, `e2e/find-bar.spec.ts`.

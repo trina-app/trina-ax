@@ -42,9 +42,9 @@ const groupChat = async (by: string, others: string[], name?: string) => (await 
 const dm = async (by: string, other: string) => (await h.api(by).call(API.createRoom, { body: { kind: 'dm', userId: other } })).id
 const send = (user: string, roomId: string, body: string, extra: Record<string, unknown> = {}) =>
   h.api(user).call(API.sendRoomMessage, { params: { id: roomId }, body: { body, clientMessageId: cm(), mentions: [], fileIds: [], ...extra } }) as Promise<RoomMessage>
-const search = (user: string, q: string, extra: { cursor?: string; limit?: number; sort?: 'relevant' | 'recent' } = {}) => h.api(user).call(API.searchRoomMessages, { query: { q, ...extra } }) as Promise<RoomSearchPage>
+const search = (user: string, q: string, extra: { cursor?: string; limit?: number; sort?: 'relevant' | 'recent'; room?: string } = {}) => h.api(user).call(API.searchRoomMessages, { query: { q, ...extra } }) as Promise<RoomSearchPage>
 const bodies = (p: RoomSearchPage) => p.items.map((i) => i.snippet)
-const tagged = async (user: string, q: string, tag: string, extra: { sort?: 'relevant' | 'recent' } = {}) => bodies(await search(user, q, extra)).filter((b) => b.includes(tag))
+const tagged = async (user: string, q: string, tag: string, extra: { sort?: 'relevant' | 'recent'; room?: string } = {}) => bodies(await search(user, q, extra)).filter((b) => b.includes(tag))
 const raw = async (user: string, q: string) => (await h.req(user, `/api/room-messages?q=${encodeURIComponent(q)}`)).text()
 
 describe('the text: word forms, phrases, filters (shared/src/search-text.ts)', () => {
@@ -58,11 +58,14 @@ describe('the text: word forms, phrases, filters (shared/src/search-text.ts)', (
   })
 
   test('parseSearch: from:, in:, quoted phrases, words; a lone quote and an empty filter are text', () => {
-    expect(parseSearch('from:@bob in:#marketing 견적서를 "budget review"')).toEqual({ words: ['견적서를', 'budget review'], terms: ['견적서', 'budget review'], phrases: [false, true], from: ['bob'], in: ['marketing'] })
+    expect(parseSearch('from:@bob in:#marketing 견적서를 "budget review"')).toEqual({ words: ['견적서를', 'budget review'], terms: ['견적서', 'budget review'], phrases: [false, true], from: ['bob'], in: ['marketing'], mentions: [] })
     expect(parseSearch('from:"Bob Lee" in:"Q4 launch" hi')).toMatchObject({ from: ['Bob Lee'], in: ['Q4 launch'], words: ['hi'] })
     expect(parseSearch('FROM:me 네')).toMatchObject({ from: ['me'], words: ['네'] })
     expect(parseSearch('"abc from: x')).toMatchObject({ words: ['"abc', 'from:', 'x'], from: [] })
     expect(parseSearch('x from:bob from:BOB')).toMatchObject({ from: ['bob'] })
+    // mentions: (the "Mentions me" chip sends mentions:me), as typed
+    expect(parseSearch('mentions:me 견적 MENTIONS:@Me')).toMatchObject({ mentions: ['me'], words: ['견적'] })
+    expect(parseSearch('mentions: x')).toMatchObject({ mentions: [], words: ['mentions:', 'x'] })
   })
 
   test('nearMatch: a typing mistake or two in a word or the start of one, never in a short one', () => {
@@ -192,6 +195,85 @@ describe('who sees a hit, whatever the filters say', () => {
   })
 })
 
+// "This conversation" (room=) and "Mentions me" (mentions:me): docs/decisions/20261120-search-shortcuts-slack.md
+describe('room= and mentions:me narrow, never widen', () => {
+  test('room= finds only that room; bare (no from:/in:) too; with in: it is both', async () => {
+    const a = await teamRoom(['alice', 'erin'], 'Here Room')
+    const b = await teamRoom(['alice', 'erin'], 'There Room')
+    await send('alice', a, 'HERE-CANARY 견적 in here')
+    await send('alice', b, 'HERE-CANARY 견적 over there')
+    const T = 'HERE-CANARY'
+    expect(await tagged('erin', `${T} 견적을`, T)).toHaveLength(2)
+    expect(await tagged('erin', `${T} 견적`, T, { room: a })).toEqual([`${T} 견적 in here`])
+    const p = await search('erin', T, { room: a })
+    expect(bodies(p)).toEqual([`${T} 견적 in here`])
+    // the room is not named back (the chip says it), and it counts as a filter: no roomGone, nothing missing
+    expect(p.filters).toEqual({ from: [], in: [], missing: [] })
+    // bare: no text at all, only the room's messages (as a filter alone lists them)
+    expect(searchRoomMessages(h.ctx.db, 'erin', { q: '', room: a }).items.map((i) => i.roomId)).toEqual([a])
+    // with in: the room only when in: names it too
+    expect(bodies(await search('erin', `in:"There Room" ${T}`, { room: a }))).toEqual([])
+    expect(bodies(await search('erin', `in:"Here Room" ${T}`, { room: a }))).toEqual([`${T} 견적 in here`])
+    expect(bodies(await search('erin', `in:Room ${T}`, { room: b }))).toEqual([`${T} 견적 over there`])
+    // with from:me
+    await send('erin', a, 'HERE-CANARY 견적 erin here')
+    expect(bodies(await search('erin', `from:me ${T}`, { room: a }))).toEqual([`${T} 견적 erin here`])
+    // files too
+    expect(searchRoomFiles(h.ctx.db, 'erin', { q: 'in:"There Room"', room: a }).items).toEqual([])
+  })
+
+  test('room= a room I am not in, left or that was archived: nothing, roomGone, its id never echoed', async () => {
+    const secret = await teamRoom(['alice', 'erin'], 'Secret Here')
+    await send('erin', secret, 'GONE-CANARY 원가 secret')
+    for (const u of ['bob', 'carol', 'dana']) {
+      const p = await search(u, 'GONE-CANARY', { room: secret })
+      expect(p).toEqual({ items: [], rooms: [], nextCursor: null, filters: { from: [], in: [], missing: [], roomGone: true } })
+      expect(JSON.stringify(p)).not.toContain(secret)
+      expect(searchRoomFiles(h.ctx.db, u, { q: 'GONE-CANARY', room: secret }).items).toEqual([])
+      expect(await (await h.req(u, `/api/room-messages?q=GONE-CANARY&room=${secret}`)).text()).not.toContain('원가')
+    }
+    // a group chat left: gone at once
+    const g = await groupChat('alice', ['bob', 'erin'], 'Left Chat')
+    await send('alice', g, 'GONE-CANARY left chat words')
+    expect(bodies(await search('bob', 'GONE-CANARY', { room: g }))).toEqual(['GONE-CANARY left chat words'])
+    await h.api('bob').call(API.leaveRoom, { params: { id: g } })
+    expect((await search('bob', 'GONE-CANARY', { room: g })).filters?.roomGone).toBe(true)
+    // an archived room: gone for everyone in it
+    h.ctx.db.query('UPDATE rooms SET archived_at = ? WHERE id = ?').run(new Date().toISOString(), g)
+    expect((await search('alice', 'GONE-CANARY', { room: g })).items).toEqual([])
+    // a made-up id and a bad one
+    expect((await search('erin', 'GONE-CANARY', { room: uuidv7() })).filters?.roomGone).toBe(true)
+    expect((await h.req('erin', '/api/room-messages?q=x&room=not-an-id')).status).toBe(400)
+  })
+
+  test('mentions:me: by name and @everyone by someone else, in my rooms only; mentions:someone finds nothing', async () => {
+    const room = await teamRoom(['alice', 'erin', 'bob'])
+    const other = await teamRoom(['alice', 'bob'])
+    await send('alice', room, 'MENT-CANARY @erin 견적 please', { mentions: ['erin'] })
+    await send('alice', room, 'MENT-CANARY @everyone 견적 all', { mentionsAll: true })
+    await send('erin', room, 'MENT-CANARY @everyone by erin herself', { mentionsAll: true })
+    await send('alice', room, 'MENT-CANARY no mention 견적')
+    await send('alice', other, 'MENT-CANARY @bob not for erin', { mentions: ['bob'] })
+    const T = 'MENT-CANARY'
+    expect(await tagged('erin', `mentions:me ${T}`, T, { sort: 'recent' })).toEqual([`${T} @everyone 견적 all`, `${T} @erin 견적 please`])
+    // the chip and the typed words are one search; with no other text too
+    expect(await tagged('erin', 'mentions:me', T, { sort: 'recent' })).toEqual([`${T} @everyone 견적 all`, `${T} @erin 견적 please`])
+    expect((await search('erin', `mentions:me ${T}`)).filters).toMatchObject({ mentions: true, missing: [] })
+    // with room= and from:
+    expect(await tagged('erin', `mentions:me from:alice ${T}`, T, { room })).toHaveLength(2)
+    expect(await tagged('bob', `mentions:me ${T}`, T, { room })).toEqual([`${T} @everyone by erin herself`, `${T} @everyone 견적 all`])
+    expect(await tagged('bob', `mentions:me ${T}`, T)).toContain(`${T} @bob not for erin`)
+    // a near match keeps it
+    expect(bodies(await search('erin', `mentions:me ${T} pleese`)).every((b) => !b.includes('no mention'))).toBe(true)
+    // someone else's mentions: nothing, said as a filter that matched nobody
+    const p = await search('erin', `mentions:bob ${T}`)
+    expect(p.items).toEqual([])
+    expect(p.filters?.missing).toEqual(['mentions:bob'])
+    // carol (not in either room) sees none of it
+    expect((await search('carol', `mentions:me ${T}`)).items).toEqual([])
+  })
+})
+
 describe('order', () => {
   test('best match: the whole text in order above a newer message with the words apart; newest first on recent', async () => {
     const room = await teamRoom(['alice', 'erin'])
@@ -279,7 +361,7 @@ describe('on 100,000 messages', () => {
     const ko = ['안녕하세요', '오늘 회의는', '견적서를 보내드릴게요', '내일까지', '디자인 시안', '확인 부탁드립니다', '감사합니다', '고객사 미팅', '자료 공유', '네 알겠습니다', '배포 일정', '인화원 연수']
     const en = ['the quarterly budget', 'deployed to staging', 'please review', 'meeting notes', 'shipping today', 'the client asked']
     const db = h.ctx.db
-    const ins = db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, mentions, created_at) VALUES (?, ?, ?, 'user', ?, 'room', ?, '[]', ?)`)
+    const ins = db.query(`INSERT INTO room_messages (id, room_id, seq, author_kind, author_id, visibility, body, created_at, mentions) VALUES (?, ?, ?, 'user', ?, 'room', ?, ?, ?)`)
     const start = (db.query('SELECT last_seq FROM rooms WHERE id = ?').get(room) as { last_seq: number }).last_seq
     const before = ftsBytes(db)
     const N = 100_000
@@ -290,7 +372,8 @@ describe('on 100,000 messages', () => {
         for (let k = 0; k < 3 + (i * 7) % 10; k++) b += (k % 3 ? ko : en)[(i * 31 + k * 17) % (k % 3 ? ko.length : en.length)] + ' '
         if (i % 997 === 0) b += ' 특별견적 요청'
         if (i === 50_000) b += ' please recieve the parcel'
-        ins.run(uuidv7(), room, start + i + 1, ['alice', 'erin', 'bob'][i % 3]!, b.trim(), new Date(Date.UTC(2025, 0, 1) + i * 300_000).toISOString())
+        // a rare mention of bob (a chip with no text walks far for it)
+        ins.run(uuidv7(), room, start + i + 1, ['alice', 'erin', 'bob'][i % 3]!, b.trim(), new Date(Date.UTC(2025, 0, 1) + i * 300_000).toISOString(), i % 9973 === 1 ? '["bob"]' : '[]')
       }
       db.query('UPDATE rooms SET last_seq = ? WHERE id = ?').run(start + N, room)
     })()
@@ -298,15 +381,19 @@ describe('on 100,000 messages', () => {
     const after = ftsBytes(db)
     const text = (db.query('SELECT SUM(length(CAST(body AS BLOB))) n FROM room_messages WHERE room_id = ?').get(room) as { n: number }).n
     const times: Record<string, number> = {}
-    const qs: [string, 'relevant' | 'recent'][] = [
+    const qs: [string, 'relevant' | 'recent', string?][] = [
       ['견적', 'recent'], ['견적서를', 'relevant'], ['회의를', 'relevant'], ['deploys', 'relevant'], ['"quarterly budget"', 'relevant'], ['특별견적', 'relevant'],
       ['from:erin 견적서', 'relevant'], ['in:@alice', 'recent'], ['from:me 인화원', 'recent'], ['없는말입니다', 'relevant'], ['parcle', 'relevant'], ['recieve', 'relevant'], ['stagign meetnig', 'relevant'], ['qaurterly', 'relevant'],
+      // the chips with no text (docs/decisions/20261120-search-shortcuts-slack.md): Sent by me, Mentions me (rare: a far
+      // walk), and This conversation with them
+      ['from:me', 'relevant'], ['mentions:me', 'relevant'], ['mentions:me', 'recent', room], ['from:me mentions:me', 'relevant', room], ['견적', 'relevant', room],
     ]
-    for (const [q, sort] of qs) {
-      searchRoomMessages(db, 'bob', { q, sort })
+    for (const [q, sort, here] of qs) {
+      const o = { q, sort, ...(here ? { room: here } : {}) }
+      searchRoomMessages(db, 'bob', o)
       const runs: number[] = []
-      for (let i = 0; i < 3; i++) { const t = performance.now(); searchRoomMessages(db, 'bob', { q, sort }); runs.push(performance.now() - t) }
-      times[`${q} (${sort})`] = Number(runs.sort((a, b) => a - b)[1]!.toFixed(1))
+      for (let i = 0; i < 3; i++) { const t = performance.now(); searchRoomMessages(db, 'bob', o); runs.push(performance.now() - t) }
+      times[`${q} (${sort}${here ? ', room' : ''})`] = Number(runs.sort((a, b) => a - b)[1]!.toFixed(1))
     }
     console.log(`room search on ${N} messages: insert ${inserted.toFixed(0)} ms; text ${(text / 1e6).toFixed(1)} MB, index +${((after - before) / 1e6).toFixed(1)} MB; median ms:`, JSON.stringify(times))
     // loose bounds (a busy machine runs these far slower)
@@ -316,5 +403,6 @@ describe('on 100,000 messages', () => {
     expect(near.near).toBe(true)
     expect(near.items[0]!.snippet).toContain('parcel')
     expect(searchRoomMessages(db, 'bob', { q: '특별견적', sort: 'relevant' }).items).toHaveLength(20)
+    expect(searchRoomMessages(db, 'bob', { q: 'mentions:me', sort: 'recent', room }).items).toHaveLength(Math.ceil((N - 1) / 9973))
   })
 })
