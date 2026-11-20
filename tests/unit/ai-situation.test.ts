@@ -151,6 +151,38 @@ describe('the block per state', () => {
     }
   })
 
+  // QA TC-5570: on a free-roam demo the block sent visitors to Settings › Usage and Settings › Profile › Delete account
+  // over the demo's own rule (prompt.ts demoRule); it names no page the demo fences (demo/guard.ts) or hides (web
+  // lib/freeRoam.ts FREE_ROAM_HIDDEN_SETTINGS, FREE_ROAM_HIDDEN_PAGES)
+  test('a free-roam demo: no fenced or hidden page named, for every role, app and locale; a normal install unchanged', () => {
+    const plan = { name: 'Trial', people: 5, guests: 10 }
+    const fencedEn = ['Settings › Usage', 'Delete account', 'AI providers', 'Settings › Connectors', 'card in this chat', 'Settings › Security',
+      'Settings › Apps', 'Settings › AI apps', 'Admin ›', 'Transfer ownership', 'Team plan', 'They can open Admin', 'Admin is in that list', 'Connected folders']
+    for (const L of LOCALES) {
+      for (const role of ['owner', 'admin', 'member'] as const) {
+        for (const app of ['web', 'mobile', 'desktop', 'desktop-browser'] as const) {
+          for (const ai of ['own', 'team', 'host', null] as const) {
+            const t = say({ freeRoam: true, role, app, ai, plan: role === 'member' ? null : plan, connectedFolders: false }, L)
+            expect(t).toContain('## About this person and place')
+            expect(t).toContain('not in the demo: never send them to an Admin page')
+            for (const no of [SCREEN.usage(L), SCREEN.deleteAccount(L), SCREEN.ownProviders(L), SCREEN.adminProviders(L), SCREEN.connectors(L), SCREEN.handover(L),
+              SCREEN.adminSystem(L), SCREEN.adminSettings(L), SCREEN.connectedFolders(L)]) expect(t).not.toContain(no)
+            if (L === 'en') for (const no of fencedEn) expect(t).not.toContain(no)
+            // what the demo has stays: their own Settings, and a file's earlier versions
+            expect(t).toContain('Their own things are in Settings')
+            expect(t).toContain('earlier versions are in')
+          }
+        }
+      }
+    }
+    // the same states on a normal install still name every page (Usage and Delete account above all)
+    const owner = say({ role: 'owner', plan, connectedFolders: true })
+    for (const yes of ['Settings › Usage', 'Settings › Profile › Delete account', 'Transfer ownership', 'They can open Admin', 'Admin › AI providers', 'Team plan', 'Admin › System › Connected folders']) expect(owner).toContain(yes)
+    const member = say({ role: 'member' })
+    for (const yes of ['Settings › Usage', 'Settings › Profile › Delete account', 'Settings › AI providers', 'Settings › Connectors', 'card in this chat']) expect(member).toContain(yes)
+    expect(say({ freeRoam: false, role: 'member' })).toBe(member)
+  })
+
   test('appOf: the session\'s client, the desktop browser first', () => {
     expect(appOf('desktop', true)).toBe('desktop-browser')
     expect(appOf('desktop', false)).toBe('desktop')
@@ -225,6 +257,19 @@ describe('built from real state', () => {
       expect(of('carol', 'admin').plan?.name).toBe('Trial')
       expect(of('alice', 'member').plan).toBeNull()
     } finally { setPlanForTests(undefined) }
+  })
+
+  test('a free-roam demo instance is told apart from a normal install (app-config.ts isFreeRoam)', () => {
+    const cfg = (demo: unknown) => ({ ...h.ctx.config, demo } as never)
+    const p = { userId: 'alice', role: 'member' as const, clientKind: 'web', browser: false, engine: 'claude-code', locale: 'en' as const }
+    const demo = situationOf({ db: h.ctx.db, config: cfg({ kind: 'freeRoam', company: 'Steepling' }) }, p)
+    expect(demo.freeRoam).toBe(true)
+    expect(situationSection(demo, 'en')).not.toContain('Settings › Usage')
+    for (const other of [null, { kind: 'scripted', company: 'Steepling' }]) {
+      const normal = situationOf({ db: h.ctx.db, config: cfg(other) }, p)
+      expect(normal.freeRoam).toBeUndefined()
+      expect(situationSection(normal, 'en')).toContain('Settings › Usage')
+    }
   })
 
   test('a real turn: a member on the web gets the member block; the owner on the phone gets hers', async () => {
