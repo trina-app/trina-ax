@@ -127,6 +127,8 @@ export class DriveBroker {
     const code = typeof json?.error?.code === 'string' ? json.error.code : ''
     if (code === 'invalid_grant') throw new DriveError('needs_reconnect', 409)
     if (code === 'invalid_handoff') throw new DriveError('invalid_flow')
+    // Google's answer lacks part of the access asked for (a box left unticked): sign in again and allow every access
+    if (code === 'scope_denied') throw new DriveError('scope_denied', 409)
     // a Google app other than Drive (gmail, calendar, docs, sheets): an older control plane refuses the `app` field, and
     // a newer one may not offer that app yet; either way it is not available through the hosting service now
     if (forApp && (code === 'invalid_request' || code === 'app_unavailable')) throw new DriveError('service_limited', 409)

@@ -243,7 +243,7 @@ export class GoogleApps {
     })()
     if (setup.mode === 'broker') {
       try {
-        const urls = await googleDriveOf(this.ctx).broker!.start('personal', state, challengeOf(verifier), app)
+        const urls = await this.brokerStart(scope, state, challengeOf(verifier), app)
         this.limited.delete(app)
         return { flowId: id, ...urls, expiresAt }
       } catch (e) {
@@ -260,6 +260,18 @@ export class GoogleApps {
       access_type: 'offline', prompt: 'consent', state, code_challenge: challengeOf(verifier), code_challenge_method: 'S256',
     })) url.searchParams.set(k, v)
     return { flowId: id, authorizationUrl: url.href, expiresAt }
+  }
+
+  /** The hosting service's sign-in for this app: a team connection says so on its start page (purpose "share"). An
+   * older control plane takes an app only with "personal" and refuses "share" (service_limited here): start again with
+   * "personal", which signs in the same way and only words the page as one person's (QA TC-6065). */
+  private async brokerStart(scope: Scope, state: string, challenge: string, app: GoogleAppId) {
+    const broker = googleDriveOf(this.ctx).broker!
+    if (scope !== 'team') return broker.start('personal', state, challenge, app)
+    try { return await broker.start('share', state, challenge, app) } catch (e) {
+      if (!(e instanceof DriveError && e.reason === 'service_limited')) throw e
+      return broker.start('personal', state, challenge, app)
+    }
   }
 
   /** A flow of this person and session for this app and scope: a personal sign-in never completes the team's, nor the

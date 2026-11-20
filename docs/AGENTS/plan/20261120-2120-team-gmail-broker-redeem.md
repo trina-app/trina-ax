@@ -53,7 +53,7 @@ Out: the CP's "Gmail connected" page that shows before the redeem's scope check 
 
 ## Decisions
 
-docs/decisions/20261121-google-broker-team-apps.md: purpose `share` for team app sign-ins, `scope_denied` code,
+docs/decisions/20261120-team-gmail-broker-redeem.md: purpose `share` for team app sign-ins, `scope_denied` code,
 `provider_error` 503.
 
 ## Risks
