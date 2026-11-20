@@ -441,11 +441,12 @@ describe('where the steps go', () => {
     expect(inviteSkill({ ...p, shared: { at: 'x', skills: [], landing: GENERAL_DECK_SKILL } })).toBeNull()
   })
 
-  test('the setup row: never on /welcome, finished or hidden; without AI "AI 연결하기" but not on Home; on a phone not on Home', () => {
+  test('the setup row: never on /welcome, finished or hidden; without AI "AI 연결하기" but not on Home; not on Home (its top row says it)', () => {
     const p = atProfile()
     const at = (path: string, aiReady = true, computer = true, row: WelcomeProgress | null = p) => setupRowState(row, { path, aiReady, computer })
     expect(at('/c/abc')).toBe('resume')
-    expect(at('/')).toBe('resume')
+    // Home's top row says it, on a computer too (docs/decisions/20261120-my-setup-card.md)
+    expect(at('/')).toBe('hidden')
     expect(at('/welcome')).toBe('hidden')
     expect(at('/c/abc', true, true, null)).toBe('hidden')
     expect(at('/c/abc', true, true, { ...p, finishedAt: 'x' })).toBe('hidden')
