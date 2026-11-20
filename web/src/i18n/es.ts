@@ -5707,7 +5707,7 @@ export const es: Record<MessageKey, string> = {
   "gapps.cancelled": "Se canceló el inicio de sesión de Google, así que no se conectó nada. Pulse Conectar para intentarlo de nuevo.",
   "gapps.deniedService": "Google no permitió el inicio de sesión. Puede que pulsara Cancelar, o que por ahora Google solo permita algunas cuentas. Pulse Conectar para intentarlo de nuevo; si vuelve a pasar, avise a su administrador.",
   "gapps.tooManySignIns": "Se iniciaron demasiados inicios de sesión. Inténtelo de nuevo en una hora más o menos.",
-  "google.unverifiedHint": "Puede que Google diga “Google no ha verificado esta aplicación”. Pulse Configuración avanzada y luego “Ir a {product}”.",
+  "google.unverifiedHint": "Puede que Google diga “Google no ha verificado esta aplicación”. Pulse Configuración avanzada y luego “Ir a {product} (no seguro)”.",
   "gapps.serviceDown": "No se puede acceder a {name} en este momento. Se recupera solo; su conexión está bien.",
   "gapps.setUpLink": "Configurar {name}",
   "gapps.settingsTitle": "Ajustes de {name}",

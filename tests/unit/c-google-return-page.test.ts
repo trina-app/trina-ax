@@ -35,7 +35,9 @@ test('reasons map to plain pages; "browser_session_required" tells signed-out fr
     expect(p.status).toBe(r === 'ok' ? 200 : 400)
     expect(p.html).toContain(`<html lang="${L}">`)
     expect(p.html).not.toMatch(/received|consent_denied|scope_denied|\{product\}/)
-    expect(p.html.includes('href="/login"')).toBe(r === 'signed_out' || r === 'other_account')
+    expect(/href="\/login/.test(p.html)).toBe(r === 'signed_out' || r === 'other_account')
+    // a browser not signed in: sign in and connect here (the connector's page after the sign-in), not a bare line
+    if (r === 'signed_out') expect(p.html).toContain('href="/login?next=%2Fsettings%2Fconnectors"')
     if (L !== 'en') expect(p.html).not.toBe(googleReturnPage(r, 'en').html)
   }
 })
@@ -75,7 +77,7 @@ test('Drive: a browser not signed in (the desktop app\'s system browser) or sign
   expect(p.status).toBe(400)
   expect(p.html).toContain('<html lang="ko">')
   expect(p.html).toMatch(/이 브라우저는 .+에 로그인되어 있지 않아요/)
-  expect(p.html).toContain('href="/login"')
+  expect(p.html).toContain('href="/login?next=%2Fsettings%2Fconnectors%2Fgoogle-drive"')
   // someone else signed in here (in that person's language)
   h.ctx.db.query("UPDATE users SET locale='en' WHERE username IN ('olga','bob')").run()
   p = await page(await other.raw('GET', cbUrl(cb)))

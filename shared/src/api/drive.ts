@@ -60,8 +60,11 @@ export const UpdateDriveShareBody = z.object({
  * 2026-11-12 (docs/DECISIONS.md "No members' switch for connectors"). */
 export const CompleteDriveFlowBody = z.object({ membersOn: z.literal(true).optional() })
 /** `connectUrl`: on a hosted team that signs in through the hosting service, its own start page for this sign-in
- * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google. */
-const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), expiresAt: z.string() })
+ * (it explains Google's screen, then links to `authorizationUrl`). The web opens it first; the phone app opens Google.
+ * `openPath`: only for a sign-in started in the desktop app, a page of this server (GO_PATH with a key) that the app
+ * opens in the system browser instead: it names the Trina person the Drive will belong to, then links on to the
+ * sign-in page (server/src/integrations/google-drive/app-return.ts). It lets no browser finish anything. */
+const Authorization = z.object({ flowId: z.string(), authorizationUrl: z.string().url(), connectUrl: z.string().url().optional(), openPath: z.string().max(512).optional(), expiresAt: z.string() })
 /** The Google OAuth web client: the JSON file Google Cloud downloads (`file`), or its client ID and secret. */
 export const SetDriveClientBody = z.object({
   file: z.string().min(1).max(16_384).optional(), clientId: z.string().min(1).max(512).optional(), clientSecret: z.string().min(1).max(4096).optional(),
@@ -72,6 +75,7 @@ export const DRIVE = {
   authorizeDrive: endpoint({ method: 'POST', path: '/api/integrations/google-drive/authorize', auth: 'user', owner: 'C', body: z.object({}), response: Authorization, summary: 'Start personal Google authorization in a system browser.' }),
   driveFlow: endpoint({ method: 'GET', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: DriveFlow, summary: 'Poll the flow started by this same signed-in session.' }),
   completeDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/flows/:id/complete', auth: 'user', owner: 'C', body: CompleteDriveFlowBody, response: DriveConnection, summary: 'Confirm the Google account shown by this own authorization flow. membersOn is ignored (no members switch since 2026-11-12).' }),
+  claimDriveFlow: endpoint({ method: 'POST', path: '/api/integrations/google-drive/claim', auth: 'user', owner: 'C', body: z.object({ code: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict(), response: DriveFlow, summary: 'The desktop app finishes a sign-in Google answered in a browser without a session: the one-time code from the return page (link fragment). Only a flow of this same session; the person then confirms the account.' }),
   cancelDriveFlow: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel this own authorization flow.' }),
   disconnectDrive: endpoint({ method: 'DELETE', path: '/api/integrations/google-drive', auth: 'user', owner: 'C', response: z.object({ disconnected: z.literal(true), revocation: z.enum(['revoked', 'unavailable', 'not_needed']) }), summary: 'Immediately disable own Drive access, then attempt Google revocation.' }),
   driveAdminStatus: endpoint({ method: 'GET', path: '/api/admin/google-drive', auth: 'admin', owner: 'C', response: DriveAdminStatus, summary: 'Whether Google Drive is set up on this server, by whom, and how many members are connected; never the client.' }),

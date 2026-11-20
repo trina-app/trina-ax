@@ -85,7 +85,7 @@ const NAMED: Record<FenceArea, readonly (keyof typeof API)[]> = {
   connect: [
     'requestAiAccess', 'tellAiNotReady', 'sealingKey', 'myCredentials', 'createMyCredential', 'deleteMyCredential', 'startMyCredentialLogin',
     'getMyCredentialLogin', 'myCredentialLoginSlot', 'cancelMyCredentialLogin', 'submitMyCredentialLoginCode',
-    'authorizeDrive', 'driveFlow', 'completeDriveFlow', 'cancelDriveFlow', 'disconnectDrive',
+    'authorizeDrive', 'driveFlow', 'completeDriveFlow', 'claimDriveFlow', 'cancelDriveFlow', 'disconnectDrive',
     'authorizeGoogleApp', 'googleAppFlow', 'completeGoogleAppFlow', 'cancelGoogleAppFlow', 'updateGoogleApp', 'disconnectGoogleApp',
     'createIntegration', 'updateIntegration', 'deleteIntegration', 'createLocalIntegration', 'updateLocalIntegration', 'refreshIntegration',
     'authorizeIntegration', 'setIntegrationTool', 'integrationFlow', 'cancelIntegrationFlow', 'completeIntegrationRequest',

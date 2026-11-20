@@ -5752,7 +5752,7 @@ export const en: Record<MessageKey, string> = {
   "gapps.cancelled": "Google sign-in was cancelled, so nothing was connected. Press Connect to try again.",
   "gapps.deniedService": "Google did not allow the sign-in. You may have pressed Cancel, or Google allows only some accounts for now. Press Connect to try again; if it happens again, tell your admin.",
   "gapps.tooManySignIns": "Too many sign-ins were started. Try again in about an hour.",
-  "google.unverifiedHint": "Google may say “Google hasn't verified this app”. Press Advanced, then “Go to {product}”.",
+  "google.unverifiedHint": "Google may say “Google hasn't verified this app”. Press Advanced, then “Go to {product} (unsafe)”.",
   "gapps.serviceDown": "{name} can't be reached right now. It comes back by itself; your connection is fine.",
   "gapps.setUpLink": "Set up {name}",
   "gapps.settingsTitle": "{name} settings",

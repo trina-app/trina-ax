@@ -376,6 +376,8 @@ describe('links from outside (trina-ax://open?url=…) and screen ④', () => {
     // offerLink fetches nothing; answerLink connects only with the gate's offer
     const offer = win.slice(win.indexOf('  offerLink(raw: string) {'), win.indexOf('  async answerLink('))
     expect(offer).not.toMatch(/fetch|addTeam|openTeam|loadURL/)
+    // a link to the start of the team on screen (a Google sign-in's "Back to the app") only brings the window forward
+    expect(offer).toMatch(/if \(this\.app && this\.mode !== 'offline' && isShownTeamStart\(raw, this\.team\?\.origin\)\) return\n/)
     expect(win).toMatch(/const offer = this\.linkGate\.answer\(yes, host, Date\.now\(\)\)[\s\S]{0,200}if \(!offer\) return null[\s\S]{0,300}return this\.addTeam\(offer\.origin, true, offer\.entryPath\)/)
     // ④ counts from when the screen says it is up, and a team view taking over drops a waiting link
     expect(win).toContain('this.linkGate.shown(id, Date.now())')

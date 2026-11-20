@@ -5751,7 +5751,7 @@ export const ko = {
   "gapps.cancelled": "Google 로그인을 취소해서 연결하지 않았어요. 다시 하려면 연결을 누르세요.",
   "gapps.deniedService": "Google에서 로그인을 허용하지 않았어요. 취소를 눌렀거나, 지금은 Google이 일부 계정만 허용하고 있을 수 있어요. 연결을 다시 눌러 보고, 또 안 되면 관리자에게 알려 주세요.",
   "gapps.tooManySignIns": "로그인을 너무 많이 시작했어요. 1시간쯤 뒤에 다시 해 주세요.",
-  "google.unverifiedHint": "Google에서 “Google에서 확인하지 않은 앱”이라고 나올 수 있어요. 고급을 누른 뒤 “{product}(으)로 이동”을 누르세요.",
+  "google.unverifiedHint": "Google에서 “Google에서 확인하지 않은 앱”이라고 나올 수 있어요. 고급을 누른 뒤 “{product}(으)로 이동(안전하지 않음)”을 누르세요.",
   "gapps.serviceDown": "지금은 {name}에 접속할 수 없어요. 저절로 복구되니 연결은 문제없어요.",
   "gapps.setUpLink": "{name} 설정하기",
   "gapps.settingsTitle": "{name} 설정",
