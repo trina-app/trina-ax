@@ -29,7 +29,7 @@ import { api, API, errorText } from '../../lib/api'
 import { canSeal, sealSecret } from '../../lib/seal'
 import { LOCALES, useLocale, useT } from '../../i18n'
 import { isOwner, useMeStrict, useSession } from '../../store/session'
-import { TEAM_NAME_MAX } from '@mycel/shared/cloud-protocol/team-name'
+import { capTeamName } from '../../lib/teamName'
 import { toast } from '../../store/ui'
 import { Button, confirmDialog, Field, inputCls, Switch, useMediaQuery } from '../../components/ui'
 import { LanguageSelect } from '../../components/LanguageSelect'
@@ -51,7 +51,7 @@ export default function TeamSettingsPage() {
   const t = useT()
   // folder sharing open: the members switch names folders too
   const me = useMeStrict()
-  // a hosted server's team name is at most TEAM_NAME_MAX (60) characters, the hosting service's limit; a self-installed one's is 100 (QA TC-5921)
+  // a hosted server's team name is at most 60 code points (capTeamName; no maxLength, which counts UTF-16 units), the hosting service's limit; a self-installed one's is 100 (QA TC-5921)
   const hosted = me.server.deployment === 'hosted'
   const signedIn = useSession((s) => s.signedIn)
   const act = useAction()
@@ -213,7 +213,7 @@ export default function TeamSettingsPage() {
                       <>
                         <SettingsSection title={t('teamSettings.section.general')} id="ts-general" testId="team-settings-general">
                           <SettingRow id="ts-name" title={t('setup.teamName')} desc={owner ? t('teamSettings.row.nameDesc') : t('teamSettings.nameOwnerOnly')}
-                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: hosted ? [...e.target.value].slice(0, TEAM_NAME_MAX).join('') : e.target.value })} maxLength={hosted ? TEAM_NAME_MAX : 100} />} />
+                            control={<input id="ts-name" aria-describedby="ts-name-desc" className={clsx(inputCls, 'md:w-64')} data-team-field="name" value={f.teamName} disabled={!owner} onChange={(e) => setF({ ...f, teamName: hosted ? capTeamName(e.target.value) : e.target.value })} maxLength={hosted ? undefined : 100} />} />
                           {/* a phone: "Team default language   한국어 ›", the languages in a sheet (QA TC-378) */}
                           {phone ? (
                             <PhoneChoiceRow title={t('teamSettings.defaultLocale')} desc={t('teamSettings.defaultLocaleHint')} value={f.defaultLocale}
