@@ -157,6 +157,8 @@ export const GUEST_ENDPOINTS: ReadonlySet<Endpoint> = new Set<Endpoint>([
   API.deleteMemory,
   API.clearMemories,
   API.listNavFolders,
+  // the team's conversation categories (read only: the Chats list groups a guest's channels the same way)
+  API.listRoomCategories,
   API.createNavFolder,
   API.updateNavFolder,
   API.deleteNavFolder,
