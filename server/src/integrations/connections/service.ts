@@ -26,6 +26,8 @@ import {
 import { say, type Reason, type TextKey } from './text'
 import { NOTIFICATION_RETENTION_MS, notifyConnectionReconnect, notifyTemplateLeft, notifyTemplateReconnect } from '../../notifications/service'
 import { refreshGoogleApp } from '../google-apps/tokens'
+import { serverAppAt } from '@mycel/shared'
+import { GITHUB_AUTHORIZE_URL, GITHUB_TOKEN_URL, githubAppOf, githubAppView, revokeGitHubToken } from '../github/app'
 import { APP_NAMES, appTools } from '../google-apps/catalog'
 import { downMessage, libraryRequest, LibraryDown } from '../google-apps/transport'
 import { demoFakesOf } from '../../demo/fakes'
@@ -87,6 +89,8 @@ type Secret = KeySecret | OAuthSecret
 interface FlowSecret {
   verifier: string; server: OAuthServer; client: OAuthClient; resource: string | null; scope: string | null
   pinOnto?: { json: string; enc: string | null } | null; appVersion?: number | null; own?: 'mine' | 'template' | boolean
+  /** signed in through the server's GitHub App (serverApp): kept with the tokens, so refreshes use that app as it is now */
+  serverApp?: 'github'
 }
 /** Why a sign-in did not finish (integration_oauth_flows.reason, IntegrationFlow.reason; the app says it in words,
  * web/src/lib/integrations.ts flowReasonKey): the person said no at the service (denied), the answer was not one we
@@ -219,7 +223,7 @@ export class Integrations {
     const team = (this.db.query(`${selectRows(this.db)} WHERE scope = 'team' AND google_app IS NULL ORDER BY name, id`).all() as Row[]).filter((r) => mayUse(this.db, r, viewer.id))
     const settings = getTeamSettings(this.db)
     const personalAllowed = settings.personalIntegrations
-    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db), recommendedTools: settings.recommendedTools ?? [] }
+    return { items: [...personal, ...team].map((r) => view(this.db, r, viewer, locale)), personalAllowed, localAllowed: personalAllowed && localOn(this.db), recommendedTools: settings.recommendedTools ?? [], github: githubAppView(this.ctx) }
   }
   listTeam(viewer: Viewer, locale: Locale): Integration[] {
     // an app's account shared with the team is on that app's page in Admin › Connectors (google-apps/)
@@ -738,11 +742,32 @@ export class Integrations {
   appOf(row: Row): OwnClient | null {
     const src = this.appSource(row)
     const info = clientInfo(src?.oauth_client)
-    if (!src || !info) return null
+    if (!src) return null
+    if (!info) return this.serverApp(row, src)
     const aad = row.template_id ? templateClientAad(row.template_id) : clientAad(row)
     const here = secretHere(info, src.oauth_client_enc, src.url) && row.url === src.url
     const clientSecret = here ? this.box.open<SealedClientSecret>(aad, src.oauth_client_enc!, src.oauth_client_key_version ?? 1).clientSecret : null
     return { ...info, foundTokenUrl: info.foundTokenUrl ?? null, clientSecret, stored: { json: src.oauth_client!, enc: src.oauth_client_enc ?? null, version: src.version } }
+  }
+
+  /** GitHub (docs/INTEGRATIONS.md "GitHub"): a connection at GitHub's exact official address with no own app (nor its
+   * template's) signs in through the server's GitHub App (github/app.ts), with GitHub's fixed sign-in and token addresses
+   * (nothing is discovered, so no server can name another token address for the secret). A member's connection made
+   * from a template only at the template's address. null: another address, or no GitHub App on this server (the
+   * service's own metadata then says it registers no apps: oauth_no_registration, as before). */
+  private serverApp(row: Row, src: Pick<Row, 'url' | 'version'>): OwnClient | null {
+    if (row.kind !== 'mcp' || row.url !== src.url || serverAppAt(row.url) !== 'github') return null
+    const gh = githubAppOf(this.ctx)
+    if (!gh) return null
+    return { clientId: gh.clientId, clientSecret: gh.clientSecret, authorizationUrl: GITHUB_AUTHORIZE_URL, tokenUrl: GITHUB_TOKEN_URL, scope: null, foundTokenUrl: null, serverApp: 'github', stored: { json: '', enc: null, version: src.version } }
+  }
+  /** A sign-in made through the server's GitHub App refreshes with that app as it is now (its secret may have been
+   * replaced since: GitHub keeps several secrets of an app while one is rotated), never with a copy kept with the tokens.
+   * The same client ID only: another app (or none now) keeps the stored one, which GitHub then refuses (sign in again). */
+  private currentClient(row: Row, s: OAuthSecret): OAuthSecret {
+    if (s.serverApp !== 'github' || serverAppAt(row.url) !== 'github') return s
+    const gh = githubAppOf(this.ctx)
+    return gh && gh.clientId === s.client.clientId ? { ...s, client: { ...s.client, clientSecret: gh.clientSecret } } : s
   }
 
   /** the header a key is sent in, or a refusal of the field (also for what an admin asks a member to connect, requests.ts) */
@@ -805,7 +830,7 @@ export class Integrations {
           // a Google app: the card's client as set up now, or the hosting service (google-apps/tokens.ts)
           const tokens = row.google_app
             ? await refreshGoogleApp(this.ctx, s, this.now())
-            : await tokenRequest(s, { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
+            : await tokenRequest(this.currentClient(row, s), { grant_type: 'refresh_token', refresh_token: s.tokens.refreshToken!, ...(s.resource ? { resource: s.resource } : {}) }, this.net, this.now(), s.tokens)
           this.keepTokens(row.id, s.tokens.refreshToken!, tokens)
           return tokens.accessToken
         } catch (e) {
@@ -896,6 +921,11 @@ export class Integrations {
 
   private async revokeTokens(s: Secret) {
     if (s.type !== 'oauth') return false
+    // GitHub has no RFC 7009 address: its own call ends the token (github/app.ts revokeGitHubToken), with the app as it is now
+    if (s.serverApp === 'github') {
+      const gh = githubAppOf(this.ctx)
+      return !!gh && gh.clientId === s.client.clientId && await revokeGitHubToken(gh, s.tokens.accessToken, this.net)
+    }
     const t = s.tokens.refreshToken ?? s.tokens.accessToken
     return revoke(s, t, s.tokens.refreshToken ? 'refresh_token' : 'access_token', this.net)
   }
@@ -1193,7 +1223,7 @@ export class Integrations {
     }
     // no token address remembered yet: this one is, once this sign-in worked (callback)
     const pinOnto = app?.clientSecret && !app.tokenUrl && !app.foundTokenUrl ? { json: app.stored.json, enc: app.stored.enc } : null
-    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app ? app.stored.version : null, own: app ? (row.template_id ? 'template' : 'mine') : undefined }
+    const secret: FlowSecret = { verifier, server: setup.server, client, resource: setup.resource, scope: setup.scope, pinOnto, appVersion: row.template_id && app && !app.serverApp ? app.stored.version : null, own: app && !app.serverApp ? (row.template_id ? 'template' : 'mine') : undefined, ...(app?.serverApp ? { serverApp: app.serverApp } : {}) }
     let sealed
     try { sealed = this.box.seal(flowAad({ id: flowId, user_id: viewer.id }), secret) } catch { return fail('unavailable', say('key_unsafe', L)) }
     const expiresAt = iso(this.now() + FLOW_TTL)
@@ -1332,7 +1362,7 @@ export class Integrations {
       }
       const cur = getRow(this.db, row.id)
       if (!cur || cur.version !== row.version || !covered(cur)) return failed('changed')
-      const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens } satisfies OAuthSecret)
+      const sealed = this.box.seal(connectionAad(cur), { type: 'oauth', server: s.server, client: s.client, resource: s.resource, scope: s.scope, tokens, ...(s.serverApp ? { serverApp: s.serverApp } : {}) } satisfies OAuthSecret)
       const old = cur.secret_enc ? this.tryOpen(cur) : null
       let kept = false, limited = false
       this.db.transaction(() => {

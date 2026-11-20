@@ -4,14 +4,30 @@
 // Like Aside with several accounts (not listed in tools/list): it starts with `--account uN` or u1; only the account in
 // FAKE_ASIDE_GOOD has open profiles. Otherwise browser_profiles lists none and repl gives Aside's own error (which
 // names the good account when there is one). `account list --json` prints FAKE_ASIDE_ACCOUNTS and exits.
+// With FAKE_ASIDE_PROFILES ({"u0":[{profileId,label}],…}, current account FAKE_ASIDE_CURRENT) it is like Aside with
+// several accounts that each have profiles: browser_profiles lists only the started account's, repl and exec refuse a
+// profile_id or session of another account, and `host profiles --account uN --json` prints that account's profiles.
 import { createInterface } from 'node:readline'
 
 let inits = 0
-if (process.argv[2] === 'account' && process.argv[3] === 'list') { process.stdout.write(process.env.FAKE_ASIDE_ACCOUNTS ?? '{"accounts":[]}'); process.exit(0) }
+const PROFILES = process.env.FAKE_ASIDE_PROFILES ? JSON.parse(process.env.FAKE_ASIDE_PROFILES) as Record<string, { profileId: string; label: string }[]> : null
+const CURRENT = process.env.FAKE_ASIDE_CURRENT ?? 'u1'
 const at = process.argv.indexOf('--account')
-const account = at > 0 ? process.argv[at + 1]! : 'u1'
+const account = at > 0 ? process.argv[at + 1]! : PROFILES ? CURRENT : 'u1'
+if (process.argv[2] === 'account' && process.argv[3] === 'list') {
+  const generated = PROFILES && { currentAccountId: Number(CURRENT.slice(1)), accounts: Object.entries(PROFILES).map(([u, ps]) => ({ id: Number(u.slice(1)), hasSession: u === CURRENT, profileBindings: ps.map((p) => ({ profileId: p.profileId })) })) }
+  process.stdout.write(process.env.FAKE_ASIDE_ACCOUNTS ?? JSON.stringify(generated ?? { accounts: [] }))
+  process.exit(0)
+}
+if (process.argv[2] === 'host' && process.argv[3] === 'profiles') {
+  if (process.env.FAKE_ASIDE_OLD_CLI || !PROFILES?.[account]) { process.stderr.write(`Error: Account not found: ${account}\n`); process.exit(1) }
+  process.stdout.write(JSON.stringify({ host: 'local', profiles: PROFILES[account]!.map((p) => ({ ...p, connected: true })) }))
+  process.exit(0)
+}
 const good = process.env.FAKE_ASIDE_GOOD
-const signedIn = !!good && account === good
+const signedIn = PROFILES ? !!PROFILES[account]?.length : !!good && account === good
+let sessions = 0
+const otherProfile = (id: unknown, pid: string) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: `Browser profile "${pid}" is not available for account ${account}. Run 'aside host profiles' (with the same --host) to see profile ids.` }], isError: true } })
 const pending = new Map<string, (m: any) => void>()
 const send = (m: unknown) => process.stdout.write(JSON.stringify(m) + '\n')
 const text = (id: unknown, t: string) => send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: t }] } })
@@ -29,7 +45,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   try { m = JSON.parse(line) } catch { return }
   if (m.id !== undefined && !m.method) { pending.get(String(m.id))?.(m); return }
   if (m.method === 'initialize') { inits++; send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake', version: '1' } } }); return }
-  if (m.method === 'tools/list') { send({ jsonrpc: '2.0', id: m.id, result: { tools: TOOLS } }); return }
+  if (m.method === 'tools/list') { send({ jsonrpc: '2.0', id: m.id, result: { tools: PROFILES ? [...TOOLS, { name: 'browser_profiles', description: "List browser profile IDs, labels, and connection status for this MCP server's host and account.", inputSchema: { type: 'object', properties: {} } }] : TOOLS } }); return }
   if (m.method !== 'tools/call') { if (m.id !== undefined) send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'no' } }); return }
   const a = m.params?.arguments ?? {}
   switch (m.params?.name) {
@@ -37,8 +53,15 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     case 'argv': return text(m.id, JSON.stringify(process.argv.slice(2)))
     case 'env': return text(m.id, `value: ${process.env[String(a.name)] ?? '(none)'}`)
     case 'inits': return text(m.id, String(inits))
-    case 'browser_profiles': return text(m.id, JSON.stringify({ profiles: signedIn ? [{ id: 'p1', account: 'u2' }] : [] }))
-    case 'repl': return signedIn ? text(m.id, `ok as ${account}`) : send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `Aside Browser is running, but none of its profiles use account ${account}.${good ? ` Rerun with --account ${good}.` : ''}` }], isError: true } })
+    case 'browser_profiles': return text(m.id, JSON.stringify({ profiles: PROFILES ? (PROFILES[account] ?? []).map((p) => ({ ...p, connected: true })) : signedIn ? [{ profileId: 'p1', label: 'Work', connected: true }] : [] }))
+    case 'exec': {
+      if (a.session_id) return String(a.session_id).startsWith(`s-${account}-`) ? text(m.id, `continued ${a.session_id} as ${account}`) : send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `Session ${a.session_id} not found` }], isError: true } })
+      if (a.profile_id && PROFILES && !PROFILES[account]?.some((p) => p.profileId === a.profile_id)) return otherProfile(m.id, String(a.profile_id))
+      return text(m.id, JSON.stringify({ session_id: `s-${account}-${++sessions}`, status: 'done' }))
+    }
+    case 'repl':
+      if (a.profile_id && PROFILES && !PROFILES[account]?.some((p) => p.profileId === a.profile_id)) return otherProfile(m.id, String(a.profile_id))
+      return signedIn ? text(m.id, `ok as ${account}${a.profile_id ? ` in ${a.profile_id}` : ''}`) : send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `Aside Browser is running, but none of its profiles use account ${account}.${good ? ` Rerun with --account ${good}.` : ''}` }], isError: true } })
     case 'slow': setTimeout(() => text(m.id, 'slow done'), 30_000); return
     case 'ask_ping': {
       const id = 'srv-' + Math.random().toString(36).slice(2)

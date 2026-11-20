@@ -485,8 +485,10 @@ export function IntegrationDialog({ scope, existing, template, connector, choice
                   options={methods.map((m) => ({ value: m, label: t(`integrations.auth.${m}`), testId: `integration-auth-${m}` }))}
                 />
               )}
-              {/* most MCP servers register an app by themselves: their own app is the exception, one click away */}
-              {f.method === 'oauth' && f.kind === 'mcp' && !conn && !fromTeam && (
+              {/* most MCP servers register an app by themselves: their own app is the exception, one click away. GitHub is
+                  listed but registers none: a server without the GitHub App, or a company that wants its own, sets one here
+                  (docs/INTEGRATIONS.md "GitHub") */}
+              {f.method === 'oauth' && f.kind === 'mcp' && (!conn || 'serverApp' in conn) && !fromTeam && (
                 <AppSection f={f} stored={template ? template.oauthClient : existing?.oauthClient} storedUrl={template?.url ?? existing?.url} change={change} errorOf={errorOf} blur={blur} template={asTemplate} />
               )}
               {(f.kind === 'http' || asTemplate) && !fromTeam && (
