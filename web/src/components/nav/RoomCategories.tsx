@@ -112,6 +112,8 @@ export function CategoryMenu({ category }: { category: RoomCategory }) {
   if (!useManagesCategories()) return null
   const i = list.findIndex((c) => c.id === category.id)
   const items: MenuItem[] = [
+    // also here, so a new one can be made when no Channels section (with its button) is left in the list
+    { label: t('roomCategories.new'), icon: <FolderPlus size={14} aria-hidden />, onSelect: () => void act.create(), testId: 'category-menu-new' },
     { label: t('navFolders.rename'), icon: <Pencil size={14} aria-hidden />, onSelect: () => void act.rename(category), testId: 'category-menu-rename' },
     ...(i > 0 ? [{ label: t('navFolders.moveUp'), icon: <ArrowUp size={14} aria-hidden />, onSelect: () => void act.move(category, -1), testId: 'category-menu-up' }] : []),
     ...(i >= 0 && i < list.length - 1 ? [{ label: t('navFolders.moveDown'), icon: <ArrowDown size={14} aria-hidden />, onSelect: () => void act.move(category, 1), testId: 'category-menu-down' }] : []),

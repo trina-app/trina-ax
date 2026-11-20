@@ -42,7 +42,7 @@ export type SetRoomCategoryBody = z.infer<typeof SetRoomCategoryBody>
 
 export const ROOM_CATEGORIES = {
   listRoomCategories: endpoint({ method: 'GET', path: '/api/room-categories', auth: 'user', owner: 'B', response: RoomCategoryList,
-    summary: 'The team\'s conversation categories in their order. The same for everyone (a guest included); which channels are in each comes with each room (Room.categoryId).' }),
+    summary: 'The team\'s conversation categories in their order. The same for everyone (a guest included, read only); which channels are in each comes with each room (Room.categoryId).' }),
   createRoomCategory: endpoint({ method: 'POST', path: '/api/room-categories', auth: 'admin', owner: 'B', status: 201, body: CreateRoomCategoryBody, response: RoomCategory,
     summary: 'A new category at the end of the list (admins and the owner). At most 50 (409 room_categories_full); a name the team already uses (any letter case): 409 room_category_name_taken. Everyone\'s windows hear it (roomCategories.changed).' }),
   updateRoomCategory: endpoint({ method: 'PATCH', path: '/api/room-categories/:id', auth: 'admin', owner: 'B', body: UpdateRoomCategoryBody, response: RoomCategory,
