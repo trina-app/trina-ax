@@ -296,6 +296,8 @@ export const es: Record<MessageKey, string> = {
   'auth.passwordMismatch': "Las contraseñas no coinciden.",
   'auth.name': "Nombre",
   'auth.forgot': "¿Olvidó su contraseña? Pida al propietario del equipo o a un administrador que la restablezca. Si es invitado, pídaselo a quien le invitó.",
+  'auth.forgotHosted': '¿Olvidó su contraseña? Pida al propietario del equipo o a un administrador que la restablezca. Si es invitado, pídaselo a quien le invitó. Si es el propietario del equipo, puede restablecerla usted mismo en la cuenta de alojamiento con la que registró el equipo.',
+  'auth.ownerRecovery': 'Restablecer en la cuenta de alojamiento',
   'auth.alreadyJoined': "Si ya se unió, inicie sesión.",
   'auth.haveAccount': "¿Ya se unió?",
   'auth.openInApp': "Abrir en la app",

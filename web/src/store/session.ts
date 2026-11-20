@@ -23,7 +23,9 @@ export type AuthStatus =
   | { kind: 'setup'; teamName: string | null }
   // 'removed': an account taken out of the team. A guest turned off while signed in carries the team's name for the
   // sign-in page's guest line; a removed member (TC-1974, lib/signedOut.ts) has none (pages/Auth.tsx Login)
-  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string }
+  // ownerRecoveryUrl: a hosted team's console page where its owner resets a forgotten password (GET /api/setup; the
+  // sign-in page adds ?team=<its own host>); left out when the server sent none
+  | { kind: 'signed-out'; reason?: SignedOutReason; team?: string; ownerRecoveryUrl?: string }
   | { kind: 'signed-in'; me: Me }
   | { kind: 'error'; error: unknown }
 
@@ -110,6 +112,10 @@ let pendingPick: Locale | null = null
 let pickedBeforeSignIn = false
 /** team default as last seen, for the sign-in screen after a sign-out */
 let lastTeamDefault: Locale | null = null
+/** GET /api/setup's ownerRecoveryUrl as last seen (null: none, or not asked yet), kept for the sign-in screen */
+let lastOwnerRecovery: string | null = null
+/** a signed-out status with the hosted team's owner-recovery page, when the server named one */
+const withRecovery = <T extends Extract<AuthStatus, { kind: 'signed-out' }>>(st: T): T => (lastOwnerRecovery ? { ...st, ownerRecoveryUrl: lastOwnerRecovery } : st)
 /** the latest theme pick still being saved (setTheme), and the theme in use before the picks not saved yet */
 let themePick: { back: Theme } | null = null
 
@@ -179,6 +185,7 @@ export const useSession = create<SessionState>((set, get) => ({
     pendingPick = null
     pickedBeforeSignIn = false
     lastTeamDefault = null
+    lastOwnerRecovery = null
     themePick = null
     booting = null
   },
@@ -229,7 +236,7 @@ export const useSession = create<SessionState>((set, get) => ({
     useLocaleStore.getState().setLocale(pickLocale(storedLocale(), lastTeamDefault))
     // a guest's (only a guest's 'removed' carries the team)
     if ((reason === 'removed' || reason === 'left') && team) { rememberRemoved(team, reason); guestLanguage() }
-    set({ status: { kind: 'signed-out', reason, ...(team ? { team } : {}) } })
+    set({ status: withRecovery({ kind: 'signed-out', reason, ...(team ? { team } : {}) }) })
     // ended from elsewhere (the live link said so, or it was refused): the server tells this sign-in's own holder when
     // the account was removed from the team, so the page does not say "you signed out elsewhere" (TC-1974); a guest
     // also learns whether they left their place themselves (guest walkthrough S5)
@@ -238,8 +245,8 @@ export const useSession = create<SessionState>((set, get) => ({
         const st = get().status
         if (st.kind !== 'signed-out' || st.reason !== reason) return
         const g = guestRemoval(e)
-        if (g) set({ status: guestSignedOut(g, st.team) })
-        else if (accountRemoved(e) && reason !== 'removed') set({ status: { kind: 'signed-out', reason: 'removed' } })
+        if (g) set({ status: withRecovery(guestSignedOut(g, st.team)) })
+        else if (accountRemoved(e) && reason !== 'removed') set({ status: withRecovery({ kind: 'signed-out', reason: 'removed' }) })
       })
     }
   },
@@ -411,13 +418,14 @@ async function readMe(get: Get, set: Set): Promise<void> {
         // per-address token limit that everyone behind this address shares
         if (!s.needed) forgetSetupToken()
         lastTeamDefault = s.defaultLocale ?? null
+        lastOwnerRecovery = s.ownerRecoveryUrl ?? null
         // before sign-in: the visitor's pick on this browser, else the team default (also tells the desktop app)
         const locale = pickLocale(storedLocale(), s.defaultLocale)
         await wordsFor(locale)
         useLocaleStore.getState().setLocale(locale)
         // a guest switched off while away: their own screen at once, not a plain sign-in (guest walkthrough S6)
         const g = guestRemoval(e)
-        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })
+        set({ status: s.needed ? { kind: 'setup', teamName: s.teamName } : withRecovery(g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) }) })
       } catch {
         const g = guestRemoval(e)
         set({ status: g ? guestSignedOut(g) : { kind: 'signed-out', ...(accountRemoved(e) ? { reason: 'removed' as const } : {}) } })

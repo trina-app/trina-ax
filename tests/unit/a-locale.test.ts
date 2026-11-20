@@ -22,7 +22,7 @@ describe('a fresh install speaks English', () => {
   test('default language, setup status, messages before setup', async () => {
     expect(DEFAULT_LOCALE).toBe('en')
     expect(teamDefaultLocale(h.ctx.db)).toBe('en')
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null, defaultLocale: 'en' })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: true, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null })
     // a Korean browser does not turn the server's messages Korean
     const bad = await h.client().try('POST', '/api/setup', { setupToken: 'x'.repeat(32), teamName: 'Acme', owner }, { 'accept-language': 'ko-KR,ko;q=0.9' })
     expect(bad.status).toBe(403)
@@ -43,7 +43,7 @@ describe('a fresh install speaks English', () => {
     expect(r.me.team.defaultLocale).toBe('en')
     expect(r.me.user).toMatchObject({ locale: 'en', localeChoice: null })
     // the team's name is never in the public setup status (security round 4: it told the internet the team was set up)
-    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en' })
+    expect(await h.client().call('GET', '/api/setup')).toEqual({ needed: false, teamName: null, defaultLocale: 'en', ownerRecoveryUrl: null })
     // a wrong password before sign-in: English, the team default
     const fail = await h.client().try('POST', '/api/auth/login', { username: 'olga', password: 'wrong wrong wrong' }, { 'accept-language': 'ko' })
     expect(fail.status).toBe(401)

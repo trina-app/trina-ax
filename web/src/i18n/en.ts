@@ -300,6 +300,8 @@ export const en: Record<MessageKey, string> = {
   'auth.passwordMismatch': "The two passwords don't match.",
   'auth.name': 'Name',
   'auth.forgot': "Forgot your password? Ask the team owner or an admin to reset it. If you're a guest, ask the person who invited you.",
+  'auth.forgotHosted': "Forgot your password? Ask the team owner or an admin to reset it. If you're a guest, ask the person who invited you. If you're the team owner, you can reset it yourself on the hosting account you signed the team up with.",
+  'auth.ownerRecovery': 'Reset it on the hosting account',
   'auth.alreadyJoined': "If you already joined, sign in.",
   'auth.haveAccount': "Already joined?",
   'auth.openInApp': "Open in the app",
