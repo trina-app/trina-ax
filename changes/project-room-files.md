@@ -11,5 +11,7 @@
   no other room. They only use what everyone in the chat can see there and say when something was left out.
 - Admin notes: the team export names project chat room files by their place in the team folder instead of copying them
   a second time.
-- Admin notes, going back to an older version: files sent in project chat rooms after this update show as unavailable
-  there, but they stay in the project's Chat attachments folder and can be opened in Files.
+- Admin notes, going back to an older version: files sent in project chat rooms after this update stay in the
+  project's Chat attachments folder and open in Files. In the room, the older version lists them to every member by
+  the name and size they were sent with (without checking who may open the file), and opening one there says it cannot
+  be found.

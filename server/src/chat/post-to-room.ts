@@ -463,7 +463,7 @@ export function postToRoomTool(exec: TurnExec): Tool {
         // (a new 1:1 chat: the user and the teammate)
         const people = pendingTo ? 2 : memberCount(db, roomId)
         // (the quote without its Markdown marks: a title is plain text, chat/share-words.ts plainQuote)
-        const quote = root ? oneLine(plainQuote(plainRoomRefs(root.body)), 40) || oneLine((db.query('SELECT name FROM room_files WHERE message_id = ? ORDER BY created_at, id LIMIT 1').get(root.id) as { name: string } | null)?.name ?? '', 40) : ''
+        const quote = root ? oneLine(plainQuote(plainRoomRefs(root.body)), 40) || oneLine((db.query('SELECT name FROM room_files f WHERE message_id = ? AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) ORDER BY created_at, id LIMIT 1').get(root.id) as { name: string } | null)?.name ?? '', 40) : ''
         const ask = root
           ? quote ? tr('postRoomAskThread', L, { room: title, n: String(people), quote }) : tr('postRoomAskThreadNoQuote', L, { room: title, n: String(people) })
           : pendingTo ? tr('postRoomAskNewDm', L, { name: oneLine(pendingTo.name, 40) }) : tr('postRoomAsk', L, { room: title, n: String(people) })

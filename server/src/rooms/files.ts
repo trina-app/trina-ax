@@ -49,7 +49,7 @@ import { HwpError } from '../files/hwp-engine'
 import type { HwpSource } from '../files/hwp-preview'
 import type { SearchAdmission } from '../files/search-admission'
 import { sha256 } from '../files/store'
-import { fail } from '../http/errors'
+import { fail, HttpError } from '../http/errors'
 import { loadPrincipal } from '../policy/access'
 import { authorize, visiblePath } from '../policy/authorize'
 import { badSegment } from '../policy/names'
@@ -67,7 +67,7 @@ import { roomFileRefsOf, type RoomRefRow } from './file-refs'
 import { projectRoomLink } from './project-room'
 import { sharedUploadPlace } from '../uploads/shared-chat'
 import { otherRefTo } from '../uploads/ref-follow'
-import { hashChecked } from '../uploads/team-refs'
+import { ATTACH_RATE_MAX, hashChecked } from '../uploads/team-refs'
 import { instructionFile } from '../team-files/ai-trash'
 import { FileError, httpError } from '../team-files/errors'
 import { componentC } from '../team-files/component'
@@ -76,6 +76,8 @@ import { componentC } from '../team-files/component'
 export const UNSENT_FILE_MS = 24 * 3600_000
 /** A person's team-file copies not sent yet (teamCopy), in bytes, all rooms together: four 50 MB files, or many small ones */
 export const TEAM_COPIES_UNSENT_MAX = 200 * 1024 * 1024
+/** A person's team-file references in project rooms not sent yet (teamRef), all rooms together */
+export const TEAM_REFS_UNSENT_MAX = 50
 /** The daily part of sweep(): the set-aside batches and the archived conversations' files. */
 export const DAILY_MS = 24 * 3600_000
 /** purgeArchived: rows per statement, and how long one run may take before it goes on at the next tick */
@@ -290,10 +292,17 @@ export class RoomFiles {
    * copy is (the same unchanged pick again gives it back; Rooms.send checks the access again and audits it). A member
    * who cannot open the file sees it as "unavailable". Its content hash is read once, through the checked descriptor.
    */
-  private async teamRef(userId: string, roomId: string, src: { abs: string; name: string; rel: string; st: fs.Stats }, stamp: string): Promise<RoomFile> {
+  private async teamRef(userId: string, roomId: string, src: { abs: string; name: string; rel: string; st: fs.Stats }, stamp: string, locale: Locale): Promise<RoomFile> {
     const db = this.ctx.db
     const same = db.query('SELECT f.* FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.room_id = ? AND f.user_id = ? AND f.message_id IS NULL AND f.team_path = ? AND f.team_stamp = ? ORDER BY f.created_at DESC LIMIT 1').get(roomId, userId, src.rel, stamp) as FileRow | null
     if (same) return this.refs().view(userId, same)
+    // each new reference hashes the file: as for a chat's team file references (uploads/team-refs.ts ATTACH_RATE_MAX),
+    // at most that many new ones a person in ten minutes (429), and at most TEAM_REFS_UNSENT_MAX not sent yet (409)
+    const since = new Date(Date.now() - 10 * 60_000).toISOString()
+    const recent = (db.query('SELECT COUNT(*) n FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.team_path IS NOT NULL AND f.created_at > ?').get(userId, since) as { n: number }).n
+    if (recent >= ATTACH_RATE_MAX) throw new HttpError('rate_limited', undefined, { retryAfter: 60 })
+    const unsent = (db.query('SELECT COUNT(*) n FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.message_id IS NULL').get(userId) as { n: number }).n
+    if (unsent >= TEAM_REFS_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: `${TEAM_REFS_UNSENT_MAX}` }), { params: { reason: 'team_refs_full' } })
     let sha: string
     try { sha = await hashChecked(src.abs, src.st) } catch { return fail('not_found') }
     this.member(userId, roomId)
@@ -342,12 +351,16 @@ export class RoomFiles {
   /** Rows that went (`rows`): a room-stored file's bytes and thumbnails go; a row kept in the team folder (`refs`, read
    * before) leaves the disk alone, except `trash` (uploadToTrash's answers), which go to the team trash as their
    * uploader's delete. */
-  private afterDelete(rows: readonly Pick<FileRow, 'id' | 'room_id'>[], refs: ReadonlyMap<string, RoomRefRow>, trash: ReadonlyMap<string, { userId: string; rel: string }> = new Map()) {
+  private afterDelete(rows: readonly Pick<FileRow, 'id' | 'room_id'>[], refs: ReadonlyMap<string, RoomRefRow>, trash: ReadonlyMap<string, { userId: string; rel: string; ino: number; dev: number }> = new Map()) {
     for (const f of rows) {
       if (refs.has(f.id)) {
         this.refs().forget(f.id)
         const t = trash.get(f.id)
-        if (t) try { componentC(this.ctx).files.remove(t.userId, t.rel) } catch (e) { this.ctx.log.warn('a removed room upload could not go to the trash', { err: e }) }
+        if (t) try {
+          // still the very file uploadToTrash checked (nothing took its place meanwhile)
+          const now = fs.lstatSync(path.join(componentC(this.ctx).files.root, ...t.rel.split('/')))
+          if (now.isFile() && now.ino === t.ino && now.dev === t.dev) componentC(this.ctx).files.remove(t.userId, t.rel)
+        } catch (e) { this.ctx.log.warn('a removed room upload could not go to the trash', { err: e }) }
         continue
       }
       fs.rmSync(path.join(this.dir(f.room_id), f.id), { force: true })
@@ -419,19 +432,26 @@ export class RoomFiles {
     this.member(userId, roomId)
     const src = this.teamSource(userId, rel)
     const stamp = `${src.st.size}:${Math.trunc(src.st.mtimeMs)}:${src.st.ino}`
-    // a project's chat room: a reference to the team file, never a copy
-    if (projectRoomLink(this.ctx.db, roomId)) return this.teamRef(userId, roomId, src, stamp)
+    const key = [userId, roomId, src.rel, stamp].join('\n')
+    // a project's chat room: a reference to the team file, never a copy (the same pick on its way: that one)
+    if (projectRoomLink(this.ctx.db, roomId)) {
+      const going = this.copying.get(key)
+      if (going) return going
+      const ref = (async () => { try { return await this.teamRef(userId, roomId, src, stamp, locale) } finally { this.copying.delete(key) } })()
+      this.copying.set(key, ref)
+      return ref
+    }
     const same = this.ctx.db.query('SELECT * FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND team_path = ? AND team_stamp = ? ORDER BY created_at DESC').all(roomId, userId, src.rel, stamp) as FileRow[]
     for (const f of same) {
       try { checkRegular(this.abs(f)); return fileOut(f) } catch { /* its file is gone: a new copy below */ }
     }
     // the same pick already on its way (a double tap, two boxes): that copy, not a second one
-    const key = [userId, roomId, src.rel, stamp].join('\n')
     const going = this.copying.get(key)
     if (going) return going
     // the cap counts the copies on their way too: their bytes are taken here, before anything awaits (one server
     // process: nothing else runs between the sum and the reservation), and given back once the row carries them
-    const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL').get(userId) as { n: number }).n
+    // (a project room's reference holds no bytes: never counted here)
+    const unsent = (this.ctx.db.query('SELECT COALESCE(SUM(size), 0) n FROM room_files WHERE user_id = ? AND message_id IS NULL AND team_path IS NOT NULL AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = room_files.id)').get(userId) as { n: number }).n
     const held = this.reserved.get(userId) ?? 0
     if (unsent + held + src.st.size > TEAM_COPIES_UNSENT_MAX) fail('conflict', tr('roomTeamCopiesFull', locale, { max: '200 MB' }), { params: { reason: 'team_copies_full' } })
     this.reserved.set(userId, held + src.st.size)
@@ -481,8 +501,8 @@ export class RoomFiles {
     const list = `(${fileIds.map(() => '?').join(',')})`
     const before = this.ctx.db.query(`SELECT id, room_id, user_id, size, created_at FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN ${list}`).all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id' | 'user_id' | 'size' | 'created_at'>[]
     const refs = this.refRows(before.map((f) => f.id))
-    const trash = new Map<string, { userId: string; rel: string }>()
-    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel) trash.set(f.id, { userId, rel }) }
+    const trash = new Map<string, { userId: string; rel: string; ino: number; dev: number }>()
+    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel && r) trash.set(f.id, { userId, rel, ino: r.ino!, dev: r.dev! }) }
     const rows = this.ctx.db.query(`DELETE FROM room_files WHERE room_id = ? AND user_id = ? AND message_id IS NULL AND id IN ${list} RETURNING id, room_id`)
       .all(roomId, userId, ...fileIds) as Pick<FileRow, 'id' | 'room_id'>[]
     this.afterDelete(rows, refs, trash)
@@ -731,8 +751,8 @@ export class RoomFiles {
     // an abandoned upload kept in the team folder (a project room's) is taken out as its removed chip would be
     const before = this.ctx.db.query('SELECT id, room_id, user_id, size, created_at FROM room_files WHERE message_id IS NULL AND created_at < ?').all(cutoff) as Pick<FileRow, 'id' | 'room_id' | 'user_id' | 'size' | 'created_at'>[]
     const refs = this.refRows(before.map((f) => f.id))
-    const trash = new Map<string, { userId: string; rel: string }>()
-    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel && f.user_id) trash.set(f.id, { userId: f.user_id, rel }) }
+    const trash = new Map<string, { userId: string; rel: string; ino: number; dev: number }>()
+    for (const f of before) { const r = refs.get(f.id); const rel = r ? this.uploadToTrash(f, r) : null; if (rel && r && f.user_id) trash.set(f.id, { userId: f.user_id, rel, ino: r.ino!, dev: r.dev! }) }
     const rows = this.ctx.db.query('DELETE FROM room_files WHERE message_id IS NULL AND created_at < ? RETURNING id, room_id').all(cutoff) as Pick<FileRow, 'id' | 'room_id'>[]
     this.afterDelete(rows, refs, trash)
     // a clock set back: the day starts again from now, so the daily part does not stop

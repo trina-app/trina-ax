@@ -100,7 +100,9 @@ function wordWhere(w: string, types = true): { sql: string; args: string[] } {
   if (t?.any) fileCond.push('1')
   if (t?.image) fileCond.push("f.kind = 'image'")
   for (const e of t?.ext ?? []) { fileCond.push("f.name LIKE ? ESCAPE '\\'"); args.push(`%.${e}`) }
-  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND (${fileCond.join(' OR ')})))`, args }
+  // (a project room's file kept in the team folder is not found by the name it was sent with: it may have been
+  // renamed, or be one the person cannot open now)
+  return { sql: `(m.body LIKE ? ESCAPE '\\' OR EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id AND NOT EXISTS (SELECT 1 FROM room_file_refs rr WHERE rr.room_file_id = f.id) AND (${fileCond.join(' OR ')})))`, args }
 }
 /** A message that came with at least one file */
 const HAS_FILE_SQL = 'EXISTS (SELECT 1 FROM room_files f WHERE f.message_id = m.id AND f.room_id = m.room_id)'
@@ -286,11 +288,14 @@ function eventText(m: RoomMessage): string {
 }
 
 /** One message (or event line) as the AI reads it. */
-function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: string; roomId?: string } = {}): string {
+function messageText(m: RoomMessage, userId: string, tz: string, o: { room?: string; roomId?: string; threadCounts?: boolean } = {}): string {
   const at = localTime(m.createdAt, tz)
   const where = o.room !== undefined ? ` room="${attr(o.room)}" room_id="${o.roomId}"` : ''
   if (m.event) return `<room_event${where} at="${at}">${neutralizeTags(eventText(m))}</room_event>`
-  const thread = m.thread
+  // (for an audience, a shared AI chat: the counts are one person's view of the thread, so only that there is one)
+  const thread = m.thread && o.threadCounts === false
+    ? `\n[thread: read it with room_read thread="${m.id}"]`
+    : m.thread
     ? `\n[thread: ${m.thread.replyCount} ${m.thread.replyCount === 1 ? 'reply' : 'replies'}${m.thread.lastReplyAt ? `, the last ${localTime(m.thread.lastReplyAt, tz)}` : ''}: read it with room_read thread="${m.id}"]`
     : ''
   if (m.deletedAt) return `<room_message${where} id="${m.id}" deleted="yes" at="${at}">\n(a deleted message; its thread stays)${thread}\n</room_message>`
@@ -627,7 +632,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   for (let i = 0; i < out.length; i++) {
     const m = out[i]!
     if (m.deletedAt && !m.thread && !m.event) continue
-    const t = messageText(m, userId, tz)
+    const t = messageText(m, userId, tz, aud ? { threadCounts: false } : {})
     if (total + t.length > ROOM_READ_CHARS) { full = true; break }
     parts.push(t)
     used.push(page[i]!)
@@ -635,7 +640,7 @@ export function readRoom(db: Database, userId: string, tz: string, o: ReadOption
   }
   parts.reverse()
   const rootOut = root ? messagesOut(db, [root], own, false)[0]! : null
-  const rootText = rootOut ? messageText(o.fileCheck && rootOut.files.length ? { ...rootOut, files: rootOut.files.map(o.fileCheck) } : rootOut, userId, tz) : ''
+  const rootText = rootOut ? messageText(o.fileCheck && rootOut.files.length ? { ...rootOut, files: rootOut.files.map(o.fileCheck) } : rootOut, userId, tz, aud ? { threadCounts: false } : {}) : ''
   const oldest = used.at(-1)
   const what = root ? 'the first message of a thread and its replies' : 'messages'
   const range = [since ? `from ${localTime(since, tz)}` : '', until ? `before ${localTime(until, tz)}` : '', since || until ? `(${tz})` : ''].filter(Boolean).join(' ')

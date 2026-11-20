@@ -17,7 +17,8 @@ import { CHAT_FILES_FOLDER } from '@mycel/shared'
 import { UPLOAD_CHUNK_SIZE, type RoomFile } from '@mycel/shared/api'
 import { teamDefaultLocale } from '../../server/src/admin/settings'
 import { HttpError } from '../../server/src/http/errors'
-import { roomFilesOf } from '../../server/src/rooms/files'
+import { roomFilesOf, TEAM_REFS_UNSENT_MAX } from '../../server/src/rooms/files'
+import { searchRooms } from '../../server/src/rooms/reader'
 import { componentC } from '../../server/src/team-files/component'
 import { roomsOf } from '../../server/src/rooms/service'
 import { teamExportEntries } from '../../server/src/system/team-export-zip'
@@ -168,6 +169,8 @@ test('trashed in Files: "File deleted", a restore brings it back; moved and rena
   team().move(mia.id, `${root}/Minutes/notes.txt`, `${root}/Minutes/2026-11-20 notes.txt`, 'fail')
   expect((await filesOf(nora.client, roomId, m.id))[0]).toMatchObject({ name: '2026-11-20 notes.txt', teamPath: `${root}/Minutes/2026-11-20 notes.txt` })
   expect(String((await fileGet(nora.client, roomId, f.id)).body)).toContain('meeting notes')
+  // the AI's room search never matches a project file by the name it was sent with
+  expect(searchRooms(h.ctx.db, nora.id, 'UTC', { query: 'notes.txt' }).count ?? 0).toBe(0)
   // Minutes narrowed to mia only: unavailable to nora (nothing about it), still there for mia
   const fid = 'f_' + crypto.randomUUID()
   // (a limited folder cuts what comes from above; mia's own rule keeps her in)
@@ -267,4 +270,49 @@ test('quota and export: counted as team files (nothing in room storage); the exp
   // the plain room: its stored file copied as before, the one without bytes left out
   const names = [...zip.keys()].filter((n) => n.startsWith('chats/Channels/Plain group - files/'))
   expect(names).toEqual(['chats/Channels/Plain group - files/kept.txt'])
+})
+
+test('team picks in a project room: no bytes against the 200 MB copy cap, one pick on its way at a time, at most 50 unsent and the attach rate', async () => {
+  const { mia, nora, otto, roomId, root } = await setup('b-project-room-files-picks')
+  const files = roomFilesOf(h.ctx)
+  // a 210 MB file picked in the project room is a reference: a small copy in a plain group chat still goes
+  fs.writeFileSync(at(`${root}/big.bin`), '')
+  fs.truncateSync(at(`${root}/big.bin`), 210 * MB)
+  expect((await files.teamCopy(mia.id, roomId, `${root}/big.bin`, 'en')).teamFile).toBe(true)
+  fs.writeFileSync(at(`${root}/small.txt`), 'hi')
+  const group = await mia.client.call('POST', '/api/rooms', { kind: 'group', userIds: [nora.id, otto.id], name: 'Copies' })
+  expect((await files.teamCopy(mia.id, group.id, `${root}/small.txt`, 'en')).teamFile).toBeUndefined()
+  // a double tap: one reference
+  fs.writeFileSync(at(`${root}/twice.txt`), 'twice')
+  const [a, b] = await Promise.all([files.teamCopy(mia.id, roomId, `${root}/twice.txt`, 'en'), files.teamCopy(mia.id, roomId, `${root}/twice.txt`, 'en')])
+  expect(a.id).toBe(b.id)
+  // at most TEAM_REFS_UNSENT_MAX not sent yet (409 team_refs_full)
+  for (let i = 2; i < TEAM_REFS_UNSENT_MAX; i++) { fs.writeFileSync(at(`${root}/p${i}.txt`), `p${i}`); await files.teamCopy(mia.id, roomId, `${root}/p${i}.txt`, 'en') }
+  fs.writeFileSync(at(`${root}/over.txt`), 'over')
+  let err: unknown = null
+  try { await files.teamCopy(mia.id, roomId, `${root}/over.txt`, 'en') } catch (e) { err = e }
+  expect([(err as HttpError).code, (err as HttpError).extra.params?.reason]).toEqual(['conflict', 'team_refs_full'])
+  // sent ones count against the attach rate (each new reference hashes its file): 429
+  const sent = h.ctx.db.query('SELECT f.id FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.message_id IS NULL').all(mia.id) as { id: string }[]
+  await send(mia.client, roomId, sent.map((x) => x.id).slice(0, 10))
+  const more = h.ctx.db.query('INSERT INTO room_files (id, room_id, user_id, message_id, name, size, mime, kind, sha256, created_at, team_path, team_stamp) SELECT ?, room_id, user_id, message_id, name, size, mime, kind, sha256, created_at, team_path, team_stamp FROM room_files WHERE id = ?')
+  const moreRef = h.ctx.db.query('INSERT INTO room_file_refs (room_file_id, path, path_at_attach, ino, dev, sha256, event_id) SELECT ?, path, path_at_attach, ino, dev, sha256, event_id FROM room_file_refs WHERE room_file_id = ?')
+  const sentRow = (h.ctx.db.query('SELECT id FROM room_files WHERE user_id = ? AND message_id IS NOT NULL LIMIT 1').get(mia.id) as { id: string }).id
+  for (let i = 0; i < 120; i++) { const id = crypto.randomUUID(); more.run(id, sentRow); moreRef.run(id, sentRow) }
+  h.ctx.db.query('DELETE FROM room_files WHERE id IN (SELECT f.id FROM room_files f JOIN room_file_refs r ON r.room_file_id = f.id WHERE f.user_id = ? AND f.message_id IS NULL)').run(mia.id)
+  err = null
+  try { await files.teamCopy(mia.id, roomId, `${root}/over.txt`, 'en') } catch (e) { err = e }
+  expect(err instanceof HttpError && err.code === 'rate_limited').toBe(true)
+})
+
+test('export: a project file moved since the row last followed it is named where it is now', async () => {
+  const { mia, roomId, root, chat } = await setup('b-project-room-files-export-moved')
+  const f = await up(mia.id, roomId, 'moved.pdf', 'moved deck')
+  await send(mia.client, roomId, [f.id], 'moved one')
+  team().mkdir(mia.id, `${root}/Decks`)
+  team().move(mia.id, `${chat}/moved.pdf`, `${root}/Decks/moved.pdf`, 'fail')
+  expect(refRow(f.id)?.path).toBe(`${chat}/moved.pdf`)
+  const zip = await exportText()
+  const roomText = [...zip].find(([n]) => n.startsWith('chats/Channels/Launch site'))?.[1] ?? ''
+  expect(roomText).toContain(`[files: files/${root}/Decks/moved.pdf]`)
 })
