@@ -23,6 +23,8 @@ interface State {
   /** "You're all set" has had its moment: gone from this page (the server lets it go by itself a little later) */
   drop: () => void
   asked: () => Promise<void>
+  /** every tool the tools row offers is the team's for everyone: nothing left to connect, the row is done */
+  toolsCovered: () => Promise<void>
   reset: () => void
 }
 
@@ -71,6 +73,14 @@ export const useMemberWelcome = create<State>((set, get) => ({
     const g = generation
     try {
       const r = await api.call(API.updateMemberWelcome, { body: { asked: true } })
+      if (g === generation) set(from(r))
+    } catch { /* the next read says */ }
+  },
+  async toolsCovered() {
+    get().mark('tools')
+    const g = generation
+    try {
+      const r = await api.call(API.updateMemberWelcome, { body: { tools: true } })
       if (g === generation) set(from(r))
     } catch { /* the next read says */ }
   },

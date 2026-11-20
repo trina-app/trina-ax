@@ -382,6 +382,8 @@ export function endHeldDismissal(ctx: Pick<AppContext, 'db' | 'log'> & Partial<A
   let p: WelcomeProgress | null
   try { p = readWelcome(ctx) } catch { return false }
   if (!p || p.finishedAt || !dismissHeld(p, now)) return false
+  // the steps closed for good: the owner's own card ("My setup", my-setup.ts), its days from the ✕
+  startMySetup(ctx, ownerId, p.dismissedAt!)
   finishedNow(ctx, ownerId)
   return true
 }

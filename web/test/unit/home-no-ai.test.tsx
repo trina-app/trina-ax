@@ -158,6 +158,9 @@ describe('Home without AI', () => {
       await m.until(() => m.find('welcome-resume'), 'the row')
       expect(m.get('welcome-resume-link').textContent).toBe(rowText(2, 5))
       expect(m.find('team-goal')).toBeNull()
+      // one thing: no "Ready in your team" under it on a computer
+      await m.settle(60)
+      expect(m.find('team-prepared')).toBeNull()
     } finally { await m.unmount() }
   })
 

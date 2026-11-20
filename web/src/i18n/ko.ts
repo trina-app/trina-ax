@@ -5980,7 +5980,7 @@ export const ko = {
   "memberWelcome.allSetHint": "팀 채널은 {place}에 있고, {ai}는 언제든 여기 있어요.",
   "memberWelcome.done": "완료",
   "memberWelcome.todo": "아직 안 함",
-  "memberWelcome.ownerTitle": "{name}님, 이제 내 설정이에요",
+  "memberWelcome.ownerTitle": "이제 {name}님 차례예요",
   "memberWelcome.ownerLine": "팀 설정은 끝났어요. 여기는 나만을 위한 설정이에요.",
   "memberWelcome.onlyYou": "나만 보여요",
   "memberWelcome.tools": "내 도구 연결",

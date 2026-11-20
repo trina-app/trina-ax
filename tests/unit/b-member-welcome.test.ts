@@ -360,7 +360,7 @@ describe('the owner\'s own card ("My setup")', () => {
 })
 
 describe('a new owner', () => {
-  test('an invited person handed the team: no welcome card any more, the row is hidden for good', async () => {
+  test('an invited person handed the team: their member card is over (the row hidden at the handover); with the team setup ended lately, the owner\'s card instead', async () => {
     const inv = await owner.call('POST', '/api/admin/invites', {})
     const c = guest()
     const r = await c.call('POST', `/api/invites/${inv.token}/accept`, { username: 'leah', name: 'Leah Lead', password: PW })
@@ -368,10 +368,13 @@ describe('a new owner', () => {
     expect(await welcome(c)).not.toBeNull()
     await c.call('GET', '/api/me')
     await owner.call('POST', '/api/admin/transfer-ownership', { userId: id, password: OWNER_PW })
-    expect(await welcome(c)).toBeNull()
     expect((h.ctx.db.query('SELECT hidden_at FROM member_welcome WHERE user_id = ?').get(id) as { hidden_at: string | null }).hidden_at).not.toBeNull()
+    // the team setup ended in this file's owner test, within 14 days: the new owner's next Home read is the owner's
+    // card (my-setup.ts, docs/decisions/20261120-my-setup-card.md), never the member's
+    expect(await welcome(c)).toMatchObject({ kind: 'owner', inviter: null })
     // an owner never gets a member's card, even with a row that is not hidden (only the setup's own card, setup = 1)
-    h.ctx.db.query('UPDATE member_welcome SET hidden_at = NULL WHERE user_id = ?').run(id)
+    h.ctx.db.query('UPDATE member_welcome SET setup = 0, hidden_at = NULL WHERE user_id = ?').run(id)
+    h.ctx.db.query("UPDATE settings SET value = json_set(value, '$.finishedAt', '2000-01-01T00:00:00.000Z') WHERE key = 'onboarding.welcome'").run()
     expect(await welcome(c)).toBeNull()
   })
 })

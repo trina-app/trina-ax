@@ -46,7 +46,8 @@ let access: Record<string, unknown> = { usable: true, action: 'ask_owner', reque
 let calls: { key: string; body: any }[] = []
 const routes: Record<string, (body: any) => Response> = {
   'GET /api/me/welcome': () => json(200, { welcome, ...extra }),
-  'PATCH /api/me/welcome': (b: { hide?: true; show?: true; asked?: true }) => {
+  'PATCH /api/me/welcome': (b: { hide?: true; show?: true; asked?: true; tools?: true }) => {
+    if (b.tools && welcome) welcome = { ...welcome, steps: { ...welcome.steps, tools: true } }
     if (b.hide) { extra = { hidden: true }; welcome = null }
     if (b.show) { extra = {}; welcome = card() }
     if (b.asked && welcome) welcome = { ...welcome, steps: { ...welcome.steps, asked: true } }
@@ -143,7 +144,7 @@ describe('the card on Home', () => {
     try {
       await m.until(() => m.find('member-welcome'), 'the card')
       expect(m.get('member-welcome').getAttribute('data-kind')).toBe('owner')
-      expect(text(m, 'member-welcome-title')).toBe('Now your own setup, Mina')
+      expect(text(m, 'member-welcome-title')).toBe('Your turn now, Mina')
       expect(text(m, 'member-welcome-line')).toBe('The team is set up. These are just for you.')
       expect(text(m, 'member-welcome-progress')).toBe('Only you see this')
       expect([...m.get('member-welcome-rows').children].map((li) => li.getAttribute('data-testid'))).toEqual(['member-welcome-tools', 'member-welcome-photo'])
@@ -339,6 +340,23 @@ describe('"Connect your tools" (docs/decisions/20261120-my-setup-card.md)', () =
       expect(tools(m)).toEqual(['linear:open', 'google-drive:open', 'gmail:open', 'notion:team'])
       expect(part(m, 'notion', 'my-tools-team')!.textContent).toBe('Team connected')
       expect(part(m, 'notion', 'my-tools-connect')).toBeNull()
+    } finally { await m.unmount() }
+  })
+
+  test('every tool offered is the team\'s for everyone: nothing left to connect, the row is recorded done', async () => {
+    signIn()
+    items = [{ ...NOTION, id: 'team-notion', scope: 'team', status: 'connected', hasSecret: true }]
+    // no Drive here, Gmail the team's, the other Google apps off
+    routes['GET /api/integrations'] = () => json(200, { items, personalAllowed: false })
+    routes['GET /api/integrations/google-drive'] = () => json(200, { configured: false, status: 'disabled', account: null, scopes: [], expiresAt: null, personalAllowed: true, teamShares: [] })
+    routes['GET /api/integrations/google-apps'] = () => json(200, { apps: [app('gmail', { available: false, shared: { id: 'g', account: { email: 'team@acme.example', name: 'Acme' }, status: 'connected', alwaysAllowed: false } }), app('calendar', { available: false })] })
+    const m = await home()
+    try {
+      await m.until(() => m.find('my-tools'), 'the tools')
+      expect(tools(m)).toEqual(['gmail:team', 'notion:team'])
+      await m.until(() => called('PATCH /api/me/welcome').length > 0 || null, 'recorded')
+      expect(called('PATCH /api/me/welcome').map((c) => c.body)).toEqual([{ tools: true }])
+      await m.until(() => m.get('member-welcome-tools').getAttribute('data-done') === 'true' || null, 'done')
     } finally { await m.unmount() }
   })
 

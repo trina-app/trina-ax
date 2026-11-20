@@ -10,7 +10,8 @@
 //   Settings › Profile can show it again while its days last).
 // - Rows, each with a done / not done circle:
 //   a. "Connect your tools" (counted; MyToolsRow.tsx): the team's recommended tools, then the usual ones, each [연결]
-//      with the person's own account, "팀 연결됨" for one the team connected for everyone.
+//      with the person's own account, "팀 연결됨" for one the team connected for everyone (all of them the team's:
+//      nothing left to connect, done).
 //   b. a member's "Say hi to the team" ("👋 Hi, I'm {name}" posts that in the everyone room as them; done once they
 //      wrote any message in a room; then Open: that room).
 //   c. "Add your photo" (optional, not counted: the photo picker in place, saved at once).
@@ -182,7 +183,9 @@ function ToolsRow({ done }: { done: boolean }) {
     mark('tools')
     void useMemberWelcome.getState().load()
   }, [mark])
-  return <Row id="tools" done={done} title={t('memberWelcome.tools')} hint={t('memberWelcome.toolsHint', { ai: aiName(t) })} below={<MyToolsList onMine={mine} />} />
+  // every tool offered is the team's for everyone: nothing left to connect, recorded done
+  const covered = useCallback(() => { if (!useMemberWelcome.getState().welcome?.steps.tools) void useMemberWelcome.getState().toolsCovered() }, [])
+  return <Row id="tools" done={done} title={t('memberWelcome.tools')} hint={t('memberWelcome.toolsHint', { ai: aiName(t) })} below={<MyToolsList onMine={mine} onCovered={covered} />} />
 }
 
 /** "👋 Hi, I'm {name}" in the everyone room, as the person (the room's own send; a second tap is the same message). */

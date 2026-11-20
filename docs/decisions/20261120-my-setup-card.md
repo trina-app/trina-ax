@@ -8,14 +8,21 @@
 - **Ask:** after the team setup the owner had nothing personal to do, and invited people had a card without their own
   tools. One personal card for everyone.
 - **Home's top, one card at a time (owner):** the team setup unfinished → its "설정 이어서 하기" row, on a computer too
-  (the list panel's setup row hides on Home then, so there is one way back on screen); finished → the owner's My setup
+  (the list panel's setup row hides on Home then, so there is one way back on screen; "Ready in your team" stays out
+  under it); finished → the owner's My setup
   card; that card done or hidden → the 7-day goal. A member who joins sees My setup first, as before. While no AI
   answers the owner, the no-AI line comes before the owner's card (the card has no AI row).
-- **The owner's card:** the server makes it when the team setup reaches its end screen (welcome.ts, both ways the steps
-  finish: `member_welcome.setup = 1`, migration 428, via 'invite' with no inviter because the CHECK has no other value;
-  only via 'admin' is read elsewhere). Its 14 days count from then. An owner who finished before this release gets none.
-  Its rows: 내 도구 연결, 사진 (optional), this computer's files (optional). Title "Now your own setup, {name}", the line
-  "The team is set up. These are just for you.", and "Only you see this" in place of a count (one counted row).
+- **The owner's card:** the server makes it when the team setup ends: its end screen (welcome.ts, both ways the steps
+  finish, the shared-skills one included) or ✕ on the steps once it held (endHeldDismissal; its days from the ✕).
+  `member_welcome.setup = 1`, migration 428, via 'invite' with no inviter because the CHECK has no other value (the
+  first sign-in's announcement reads only via 'admin'). Like a member's row it holds the owner's connection template
+  notices for the templates already there until they open Connected apps or its days are over. Its 14 days count from
+  the setup's end. A lead who was handed the team has a hidden member row: it becomes the owner's card, fresh. Owners
+  whose setup ended (or was closed) before this release get it on their next Home read when that end is within 14
+  days, counted from it; older ones get none.
+  Its rows: 내 도구 연결, 사진 (optional), this computer's files (optional). Title "이제 {name}님 차례예요" (en "Your turn
+  now, {name}"), the line "The team is set up. These are just for you.", and "Only you see this" in place of a count
+  (one counted row).
 - **A member's card:** 내 도구 연결, 인사하기, 사진, Trina에게 묻기 (or 내 AI 연결 while no AI answers them), the
   files row. "Get started · n of 3" counts tools, hi and asked.
 - **내 도구 연결:** the team's recommended tools first (TeamSettings.recommendedTools from GET /api/integrations, ordered
@@ -24,7 +31,8 @@
   same list. Left out: what this server cannot connect for the person (Drive not set up, a Google app off, personal
   connections off, as that setting already does). Each has its own [연결] with the person's own account: a listed
   service connects in place (the welcome tools step's flow), a Google tool opens its page in Settings › Connectors (its
-  own sign-in and account check). A tool the team connected for everyone says "팀 연결됨" with no button. Done
+  own sign-in and account check). A tool the team connected for everyone says "팀 연결됨" with no button; when every tool offered is, nothing is
+  left to connect and the row is done (PATCH `{ tools: true }`, `member_welcome.tools_at`). Done
   (server) once the person has a working connection of their own (a personal connection or Google Drive); a team where
   personal connections are off is not held back by it. "More tools" opens Settings › Connectors. There is no separate
   Home line for connecting tools: this row is the one place.
@@ -34,7 +42,7 @@
 - **When it goes:** required rows done → "준비 끝" for 5 seconds (Close sooner), then gone (the server lets it go after
   ALL_SET_MS); Hide; 14 days. Hidden while its days last and not done: Settings › Profile "Show my setup on Home again"
   (PATCH /api/me/welcome `{ show: true }`, answer `hidden`).
-- **Left out:** a card for owners whose setup finished before this; Drive's sign-in inline on Home; a server check of
+- **Left out:** a card for owners whose setup ended more than 14 days before; Drive's sign-in inline on Home; a server check of
   what is offered (the client decides the list; the server counts any own connection).
 - Tests: tests/unit/b-member-welcome.test.ts, web/test/unit/member-welcome.test.tsx, web/test/unit/my-tools.test.ts,
   web/test/unit/home-no-ai.test.tsx, web/test/e2e/my-setup-card.spec.ts.

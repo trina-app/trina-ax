@@ -5907,7 +5907,7 @@ export const zh: Record<MessageKey, string> = {
   "memberWelcome.allSetHint": "团队的频道在{place}中，需要时随时可以找{ai}。",
   "memberWelcome.done": "已完成",
   "memberWelcome.todo": "未完成",
-  "memberWelcome.ownerTitle": "{name}，现在是你自己的设置",
+  "memberWelcome.ownerTitle": "现在轮到你了，{name}",
   "memberWelcome.ownerLine": "团队已设置好。这里是只属于你的设置。",
   "memberWelcome.onlyYou": "只有你能看到",
   "memberWelcome.tools": "连接你的工具",

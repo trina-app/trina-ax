@@ -150,8 +150,9 @@ function HomePage() {
   // stays out while it does, so one block sits under the box at a time
   const [prepared, setPrepared] = useState<boolean | null>(null)
   // a project's new chat is about that project: the team's goal and setup row stay on Home itself
-  // the owner's goal card on screen (HomeTop, null: not known yet): "Ready in your team" stays out while it is, one thing
-  // on Home (the owner just chose those skills; fix/onboarding-after-setup); it waits for the answer, so nothing flashes
+  // the owner's top on screen (HomeTop: the goal card, or the setup's "설정 이어서 하기"; null: not known yet): "Ready in
+  // your team" stays out while it is, one thing on Home (the owner just chose those skills; fix/onboarding-after-setup;
+  // docs/decisions/20261120-my-setup-card.md); it waits for the answer, so nothing flashes
   const owner = isOwner(me)
   const [goalShown, setGoalShown] = useState<boolean | null>(null)
   const top = !noAi && extras && admin && !projectId && ai.loaded && welcomeKnown && !welcomeCard && <HomeTop owner={owner} onGoal={setGoalShown} />
@@ -285,9 +286,10 @@ export function HomeTop({ owner, onGoal }: { owner: boolean; onGoal?: (shown: bo
   useEffect(() => {
     if (aiPutOff) void useWelcome.getState().update({ step: { id: 'ai', state: 'done' } }).catch(() => {})
   }, [aiPutOff])
-  // unfinished steps show their row instead of the goal: no goal card then
+  // unfinished steps show their row instead of the goal. On a computer it is the one thing ("Ready in your team" stays
+  // out under it); a phone keeps the suggestions' one row by the box, as its AI-app layout has it
   const resumeRow = owner && loaded && showResume(progress, computer)
-  useEffect(() => { if (resumeRow) onGoal?.(false) }, [resumeRow, onGoal])
+  useEffect(() => { if (resumeRow) onGoal?.(computer) }, [resumeRow, onGoal, computer])
   if (!owner) return <HomeGoal onShown={onGoal} />
   if (!loaded) return null
   if (resumeRow) return <WelcomeResume />

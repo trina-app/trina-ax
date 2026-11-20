@@ -5981,7 +5981,7 @@ export const en: Record<MessageKey, string> = {
   "memberWelcome.allSetHint": "Your team's channels are in {place}, and {ai} is here whenever you need it.",
   "memberWelcome.done": "Done",
   "memberWelcome.todo": "Not done yet",
-  "memberWelcome.ownerTitle": "Now your own setup, {name}",
+  "memberWelcome.ownerTitle": "Your turn now, {name}",
   "memberWelcome.ownerLine": "The team is set up. These are just for you.",
   "memberWelcome.onlyYou": "Only you see this",
   "memberWelcome.tools": "Connect your tools",

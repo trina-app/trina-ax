@@ -7,7 +7,8 @@
 // - Google Drive or a Google app opens its page in Settings › Connectors, where its own sign-in is (the account check
 //   included). Settings is a dialog over Home: closing it reads the lists again.
 // A tool the team connected for everyone says "팀 연결됨" with no button; one of theirs says "연결됨". The row is done
-// once any of the person's own connections works (the server's `steps.tools`; a new one here marks it at once).
+// once any of the person's own connections works (the server's `steps.tools`; a new one here marks it at once), or when
+// every tool it offers is the team's for everyone (nothing left to connect: `onCovered`).
 import { Check } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -62,8 +63,9 @@ function useToolFacts() {
   return { facts, load }
 }
 
-/** The tools under the row's words. `onMine`: one of theirs works now (the row is done). */
-export function MyToolsList({ onMine }: { onMine: () => void }) {
+/** The tools under the row's words. `onMine`: one of theirs works now (the row is done); `onCovered`: every tool it
+ * offers is connected by the team for everyone (nothing left to connect: done too). */
+export function MyToolsList({ onMine, onCovered }: { onMine: () => void; onCovered?: () => void }) {
   const t = useT()
   const locale = useLocale()
   const navigate = useNavigate()
@@ -77,6 +79,9 @@ export function MyToolsList({ onMine }: { onMine: () => void }) {
   const anyMine = tools.some((x) => x.state === 'mine')
   const told = useRef(false)
   useEffect(() => { if (anyMine && !told.current) { told.current = true; onMine() } }, [anyMine, onMine])
+  const allTeam = tools.length > 0 && tools.every((x) => x.state === 'team')
+  const covered = useRef(false)
+  useEffect(() => { if (allTeam && !covered.current) { covered.current = true; onCovered?.() } }, [allTeam, onCovered])
   if (!facts || !tools.length) return null
   const own = (c: Connector) => [...made, ...facts.mine].find((i) => servesAt(c, i.url))
   const connect = async (c: Connector) => {

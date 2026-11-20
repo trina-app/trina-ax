@@ -34,14 +34,15 @@ import { profileOf } from '../auth/profiles'
 import { notifyTeamJoined } from '../notifications/service'
 import { roomsOf } from '../rooms/service'
 import { filesOrganized } from './files-organize'
-import { readWelcome, welcomeOpened } from './welcome'
+import { DISMISS_HOLD_MS, readWelcome, welcomeOpened } from './welcome'
+import { startMySetup } from './my-setup'
 
 export type JoinVia = 'team_link' | 'invite' | 'admin'
 const DAY_MS = 86_400_000
 /** how long "You're all set" shows after the last row was done */
 export const ALL_SET_MS = 10 * 60_000
 
-interface Row { user_id: string; invited_by: string | null; via: JoinVia; joined_at: string; hidden_at: string | null; asked_at: string | null; done_at: string | null; apps_seen_at: string | null; added_by: string | null; announced_at: string | null; setup: number }
+interface Row { user_id: string; invited_by: string | null; via: JoinVia; joined_at: string; hidden_at: string | null; asked_at: string | null; done_at: string | null; apps_seen_at: string | null; added_by: string | null; announced_at: string | null; setup: number; tools_at: string | null }
 
 const rowOf = (db: Database, userId: string) => db.query('SELECT * FROM member_welcome WHERE user_id = ?').get(userId) as Row | null
 /** the earliest join time whose card (and template hold) still lasts */
@@ -154,8 +155,9 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
   if (!c || c.row.hidden_at) return null
   const r = c.row
   const steps = { rooms: true as const, hi: saidHi(db, userId), photo: !!profileOf(db, userId).avatarVersion, asked: !!r.asked_at, files: fromComputerHasFile(ctx, userId),
-    // a team that lets nobody connect their own (personalIntegrations off) has nothing here to do: not held back by it
-    tools: hasOwnTool(db, userId) || getTeamSettings(db).personalIntegrations === false }
+    // a team that lets nobody connect their own (personalIntegrations off), or every tool the row offers connected by
+    // the team for everyone (tools_at, the card says so): nothing here to do, not held back by it
+    tools: hasOwnTool(db, userId) || getTeamSettings(db).personalIntegrations === false || !!r.tools_at }
   const allSet = countedDone(c.kind, steps)
   if (allSet && !r.done_at) db.query('UPDATE member_welcome SET done_at = ? WHERE user_id = ? AND done_at IS NULL').run(new Date(now).toISOString(), userId)
   const ref = (id: string | null) => id ? db.query('SELECT id, name FROM users WHERE id = ? AND deleted_at IS NULL').get(id) as { id: string; name: string } | null : null
@@ -176,6 +178,7 @@ export function welcomeOf(ctx: AppContext, userId: string, now = Date.now()): Me
 /** The answer of GET/PATCH /api/me/welcome: the card, whether a hidden one can be shown again, and an admin's
  * "팀 파일 정리하기" for Admin › Home (no folder plan applied yet; the step needs the team's steps row). */
 export function welcomeAnswer(ctx: AppContext, userId: string, now = Date.now()): MemberWelcomeResponse {
+  backfillOwner(ctx, userId, now)
   const welcome = welcomeOf(ctx, userId, now)
   const c = welcome ? null : cardRow(ctx.db, userId, now)
   const hidden = !!c?.row.hidden_at && !c.row.done_at
@@ -184,10 +187,29 @@ export function welcomeAnswer(ctx: AppContext, userId: string, now = Date.now())
   return { welcome, ...(hidden ? { hidden: true } : {}), ...(organizeFiles ? { organizeFiles: true } : {}) }
 }
 
-/** Hide, show again (while its days last) or "asked": the caller's own row only; a person without one has nothing to
- * change. */
-export function updateWelcome(ctx: AppContext, userId: string, b: { hide?: true; show?: true; asked?: true }): MemberWelcomeResponse {
+/**
+ * An owner whose team setup ended (its end screen, or ✕ on the steps held) before the card existed: their own card on
+ * this read, its 14 days counted from that end, so one that ended longer ago gets none. Only while they have no owner
+ * card (a hidden or finished one stays as it is). Never throws.
+ */
+function backfillOwner(ctx: AppContext, userId: string, now: number) {
+  try {
+    const owner = ctx.db.query("SELECT 1 FROM users WHERE id = ? AND role = 'owner' AND deleted_at IS NULL").get(userId)
+    if (!owner || ctx.db.query('SELECT 1 FROM member_welcome WHERE user_id = ? AND setup = 1').get(userId)) return
+    const p = readWelcome(ctx)
+    if (!p) return
+    const dismissed = p.dismissedAt && now - Date.parse(p.dismissedAt) >= DISMISS_HOLD_MS ? p.dismissedAt : null
+    const ended = p.finishedAt ?? dismissed
+    if (!ended || ended < welcomeSince(now)) return
+    startMySetup(ctx, userId, ended)
+  } catch (e) { ctx.log.warn('the owner\'s setup card was not backfilled', { err: e }) }
+}
+
+/** Hide, show again (while its days last), "asked", or "tools" (every tool the row offers is the team's: nothing left
+ * to connect): the caller's own row only; a person without one has nothing to change. */
+export function updateWelcome(ctx: AppContext, userId: string, b: { hide?: true; show?: true; asked?: true; tools?: true }): MemberWelcomeResponse {
   const at = new Date().toISOString()
+  if (b.tools) ctx.db.query('UPDATE member_welcome SET tools_at = COALESCE(tools_at, ?) WHERE user_id = ?').run(at, userId)
   if (b.hide) ctx.db.query('UPDATE member_welcome SET hidden_at = COALESCE(hidden_at, ?) WHERE user_id = ?').run(at, userId)
   else if (b.show) ctx.db.query('UPDATE member_welcome SET hidden_at = NULL WHERE user_id = ? AND done_at IS NULL').run(userId)
   if (b.asked) ctx.db.query('UPDATE member_welcome SET asked_at = COALESCE(asked_at, ?) WHERE user_id = ?').run(at, userId)

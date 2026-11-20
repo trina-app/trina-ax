@@ -57,13 +57,14 @@ export const MemberWelcomeResponse = z.object({
 export type MemberWelcomeResponse = z.infer<typeof MemberWelcomeResponse>
 
 /** hide: the card's Hide; show: Settings › Profile's "show it again" (while its days last); asked: the "what can I do
- * here" chat was started */
-export const MemberWelcomeUpdate = z.strictObject({ hide: z.literal(true).optional(), show: z.literal(true).optional(), asked: z.literal(true).optional() })
-  .refine((b) => b.hide || b.show || b.asked, { message: 'nothing to change' })
+ * here" chat was started; tools: every tool the "Connect your tools" row offers is connected by the team for everyone
+ * (nothing left to connect: the row counts as done) */
+export const MemberWelcomeUpdate = z.strictObject({ hide: z.literal(true).optional(), show: z.literal(true).optional(), asked: z.literal(true).optional(), tools: z.literal(true).optional() })
+  .refine((b) => b.hide || b.show || b.asked || b.tools, { message: 'nothing to change' })
 
 export const MEMBER_WELCOME = {
   getMemberWelcome: endpoint({ method: 'GET', path: '/api/me/welcome', auth: 'user', owner: 'B', response: MemberWelcomeResponse,
     summary: 'My setup card on Home (invited people, and the owner after the team setup) while it still shows (14 days, not hidden, not finished); else null.' }),
   updateMemberWelcome: endpoint({ method: 'PATCH', path: '/api/me/welcome', auth: 'user', owner: 'B', body: MemberWelcomeUpdate, response: MemberWelcomeResponse,
-    summary: 'Hide my setup card or show it again, or record that I asked Trina what I can do here. Mine only.' }),
+    summary: 'Hide my setup card or show it again, or record that I asked Trina what I can do here or that the team connected every tool it offers me. Mine only.' }),
 } as const

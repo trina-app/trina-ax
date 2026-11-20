@@ -5936,7 +5936,7 @@ export const es: Record<MessageKey, string> = {
   "memberWelcome.allSetHint": "Los canales de su equipo están en {place}, y {ai} está aquí cuando la necesite.",
   "memberWelcome.done": "Hecho",
   "memberWelcome.todo": "Pendiente",
-  "memberWelcome.ownerTitle": "Ahora su propia configuración, {name}",
+  "memberWelcome.ownerTitle": "Ahora le toca a usted, {name}",
   "memberWelcome.ownerLine": "El equipo ya está configurado. Esto es solo para usted.",
   "memberWelcome.onlyYou": "Solo usted ve esto",
   "memberWelcome.tools": "Conecte sus herramientas",

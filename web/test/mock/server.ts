@@ -4274,6 +4274,7 @@ export class MockServer {
       if (c.body.hide) { if (this.memberWelcome && !this.memberWelcome.allSet) this.memberWelcomeHidden = this.memberWelcome; this.memberWelcome = null }
       else if (c.body.show && this.memberWelcomeHidden) { this.memberWelcome = this.memberWelcomeHidden; this.memberWelcomeHidden = null }
       if (c.body.asked && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, asked: true } }
+      if (c.body.tools && this.memberWelcome) this.memberWelcome = { ...this.memberWelcome, steps: { ...this.memberWelcome.steps, tools: true } }
       return this.memberWelcomeAnswer(c.user.id, c.user.role)
     },
     updateWelcome: (c) => {

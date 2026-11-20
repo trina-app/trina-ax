@@ -70,6 +70,8 @@ for (const width of [1440, 390] as const) {
       await expect(page.getByTestId('team-goal')).toHaveCount(0)
       // one way back on Home, not two: the list panel's row hides here (on a computer it stays on other pages)
       await expect(page.getByTestId('setup-row')).toHaveCount(0)
+      // one thing on a computer: no "Ready in your team" under it
+      if (width === 1440) await expect(page.getByTestId('team-prepared')).toHaveCount(0)
       await shot(page, 'owner-0-setup-unfinished')
 
       // the setup's end screen: the owner's own card (the server makes it then)
@@ -80,7 +82,7 @@ for (const width of [1440, 390] as const) {
       const c = page.getByTestId('member-welcome')
       await expect(c).toBeVisible()
       await expect(c).toHaveAttribute('data-kind', 'owner')
-      await expect(page.getByTestId('member-welcome-title')).toHaveText('Now your own setup, Olga')
+      await expect(page.getByTestId('member-welcome-title')).toHaveText('Your turn now, Olga')
       await expect(page.getByTestId('member-welcome-line')).toHaveText('The team is set up. These are just for you.')
       await expect(page.getByTestId('member-welcome-progress')).toHaveText('Only you see this')
       expect(await rows(page)).toEqual(['member-welcome-tools', 'member-welcome-photo', 'member-welcome-files'])
@@ -147,3 +149,26 @@ for (const width of [1440, 390] as const) {
     })
   })
 }
+
+// Korean at 1440: the owner's card ("이제 {name}님 차례예요") and a member's, for the review's screenshots
+test.describe('1440 · ko', () => {
+  test.use({ viewport: { width: 1440, height: 900 }, locale: 'ko-KR' })
+  test('the owner\'s and a member\'s card in Korean', async ({ page }) => {
+    await reset(page, { teamLocale: 'ko', usersFollowTeam: true })
+    await signIn(page)
+    await call(page, 'POST', '/api/onboarding/welcome/team')
+    await call(page, 'PATCH', '/api/onboarding/welcome', { finish: true })
+    await seed(page, card({ kind: 'owner', inviter: null }))
+    await withGoogle(page)
+    await page.goto('/')
+    await expect(page.getByTestId('member-welcome-title')).toHaveText('이제 Olga님 차례예요')
+    await expect(page.getByTestId('my-tools-item')).toHaveCount(4)
+    if (dir) await page.screenshot({ path: `${dir}/1440-ko-owner-my-setup.png`, fullPage: true })
+    await seed(page, card())
+    await page.context().clearCookies()
+    await signIn(page, BOB)
+    await expect(page.getByTestId('member-welcome')).toHaveAttribute('data-kind', 'member')
+    await expect(page.getByTestId('my-tools-item')).toHaveCount(4)
+    if (dir) await page.screenshot({ path: `${dir}/1440-ko-member-my-setup.png`, fullPage: true })
+  })
+})

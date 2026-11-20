@@ -5980,7 +5980,7 @@ export const id: Record<MessageKey, string> = {
   "memberWelcome.allSetHint": "Saluran tim ada di {place}, dan {ai} ada di sini kapan pun Anda butuh.",
   "memberWelcome.done": "Selesai",
   "memberWelcome.todo": "Belum",
-  "memberWelcome.ownerTitle": "Sekarang pengaturan Anda sendiri, {name}",
+  "memberWelcome.ownerTitle": "Sekarang giliran Anda, {name}",
   "memberWelcome.ownerLine": "Tim sudah siap. Ini khusus untuk Anda.",
   "memberWelcome.onlyYou": "Hanya Anda yang melihat ini",
   "memberWelcome.tools": "Hubungkan alat Anda",

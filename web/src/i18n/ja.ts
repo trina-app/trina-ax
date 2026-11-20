@@ -5936,7 +5936,7 @@ export const ja: Record<MessageKey, string> = {
   "memberWelcome.allSetHint": "チームのチャンネルは{place}に、{ai}はいつでもここにいます。",
   "memberWelcome.done": "完了",
   "memberWelcome.todo": "未完了",
-  "memberWelcome.ownerTitle": "{name}さん、次は自分の設定です",
+  "memberWelcome.ownerTitle": "次は{name}さんの番です",
   "memberWelcome.ownerLine": "チームの設定は完了しました。ここはあなただけの設定です。",
   "memberWelcome.onlyYou": "あなただけに表示されます",
   "memberWelcome.tools": "自分のツールをつなぐ",
