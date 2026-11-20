@@ -9,8 +9,10 @@ import { ENGINE_LABEL, type EnginePick } from './EngineMenu'
 
 /** The same choices as EngineOptions as a phone's menu rows (MenuButton): per engine its default model (the engine's name,
  * "기본 모델" after it), then its models, a little in; the chosen one ticked. A model named like another row gets its
- * engine's name after it (a row is known by its words). */
-export function engineMenuItems(engines: readonly EngineId[], models: Partial<Record<EngineId, { id: string; label: string }[]>> | undefined, current: { engine: EngineId | undefined; model: string | null | undefined } | undefined, onPick: (p: EnginePick) => void, defaultModel: string): MenuItem[] {
+ * engine's name after it (a row is known by its words). `modelsOnly` (one engine in the composer's picker, AP-032):
+ * the models only, without the engine's row. */
+export function engineMenuItems(engines: readonly EngineId[], models: Partial<Record<EngineId, { id: string; label: string }[]>> | undefined, current: { engine: EngineId | undefined; model: string | null | undefined } | undefined, onPick: (p: EnginePick) => void, defaultModel: string, modelsOnly = false): MenuItem[] {
+  if (modelsOnly) return engines.flatMap((id) => (models?.[id] ?? []).map((m): MenuItem => ({ label: m.label, checked: current?.engine === id && current?.model === m.id, onSelect: () => onPick({ engine: id, model: m.id }) })))
   const seen = new Map<string, number>()
   for (const id of engines) for (const l of [ENGINE_LABEL[id], ...(models?.[id] ?? []).map((m) => m.label)]) seen.set(l, (seen.get(l) ?? 0) + 1)
   return engines.flatMap((id): MenuItem[] => [
@@ -37,7 +39,7 @@ const LOOK = {
  * and which never covers the message box while it is closed. The choices are EngineOptions' (engineMenuItems). `label`:
  * the button's words and name, as on a computer (the current choice, or what it does); `title`: the sheet's name and
  * the button's tooltip. Computers keep the small list by the button. */
-export function EngineSheet({ engines, models, current, onPick, label, name, title, testId, look = 'picker' }: {
+export function EngineSheet({ engines, models, current, onPick, label, name, title, testId, look = 'picker', modelsOnly = false }: {
   engines: readonly EngineId[]
   models?: Partial<Record<EngineId, { id: string; label: string }[]>>
   current?: { engine: EngineId | undefined; model: string | null | undefined }
@@ -48,6 +50,8 @@ export function EngineSheet({ engines, models, current, onPick, label, name, tit
   title: string
   testId?: string
   look?: keyof typeof LOOK
+  /** the models only, without an engine row (engineMenuItems) */
+  modelsOnly?: boolean
 }) {
   const t = useT()
   return (
@@ -55,7 +59,7 @@ export function EngineSheet({ engines, models, current, onPick, label, name, tit
       label={name ?? label}
       tip={title}
       heading={title}
-      items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'))}
+      items={engineMenuItems(engines, models, current, onPick, t('composer.defaultModel'), modelsOnly)}
       icon={<>{label} <ChevronDown size={13} aria-hidden /></>}
       muted={look === 'picker'}
       // the picker and the pill: a 44 px tap area around them (touch-hit), as on a computer; the button: 44 px tall, as
