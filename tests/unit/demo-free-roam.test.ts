@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { API, ApiClient, CSRF_HEADER } from '../../shared/src/api'
 import { buildSnapshot, gateLikeConfig, hygieneProblems, SIGN_IN_TABLES, SNAPSHOT_MODEL, type Manifest } from '../../scripts/demo/free-roam/build-snapshot'
-import { LEAK_PROMPTS, PUBLIC_PAGES, askLeakPrompts, maskAllowed, readSealed, scan, scanPublicPages, sealedIn } from '../../scripts/demo/free-roam/canary'
+import { LEAK_PROMPTS, PUBLIC_PAGES, askLeakPrompts, checkAllow, maskAllowed, readSealed, scan, scanPublicPages, sealedIn } from '../../scripts/demo/free-roam/canary'
 import { HIGGSFIELD_TOOLS } from '../../server/src/demo/fakes/higgsfield'
 import { baseLayout, cloneBase, shortTemp, startInstance } from '../../scripts/demo/free-roam/instance'
 
@@ -187,9 +187,9 @@ describe('the canary\'s public pages and allowed strings (QA TC-5576)', () => {
       const url = `http://127.0.0.1:${server.port}`
       expect(PUBLIC_PAGES).toEqual(['/api/health', '/settings/about'])
       // without --allow the public address (and its domain) is a hit on both pages
-      const plain = await scanPublicPages({ url, cookie: 'sid=visitor', strings })
+      const plain = await scanPublicPages({ url, cookie: '__Host-sid=visitor', strings })
       expect(plain).toEqual([{ path: '/api/health', status: 200, hits: [1, 3] }, { path: '/settings/about', status: 200, hits: [1, 3] }])
-      expect(seen).toEqual(['/api/health sid=visitor', '/settings/about sid=visitor'])
+      expect(seen).toEqual(['/api/health __Host-sid=visitor', '/settings/about __Host-sid=visitor'])
       // allowed: clean; a real leak next to it is still found
       expect((await scanPublicPages({ url, strings, allow: [PUBLIC] })).map((r) => r.hits)).toEqual([[], []])
       leak = true
@@ -211,5 +211,31 @@ describe('the canary\'s public pages and allowed strings (QA TC-5576)', () => {
     expect(scan(dir, strings, [PUBLIC])).toEqual([])
     fs.writeFileSync(path.join(dir, 'leak.txt'), 'org-0000-made-up')
     expect(scan(dir, strings, [PUBLIC])).toEqual([{ file: 'leak.txt', string: 2 }])
+  })
+
+  test('an allowed string that is only part of a sealed one is refused, by number, never by text (review finding 3 on #105)', () => {
+    const PUBLIC = 'source@offer-public.test'
+    const strings = ['somebody.real@account-owner.test', PUBLIC, 'org-0000-made-up']
+    // the whole public text, one equal to a sealed string, or one holding a sealed string: fine
+    expect(() => checkAllow([PUBLIC, `  ${PUBLIC.toUpperCase()} `, `mail ${PUBLIC} please`, ''], strings)).not.toThrow()
+    // a part of a sealed string (its domain, a name inside it) would blank it everywhere: refused, case-insensitively
+    for (const part of ['account-owner.test', 'SOMEBODY.real', ' made-up ']) {
+      let err = ''
+      try { checkAllow([PUBLIC, part], strings) } catch (e) { err = (e as Error).message }
+      expect(err).toMatch(/^--allow 2 is only part of sealed string \d/)
+      for (const x of [...strings, part.trim()]) expect(err.toLowerCase()).not.toContain(x.toLowerCase())
+    }
+    expect(() => checkAllow(['account-owner.test'], strings)).toThrow('--allow 1 is only part of sealed string 1:')
+    // the command refuses it before it scans anything, with a clear error and exit 1
+    const sealed = path.join(tmp, 'sealed-allow.txt')
+    fs.writeFileSync(sealed, strings.join('\n') + '\n', { mode: 0o600 })
+    const dir = path.join(tmp, 'allow-empty')
+    fs.mkdirSync(dir, { recursive: true })
+    const run = Bun.spawnSync([process.execPath, path.join(import.meta.dir, '../../scripts/demo/free-roam/canary.ts'), '--sealed', sealed, '--snapshot', dir, '--allow', 'account-owner.test'], { stdout: 'pipe', stderr: 'pipe' })
+    expect(run.exitCode).toBe(1)
+    const out = run.stdout.toString() + run.stderr.toString()
+    expect(out).toContain('--allow 1 is only part of sealed string 1')
+    expect(out).not.toContain('clean')
+    expect(out).not.toContain('somebody.real')
   })
 })

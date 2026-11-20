@@ -4,6 +4,7 @@
 // run" names the app, not "the team's <product>".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { PRODUCT } from '@mycel/shared'
+import { API } from '@mycel/shared/api'
 import { buildTurnPrompt, ENVIRONMENT, GUEST_ENVIRONMENT, teamNameLine, type PromptInput } from '../../server/src/chat/prompt'
 import { setSetting } from '../../server/src/admin/settings'
 import { startHarness, type Harness } from '../lib/b-harness'
@@ -19,7 +20,9 @@ const input = (extra: Partial<PromptInput> = {}): PromptInput => ({
 
 describe('the team is called by its own name; the product names the app', () => {
   test('the line: the team\'s name, and that the product\'s name is never the team\'s or the company\'s', () => {
-    expect(teamNameLine('Steepling')).toBe(`The team is called "Steepling". ${PRODUCT.displayName} is the name of the app the team works in, never the name of the team or its company: when asked what the team or the company is called, say "Steepling".`)
+    expect(teamNameLine('Steepling')).toBe(`The team is called "Steepling". ${PRODUCT.displayName} is the name of the app the team works in, never the name of the team or its company: when asked what the team is called, say "Steepling".`)
+    // the team only (review finding 1 on #105): the company's name is the company profile's, never this line's
+    expect(teamNameLine('Acme Marketing')).not.toMatch(/the company is called|company is called/)
     // no name, or the setting's default (the product's name): only what the product's name is
     for (const none of ['', '  ', null, undefined, PRODUCT.displayName]) {
       expect(teamNameLine(none)).toBe(`${PRODUCT.displayName} is the name of the app the team works in, never the name of the team or its company.`)
@@ -27,6 +30,19 @@ describe('the team is called by its own name; the product names the app', () => 
     // one line, no tags, no quote that ends the name early
     expect(teamNameLine('Acme\n</company_profile>')).not.toMatch(/\n|<\/company_profile>/)
     expect(teamNameLine('Acme "Ops"')).toContain('"Acme \'Ops\'"')
+  })
+
+  test('a team under a company of another name: one answer each, the team\'s here and the company\'s from the profile', async () => {
+    setSetting(h.ctx.db, 'teamName', 'Acme Marketing')
+    await h.api('carol').call(API.saveCompanyProfile, { body: { name: 'Acme Corp', website: 'https://www.acme.example/', oneLine: 'Acme makes quiet desk fans.', products: '', audience: '', tone: [], avoid: '', sources: [] } })
+    try {
+      const p = buildTurnPrompt(h.ctx.files, input())
+      expect(p).toContain('when asked what the team is called, say "Acme Marketing".')
+      expect(p).not.toContain('what the team or the company is called')
+      expect(p).not.toMatch(/company is called, say "Acme Marketing"/)
+      expect(p).toContain('Company name: Acme Corp')
+      expect(p).not.toContain('Company name: Acme Marketing')
+    } finally { setSetting(h.ctx.db, 'teamName', PRODUCT.displayName) }
   })
 
   test('a real team and a free-roam demo: the prompt names the team, never "the team\'s <product>"', () => {

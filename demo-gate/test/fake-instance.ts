@@ -22,7 +22,7 @@ const server = http.createServer((req, res) => {
       let key = ''
       try { key = (JSON.parse(body) as { key?: string }).key ?? '' } catch {}
       if (!okOrigin || key !== 'newHire' || fs.existsSync('persona-fails')) { res.writeHead(403, { 'content-type': 'application/json' }); return res.end('{"error":{"code":"csrf"}}') }
-      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': [`mycel-dev-sid=${crypto.randomBytes(24).toString('base64url')}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`] })
+      res.writeHead(200, { 'content-type': 'application/json', 'set-cookie': [`__Host-sid=${crypto.randomBytes(24).toString('base64url')}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Secure`] })
       res.end('{"ok":true}')
     })
     return

@@ -123,6 +123,13 @@ describe('cookies', () => {
     expect(secureCookie('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax')).toBe('mycel-dev-sid=abc; Path=/; HttpOnly; SameSite=Lax; Secure')
     expect(secureCookie('a=b; Domain=example.com; Secure')).toBe('a=b; Secure')
   })
+  test('the instance\'s __Host-sid stays a cookie the browser keeps: Secure once, Path=/, no Domain', () => {
+    expect(secureCookie('__Host-sid=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure')).toBe('__Host-sid=abc; Path=/; HttpOnly; SameSite=Lax; Max-Age=60; Secure')
+    expect(secureCookie('__Host-sid=abc; Path=/; Domain=127.0.0.1; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(secureCookie('__Host-sid=abc; Path=/api; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(secureCookie('__Host-sid=abc; HttpOnly')).toBe('__Host-sid=abc; Path=/; HttpOnly; Secure')
+    expect(cookiesForInstance('__Host-tdg=x; __Host-sid=y')).toBe('__Host-sid=y')
+  })
   test('the gate cookie never reaches an instance', () => {
     expect(cookiesForInstance('__Host-tdg=x; mycel-dev-sid=y')).toBe('mycel-dev-sid=y')
     expect(cookiesForInstance('__Host-tdg=x')).toBeNull()
