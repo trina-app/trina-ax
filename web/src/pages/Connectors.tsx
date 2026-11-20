@@ -30,7 +30,7 @@
 import { Check, Plus, Search } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList } from '@mycel/shared/api'
+import { isRecommendable, isRecommended, isRequestableService, recommendedFirst, type Integration, type IntegrationList, type MyIntegrationTemplate } from '@mycel/shared/api'
 import { errorText } from '../lib/api'
 import { connectionHref, connectorFor, connectorHref, connectorLogo, CONNECTORS, CONNECTORS_HOME, customConnectorAction, isConnected, servesAt, type Connector } from '../lib/connectors'
 import { aboutKey, builtInLogo, builtInName, BUILT_IN_ORDER, driveCardState, DRIVE_TOOL_LIST, fits, GOOGLE, GOOGLE_PRIVACY, GOOGLE_TERMS, googleAppCardState, isGoogleApp, lineKey, unavailableKeys, type BuiltInId } from '../lib/googleApps'
@@ -56,7 +56,7 @@ import { ConnectionPage, ListedServicePage } from '../components/integrations/Co
 import { createLocalApp, localAppsBridge } from '../components/integrations/LocalApp'
 import { localAppById, localAppLogo, localAppOf, localAppSpec, LISTED_LOCAL_APPS, type LocalAppEntry } from '../lib/localApps'
 import { AskAdminAction, ListedAsk, useServiceAsks } from '../components/integrations/AskAdmin'
-import { useFromTeam } from '../components/integrations/TemplatesView'
+import { readMyTemplates, TEMPLATES_KEY, useFromTeam } from '../components/integrations/TemplatesView'
 import { mobileApp } from '../lib/mobile'
 import { setupReturnState, setupReturnStep } from '../lib/welcome'
 
@@ -244,9 +244,13 @@ function ConnectorsHome() {
   // and a template the team set up for them, connected or not, is in Your connectors, never in Discover as well: QA
   // TC-179)
   const urls = [...(list.data?.items ?? []).map((i) => i.url), ...fromTeam.urls]
+  // GitHub signs in through the server's GitHub App: without one (an older server says nothing: as before) it cannot be
+  // connected yet, so its card says so like a Google card the team has not set up (docs/INTEGRATIONS.md "GitHub")
+  const notSetUp = (c: Connector) => c.id === 'github' && list.data?.github?.ready === false
   const listed: Card[] = personalAllowed ? CONNECTORS.map((c) => ({
     id: c.id, name: c.name, line: t(`integrations.catalog.${c.id}`), logo: connectorLogo(c),
-    state: isConnected(c, urls) ? 'added' as const : 'available' as const,
+    state: isConnected(c, urls) ? 'added' as const : notSetUp(c) ? 'off' as const : 'available' as const,
+    ...(notSetUp(c) ? { setUp: true } : {}),
     onOpen: () => navigate(connectorHref(c.id)), onAdd: () => setDialog({ connector: c }),
   })) : []
   // the team turned own connections off: a member who searches still finds a listed service, with "Ask admin to add it"
@@ -507,8 +511,15 @@ function ListedPage({ c }: { c: Connector }) {
   // connected yet does not end it: QA final)
   const teamWorks = !!list.data && splitByScope(list.data.items).team.some((i) => servesAt(c, i.url) && i.status === 'connected')
   const asked = isRequestableService(c.id) && asks.stateOf(c.id) !== 'none'
-  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) ? c.id : null
-  const own = !!list.data?.personalAllowed
+  // GitHub without the server's GitHub App: no Connect (it would fail at sign-in); a member asks an admin, an owner or
+  // admin reads where it is set up (docs/INTEGRATIONS.md "GitHub"). A team template with the company's own GitHub App
+  // is the team's setup: the page sends the person to it (its row under Your connectors connects it)
+  const noServerApp = c.id === 'github' && list.data?.github?.ready === false
+  const templates = useCachedRead<MyIntegrationTemplate[]>(noServerApp ? TEMPLATES_KEY : null, readMyTemplates).data
+  const viaTemplate = noServerApp && !!templates?.some((x) => servesAt(c, x.url))
+  const notSetUp = noServerApp && !viaTemplate
+  const own = !!list.data?.personalAllowed && !noServerApp
+  const askFor = !admin && asks.ready && !!list.data && !have.length && isRequestableService(c.id) && (asked || !teamWorks) && !viaTemplate ? c.id : null
   // connected: the connection's page (with two connections to it, the first; the other is its own row in the list)
   if (have.length) return <McpShell><MinePage i={have[0]} about={t('connectors.mcp.about', { name: c.name })} /></McpShell>
   return (
@@ -516,7 +527,9 @@ function ListedPage({ c }: { c: Connector }) {
       <ListedServicePage inSettings c={c} state={askFor ? 'ask' : 'available'}
         actions={own ? <Button variant="primary" onClick={() => setDialog({ connector: c })} data-testid="connector-connect">{t('aiApps.connect')}</Button>
           : askFor ? <AskAdminAction state={asks.stateOf(askFor)} busy={asks.busy === askFor} onAsk={() => void asks.ask(askFor, c.name)} onWithdraw={() => void asks.withdraw(askFor)} /> : null}
-        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} /> : undefined}
+        status={askFor ? <ListedAsk asks={asks} service={askFor} name={c.name} inline={own} />
+          : viaTemplate ? <Note testId="connector-github-template">{t('connectors.github.viaTemplate')}</Note>
+          : notSetUp && admin ? <Note testId="connector-github-not-set-up">{t('connectors.github.notSetUpAdmin')}</Note> : undefined}
         about={t('connectors.mcp.about', { name: c.name })} />
     </McpShell>
   )
