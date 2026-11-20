@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>整个团队共用的 AI。</b><br>
-Trina AX 把团队的文件、技能和工具集中在一台服务器上。每个人的 AI 都从这里开始，<br>AI 打开的每个文件，都会按提问者本人的权限检查。
+Trina AX 把团队的文件、技能和工具集中在一台服务器上。每个人的 AI 都从这里开始。<br>同事的 AI 会话，点开就能接着做。AI 打开的每个文件，都会按提问者本人的权限检查。
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-zh.png" height="40" alt="下载 Mac 版"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-zh.png" height="40" alt="下载 Windows 版"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="在 App Store 下载"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="在 Google Play 下载"></a><br>
 <sub>Linux：.deb 和 AppImage（x64、arm64）见<a href="https://ax.trina.app/download">下载页面</a></sub>
 
 [官网](https://ax.trina.app) · [文档](docs/README.md) · [价格](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文 · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · 简体中文 · [Bahasa Indonesia](README.id.md)
 
 </div>
 
@@ -58,6 +58,10 @@ https://github.com/user-attachments/assets/dd90d4f8-bd9d-40be-8257-fc34201ce0b6
 
 ## 每个人用它做什么
 
+**同事做到一半，你接着往下做。** 在团队项目里打开同事的 AI 会话，之前的对话和回答都看得到，马上就能接着问。新的回答按提问者本人的权限处理。其他会话也能像 Google Drive 里的文件一样，共享给个人或小组。
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改卡片新闻；她的提问按她自己的权限处理。">
+
 **在任何对话旁边问 Trina，一键发到群里。** 侧边聊天只有你能看到；点一下，Trina 的回答就发到群里。
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="在 Expo booth crew 对话里，Mina 在只有她能看到的侧边聊天里请 Trina 把参展规定做成清单，再把它发到对话里。">
@@ -65,10 +69,6 @@ https://github.com/user-attachments/assets/dd90d4f8-bd9d-40be-8257-fc34201ce0b6
 **每个人的 AI 只看到这个人能打开的内容。** Mina 打不开 Finance，她的 AI 也打不开。[权限如何运作](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理员修改谁能打开 Sales 文件夹，然后查看 Mina 能打开哪些：Finance 不在她的列表里。">
-
-**在团队项目里接着同事的会话做。** 团队项目里的会话对项目成员共享：打开同事的会话接着做，用的是你自己的权限。其他会话也能像 Google Drive 里的文件一样，共享给个人或小组。
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina 打开 Sam 的项目会话，接着修改卡片新闻；她的提问按她自己的权限处理。">
 
 **文件按内容就能找到。** 每天夜里，团队的 AI 会读一遍共享、小组和项目文件夹里新增和改动的文件，给每个文件写一行说明，讲清它是什么。所以哪怕扫描件叫 `temp.pdf`、照片叫 `IMG_2031.jpg`，也能按内容找到。这一步用的是团队的 AI 账号，从不读取个人文件夹。我们用 2238 个虚构文件做了测试：184 个问题里，Claude Code 有这些说明时找对了 181 个，没有时找对 172 个。
 

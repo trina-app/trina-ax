@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>AI yang dipakai seluruh tim Anda.</b><br>
-Trina AX menyatukan file, skill, dan alat tim Anda di satu server. AI setiap orang mulai dari situ,<br>dan setiap file yang dibukanya dicek dengan akses orang yang bertanya.
+Trina AX menyatukan file, skill, dan alat tim Anda di satu server. AI setiap orang mulai dari situ.<br>Lanjutkan sesi AI rekan kerja dari titik terakhirnya. Setiap file yang dibuka AI dicek dengan akses orang yang bertanya.
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-id.png" height="40" alt="Unduh untuk Mac"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-id.png" height="40" alt="Unduh untuk Windows"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="Download di App Store"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Tersedia di Google Play"></a><br>
 <sub>Linux: .deb dan AppImage (x64, arm64) di <a href="https://ax.trina.app/download">halaman unduhan</a></sub>
 
 [Situs web](https://ax.trina.app/id/) · [Dokumentasi](docs/README.md) · [Harga](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · Bahasa Indonesia
+[English](README.md) · [한국어](README.ko.md) · [日本語](README.ja.md) · [Español](README.es.md) · [简体中文](README.zh-CN.md) · Bahasa Indonesia
 
 </div>
 
@@ -58,6 +58,10 @@ Satu orang mengatur semuanya di server tim. AI setiap orang sudah bisa memakainy
 
 ## Cara semua orang memakainya
 
+**Lanjutkan pekerjaan rekan dari titik terakhirnya.** Buka sesi AI rekan kerja di proyek tim, lalu lanjutkan. Seluruh percakapan dan semua jawaban sejauh ini tetap terlihat. AI menjawab setiap pertanyaan baru dengan akses orang yang bertanya. Bagikan sesi lain ke orang atau grup, seperti file di Google Drive.
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina membuka sesi proyek Sam lalu lanjut mengedit kartu konten; pesannya berjalan dengan aksesnya sendiri.">
+
 **Tanya di samping ruang mana pun, kirim dengan satu klik.** Chat samping yang hanya Anda lihat. Satu klik mengirim jawaban Trina ke ruang itu.
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Di ruang Expo booth crew, Mina meminta Trina, di chat samping yang hanya ia lihat, mengubah aturan peserta pameran menjadi daftar periksa, lalu mengirimnya ke ruang itu.">
@@ -65,10 +69,6 @@ Satu orang mengatur semuanya di server tim. AI setiap orang sudah bisa memakainy
 **AI setiap orang hanya melihat apa yang boleh dibuka orang itu.** Mina tidak bisa membuka Finance, jadi AI-nya juga tidak bisa. [Cara kerja izin](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="Admin mengubah siapa yang bisa membuka folder Sales, lalu mengecek apa yang bisa dibuka Mina: Finance tidak ada di daftarnya.">
-
-**Lanjutkan sesi AI rekan kerja di proyek tim.** Sesi di proyek tim dibagikan ke anggotanya: buka sesi rekan dan lanjutkan, dengan akses Anda sendiri. Sesi lainnya bisa Anda bagikan ke orang atau grup, seperti file di Google Drive.
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="Mina membuka sesi proyek Sam lalu lanjut mengedit kartu konten; pesannya berjalan dengan aksesnya sendiri.">
 
 **File ditemukan dari isinya.** Setiap malam, AI tim membaca file baru dan yang berubah di folder bersama, grup, dan proyek, lalu menyimpan satu baris per file yang menjelaskan file itu. Jadi, hasil pindai bernama `temp.pdf` atau foto bernama `IMG_2031.jpg` tetap ditemukan dari isinya. Fitur ini memakai akun AI tim dan tidak pernah membaca folder pribadi. Dalam uji coba dengan 2.238 file fiktif, Claude Code menemukan file yang tepat untuk 181 dari 184 pertanyaan dengan baris-baris ini, dan untuk 172 tanpa baris-baris itu.
 

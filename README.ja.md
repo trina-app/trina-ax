@@ -5,14 +5,14 @@
 <h1>Trina AX</h1>
 
 <b>チーム全員で使うAI。</b><br>
-Trina AXは、チームのファイル、スキル、ツールを1台のサーバーにまとめます。全員のAIがそこから始まり、<br>AIが開くファイルはすべて、質問した本人の権限でチェックされます。
+Trina AXは、チームのファイル、スキル、ツールを1台のサーバーにまとめます。全員のAIがそこから始まります。<br>同僚のAIセッションをそのまま引き継げます。AIが開くファイルはすべて、質問した本人の権限でチェックされます。
 
 <a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-mac-ja.png" height="40" alt="Mac版をダウンロード"></a>&nbsp;&nbsp;<a href="https://ax.trina.app/download"><img src="docs/images/readme/v4/download-windows-ja.png" height="40" alt="Windows版をダウンロード"></a>&nbsp;&nbsp;<a href="https://apps.apple.com/app/trina-ax/id6829192435"><img src="docs/images/readme/v3/badge-app-store.svg" height="40" alt="App Storeからダウンロード"></a>&nbsp;&nbsp;<a href="https://play.google.com/store/apps/details?id=app.trina.ax"><img src="docs/images/readme/v3/badge-google-play.png" height="40" alt="Google Play で手に入れよう"></a><br>
 <sub>Linux版（.deb、AppImage／x64・arm64）は<a href="https://ax.trina.app/download">ダウンロードページ</a>にあります</sub>
 
 [Webサイト](https://ax.trina.app) · [ドキュメント](docs/README.md) · [プラン](https://ax.trina.app/pricing) · [Discord](https://discord.gg/zUVfSR8MVk)
 
-[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [繁體中文](README.zh-TW.md) · [Português](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Italiano](README.it.md) · [Русский](README.ru.md) · [Türkçe](README.tr.md) · [Tiếng Việt](README.vi.md) · [Bahasa Indonesia](README.id.md)
+[English](README.md) · [한국어](README.ko.md) · 日本語 · [Español](README.es.md) · [简体中文](README.zh-CN.md) · [Bahasa Indonesia](README.id.md)
 
 </div>
 
@@ -58,6 +58,10 @@ https://github.com/user-attachments/assets/493d8019-bd04-4423-916b-e0e27e7202cb
 
 ## みんなでできること
 
+**同僚が進めていた仕事を、そのまま続きから。** チームプロジェクトで同僚のAIセッションを開くと、これまでの会話と回答がすべて見えて、すぐに続けて質問できます。新しい回答は、質問した本人の権限で処理されます。それ以外のセッションも、Googleドライブのファイルと同じように人やグループに共有できます。
+
+<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="MinaがSamのプロジェクトセッションを開いて、カードニュースの続きを直します。Minaの質問はMinaの権限で処理されます。">
+
 **どのトークの横でも聞けて、ワンクリックで送れる。** 自分にだけ見えるサイドチャットでトリナに聞き、その回答をワンクリックでトークに送れます。
 
 <img src="docs/images/readme/v4/room-share.gif" width="100%" alt="Expo booth crewのトークで、Minaが自分にだけ見えるサイドチャットでトリナに出展規定をチェックリストにしてもらい、トークに送ります。">
@@ -65,10 +69,6 @@ https://github.com/user-attachments/assets/493d8019-bd04-4423-916b-e0e27e7202cb
 **一人ひとりのAIに見えるのは、本人が開けるものだけ。** MinaがFinanceを開けなければ、MinaのAIも開けません。[権限のしくみ](docs/PERMISSIONS.md)
 
 <img src="docs/images/readme/v4/folder-access.gif" width="100%" alt="管理者がSalesフォルダーを開ける人を変え、Minaが開けるフォルダーを確認します。Financeは一覧にありません。">
-
-**チームプロジェクトなら、同僚のセッションを引き継げる。** チームプロジェクトのセッションは、メンバーに共有されます。同僚のセッションを開けば、そのまま続きから進められます。自分の質問は、自分の権限で処理されます。それ以外のセッションも、Googleドライブのファイルと同じように人やグループに共有できます。
-
-<img src="docs/images/readme/v4/shared-sessions.gif" width="100%" alt="MinaがSamのプロジェクトセッションを開いて、カードニュースの続きを直します。Minaの質問はMinaの権限で処理されます。">
 
 **ファイルを中身で探せる。** 毎晩、チームのAIが共有・グループ・プロジェクトのフォルダーにある新しいファイルと変更されたファイルを読み、何のファイルかをファイルごとに1行で書き残します。そのため、`temp.pdf`という名前のスキャンや`IMG_2031.jpg`という写真も、中身から見つかります。使うのはチームのAIアカウントで、個人フォルダーは読みません。架空のファイル2,238件でテストしたところ、Claude Codeが正しいファイルを見つけたのは184問中、この1行があると181問、ないと172問でした。
 
