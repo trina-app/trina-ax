@@ -779,6 +779,7 @@ export const ja: Record<MessageKey, string> = {
   'steps.secs': "{s}秒",
   'steps.minSecs': "{m}分{s}秒",
   'steps.subtaskShow': "サブタスクの手順を表示",
+  'steps.thinkingShow': "思考内容を表示",
   'steps.subtaskHidden': "{n, plural, one {このサブタスクの以前の#ステップは保存されていません} other {このサブタスクの以前の#ステップは保存されていません}}",
   'ask.title': "AIからの質問です",
   'ask.serverTitle': "確認してください",

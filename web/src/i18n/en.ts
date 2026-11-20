@@ -797,6 +797,7 @@ export const en: Record<MessageKey, string> = {
   'steps.secs': '{s}s',
   'steps.minSecs': '{m}m {s}s',
   'steps.subtaskShow': 'Show the sub-task\'s steps',
+  'steps.thinkingShow': 'Show the thinking',
   'steps.subtaskHidden': '{n, plural, one {# earlier step of this sub-task was not kept} other {# earlier steps of this sub-task were not kept}}',
 
   'ask.title': 'The AI has a question',

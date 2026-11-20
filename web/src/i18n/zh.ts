@@ -778,6 +778,7 @@ export const zh: Record<MessageKey, string> = {
   "steps.secs": "{s}秒",
   "steps.minSecs": "{m}分{s}秒",
   "steps.subtaskShow": "显示子任务的步骤",
+  "steps.thinkingShow": "显示思考内容",
   "steps.subtaskHidden": "{n, plural, one {此子任务之前的#个步骤未保留} other {此子任务之前的#个步骤未保留}}",
   "ask.title": "AI 有一个问题",
   "ask.serverTitle": "请确认",
