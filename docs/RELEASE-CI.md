@@ -421,7 +421,7 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
    4. `scripts/image/build-ami.sh`로 ap-northeast-2에서 AMI를 만든다(`--tag ax:built-by=release-ci`). 같은 릴리스의 앞선 시도가 만든 AMI가 있으면 그것을 쓴다.
    5. `build-ami.sh --manifest-v2 --copy-to ap-southeast-1 --copy-to us-east-1`(키 없이, `AMI_COPY_TO`): 싱가포르와 버지니아로 차례로 복사하고 v2 목록을 쓴다. 그다음 짧은 서명 단계가 목록에 릴리스 키로 서명한다(`ax-template-v1\n<templateVersion>\n<sha256>`, 스크립트·hostd와 같은 메시지). 키는 그 단계의 몇 초 동안만 `$RUNNER_TEMP`의 600 파일로 있고 바로 지운다. 이 템플릿의 서명된 목록이 피드에 이미 있으면(앞선 시도가 목록까지 올리고 멈춤) 새로 만들지 않고 그것을 받아 쓴다. 새로 만들면 `builtAt`이 달라 피드가 받지 않는다.
    6. `scripts/release/publish-ami.ts`: 목록, `.sha256`, `.sig`를 `server/<version>/`에 올리고 마지막에 `team-image.json`을 올린다. 올리기 전에 서명을 이 제품의 키로 확인하고, 피드에 다른 바이트가 있으면 덮어쓰지 않고 멈춘다.
-   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 최근 3개 릴리스의 것만 남기고 나머지는 등록 해제 + 스냅샷 삭제. 순서는 만든 날짜가 아니라 `ax:template`의 버전 순서다(옛 태그로 손으로 돌린 run이 새 릴리스의 이미지를 밀어내지 않는다). 방금 올린 이미지, 손으로 만든 이미지, `ax:keep=true` 태그가 있는 이미지, 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지는 지우지 않는다. launch template을 읽지 못하면 그 지역에서는 아무것도 지우지 않는다.
+   7. `scripts/image/ami-prune.sh`: 지역마다 CI가 만든 이미지(`ax:managed=ami` + `ax:built-by=release-ci`) 중 필요 없는 것만 등록 해제 + 스냅샷 삭제. 무엇을 남길지는 `scripts/image/ami-prune-select.ts`가 정하고(단위 시험 `tests/unit/image-ami-prune.test.ts`), 이미지마다 남기는 이유를 모두 로그에 쓴다. 다음 중 하나라도 맞으면 남긴다: 방금 올린 이미지, `ax:keep=true` 태그, `ax:in-use` 태그(`false`가 아닌 값), 최근 5개 **릴리스**(`AMI_KEEP`, 이미지 수가 아니라 `ax:template`의 버전 순서, 그 릴리스의 이미지는 모두), 만든 지 14일이 안 된 이미지(`AMI_MIN_AGE_DAYS`, 호스팅 롤아웃이 도는 동안 컨트롤 플레인은 앞 릴리스로 새 팀을 만든다), 아직 인스턴스가 쓰는 이미지, EC2 launch template(최신·기본 버전)이 쓰는 이미지, 지워지지 않은 인스턴스나 EBS 볼륨에 그 `ax:template` 태그가 있는 이미지(hostd가 팀 인스턴스와 루트 볼륨에 단다). launch template·인스턴스·볼륨·이미지를 읽지 못하면 그 지역에서는 아무것도 지우지 않는다. 2026-11-20: 0.5.21 run이 그때 규칙(최근 3개 이미지)으로 0.5.16 이미지(서울·버지니아)를 지웠는데, 컨트롤 플레인이 아직 그 템플릿으로 새 팀을 만들고 있어 새 팀 만들기가 `InvalidAMIID.NotFound`로 실패했다.
    8. 취소·실패하면 마지막 단계가 상태 파일로 `build-ami.sh --cleanup`을 돌려 빌더·작업 볼륨·보안 그룹을 지운다. 상태 파일은 `ami-build-state` 아티팩트로도 남긴다(7일).
 
 컨트롤 플레인은 `<feed>/server/<version>/team-image.json`을 읽어 목록 URL을 알고, 목록의 `.sig`를 `TRINA_RELEASE_KEYS`로 확인한다(trina-cloud F1c).
@@ -468,14 +468,14 @@ prepare는 비밀값의 키가 목록에 없으면 멈춘다. 그래서 2를 건
 | 복사·서명·올리기 | AMI는 남아 있다 | Re-run failed jobs. 같은 릴리스의 AMI를 다시 쓰고(아직 `pending`이면 기다린다), 복사는 client token으로 두 번 생기지 않는다. 목록이 이미 피드에 있으면 그것을 받아 쓰고 `team-image.json`만 올린다 |
 | publish-ami: `names another image already` | 그 릴리스에 다른 이미지가 이미 올라가 있다 | 덮어쓰지 않는다. 다음 릴리스를 기다리거나 사람이 본다 |
 
-**정리(최근 3개)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 3개 릴리스 안에 있어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(모든 지역).
+**정리(최근 5개 릴리스, 14일)**: 컨트롤 플레인이 새 팀에 쓰는 템플릿은 최근 5개 릴리스 안에 있거나 만든 지 14일이 안 됐어야 한다(자동 템플릿, F1c). CI는 컨트롤 플레인의 설정을 읽지 못한다. 컨트롤 플레인이나 hostd가 쓰는 템플릿의 AMI에 `ax:in-use=<쓰는 곳>`을 달면 CI가 남긴다(아직 아무도 달지 않는다). 무엇을 지울지 미리 보려면 `scripts/image/ami-prune.sh --dry-run --account <id> --region …`. 오래된 이미지를 남기려면 `aws ec2 create-tags --resources ami-… <snap-…> --tags Key=ax:keep,Value=true`(모든 지역).
 
 ### 비용 (한 번 빌드)
 
 - 빌더 t3a.medium 약 30–45분 ≈ $0.04, 작업·루트 볼륨 gp3 20 GiB × 2 약 1시간 ≈ $0.01, 공인 IPv4 1시간 ≈ $0.005.
 - 싱가포르·버지니아 복사: 지역 간 전송 약 $0.08/GB(서울에서 나가는 쪽) × 실제 쓴 블록(이미지 약 4–6 GB) × 2지역 ≈ $0.6–1.0.
 - 합 **≈ $0.7–1.1 / 빌드**. GitHub 러너는 공개 레포라 무료.
-- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 3지역 × 최근 3개 ≈ **월 $1.8–2.7**(정리가 그 이상 쌓이지 않게 한다).
+- 보관: 스냅샷 약 $0.05/GB-월 × 4–6 GB × 3지역 × 최근 5개 릴리스(14일 안에 더 나왔으면 그만큼 더) ≈ **월 $3–4.5**(정리가 그 이상 쌓이지 않게 한다).
 
 ## 11. 윈도우 코드 서명 (Microsoft Artifact Signing)
 
