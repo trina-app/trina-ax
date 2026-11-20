@@ -71,9 +71,13 @@ test('the desktop app: the page before Google names the person; Google answered 
   expect(html.split(code).length - 1).toBe(1)
   expect(html).not.toMatch(new RegExp(`[?&]code=${code}`))
   expect(html).toContain('앱으로 돌아가기')
-  // still "waiting" to the app, no account shown until the code comes back
+  // whose Trina account and which Google account, and keep the link to yourself
+  expect(html).toContain('연결할 Trina AX 계정: Olga Owner (@olga)')
+  expect(html).toContain('Google 계정: alice@example.test')
+  expect(html).toContain('이 링크는 내 Trina AX 앱에서만 여세요. 다른 사람에게 보내지 마세요.')
+  // plain "pending" to the app, no account shown until the code comes back
   let flow = await desk.call('GET', `${base}/flows/${f.flowId}`)
-  expect(flow.state).toBe('exchanging'); expect(flow.account).toBeNull()
+  expect(flow.state).toBe('pending'); expect(flow.account).toBeNull()
   // the desktop app reads the code from the link, for the team it shows, and posts it with its own session
   expect(signInCode(appLink('https://acme.trina.app', code), 'https://acme.trina.app')).toBe(code)
   const r = await claim(desk, code)
@@ -94,9 +98,11 @@ test('ATTACK (A): a curl "desktop" login phishes a victim whose browser has no s
   // the victim consents at Google in a browser with no session
   const html = await (await bare(cbUrl(fake.authorize(f.authorizationUrl, 'alice')))).text()
   const code = codeOf(html)!
+  // the return page says it joins bob's account, not the victim's
+  expect(html).toContain('BOB (@bob)')
   // the attacker sees nothing: still waiting, no account
   const seen = await attacker.call('GET', `${base}/flows/${f.flowId}`)
-  expect(seen.state).toBe('exchanging'); expect(seen.account).toBeNull()
+  expect(seen.state).toBe('pending'); expect(seen.account).toBeNull()
   // the code goes to the victim's own computer: the victim's desktop app (her session) cannot finish the attacker's flow
   const victimApp = await session('olga', OWNER_PW, 'desktop')
   expect((await claim(victimApp, code)).status).toBe(400)
@@ -130,7 +136,7 @@ test('the code: another session of the same person cannot use it, a late one end
   let f = await desk1.call('POST', base + '/authorize', {})
   let code = codeOf(await (await bare(cbUrl(fake.authorize(f.authorizationUrl)))).text())!
   expect((await claim(desk2, code)).status).toBe(400)
-  expect((await desk1.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('exchanging')
+  expect((await desk1.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('pending')
   // late
   fake.now += CLAIM_MS + 1
   const late = await claim(desk1, code)
@@ -184,4 +190,69 @@ test('the pieces: tokens by hash, the app link, the desktop link checks', () => 
   expect(signInCode(`${appLink('https://acme.trina.app')}#code=short`, 'https://acme.trina.app')).toBeNull()
   // no desktop button on anything but a plain origin
   expect(googleReturnPage('ok', 'en', { app: 'desktop', origin: 'javascript:alert(1)', code: t }).html).not.toContain('trina-ax://')
+})
+
+const tick = () => new Promise((r) => setTimeout(r, 20))
+const revokes = () => fake.calls.filter((c) => c.url.startsWith('https://oauth2.googleapis.com/revoke') || c.url.includes('/revoke')).length
+
+test('tokens that will never be used are revoked at Google: a late code, a cancel, a result never confirmed, a replaced one', async () => {
+  const desk = await session('olga', OWNER_PW, 'desktop')
+  // a held result whose code comes too late
+  let f = await desk.call('POST', base + '/authorize', {})
+  let code = codeOf(await (await bare(cbUrl(fake.authorize(f.authorizationUrl)))).text())!
+  let before = revokes()
+  fake.now += CLAIM_MS + 1
+  expect((await claim(desk, code)).status).toBe(400)
+  await tick(); expect(revokes()).toBe(before + 1)
+  // a held result cancelled in the app
+  f = await desk.call('POST', base + '/authorize', {})
+  code = codeOf(await (await bare(cbUrl(fake.authorize(f.authorizationUrl)))).text())!
+  before = revokes()
+  await desk.call('DELETE', `${base}/flows/${f.flowId}`)
+  await tick(); expect(revokes()).toBe(before + 1)
+  // a held result never claimed: its flow runs out
+  f = await desk.call('POST', base + '/authorize', {})
+  codeOf(await (await bare(cbUrl(fake.authorize(f.authorizationUrl)))).text())
+  before = revokes()
+  fake.now += 10 * 60_000 + 1
+  expect((await desk.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('expired')
+  await tick(); expect(revokes()).toBe(before + 1)
+  // a ready result never confirmed ("맞아요" never pressed): runs out, or is replaced by a new sign-in
+  f = await desk.call('POST', base + '/authorize', {})
+  await desk.raw('GET', cbUrl(fake.authorize(f.authorizationUrl)))
+  expect((await desk.call('GET', `${base}/flows/${f.flowId}`)).state).toBe('ready')
+  before = revokes()
+  fake.now += 10 * 60_000 + 1
+  await desk.call('GET', `${base}/flows/${f.flowId}`)
+  await tick(); expect(revokes()).toBe(before + 1)
+  f = await desk.call('POST', base + '/authorize', {})
+  await desk.raw('GET', cbUrl(fake.authorize(f.authorizationUrl)))
+  before = revokes()
+  await desk.call('POST', base + '/authorize', {})
+  await tick(); expect(revokes()).toBe(before + 1)
+  // a ready result cancelled
+  f = await desk.call('POST', base + '/authorize', {})
+  await desk.raw('GET', cbUrl(fake.authorize(f.authorizationUrl)))
+  before = revokes()
+  await desk.call('DELETE', `${base}/flows/${f.flowId}`)
+  await tick(); expect(revokes()).toBe(before + 1)
+  // a confirmed one is not revoked
+  f = await desk.call('POST', base + '/authorize', {})
+  await desk.raw('GET', cbUrl(fake.authorize(f.authorizationUrl)))
+  before = revokes()
+  await desk.call('POST', `${base}/flows/${f.flowId}/complete`, {})
+  await tick(); expect(revokes()).toBe(before)
+})
+
+test('the held page in every language: whose account, which Google account, keep the link to yourself', () => {
+  const t = 'Q'.repeat(43)
+  const en = googleReturnPage('ok', 'en', { app: 'desktop', origin: 'https://acme.trina.app', code: t, who: { name: 'Olga $& Owner', username: 'olga' }, google: 'olga@example.test' }).html
+  expect(en).toContain('account it joins: Olga $&#38; Owner (@olga)')
+  expect(en).toContain('Google account: olga@example.test')
+  expect(en).toContain('Open this link only in your own')
+  for (const L of ['ko', 'id', 'ja', 'es', 'zh'] as const) {
+    const h = googleReturnPage('ok', L, { app: 'desktop', origin: 'https://acme.trina.app', code: t, who: { name: 'Olga', username: 'olga' }, google: 'g@example.test' }).html
+    expect(h).toContain('@olga'); expect(h).toContain('g@example.test'); expect(h).not.toContain('{product}')
+    expect(h).not.toContain('Open this link only')
+  }
 })

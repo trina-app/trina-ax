@@ -76,8 +76,15 @@ export class DriveStore {
     if (!row || row.user_id !== user || row.session_id !== session) throw new DriveError('not_found', 404)
     return row
   }
+  /** Told about flows that hold Google tokens just before their time runs out and the tokens are dropped (a result
+   * never confirmed, or never claimed by the app): the service revokes them at Google (oauth.ts dropTokens). */
+  onDrop: ((rows: FlowRow[]) => void) | null = null
   sweep() {
     const now = new Date(this.now()).toISOString()
+    if (this.onDrop) {
+      const held = this.db.query("SELECT * FROM drive_oauth_flows WHERE expires_at<=? AND state IN ('ready','exchanging') AND secret_enc IS NOT NULL").all(now) as FlowRow[]
+      if (held.length) try { this.onDrop(held) } catch { /* best effort */ }
+    }
     this.db.query("UPDATE drive_oauth_flows SET state='expired',secret_enc=NULL,account=NULL WHERE expires_at<=? AND state NOT IN ('completed','failed','expired')").run(now)
     this.db.query('DELETE FROM drive_oauth_flows WHERE expires_at<?').run(new Date(this.now() - 86_400_000).toISOString())
   }

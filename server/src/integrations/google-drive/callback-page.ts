@@ -24,12 +24,12 @@ export type GoogleReturn = 'ok' | 'cancelled' | 'denied_service' | 'scope' | 'ex
 /** How a sign-in ended, as the Drive and Google apps services report it: ok, or the flow's reason code. */
 /** `app`: the app whose session started the sign-in; `code`: the one-time code for the desktop app that finishes a
  * sign-in Google answered in a browser without a session (app-return.ts). */
-export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string } | { ok: false; reason: string; app?: AppClient | null }
+export type CallbackOutcome = { ok: true; app?: AppClient | null; code?: string; who?: { name: string; username: string }; google?: string } | { ok: false; reason: string; app?: AppClient | null }
 
 type T = Record<Locale, string>
 const t = (ko: string, en: string, id: string, ja: string, es: string, zh: string): T => ({ ko, en, id, ja, es, zh })
 
-type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut'
+type Extra = 'title' | 'login' | 'okApp' | 'okCode' | 'heldWho' | 'heldGoogle' | 'heldOwnApp' | 'signedOutApp' | 'backToApp' | 'loginAgain' | 'hOk' | 'hOkApp' | 'hNot' | 'hSignedOut'
 const TEXT: Record<GoogleReturn | Extra, T> = {
   title: t('Google 로그인', 'Google sign-in', 'Login Google', 'Google ログイン', 'Inicio de sesión de Google', 'Google 登录'),
   hOk: t('거의 다 됐어요', 'Almost done', 'Hampir selesai', 'あと少しです', 'Casi listo', '快完成了'),
@@ -50,6 +50,27 @@ const TEXT: Record<GoogleReturn | Extra, T> = {
     '下のボタンで {product} アプリに戻ると接続が完了します。アプリでアカウントを確認してください。その後、このタブは閉じてかまいません。',
     'Pulse el botón de abajo para volver a la aplicación {product} y terminar de conectar. Confirme la cuenta allí; después puede cerrar esta pestaña.',
     '按下面的按钮回到 {product} 应用即可完成连接。请在应用里确认账号，之后这个标签页可以关闭。'),
+  heldWho: t(
+    '연결할 {product} 계정: {name} (@{username})',
+    '{product} account it joins: {name} (@{username})',
+    'Akun {product} tujuan: {name} (@{username})',
+    '接続先の {product} アカウント：{name}（@{username}）',
+    'Cuenta de {product} a la que se une: {name} (@{username})',
+    '要连接的 {product} 账号：{name}（@{username}）'),
+  heldGoogle: t(
+    'Google 계정: {google}',
+    'Google account: {google}',
+    'Akun Google: {google}',
+    'Google アカウント：{google}',
+    'Cuenta de Google: {google}',
+    'Google 账号：{google}'),
+  heldOwnApp: t(
+    '이 링크는 내 {product} 앱에서만 여세요. 다른 사람에게 보내지 마세요.',
+    'Open this link only in your own {product} app. Don’t send it to anyone.',
+    'Buka tautan ini hanya di aplikasi {product} milik Anda sendiri. Jangan kirim ke siapa pun.',
+    'このリンクは自分の {product} アプリでだけ開いてください。他の人に送らないでください。',
+    'Abra este enlace solo en su propia aplicación {product}. No se lo envíe a nadie.',
+    '只在你自己的 {product} 应用里打开这个链接，不要发给任何人。'),
   signedOutApp: t(
     '이 창에서는 연결을 마치지 못했어요. {product} 앱으로 돌아가서 다시 시도를 누르세요.',
     'This window could not finish connecting. Go back to the {product} app and press Try again.',
@@ -143,13 +164,16 @@ const STYLE = ':root{color-scheme:light dark;--bg:#fcfbf8;--card:#fff;--fg:#1c19
   + 'main{width:100%;max-width:440px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:32px}'
   + 'h1{font-size:22px;line-height:1.3;margin:0 0 8px;letter-spacing:-.01em}p{margin:0 0 20px;color:var(--muted)}'
   + '.cta{display:block;text-align:center;background:var(--cta);color:var(--cta-fg);font-weight:600;text-decoration:none;border-radius:10px;padding:12px 16px}'
-  + '.alt{display:inline-block;margin-top:16px;color:var(--fg);text-underline-offset:4px}:lang(ko) h1,:lang(ko) p{word-break:keep-all}'
+  + '.alt{display:inline-block;margin-top:16px;color:var(--fg);text-underline-offset:4px}:lang(ko) h1,:lang(ko) p,:lang(ko) li{word-break:keep-all}'
+  + '.facts{list-style:none;margin:0 0 20px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;color:var(--fg);font-size:15px}.facts li+li{margin-top:4px}'
+  + '.note{margin:16px 0 0;font-size:14px}'
 /** The Content-Security-Policy of the return page: nothing loads, only its own style runs (routes/drive.ts, google-apps.ts) */
 export const GOOGLE_RETURN_CSP = `default-src 'none'; style-src 'sha256-${crypto.createHash('sha256').update(STYLE).digest('base64')}'; frame-ancestors 'none'`
 
 /** Where the page may send the person: `origin`, this team's address (the desktop app's button opens it in the app);
  * `connector`, the page of this connector in Settings (sign in here, then connect in this browser). */
-export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string; code?: string }
+/** `who`, `google`: whose Trina account and which Google account a result waiting for the app's code joins */
+export interface ReturnPageOptions { app?: AppClient | null; origin?: string; connector?: string; code?: string; who?: { name: string; username: string }; google?: string }
 
 /** The return page's HTML and status. */
 export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageOptions = {}): { html: string; status: 200 | 400 } {
@@ -161,7 +185,14 @@ export function googleReturnPage(r: GoogleReturn, locale: Locale, o: ReturnPageO
   if (r === 'ok' && o.code && origin) {
     // the app on this computer finishes it with its own session: the code only in the link's fragment
     title = say('hOk', locale); text = say('okCode', locale)
-    actions = `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
+    // whose Trina account and which Google account, so a person who did not start it sees it is not theirs
+    const facts = [
+      o.who?.username ? say('heldWho', locale).replace('{name}', () => o.who!.name).replace('{username}', () => o.who!.username) : '',
+      o.google ? say('heldGoogle', locale).replace('{google}', () => o.google!) : '',
+    ].filter(Boolean)
+    actions = (facts.length ? `<ul class="facts" data-testid="held-facts">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>` : '')
+      + `<a class="cta" href="${esc(appLink(origin, o.code))}">${esc(say('backToApp', locale))}</a>`
+      + `<p class="note" data-testid="held-own-app">${esc(say('heldOwnApp', locale))}</p>`
   } else if (r === 'ok' && inApp) {
     title = say('hOkApp', locale); text = say('okApp', locale); actions = appButton
   } else if (r === 'ok') {
@@ -207,7 +238,7 @@ const GO: Record<'title' | 'lead' | 'notYou' | 'next', T> = {
 /** The desktop app's page before Google (app-return.ts GO_PATH): whose Trina gets the Drive, then on to the sign-in. */
 export function drivePreGooglePage(locale: Locale, o: { name: string; username: string; url: string }): string {
   const g = (k: keyof typeof GO) => (GO[k][locale] ?? GO[k].en).replace(/\{product\}/g, PRODUCT.displayName)
-  const lead = g('lead').replace('{name}', o.name).replace('{username}', o.username)
+  const lead = g('lead').replace('{name}', () => o.name).replace('{username}', () => o.username)
   return `<!doctype html><html lang="${locale}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(g('title'))}</title><style>${STYLE}</style>`
     + `<main><h1>${esc(g('title'))}</h1><p data-testid="drive-go-person">${esc(lead)}</p><p>${esc(g('notYou'))}</p><a class="cta" href="${esc(o.url)}" rel="noopener noreferrer">${esc(g('next'))}</a></main>`
 }

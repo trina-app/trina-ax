@@ -74,6 +74,7 @@ export class GoogleDrive {
     this.broker = brokerOpts ? new DriveBroker(brokerOpts, deps.fetch ?? fetch, this.now) : null
     this.cfgKey = this.cfg ? configKey(this.cfg) : this.broker ? brokerKey(this.broker.o.origin) : ''
     this.store = new DriveStore(ctx.db, dir, this.now)
+    this.store.onDrop = (rows) => this.dropTokens(rows)
     this.transport = new GoogleTransport(deps.fetch)
     const sweep = () => {
       try { this.store.sweep() } catch { ctx.log.warn('Drive flow cleanup deferred') }
@@ -177,6 +178,15 @@ export class GoogleDrive {
     this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='pending'").run(sealed.enc, sealed.keyVersion, r.id)
     return { ...a, openPath: `${GO_PATH}?${new URLSearchParams({ flow: a.flowId, k: key })}` }
   }
+  /** Best effort: revoke at Google the tokens a flow holds that will never be used (a result never confirmed, never
+   * claimed, cancelled, replaced or late). Before the row loses its secret; a failure changes nothing here. */
+  private dropTokens(rows: FlowRow[]) {
+    for (const r of rows) {
+      let token: string | undefined
+      try { token = this.store.open<FlowSecret>(r).tokens?.refreshToken } catch { continue }
+      if (token) void this.revoke(token).catch(() => 'unavailable')
+    }
+  }
   /** The flow row both ways share: who, which session, the state's hash and the sealed PKCE verifier. */
   private prepare(user: string, session: string, share?: { shareId?: string }) {
     this.configured(); this.busy(user); this.store.session(user, session); this.store.sweep()
@@ -192,6 +202,8 @@ export class GoogleDrive {
     if (n >= 20) throw new DriveError('signin_limit', 429)
     const sealed = this.store.seal(user, id, { verifier })
     const expiresAt = new Date(now + TTL).toISOString()
+    // a waiting result of the flow this one replaces is never used: its tokens are revoked
+    this.dropTokens(this.ctx.db.query("SELECT * FROM drive_oauth_flows WHERE user_id=? AND purpose=? AND state IN ('exchanging','ready') AND secret_enc IS NOT NULL").all(user, purpose) as FlowRow[])
     this.ctx.db.transaction(() => {
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='superseded',secret_enc=NULL,account=NULL WHERE user_id=? AND purpose=? AND state IN ('pending','exchanging','ready')").run(user, purpose)
       this.ctx.db.query(`INSERT INTO drive_oauth_flows(id,user_id,session_id,state_hash,config_key,state,secret_enc,key_version,expires_at,created_at,purpose,share_id) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?)`)
@@ -202,10 +214,16 @@ export class GoogleDrive {
   flow(user: string, session: string, id: string): DriveFlow {
     const r = this.store.ownFlow(user, session, id)
     const a = r.account ? JSON.parse(r.account) as Account : null
-    return { flowId: r.id, state: r.state, account: a ? { name: a.name, email: a.email } : null, expiresAt: r.expires_at, reason: r.reason }
+    return { flowId: r.id, state: this.held(r) ? 'pending' : r.state, account: a ? { name: a.name, email: a.email } : null, expiresAt: r.expires_at, reason: r.reason }
+  }
+  /** a result waiting for the desktop app's code (app-return.ts): to its owner it is plain "pending" until then */
+  private held(r: FlowRow): boolean {
+    if (r.state !== 'exchanging' || !r.secret_enc) return false
+    try { return !!this.store.open<FlowSecret>(r).claim } catch { return false }
   }
   cancel(user: string, session: string, id: string) {
-    this.store.ownFlow(user, session, id)
+    const r = this.store.ownFlow(user, session, id)
+    if ((r.state === 'ready' || r.state === 'exchanging') && r.secret_enc) this.dropTokens([r])
     this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='cancelled',secret_enc=NULL,account=NULL WHERE id=? AND state!='completed'").run(id)
   }
   /** GO_PATH (app-return.ts): for a flow still waiting for Google, with its key: the Trina person it is for and the
@@ -234,13 +252,13 @@ export class GoogleDrive {
     const app = client === 'desktop' || client === 'mobile' ? { app: client } as const : {}
     try {
       const done = await this.callback(input, browser)
-      if (done) return { ok: true, ...app, ...(typeof done === 'object' ? { code: done.code } : {}) }
+      if (done) return { ok: true, ...app, ...(typeof done === 'object' ? done : {}) }
     } catch (e) { return { ok: false, reason: e instanceof DriveError ? e.reason : 'provider_unavailable', ...app } }
     const r = this.ctx.db.query('SELECT reason FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state!)) as { reason: string | null } | null
     return { ok: false, reason: r?.reason ?? 'provider_unavailable', ...app }
   }
   /** Google's (direct) or the hosting service's (broker: `handoff` instead of `code`) return to this server. */
-  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string }> {
+  async callback(input: { state?: string; code?: string; error?: string; handoff?: string }, browser?: { userId: string; sessionId: string }): Promise<boolean | { code: string; who: { name: string; username: string }; google: string }> {
     this.configured(); this.store.sweep()
     if (!input.state || !/^[A-Za-z0-9_-]{43}$/.test(input.state)) throw new DriveError('invalid_flow')
     const r = this.ctx.db.query('SELECT * FROM drive_oauth_flows WHERE state_hash=?').get(hash(input.state)) as ReturnType<DriveStore['flow']>
@@ -283,7 +301,8 @@ export class GoogleDrive {
         const code = newToken(), until = Math.min(this.now() + CLAIM_MS, Date.parse(current.expires_at))
         const sealed = this.store.seal(r.user_id, r.id, { ...result, claim: { hash: tokenHash(code), until } })
         this.ctx.db.query("UPDATE drive_oauth_flows SET secret_enc=?,key_version=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, r.id)
-        return { code }
+        const who = this.ctx.db.query('SELECT name, username FROM users WHERE id=?').get(r.user_id) as { name: string; username: string } | null
+        return { code, who: who ?? { name: '', username: '' }, google: result.account.email ?? result.account.name ?? '' }
       }
       const sealed = this.store.seal(r.user_id, r.id, result)
       this.ctx.db.query("UPDATE drive_oauth_flows SET state='ready',secret_enc=?,key_version=?,account=? WHERE id=? AND state='exchanging'").run(sealed.enc, sealed.keyVersion, JSON.stringify(result.account), r.id)
@@ -307,6 +326,7 @@ export class GoogleDrive {
       try { s = this.store.open<FlowSecret>(r) } catch { continue }
       if (!s.claim || !tokenMatches(code, s.claim.hash)) continue
       if (this.now() > s.claim.until || r.config_key !== this.key) {
+        this.dropTokens([r])
         this.ctx.db.query("UPDATE drive_oauth_flows SET state='failed',reason='expired',secret_enc=NULL,account=NULL WHERE id=? AND state='exchanging'").run(r.id)
         throw new DriveError('expired', 400)
       }

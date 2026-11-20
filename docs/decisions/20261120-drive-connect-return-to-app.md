@@ -24,6 +24,9 @@ Where: `server/src/integrations/google-drive/{app-return,oauth,store,callback-pa
     takes the hosting service's handoff (it lives 2 minutes) and keeps the result sealed in the flow. The flow stays
     `exchanging`, and no account is shown to anyone. The server makes a one-time completion code: 32 random bytes, only
     its hash kept in the sealed secret, valid for `CLAIM_MS` (5 minutes).
+  - To its owner the flow reads plain `pending` until the code comes back (never `exchanging`).
+  - The page names whose Trina account the Drive joins (name and @username) and which Google account. It adds "Open
+    this link only in your own Trina AX app. Don't send it to anyone."
   - The page gives the code only in the "Back to the app" link's **fragment**:
     `trina-ax://open?url=<team>/#code=<code>`. It is never in a query string, so no server, proxy or log sees it.
   - The desktop app takes it only for the team it shows (`signInCode`) and posts it with **its own session**
@@ -53,7 +56,9 @@ Where: `server/src/integrations/google-drive/{app-return,oauth,store,callback-pa
   - The phone app: its browser hand-off takes Google's address only, and the phone app does not read a code from a
     link yet. It needs a phone release; until then its page says to go back and try again.
   - Gmail, Calendar, Docs and Sheets (`google-apps`) and MCP connectors (Notion): next, with the same pattern.
-  - A held result that is never claimed is dropped when the flow ends. The Google grant it got is not revoked.
+- **Tokens never used are revoked at Google (best effort):** a held result whose code comes late, whose flow runs out,
+  or that is cancelled; a ready result never confirmed that runs out, is cancelled or is replaced by a new sign-in. A
+  failed revoke changes nothing on this server; the tokens are dropped either way.
 - **Tests:** `tests/unit/c-drive-app-return.test.ts` covers:
   - attack (A), a curl desktop session plus a victim browser without a session, and attack (B), a victim browser signed
     in as the victim: both must not connect
