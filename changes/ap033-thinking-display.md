@@ -1,0 +1,1 @@
+- Claude answers now show the AI's thinking under the **Thinking** step. Before, the step stayed empty with the current Claude models.

@@ -316,7 +316,7 @@ export function buildToolSet(exec: TurnExec): ChatToolSet {
   const sharedConn = exec.shared ? exec.sharedConnections() : undefined
   for (const p of offered) {
     let built: ReturnType<typeof p.build>
-    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
+    try { built = p.build({ userId: exec.spec.userId, chatId: exec.spec.chatId, turnId: exec.spec.turnId, browser: exec.browser, desktop: exec.desktop, scheduled: exec.spec.clientKind === 'schedule', ...(sharedConn ? { shared: sharedConn } : {}) }) }
     catch (e) { exec.rt.log.warn('turn tool provider failed', { provider: p.name, err: e }); continue }
     for (const t of built.tools) {
       if (!add(wrapRegistered(exec, t), { connection: !!sharedConn })) continue

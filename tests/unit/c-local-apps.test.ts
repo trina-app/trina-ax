@@ -116,7 +116,7 @@ describe('kind local: the person\'s own, through their desktop window', () => {
     const r = await ask(h, web, 'alice', chat.id, fake({ echo: 'tools' }, { say: ' | ' }, { echo: 'system' }), { window: WEB, client: 'web' })
     const [tools, system] = r.done.content.split(' | ')
     expect(tools!.split(',')).not.toContain('my_aside__echo')
-    expect(system).toContain('Aside (an app on the user\'s own computer, personal connection): not usable in this answer, because it works only when the user writes from the')
+    expect(system).toContain('Aside (an app on the user\'s own computer, personal connection): not usable in this answer, because it runs only when the user writes from the')
     expect(system).toContain('desktop app on that computer')
   })
 

@@ -61,7 +61,7 @@ import { grantOnly, sameRoomOnly, seenWhy } from './grant-reads'
 import { lookedPlace } from './looking-at'
 // (moved to chat/shared-actions.ts, kept here for the tests and older imports)
 export { namedByAsker, namesRecipient } from './shared-actions'
-import { isUuid7, listWords, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
+import { isUuid7, labeledPath, listWords, ownFolderLabel, ownFolderWord, PostToRoomInput, uuidv7 } from '@mycel/shared'
 import type { Step, StepFix } from '@mycel/shared/api'
 import { carriesAddress, opaqueParts } from '../tools/url-gate'
 import { ANSWER_NOTE_MAX, answerNote, nearestThreadOf, plainRoomRefs, roomMentionAllWord, ROOM_MESSAGE_MAX, SIDE_CHAT_SEND, type AnswerSharePlace, type Locale, type ShareAnswerToRoomResult, type TurnRequest } from '@mycel/shared/api'
@@ -125,9 +125,12 @@ const memberCount = (db: import('bun:sqlite').Database, roomId: string) => (db.q
 
 /** A place some people cannot see, named as the app's confirm step names it (web ShareToRoom.tsx placeName). */
 function placeName(p: AnswerSharePlace, L: Locale, sharedFile = false): string {
+  // a folder or my own folder with how many files read there count, when all are known ("내 폴더의 파일 2개")
+  const n = (place: string, files: number | undefined) => (files ? tr('postRoomPlaceFiles', L, { place, n: String(files) }) : place)
   switch (p.kind) {
-    case 'folder': return p.path ? `${p.path.replace(/\/+$/, '')}/` : tr('postRoomTeamFolder', L)
-    case 'mine': return ownFolderWord() === 'files' ? ownFolderLabel(L) : tr('postRoomMine', L)
+    // a team folder in the Files screen's words ("부서 › 영업"), never the disk path
+    case 'folder': return n(p.path ? labeledPath(p.path.replace(/\/+$/, ''), L, null, ' › ') : tr('postRoomTeamFolder', L), p.files)
+    case 'mine': return n(ownFolderWord() === 'files' ? ownFolderLabel(L) : tr('postRoomMine', L), p.files)
     case 'service': return p.name
     case 'room': return tr('postRoomPlaceRoom', L, { name: p.name || tr('postRoomEveryone', L) })
     // (the chat's "rooms seen" mark came from a file shared with the person alone: that is what it was)

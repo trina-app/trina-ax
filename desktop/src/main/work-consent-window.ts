@@ -11,7 +11,9 @@ import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { CONSENT_URL, ConsentGate, consentSender, parseMemory, type ConsentMemory, type ConsentView } from '../common/work-consent'
 import { APP_WEB_PREFERENCES, guardUiView } from './security'
 
-const WIDTH = 440
+// wide enough that each promise line stays on one line in Korean (at 440 they broke as "내용은 열지 / 않아요"); the app
+// window is at least 900 wide, so it always fits
+const WIDTH = 640
 
 interface Open {
   view: ConsentView

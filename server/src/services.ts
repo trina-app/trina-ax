@@ -182,7 +182,7 @@ export interface TurnToolProvider {
   name: string
   /** `seen`: outside content the prompt itself carries (a Slack thread asked from): put in the chat's read scope and
    * marked as outside content by the turn once its session starts (chat/turn.ts) */
-  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; scheduled: boolean; shared?: SharedConnections }): { tools: TurnTool[]; prompt?: string | null; context?: string | null; seen?: import('./chat/read-scope').ReadSource[] }
+  build(t: { userId: string; chatId: string; turnId: string; browser: boolean; desktop?: boolean; scheduled: boolean; shared?: SharedConnections }): { tools: TurnTool[]; prompt?: string | null; context?: string | null; seen?: import('./chat/read-scope').ReadSource[] }
 }
 
 /**

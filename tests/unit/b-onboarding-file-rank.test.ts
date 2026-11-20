@@ -80,6 +80,35 @@ describe('the company\'s words (Find work files, part 4)', () => {
   })
 })
 
+describe('--thinking-display summarized only for an engine that knows it (QA AP-033)', () => {
+  test('the probe reads the refused argument; an unknown option or a failed ask is no; the launch has the flag once known', async () => {
+    const { buildClaudeLaunch, claudeKnowsThinkingDisplay } = await import('../../server/src/engine/claude')
+    const yes = async () => "error: option '--thinking-display <display>' argument 'x' is invalid. Allowed choices are summarized, omitted, highlights."
+    expect(claudeKnowsThinkingDisplay('/fake/claude-td-a', yes)).toBe(false)
+    await Bun.sleep(5)
+    expect(claudeKnowsThinkingDisplay('/fake/claude-td-a', yes)).toBe(true)
+    const old = async () => "error: unknown option '--thinking-display'"
+    claudeKnowsThinkingDisplay('/fake/claude-td-b', old)
+    await Bun.sleep(5)
+    expect(claudeKnowsThinkingDisplay('/fake/claude-td-b', old)).toBe(false)
+    let tries = 0
+    const fails = async () => { tries++; throw new Error('spawn ENOENT') }
+    claudeKnowsThinkingDisplay('/fake/claude-td-c', fails)
+    await Bun.sleep(5)
+    claudeKnowsThinkingDisplay('/fake/claude-td-c', fails)
+    await Bun.sleep(5)
+    expect(tries).toBe(2)
+    // the two probes are kept apart: knowing one flag says nothing about the other
+    const { claudeKnowsEffort } = await import('../../server/src/engine/claude')
+    expect(claudeKnowsEffort('/fake/claude-td-a', async () => 'Options:\n  --model <m>')).toBe(false)
+    const launch = (bin: string) => buildClaudeLaunch({ turnId: 't', chatDir: '/tmp/c', token: 'x', systemPrompt: 's', message: 'm', sessionId: 'sid', resume: false, stash: null, maxTurns: 5, timeoutMs: 1000 },
+      { bin, authMode: 'managed', agentHome: '/tmp/h', modelProxy: { baseUrl: 'http://127.0.0.1:9' } })
+    const args = (bin: string) => launch(bin).args
+    expect(args('/fake/claude-td-a').join(' ')).toContain('--thinking-display summarized')
+    expect(args('/fake/claude-td-b')).not.toContain('--thinking-display')
+  })
+})
+
 describe('--effort only for an engine that knows it, asked in the background', () => {
   test('false until the answer, then the answer; a failed ask is asked again', async () => {
     const { claudeKnowsEffort } = await import('../../server/src/engine/claude')
