@@ -62,6 +62,9 @@ export const useChatMentions = create<State>(() => ({ byChat: new Map(), project
 let watchers = 0
 let stop: (() => void) | null = null
 let asked = 0
+/** raised only when the person changes: a chat's project read for the last person is dropped (a newer read of the
+ * notices does not drop it, or the chat would stay without a project) */
+let epoch = 0
 
 async function readNotices(n: number): Promise<InboxNotification[] | null> {
   const items: InboxNotification[] = []
@@ -89,8 +92,9 @@ function load() {
       for (const id of byChat.keys()) {
         if (id in known || st.chats.some((c) => c.id === id) || st.others[id]) continue
         useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: null } }))
+        const e = epoch
         api.call(API.getChat, { params: { id } }).then(
-          (c) => n === asked && useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: c.projectId } })),
+          (c) => e === epoch && useChatMentions.setState((s) => ({ projectOf: { ...s.projectOf, [id]: c.projectId } })),
           () => {},
         )
       }
@@ -120,6 +124,7 @@ function watch(): () => void {
 /** Signed out or another person in this window: nothing of the last person's stays. */
 export function resetChatMentions() {
   asked++
+  epoch++
   useChatMentions.setState({ byChat: new Map(), projectOf: {} })
 }
 

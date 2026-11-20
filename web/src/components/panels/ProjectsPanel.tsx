@@ -239,6 +239,8 @@ function MentionPill({ mention: m, testId }: { mention: ChatMention; testId: str
 /** How many of a project's chats open under its row; the rest are on its page ("대화 전체 보기") */
 const CHATS_SHOWN = 8
 const NONE: readonly string[] = []
+/** how long an open list waits after a change of its chats before it reads again (a running answer sends several) */
+const REREAD_MS = 500
 
 /** An open project's chats under its row: the ones I can open there (the page's own GET /api/chats?projectId), newest
  * first, each with its unread mentions of me. A chat with a mention of me is always there and first, also an older one
@@ -251,10 +253,26 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
   const [failed, setFailed] = useState(false)
   // a change of one of this project's chats (made, renamed, moved, deleted), a reload or a change of access: read again
   const [again, setAgain] = useState(0)
+  // the chats listed now (a chat moved out of this project: its event names the other project)
+  const listed = useRef<ReadonlySet<string>>(new Set())
+  // a mentioned chat past the first page, as read by itself (read again only on a reload or an access change)
+  const olderRead = useRef(new Map<string, Chat | null>())
   useEffect(() => {
-    const bump = () => setAgain((n) => n + 1)
-    const offs = [chatChanged.on((d) => { if (d.chat?.projectId === p.id || d.change === 'deleted' || d.change === 'purged') bump() }), reloadAsked.on(bump), accessChanged.on(bump)]
-    return () => offs.forEach((off) => off())
+    // a running answer sends a few changes a second: one read after they settle
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => setAgain((n) => n + 1), REREAD_MS)
+    }
+    const fresh = () => {
+      olderRead.current.clear()
+      bump()
+    }
+    const offs = [chatChanged.on((d) => { if (d.chat?.projectId === p.id || listed.current.has(d.chatId)) bump() }), reloadAsked.on(fresh), accessChanged.on(fresh)]
+    return () => {
+      if (timer) clearTimeout(timer)
+      offs.forEach((off) => off())
+    }
   }, [p.id])
   // only this project's mentions read it again (a new mention may be in a chat the list has not got)
   const mentionKey = [...mentioned].sort().join(',')
@@ -268,11 +286,22 @@ function ProjectChats({ project: p, byChat, mentioned = NONE }: { project: Proje
       const items = all.filter((c, i) => i < CHATS_SHOWN || ids.includes(c.id))
       const have = new Set(all.map((c) => c.id))
       // a mentioned chat past the newest few: read by itself (one that cannot be read is left out)
-      const older = await Promise.all(ids.filter((id) => !have.has(id)).map((id) => api.call(API.getChat, { params: { id } }).catch(() => null)))
+      const read = olderRead.current
+      const older = await Promise.all(
+        ids.filter((id) => !have.has(id)).map(async (id) => {
+          if (!read.has(id)) read.set(id, await api.call(API.getChat, { params: { id } }).catch(() => null))
+          return read.get(id) ?? null
+        }),
+      )
       const extra = older.filter((c): c is Chat => !!c && !c.deletedAt && c.projectId === p.id)
-      return { items: [...items, ...extra], more: all.length > CHATS_SHOWN || !!r.nextCursor }
+      return { items: [...items, ...extra], more: all.length > items.length || !!r.nextCursor }
     })().then(
-      (v) => { if (live) { setList(v); setFailed(false) } },
+      (v) => {
+        if (!live) return
+        listed.current = new Set(v.items.map((c) => c.id))
+        setList(v)
+        setFailed(false)
+      },
       () => { if (live) setFailed(true) },
     )
     return () => { live = false }
