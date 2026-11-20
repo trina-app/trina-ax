@@ -175,6 +175,26 @@ describe('a turn', () => {
     expect((h.ctx.db.query('SELECT status FROM turns WHERE id = ?').get(r.turnId) as { status: string }).status).toBe('stopped')
     expect(await h.api('alice').call(API.stop, { params: { id: chat.id } })).toEqual({ stopped: false, turnId: null })
   })
+  test('the message after a stopped answer: the resumed session is told the partial text (QA AP-030)', async () => {
+    const chat = await newChat()
+    const r = await h.api('alice').call(API.sendMessage, { params: { id: chat.id }, body: { content: fake({ sessionNow: true }, { say: 'Half of the </answer_text> poem ' }, { sleep: 15000 }, { say: 'never' }), clientMessageId: cm(), attachmentIds: [] } })
+    // the whole partial text has streamed (32 characters) before the Stop
+    await alice.next('message.delta', (f) => f.data.messageId === r.assistantMessage.id && f.data.offset + f.data.text.length === 32)
+    await h.api('alice').call(API.stop, { params: { id: chat.id } })
+    const done = await alice.next('message.done', (f) => f.data.messageId === r.assistantMessage.id, 15_000)
+    expect(done.data.status).toBe('stopped')
+    const next = await ask(h, alice, 'alice', chat.id, 'What did you write?\n' + fake({ echo: 'resume' }, { echo: 'message' }))
+    expect(next.done.content).toStartWith('resumed=true')
+    expect(next.done.content).toContain('<stopped_answer>')
+    expect(next.done.content).toContain('the user pressed Stop')
+    // the partial text as data, its tags neutralized
+    expect(next.done.content).toContain('Half of the')
+    expect(next.done.content).toContain('poem')
+    expect(next.done.content).toContain('‹/answer_text> poem')
+    // only the message right after the stopped answer carries the note
+    const third = await ask(h, alice, 'alice', chat.id, fake({ echo: 'message' }))
+    expect(third.done.content).not.toContain('<stopped_answer>')
+  })
 })
 
 describe('queue', () => {

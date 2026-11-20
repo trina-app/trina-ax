@@ -610,6 +610,7 @@ export const zh: Record<MessageKey, string> = {
   "chat.answeredBy": "由{ai}回答",
   "chat.inTrash": "此对话已删除，将于{date}永久删除。恢复后即可继续对话。",
   "chat.footer": "AI 可能会出错。请核实重要信息。新对话只有你能看到。",
+  "chat.toBottom": "跳到最新消息",
   "chat.reply": "回复",
   "outbox.label": "等待发送的消息",
   "outbox.placeholder": "此回答结束后发送",

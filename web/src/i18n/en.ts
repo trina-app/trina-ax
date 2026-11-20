@@ -626,6 +626,7 @@ export const en: Record<MessageKey, string> = {
   "chat.answeredBy": "Answered by {ai}",
   'chat.inTrash': 'This chat is deleted and will be removed for good on {date}. Restore it to keep chatting.',
   "chat.footer": "AI can make mistakes. Check important information. Only you can see new chats.",
+  "chat.toBottom": "Jump to the latest",
   'chat.reply': 'Reply',
   "outbox.label": "Messages waiting to send",
   "outbox.placeholder": "Sends after this answer",
