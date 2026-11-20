@@ -9,7 +9,7 @@
 import clsx from 'clsx'
 import { Check, RefreshCw } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import type { Integration } from '@mycel/shared/api'
+import type { Integration, IntegrationList } from '@mycel/shared/api'
 import { CONNECTOR_DOCS, connectorFor, connectorLogo, type Connector } from '../../lib/connectors'
 import { formatDateTime } from '../../lib/format'
 import { awayFromComputer, computerSignIn, lastCheckNote, signInOffered, toolsShortfall } from '../../lib/integrations'
@@ -24,6 +24,7 @@ import { Note } from './GoogleAppConnector'
 import { SignInPanel, type IntegrationActions } from './IntegrationRow'
 import { LocalAppDetails, LocalAppWhere, localAppsBridge } from './LocalApp'
 import { localAppLogo, localAppOf } from '../../lib/localApps'
+import { readIntegrations, SHARED, useCachedRead } from '../../store/listCache'
 
 /** Where the page sits: Settings (its h2 under the dialog's title, `inSettings`), Admin (its own way back, `list`). */
 interface Place { list?: { to: string; name: string }; inSettings?: boolean }
@@ -196,6 +197,9 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
   // Aside or ego lite (lib/localApps.ts): its own logo and line, like a listed service
   const app = localAppOf(i)
   const { links, help } = docsRows(t, name, c)
+  // GitHub: the repositories its app may see are chosen on GitHub, on the app's installation page (an organization's
+  // owner installs it there, or a member asks them to); the server knows the page (docs/INTEGRATIONS.md "GitHub")
+  const installUrl = useCachedRead<IntegrationList>(c?.id === 'github' ? SHARED.integrations : null, readIntegrations).data?.github?.installUrl ?? null
   // before its tools are known (not signed in, not answering), it may change things: the line says it asks first
   const canChange = i.writePolicy !== 'deny' && (!i.tools.length || i.tools.some((x) => !x.readOnly && x.enabled !== false))
   const toolsNote = i.kind === 'http' ? null : (
@@ -249,6 +253,12 @@ export function ConnectionPage({ i, actions, onEdit, readOnly, about, alert, chi
           {help}
           {/* a call that failed counts as tried: while it is failing, "Last tried" (QA retest 2026-11-12) */}
           <Detail label={t(failing && i.lastUsedAt ? 'connectors.page.lastTried' : 'connectors.page.lastUsed')} testId="integration-meta">{lastUsed}</Detail>
+          {installUrl && (
+            <Detail label={t('connectors.github.repos')} testId="connector-github-repos">
+              <span className="block text-muted">{t('connectors.github.reposLine')}</span>
+              <ExtLink href={installUrl} name={t('connectors.github.choose')} testId="connector-github-choose">{t('connectors.github.choose')}</ExtLink>
+            </Detail>
+          )}
           {!c && i.kind !== 'local' && <Detail label={t('connectors.page.address')} testId="connector-address"><span className="break-all">{i.url}</span></Detail>}
           {i.kind === 'local' && <LocalAppDetails i={i} onChanged={() => void actions.refresh(i)} />}
         </>}

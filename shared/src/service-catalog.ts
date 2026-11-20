@@ -1,6 +1,7 @@
 // The app's list of known services (the "Discover" list of Connectors): each service's own name and its official MCP
 // address. Every one is an MCP server that signs in with OAuth (dynamic client registration), as the list's entries
-// answered on 2026-11-02 (docs/INTEGRATIONS.md "Discover"). The web adds its logos and descriptions
+// answered on 2026-11-02 (docs/INTEGRATIONS.md "Discover"), except GitHub (`serverApp`), which registers no apps: it signs
+// in through the GitHub App this server holds (docs/INTEGRATIONS.md "GitHub"). The web adds its logos and descriptions
 // (web/src/lib/connectors.ts); the server uses the same list so that the AI's connect card for a known service always
 // goes to the official address (server/src/chat/connect-service.ts, docs/DECISIONS.md "The chat's connect card trusts
 // the app's list"). One list, here only.
@@ -28,6 +29,10 @@ export const SERVICE_CATALOG = [
   { id: 'calendly', name: 'Calendly', url: 'https://mcp.calendly.com' },
   { id: 'clickup', name: 'ClickUp', url: 'https://mcp.clickup.com/mcp', aliases: ['클릭업'] },
   { id: 'cloudinary', name: 'Cloudinary', url: 'https://asset-management.mcp.cloudinary.com/mcp' },
+  // https://github.com/github/github-mcp-server (docs/remote-server.md): GitHub's own remote MCP server. No dynamic client
+  // registration (github-mcp-server issue #1404), so it signs in through the server's GitHub App
+  // (server/src/integrations/github/app.ts); a user token of a GitHub App or an OAuth app is accepted (checked 2026-11-20)
+  { id: 'github', name: 'GitHub', url: 'https://api.githubcopilot.com/mcp/', serverApp: 'github', aliases: ['깃허브', 'ギットハブ'] },
   { id: 'gitlab', name: 'GitLab', url: 'https://gitlab.com/api/v4/mcp', aliases: ['깃랩'] },
   { id: 'indeed', name: 'Indeed', url: 'https://mcp.indeed.com/claude/mcp', ambiguous: true },
   { id: 'intercom', name: 'Intercom', url: 'https://mcp.intercom.com/mcp', ambiguous: true },
@@ -100,6 +105,13 @@ export function officialService(url: string): CatalogService | undefined {
 export function adminAllowsDomains(url: string): boolean {
   const c = officialService(url)
   return !!c && 'adminAllowsDomains' in c && c.adminAllowsDomains === true
+}
+
+/** The listed service that signs in through an app this server holds rather than one it registers (GitHub): its id, or
+ * null. Only at its exact official address (officialService), so the server's app never signs in for another address. */
+export function serverAppAt(url: string): 'github' | null {
+  const c = officialService(url)
+  return c && 'serverApp' in c ? c.serverApp : null
 }
 
 /** Two addresses that are official addresses of the same listed service (Atlassian's v1 and v2): one service, never a

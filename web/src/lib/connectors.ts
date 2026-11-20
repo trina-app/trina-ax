@@ -5,7 +5,8 @@
 // The services come from the remote servers listed on mcpservers.org. A listing is not enough: every address answered
 // like this server needs on 2026-11-02 (docs/INTEGRATIONS.md "Discover"), Streamable HTTP and OAuth with dynamic client
 // registration. Services that need an app of their own stay out however well known they are, because they would fail at
-// sign-in: Slack, GitHub, Asana, HubSpot, Box, Zoom, Docusign, PagerDuty, Granola, Clerk. Descriptions are the message
+// sign-in: Slack, Asana, HubSpot, Box, Zoom, Docusign, PagerDuty, Granola, Clerk. GitHub is listed: it signs in through the
+// GitHub App the server holds (docs/INTEGRATIONS.md "GitHub"), and on a server without one its card says "Not set up yet". Descriptions are the message
 // keys integrations.catalog.<id>; logos are files in web/public/icons/connectors (this server's own, because the
 // content security policy loads no image from elsewhere).
 import { CATALOG_AUTH, catalogAt, SERVICE_CATALOG, type CatalogServiceId } from '@mycel/shared'
@@ -27,6 +28,7 @@ const LOGOS: Record<CatalogServiceId, string> = {
   calendly: 'calendly.svg',
   clickup: 'clickup.svg',
   cloudinary: 'cloudinary.svg',
+  github: 'github.svg',
   gitlab: 'gitlab.svg',
   indeed: 'indeed.svg',
   intercom: 'intercom.svg',
@@ -89,6 +91,22 @@ export const oldConnectorsTarget = (pathname: string, search = '', hash = '') =>
  * app of one's own, not the one listed). */
 export interface ConnectorDocs { privacy: string; terms: string; docs: string; toolsUrl?: string; tools?: readonly string[] }
 export const CONNECTOR_DOCS: Partial<Record<Connector['id'], ConnectorDocs>> = {
+  github: {
+    privacy: 'https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement',
+    terms: 'https://docs.github.com/en/site-policy/github-terms/github-terms-of-service',
+    docs: 'https://github.com/github/github-mcp-server',
+    // the default tools of https://api.githubcopilot.com/mcp/ (its tools/list, 2026-11-20; README "Tools")
+    toolsUrl: 'https://github.com/github/github-mcp-server#tools',
+    tools: [
+      'add_comment_to_pending_review', 'add_issue_comment', 'add_reply_to_pull_request_comment', 'create_branch', 'create_or_update_file',
+      'create_pull_request', 'create_repository', 'delete_file', 'fork_repository', 'get_commit', 'get_file_contents', 'get_label',
+      'get_latest_release', 'get_me', 'get_release_by_tag', 'get_tag', 'get_team_members', 'get_teams', 'issue_read', 'issue_write', 'list_branches',
+      'list_commits', 'list_issue_fields', 'list_issue_types', 'list_issues', 'list_pull_requests', 'list_releases', 'list_repository_collaborators',
+      'list_tags', 'merge_pull_request', 'pull_request_read', 'pull_request_review_write', 'push_files', 'request_copilot_review',
+      'run_secret_scanning', 'search_code', 'search_commits', 'search_issues', 'search_pull_requests', 'search_repositories', 'search_users',
+      'sub_issue_write', 'ui_get', 'update_issue_comment', 'update_pull_request', 'update_pull_request_branch',
+    ],
+  },
   notion: {
     privacy: 'https://www.notion.com/trust/privacy-policy',
     // Notion's terms hub (its Master Subscription Agreement and Personal Use Terms)

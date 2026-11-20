@@ -13,7 +13,7 @@ test('the popular services have their privacy, terms and help pages', () => {
 })
 
 test('a tool list is the service\'s own: names only, with the page that lists them, on the service\'s domain', () => {
-  const own: Record<string, RegExp> = { notion: /notion\.com$/, figma: /figma\.com$/, stripe: /stripe\.com$/, supabase: /supabase\.com$/ }
+  const own: Record<string, RegExp> = { notion: /notion\.com$/, figma: /figma\.com$/, stripe: /stripe\.com$/, supabase: /supabase\.com$/, github: /^github\.com$/ }
   for (const [id, d] of Object.entries(CONNECTOR_DOCS)) {
     expect(CONNECTORS.some((c) => c.id === id)).toBe(true)
     if (!d?.tools) continue

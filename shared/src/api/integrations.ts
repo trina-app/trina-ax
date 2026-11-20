@@ -209,6 +209,10 @@ export const IntegrationList = z.object({
   /** the team lets members add apps on their own computer (TeamSettings.localApps, and personalAllowed). Older servers
    * omit it. */
   localAllowed: z.boolean().optional(),
+  /** GitHub (docs/INTEGRATIONS.md "GitHub"): whether this server holds a GitHub App, so Connect signs in at GitHub with
+   * nothing to set up, and the app's installation page, where people choose the repositories it may see (null: the app
+   * has no known address). Older servers omit it. */
+  github: z.object({ ready: z.boolean(), installUrl: z.string().url().nullable() }).optional(),
 })
 export type IntegrationList = z.infer<typeof IntegrationList>
 
@@ -394,7 +398,7 @@ export const INTEGRATIONS = {
   setIntegrationTool: endpoint({ method: 'POST', path: '/api/integrations/:id/tools', auth: 'user', owner: 'C', body: z.object({ name: z.string().min(1).max(200), enabled: z.boolean() }).strict(), response: Integration, summary: 'Turn one tool of an MCP connection on or off for the AI (whoever manages the connection). New tools are on.' }),
   integrationFlow: endpoint({ method: 'GET', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: IntegrationFlow, summary: 'Poll a sign-in started by this same session.' }),
   cancelIntegrationFlow: endpoint({ method: 'DELETE', path: '/api/integrations/flows/:id', auth: 'user', owner: 'C', response: empty, status: 204, summary: 'Cancel a sign-in started by this same session that is still waiting: the service\'s answer to it is refused afterwards.' }),
-  listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration) }), summary: 'Every team connection, with who may use it.' }),
+  listTeamIntegrations: endpoint({ method: 'GET', path: '/api/admin/integrations', auth: 'admin', owner: 'C', response: z.object({ items: z.array(Integration), github: IntegrationList.shape.github }), summary: 'Every team connection, with who may use it.' }),
   createTeamIntegration: endpoint({ method: 'POST', path: '/api/admin/integrations', auth: 'admin', owner: 'C', status: 201, body: IntegrationInput, response: Integration, summary: 'A team connection; access says who may use it (default: nobody until set).' }),
   listIntegrationRequests: endpoint({ method: 'GET', path: '/api/integration-requests', auth: 'user', owner: 'C', response: RequestList, summary: 'Requests from admins to connect a service as my own connection, still waiting for me.' }),
   getIntegrationRequest: endpoint({ method: 'GET', path: '/api/integration-requests/:id', auth: 'user', owner: 'C', response: IntegrationRequest, summary: 'One request to me, in any state (404 for anyone else, admins included).' }),
