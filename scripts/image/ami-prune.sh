@@ -14,7 +14,10 @@
 #   - it is younger than --min-age-days (CreationDate): the control plane makes new teams from an older release while
 #     the newer one's hosted rollout bakes, and the CI cannot read the control plane,
 #   - an instance that is not terminated runs from it, or the latest or default version of a launch template names it,
-#   - an instance that is not terminated or an EBS volume carries its ax:template (hostd tags each tenant with it).
+#   - an instance that is not terminated or an EBS volume carries its ax:template (hostd tags each tenant with it),
+#   - its release is the newest one whose images are older than --min-age-days (the age counts from the build).
+# ax:template on tenants and ax:in-use on images are set outside this repo (trina-cloud hostd / control plane); where
+# they are missing, only the image-id matches (instances, launch templates; not resolve:ssm: ones) protect an image.
 # Every image is logged with keep and all its reasons, or remove. When the launch templates, instances or volumes
 # cannot be read, nothing in that region is removed. --dry-run only prints the changes.
 # Everything else: DeregisterImage, then DeleteSnapshot of its root snapshots that carry ax:built-by=release-ci.
@@ -30,11 +33,13 @@ while [[ $# -gt 0 ]]; do
     --protect-template) PROTECT+=("$2"); shift 2 ;;
     --profile) PROFILE="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
     *) echo "ami-prune: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 say() { echo "ami-prune: $*"; }
+# a region left alone: a GitHub warning annotation (plain text outside Actions)
+skip() { if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::warning title=ami-prune::$1: $2: nothing removed in $1"; else say "$1: WARNING: $2: nothing removed in $1"; fi; }
 die() { echo "ami-prune: ERROR: $*" >&2; exit 1; }
 [[ "$ACCOUNT_WANT" =~ ^[0-9]{12}$ ]] || die "--account <12-digit id> is required"
 [[ "$KEEP" =~ ^[0-9]+$ && $KEEP -ge 1 ]] || die "--keep is a whole number, at least 1"
@@ -58,27 +63,27 @@ for r in "${REGIONS[@]}"; do
   # shellcheck disable=SC2016 # the backticks are JMESPath, not the shell
   if ! a "$r" ec2 describe-launch-template-versions --versions '$Latest' '$Default' \
       --query 'LaunchTemplateVersions[].LaunchTemplateData.ImageId' --output text >"$TMP/lt" 2>"$TMP/err"; then
-    say "$r: WARNING: cannot read the launch templates ($(head -c 300 "$TMP/err")): nothing removed in $r"; continue
+    skip "$r" "cannot read the launch templates ($(head -c 300 "$TMP/err"))"; continue
   fi
   # shellcheck disable=SC2016
   if ! a "$r" ec2 describe-instances --filters Name=instance-state-name,Values=pending,running,shutting-down,stopping,stopped \
       --query 'Reservations[].Instances[].{id:InstanceId,image:ImageId,template:Tags[?Key==`ax:template`]|[0].Value}' --output json >"$TMP/inst" 2>"$TMP/err"; then
-    say "$r: WARNING: cannot read the instances ($(head -c 300 "$TMP/err")): nothing removed in $r"; continue
+    skip "$r" "cannot read the instances ($(head -c 300 "$TMP/err"))"; continue
   fi
   # shellcheck disable=SC2016
   if ! a "$r" ec2 describe-volumes --filters Name=tag-key,Values=ax:template \
       --query 'Volumes[].{id:VolumeId,template:Tags[?Key==`ax:template`]|[0].Value}' --output json >"$TMP/vol" 2>"$TMP/err"; then
-    say "$r: WARNING: cannot read the volumes ($(head -c 300 "$TMP/err")): nothing removed in $r"; continue
+    skip "$r" "cannot read the volumes ($(head -c 300 "$TMP/err"))"; continue
   fi
   # shellcheck disable=SC2016
   if ! a "$r" ec2 describe-images --owners self \
       --filters Name=tag:ax:managed,Values=ami Name=tag:ax:built-by,Values=release-ci \
       --query 'Images[].{id:ImageId,created:CreationDate,tags:Tags,snaps:BlockDeviceMappings[].Ebs.SnapshotId}' --output json >"$TMP/img" 2>"$TMP/err"; then
-    say "$r: WARNING: cannot read the images ($(head -c 300 "$TMP/err")): nothing removed in $r"; continue
+    skip "$r" "cannot read the images ($(head -c 300 "$TMP/err"))"; continue
   fi
   if ! bun "$SELECT" --images "$TMP/img" --launch-templates "$TMP/lt" --instances "$TMP/inst" --volumes "$TMP/vol" \
       --keep "$KEEP" --min-age-days "$MIN_AGE_DAYS" ${protect_args[@]+"${protect_args[@]}"} >"$TMP/plan" 2>"$TMP/err"; then
-    say "$r: WARNING: the selection failed ($(head -c 300 "$TMP/err")): nothing removed in $r"; continue
+    skip "$r" "the selection failed ($(head -c 300 "$TMP/err"))"; continue
   fi
   say "$r: $(wc -l <"$TMP/plan" | tr -d ' ') image(s) built by the release CI (keep the newest $KEEP releases, anything younger than $MIN_AGE_DAYS days, anything in use)"
   while IFS=$'\t' read -r act img tv rest; do

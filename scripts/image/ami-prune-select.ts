@@ -22,7 +22,9 @@ export interface PruneInput {
   launchTemplateImages: string[]
   /** instances that are not terminated (any owner tag: production lives in the same account) */
   instances: InstanceFact[]
-  /** EBS volumes with an ax:template tag (hostd tags every tenant root volume) */
+  /** EBS volumes with an ax:template tag. ax:template on tenant instances and root volumes, and ax:in-use on images,
+   *  are set outside this repo (trina-cloud hostd / control plane): only what they actually tag is matched here, and an
+   *  image without such a tag is protected by the image-id matches (instances, launch templates) alone */
   volumes: VolumeFact[]
   /** the newest this many releases (versions, not images) keep all their images */
   keepReleases: number
@@ -51,6 +53,11 @@ export function selectPrune(p: PruneInput): PruneDecision[] {
   for (const i of p.instances) { add(runFrom, i.image, i.id); add(usedTemplates, i.template, i.id) }
   for (const v of p.volumes) add(usedTemplates, v.template, v.id)
   const minAgeMs = p.minAgeDays * 86_400_000
+  const createdOf = (i: ImageFact) => (i.created ? Date.parse(i.created) : NaN)
+  // the age counts from the build, not from when the control plane switched to it: after many releases inside the
+  // floor, the release the control plane may still use is the newest one already past it. Its images always stay.
+  const pastFloor = [...new Set(p.images.filter((i) => { const c = createdOf(i); return Number.isFinite(c) && p.now.getTime() - c >= minAgeMs })
+    .map((i) => releaseOf(tag(i, 'ax:template') ?? '')).filter(isSemver))].sort((a, b) => Bun.semver.order(b, a))[0]
 
   return p.images
     .map((img) => {
@@ -64,9 +71,10 @@ export function selectPrune(p: PruneInput): PruneDecision[] {
       const inUse = tag(img, 'ax:in-use')
       if (inUse && inUse.toLowerCase() !== 'false') reasons.push(`ax:in-use=${inUse}`)
       if (newest.has(release)) reasons.push(`release ${release} is one of the newest ${newest.size}`)
-      const created = img.created ? Date.parse(img.created) : NaN
+      const created = createdOf(img)
       if (!Number.isFinite(created)) reasons.push('creation date unknown')
       else if (p.now.getTime() - created < minAgeMs) reasons.push(`younger than ${p.minAgeDays} days (${img.created})`)
+      else if (release === pastFloor) reasons.push(`release ${release} is the newest one older than ${p.minAgeDays} days`)
       if (lt.has(img.id)) reasons.push('a launch template uses it')
       const r = runFrom.get(img.id)
       if (r) reasons.push(`instances run from it (${r.join(' ')})`)
@@ -94,6 +102,7 @@ if (import.meta.main) {
   const minAge = Number(one('--min-age-days') ?? 14)
   if (!Number.isInteger(keep) || keep < 1 || !Number.isFinite(minAge) || minAge < 0) { console.error('ami-prune-select: bad --keep or --min-age-days'); process.exit(2) }
   const now = one('--now') ? new Date(one('--now')!) : new Date()
+  // only literal AMI ids: a launch template that names its image as resolve:ssm:… is not matched
   const lt = fs.readFileSync(need('--launch-templates'), 'utf8').split(/\s+/).filter((s: string) => /^ami-[0-9a-f]+$/.test(s))
   const out = selectPrune({
     images: readJson<ImageFact[]>(need('--images')), launchTemplateImages: lt,
