@@ -25,6 +25,8 @@ export class FakeDriveBroker {
   appsSupported = true
   /** false: a control plane that takes an app only with purpose "personal" (before team app sign-ins, invalid_request) */
   shareAppsSupported = true
+  /** apps the control plane knows but has closed: a start for one answers app_unavailable */
+  appsClosed: string[] = []
   /** the redeem's answer instead of the token: a control plane error, or Cloudflare's own page for an origin 502 */
   redeemFails: { code: string; status: number } | 'cloudflare-502' | null = null
   /** the `app` field of each refresh (undefined: Drive) */
@@ -87,6 +89,7 @@ export class FakeDriveBroker {
     if (path === DRIVE_BROKER_PATHS.start) {
       const b = parseDriveBrokerStart(json)
       if (!b || (b.app && !this.appsSupported) || (b.app && b.purpose !== 'personal' && !this.shareAppsSupported)) return err('invalid_request', 400)
+      if (b.app && this.appsClosed.includes(b.app)) return err('app_unavailable', 409)
       const state = crypto.randomBytes(32).toString('base64url')
       this.starts.set(state, { returnState: b.returnState, challenge: b.codeChallenge, purpose: b.purpose, ...(b.app ? { app: b.app } : {}) })
       const u = new URL(this.authorizeBase)

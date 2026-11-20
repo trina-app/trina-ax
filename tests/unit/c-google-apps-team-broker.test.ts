@@ -1,7 +1,7 @@
 // A Google app connected for the team through the hosting service's sign-in (the Drive broker with `app`, QA TC-6064,
 // TC-6065). Covered: a team sign-in starts with purpose "share" (the hosting service's page words it as the team's,
 // not "your own Gmail"); a control plane from before team app sign-ins refuses "share" with an app and the sign-in
-// starts again as "personal", the same scopes; a Google answer without every scope comes back as scope_denied
+// starts again as "personal", the same scopes, and only then (a closed app, app_unavailable, gets no second try); a Google answer without every scope comes back as scope_denied
 // ("allow every access"), not "could not reach the hosting service"; Google failing is provider_unavailable; and a
 // control plane 502 that Cloudflare turned into its own page is still broker_unavailable (why the contract moved
 // provider_error to 503). Fake broker and fake library on 127.0.0.1 only.
@@ -74,6 +74,13 @@ test('a control plane from before team app sign-ins refuses "share": the team si
   // a control plane without apps at all: still "not available yet", after both tries
   broker.appsSupported = false
   await expect(apps.authorize('carol', 'carol-session', 'calendar', 'team')).rejects.toMatchObject({ reason: 'service_limited' })
+})
+
+test('an app the hosting service closed (app_unavailable) is final: no second start as "personal"', async () => {
+  broker.appsClosed = ['gmail']
+  await expect(apps.authorize('carol', 'carol-session', 'gmail', 'team')).rejects.toMatchObject({ reason: 'service_limited' })
+  expect(starts()).toEqual([expect.objectContaining({ purpose: 'share', app: 'gmail' })])
+  expect(apps.view('carol', 'gmail')).toMatchObject({ available: false, reason: 'service_limited' })
 })
 
 test('TC-6064: Google left part of the access out: "allow every access", not "could not reach the hosting service"', async () => {

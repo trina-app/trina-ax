@@ -35,6 +35,7 @@ import { isHosted } from '../../system/deployment'
 import { GOOGLE_AUTH, GOOGLE_REVOKE, GOOGLE_TOKEN, GOOGLE_USERINFO, type DriveFetch } from '../google-drive/client'
 import { googleDriveOf, ownsLiveDriveShare } from '../google-drive/oauth'
 import { DriveError } from '../google-drive/store'
+import { BrokerRequestRefused } from '../google-drive/broker'
 import { integrationsOf } from '../connections/service'
 import { memberAllows } from '../connections/tools'
 import { accessOf, activeUser, connectionAad, getRow, isAdmin, mayUse, savedTools, selectRows, setAccess, signsTeamGoogleApp, googleAccountInUse, googleEmailOf, usersOf, type Row } from '../connections/store'
@@ -263,13 +264,16 @@ export class GoogleApps {
   }
 
   /** The hosting service's sign-in for this app: a team connection says so on its start page (purpose "share"). An
-   * older control plane takes an app only with "personal" and refuses "share" (service_limited here): start again with
-   * "personal", which signs in the same way and only words the page as one person's (QA TC-6065). */
+   * older control plane takes an app only with "personal" and refuses "share" as a bad request (invalid_request:
+   * BrokerRequestRefused): only then start again with "personal", which signs in the same way and only words the page
+   * as one person's (QA TC-6065). Any other refusal (the app closed: app_unavailable, rate limits, ...) is final, never
+   * downgraded. This holds only while `purpose` is wording only on the broker (the same scopes, the same tokens, the
+   * same team binding): if the broker ever treats "share" differently, this fallback must go. */
   private async brokerStart(scope: Scope, state: string, challenge: string, app: GoogleAppId) {
     const broker = googleDriveOf(this.ctx).broker!
     if (scope !== 'team') return broker.start('personal', state, challenge, app)
     try { return await broker.start('share', state, challenge, app) } catch (e) {
-      if (!(e instanceof DriveError && e.reason === 'service_limited')) throw e
+      if (!(e instanceof BrokerRequestRefused)) throw e
       return broker.start('personal', state, challenge, app)
     }
   }

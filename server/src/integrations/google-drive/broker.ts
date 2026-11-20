@@ -96,6 +96,13 @@ export function googleBrokerKey(dataDir: string, tunnelHost: string | null | und
 /** The configuration fingerprint of broker mode: connections made through one control plane origin belong together. */
 export const brokerKey = (origin: string) => 'broker:' + crypto.createHash('sha256').update(origin).digest('hex')
 
+/** A Google app request the hosting service refused as a request (`invalid_request`: an older control plane that does
+ * not know the `app` field, or not with this purpose). It reads as service_limited ("not available yet") everywhere;
+ * only a team sign-in's start looks at it, to start again as "personal" (google-apps/service.ts brokerStart). */
+export class BrokerRequestRefused extends DriveError {
+  constructor() { super('service_limited', 409) }
+}
+
 export class DriveBroker {
   constructor(readonly o: BrokerOptions, private readonly fetcher: DriveFetch = fetch, private readonly now: () => number = Date.now) {}
 
@@ -131,7 +138,8 @@ export class DriveBroker {
     if (code === 'scope_denied') throw new DriveError('scope_denied', 409)
     // a Google app other than Drive (gmail, calendar, docs, sheets): an older control plane refuses the `app` field, and
     // a newer one may not offer that app yet; either way it is not available through the hosting service now
-    if (forApp && (code === 'invalid_request' || code === 'app_unavailable')) throw new DriveError('service_limited', 409)
+    if (forApp && code === 'invalid_request') throw new BrokerRequestRefused()
+    if (forApp && code === 'app_unavailable') throw new DriveError('service_limited', 409)
     if (code === 'rate_limited' || r.status === 429) throw new DriveError('rate_limited', 503)
     if (code === 'provider_error') throw new DriveError('provider_unavailable', 503)
     throw new DriveError('broker_unavailable', 503)
